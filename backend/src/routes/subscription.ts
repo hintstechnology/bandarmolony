@@ -5,6 +5,7 @@ import { requireSupabaseUser } from '../middleware/requireSupabaseUser';
 import { createSuccessResponse, createErrorResponse } from '../utils/responseUtils';
 import { HTTP_STATUS, ERROR_CODES } from '../utils/responseUtils';
 import { midtransService } from '../services/midtransService';
+import config from '../config';
 
 const router = express.Router();
 
@@ -225,9 +226,9 @@ router.post('/create-order', requireSupabaseUser, async (req: any, res) => {
         email: userEmail
       },
       callbacks: {
-        finish: `${process.env.MIDTRANS_FINISH_REDIRECT_URL}`,
-        error: `${process.env.MIDTRANS_ERROR_REDIRECT_URL}`,
-        pending: `${process.env.MIDTRANS_UNFINISH_REDIRECT_URL}`
+        finish: config.SUCCESS_URL,
+        error: config.ERROR_URL,
+        pending: config.PENDING_URL
       }
     });
 
@@ -314,7 +315,7 @@ router.post('/webhook', async (req, res) => {
     const payload = JSON.stringify(req.body);
     
     // Skip signature verification in development mode
-    if (process.env.NODE_ENV === 'production' && signature) {
+    if (config.NODE_ENV === 'production' && signature) {
       if (!midtransService.verifyWebhookSignature(payload, signature)) {
         return res.status(HTTP_STATUS.UNAUTHORIZED).json(createErrorResponse(
           'Invalid webhook signature',

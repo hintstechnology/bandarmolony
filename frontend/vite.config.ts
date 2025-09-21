@@ -12,7 +12,9 @@ export default defineConfig({
   },
   build: {
     target: 'esnext',
-    outDir: 'build',
+    outDir: 'dist',
+    sourcemap: false,
+    minify: 'terser',
   },
   server: {
     port: 3000,
