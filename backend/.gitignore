@@ -1,0 +1,22 @@
+node_modules/
+dist/
+build/
+migrations/
+coverage/
+*.log
+logs/
+.tmp/
+.temp/
+.nyc_output/
+
+# Keys & certs
+*.pem
+*.key
+
+# Env & kredensial
+.env
+.env.*
+!.env.example
+
+# Uploads
+uploads/

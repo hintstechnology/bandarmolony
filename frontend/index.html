@@ -1,0 +1,44 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BandarmoloNY</title>
+    <!-- Midtrans Snap.js -->
+    <script type="text/javascript" src="https://app.sandbox.midtrans.com/snap/snap.js" data-client-key="Mid-client-FQYsTANVz0Dn9h3-"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Clear service worker cache and force refresh
+      console.log('🔄 Clearing service worker and cache...');
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          console.log('🔄 Found service workers:', registrations.length);
+          for(let registration of registrations) {
+            console.log('🔄 Unregistering service worker:', registration);
+            registration.unregister();
+          }
+        });
+      }
+      
+      // Clear all caches
+      if ('caches' in window) {
+        caches.keys().then(function(cacheNames) {
+          console.log('🔄 Found caches:', cacheNames);
+          return Promise.all(
+            cacheNames.map(function(cacheName) {
+              console.log('🔄 Deleting cache:', cacheName);
+              return caches.delete(cacheName);
+            })
+          );
+        }).then(function() {
+          console.log('🔄 All caches cleared');
+        });
+      }
+    </script>
+  </body>
+</html>
+  
