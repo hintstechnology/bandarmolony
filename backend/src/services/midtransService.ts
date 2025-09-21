@@ -1,5 +1,6 @@
 import Midtrans from 'midtrans-client';
 import crypto from 'crypto';
+import config from '../config';
 
 export interface MidtransConfig {
   isProduction: boolean;
@@ -187,10 +188,10 @@ export class MidtransService {
 
   constructor() {
     this.config = {
-      isProduction: process.env.MIDTRANS_IS_PRODUCTION === 'true',
-      serverKey: process.env.MIDTRANS_SERVER_KEY || '',
-      clientKey: process.env.MIDTRANS_CLIENT_KEY || '',
-      merchantId: process.env.MIDTRANS_MERCHANT_ID || ''
+      isProduction: config.MIDTRANS_IS_PRODUCTION,
+      serverKey: config.MIDTRANS_SERVER_KEY,
+      clientKey: config.MIDTRANS_CLIENT_KEY,
+      merchantId: config.MIDTRANS_MERCHANT_ID
     };
 
     if (!this.config.serverKey || !this.config.clientKey) {

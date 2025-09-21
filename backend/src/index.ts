@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import 'dotenv/config';
+import config from './config';
 import healthRoutes from './routes/health';
 import demoRoutes from './routes/demo';
 import meRoutes from './routes/me';
@@ -20,7 +21,7 @@ app.use(corsConfig);
 
 // CORS configuration (backup)
 app.use(cors({ 
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: config.CORS_ORIGIN,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -63,9 +64,10 @@ app.use((req, res) => {
   ));
 });
 
-const PORT = Number(process.env.PORT || 3001);
+const PORT = config.PORT;
 app.listen(PORT, () => {
-  console.log(`Backend listening on http://localhost:${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
+  console.log(`Backend listening on port ${PORT}`);
+  console.log(`Environment: ${config.NODE_ENV}`);
+  console.log(`Frontend URL: ${config.FRONTEND_URL}`);
+  console.log(`CORS Origin: ${config.CORS_ORIGIN}`);
 });

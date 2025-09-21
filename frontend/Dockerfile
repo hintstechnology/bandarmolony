@@ -4,7 +4,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-RUN npm run build   # -> menghasilkan /app/dist
+RUN npm run build
 
 # ---- runtime stage ----
 FROM nginx:1.25-alpine
