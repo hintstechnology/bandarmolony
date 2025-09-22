@@ -129,21 +129,19 @@ const ZodiacDisplay = ({ zodiac, size = 'text-xl' }: { zodiac: typeof chineseZod
   
   if (customImage) {
     return (
-      <div className="flex flex-col items-center gap-1">
+      <div className="flex items-center justify-center">
         <img 
           src={customImage} 
           alt={zodiac.name}
-          className={`${size === 'text-2xl' ? 'w-8 h-8' : size === 'text-xl' ? 'w-6 h-6' : 'w-5 h-5'} object-contain`}
+          className={`${size === 'text-2xl' ? 'w-10 h-10' : size === 'text-xl' ? 'w-8 h-8' : 'w-6 h-6'} object-contain`}
         />
-        <span className="text-xs text-muted-foreground">{zodiac.name}</span>
       </div>
     );
   }
   
   return (
-    <div className="flex flex-col items-center gap-1">
-      <span className={size}>{zodiac.emoji}</span>
-      <span className="text-xs text-muted-foreground">{zodiac.name}</span>
+    <div className="flex items-center justify-center">
+      <span className={`${size === 'text-2xl' ? 'text-3xl' : size === 'text-xl' ? 'text-2xl' : 'text-xl'}`}>{zodiac.emoji}</span>
     </div>
   );
 };
@@ -157,17 +155,12 @@ const HeavenlyStemDisplay = ({ heavenlyStem, className = '' }: { heavenlyStem: s
   if (customImage && stemInfo) {
     return (
       <td className={`p-2 text-center border-r border-border ${className}`}>
-        <div className="flex flex-col items-center gap-1">
+        <div className="flex items-center justify-center">
           <img 
             src={customImage} 
             alt={`${stemInfo.polarity} ${stemInfo.element}`}
-            className="w-6 h-6 object-contain"
+            className="w-8 h-8 object-contain"
           />
-          <div className="text-center">
-            <div className={`text-xs font-medium ${elementColor?.text}`}>
-              {stemInfo.polarity} {stemInfo.element}
-            </div>
-          </div>
         </div>
       </td>
     );
@@ -267,7 +260,7 @@ const getZodiacByDate = (date: Date, type: 'daily' | 'monthly' | 'yearly'): type
 
 // Type definition for astrology data
 interface AstrologyData {
-  id: number;
+  id: string;
   date: string;
   dateFormatted: string;
   yearHeavenlyStem: string;
@@ -290,14 +283,17 @@ interface AstrologyData {
   volume: number;
   priceChange: number;
   spikeChange: number;
+  avgChange: number;
   isRising: boolean;
   element: string;
+  stock: string;
 }
 
 // Mock data untuk astrology calendar
 const generateAstrologyData = (): AstrologyData[] => {
   const data: AstrologyData[] = [];
   const currentDate = new Date();
+  const stocks = ['BBRI', 'BBCA', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM'];
   
   for (let i = 0; i < 30; i++) {
     const date = new Date(currentDate);
@@ -318,53 +314,60 @@ const generateAstrologyData = (): AstrologyData[] => {
     const dayElement = getElementByDate(date, 'daily');
     const dayZodiac = getZodiacByDate(date, 'daily');
     
-    // Mock stock data
-    const basePrice = 4500 + Math.random() * 500;
-    const high = basePrice + Math.random() * 100;
-    const low = basePrice - Math.random() * 100;
-    const close = low + Math.random() * (high - low);
-    const open = low + Math.random() * (high - low);
-    const volume = Math.floor(Math.random() * 50000000) + 10000000;
-    
-    // Previous day close price
-    const prevClose = basePrice * (0.90 + Math.random() * 0.20); // Random previous close
-    
-    // Calculate % kenaikan (close today vs close yesterday)
-    const priceChange = ((close - prevClose) / prevClose) * 100;
-    
-    // Calculate % spike ((close + high) / 2 vs close yesterday)
-    const spikePrice = (close + high) / 2;
-    const spikeChange = ((spikePrice - prevClose) / prevClose) * 100;
-    
-    // Formula analysis: (high + close) / 2 > 5%
-    const isRising = spikeChange > 5;
-    
-    data.push({
-      id: i + 1,
-      date: date.toISOString().split('T')[0],
-      dateFormatted: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      yearHeavenlyStem,
-      yearElement,
-      yearZodiac,
-      monthHeavenlyStem,
-      monthElement,
-      monthZodiac,
-      dayHeavenlyStem,
-      dayElement,
-      dayZodiac,
-      yearEarth: date.getFullYear(),
-      monthEarth: date.getMonth() + 1,
-      dayEarth: date.getDate(),
-      open: Math.round(open),
-      high: Math.round(high),
-      low: Math.round(low),
-      close: Math.round(close),
-      prevClose: Math.round(prevClose),
-      volume,
-      priceChange: Math.round(priceChange * 100) / 100,
-      spikeChange: Math.round(spikeChange * 100) / 100,
-      isRising,
-      element: dayElement
+    // Generate data for each stock on this date
+    stocks.forEach((stock, stockIndex) => {
+      // Mock stock data with some variation per stock
+      const basePrice = 4500 + Math.random() * 500 + (stockIndex * 100);
+      const high = basePrice + Math.random() * 100;
+      const low = basePrice - Math.random() * 100;
+      const close = low + Math.random() * (high - low);
+      const open = low + Math.random() * (high - low);
+      const volume = Math.floor(Math.random() * 50000000) + 10000000;
+      
+      // Previous day close price
+      const prevClose = basePrice * (0.90 + Math.random() * 0.20); // Random previous close
+      
+      // Calculate % kenaikan (close today vs close yesterday)
+      const priceChange = ((close - prevClose) / prevClose) * 100;
+      
+      // Calculate % spike (close yesterday vs high today)
+      const spikeChange = ((high - prevClose) / prevClose) * 100;
+      
+      // Calculate AVG = (% change + % spike) / 2
+      const avgChange = (priceChange + spikeChange) / 2;
+      
+      // Formula analysis: avg > 5%
+      const isRising = avgChange > 5;
+      
+      data.push({
+        id: `${i + 1}-${stock}`,
+        date: date.toISOString().split('T')[0],
+        dateFormatted: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        yearHeavenlyStem,
+        yearElement,
+        yearZodiac,
+        monthHeavenlyStem,
+        monthElement,
+        monthZodiac,
+        dayHeavenlyStem,
+        dayElement,
+        dayZodiac,
+        yearEarth: date.getFullYear(),
+        monthEarth: date.getMonth() + 1,
+        dayEarth: date.getDate(),
+        open: Math.round(open),
+        high: Math.round(high),
+        low: Math.round(low),
+        close: Math.round(close),
+        prevClose: Math.round(prevClose),
+        volume,
+        priceChange: Math.round(priceChange * 100) / 100,
+        spikeChange: Math.round(spikeChange * 100) / 100,
+        avgChange: Math.round(avgChange * 100) / 100,
+        isRising,
+        element: dayElement,
+        stock: stock // Add stock identifier
+      });
     });
   }
   
@@ -372,44 +375,93 @@ const generateAstrologyData = (): AstrologyData[] => {
 };
 
 export function AstrologyLunarCalendar() {
-  const [selectedStock, setSelectedStock] = useState('BBRI');
+  const [selectedStock, setSelectedStock] = useState('ALL');
   const [filterType, setFilterType] = useState('all');
   const [selectedZodiac, setSelectedZodiac] = useState('all');
   const [showPivot, setShowPivot] = useState(false);
   const [priceFilter, setPriceFilter] = useState('all'); // all, 5%, 10%
   const [spikeFilter, setSpikeFilter] = useState('all'); // all, 5%, 10%
   
+  // Individual column filters
+  const [yearElementFilter, setYearElementFilter] = useState('all');
+  const [yearZodiacFilter, setYearZodiacFilter] = useState('all');
+  const [monthElementFilter, setMonthElementFilter] = useState('all');
+  const [monthZodiacFilter, setMonthZodiacFilter] = useState('all');
+  const [dayElementFilter, setDayElementFilter] = useState('all');
+  const [dayZodiacFilter, setDayZodiacFilter] = useState('all');
+  
   const astrologyData = generateAstrologyData();
-  const stocks = ['BBRI', 'BBCA', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM'];
+  const stocks = ['ALL', 'BBRI', 'BBCA', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM'];
+  
+  // When ALL is selected, show combined data from all stocks
+  // When specific stock is selected, show data for that stock only
+  
+  // Get unique values for filters
+  const uniqueYearElements = [...new Set(astrologyData.map(item => item.yearElement))];
+  const uniqueYearZodiacs = [...new Set(astrologyData.map(item => item.yearZodiac.name))];
+  const uniqueMonthElements = [...new Set(astrologyData.map(item => item.monthElement))];
+  const uniqueMonthZodiacs = [...new Set(astrologyData.map(item => item.monthZodiac.name))];
+  const uniqueDayElements = [...new Set(astrologyData.map(item => item.dayElement))];
+  const uniqueDayZodiacs = [...new Set(astrologyData.map(item => item.dayZodiac.name))];
   
   // Filter data based on selected criteria
   const filteredData = astrologyData.filter(item => {
-    // Zodiac filter
-    if (selectedZodiac !== 'all') {
-      return item.dayZodiac.name.toLowerCase() === selectedZodiac.toLowerCase();
+    // Stock filter
+    if (selectedStock !== 'ALL') {
+      if (item.stock !== selectedStock) return false;
+    }
+    
+    // Year Element filter
+    if (yearElementFilter !== 'all') {
+      if (item.yearElement !== yearElementFilter) return false;
+    }
+    
+    // Year Zodiac filter
+    if (yearZodiacFilter !== 'all') {
+      if (item.yearZodiac.name !== yearZodiacFilter) return false;
+    }
+    
+    // Month Element filter
+    if (monthElementFilter !== 'all') {
+      if (item.monthElement !== monthElementFilter) return false;
+    }
+    
+    // Month Zodiac filter
+    if (monthZodiacFilter !== 'all') {
+      if (item.monthZodiac.name !== monthZodiacFilter) return false;
+    }
+    
+    // Day Element filter
+    if (dayElementFilter !== 'all') {
+      if (item.dayElement !== dayElementFilter) return false;
+    }
+    
+    // Day Zodiac filter
+    if (dayZodiacFilter !== 'all') {
+      if (item.dayZodiac.name !== dayZodiacFilter) return false;
     }
     
     // Price change filter
     if (priceFilter === '5%') {
-      return Math.abs(item.priceChange) > 5;
+      if (Math.abs(item.priceChange) <= 5) return false;
     }
     if (priceFilter === '10%') {
-      return Math.abs(item.priceChange) > 10;
+      if (Math.abs(item.priceChange) <= 10) return false;
     }
     
     // Spike filter
     if (spikeFilter === '5%') {
-      return Math.abs(item.spikeChange) > 5;
+      if (Math.abs(item.spikeChange) <= 5) return false;
     }
     if (spikeFilter === '10%') {
-      return Math.abs(item.spikeChange) > 10;
+      if (Math.abs(item.spikeChange) <= 10) return false;
     }
     
     return true;
   });
 
-  // Get rising stocks (spike > 5%)
-  const risingStocks = filteredData.filter(item => item.spikeChange > 5).slice(0, 10);
+  // Get rising stocks (avg > 5%)
+  const risingStocks = filteredData.filter(item => item.avgChange > 5).slice(0, 10);
   
   // Group data by different criteria for pivot
   const groupByYear = astrologyData.reduce((acc, item) => {
@@ -440,75 +492,151 @@ export function AstrologyLunarCalendar() {
       {/* Header Controls */}
       <Card>
         <div className="p-4">
-          <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
-            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-              <div className="flex items-center gap-2">
-                <label className="font-medium">Stock:</label>
-                <select
-                  value={selectedStock}
-                  onChange={(e) => setSelectedStock(e.target.value)}
-                  className="px-3 py-1 border border-border rounded-md bg-background text-foreground"
-                >
-                  {stocks.map(stock => (
-                    <option key={stock} value={stock}>{stock}</option>
-                  ))}
-                </select>
+          <div className="flex flex-col gap-4">
+            {/* First Row - Basic Filters */}
+            <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
+              <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+                <div className="flex items-center gap-2">
+                  <label className="font-medium">Stock:</label>
+                  <select
+                    value={selectedStock}
+                    onChange={(e) => setSelectedStock(e.target.value)}
+                    className="px-3 py-1 border border-border rounded-md bg-background text-foreground"
+                  >
+                    {stocks.map(stock => (
+                      <option key={stock} value={stock}>{stock}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label className="font-medium">Price Change:</label>
+                  <select
+                    value={priceFilter}
+                    onChange={(e) => setPriceFilter(e.target.value)}
+                    className="px-3 py-1 border border-border rounded-md bg-background text-foreground"
+                  >
+                    <option value="all">All</option>
+                    <option value="5%">Above 5%</option>
+                    <option value="10%">Above 10%</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label className="font-medium">Spike:</label>
+                  <select
+                    value={spikeFilter}
+                    onChange={(e) => setSpikeFilter(e.target.value)}
+                    className="px-3 py-1 border border-border rounded-md bg-background text-foreground"
+                  >
+                    <option value="all">All</option>
+                    <option value="5%">Above 5%</option>
+                    <option value="10%">Above 10%</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="showPivot"
+                    checked={showPivot}
+                    onChange={(e) => setShowPivot(e.target.checked)}
+                    className="rounded border-border"
+                  />
+                  <label htmlFor="showPivot" className="font-medium">Show Pivot Analysis</label>
+                </div>
               </div>
               
-              <div className="flex items-center gap-2">
-                <label className="font-medium">Filter Shio:</label>
+              <div className="text-sm text-muted-foreground">
+                🌙 Lunar Calendar Analysis - {selectedStock === 'ALL' ? 'All Stocks (Combined Data)' : selectedStock}
+              </div>
+            </div>
+
+            {/* Second Row - Individual Column Filters */}
+            <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-muted-foreground">Year Element:</label>
                 <select
-                  value={selectedZodiac}
-                  onChange={(e) => setSelectedZodiac(e.target.value)}
-                  className="px-3 py-1 border border-border rounded-md bg-background text-foreground"
+                  value={yearElementFilter}
+                  onChange={(e) => setYearElementFilter(e.target.value)}
+                  className="px-2 py-1 text-xs border border-border rounded-md bg-background text-foreground"
                 >
-                  <option value="all">All Shio</option>
-                  {chineseZodiac.map(zodiac => (
-                    <option key={zodiac.id} value={zodiac.name}>{zodiac.emoji} {zodiac.name}</option>
+                  <option value="all">All</option>
+                  {uniqueYearElements.map(element => (
+                    <option key={element} value={element}>{element}</option>
                   ))}
                 </select>
               </div>
 
-              <div className="flex items-center gap-2">
-                <label className="font-medium">Price Change:</label>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-muted-foreground">Year Zodiac:</label>
                 <select
-                  value={priceFilter}
-                  onChange={(e) => setPriceFilter(e.target.value)}
-                  className="px-3 py-1 border border-border rounded-md bg-background text-foreground"
+                  value={yearZodiacFilter}
+                  onChange={(e) => setYearZodiacFilter(e.target.value)}
+                  className="px-2 py-1 text-xs border border-border rounded-md bg-background text-foreground"
                 >
                   <option value="all">All</option>
-                  <option value="5%">Above 5%</option>
-                  <option value="10%">Above 10%</option>
+                  {uniqueYearZodiacs.map(zodiac => (
+                    <option key={zodiac} value={zodiac}>{zodiac}</option>
+                  ))}
                 </select>
               </div>
 
-              <div className="flex items-center gap-2">
-                <label className="font-medium">Spike:</label>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-muted-foreground">Month Element:</label>
                 <select
-                  value={spikeFilter}
-                  onChange={(e) => setSpikeFilter(e.target.value)}
-                  className="px-3 py-1 border border-border rounded-md bg-background text-foreground"
+                  value={monthElementFilter}
+                  onChange={(e) => setMonthElementFilter(e.target.value)}
+                  className="px-2 py-1 text-xs border border-border rounded-md bg-background text-foreground"
                 >
                   <option value="all">All</option>
-                  <option value="5%">Above 5%</option>
-                  <option value="10%">Above 10%</option>
+                  {uniqueMonthElements.map(element => (
+                    <option key={element} value={element}>{element}</option>
+                  ))}
                 </select>
               </div>
 
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="showPivot"
-                  checked={showPivot}
-                  onChange={(e) => setShowPivot(e.target.checked)}
-                  className="rounded border-border"
-                />
-                <label htmlFor="showPivot" className="font-medium">Show Pivot Analysis</label>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-muted-foreground">Month Zodiac:</label>
+                <select
+                  value={monthZodiacFilter}
+                  onChange={(e) => setMonthZodiacFilter(e.target.value)}
+                  className="px-2 py-1 text-xs border border-border rounded-md bg-background text-foreground"
+                >
+                  <option value="all">All</option>
+                  {uniqueMonthZodiacs.map(zodiac => (
+                    <option key={zodiac} value={zodiac}>{zodiac}</option>
+                  ))}
+                </select>
               </div>
-            </div>
-            
-            <div className="text-sm text-muted-foreground">
-              🌙 Lunar Calendar Analysis - {selectedStock}
+
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-muted-foreground">Day Element:</label>
+                <select
+                  value={dayElementFilter}
+                  onChange={(e) => setDayElementFilter(e.target.value)}
+                  className="px-2 py-1 text-xs border border-border rounded-md bg-background text-foreground"
+                >
+                  <option value="all">All</option>
+                  {uniqueDayElements.map(element => (
+                    <option key={element} value={element}>{element}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-muted-foreground">Day Zodiac:</label>
+                <select
+                  value={dayZodiacFilter}
+                  onChange={(e) => setDayZodiacFilter(e.target.value)}
+                  className="px-2 py-1 text-xs border border-border rounded-md bg-background text-foreground"
+                >
+                  <option value="all">All</option>
+                  {uniqueDayZodiacs.map(zodiac => (
+                    <option key={zodiac} value={zodiac}>{zodiac}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
         </div>
@@ -528,51 +656,57 @@ export function AstrologyLunarCalendar() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/50">
-                <th className="text-center p-2 border-r border-border">Yearly Element</th>
-                <th className="text-center p-2 border-r border-border">Yearly Animal</th>
-                <th className="text-center p-2 border-r border-border">Monthly Element</th>
-                <th className="text-center p-2 border-r border-border">Monthly Animal</th>
-                <th className="text-center p-2 border-r border-border">Daily Element</th>
-                <th className="text-center p-2 border-r border-border">Daily Animal</th>
-                <th className="text-center p-2 border-r border-border bg-yellow-200 dark:bg-yellow-700">DATE</th>
-                <th className="text-center p-2 border-r border-border">OPEN</th>
-                <th className="text-center p-2 border-r border-border">HIGH</th>
-                <th className="text-center p-2 border-r border-border">LOW</th>
-                <th className="text-center p-2 border-r border-border">CLOSE</th>
-                <th className="text-center p-2 border-r border-border">% CHANGE</th>
-                <th className="text-center p-2 border-r border-border">% SPIKE</th>
-                <th className="text-center p-2">VOLUME</th>
+                <th className="text-center py-2 px-1 border-r border-border">STOCK</th>
+                <th className="text-center py-2 px-1 border-r border-border">Yearly Element</th>
+                <th className="text-center py-2 px-1 border-r border-border">Yearly Animal</th>
+                <th className="text-center py-2 px-1 border-r border-border">Monthly Element</th>
+                <th className="text-center py-2 px-1 border-r border-border">Monthly Animal</th>
+                <th className="text-center py-2 px-1 border-r border-border">Daily Element</th>
+                <th className="text-center py-2 px-1 border-r border-border">Daily Animal</th>
+                <th className="text-center py-2 px-1 border-r border-border bg-yellow-200 dark:bg-yellow-700">DATE</th>
+                <th className="text-center py-2 px-1 border-r border-border">OPEN</th>
+                <th className="text-center py-2 px-1 border-r border-border">HIGH</th>
+                <th className="text-center py-2 px-1 border-r border-border">LOW</th>
+                <th className="text-center py-2 px-1 border-r border-border">CLOSE</th>
+                <th className="text-center py-2 px-1 border-r border-border">% CHANGE</th>
+                <th className="text-center py-2 px-1 border-r border-border">% SPIKE</th>
+                <th className="text-center py-2 px-1">AVG</th>
               </tr>
             </thead>
             <tbody>
               {filteredData.map((row, index) => (
                 <tr key={row.id} className={`border-b border-border/50 hover:bg-muted/20 ${row.isRising ? 'bg-green-50 dark:bg-green-950/20' : ''}`}>
-                  <HeavenlyStemDisplay heavenlyStem={row.yearHeavenlyStem} />
-                  <td className="p-2 text-center border-r border-border">
+                  <td className="py-1 px-1 text-center border-r border-border">
+                    <div className="text-xs font-bold text-blue-600 dark:text-blue-400">{row.stock}</div>
+                  </td>
+                  <HeavenlyStemDisplay heavenlyStem={row.yearHeavenlyStem} className="py-1" />
+                  <td className="py-1 px-1 text-center border-r border-border">
                     <ZodiacDisplay zodiac={row.yearZodiac} size="text-2xl" />
                   </td>
-                  <HeavenlyStemDisplay heavenlyStem={row.monthHeavenlyStem} />
-                  <td className="p-2 text-center border-r border-border">
+                  <HeavenlyStemDisplay heavenlyStem={row.monthHeavenlyStem} className="py-1" />
+                  <td className="py-1 px-1 text-center border-r border-border">
                     <ZodiacDisplay zodiac={row.monthZodiac} size="text-xl" />
                   </td>
-                  <HeavenlyStemDisplay heavenlyStem={row.dayHeavenlyStem} />
-                  <td className="p-2 text-center border-r border-border">
+                  <HeavenlyStemDisplay heavenlyStem={row.dayHeavenlyStem} className="py-1" />
+                  <td className="py-1 px-1 text-center border-r border-border">
                     <ZodiacDisplay zodiac={row.dayZodiac} size="text-xl" />
                   </td>
-                  <td className="p-2 text-center border-r border-border bg-yellow-100 dark:bg-yellow-900/30 font-medium">
+                  <td className="py-1 px-1 text-center border-r border-border bg-yellow-100 dark:bg-yellow-900/30 font-medium whitespace-nowrap">
                     {row.dateFormatted}
                   </td>
-                  <td className="p-2 text-right border-r border-border font-mono">{row.open.toLocaleString()}</td>
-                  <td className="p-2 text-right border-r border-border font-mono text-green-600">{row.high.toLocaleString()}</td>
-                  <td className="p-2 text-right border-r border-border font-mono text-red-600">{row.low.toLocaleString()}</td>
-                  <td className="p-2 text-right border-r border-border font-mono">{row.close.toLocaleString()}</td>
-                  <td className={`p-2 text-right border-r border-border font-mono font-medium ${row.priceChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  <td className="py-1 px-1 text-right border-r border-border font-mono">{row.open.toLocaleString()}</td>
+                  <td className="py-1 px-1 text-right border-r border-border font-mono text-green-600">{row.high.toLocaleString()}</td>
+                  <td className="py-1 px-1 text-right border-r border-border font-mono text-red-600">{row.low.toLocaleString()}</td>
+                  <td className="py-1 px-1 text-right border-r border-border font-mono">{row.close.toLocaleString()}</td>
+                  <td className={`py-1 px-1 text-right border-r border-border font-mono font-medium ${row.priceChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                     {row.priceChange >= 0 ? '+' : ''}{row.priceChange.toFixed(2)}%
                   </td>
-                  <td className={`p-2 text-right border-r border-border font-mono font-medium ${row.spikeChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  <td className={`py-1 px-1 text-right border-r border-border font-mono font-medium ${row.spikeChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                     {row.spikeChange >= 0 ? '+' : ''}{row.spikeChange.toFixed(2)}%
                   </td>
-                  <td className="p-2 text-right font-mono text-xs">{row.volume.toLocaleString()}</td>
+                  <td className={`py-1 px-1 text-right font-mono font-medium ${row.avgChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {row.avgChange >= 0 ? '+' : ''}{row.avgChange.toFixed(2)}%
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -620,7 +754,7 @@ export function AstrologyLunarCalendar() {
           
           <div className="space-y-2">
             <div className="text-sm font-medium text-muted-foreground mb-2">
-              Formula: (high + close) / 2 vs yesterday close {'>'} 5%
+              Formula: AVG = (% change + % spike) / 2 {'>'} 5%
             </div>
             
             <div className="max-h-64 overflow-y-auto">
@@ -635,8 +769,8 @@ export function AstrologyLunarCalendar() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="font-medium text-green-600">+{stock.spikeChange.toFixed(2)}%</div>
-                    <div className="text-xs text-muted-foreground">Spike: {((stock.close + stock.high) / 2).toLocaleString()}</div>
+                    <div className="font-medium text-green-600">+{stock.avgChange.toFixed(2)}%</div>
+                    <div className="text-xs text-muted-foreground">AVG: {stock.avgChange.toFixed(2)}%</div>
                   </div>
                 </div>
               ))}
@@ -653,9 +787,9 @@ export function AstrologyLunarCalendar() {
             {['Water', 'Earth', 'Wood', 'Fire', 'Metal'].map(element => {
               const elementData = filteredData.filter(item => item.element === element);
               const avgPercentage = elementData.length > 0 
-                ? elementData.reduce((sum, item) => sum + item.spikeChange, 0) / elementData.length 
+                ? elementData.reduce((sum, item) => sum + item.avgChange, 0) / elementData.length 
                 : 0;
-              const risingCount = elementData.filter(item => item.spikeChange > 5).length;
+              const risingCount = elementData.filter(item => item.avgChange > 5).length;
               
               return (
                 <div key={element} className={`p-3 rounded ${elementColors[element].bg} ${elementColors[element].border} border`}>
@@ -689,8 +823,8 @@ export function AstrologyLunarCalendar() {
               <h4 className="font-medium mb-3">By Yearly Element-Shio</h4>
               <div className="space-y-2">
                 {Object.entries(groupByYear).map(([combo, data]) => {
-                  const avgGain = data.reduce((sum, item) => sum + item.spikeChange, 0) / data.length;
-                  const risingCount = data.filter(item => item.spikeChange > 5).length;
+                  const avgGain = data.reduce((sum, item) => sum + item.avgChange, 0) / data.length;
+                  const risingCount = data.filter(item => item.avgChange > 5).length;
                   const [element, zodiacName] = combo.split('-');
                   
                   return (
@@ -730,8 +864,8 @@ export function AstrologyLunarCalendar() {
               <h4 className="font-medium mb-3">By Monthly Element-Shio</h4>
               <div className="space-y-2">
                 {Object.entries(groupByMonth).map(([combo, data]) => {
-                  const avgGain = data.reduce((sum, item) => sum + item.spikeChange, 0) / data.length;
-                  const risingCount = data.filter(item => item.spikeChange > 5).length;
+                  const avgGain = data.reduce((sum, item) => sum + item.avgChange, 0) / data.length;
+                  const risingCount = data.filter(item => item.avgChange > 5).length;
                   const [element, zodiacName] = combo.split('-');
                   
                   return (
@@ -771,8 +905,8 @@ export function AstrologyLunarCalendar() {
               <h4 className="font-medium mb-3">By Daily Element-Shio</h4>
               <div className="space-y-2">
                 {Object.entries(groupByDay).map(([combo, data]) => {
-                  const avgGain = data.reduce((sum, item) => sum + item.spikeChange, 0) / data.length;
-                  const risingCount = data.filter(item => item.spikeChange > 5).length;
+                  const avgGain = data.reduce((sum, item) => sum + item.avgChange, 0) / data.length;
+                  const risingCount = data.filter(item => item.avgChange > 5).length;
                   const [element, zodiacName] = combo.split('-');
                   
                   return (
