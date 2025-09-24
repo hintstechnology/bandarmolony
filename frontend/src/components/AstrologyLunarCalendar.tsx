@@ -133,7 +133,7 @@ const ZodiacDisplay = ({ zodiac, size = 'text-xl' }: { zodiac: typeof chineseZod
         <img 
           src={customImage} 
           alt={zodiac.name}
-          className={`${size === 'text-2xl' ? 'w-10 h-10' : size === 'text-xl' ? 'w-8 h-8' : 'w-6 h-6'} object-contain`}
+          className={`${size === 'text-2xl' ? 'w-16 h-16' : size === 'text-xl' ? 'w-14 h-14' : 'w-12 h-12'} object-contain`}
         />
       </div>
     );
@@ -141,7 +141,7 @@ const ZodiacDisplay = ({ zodiac, size = 'text-xl' }: { zodiac: typeof chineseZod
   
   return (
     <div className="flex items-center justify-center">
-      <span className={`${size === 'text-2xl' ? 'text-3xl' : size === 'text-xl' ? 'text-2xl' : 'text-xl'}`}>{zodiac.emoji}</span>
+      <span className={`${size === 'text-2xl' ? 'text-4xl' : size === 'text-xl' ? 'text-3xl' : 'text-2xl'}`}>{zodiac.emoji}</span>
     </div>
   );
 };
@@ -159,7 +159,7 @@ const HeavenlyStemDisplay = ({ heavenlyStem, className = '' }: { heavenlyStem: s
           <img 
             src={customImage} 
             alt={`${stemInfo.polarity} ${stemInfo.element}`}
-            className="w-8 h-8 object-contain"
+            className="w-16 h-16 object-contain"
           />
         </div>
       </td>
@@ -188,7 +188,7 @@ const ElementDisplay = ({ element, className = '' }: { element: string, classNam
           <img 
             src={customImage} 
             alt={element}
-            className="w-6 h-6 object-contain"
+            className="w-14 h-14 object-contain"
           />
           <span className={`text-xs font-medium ${elementColors[element as keyof typeof elementColors].text}`}>
             {element}
@@ -548,7 +548,7 @@ export function AstrologyLunarCalendar() {
               </div>
               
               <div className="text-sm text-muted-foreground">
-                🌙 Lunar Calendar Analysis - {selectedStock === 'ALL' ? 'All Stocks (Combined Data)' : selectedStock}
+                🌙 Lunar Calendar Analysis - {selectedStock === 'ALL' ? 'All Stocks' : selectedStock}
               </div>
             </div>
 
@@ -836,7 +836,7 @@ export function AstrologyLunarCalendar() {
                               <img 
                                 src={zodiacImages[zodiacName as keyof typeof zodiacImages]} 
                                 alt={zodiacName}
-                                className="w-4 h-4 object-contain"
+                                className="w-6 h-6 object-contain"
                               />
                             ) : (
                               <span className="text-sm">{chineseZodiac.find(z => z.name === zodiacName)?.emoji}</span>
@@ -877,7 +877,7 @@ export function AstrologyLunarCalendar() {
                               <img 
                                 src={zodiacImages[zodiacName as keyof typeof zodiacImages]} 
                                 alt={zodiacName}
-                                className="w-4 h-4 object-contain"
+                                className="w-6 h-6 object-contain"
                               />
                             ) : (
                               <span className="text-sm">{chineseZodiac.find(z => z.name === zodiacName)?.emoji}</span>
@@ -918,7 +918,7 @@ export function AstrologyLunarCalendar() {
                               <img 
                                 src={zodiacImages[zodiacName as keyof typeof zodiacImages]} 
                                 alt={zodiacName}
-                                className="w-4 h-4 object-contain"
+                                className="w-6 h-6 object-contain"
                               />
                             ) : (
                               <span className="text-sm">{chineseZodiac.find(z => z.name === zodiacName)?.emoji}</span>
