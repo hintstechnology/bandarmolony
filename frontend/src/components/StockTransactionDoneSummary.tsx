@@ -2,79 +2,199 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { Calendar, Plus, X, TrendingUp, TrendingDown } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, BarChart, Bar, Area, AreaChart } from 'recharts';
+import { Calendar, Plus, X, ChevronDown } from 'lucide-react';
 
-interface DoneSummaryData {
-  time: string;
+interface PriceData {
   price: number;
-  volume: number;
-  value: number;
-  buyVolume: number;
-  sellVolume: number;
-  netVolume: number;
+  bFreq: number;
+  bLot: number;
+  sLot: number;
+  sFreq: number;
+  freq: number;
+  lot: number;
+  priceColor: 'green' | 'yellow' | 'red';
+  sFreqColor: 'green' | 'red';
+  bFreqColor: 'green' | 'red';
 }
 
-interface TopTransactionData {
-  broker: string;
-  side: 'BUY' | 'SELL';
-  volume: number;
-  value: number;
-  avgPrice: number;
-  frequency: number;
-}
-
-// Sample done summary data
-const generateDoneSummaryData = (date: string): DoneSummaryData[] => {
-  return Array.from({ length: 24 }, (_, i) => ({
-    time: `${i.toString().padStart(2, '0')}:00`,
-    price: 4400 + (Math.random() - 0.5) * 200,
-    volume: Math.random() * 1000000 + 500000,
-    value: (4400 + (Math.random() - 0.5) * 200) * (Math.random() * 1000000 + 500000),
-    buyVolume: Math.random() * 600000 + 300000,
-    sellVolume: Math.random() * 500000 + 200000,
-    netVolume: (Math.random() - 0.5) * 400000,
-  }));
-};
-
-// Sample top transaction data
-const generateTopTransactionData = (date: string): TopTransactionData[] => [
-  { broker: 'MG', side: 'BUY', volume: 2400000, value: 10560000000, avgPrice: 4400, frequency: 45 },
-  { broker: 'CIMB', side: 'BUY', volume: 1800000, value: 7920000000, avgPrice: 4400, frequency: 38 },
-  { broker: 'UOB', side: 'SELL', volume: 2100000, value: 9240000000, avgPrice: 4400, frequency: 42 },
-  { broker: 'COIN', side: 'BUY', volume: 1500000, value: 6600000000, avgPrice: 4400, frequency: 32 },
-  { broker: 'NH', side: 'SELL', volume: 1700000, value: 7480000000, avgPrice: 4400, frequency: 35 },
-  { broker: 'TRIM', side: 'BUY', volume: 1200000, value: 5280000000, avgPrice: 4400, frequency: 28 },
-  { broker: 'DEWA', side: 'SELL', volume: 1100000, value: 4840000000, avgPrice: 4400, frequency: 25 },
-  { broker: 'BNCA', side: 'BUY', volume: 950000, value: 4180000000, avgPrice: 4400, frequency: 22 },
+// Sample price data based on the image
+const generatePriceData = (date: string): PriceData[] => [
+  {
+    price: 650,
+    bFreq: 0,
+    bLot: 0,
+    sLot: 43025191,
+    sFreq: 8421,
+    freq: 8421,
+    lot: 43025191,
+    priceColor: 'green',
+    sFreqColor: 'green',
+    bFreqColor: 'red'
+  },
+  {
+    price: 565,
+    bFreq: 0,
+    bLot: 0,
+    sLot: 46255,
+    sFreq: 292,
+    freq: 292,
+    lot: 46255,
+    priceColor: 'green',
+    sFreqColor: 'green',
+    bFreqColor: 'red'
+  },
+  {
+    price: 560,
+    bFreq: 669,
+    bLot: 267775,
+    sLot: 192785,
+    sFreq: 762,
+    freq: 1431,
+    lot: 460560,
+    priceColor: 'green',
+    sFreqColor: 'green',
+    bFreqColor: 'red'
+  },
+  {
+    price: 555,
+    bFreq: 1210,
+    bLot: 502015,
+    sLot: 351699,
+    sFreq: 865,
+    freq: 2075,
+    lot: 853714,
+    priceColor: 'yellow',
+    sFreqColor: 'red',
+    bFreqColor: 'red'
+  },
+  {
+    price: 550,
+    bFreq: 1406,
+    bLot: 444230,
+    sLot: 818031,
+    sFreq: 2112,
+    freq: 3518,
+    lot: 1262261,
+    priceColor: 'red',
+    sFreqColor: 'green',
+    bFreqColor: 'red'
+  },
+  {
+    price: 545,
+    bFreq: 3088,
+    bLot: 924495,
+    sLot: 1423622,
+    sFreq: 3108,
+    freq: 6196,
+    lot: 2348117,
+    priceColor: 'red',
+    sFreqColor: 'green',
+    bFreqColor: 'red'
+  },
+  {
+    price: 540,
+    bFreq: 4699,
+    bLot: 1271579,
+    sLot: 129443,
+    sFreq: 140,
+    freq: 4839,
+    lot: 1401022,
+    priceColor: 'red',
+    sFreqColor: 'red',
+    bFreqColor: 'green'
+  },
+  {
+    price: 535,
+    bFreq: 111,
+    bLot: 25048,
+    sLot: 0,
+    sFreq: 0,
+    freq: 111,
+    lot: 25048,
+    priceColor: 'red',
+    sFreqColor: 'red',
+    bFreqColor: 'red'
+  }
 ];
 
 const formatNumber = (num: number): string => {
-  if (Math.abs(num) >= 1000000000) {
-    return (num / 1000000000).toFixed(1) + 'B';
-  }
-  if (Math.abs(num) >= 1000000) {
-    return (num / 1000000).toFixed(1) + 'M';
-  }
-  if (Math.abs(num) >= 1000) {
-    return (num / 1000).toFixed(1) + 'K';
-  }
-  return num.toFixed(0);
+  return num.toLocaleString();
 };
 
-const formatPrice = (price: number): string => {
-  return price.toFixed(0);
+const getPriceColor = (color: 'green' | 'yellow' | 'red'): string => {
+  switch (color) {
+    case 'green': return 'text-green-500';
+    case 'yellow': return 'text-yellow-500';
+    case 'red': return 'text-red-500';
+    default: return 'text-foreground';
+  }
+};
+
+const getFreqColor = (color: 'green' | 'red'): string => {
+  switch (color) {
+    case 'green': return 'text-green-500';
+    case 'red': return 'text-red-500';
+    default: return 'text-foreground';
+  }
+};
+
+// Helper function to get last 3 days including today (sorted newest first)
+const getLastThreeDays = (): string[] => {
+  const dates: string[] = [];
+  const today = new Date();
+  
+  for (let i = 0; i < 3; i++) {
+    const date = new Date(today);
+    date.setDate(today.getDate() - i);
+    dates.push(date.toISOString().split('T')[0]);
+  }
+  
+  // Sort from newest to oldest
+  return dates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
 };
 
 export function StockTransactionDoneSummary() {
-  const [selectedDates, setSelectedDates] = useState<string[]>(['2025-07-24', '2025-07-25']);
-  const [newDate, setNewDate] = useState('');
+  const [selectedDates, setSelectedDates] = useState<string[]>(getLastThreeDays());
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [selectedStock, setSelectedStock] = useState('BBRI');
 
-  const addDate = () => {
-    if (newDate && !selectedDates.includes(newDate)) {
-      setSelectedDates([...selectedDates, newDate]);
-      setNewDate('');
+  const addDateRange = () => {
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      
+      // Check if range is valid
+      if (start > end) {
+        alert('Start date must be before end date');
+        return;
+      }
+      
+      // Check if range is within 7 days
+      const diffTime = Math.abs(end.getTime() - start.getTime());
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays > 7) {
+        alert('Maximum 7 days range allowed');
+        return;
+      }
+      
+      // Generate date array
+      const dateArray: string[] = [];
+      const currentDate = new Date(start);
+      
+      while (currentDate <= end) {
+        const dateString = currentDate.toISOString().split('T')[0];
+        dateArray.push(dateString);
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+      
+      // Remove duplicates, sort by date (newest first), and set
+      const uniqueDates = Array.from(new Set([...selectedDates, ...dateArray]));
+      const sortedDates = uniqueDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+      setSelectedDates(sortedDates);
+      setStartDate('');
+      setEndDate('');
     }
   };
 
@@ -89,23 +209,100 @@ export function StockTransactionDoneSummary() {
     return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
   };
 
+  const clearAllDates = () => {
+    setSelectedDates([selectedDates[0]]); // Keep at least one date
+  };
+
+  const resetToLastThreeDays = () => {
+    setSelectedDates(getLastThreeDays());
+  };
+
+  const renderVerticalView = () => {
+    return (
+      <div className="space-y-6">
+        {/* Done Summary Table for Each Date */}
+        {selectedDates.map((date) => {
+          const priceData = generatePriceData(date);
+          
+          return (
+            <Card key={date}>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ChevronDown className="w-5 h-5" />
+                  Done Summary - {selectedStock} ({formatDisplayDate(date)})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border">
+                        <th className="text-left py-2 font-medium">Price</th>
+                        <th className="text-right py-2 font-medium">B Freq</th>
+                        <th className="text-right py-2 font-medium">B Lot</th>
+                        <th className="text-right py-2 font-medium">S Lot</th>
+                        <th className="text-right py-2 font-medium">S Freq</th>
+                        <th className="text-right py-2 font-medium">Freq</th>
+                        <th className="text-right py-2 font-medium">Lot</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {priceData.map((row, idx) => (
+                        <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
+                          <td className={`py-2 font-medium ${getPriceColor(row.priceColor)}`}>
+                            {row.price}
+                          </td>
+                          <td className={`text-right py-2 ${getFreqColor(row.bFreqColor)}`}>
+                            {formatNumber(row.bFreq)}
+                          </td>
+                          <td className="text-right py-2 text-foreground">
+                            {formatNumber(row.bLot)}
+                          </td>
+                          <td className="text-right py-2 text-foreground">
+                            {formatNumber(row.sLot)}
+                          </td>
+                          <td className={`text-right py-2 ${getFreqColor(row.sFreqColor)}`}>
+                            {formatNumber(row.sFreq)}
+                          </td>
+                          <td className="text-right py-2 text-foreground">
+                            {formatNumber(row.freq)}
+                          </td>
+                          <td className="text-right py-2 text-foreground">
+                            {formatNumber(row.lot)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
-      {/* Stock Selection */}
+      {/* Top Controls */}
       <Card>
         <CardHeader>
-          <CardTitle>Stock Selection & Date Range</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <Calendar className="w-5 h-5" />
+            Stock Selection & Date Range (Max 7 Days)
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {/* Stock Selector */}
+            {/* Stock Selection */}
             <div>
               <label className="text-sm font-medium">Selected Stock:</label>
               <div className="flex gap-2 mt-2">
                 <select 
                   value={selectedStock}
                   onChange={(e) => setSelectedStock(e.target.value)}
-                  className="px-3 py-2 border border-border rounded-md bg-input-background text-foreground"
+                  className="px-3 py-2 border border-border rounded-md bg-input text-foreground"
                 >
                   <option value="BBRI">BBRI</option>
                   <option value="BBCA">BBCA</option>
@@ -134,213 +331,50 @@ export function StockTransactionDoneSummary() {
                     )}
                   </Badge>
                 ))}
+                {selectedDates.length > 1 && (
+                  <Button onClick={clearAllDates} variant="outline" size="sm">
+                    <X className="w-3 h-3 mr-1" />
+                    Clear All
+                  </Button>
+                )}
+                <Button onClick={resetToLastThreeDays} variant="outline" size="sm">
+                  <Calendar className="w-3 h-3 mr-1" />
+                  Last 3 Days
+                </Button>
               </div>
             </div>
 
-            {/* Add New Date */}
-            <div className="flex gap-2">
-              <input
-                type="date"
-                value={newDate}
-                onChange={(e) => setNewDate(e.target.value)}
-                className="px-3 py-2 border border-border rounded-md bg-input-background text-foreground"
-              />
-              <Button onClick={addDate} size="sm">
+            {/* Add Date Range */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end">
+              <div>
+                <label className="text-sm font-medium">Start Date:</label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">End Date:</label>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground"
+                />
+              </div>
+              <Button onClick={addDateRange} size="sm">
                 <Plus className="w-4 h-4 mr-1" />
-                Add Date
+                Add Range
               </Button>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Done Summary Analysis for Each Date */}
-      {selectedDates.map((date) => {
-        const doneSummaryData = generateDoneSummaryData(date);
-        const topTransactionData = generateTopTransactionData(date);
-        
-        const totalVolume = doneSummaryData.reduce((sum, item) => sum + item.volume, 0);
-        const totalValue = doneSummaryData.reduce((sum, item) => sum + item.value, 0);
-        const avgPrice = totalValue / totalVolume;
-        const lastPrice = doneSummaryData[doneSummaryData.length - 1]?.price || 0;
-        const firstPrice = doneSummaryData[0]?.price || 0;
-        const priceChange = lastPrice - firstPrice;
-        const priceChangePercent = (priceChange / firstPrice) * 100;
-
-        return (
-          <div key={date} className="space-y-6">
-            {/* Summary Stats */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center justify-between">
-                  <span>Done Summary - {selectedStock} ({formatDisplayDate(date)})</span>
-                  <div className="flex items-center gap-2">
-                    {priceChange >= 0 ? (
-                      <TrendingUp className="w-5 h-5 text-green-600" />
-                    ) : (
-                      <TrendingDown className="w-5 h-5 text-red-600" />
-                    )}
-                    <span className={`text-sm font-medium ${priceChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(0)} ({priceChangePercent.toFixed(2)}%)
-                    </span>
-                  </div>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="text-center">
-                    <p className="text-sm text-muted-foreground">Last Price</p>
-                    <p className="text-lg font-semibold">{formatPrice(lastPrice)}</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-sm text-muted-foreground">Total Volume</p>
-                    <p className="text-lg font-semibold">{formatNumber(totalVolume)}</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-sm text-muted-foreground">Total Value</p>
-                    <p className="text-lg font-semibold">{formatNumber(totalValue)}</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-sm text-muted-foreground">Avg Price</p>
-                    <p className="text-lg font-semibold">{formatPrice(avgPrice)}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Price Chart */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Price Movement</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={250}>
-                    <AreaChart data={doneSummaryData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--muted-foreground))" opacity={0.3} />
-                      <XAxis dataKey="time" stroke="hsl(var(--foreground))" tick={{ fill: 'hsl(var(--foreground))' }} />
-                      <YAxis stroke="hsl(var(--foreground))" tick={{ fill: 'hsl(var(--foreground))' }} domain={['dataMin - 50', 'dataMax + 50']} />
-                      <Tooltip 
-                        contentStyle={{ 
-                          backgroundColor: 'hsl(var(--card))',
-                          border: '1px solid hsl(var(--border))',
-                          borderRadius: '6px'
-                        }}
-                        formatter={(value: number) => [formatPrice(value), 'Price']}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="price"
-                        stroke="#3b82f6"
-                        fill="#3b82f6"
-                        fillOpacity={0.2}
-                        strokeWidth={2}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-
-              {/* Volume Chart */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>Volume & Net Flow</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ResponsiveContainer width="100%" height={250}>
-                    <BarChart data={doneSummaryData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--muted-foreground))" opacity={0.3} />
-                      <XAxis dataKey="time" stroke="hsl(var(--foreground))" tick={{ fill: 'hsl(var(--foreground))' }} />
-                      <YAxis stroke="hsl(var(--foreground))" tick={{ fill: 'hsl(var(--foreground))' }} />
-                      <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeWidth={1} />
-                      <Tooltip 
-                        contentStyle={{ 
-                          backgroundColor: 'hsl(var(--card))',
-                          border: '1px solid hsl(var(--border))',
-                          borderRadius: '6px'
-                        }}
-                        formatter={(value: number, name: string) => [formatNumber(value), name]}
-                      />
-                      <Bar dataKey="volume" fill="#10b981" opacity={0.7} />
-                      <Bar dataKey="netVolume" fill="#f59e0b" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Top Transactions Table */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Top Broker Transactions - {formatDisplayDate(date)}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-muted/50">
-                        <th className="text-left py-3 px-4 font-medium">Broker</th>
-                        <th className="text-center py-3 px-4 font-medium">Side</th>
-                        <th className="text-right py-3 px-4 font-medium">Volume</th>
-                        <th className="text-right py-3 px-4 font-medium">Value</th>
-                        <th className="text-right py-3 px-4 font-medium">Avg Price</th>
-                        <th className="text-right py-3 px-4 font-medium">Frequency</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {topTransactionData.map((row, idx) => (
-                        <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                          <td className="py-3 px-4 font-medium">{row.broker}</td>
-                          <td className="text-center py-3 px-4">
-                            <Badge 
-                              variant={row.side === 'BUY' ? 'default' : 'destructive'} 
-                              className="text-xs"
-                            >
-                              {row.side}
-                            </Badge>
-                          </td>
-                          <td className="text-right py-3 px-4">{formatNumber(row.volume)}</td>
-                          <td className="text-right py-3 px-4">{formatNumber(row.value)}</td>
-                          <td className="text-right py-3 px-4">{formatPrice(row.avgPrice)}</td>
-                          <td className="text-right py-3 px-4">{row.frequency}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Summary */}
-                <div className="mt-4 pt-4 border-t border-border">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">Total Buy Volume: </span>
-                      <span className="font-medium text-green-600">
-                        {formatNumber(topTransactionData.filter(t => t.side === 'BUY').reduce((sum, t) => sum + t.volume, 0))}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Total Sell Volume: </span>
-                      <span className="font-medium text-red-600">
-                        {formatNumber(topTransactionData.filter(t => t.side === 'SELL').reduce((sum, t) => sum + t.volume, 0))}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Net Volume: </span>
-                      <span className="font-medium">
-                        {formatNumber(
-                          topTransactionData.filter(t => t.side === 'BUY').reduce((sum, t) => sum + t.volume, 0) -
-                          topTransactionData.filter(t => t.side === 'SELL').reduce((sum, t) => sum + t.volume, 0)
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        );
-      })}
+      {/* Main Data Display */}
+      {renderVerticalView()}
     </div>
   );
 }

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { Calendar, Plus, X } from 'lucide-react';
+import { Calendar, Plus, X, RotateCcw } from 'lucide-react';
 
 interface BrokerData {
   brkCode: string;
@@ -56,14 +56,62 @@ const formatValue = (value: number): string => {
   return formatNumber(value);
 };
 
-export function BrokerTransaction() {
-  const [selectedDates, setSelectedDates] = useState<string[]>(['2025-07-24', '2025-07-25']);
-  const [newDate, setNewDate] = useState('');
+// Helper function to get last 3 days including today (sorted newest first)
+const getLastThreeDays = (): string[] => {
+  const dates: string[] = [];
+  const today = new Date();
+  
+  for (let i = 0; i < 3; i++) {
+    const date = new Date(today);
+    date.setDate(today.getDate() - i);
+    dates.push(date.toISOString().split('T')[0]);
+  }
+  
+  // Sort from newest to oldest
+  return dates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+};
 
-  const addDate = () => {
-    if (newDate && !selectedDates.includes(newDate)) {
-      setSelectedDates([...selectedDates, newDate]);
-      setNewDate('');
+export function BrokerTransaction() {
+  const [selectedDates, setSelectedDates] = useState<string[]>(getLastThreeDays());
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+
+  const addDateRange = () => {
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      
+      // Check if range is valid
+      if (start > end) {
+        alert('Start date must be before end date');
+        return;
+      }
+      
+      // Check if range is within 7 days
+      const diffTime = Math.abs(end.getTime() - start.getTime());
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays > 7) {
+        alert('Maximum 7 days range allowed');
+        return;
+      }
+      
+      // Generate date array
+      const dateArray: string[] = [];
+      const currentDate = new Date(start);
+      
+      while (currentDate <= end) {
+        const dateString = currentDate.toISOString().split('T')[0];
+        dateArray.push(dateString);
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+      
+      // Remove duplicates, sort by date (newest first), and set
+      const uniqueDates = Array.from(new Set([...selectedDates, ...dateArray]));
+      const sortedDates = uniqueDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+      setSelectedDates(sortedDates);
+      setStartDate('');
+      setEndDate('');
     }
   };
 
@@ -78,14 +126,139 @@ export function BrokerTransaction() {
     return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
   };
 
+  const clearAllDates = () => {
+    setSelectedDates([selectedDates[0]]); // Keep at least one date
+  };
+
+  const resetToLastThreeDays = () => {
+    setSelectedDates(getLastThreeDays());
+  };
+
+  const renderHorizontalView = () => {
+    const buyData = generateBrokerData(selectedDates[0]);
+    const sellData = generateNegativeBrokerData(selectedDates[0]);
+    
+    return (
+      <div className="space-y-6">
+        {/* Buy Side Horizontal Table */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-green-600">BUY SIDE - Multi-Date Comparison</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <div className="inline-block min-w-full">
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="text-left py-2 px-2 font-medium bg-accent/50 sticky left-0 z-10">BRKCode</th>
+                      {selectedDates.map((date) => (
+                        <th key={date} colSpan={4} className="text-center py-2 px-1 font-medium border-l border-border">
+                          {formatDisplayDate(date)}
+                        </th>
+                      ))}
+                    </tr>
+                    <tr className="border-b border-border bg-accent/30">
+                      <th className="text-left py-1 px-2 font-medium bg-accent/50 sticky left-0 z-10"></th>
+                      {selectedDates.map((date) => (
+                        <React.Fragment key={date}>
+                          <th className="text-right py-1 px-1 font-medium text-[10px]">RSVal</th>
+                          <th className="text-right py-1 px-1 font-medium text-[10px]">HitLot</th>
+                          <th className="text-right py-1 px-1 font-medium text-[10px]">RSFreq</th>
+                          <th className="text-right py-1 px-1 font-medium text-[10px] border-r border-border">SAvg</th>
+                        </React.Fragment>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {buyData.map((row, idx) => (
+                      <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
+                        <td className="py-1.5 px-2 font-medium bg-background/80 sticky left-0 z-10 border-r border-border">{row.brkCode}</td>
+                        {selectedDates.map((date) => {
+                          const dayData = generateBrokerData(date).find(d => d.brkCode === row.brkCode) || row;
+                          return (
+                            <React.Fragment key={date}>
+                              <td className="text-right py-1.5 px-1 text-green-600">{formatValue(dayData.rsVal)}</td>
+                              <td className="text-right py-1.5 px-1">{formatValue(dayData.hitLot)}</td>
+                              <td className="text-right py-1.5 px-1">{formatValue(dayData.rsFreq)}</td>
+                              <td className="text-right py-1.5 px-1 border-r border-border">{formatValue(dayData.sAvg)}</td>
+                            </React.Fragment>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Sell Side Horizontal Table */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-red-600">SELL SIDE - Multi-Date Comparison</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <div className="inline-block min-w-full">
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="text-left py-2 px-2 font-medium bg-accent/50 sticky left-0 z-10">BRKCode</th>
+                      {selectedDates.map((date) => (
+                        <th key={date} colSpan={4} className="text-center py-2 px-1 font-medium border-l border-border">
+                          {formatDisplayDate(date)}
+                        </th>
+                      ))}
+                    </tr>
+                    <tr className="border-b border-border bg-accent/30">
+                      <th className="text-left py-1 px-2 font-medium bg-accent/50 sticky left-0 z-10"></th>
+                      {selectedDates.map((date) => (
+                        <React.Fragment key={date}>
+                          <th className="text-right py-1 px-1 font-medium text-[10px]">RSVal</th>
+                          <th className="text-right py-1 px-1 font-medium text-[10px]">HitLot</th>
+                          <th className="text-right py-1 px-1 font-medium text-[10px]">RSFreq</th>
+                          <th className="text-right py-1 px-1 font-medium text-[10px] border-r border-border">SAvg</th>
+                        </React.Fragment>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sellData.map((row, idx) => (
+                      <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
+                        <td className="py-1.5 px-2 font-medium bg-background/80 sticky left-0 z-10 border-r border-border">{row.brkCode}</td>
+                        {selectedDates.map((date) => {
+                          const dayData = generateNegativeBrokerData(date).find(d => d.brkCode === row.brkCode) || row;
+                          return (
+                            <React.Fragment key={date}>
+                              <td className="text-right py-1.5 px-1 text-red-600">{formatValue(dayData.rsVal)}</td>
+                              <td className="text-right py-1.5 px-1 text-red-600">{formatValue(dayData.hitLot)}</td>
+                              <td className="text-right py-1.5 px-1 text-red-600">{formatValue(dayData.rsFreq)}</td>
+                              <td className="text-right py-1.5 px-1 border-r border-border">{formatValue(dayData.sAvg)}</td>
+                            </React.Fragment>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
-      {/* Date Series Selector */}
+      {/* Top Controls */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Calendar className="w-5 h-5" />
-            Date Series Selection
+            Date Range Selection (Max 7 Days)
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -107,113 +280,50 @@ export function BrokerTransaction() {
                     )}
                   </Badge>
                 ))}
+                {selectedDates.length > 1 && (
+                  <Button onClick={clearAllDates} variant="outline" size="sm">
+                    <RotateCcw className="w-3 h-3 mr-1" />
+                    Clear All
+                  </Button>
+                )}
+                <Button onClick={resetToLastThreeDays} variant="outline" size="sm">
+                  <Calendar className="w-3 h-3 mr-1" />
+                  Last 3 Days
+                </Button>
               </div>
             </div>
 
-            {/* Add New Date */}
-            <div className="flex gap-2">
-              <input
-                type="date"
-                value={newDate}
-                onChange={(e) => setNewDate(e.target.value)}
-                className="px-3 py-2 border border-border rounded-md bg-input text-foreground"
-              />
-              <Button onClick={addDate} size="sm">
+            {/* Add Date Range */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end">
+              <div>
+                <label className="text-sm font-medium">Start Date:</label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">End Date:</label>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground"
+                />
+              </div>
+              <Button onClick={addDateRange} size="sm">
                 <Plus className="w-4 h-4 mr-1" />
-                Add Date
+                Add Range
               </Button>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Transaction Tables for Each Date */}
-      <div className="space-y-6">
-        {selectedDates.map((date) => (
-          <Card key={date}>
-            <CardHeader>
-              <CardTitle>Broker Transaction → TOP SUMMARY (IPOT) - {formatDisplayDate(date)}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Buy Side */}
-                <div>
-                  <div className="mb-4">
-                    <h4 className="font-medium text-green-600 mb-2">BUY SIDE</h4>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="border-b border-border">
-                            <th className="text-left py-2 font-medium">BRKCode</th>
-                            <th className="text-right py-2 font-medium">RSVal</th>
-                            <th className="text-right py-2 font-medium">HitLot</th>
-                            <th className="text-right py-2 font-medium">RSFreq</th>
-                            <th className="text-right py-2 font-medium">SAvg</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {generateBrokerData(date).map((row, idx) => (
-                            <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                              <td className="py-1.5 font-medium">{row.brkCode}</td>
-                              <td className="text-right py-1.5 text-green-600">{formatValue(row.rsVal)}</td>
-                              <td className="text-right py-1.5">{formatValue(row.hitLot)}</td>
-                              <td className="text-right py-1.5">{formatValue(row.rsFreq)}</td>
-                              <td className="text-right py-1.5">{formatValue(row.sAvg)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Sell Side */}
-                <div>
-                  <div className="mb-4">
-                    <h4 className="font-medium text-red-600 mb-2">SELL SIDE</h4>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="border-b border-border">
-                            <th className="text-left py-2 font-medium">BRKCode</th>
-                            <th className="text-right py-2 font-medium">RSVal</th>
-                            <th className="text-right py-2 font-medium">HitLot</th>
-                            <th className="text-right py-2 font-medium">RSFreq</th>
-                            <th className="text-right py-2 font-medium">SAvg</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {generateNegativeBrokerData(date).map((row, idx) => (
-                            <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                              <td className="py-1.5 font-medium">{row.brkCode}</td>
-                              <td className="text-right py-1.5 text-red-600">{formatValue(row.rsVal)}</td>
-                              <td className="text-right py-1.5 text-red-600">{formatValue(row.hitLot)}</td>
-                              <td className="text-right py-1.5 text-red-600">{formatValue(row.rsFreq)}</td>
-                              <td className="text-right py-1.5">{formatValue(row.sAvg)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Summary Row */}
-              <div className="mt-4 pt-4 border-t border-border">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 text-xs font-medium">
-                  <div className="text-green-600">
-                    Total Buy: RSVal: 131.3B | HitLot: 3.5M | RSFreq: 24,192 | SAvg: 353
-                  </div>
-                  <div className="text-red-600">
-                    Total Sell: RSVal: -177.8B | HitLot: -3.5M | RSFreq: 25,196 | SAvg: 408
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {/* Main Data Display */}
+      {renderHorizontalView()}
     </div>
   );
 }
