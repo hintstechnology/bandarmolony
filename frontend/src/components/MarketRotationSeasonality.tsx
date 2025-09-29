@@ -101,13 +101,48 @@ const getTextColor = (performance: number): string => {
   return 'hsl(var(--card-foreground))'; // Default text color for low intensity
 };
 
-// IHSG data
-const ihsgSeasonalityData = [
-  { month: 'Jan', performance: 1.5 }, { month: 'Feb', performance: 2.1 }, { month: 'Mar', performance: -0.8 },
-  { month: 'Apr', performance: 2.4 }, { month: 'May', performance: 1.2 }, { month: 'Jun', performance: -1.6 },
-  { month: 'Jul', performance: 2.8 }, { month: 'Aug', performance: -0.4 }, { month: 'Sep', performance: 1.7 },
-  { month: 'Oct', performance: -2.2 }, { month: 'Nov', performance: 3.1 }, { month: 'Dec', performance: 1.9 },
+// Index options
+const indexOptions = [
+  { name: 'IHSG', color: '#000000' },
+  { name: 'LQ45', color: '#374151' },
+  { name: 'IDX30', color: '#4B5563' },
+  { name: 'IDX80', color: '#6B7280' },
+  { name: 'IDXQ30', color: '#9CA3AF' },
 ];
+
+// Index seasonality data
+const indexSeasonalityData: SeasonalityData = {
+  IHSG: [
+    { month: 'Jan', performance: 1.5 }, { month: 'Feb', performance: 2.1 }, { month: 'Mar', performance: -0.8 },
+    { month: 'Apr', performance: 2.4 }, { month: 'May', performance: 1.2 }, { month: 'Jun', performance: -1.6 },
+    { month: 'Jul', performance: 2.8 }, { month: 'Aug', performance: -0.4 }, { month: 'Sep', performance: 1.7 },
+    { month: 'Oct', performance: -2.2 }, { month: 'Nov', performance: 3.1 }, { month: 'Dec', performance: 1.9 },
+  ],
+  LQ45: [
+    { month: 'Jan', performance: 1.8 }, { month: 'Feb', performance: 2.3 }, { month: 'Mar', performance: -0.6 },
+    { month: 'Apr', performance: 2.7 }, { month: 'May', performance: 1.4 }, { month: 'Jun', performance: -1.4 },
+    { month: 'Jul', performance: 3.1 }, { month: 'Aug', performance: -0.2 }, { month: 'Sep', performance: 1.9 },
+    { month: 'Oct', performance: -2.0 }, { month: 'Nov', performance: 3.4 }, { month: 'Dec', performance: 2.1 },
+  ],
+  IDX30: [
+    { month: 'Jan', performance: 1.2 }, { month: 'Feb', performance: 1.8 }, { month: 'Mar', performance: -1.1 },
+    { month: 'Apr', performance: 2.1 }, { month: 'May', performance: 0.9 }, { month: 'Jun', performance: -1.8 },
+    { month: 'Jul', performance: 2.5 }, { month: 'Aug', performance: -0.6 }, { month: 'Sep', performance: 1.5 },
+    { month: 'Oct', performance: -2.4 }, { month: 'Nov', performance: 2.8 }, { month: 'Dec', performance: 1.7 },
+  ],
+  IDX80: [
+    { month: 'Jan', performance: 1.7 }, { month: 'Feb', performance: 2.4 }, { month: 'Mar', performance: -0.4 },
+    { month: 'Apr', performance: 2.9 }, { month: 'May', performance: 1.6 }, { month: 'Jun', performance: -1.2 },
+    { month: 'Jul', performance: 3.3 }, { month: 'Aug', performance: 0.1 }, { month: 'Sep', performance: 2.2 },
+    { month: 'Oct', performance: -1.8 }, { month: 'Nov', performance: 3.6 }, { month: 'Dec', performance: 2.3 },
+  ],
+  IDXQ30: [
+    { month: 'Jan', performance: 1.3 }, { month: 'Feb', performance: 1.9 }, { month: 'Mar', performance: -0.9 },
+    { month: 'Apr', performance: 2.2 }, { month: 'May', performance: 1.0 }, { month: 'Jun', performance: -1.7 },
+    { month: 'Jul', performance: 2.6 }, { month: 'Aug', performance: -0.5 }, { month: 'Sep', performance: 1.6 },
+    { month: 'Oct', performance: -2.3 }, { month: 'Nov', performance: 2.9 }, { month: 'Dec', performance: 1.8 },
+  ],
+};
 
 // Available stocks for selection - extended list
 const availableStocks = [
@@ -120,15 +155,22 @@ const availableStocks = [
 export function MarketRotationSeasonality() {
   const [showSector, setShowSector] = useState(true);
   const [showStock, setShowStock] = useState(true);
+  const [selectedIndices, setSelectedIndices] = useState(['IHSG']);
   const [selectedStocks, setSelectedStocks] = useState(['BBRI', 'BBCA', 'BMRI']);
   const [showAddStock, setShowAddStock] = useState(false);
+  const [showAddIndex, setShowAddIndex] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [indexSearchQuery, setIndexSearchQuery] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const indexDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setShowAddStock(false);
+      }
+      if (indexDropdownRef.current && !indexDropdownRef.current.contains(event.target as Node)) {
+        setShowAddIndex(false);
       }
     };
 
@@ -137,6 +179,29 @@ export function MarketRotationSeasonality() {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
+
+  const addIndex = (index: string) => {
+    if (!selectedIndices.includes(index)) {
+      setSelectedIndices([...selectedIndices, index]);
+    }
+    setShowAddIndex(false);
+    setIndexSearchQuery('');
+  };
+
+  const getFilteredIndices = () => {
+    return indexOptions.filter(index => 
+      index.name.toLowerCase().includes(indexSearchQuery.toLowerCase()) &&
+      !selectedIndices.includes(index.name)
+    );
+  };
+
+  const removeIndex = (index: string) => {
+    // Prevent removing all indices - keep at least one
+    const newIndices = selectedIndices.filter(i => i !== index);
+    if (newIndices.length > 0) {
+      setSelectedIndices(newIndices);
+    }
+  };
 
   const addStock = (stock: string) => {
     if (!selectedStocks.includes(stock)) {
@@ -178,12 +243,12 @@ export function MarketRotationSeasonality() {
           </div>
           
           <div className="flex items-center gap-4">
-            {/* IHSG - Always enabled */}
+            {/* Index - Always enabled */}
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 bg-primary rounded flex items-center justify-center">
                 <div className="w-2 h-2 bg-primary-foreground rounded"></div>
               </div>
-              <span className="text-sm font-medium">IHSG</span>
+              <span className="text-sm font-medium">Index</span>
               <Badge variant="secondary" className="text-xs">Required</Badge>
             </div>
             
@@ -212,34 +277,157 @@ export function MarketRotationSeasonality() {
         </div>
       </Card>
 
-      {/* IHSG Seasonality - Always shown */}
+      {/* Index Seasonality - Always shown */}
       <Card className="p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <h3 className="font-semibold">IHSG Seasonality Pattern</h3>
-          <Badge variant="outline" className="text-xs">Index</Badge>
-        </div>
-        <div className="overflow-x-auto">
-          <div className="grid grid-cols-12 gap-2 min-w-[800px]">
-            {months.map((month, index) => {
-              const monthData = ihsgSeasonalityData[index];
-              return (
-                <div key={month} className="text-center">
-                  <div className="text-xs font-medium text-muted-foreground mb-2">{month}</div>
-                  <div 
-                    className="h-16 rounded-md flex items-center justify-center text-sm font-medium transition-colors hover:opacity-80"
-                    style={{ 
-                      backgroundColor: getPerformanceColor(monthData.performance),
-                      color: getTextColor(monthData.performance)
-                    }}
-                  >
-                    {monthData.performance.toFixed(1)}%
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold">Index Seasonality Pattern</h3>
+              <Badge variant="outline" className="text-xs">{selectedIndices.length} Indices</Badge>
+            </div>
+            
+            {/* Add Index Section */}
+            <div className="flex items-center gap-3">
+              {/* Search Input */}
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Search indices..."
+                  value={indexSearchQuery}
+                  onChange={(e) => {
+                    setIndexSearchQuery(e.target.value);
+                    setShowAddIndex(true);
+                  }}
+                  onFocus={() => setShowAddIndex(true)}
+                  className="pl-7 pr-3 py-1.5 text-xs bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 w-32 hover:border-primary/50 transition-colors"
+                />
+              </div>
+              
+              {/* Add Index Button */}
+              <div className="relative" ref={indexDropdownRef}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowAddIndex(!showAddIndex)}
+                  className="flex items-center gap-2 hover:bg-primary/10 hover:text-primary transition-colors"
+                >
+                  <Plus className="w-3 h-3" />
+                  Add Index
+                </Button>
+                
+                {/* Add Index Dropdown */}
+                {showAddIndex && (
+                  <div className="absolute right-0 top-full mt-2 w-48 bg-card border border-border rounded-lg shadow-lg z-10 max-h-48 overflow-y-auto">
+                    {/* Show search results if there's a query, otherwise show all available */}
+                    {indexSearchQuery ? (
+                      <>
+                        {getFilteredIndices().map(index => (
+                          <button
+                            key={index.name}
+                            onClick={() => addIndex(index.name)}
+                            className="w-full px-3 py-2 text-left text-sm hover:bg-muted transition-colors flex items-center justify-between"
+                          >
+                            <span className="font-medium">{index.name}</span>
+                            <Plus className="w-3 h-3 text-muted-foreground" />
+                          </button>
+                        ))}
+                        {getFilteredIndices().length === 0 && (
+                          <div className="px-3 py-2 text-sm text-muted-foreground">
+                            No indices found matching "{indexSearchQuery}"
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {indexOptions
+                          .filter(index => !selectedIndices.includes(index.name))
+                          .map(index => (
+                            <button
+                              key={index.name}
+                              onClick={() => addIndex(index.name)}
+                              className="w-full px-3 py-2 text-left text-sm hover:bg-muted transition-colors flex items-center justify-between"
+                            >
+                              {index.name}
+                              <Plus className="w-3 h-3 text-muted-foreground" />
+                            </button>
+                          ))}
+                        {indexOptions.filter(index => !selectedIndices.includes(index.name)).length === 0 && (
+                          <div className="px-3 py-2 text-sm text-muted-foreground">No more indices available</div>
+                        )}
+                      </>
+                    )}
                   </div>
-                </div>
-              );
-            })}
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-      </Card>
+
+          {/* Selected Indices */}
+          <div className="flex flex-wrap gap-2 mb-4">
+            {selectedIndices.map(index => (
+              <div key={index} className="flex items-center gap-1 bg-muted px-2 py-1 rounded-md text-xs">
+                {index}
+                <button
+                  onClick={() => removeIndex(index)}
+                  disabled={selectedIndices.length === 1}
+                  className={`text-muted-foreground hover:text-destructive transition-colors ${
+                    selectedIndices.length === 1 ? 'opacity-30 cursor-not-allowed' : ''
+                  }`}
+                  title={selectedIndices.length === 1 ? 'Cannot remove last index' : `Remove ${index}`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {selectedIndices.length > 0 && (
+            <div className="overflow-x-auto">
+              <div className="min-w-[800px]">
+                {/* Header row */}
+                <div className="grid grid-cols-13 gap-2 mb-2">
+                  <div className="text-xs font-medium text-muted-foreground"></div>
+                  {months.map((month) => (
+                    <div key={month} className="text-center">
+                      <div className="text-xs font-medium text-muted-foreground">{month}</div>
+                    </div>
+                  ))}
+                </div>
+                
+                {/* Data rows */}
+                {selectedIndices.map((index) => (
+                  indexSeasonalityData[index] && (
+                    <div key={index} className="grid grid-cols-13 gap-2 mb-2">
+                      <div className="flex items-center text-sm font-medium text-card-foreground">
+                        {index}
+                      </div>
+                      {indexSeasonalityData[index].map((monthData, monthIndex) => (
+                        <div 
+                          key={monthIndex}
+                          className="h-16 rounded-md flex items-center justify-center text-sm font-medium transition-colors hover:opacity-80"
+                          style={{ 
+                            backgroundColor: getPerformanceColor(monthData.performance),
+                            color: getTextColor(monthData.performance)
+                          }}
+                        >
+                          {monthData.performance.toFixed(1)}%
+                        </div>
+                      ))}
+                    </div>
+                  )
+                ))}
+              </div>
+            </div>
+          )}
+
+          {selectedIndices.length === 0 && (
+            <div className="text-center py-8 text-muted-foreground">
+              <Plus className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <p>No indices selected</p>
+              <p className="text-sm">Click "Add Index" to add indices to compare</p>
+            </div>
+          )}
+        </Card>
 
       {/* Sector Seasonality */}
       {showSector && (

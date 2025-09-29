@@ -88,6 +88,15 @@ const sectorOptions = [
   { name: 'Materials', color: '#84CC16' },
 ];
 
+// Index options
+const indexOptions = [
+  { name: 'IHSG', color: '#000000' },
+  { name: 'LQ45', color: '#374151' },
+  { name: 'IDX30', color: '#4B5563' },
+  { name: 'IDX80', color: '#6B7280' },
+  { name: 'IDXQ30', color: '#9CA3AF' },
+];
+
 // Stock options for search
 const stockOptions = [
   { name: 'BBRI', color: '#3B82F6' },
@@ -144,15 +153,29 @@ const CustomTooltip = ({ active, payload }: any) => {
 
 export function MarketRotationRRG() {
   const [viewMode, setViewMode] = useState<'sector' | 'stock'>('sector');
+  const [selectedIndex, setSelectedIndex] = useState<string>('IHSG');
   const [selectedItems, setSelectedItems] = useState<string[]>(['Technology', 'Healthcare', 'Finance']);
   const [searchQuery, setSearchQuery] = useState('');
+  const [indexSearchQuery, setIndexSearchQuery] = useState('');
+  const [screenerSearchQuery, setScreenerSearchQuery] = useState('');
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
+  const [showIndexSearchDropdown, setShowIndexSearchDropdown] = useState(false);
+  const [showScreenerSearchDropdown, setShowScreenerSearchDropdown] = useState(false);
+  const [screenerStocks, setScreenerStocks] = useState(screenerData);
   const searchRef = useRef<HTMLDivElement>(null);
+  const indexSearchRef = useRef<HTMLDivElement>(null);
+  const screenerSearchRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
         setShowSearchDropdown(false);
+      }
+      if (indexSearchRef.current && !indexSearchRef.current.contains(event.target as Node)) {
+        setShowIndexSearchDropdown(false);
+      }
+      if (screenerSearchRef.current && !screenerSearchRef.current.contains(event.target as Node)) {
+        setShowScreenerSearchDropdown(false);
       }
     };
 
@@ -198,7 +221,9 @@ export function MarketRotationRRG() {
   const handleViewModeChange = (mode: 'sector' | 'stock') => {
     setViewMode(mode);
     setSearchQuery('');
+    setIndexSearchQuery('');
     setShowSearchDropdown(false);
+    setShowIndexSearchDropdown(false);
     if (mode === 'sector') {
       setSelectedItems(['Technology', 'Healthcare', 'Finance']);
     } else {
@@ -215,6 +240,12 @@ export function MarketRotationRRG() {
     );
   };
 
+  const getFilteredIndexOptions = () => {
+    return indexOptions.filter(option => 
+      option.name.toLowerCase().includes(indexSearchQuery.toLowerCase())
+    );
+  };
+
   const addFromSearch = (itemName: string) => {
     if (!selectedItems.includes(itemName)) {
       setSelectedItems(prev => [...prev, itemName]);
@@ -223,81 +254,64 @@ export function MarketRotationRRG() {
     setShowSearchDropdown(false);
   };
 
+  const getFilteredScreenerOptions = () => {
+    return stockOptions.filter(option => 
+      option.name.toLowerCase().includes(screenerSearchQuery.toLowerCase()) &&
+      !screenerStocks.some(stock => stock.symbol === option.name)
+    );
+  };
+
+  const addToScreener = (stockName: string) => {
+    const stockOption = stockOptions.find(opt => opt.name === stockName);
+    if (stockOption && !screenerStocks.some(stock => stock.symbol === stockName)) {
+      const newStock = {
+        symbol: stockName,
+        sector: 'Unknown', // You might want to map this properly
+        rsRatio: Math.random() * 20 + 90, // Random values for demo
+        rsMomentum: Math.random() * 20 + 90,
+        performance: (Math.random() - 0.5) * 10,
+        volume: ['HIGH', 'MEDIUM', 'LOW'][Math.floor(Math.random() * 3)],
+        trend: ['STRONG', 'IMPROVING', 'WEAKENING', 'WEAK'][Math.floor(Math.random() * 4)]
+      };
+      setScreenerStocks(prev => [...prev, newStock]);
+    }
+    setScreenerSearchQuery('');
+    setShowScreenerSearchDropdown(false);
+  };
+
+  const removeFromScreener = (symbol: string) => {
+    setScreenerStocks(prev => prev.filter(stock => stock.symbol !== symbol));
+  };
+
+  const selectIndex = (indexName: string) => {
+    setSelectedIndex(indexName);
+    setIndexSearchQuery('');
+    setShowIndexSearchDropdown(false);
+  };
+
   return (
     <div className="h-screen overflow-hidden">
       <div className="h-full flex flex-col max-w-7xl mx-auto px-4 sm:px-6">
         <div className="flex-1 min-h-0 overflow-y-auto space-y-6 py-4 sm:py-6">
       {/* Controls */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <span className="text-sm font-medium">View Mode:</span>
-          <div className="flex gap-2">
-            <Button
-              variant={viewMode === 'sector' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => handleViewModeChange('sector')}
-            >
-              Sector
-            </Button>
-            <Button
-              variant={viewMode === 'stock' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => handleViewModeChange('stock')}
-            >
-              Stock
-            </Button>
-          </div>
+      <div className="flex items-center gap-4">
+        <span className="text-sm font-medium">View Mode:</span>
+        <div className="flex gap-2">
+          <Button
+            variant={viewMode === 'sector' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => handleViewModeChange('sector')}
+          >
+            Sector
+          </Button>
+          <Button
+            variant={viewMode === 'stock' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => handleViewModeChange('stock')}
+          >
+            Stock
+          </Button>
         </div>
-
-        {/* Search for stocks */}
-        {viewMode === 'stock' && (
-          <div className="relative" ref={searchRef}>
-            <div className="relative">
-              <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="Search stocks..."
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setShowSearchDropdown(true);
-                }}
-                onFocus={() => setShowSearchDropdown(true)}
-                className="pl-8 pr-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors"
-              />
-            </div>
-            
-            {/* Search Dropdown */}
-            {showSearchDropdown && searchQuery && (
-              <div className="absolute top-full right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-10 max-h-48 overflow-y-auto min-w-48">
-                {getFilteredOptions().map((option) => (
-                  <button
-                    key={option.name}
-                    onClick={() => addFromSearch(option.name)}
-                    className="flex items-center justify-between w-full p-2 text-left hover:bg-accent transition-colors"
-                  >
-                    <div className="flex items-center gap-2">
-                      <div 
-                        className="w-3 h-3 rounded-full" 
-                        style={{ backgroundColor: option.color }}
-                      ></div>
-                      <span className="text-sm">{option.name}</span>
-                    </div>
-                    <Plus className="w-3 h-3 text-muted-foreground" />
-                  </button>
-                ))}
-                {getFilteredOptions().length === 0 && (
-                  <div className="p-2 text-sm text-muted-foreground">
-                    {stockOptions.filter(s => !selectedItems.includes(s.name)).length === 0 
-                      ? 'All stocks already selected' 
-                      : 'No stocks found'
-                    }
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
@@ -305,7 +319,7 @@ export function MarketRotationRRG() {
         <div className="xl:col-span-3">
           <Card>
             <CardHeader>
-              <CardTitle>Relative Rotation Graph (RRG)</CardTitle>
+              <CardTitle>Relative Rotation Graph (RRG) vs {selectedIndex}</CardTitle>
             </CardHeader>
             <CardContent className="relative">
               <ResponsiveContainer width="100%" height={600}>
@@ -420,6 +434,68 @@ export function MarketRotationRRG() {
               <CardTitle>{viewMode === 'sector' ? 'Sector' : 'Stock'} Selection</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Index Selection */}
+              <div>
+                <h4 className="text-sm font-medium mb-2">Index Selection</h4>
+                <div className="relative" ref={indexSearchRef}>
+                  <div className="relative">
+                    <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                    <input
+                      type="text"
+                      placeholder="Search index..."
+                      value={indexSearchQuery}
+                      onChange={(e) => {
+                        setIndexSearchQuery(e.target.value);
+                        setShowIndexSearchDropdown(true);
+                      }}
+                      onFocus={() => setShowIndexSearchDropdown(true)}
+                      className="w-full pl-7 pr-3 py-2 text-xs bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors"
+                    />
+                  </div>
+                  
+                  {/* Index Search Dropdown */}
+                  {showIndexSearchDropdown && indexSearchQuery && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-10 max-h-48 overflow-y-auto">
+                      {getFilteredIndexOptions().map((option) => (
+                        <button
+                          key={option.name}
+                          onClick={() => selectIndex(option.name)}
+                          className="flex items-center justify-between w-full p-2 text-left hover:bg-accent transition-colors"
+                        >
+                          <div className="flex items-center gap-2">
+                            <div 
+                              className="w-3 h-3 rounded-full" 
+                              style={{ backgroundColor: option.color }}
+                            ></div>
+                            <span className="text-sm">{option.name}</span>
+                          </div>
+                          <Plus className="w-3 h-3 text-muted-foreground" />
+                        </button>
+                      ))}
+                      {getFilteredIndexOptions().length === 0 && (
+                        <div className="p-2 text-sm text-muted-foreground">
+                          No index found
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                
+                {/* Selected Index Display */}
+                <div className="mt-2">
+                  <div className="flex items-center justify-between p-2 bg-muted rounded-md">
+                    <div className="flex items-center gap-2">
+                      <div 
+                        className="w-3 h-3 rounded-full" 
+                        style={{ backgroundColor: indexOptions.find(opt => opt.name === selectedIndex)?.color || '#000000' }}
+                      ></div>
+                      <span className="text-sm font-medium">{selectedIndex}</span>
+                    </div>
+                    <Badge variant="secondary" className="text-xs">Locked</Badge>
+                  </div>
+                </div>
+              </div>
+
               {/* Selected Items */}
               {selectedItems.length > 0 && (
                 <div>
@@ -429,7 +505,7 @@ export function MarketRotationRRG() {
                       <Badge variant="outline" className="text-xs">Min. required</Badge>
                     )}
                   </div>
-                  <div className="space-y-1">
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
                     {selectedItems.map((item) => {
                       const option = currentOptions.find(opt => opt.name === item);
                       return (
@@ -469,6 +545,59 @@ export function MarketRotationRRG() {
                 </div>
               )}
 
+              {/* Search (for stocks only) */}
+              {viewMode === 'stock' && (
+                <div>
+                  <h4 className="text-sm font-medium mb-2">Add Stock</h4>
+                  <div className="relative" ref={searchRef}>
+                    <div className="relative">
+                      <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                      <input
+                        type="text"
+                        placeholder="Search stocks..."
+                        value={searchQuery}
+                        onChange={(e) => {
+                          setSearchQuery(e.target.value);
+                          setShowSearchDropdown(true);
+                        }}
+                        onFocus={() => setShowSearchDropdown(true)}
+                        className="w-full pl-7 pr-3 py-2 text-xs bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors"
+                      />
+                    </div>
+                    
+                    {/* Search Dropdown */}
+                    {showSearchDropdown && searchQuery && (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-10 max-h-48 overflow-y-auto">
+                        {getFilteredOptions().map((option) => (
+                          <button
+                            key={option.name}
+                            onClick={() => addFromSearch(option.name)}
+                            className="flex items-center justify-between w-full p-2 text-left hover:bg-accent transition-colors"
+                          >
+                            <div className="flex items-center gap-2">
+                              <div 
+                                className="w-3 h-3 rounded-full" 
+                                style={{ backgroundColor: option.color }}
+                              ></div>
+                              <span className="text-sm">{option.name}</span>
+                            </div>
+                            <Plus className="w-3 h-3 text-muted-foreground" />
+                          </button>
+                        ))}
+                        {getFilteredOptions().length === 0 && (
+                          <div className="p-2 text-sm text-muted-foreground">
+                            {stockOptions.filter(s => !selectedItems.includes(s.name)).length === 0 
+                              ? 'All stocks already selected' 
+                              : 'No stocks found'
+                            }
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Available Options */}
               <div>
                 <h4 className="text-sm font-medium mb-2">Available {viewMode === 'sector' ? 'Sectors' : 'Stocks'}</h4>
@@ -504,24 +633,73 @@ export function MarketRotationRRG() {
       {/* Dashboard Momentum Screener */}
       <Card>
         <CardHeader>
-          <CardTitle>Relative Momentum Screener</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Relative Momentum Screener</CardTitle>
+            <div className="relative" ref={screenerSearchRef}>
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Add stock to screener..."
+                  value={screenerSearchQuery}
+                  onChange={(e) => {
+                    setScreenerSearchQuery(e.target.value);
+                    setShowScreenerSearchDropdown(true);
+                  }}
+                  onFocus={() => setShowScreenerSearchDropdown(true)}
+                  className="pl-8 pr-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors w-48"
+                />
+              </div>
+              
+              {/* Screener Search Dropdown */}
+              {showScreenerSearchDropdown && screenerSearchQuery && (
+                <div className="absolute top-full right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-10 max-h-48 overflow-y-auto min-w-48">
+                  {getFilteredScreenerOptions().map((option) => (
+                    <button
+                      key={option.name}
+                      onClick={() => addToScreener(option.name)}
+                      className="flex items-center justify-between w-full p-2 text-left hover:bg-accent transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        <div 
+                          className="w-3 h-3 rounded-full" 
+                          style={{ backgroundColor: option.color }}
+                        ></div>
+                        <span className="text-sm">{option.name}</span>
+                      </div>
+                      <Plus className="w-3 h-3 text-muted-foreground" />
+                    </button>
+                  ))}
+                  {getFilteredScreenerOptions().length === 0 && (
+                    <div className="p-2 text-sm text-muted-foreground">
+                      {stockOptions.filter(s => !screenerStocks.some(stock => stock.symbol === s.name)).length === 0 
+                        ? 'All stocks already in screener' 
+                        : 'No stocks found'
+                      }
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
             {/* Header */}
-            <div className="grid grid-cols-6 gap-2 text-xs font-medium text-muted-foreground border-b pb-2">
+            <div className="grid grid-cols-7 gap-2 text-xs font-medium text-muted-foreground border-b pb-2">
               <div>Symbol</div>
               <div>Sector</div>
               <div>RS-Ratio</div>
               <div>RS-Momentum</div>
               <div>Performance</div>
               <div>Trend</div>
+              <div>Action</div>
             </div>
             
             {/* Data Rows */}
             <div className="space-y-2 max-h-80 overflow-y-auto">
-              {screenerData.map((item, index) => (
-                <div key={index} className="grid grid-cols-6 gap-2 text-xs items-center py-2 border-b border-border/50">
+              {screenerStocks.map((item, index) => (
+                <div key={index} className="grid grid-cols-7 gap-2 text-xs items-center py-2 border-b border-border/50">
                   <div className="font-medium text-card-foreground">{item.symbol}</div>
                   <div className="text-muted-foreground">{item.sector}</div>
                   <div className="text-card-foreground">
@@ -531,12 +709,21 @@ export function MarketRotationRRG() {
                     {item.rsMomentum.toFixed(1)}
                   </div>
                   <div className={item.performance >= 0 ? 'text-green-600' : 'text-red-600'}>
-                    {item.performance >= 0 ? '+' : ''}{item.performance}%
+                    {item.performance >= 0 ? '+' : ''}{item.performance.toFixed(1)}%
                   </div>
                   <div>
                     <Badge variant={getBadgeVariant(item.trend)} className="text-xs">
                       {item.trend}
                     </Badge>
+                  </div>
+                  <div>
+                    <button
+                      onClick={() => removeFromScreener(item.symbol)}
+                      className="h-6 w-6 p-0 flex items-center justify-center rounded-md transition-colors hover:bg-muted/50 hover:shadow-sm opacity-60 hover:opacity-100"
+                      title={`Remove ${item.symbol} from screener`}
+                    >
+                      <X className="w-3 h-3 text-muted-foreground hover:text-destructive" />
+                    </button>
                   </div>
                 </div>
               ))}
