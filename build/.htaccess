@@ -1,0 +1,99 @@
+# Force HTTPS
+<IfModule mod_rewrite.c>
+RewriteEngine On
+
+# Respect proxies/load balancers
+RewriteCond %{HTTP:X-Forwarded-Proto} !https [OR]
+RewriteCond %{HTTPS} !=on
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+</IfModule>
+
+# Security headers
+<IfModule mod_headers.c>
+  Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  # Modern browsers disable XSS Auditor; keep disabled to avoid side-effects
+  Header always set X-XSS-Protection "0"
+  # Lock down powerful features by default
+  Header always set Permissions-Policy "geolocation=(), microphone=(), camera=(), usb=(), payment=(), interest-cohort=()"
+  # Content Security Policy — relaxed for typical SPA needs (adjust if you tighten inline usage)
+  Header set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https:; font-src 'self' data: https:; connect-src 'self' https: wss:; frame-ancestors 'self'; base-uri 'self'; form-action 'self'"
+</IfModule>
+
+# Disable directory listings
+Options -Indexes
+
+# Block access to dotfiles
+<FilesMatch "^\.">
+  Require all denied
+</FilesMatch>
+
+# Compression (Brotli, then Deflate)
+<IfModule mod_brotli.c>
+  AddOutputFilterByType BROTLI_COMPRESS text/html text/plain text/xml text/css text/javascript application/javascript application/json application/xml image/svg+xml application/font-woff2
+</IfModule>
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript application/javascript application/json application/xml image/svg+xml
+</IfModule>
+
+# Caching and immutability for hashed assets
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/css "access plus 1 year"
+  ExpiresByType text/javascript "access plus 1 year"
+  ExpiresByType application/javascript "access plus 1 year"
+  ExpiresByType application/json "access plus 1 hour"
+  ExpiresByType image/avif "access plus 1 year"
+  ExpiresByType image/webp "access plus 1 year"
+  ExpiresByType image/svg+xml "access plus 1 year"
+  ExpiresByType image/x-icon "access plus 1 year"
+  ExpiresByType image/png "access plus 1 year"
+  ExpiresByType image/jpeg "access plus 1 year"
+  ExpiresByType font/woff2 "access plus 1 year"
+  ExpiresDefault "access plus 1 hour"
+</IfModule>
+
+<IfModule mod_headers.c>
+  <FilesMatch "\.(?:css|js|mjs|png|jpg|jpeg|gif|svg|webp|avif|woff2)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+  <FilesMatch "\.(?:html)$">
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+  </FilesMatch>
+</IfModule>
+
+# SPA fallback to index.html (after HTTPS redirect)
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  # Skip existing files and directories
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+  # Otherwise serve index.html
+  RewriteRule ^ index.html [L]
+</IfModule>
+
+# Disable PHP (and similar script) execution entirely
+<IfModule mod_mime.c>
+  RemoveHandler .php .phtml .php5 .php7 .php8 .phar .phps
+  RemoveType .php .phtml .php5 .php7 .php8 .phar .phps
+  AddType text/plain .php .phtml .php5 .php7 .php8 .phar .phps
+</IfModule>
+
+<IfModule mod_php.c>
+  php_flag engine off
+</IfModule>
+
+<FilesMatch "\.(?:php|phtml|php5|php7|php8|phar|phps|cgi|pl|shtml)$">
+  <IfModule mod_access_compat.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+  Require all denied
+  <IfModule mod_alias.c>
+    RedirectMatch 403 \. (?:php|phtml|php5|php7|php8|phar|phps|cgi|pl|shtml)$
+  </IfModule>
+</FilesMatch>
