@@ -234,16 +234,6 @@ export function StoryMarketParticipant() {
                   ))}
                 </div>
               </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="showHistory"
-                  checked={showHistory}
-                  onChange={(e) => setShowHistory(e.target.checked)}
-                  className="rounded border-border"
-                />
-              </div>
             </div>
           </div>
         </CardContent>
@@ -293,6 +283,12 @@ export function StoryMarketParticipant() {
                       borderRadius: '6px',
                       fontSize: '12px'
                     }}
+                    formatter={(value, name) => {
+                      if (name === 'Money Flow' || name === 'Inflow' || name === 'Outflow') {
+                        return [`${value}M`, name];
+                      }
+                      return [value, name];
+                    }}
                   />
                   <Bar dataKey="moneyFlow" fill="#3b82f6" name="Money Flow" />
                   <Line type="monotone" dataKey="inflow" stroke="#22c55e" strokeWidth={2} dot={false} name="Inflow" />
@@ -331,6 +327,12 @@ export function StoryMarketParticipant() {
                       border: '1px solid hsl(var(--border))',
                       borderRadius: '6px',
                       fontSize: '12px'
+                    }}
+                    formatter={(value, name) => {
+                      if (name === 'Buy Volume' || name === 'Sell Volume') {
+                        return [`${value.toLocaleString()}`, name];
+                      }
+                      return [value, name];
                     }}
                   />
                   <Bar dataKey="buyVolume" stackId="volume" fill="#22c55e" name="Buy Volume" />
@@ -372,6 +374,7 @@ export function StoryMarketParticipant() {
                         borderRadius: '6px',
                         fontSize: '12px'
                       }}
+                      formatter={(value, name) => [`${value}%`, name]}
                     />
                     <Bar dataKey="Corporate" stackId="local" fill="#3b82f6" name="Corporate" />
                     <Bar dataKey="FinancialInstitution" stackId="local" fill="#8b5cf6" name="Financial Institution" />
@@ -416,6 +419,7 @@ export function StoryMarketParticipant() {
                         borderRadius: '6px',
                         fontSize: '12px'
                       }}
+                      formatter={(value, name) => [`${value}%`, name]}
                     />
                     <Bar dataKey="Corporate" stackId="foreign" fill="#3b82f6" name="Corporate" />
                     <Bar dataKey="FinancialInstitution" stackId="foreign" fill="#8b5cf6" name="Financial Institution" />
@@ -460,6 +464,7 @@ export function StoryMarketParticipant() {
                         borderRadius: '6px',
                         fontSize: '12px'
                       }}
+                      formatter={(value, name) => [`${value}%`, name]}
                     />
                     <Bar dataKey="Local" stackId="combined" fill="#3b82f6" name="Local" />
                     <Bar dataKey="Foreign" stackId="combined" fill="#f59e0b" name="Foreign" />
