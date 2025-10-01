@@ -28,6 +28,7 @@ import { StoryOwnership } from "./components/StoryOwnership";
 import { StoryForeignFlow } from "./components/StoryForeignFlow";
 import { AstrologyLunarCalendar } from "./components/AstrologyLunarCalendar";
 import { TechnicalAnalysis } from "./components/TechnicalAnalysis";
+import { TechnicalAnalysisTradingView } from "./components/TechnicalAnalysisTradingView";
 import { ProfilePage } from "./components/ProfilePage";
 import { SubscriptionPage } from "./components/SubscriptionPage";
 import { AdminPage } from "./components/AdminPage";
@@ -137,7 +138,7 @@ function DashboardLayout() {
       case "technical-analysis":
         return (
           <div className="h-full">
-            <TechnicalAnalysis />
+            <TechnicalAnalysisTradingView />
           </div>
         );
 
