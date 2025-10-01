@@ -4,46 +4,70 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Calendar, Plus, X, RotateCcw } from 'lucide-react';
 
-interface BrokerData {
-  brkCode: string;
+interface IssuerData {
+  ticker: string;
   rsVal: number;
   hitLot: number;
   rsFreq: number;
   sAvg: number;
 }
 
-// Sample broker transaction data
-const generateBrokerData = (date: string): BrokerData[] => [
-  { brkCode: 'MG', rsVal: 106.653, hitLot: 14.014, rsFreq: 14.014, sAvg: 1.324 },
-  { brkCode: 'CIMB', rsVal: 27.9, hitLot: 169.776, rsFreq: 5.431, sAvg: 1.067 },
-  { brkCode: 'UOB', rsVal: 69.2, hitLot: 90.661, rsFreq: 360, sAvg: 2.955 },
-  { brkCode: 'COIN', rsVal: 6.9, hitLot: 103.766, rsFreq: 16.892, sAvg: 680 },
-  { brkCode: 'NH', rsVal: 6.1, hitLot: 26.663, rsFreq: 19, sAvg: 343 },
-  { brkCode: 'TRIM', rsVal: 5.9, hitLot: 192.292, rsFreq: 277, sAvg: 303 },
-  { brkCode: 'DEWA', rsVal: 3.5, hitLot: 360.518, rsFreq: 234, sAvg: 310 },
-  { brkCode: 'BNCA', rsVal: 3.3, hitLot: 3.676, rsFreq: 123, sAvg: 8.093 },
-  { brkCode: 'PNLF', rsVal: 2.7, hitLot: 291.203, rsFreq: 1.679, sAvg: 270 },
-  { brkCode: 'VRNA', rsVal: 2.6, hitLot: 235.412, rsFreq: 5.104, sAvg: 172 },
-  { brkCode: 'SD', rsVal: 2.3, hitLot: 17.099, rsFreq: 161, sAvg: 1.739 },
-  { brkCode: 'LMGA', rsVal: 2.3, hitLot: 13.636, rsFreq: 131, sAvg: 1.739 },
-  { brkCode: 'DEAL', rsVal: 1.8, hitLot: 10.761, rsFreq: 40, sAvg: 1.570 },
-  { brkCode: 'ESA', rsVal: 1.6, hitLot: 20.950, rsFreq: 224, sAvg: 504 },
-  { brkCode: 'SSA', rsVal: 1.4, hitLot: 5.159, rsFreq: 23, sAvg: 2.835 },
+// Deterministic pseudo-random generator based on string seed
+const seededRandom = (seed: string): number => {
+  let hash = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    hash ^= seed.charCodeAt(i);
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+  return (hash >>> 0) / 4294967295;
+};
+
+// Sample issuers universe
+const ISSUERS = [
+  'BBCA','BBRI','BMRI','BBNI','ARTO','BACA','TLKM','ISAT','FREN','EXCL',
+  'ASII','GOTO','ANTM','MDKA','ADRO','UNVR','ICBP','INDF','PGAS','MEDC',
+  'CPIN','JPFA','INCO','TPIA','TKIM','INKP','BRIS','SIDO','ERAA','ESSA'
 ];
 
-// Sample negative data for sell side
-const generateNegativeBrokerData = (date: string): BrokerData[] => [
-  { brkCode: 'BREN', rsVal: -19.8, hitLot: -25.571, rsFreq: -1.745, sAvg: 7.743 },
-  { brkCode: 'CA', rsVal: -18.3, hitLot: -72.947, rsFreq: -294, sAvg: 2.353 },
-  { brkCode: 'PTRO', rsVal: -13.2, hitLot: -34.650, rsFreq: -1.046, sAvg: 5.722 },
-  { brkCode: 'TOGA', rsVal: -8.3, hitLot: -78.749, rsFreq: -1.994, sAvg: 1.012 },
-  { brkCode: 'CUAN', rsVal: -8.1, hitLot: -52.204, rsFreq: -4.472, sAvg: 1.547 },
-  { brkCode: 'AGRO', rsVal: -7.3, hitLot: -37.640, rsFreq: -2.253, sAvg: 1.984 },
-  { brkCode: 'PTMR', rsVal: -6.0, hitLot: -160.014, rsFreq: -4, sAvg: 374 },
-  { brkCode: 'RHB', rsVal: -4.6, hitLot: -42.400, rsFreq: 106, sAvg: 3.999 },
-  { brkCode: 'INCO', rsVal: -4.5, hitLot: -12.265, rsFreq: 261, sAvg: 3.708 },
-  { brkCode: 'MAAS', rsVal: -3.8, hitLot: -32.051, rsFreq: -454, sAvg: 1.174 },
-];
+// Generate issuers a broker bought on a date
+const generateIssuerBuyData = (date: string, brokerCode: string): IssuerData[] => {
+  const dateFactor = 0.8 + ((new Date(date).getDate() % 5) * 0.05);
+  const rows: IssuerData[] = [];
+  for (const ticker of ISSUERS) {
+    const r = seededRandom(brokerCode + ticker + date);
+    if (r > 0.45) {
+      const intensity = 0.5 + r; // 0.5..1.5
+      rows.push({
+        ticker,
+        rsVal: +(80 * intensity * dateFactor).toFixed(3),
+        hitLot: +(100 * intensity * dateFactor).toFixed(3),
+        rsFreq: +(200 * intensity * dateFactor).toFixed(3),
+        sAvg: +(1000 * intensity).toFixed(3),
+      });
+    }
+  }
+  return rows.slice(0, 15);
+};
+
+// Generate issuers a broker sold on a date (negative values)
+const generateIssuerSellData = (date: string, brokerCode: string): IssuerData[] => {
+  const dateFactor = 0.8 + ((new Date(date).getDate() % 5) * 0.05);
+  const rows: IssuerData[] = [];
+  for (const ticker of ISSUERS) {
+    const r = seededRandom('S' + brokerCode + ticker + date);
+    if (r > 0.55) {
+      const intensity = 0.5 + r; // 0.5..1.5
+      rows.push({
+        ticker,
+        rsVal: -+(50 * intensity * dateFactor).toFixed(3),
+        hitLot: -+(80 * intensity * dateFactor).toFixed(3),
+        rsFreq: -+(150 * intensity * dateFactor).toFixed(3),
+        sAvg: +(900 * intensity).toFixed(3),
+      });
+    }
+  }
+  return rows.slice(0, 10);
+};
 
 const formatNumber = (num: number): string => {
   if (Math.abs(num) >= 1000) {
@@ -75,6 +99,9 @@ export function BrokerTransaction() {
   const [selectedDates, setSelectedDates] = useState<string[]>(getLastThreeDays());
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [brokerInput, setBrokerInput] = useState('');
+  const [selectedBroker, setSelectedBroker] = useState<string>('');
+  const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false);
 
   const addDateRange = () => {
     if (startDate && endDate) {
@@ -135,15 +162,16 @@ export function BrokerTransaction() {
   };
 
   const renderHorizontalView = () => {
-    const buyData = generateBrokerData(selectedDates[0]);
-    const sellData = generateNegativeBrokerData(selectedDates[0]);
+    if (!selectedBroker) return null;
+    const buyData = generateIssuerBuyData(selectedDates[0], selectedBroker);
+    const sellData = generateIssuerSellData(selectedDates[0], selectedBroker);
     
     return (
       <div className="space-y-6">
         {/* Buy Side Horizontal Table */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-green-600">BUY SIDE - Multi-Date Comparison</CardTitle>
+            <CardTitle className="text-green-600">BUY SIDE - {selectedBroker}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -151,7 +179,7 @@ export function BrokerTransaction() {
                 <table className="w-full text-xs border-collapse">
                   <thead>
                     <tr className="border-b border-border">
-                      <th className="text-left py-2 px-2 font-medium bg-accent/50 sticky left-0 z-10">BRKCode</th>
+                      <th className="text-left py-2 px-2 font-medium bg-accent/50 sticky left-0 z-10">Ticker</th>
                       {selectedDates.map((date) => (
                         <th key={date} colSpan={4} className="text-center py-2 px-1 font-medium border-l border-border">
                           {formatDisplayDate(date)}
@@ -173,9 +201,9 @@ export function BrokerTransaction() {
                   <tbody>
                     {buyData.map((row, idx) => (
                       <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                        <td className="py-1.5 px-2 font-medium bg-background/80 sticky left-0 z-10 border-r border-border">{row.brkCode}</td>
+                        <td className="py-1.5 px-2 font-medium bg-background/80 sticky left-0 z-10 border-r border-border">{row.ticker}</td>
                         {selectedDates.map((date) => {
-                          const dayData = generateBrokerData(date).find(d => d.brkCode === row.brkCode) || row;
+                          const dayData = generateIssuerBuyData(date, selectedBroker).find(d => d.ticker === row.ticker) || row;
                           return (
                             <React.Fragment key={date}>
                               <td className="text-right py-1.5 px-1 text-green-600">{formatValue(dayData.rsVal)}</td>
@@ -197,7 +225,7 @@ export function BrokerTransaction() {
         {/* Sell Side Horizontal Table */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-red-600">SELL SIDE - Multi-Date Comparison</CardTitle>
+            <CardTitle className="text-red-600">SELL SIDE - {selectedBroker}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -205,7 +233,7 @@ export function BrokerTransaction() {
                 <table className="w-full text-xs border-collapse">
                   <thead>
                     <tr className="border-b border-border">
-                      <th className="text-left py-2 px-2 font-medium bg-accent/50 sticky left-0 z-10">BRKCode</th>
+                      <th className="text-left py-2 px-2 font-medium bg-accent/50 sticky left-0 z-10">Ticker</th>
                       {selectedDates.map((date) => (
                         <th key={date} colSpan={4} className="text-center py-2 px-1 font-medium border-l border-border">
                           {formatDisplayDate(date)}
@@ -227,9 +255,9 @@ export function BrokerTransaction() {
                   <tbody>
                     {sellData.map((row, idx) => (
                       <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                        <td className="py-1.5 px-2 font-medium bg-background/80 sticky left-0 z-10 border-r border-border">{row.brkCode}</td>
+                        <td className="py-1.5 px-2 font-medium bg-background/80 sticky left-0 z-10 border-r border-border">{row.ticker}</td>
                         {selectedDates.map((date) => {
-                          const dayData = generateNegativeBrokerData(date).find(d => d.brkCode === row.brkCode) || row;
+                          const dayData = generateIssuerSellData(date, selectedBroker).find(d => d.ticker === row.ticker) || row;
                           return (
                             <React.Fragment key={date}>
                               <td className="text-right py-1.5 px-1 text-red-600">{formatValue(dayData.rsVal)}</td>
@@ -266,7 +294,7 @@ export function BrokerTransaction() {
             {/* Selected Dates */}
             <div>
               <label className="text-sm font-medium">Selected Dates:</label>
-              <div className="flex flex-wrap gap-2 mt-2">
+              <div className="flex flex-wrap items-center gap-2 mt-2">
                 {selectedDates.map((date) => (
                   <Badge key={date} variant="secondary" className="px-3 py-1">
                     {formatDisplayDate(date)}
@@ -290,6 +318,55 @@ export function BrokerTransaction() {
                   <Calendar className="w-3 h-3 mr-1" />
                   Last 3 Days
                 </Button>
+
+                {/* Broker Autocomplete (compact, inline) */}
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={brokerInput}
+                    onChange={(e) => {
+                      const v = e.target.value.toUpperCase();
+                      setBrokerInput(v);
+                      setShowBrokerSuggestions(true);
+                      if (!v) setSelectedBroker('');
+                    }}
+                    onFocus={() => setShowBrokerSuggestions(true)}
+                    placeholder="Broker..."
+                    className="px-3 py-1.5 border border-border rounded-md bg-input text-foreground w-32"
+                  />
+                  {!!brokerInput && (
+                    <button
+                      className="absolute right-1 top-1.5 text-muted-foreground"
+                      onClick={() => { setBrokerInput(''); setSelectedBroker(''); setShowBrokerSuggestions(false); }}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                  {showBrokerSuggestions && (
+                    <div className="absolute z-20 mt-1 w-40 max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
+                      {['MG','CIMB','UOB','COIN','NH','TRIM','DEWA','BNCA','PNLF','VRNA','SD','LMGA','DEAL','ESA','SSA']
+                        .filter(b => b.toLowerCase().includes(brokerInput.toLowerCase()))
+                        .slice(0, 10)
+                        .map(b => (
+                          <button
+                            key={b}
+                            className="w-full text-left px-3 py-1.5 hover:bg-accent"
+                            onClick={() => {
+                              setSelectedBroker(b);
+                              setBrokerInput(b);
+                              setShowBrokerSuggestions(false);
+                            }}
+                          >
+                            {b}
+                          </button>
+                        ))}
+                      {['MG','CIMB','UOB','COIN','NH','TRIM','DEWA','BNCA','PNLF','VRNA','SD','LMGA','DEAL','ESA','SSA']
+                        .filter(b => b.toLowerCase().includes(brokerInput.toLowerCase())).length === 0 && (
+                        <div className="px-3 py-1.5 text-sm text-muted-foreground">No results</div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
