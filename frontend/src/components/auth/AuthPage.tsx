@@ -1,0 +1,145 @@
+import React, { useState, useEffect } from 'react';
+import { LoginForm } from './LoginForm';
+import { SignUpForm } from './SignUpForm';
+import { ForgotPasswordForm } from './ForgotPasswordForm';
+import { EmailVerificationForm } from './EmailVerificationForm';
+import { EmailVerificationSuccess } from './EmailVerificationSuccess';
+import { AuthLayout } from './AuthLayout';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { api } from '../../services/api';
+import { toast } from 'sonner';
+import { getAuthError } from '../../utils/errorHandler';
+import { setAuthState } from '../../utils/auth';
+import { supabase } from '../../lib/supabase';
+
+interface AuthPageProps {
+  initialMode?: 'login' | 'signup';
+}
+
+export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
+  const [isLogin, setIsLogin] = useState(initialMode === 'login');
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
+  const [isEmailVerification, setIsEmailVerification] = useState(false);
+  const [isEmailVerificationSuccess, setIsEmailVerificationSuccess] = useState(false);
+  const [verificationEmail, setVerificationEmail] = useState('');
+  const [verificationType, setVerificationType] = useState<'signup' | 'recovery'>('signup');
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  useEffect(() => {
+    const mode = searchParams.get('mode');
+    if (mode === 'login') {
+      setIsLogin(true);
+    } else if (mode === 'register') {
+      setIsLogin(false);
+    } else if (mode === 'email-verification-success') {
+      // Email verification success mode - show success message then redirect
+      setIsEmailVerificationSuccess(true);
+      const action = searchParams.get('action');
+      if (action === 'password-changed') {
+        // Password was changed, show success and redirect to profile
+        setTimeout(() => {
+          navigate('/profile?tab=change-password');
+        }, 3000);
+      }
+    }
+  }, [searchParams]);
+
+  const handleAuthSuccess = () => {
+    navigate('/dashboard'); // Redirect to dashboard
+  };
+
+  const handleLogin = (email: string, password: string) => {
+    // Login is now handled directly in LoginForm
+    // This function is kept for compatibility but does nothing
+    handleAuthSuccess();
+  };
+
+  const handleSignUp = async (name: string, email: string, password: string) => {
+    // Signup is now handled directly in SignupForm
+    // This function is kept for compatibility but does nothing
+  };
+
+  const handleSwitchToForgotPassword = () => {
+    setIsForgotPassword(true);
+  };
+
+  const handleSwitchFromForgotPassword = () => {
+    setIsForgotPassword(false);
+  };
+
+  const handleForgotPassword = async (email: string) => {
+    try {
+      const response = await api.forgotPassword(email);
+      if (response.success) {
+        toast.success(response.message || 'Jika email terdaftar, kami telah mengirim link reset.');
+        return response; // Return response so ForgotPasswordForm can handle it
+      } else {
+        toast.error(response.error || 'Gagal mengirim link reset password');
+        return response;
+      }
+    } catch (error: any) {
+      toast.error(error.message || 'Gagal mengirim link reset password');
+      return { success: false, error: error.message };
+    }
+  };
+
+
+  const handleSwitchToEmailVerification = (email: string, type: 'signup' | 'recovery') => {
+    setVerificationEmail(email);
+    setVerificationType(type);
+    setIsEmailVerification(true);
+  };
+
+  const handleSwitchFromEmailVerification = () => {
+    setIsEmailVerification(false);
+    setVerificationEmail('');
+  };
+
+  const handleEmailVerified = () => {
+    setIsEmailVerification(false);
+    setVerificationEmail('');
+    handleAuthSuccess();
+  };
+
+  const handleResendSuccess = () => {
+    toast.success('Verification email sent successfully!');
+  };
+
+
+  return (
+    <AuthLayout>
+      {isEmailVerificationSuccess ? (
+        <EmailVerificationSuccess
+          message="Password berhasil diubah! Anda akan diarahkan ke halaman profil untuk mengubah password."
+          redirectTo="/profile?tab=change-password"
+        />
+      ) : isEmailVerification ? (
+        <EmailVerificationForm
+          email={verificationEmail}
+          type={verificationType}
+          onBack={handleSwitchFromEmailVerification}
+          onVerified={handleEmailVerified}
+          onResendSuccess={handleResendSuccess}
+        />
+      ) : isForgotPassword ? (
+        <ForgotPasswordForm
+          onSwitchToLogin={handleSwitchFromForgotPassword}
+          onForgotPassword={handleForgotPassword}
+        />
+      ) : isLogin ? (
+        <LoginForm
+          onSwitchToSignUp={() => setIsLogin(false)}
+          onSwitchToForgotPassword={handleSwitchToForgotPassword}
+          onLogin={handleLogin}
+        />
+      ) : (
+        <SignUpForm
+          onSwitchToLogin={() => setIsLogin(true)}
+          onSwitchToEmailVerification={handleSwitchToEmailVerification}
+          onSignUp={handleSignUp}
+        />
+      )}
+    </AuthLayout>
+  );
+}
