@@ -1,0 +1,51 @@
+#!/bin/bash
+# Remove all lowercase shadcn components to resolve conflicts
+
+# Keep only the custom components (uppercase) and utils
+rm -f /components/ui/accordion.tsx
+rm -f /components/ui/alert-dialog.tsx
+rm -f /components/ui/alert.tsx
+rm -f /components/ui/aspect-ratio.tsx
+rm -f /components/ui/avatar.tsx
+rm -f /components/ui/badge.tsx
+rm -f /components/ui/breadcrumb.tsx
+rm -f /components/ui/button.tsx
+rm -f /components/ui/calendar.tsx
+rm -f /components/ui/card.tsx
+rm -f /components/ui/carousel.tsx
+rm -f /components/ui/chart.tsx
+rm -f /components/ui/checkbox.tsx
+rm -f /components/ui/collapsible.tsx
+rm -f /components/ui/command.tsx
+rm -f /components/ui/context-menu.tsx
+rm -f /components/ui/dialog.tsx
+rm -f /components/ui/drawer.tsx
+rm -f /components/ui/dropdown-menu.tsx
+rm -f /components/ui/form.tsx
+rm -f /components/ui/hover-card.tsx
+rm -f /components/ui/input-otp.tsx
+rm -f /components/ui/input.tsx
+rm -f /components/ui/label.tsx
+rm -f /components/ui/menubar.tsx
+rm -f /components/ui/navigation-menu.tsx
+rm -f /components/ui/pagination.tsx
+rm -f /components/ui/popover.tsx
+rm -f /components/ui/progress.tsx
+rm -f /components/ui/radio-group.tsx
+rm -f /components/ui/resizable.tsx
+rm -f /components/ui/scroll-area.tsx
+rm -f /components/ui/select.tsx
+rm -f /components/ui/separator.tsx
+rm -f /components/ui/sheet.tsx
+rm -f /components/ui/sidebar.tsx
+rm -f /components/ui/skeleton.tsx
+rm -f /components/ui/slider.tsx
+rm -f /components/ui/sonner.tsx
+rm -f /components/ui/switch.tsx
+rm -f /components/ui/table.tsx
+rm -f /components/ui/tabs.tsx
+rm -f /components/ui/textarea.tsx
+rm -f /components/ui/toggle-group.tsx
+rm -f /components/ui/toggle.tsx
+rm -f /components/ui/tooltip.tsx
+rm -f /components/ui/use-mobile.ts

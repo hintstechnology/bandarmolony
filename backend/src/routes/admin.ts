@@ -148,7 +148,7 @@ router.get('/stats', requireAdmin, async (req, res) => {
       throw verificationError;
     }
 
-    const verifiedCount = verificationStats?.filter(u => u.email_verified).length || 0;
+    const verifiedCount = verificationStats?.filter((u: any) => u.email_verified).length || 0;
     const unverifiedCount = (verificationStats?.length || 0) - verifiedCount;
 
     res.json(createSuccessResponse({
