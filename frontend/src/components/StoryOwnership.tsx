@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -289,12 +289,47 @@ export function StoryOwnership() {
   const [selectedStock, setSelectedStock] = useState('BBCA');
   const [selectedView, setSelectedView] = useState('summary');
   const [dataRange, setDataRange] = useState(6); // Default 6 months
+  const [stockInput, setStockInput] = useState('BBCA');
+  const [showStockSuggestions, setShowStockSuggestions] = useState(false);
 
-  const stocks = ['BBCA', 'BBRI', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM'];
+  const stocks = ['BBCA', 'BBRI', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM', 'ICBP', 'INDF', 'KLBF', 'ADRO', 'ANTM', 'ITMG', 'PTBA', 'SMGR', 'INTP', 'WIKA', 'WSKT', 'PGAS'];
   const views = [
     { key: 'summary', label: 'Summary' },
     { key: 'detailed', label: 'Detailed' }
   ];
+
+  // Filter stocks based on input
+  const filteredStocks = stocks.filter(stock => 
+    stock.toLowerCase().includes(stockInput.toLowerCase())
+  );
+
+  const handleStockSelect = (stock: string) => {
+    setStockInput(stock);
+    setSelectedStock(stock);
+    setShowStockSuggestions(false);
+  };
+
+  const handleStockInputChange = (value: string) => {
+    setStockInput(value.toUpperCase());
+    setShowStockSuggestions(true);
+    // Auto-select if exact match
+    if (stocks.includes(value.toUpperCase())) {
+      setSelectedStock(value.toUpperCase());
+    }
+  };
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+      if (!target.closest('.stock-dropdown-container')) {
+        setShowStockSuggestions(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Get historical data based on selected range
   const getHistoricalData = () => {
@@ -323,15 +358,50 @@ export function StoryOwnership() {
             <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
               <div className="flex items-center gap-2">
                 <label className="font-medium">Stock:</label>
-                <select
-                  value={selectedStock}
-                  onChange={(e) => setSelectedStock(e.target.value)}
-                  className="px-3 py-1 border border-border rounded-md bg-background text-foreground"
-                >
-                  {stocks.map(stock => (
-                    <option key={stock} value={stock}>{stock}</option>
-                  ))}
-                </select>
+                <div className="relative stock-dropdown-container">
+                  <input
+                    type="text"
+                    value={stockInput}
+                    onChange={(e) => handleStockInputChange(e.target.value)}
+                    onFocus={() => setShowStockSuggestions(true)}
+                    placeholder="Enter stock code..."
+                    className="px-3 py-1 border border-border rounded-md bg-background text-foreground w-40"
+                  />
+                  {showStockSuggestions && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                      {stockInput === '' ? (
+                        <>
+                          <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
+                            All Stocks
+                          </div>
+                          {stocks.map(stock => (
+                            <div
+                              key={stock}
+                              onClick={() => handleStockSelect(stock)}
+                              className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
+                            >
+                              {stock}
+                            </div>
+                          ))}
+                        </>
+                      ) : filteredStocks.length > 0 ? (
+                        filteredStocks.map(stock => (
+                          <div
+                            key={stock}
+                            onClick={() => handleStockSelect(stock)}
+                            className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
+                          >
+                            {stock}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">
+                          No stocks found
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
               
               <div className="flex items-center gap-2">

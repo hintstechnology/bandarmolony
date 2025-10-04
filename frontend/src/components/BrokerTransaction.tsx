@@ -80,28 +80,61 @@ const formatValue = (value: number): string => {
   return formatNumber(value);
 };
 
-// Helper function to get last 3 days including today (sorted newest first)
-const getLastThreeDays = (): string[] => {
+// Get trading days based on count
+const getTradingDays = (count: number): string[] => {
   const dates: string[] = [];
   const today = new Date();
+  let currentDate = new Date(today);
   
-  for (let i = 0; i < 3; i++) {
-    const date = new Date(today);
-    date.setDate(today.getDate() - i);
-    dates.push(date.toISOString().split('T')[0]);
+  while (dates.length < count) {
+    const dayOfWeek = currentDate.getDay();
+    
+    // Skip weekends (Saturday = 6, Sunday = 0)
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      dates.push(currentDate.toISOString().split('T')[0]);
+    }
+    
+    // Go to previous day
+    currentDate.setDate(currentDate.getDate() - 1);
+    
+    // Safety check
+    if (dates.length === 0 && currentDate.getTime() < today.getTime() - (30 * 24 * 60 * 60 * 1000)) {
+      dates.push(today.toISOString().split('T')[0]);
+      break;
+    }
   }
   
-  // Sort from newest to oldest
   return dates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+};
+
+// Helper function to get last 3 days including today (sorted newest first)
+const getLastThreeDays = (): string[] => {
+  return getTradingDays(3);
 };
 
 export function BrokerTransaction() {
   const [selectedDates, setSelectedDates] = useState<string[]>(getLastThreeDays());
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [brokerInput, setBrokerInput] = useState('');
-  const [selectedBroker, setSelectedBroker] = useState<string>('');
+  const [startDate, setStartDate] = useState(() => {
+    const threeDays = getLastThreeDays();
+    if (threeDays.length > 0) {
+      const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+      return sortedDates[0];
+    }
+    return '';
+  });
+  const [endDate, setEndDate] = useState(() => {
+    const threeDays = getLastThreeDays();
+    if (threeDays.length > 0) {
+      const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+      return sortedDates[sortedDates.length - 1];
+    }
+    return '';
+  });
+  const [brokerInput, setBrokerInput] = useState('MG');
+  const [selectedBroker, setSelectedBroker] = useState<string>('MG');
   const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false);
+  const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical'>('horizontal');
+  const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
 
   const addDateRange = () => {
     if (startDate && endDate) {
@@ -111,15 +144,6 @@ export function BrokerTransaction() {
       // Check if range is valid
       if (start > end) {
         alert('Start date must be before end date');
-        return;
-      }
-      
-      // Check if range is within 7 days
-      const diffTime = Math.abs(end.getTime() - start.getTime());
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      
-      if (diffDays > 7) {
-        alert('Maximum 7 days range allowed');
         return;
       }
       
@@ -133,18 +157,28 @@ export function BrokerTransaction() {
         currentDate.setDate(currentDate.getDate() + 1);
       }
       
-      // Remove duplicates, sort by date (newest first), and set
+      // Remove duplicates, sort by date (newest first), and check total limit
       const uniqueDates = Array.from(new Set([...selectedDates, ...dateArray]));
       const sortedDates = uniqueDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+      
+      // Check if total dates would exceed 7
+      if (sortedDates.length > 7) {
+        alert('Maximum 7 dates allowed');
+        return;
+      }
+      
       setSelectedDates(sortedDates);
-      setStartDate('');
-      setEndDate('');
+      // Switch to custom mode when user manually selects dates
+      setDateRangeMode('custom');
+      // Don't clear the date inputs - keep them for user reference
     }
   };
 
   const removeDate = (dateToRemove: string) => {
     if (selectedDates.length > 1) {
       setSelectedDates(selectedDates.filter(date => date !== dateToRemove));
+      // Switch to custom mode when user manually removes dates
+      setDateRangeMode('custom');
     }
   };
 
@@ -153,12 +187,59 @@ export function BrokerTransaction() {
     return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
   };
 
+  // Handle date range mode change
+  const handleDateRangeModeChange = (mode: '1day' | '3days' | '1week' | 'custom') => {
+    setDateRangeMode(mode);
+    
+    if (mode === 'custom') {
+      // Don't change dates, just switch to custom mode
+      return;
+    }
+    
+    // Apply preset dates based on mode
+    let newDates: string[] = [];
+    switch (mode) {
+      case '1day':
+        newDates = getTradingDays(1);
+        break;
+      case '3days':
+        newDates = getTradingDays(3);
+        break;
+      case '1week':
+        newDates = getTradingDays(5);
+        break;
+    }
+    
+    setSelectedDates(newDates);
+    
+    // Set date range to show the selected dates
+    if (newDates.length > 0) {
+      const sortedDates = [...newDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+      setStartDate(sortedDates[0]);
+      setEndDate(sortedDates[sortedDates.length - 1]);
+    }
+  };
+
+  // Clear all dates and reset to 1 day
   const clearAllDates = () => {
-    setSelectedDates([selectedDates[0]]); // Keep at least one date
+    setSelectedDates(getTradingDays(1));
+    setDateRangeMode('1day');
+    const oneDay = getTradingDays(1);
+    if (oneDay.length > 0) {
+      setStartDate(oneDay[0]);
+      setEndDate(oneDay[0]);
+    }
   };
 
   const resetToLastThreeDays = () => {
     setSelectedDates(getLastThreeDays());
+    setDateRangeMode('3days');
+    const threeDays = getLastThreeDays();
+    if (threeDays.length > 0) {
+      const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+      setStartDate(sortedDates[0]);
+      setEndDate(sortedDates[sortedDates.length - 1]);
+    }
   };
 
   const renderHorizontalView = () => {
@@ -193,7 +274,7 @@ export function BrokerTransaction() {
                           <th className="text-right py-1 px-1 font-medium text-[10px]">RSVal</th>
                           <th className="text-right py-1 px-1 font-medium text-[10px]">HitLot</th>
                           <th className="text-right py-1 px-1 font-medium text-[10px]">RSFreq</th>
-                          <th className="text-right py-1 px-1 font-medium text-[10px] border-r border-border">SAvg</th>
+                          <th className="text-right py-1 px-1 font-medium text-[10px] border-r-2 border-border">SAvg</th>
                         </React.Fragment>
                       ))}
                     </tr>
@@ -209,7 +290,7 @@ export function BrokerTransaction() {
                               <td className="text-right py-1.5 px-1 text-green-600">{formatValue(dayData.rsVal)}</td>
                               <td className="text-right py-1.5 px-1">{formatValue(dayData.hitLot)}</td>
                               <td className="text-right py-1.5 px-1">{formatValue(dayData.rsFreq)}</td>
-                              <td className="text-right py-1.5 px-1 border-r border-border">{formatValue(dayData.sAvg)}</td>
+                              <td className="text-right py-1.5 px-1 border-r-2 border-border">{formatValue(dayData.sAvg)}</td>
                             </React.Fragment>
                           );
                         })}
@@ -247,7 +328,7 @@ export function BrokerTransaction() {
                           <th className="text-right py-1 px-1 font-medium text-[10px]">RSVal</th>
                           <th className="text-right py-1 px-1 font-medium text-[10px]">HitLot</th>
                           <th className="text-right py-1 px-1 font-medium text-[10px]">RSFreq</th>
-                          <th className="text-right py-1 px-1 font-medium text-[10px] border-r border-border">SAvg</th>
+                          <th className="text-right py-1 px-1 font-medium text-[10px] border-r-2 border-border">SAvg</th>
                         </React.Fragment>
                       ))}
                     </tr>
@@ -263,7 +344,7 @@ export function BrokerTransaction() {
                               <td className="text-right py-1.5 px-1 text-red-600">{formatValue(dayData.rsVal)}</td>
                               <td className="text-right py-1.5 px-1 text-red-600">{formatValue(dayData.hitLot)}</td>
                               <td className="text-right py-1.5 px-1 text-red-600">{formatValue(dayData.rsFreq)}</td>
-                              <td className="text-right py-1.5 px-1 border-r border-border">{formatValue(dayData.sAvg)}</td>
+                              <td className="text-right py-1.5 px-1 border-r-2 border-border">{formatValue(dayData.sAvg)}</td>
                             </React.Fragment>
                           );
                         })}
@@ -275,6 +356,89 @@ export function BrokerTransaction() {
             </div>
           </CardContent>
         </Card>
+      </div>
+    );
+  };
+
+  const renderVerticalView = () => {
+    if (!selectedBroker) return null;
+    
+    return (
+      <div className="space-y-6">
+        {selectedDates.map((date) => {
+          const buyData = generateIssuerBuyData(date, selectedBroker);
+          const sellData = generateIssuerSellData(date, selectedBroker);
+          
+          return (
+            <div key={date} className="space-y-4">
+              {/* Buy Side for this date */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-green-600">BUY SIDE - {selectedBroker} ({formatDisplayDate(date)})</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border bg-accent/30">
+                          <th className="text-left py-2 px-3 font-medium">Ticker</th>
+                          <th className="text-right py-2 px-3 font-medium">RSVal</th>
+                          <th className="text-right py-2 px-3 font-medium">HitLot</th>
+                          <th className="text-right py-2 px-3 font-medium">RSFreq</th>
+                          <th className="text-right py-2 px-3 font-medium">SAvg</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {buyData.map((row, idx) => (
+                          <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
+                            <td className="py-2 px-3 font-medium">{row.ticker}</td>
+                            <td className="text-right py-2 px-3 text-green-600">{formatValue(row.rsVal)}</td>
+                            <td className="text-right py-2 px-3">{formatValue(row.hitLot)}</td>
+                            <td className="text-right py-2 px-3">{formatValue(row.rsFreq)}</td>
+                            <td className="text-right py-2 px-3">{formatValue(row.sAvg)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Sell Side for this date */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-red-600">SELL SIDE - {selectedBroker} ({formatDisplayDate(date)})</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border bg-accent/30">
+                          <th className="text-left py-2 px-3 font-medium">Ticker</th>
+                          <th className="text-right py-2 px-3 font-medium">RSVal</th>
+                          <th className="text-right py-2 px-3 font-medium">HitLot</th>
+                          <th className="text-right py-2 px-3 font-medium">RSFreq</th>
+                          <th className="text-right py-2 px-3 font-medium">SAvg</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sellData.map((row, idx) => (
+                          <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
+                            <td className="py-2 px-3 font-medium">{row.ticker}</td>
+                            <td className="text-right py-2 px-3 text-red-600">{formatValue(row.rsVal)}</td>
+                            <td className="text-right py-2 px-3 text-red-600">{formatValue(row.hitLot)}</td>
+                            <td className="text-right py-2 px-3 text-red-600">{formatValue(row.rsFreq)}</td>
+                            <td className="text-right py-2 px-3">{formatValue(row.sAvg)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          );
+        })}
       </div>
     );
   };
@@ -291,10 +455,134 @@ export function BrokerTransaction() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {/* Selected Dates */}
+            {/* Row 1: Broker, Date Range, Quick Select, Layout */}
+            <div className="flex flex-col lg:flex-row gap-4 items-end">
+              {/* Broker Selection */}
+              <div className="flex-1">
+                <label className="block text-sm font-medium mb-2">Broker:</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={brokerInput}
+                    onChange={(e) => {
+                      const v = e.target.value.toUpperCase();
+                      setBrokerInput(v);
+                      setShowBrokerSuggestions(true);
+                      if (!v) setSelectedBroker('');
+                    }}
+                    onFocus={() => setShowBrokerSuggestions(true)}
+                    placeholder="Enter broker code..."
+                    className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
+                  />
+                  {!!brokerInput && (
+                    <button
+                      className="absolute right-2 top-2.5 text-muted-foreground"
+                      onClick={() => { setBrokerInput(''); setSelectedBroker(''); setShowBrokerSuggestions(false); }}
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                  {showBrokerSuggestions && (
+                    <div className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
+                      {['MG','CIMB','UOB','COIN','NH','TRIM','DEWA','BNCA','PNLF','VRNA','SD','LMGA','DEAL','ESA','SSA']
+                        .filter(b => b.toLowerCase().includes(brokerInput.toLowerCase()))
+                        .slice(0, 10)
+                        .map(b => (
+                          <button
+                            key={b}
+                            className="w-full text-left px-3 py-2 hover:bg-accent"
+                            onClick={() => {
+                              setSelectedBroker(b);
+                              setBrokerInput(b);
+                              setShowBrokerSuggestions(false);
+                            }}
+                          >
+                            {b}
+                          </button>
+                        ))}
+                      {['MG','CIMB','UOB','COIN','NH','TRIM','DEWA','BNCA','PNLF','VRNA','SD','LMGA','DEAL','ESA','SSA']
+                        .filter(b => b.toLowerCase().includes(brokerInput.toLowerCase())).length === 0 && (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">No results</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Date Range */}
+              <div className="flex-1">
+                <label className="block text-sm font-medium mb-2">Date Range:</label>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                  />
+                  <span className="text-sm text-muted-foreground">to</span>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                  />
+                  <Button onClick={addDateRange} size="sm">
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Quick Select */}
+              <div className="flex-1">
+                <label className="block text-sm font-medium mb-2">Quick Select:</label>
+                <div className="flex gap-2">
+                  <select 
+                    className="flex-1 px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                    value={dateRangeMode}
+                    onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
+                  >
+                    <option value="1day">1 Day</option>
+                    <option value="3days">3 Days</option>
+                    <option value="1week">1 Week</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                  {dateRangeMode === 'custom' && (
+                    <Button onClick={clearAllDates} variant="outline" size="sm">
+                      <RotateCcw className="w-4 h-4 mr-1" />
+                      Clear
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* Layout Mode Toggle */}
+              <div className="flex-1">
+                <label className="block text-sm font-medium mb-2">Layout:</label>
+                <div className="flex gap-1">
+                  <Button
+                    variant={layoutMode === 'horizontal' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setLayoutMode('horizontal')}
+                    className="flex-1"
+                  >
+                    Horizontal
+                  </Button>
+                  <Button
+                    variant={layoutMode === 'vertical' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setLayoutMode('vertical')}
+                    className="flex-1"
+                  >
+                    Vertical
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* Row 2: Selected Dates */}
             <div>
               <label className="text-sm font-medium">Selected Dates:</label>
-              <div className="flex flex-wrap items-center gap-2 mt-2">
+              <div className="flex flex-wrap gap-2 mt-2">
                 {selectedDates.map((date) => (
                   <Badge key={date} variant="secondary" className="px-3 py-1">
                     {formatDisplayDate(date)}
@@ -308,99 +596,14 @@ export function BrokerTransaction() {
                     )}
                   </Badge>
                 ))}
-                {selectedDates.length > 1 && (
-                  <Button onClick={clearAllDates} variant="outline" size="sm">
-                    <RotateCcw className="w-3 h-3 mr-1" />
-                    Clear All
-                  </Button>
-                )}
-                <Button onClick={resetToLastThreeDays} variant="outline" size="sm">
-                  <Calendar className="w-3 h-3 mr-1" />
-                  Last 3 Days
-                </Button>
-
-                {/* Broker Autocomplete (compact, inline) */}
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={brokerInput}
-                    onChange={(e) => {
-                      const v = e.target.value.toUpperCase();
-                      setBrokerInput(v);
-                      setShowBrokerSuggestions(true);
-                      if (!v) setSelectedBroker('');
-                    }}
-                    onFocus={() => setShowBrokerSuggestions(true)}
-                    placeholder="Broker..."
-                    className="px-3 py-1.5 border border-border rounded-md bg-input text-foreground w-32"
-                  />
-                  {!!brokerInput && (
-                    <button
-                      className="absolute right-1 top-1.5 text-muted-foreground"
-                      onClick={() => { setBrokerInput(''); setSelectedBroker(''); setShowBrokerSuggestions(false); }}
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  )}
-                  {showBrokerSuggestions && (
-                    <div className="absolute z-20 mt-1 w-40 max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
-                      {['MG','CIMB','UOB','COIN','NH','TRIM','DEWA','BNCA','PNLF','VRNA','SD','LMGA','DEAL','ESA','SSA']
-                        .filter(b => b.toLowerCase().includes(brokerInput.toLowerCase()))
-                        .slice(0, 10)
-                        .map(b => (
-                          <button
-                            key={b}
-                            className="w-full text-left px-3 py-1.5 hover:bg-accent"
-                            onClick={() => {
-                              setSelectedBroker(b);
-                              setBrokerInput(b);
-                              setShowBrokerSuggestions(false);
-                            }}
-                          >
-                            {b}
-                          </button>
-                        ))}
-                      {['MG','CIMB','UOB','COIN','NH','TRIM','DEWA','BNCA','PNLF','VRNA','SD','LMGA','DEAL','ESA','SSA']
-                        .filter(b => b.toLowerCase().includes(brokerInput.toLowerCase())).length === 0 && (
-                        <div className="px-3 py-1.5 text-sm text-muted-foreground">No results</div>
-                      )}
-                    </div>
-                  )}
-                </div>
               </div>
-            </div>
-
-            {/* Add Date Range */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end">
-              <div>
-                <label className="text-sm font-medium">Start Date:</label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium">End Date:</label>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground"
-                />
-              </div>
-              <Button onClick={addDateRange} size="sm">
-                <Plus className="w-4 h-4 mr-1" />
-                Add Range
-              </Button>
             </div>
           </div>
         </CardContent>
       </Card>
 
       {/* Main Data Display */}
-      {renderHorizontalView()}
+      {layoutMode === 'horizontal' ? renderHorizontalView() : renderVerticalView()}
     </div>
   );
 }

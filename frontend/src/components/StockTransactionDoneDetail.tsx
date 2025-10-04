@@ -1,330 +1,888 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { Calendar, Plus, X, Grid3X3, Clock, DollarSign, Users } from 'lucide-react';
+import { Calendar, Plus, X, Grid3X3, Clock, DollarSign, Users, ChevronDown, RotateCcw } from 'lucide-react';
 
 interface DoneDetailData {
-  time: string;
-  stock: string;
-  broker: string;
-  price: number;
-  qty: number;
-  side: 'B' | 'S';
-  btbc: string;
-  slsc: string;
-  group: string;
+  trxCode: number;    // TRX_CODE
+  trxSess: number;    // TRX_SESS
+  trxType: string;    // TRX_TYPE (RG = Regular)
+  brkCod2: string;    // BRK_COD2 (Seller broker)
+  invTyp2: string;    // INV_TYP2 (Seller investor type)
+  brkCod1: string;    // BRK_COD1 (Buyer broker)
+  invTyp1: string;    // INV_TYP1 (Buyer investor type)
+  stkCode: string;    // STK_CODE
+  stkVolm: number;    // STK_VOLM
+  stkPric: number;    // STK_PRIC
+  trxDate: string;    // TRX_DATE
+  trxOrd2: number;    // TRX_ORD2
+  trxOrd1: number;    // TRX_ORD1
+  trxTime: number;    // TRX_TIME (as number like 85800)
 }
 
-type ViewMode = 'price' | 'broker' | 'time';
 
-// Sample done detail data
-const generateDoneDetailData = (date: string): DoneDetailData[] => {
-  const brokers = ['RG', 'MG', 'BR', 'LG', 'CC', 'AT', 'SD', 'UU', 'TG'];
-  const times = ['14:15', '14:16', '14:17', '14:18', '14:19', '14:20', '14:21'];
-  const prices = [2850, 2855, 2860, 2865];
-  
-  return Array.from({ length: 50 }, (_, i) => ({
-    time: times[Math.floor(Math.random() * times.length)],
-    stock: 'WFH',
-    broker: brokers[Math.floor(Math.random() * brokers.length)],
-    price: prices[Math.floor(Math.random() * prices.length)],
-    qty: Math.floor(Math.random() * 100) + 1,
-    side: Math.random() > 0.5 ? 'B' : 'S',
-    btbc: Math.random() > 0.5 ? 'BT' : 'BC',
-    slsc: Math.random() > 0.5 ? 'SL' : 'SC',
-    group: Math.floor(Math.random() * 5).toString(),
-  }));
+// Available stocks from the data
+const AVAILABLE_STOCKS = [
+  'BBRI', 'BBCA', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM', 'ICBP', 'INDF',
+  'KLBF', 'ADRO', 'ANTM', 'ITMG', 'PTBA', 'SMGR', 'INTP', 'WIKA', 'WSKT', 'PGAS',
+  'YUPI', 'ZYRX', 'ZONE'
+];
+
+// Get last 3 trading days (weekdays only, excluding weekends)
+const getLastThreeDays = (): string[] => {
+  const dates: string[] = [];
+  const today = new Date();
+  let currentDate = new Date(today);
+
+  // Start from today and go backwards
+  while (dates.length < 3) {
+    const dayOfWeek = currentDate.getDay();
+
+    // Skip weekends (Saturday = 6, Sunday = 0)
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      dates.push(currentDate.toISOString().split('T')[0]);
+    }
+
+    // Go to previous day
+    currentDate.setDate(currentDate.getDate() - 1);
+
+    // Safety check to prevent infinite loop
+    if (dates.length === 0 && currentDate.getTime() < today.getTime() - (30 * 24 * 60 * 60 * 1000)) {
+      // If no trading days found in last 30 days, just use today
+      dates.push(today.toISOString().split('T')[0]);
+      break;
+    }
+  }
+
+  return dates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
 };
 
-// Pivot table functions
-const createPivotByPrice = (data: DoneDetailData[]) => {
-  const pivot: { [key: number]: { [key: string]: { B: number, S: number, total: number } } } = {};
-  
-  data.forEach(item => {
-    if (!pivot[item.price]) pivot[item.price] = {};
-    if (!pivot[item.price][item.broker]) {
-      pivot[item.price][item.broker] = { B: 0, S: 0, total: 0 };
-    }
-    
-    if (item.side === 'B') {
-      pivot[item.price][item.broker].B += item.qty;
-    } else {
-      pivot[item.price][item.broker].S += item.qty;
-    }
-    pivot[item.price][item.broker].total += item.qty;
-  });
-  
-  return pivot;
+// Generate realistic done detail data based on CSV structure
+const generateDoneDetailData = (stock: string, date: string): DoneDetailData[] => {
+  const brokers = ['RG', 'MG', 'BR', 'LG', 'CC', 'AT', 'SD', 'UU', 'TG', 'KK', 'XL', 'XC', 'PC', 'PD', 'DR'];
+  const basePrice = stock === 'BBRI' ? 4150 : stock === 'BBCA' ? 2750 : stock === 'BMRI' ? 3200 :
+    stock === 'YUPI' ? 1610 : stock === 'ZYRX' ? 148 : stock === 'ZONE' ? 755 : 1500;
+
+  // Create a seed based on stock and date for consistent data
+  const seed = stock.charCodeAt(0) + date.split('-').reduce((acc, part) => acc + parseInt(part), 0);
+
+  const data: DoneDetailData[] = [];
+
+  // Generate transactions throughout the day (08:58:00 to 15:00:00)
+  const startTime = 8 * 3600 + 58 * 60; // 08:58:00 in seconds
+  const endTime = 15 * 3600; // 15:00:00 in seconds
+
+  // Generate 100-300 transactions per day
+  const numTransactions = 100 + (seed % 200);
+
+  for (let i = 0; i < numTransactions; i++) {
+    const txSeed = seed + i * 17;
+
+    // Random time between start and end
+    const timeInSeconds = startTime + (txSeed % (endTime - startTime));
+    const hours = Math.floor(timeInSeconds / 3600);
+    const minutes = Math.floor((timeInSeconds % 3600) / 60);
+    const seconds = timeInSeconds % 60;
+    const trxTime = `${hours.toString().padStart(2, '0')}${minutes.toString().padStart(2, '0')}${seconds.toString().padStart(2, '0')}`;
+
+    // Price variation around base price
+    const priceVariation = ((txSeed * 7) % 21) - 10; // -10 to +10
+    const price = basePrice + (priceVariation * 5);
+
+    // Volume
+    const volume = 100 + ((txSeed * 13) % 2000);
+
+    // Brokers
+    const buyerBroker = brokers[(txSeed * 3) % brokers.length];
+    const sellerBroker = brokers[(txSeed * 5) % brokers.length];
+
+    data.push({
+      trxCode: i,  // Sequential number starting from 0
+      trxSess: 1,  // Session number as number
+      trxType: 'RG',
+      brkCod2: sellerBroker, // Seller
+      invTyp2: 'I',
+      brkCod1: buyerBroker,  // Buyer
+      invTyp1: 'I',
+      stkCode: stock,
+      stkVolm: volume,
+      stkPric: price,
+      trxDate: date,
+      trxOrd2: (txSeed * 11) % 999999,  // Order number as number
+      trxOrd1: (txSeed * 19) % 999999,  // Order number as number
+      trxTime: parseInt(trxTime)  // Time as number (e.g., 85800)
+    });
+  }
+
+  return data.sort((a, b) => a.trxTime - b.trxTime);
 };
 
-const createPivotByBroker = (data: DoneDetailData[]) => {
-  const pivot: { [key: string]: { [key: string]: { B: number, S: number, total: number } } } = {};
-  
-  data.forEach(item => {
-    if (!pivot[item.broker]) pivot[item.broker] = {};
-    if (!pivot[item.broker][item.time]) {
-      pivot[item.broker][item.time] = { B: 0, S: 0, total: 0 };
-    }
-    
-    if (item.side === 'B') {
-      pivot[item.broker][item.time].B += item.qty;
-    } else {
-      pivot[item.broker][item.time].S += item.qty;
-    }
-    pivot[item.broker][item.time].total += item.qty;
-  });
-  
-  return pivot;
+const formatNumber = (num: number): string => {
+  return num.toLocaleString();
 };
 
-const createPivotByTime = (data: DoneDetailData[]) => {
-  const pivot: { [key: string]: { [key: number]: { B: number, S: number, total: number } } } = {};
-  
-  data.forEach(item => {
-    if (!pivot[item.time]) pivot[item.time] = {};
-    if (!pivot[item.time][item.price]) {
-      pivot[item.time][item.price] = { B: 0, S: 0, total: 0 };
-    }
-    
-    if (item.side === 'B') {
-      pivot[item.time][item.price].B += item.qty;
-    } else {
-      pivot[item.time][item.price].S += item.qty;
-    }
-    pivot[item.time][item.price].total += item.qty;
-  });
-  
-  return pivot;
+const formatTime = (timeNum: number): string => {
+  // Convert number like 85800 to "08:58:00"
+  const timeStr = timeNum.toString().padStart(6, '0');
+  return `${timeStr.slice(0, 2)}:${timeStr.slice(2, 4)}:${timeStr.slice(4, 6)}`;
 };
+
+const formatDisplayDate = (dateString: string): string => {
+  const date = new Date(dateString);
+  return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
+};
+
 
 export function StockTransactionDoneDetail() {
-  const [selectedDates, setSelectedDates] = useState<string[]>(['2025-07-24', '2025-07-25']);
-  const [newDate, setNewDate] = useState('');
-  const [viewMode, setViewMode] = useState<ViewMode>('price');
-  const [selectedStock, setSelectedStock] = useState('WFH');
+  const [selectedDates, setSelectedDates] = useState<string[]>(getLastThreeDays());
+  const [startDate, setStartDate] = useState(() => {
+    const threeDays = getLastThreeDays();
+    if (threeDays.length > 0) {
+      const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+      return sortedDates[0];
+    }
+    return '';
+  });
+  const [endDate, setEndDate] = useState(() => {
+    const threeDays = getLastThreeDays();
+    if (threeDays.length > 0) {
+      const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+      return sortedDates[sortedDates.length - 1];
+    }
+    return '';
+  });
+  const [selectedStock, setSelectedStock] = useState('BBRI');
+  const [stockInput, setStockInput] = useState('BBRI');
+  const [showStockSuggestions, setShowStockSuggestions] = useState(false);
+  const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical'>('horizontal');
+  const [filters, setFilters] = useState({
+    timeSort: 'latest',
+    broker: 'all',
+    price: 'all'
+  });
+  const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const addDate = () => {
-    if (newDate && !selectedDates.includes(newDate)) {
-      setSelectedDates([...selectedDates, newDate]);
-      setNewDate('');
+  // Handle click outside to close dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowStockSuggestions(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  const handleStockSelect = (stock: string) => {
+    setSelectedStock(stock);
+    setStockInput(stock);
+    setShowStockSuggestions(false);
+  };
+
+  const handleStockInputChange = (value: string) => {
+    setStockInput(value);
+    setShowStockSuggestions(true);
+
+    // If exact match, select it
+    if (AVAILABLE_STOCKS.includes(value.toUpperCase())) {
+      setSelectedStock(value.toUpperCase());
+    }
+  };
+
+  const filteredStocks = AVAILABLE_STOCKS.filter(stock =>
+    stock.toLowerCase().includes(stockInput.toLowerCase())
+  );
+
+  // Filter and sort data based on selected filters
+  const filterData = (data: DoneDetailData[]): DoneDetailData[] => {
+    let filteredData = data.filter(transaction => {
+      if (filters.broker !== 'all' && transaction.brkCod1 !== filters.broker && transaction.brkCod2 !== filters.broker) return false;
+      if (filters.price !== 'all' && transaction.stkPric.toString() !== filters.price) return false;
+      return true;
+    });
+
+    // Sort by time
+    if (filters.timeSort === 'latest') {
+      filteredData.sort((a, b) => b.trxTime - a.trxTime);
+    } else {
+      filteredData.sort((a, b) => a.trxTime - b.trxTime);
+    }
+
+    return filteredData;
+  };
+
+  // Get unique values for filter options
+  const getUniqueValues = (field: keyof DoneDetailData): string[] => {
+    const allData = selectedDates.flatMap(date => generateDoneDetailData(selectedStock, date));
+    const uniqueValues = [...new Set(allData.map(item => String(item[field])))];
+    return uniqueValues.sort();
+  };
+
+  const brokerOptions = [...new Set([
+    ...getUniqueValues('brkCod1'),
+    ...getUniqueValues('brkCod2')
+  ])].sort();
+  const priceOptions = getUniqueValues('stkPric').sort((a, b) => parseInt(a) - parseInt(b));
+
+  const addDateRange = () => {
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+
+      // Check if range is valid
+      if (start > end) {
+        alert('Start date must be before end date');
+        return;
+      }
+
+      // Check if range is within 7 days
+      const diffTime = Math.abs(end.getTime() - start.getTime());
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      if (diffDays > 7) {
+        alert('Maximum 7 days range allowed');
+        return;
+      }
+
+      // Generate date array
+      const dateArray: string[] = [];
+      const currentDate = new Date(start);
+
+      while (currentDate <= end) {
+        const dateString = currentDate.toISOString().split('T')[0];
+        dateArray.push(dateString);
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+
+      // Remove duplicates, sort by date (newest first), and set
+      const uniqueDates = Array.from(new Set([...selectedDates, ...dateArray]));
+      const sortedDates = uniqueDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+
+      // Check if total dates would exceed 7
+      if (sortedDates.length > 7) {
+        alert('Maximum 7 dates allowed');
+        return;
+      }
+
+      setSelectedDates(sortedDates);
+      // Switch to custom mode when user manually selects dates
+      setDateRangeMode('custom');
+      // Don't clear the date inputs - keep them for user reference
     }
   };
 
   const removeDate = (dateToRemove: string) => {
     if (selectedDates.length > 1) {
       setSelectedDates(selectedDates.filter(date => date !== dateToRemove));
+      // Switch to custom mode when user manually removes dates
+      setDateRangeMode('custom');
     }
   };
 
-  const formatDisplayDate = (dateString: string): string => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
+  // Get trading days based on count
+  const getTradingDays = (count: number): string[] => {
+    const dates: string[] = [];
+    const today = new Date();
+    let currentDate = new Date(today);
+
+    while (dates.length < count) {
+      const dayOfWeek = currentDate.getDay();
+
+      // Skip weekends (Saturday = 6, Sunday = 0)
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        dates.push(currentDate.toISOString().split('T')[0]);
+      }
+
+      // Go to previous day
+      currentDate.setDate(currentDate.getDate() - 1);
+
+      // Safety check
+      if (dates.length === 0 && currentDate.getTime() < today.getTime() - (30 * 24 * 60 * 60 * 1000)) {
+        dates.push(today.toISOString().split('T')[0]);
+        break;
+      }
+    }
+
+    return dates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
   };
 
-  const renderPivotTable = (data: DoneDetailData[], date: string) => {
-    switch (viewMode) {
-      case 'price':
-        const priceData = createPivotByPrice(data);
-        const brokers = Array.from(new Set(data.map(d => d.broker))).sort();
-        
-        return (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-border bg-muted/50">
-                  <th className="text-left py-2 px-2 font-medium">Price</th>
-                  {brokers.map(broker => (
-                    <th key={broker} className="text-center py-2 px-2 font-medium">{broker}</th>
-                  ))}
-                  <th className="text-right py-2 px-2 font-medium">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.keys(priceData).sort((a, b) => Number(b) - Number(a)).map(price => (
-                  <tr key={price} className="border-b border-border/50 hover:bg-accent/50">
-                    <td className="py-1.5 px-2 font-medium">{price}</td>
-                    {brokers.map(broker => {
-                      const cell = priceData[Number(price)][broker];
-                      return (
-                        <td key={broker} className="text-center py-1.5 px-2">
-                          {cell ? (
-                            <div className="space-y-1">
-                              {cell.B > 0 && <div className="text-green-600">B:{cell.B}</div>}
-                              {cell.S > 0 && <div className="text-red-600">S:{cell.S}</div>}
-                            </div>
-                          ) : (
-                            <div className="text-muted-foreground">-</div>
-                          )}
-                        </td>
-                      );
-                    })}
-                    <td className="text-right py-1.5 px-2 font-medium">
-                      {Object.values(priceData[Number(price)]).reduce((sum, cell) => sum + cell.total, 0)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        );
+  // Handle date range mode change
+  const handleDateRangeModeChange = (mode: '1day' | '3days' | '1week' | 'custom') => {
+    setDateRangeMode(mode);
 
-      case 'broker':
-        const brokerData = createPivotByBroker(data);
-        const times = Array.from(new Set(data.map(d => d.time))).sort();
-        
-        return (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-border bg-muted/50">
-                  <th className="text-left py-2 px-2 font-medium">Broker</th>
-                  {times.map(time => (
-                    <th key={time} className="text-center py-2 px-2 font-medium">{time}</th>
-                  ))}
-                  <th className="text-right py-2 px-2 font-medium">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.keys(brokerData).sort().map(broker => (
-                  <tr key={broker} className="border-b border-border/50 hover:bg-accent/50">
-                    <td className="py-1.5 px-2 font-medium">{broker}</td>
-                    {times.map(time => {
-                      const cell = brokerData[broker][time];
-                      return (
-                        <td key={time} className="text-center py-1.5 px-2">
-                          {cell ? (
-                            <div className="space-y-1">
-                              {cell.B > 0 && <div className="text-green-600">B:{cell.B}</div>}
-                              {cell.S > 0 && <div className="text-red-600">S:{cell.S}</div>}
-                            </div>
-                          ) : (
-                            <div className="text-muted-foreground">-</div>
-                          )}
-                        </td>
-                      );
-                    })}
-                    <td className="text-right py-1.5 px-2 font-medium">
-                      {Object.values(brokerData[broker]).reduce((sum, cell) => sum + cell.total, 0)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        );
+    if (mode === 'custom') {
+      // Don't change dates, just switch to custom mode
+      return;
+    }
 
-      case 'time':
-        const timeData = createPivotByTime(data);
-        const prices = Array.from(new Set(data.map(d => d.price))).sort((a, b) => b - a);
-        
-        return (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-border bg-muted/50">
-                  <th className="text-left py-2 px-2 font-medium">Time</th>
-                  {prices.map(price => (
-                    <th key={price} className="text-center py-2 px-2 font-medium">{price}</th>
-                  ))}
-                  <th className="text-right py-2 px-2 font-medium">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.keys(timeData).sort().map(time => (
-                  <tr key={time} className="border-b border-border/50 hover:bg-accent/50">
-                    <td className="py-1.5 px-2 font-medium">{time}</td>
-                    {prices.map(price => {
-                      const cell = timeData[time][price];
-                      return (
-                        <td key={price} className="text-center py-1.5 px-2">
-                          {cell ? (
-                            <div className="space-y-1">
-                              {cell.B > 0 && <div className="text-green-600">B:{cell.B}</div>}
-                              {cell.S > 0 && <div className="text-red-600">S:{cell.S}</div>}
-                            </div>
-                          ) : (
-                            <div className="text-muted-foreground">-</div>
-                          )}
-                        </td>
-                      );
-                    })}
-                    <td className="text-right py-1.5 px-2 font-medium">
-                      {Object.values(timeData[time]).reduce((sum, cell) => sum + cell.total, 0)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        );
+    // Apply preset dates based on mode
+    let newDates: string[] = [];
+    switch (mode) {
+      case '1day':
+        newDates = getTradingDays(1);
+        break;
+      case '3days':
+        newDates = getTradingDays(3);
+        break;
+      case '1week':
+        newDates = getTradingDays(5);
+        break;
+    }
 
-      default:
-        return null;
+    setSelectedDates(newDates);
+
+    // Set date range to show the selected dates
+    if (newDates.length > 0) {
+      const sortedDates = [...newDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+      setStartDate(sortedDates[0]);
+      setEndDate(sortedDates[sortedDates.length - 1]);
     }
   };
+
+  // Clear all dates and reset to 1 day
+  const clearAllDates = () => {
+    setSelectedDates(getTradingDays(1));
+    setDateRangeMode('1day');
+    const oneDay = getTradingDays(1);
+    if (oneDay.length > 0) {
+      setStartDate(oneDay[0]);
+      setEndDate(oneDay[0]);
+    }
+  };
+
+  // Render table like IPOT format - showing individual transactions
+  const renderTransactionTable = (data: DoneDetailData[], date: string) => {
+        return (
+          <div className="overflow-x-auto">
+        <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-border bg-muted/50">
+              <th className="text-left py-2 px-2 font-medium sticky left-0 bg-muted/50 z-10">Time</th>
+              <th className="text-left py-2 px-2 font-medium">Brd</th>
+              <th className="text-right py-2 px-2 font-medium">Price</th>
+              <th className="text-right py-2 px-2 font-medium">Qty</th>
+               <th className="text-center py-2 px-2 font-medium">BBCode</th>
+               <th className="text-center py-2 px-2 font-medium">BT</th>
+               <th className="text-center py-2 px-2 font-medium">ST</th>
+               <th className="text-center py-2 px-2 font-medium">SBCode</th>
+                </tr>
+              </thead>
+              <tbody>
+            {data.map((row, idx) => (
+              <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
+                <td className="py-1 px-2 font-medium sticky left-0 bg-background z-10 border-r border-border text-foreground">
+                  {formatTime(row.trxTime)}
+                </td>
+                <td className="py-1 px-2 text-red-600 font-medium">
+                  {row.trxType}
+                </td>
+                <td className="py-1 px-2 text-right font-medium">
+                  {formatNumber(row.stkPric)}
+                </td>
+                <td className="py-1 px-2 text-right font-medium">
+                  {formatNumber(row.stkVolm)}
+                </td>
+                <td className="py-1 px-2 text-center text-blue-600">
+                  {row.brkCod1}
+                </td>
+                <td className="py-1 px-2 text-center text-gray-600">
+                  {row.invTyp1}
+                </td>
+                <td className="py-1 px-2 text-center text-gray-600">
+                  {row.invTyp2}
+                        </td>
+                <td className="py-1 px-2 text-center text-red-600">
+                  {row.brkCod2}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+  };
+
+  // Render horizontal view - pivot-style comparison across dates
+  const renderHorizontalView = () => {
+    // Get all transactions for all selected dates and apply filters
+    const allTransactions: { [date: string]: DoneDetailData[] } = {};
+    selectedDates.forEach(date => {
+      const rawData = generateDoneDetailData(selectedStock, date);
+      allTransactions[date] = filterData(rawData);
+    });
+
+    // Get all unique times across all dates
+    const allTimes = new Set<number>();
+    Object.values(allTransactions).forEach(transactions => {
+      transactions.forEach(tx => allTimes.add(tx.trxTime));
+    });
+    const sortedTimes = Array.from(allTimes).sort((a, b) => a - b);
+
+    // Calculate totals
+    const totalTransactions = Object.values(allTransactions).flat().length;
+    const totalVolume = Object.values(allTransactions).flat().reduce((sum, t) => sum + t.stkVolm, 0);
+    const uniqueBrokers = new Set([
+      ...Object.values(allTransactions).flat().map(t => t.brkCod1),
+      ...Object.values(allTransactions).flat().map(t => t.brkCod2)
+    ]).size;
+        
+        return (
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Grid3X3 className="w-5 h-5" />
+              Transaction Details - ({selectedStock})
+            </CardTitle>
+
+            {/* Filter Section */}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-medium text-muted-foreground">Sort Time:</label>
+                <select
+                  className="text-xs bg-background border border-border rounded px-2 py-1"
+                  value={filters.timeSort}
+                  onChange={(e) => setFilters(prev => ({ ...prev, timeSort: e.target.value }))}
+                >
+                  <option value="latest">Latest</option>
+                  <option value="oldest">Oldest</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-medium text-muted-foreground">Broker:</label>
+                <select
+                  className="text-xs bg-background border border-border rounded px-2 py-1"
+                  value={filters.broker}
+                  onChange={(e) => setFilters(prev => ({ ...prev, broker: e.target.value }))}
+                >
+                  <option value="all">All</option>
+                  {brokerOptions.map(option => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-medium text-muted-foreground">Price:</label>
+                <select
+                  className="text-xs bg-background border border-border rounded px-2 py-1"
+                  value={filters.price}
+                  onChange={(e) => setFilters(prev => ({ ...prev, price: e.target.value }))}
+                >
+                  <option value="all">All</option>
+                  {priceOptions.map(option => (
+                    <option key={option} value={option}>{formatNumber(parseInt(option))}</option>
+                  ))}
+                </select>
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setFilters({ timeSort: 'latest', broker: 'all', price: 'all' })}
+                className="text-xs"
+              >
+                <RotateCcw className="w-3 h-3 mr-1" />
+                Reset
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                {/* Date row */}
+                <tr className="border-b border-border bg-muted/50">
+                  {selectedDates.map(date => (
+                    <th key={date} className="text-center py-2 px-1 font-medium bg-blue-50 dark:bg-blue-900/20 border-l border-border" colSpan={8}>
+                      {formatDisplayDate(date)}
+                    </th>
+                  ))}
+                </tr>
+                {/* Column headers row */}
+                <tr className="border-b border-border bg-muted/30">
+                  {selectedDates.map(date => (
+                    <React.Fragment key={date}>
+                      <th className="text-left py-2 px-1 font-medium border-l-2 border-border">Time</th>
+                      <th className="text-left py-2 px-1 font-medium">Brd</th>
+                      <th className="text-center py-2 px-1 font-medium text-blue-600">BBCode</th>
+                      <th className="text-center py-2 px-1 font-medium text-gray-600">BT</th>
+                      <th className="text-center py-2 px-1 font-medium text-red-600">SBCode</th>
+                      <th className="text-center py-2 px-1 font-medium text-gray-600">ST</th>
+                      <th className="text-right py-2 px-1 font-medium">Price</th>
+                      <th className="text-right py-2 px-1 font-medium border-r-2 border-border">Qty</th>
+                    </React.Fragment>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {/* Get maximum number of transactions across all dates to create enough rows */}
+                {(() => {
+                  const maxTransactions = Math.max(...selectedDates.map(date => allTransactions[date].length));
+                  const rows: React.ReactElement[] = [];
+
+                  for (let rowIdx = 0; rowIdx < maxTransactions; rowIdx++) {
+                    rows.push(
+                      <tr key={rowIdx} className="border-b border-border/50 hover:bg-accent/50">
+                        {selectedDates.map(date => {
+                          const transaction = allTransactions[date][rowIdx] || null;
+                      return (
+                            <React.Fragment key={date}>
+                              <td className="py-1 px-1 font-medium border-l-2 border-border text-foreground text-xs">
+                                {transaction ? formatTime(transaction.trxTime) : '-'}
+                              </td>
+                              <td className="py-1 px-1 text-red-600 font-medium text-xs">
+                                {transaction?.trxType || '-'}
+                              </td>
+                              <td className="py-1 px-1 text-center text-blue-600 text-xs">
+                                {transaction?.brkCod1 || '-'}
+                              </td>
+                              <td className="py-1 px-1 text-center text-gray-600 text-xs">
+                                {transaction?.invTyp1 || '-'}
+                              </td>
+                              <td className="py-1 px-1 text-center text-red-600 text-xs">
+                                {transaction?.brkCod2 || '-'}
+                              </td>
+                              <td className="py-1 px-1 text-center text-gray-600 text-xs">
+                                {transaction?.invTyp2 || '-'}
+                              </td>
+                              <td className="py-1 px-1 text-right font-medium text-xs">
+                                {transaction ? formatNumber(transaction.stkPric) : '-'}
+                              </td>
+                              <td className="py-1 px-1 text-right font-medium border-r-2 border-border text-xs">
+                                {transaction ? formatNumber(transaction.stkVolm) : '-'}
+                        </td>
+                            </React.Fragment>
+                      );
+                    })}
+                  </tr>
+                    );
+                  }
+
+                  return rows;
+                })()}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Summary */}
+          <div className="mt-4 p-4 bg-muted/50 rounded-lg">
+            <h4 className="font-medium mb-2">Summary</h4>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div>
+                <span className="text-muted-foreground">Total Transactions:</span>
+                <div className="font-medium">{formatNumber(totalTransactions)}</div>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Total Volume:</span>
+                <div className="font-medium">{formatNumber(totalVolume)}</div>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Unique Brokers:</span>
+                <div className="font-medium">{uniqueBrokers}</div>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Max Rows:</span>
+                <div className="font-medium">{Math.max(...selectedDates.map(date => allTransactions[date].length))}</div>
+              </div>
+            </div>
+
+            <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+              {selectedDates.map(date => {
+                const dateTransactions = allTransactions[date];
+                const dateVolume = dateTransactions.reduce((sum, t) => sum + t.stkVolm, 0);
+                return (
+                  <div key={date} className="p-2 bg-background rounded border">
+                    <div className="font-medium text-blue-600">{formatDisplayDate(date)}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {dateTransactions.length} transactions, {formatNumber(dateVolume)} volume
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
+  // Render vertical view - separate table for each date
+  const renderVerticalView = () => {
+    return (
+      <div className="space-y-6">
+        {/* Filter Section */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <Grid3X3 className="w-5 h-5" />
+                Filters
+              </CardTitle>
+
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-medium text-muted-foreground">Sort Time:</label>
+                  <select
+                    className="text-xs bg-background border border-border rounded px-2 py-1"
+                    value={filters.timeSort}
+                    onChange={(e) => setFilters(prev => ({ ...prev, timeSort: e.target.value }))}
+                  >
+                    <option value="latest">Latest</option>
+                    <option value="oldest">Oldest</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-medium text-muted-foreground">Broker:</label>
+                  <select
+                    className="text-xs bg-background border border-border rounded px-2 py-1"
+                    value={filters.broker}
+                    onChange={(e) => setFilters(prev => ({ ...prev, broker: e.target.value }))}
+                  >
+                    <option value="all">All</option>
+                    {brokerOptions.map(option => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-medium text-muted-foreground">Price:</label>
+                  <select
+                    className="text-xs bg-background border border-border rounded px-2 py-1"
+                    value={filters.price}
+                    onChange={(e) => setFilters(prev => ({ ...prev, price: e.target.value }))}
+                  >
+                    <option value="all">All</option>
+                    {priceOptions.map(option => (
+                      <option key={option} value={option}>{formatNumber(parseInt(option))}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setFilters({ timeSort: 'latest', broker: 'all', price: 'all' })}
+                  className="text-xs"
+                >
+                  <RotateCcw className="w-3 h-3 mr-1" />
+                  Reset
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+        </Card>
+        {selectedDates.map((date) => {
+          const rawData = generateDoneDetailData(selectedStock, date);
+          const doneDetailData = filterData(rawData);
+        
+        return (
+            <Card key={date}>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Grid3X3 className="w-5 h-5" />
+                  Done Detail - {selectedStock} ({formatDisplayDate(date)})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {renderTransactionTable(doneDetailData, date)}
+
+                {/* Summary */}
+                <div className="mt-4 pt-4 border-t border-border">
+                  <div className="grid grid-cols-1 md:grid-cols-6 gap-4 text-sm">
+                    <div>
+                      <span className="text-muted-foreground">Transactions: </span>
+                      <span className="font-medium">{formatNumber(doneDetailData.length)}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Total Volume: </span>
+                      <span className="font-medium text-blue-600">
+                        {formatNumber(doneDetailData.reduce((sum, tx) => sum + tx.stkVolm, 0))}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Unique Brokers: </span>
+                      <span className="font-medium text-purple-600">
+                        {new Set([...doneDetailData.map(tx => tx.brkCod1), ...doneDetailData.map(tx => tx.brkCod2)]).size}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Price Range: </span>
+                      <span className="font-medium">
+                        {doneDetailData.length > 0 ?
+                          `${formatNumber(Math.min(...doneDetailData.map(tx => tx.stkPric)))} - ${formatNumber(Math.max(...doneDetailData.map(tx => tx.stkPric)))}`
+                          : 'N/A'
+                        }
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Avg Price: </span>
+                      <span className="font-medium">
+                        {doneDetailData.length > 0 ?
+                          formatNumber(Math.round(doneDetailData.reduce((sum, tx) => sum + tx.stkPric, 0) / doneDetailData.length))
+                          : 'N/A'
+                        }
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Avg Volume: </span>
+                      <span className="font-medium">
+                        {doneDetailData.length > 0 ?
+                          formatNumber(Math.round(doneDetailData.reduce((sum, tx) => sum + tx.stkVolm, 0) / doneDetailData.length))
+                          : 'N/A'
+                        }
+                      </span>
+                    </div>
+                  </div>
+                            </div>
+              </CardContent>
+            </Card>
+                      );
+                    })}
+          </div>
+        );
+  };
+
 
   return (
     <div className="space-y-6">
-      {/* Controls */}
+      {/* Top Controls */}
       <Card>
         <CardHeader>
-          <CardTitle>Done Detail Controls</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <Calendar className="w-5 h-5" />
+            Stock Selection & Date Range (Max 7 Days)
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {/* Stock Selection */}
-            <div>
-              <label className="text-sm font-medium">Selected Stock:</label>
-              <div className="flex gap-2 mt-2">
+            {/* Row 1: Stock, Date Range, Clear, Last 3 Days, Layout */}
+            <div className="flex flex-col sm:flex-row gap-4 items-end">
+              <div className="flex-1">
+                <label className="block text-sm font-medium mb-2">Stock:</label>
+                <div className="relative" ref={dropdownRef}>
+                  <input
+                    type="text"
+                    value={stockInput}
+                    onChange={(e) => handleStockInputChange(e.target.value)}
+                    onFocus={() => setShowStockSuggestions(true)}
+                    placeholder="Enter stock code..."
+                    className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
+                  />
+                  {showStockSuggestions && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                      {stockInput === '' ? (
+                        <>
+                          <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
+                            All Stocks
+                          </div>
+                          {AVAILABLE_STOCKS.map(stock => (
+                            <div
+                              key={stock}
+                              onClick={() => handleStockSelect(stock)}
+                              className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
+                            >
+                              {stock}
+                            </div>
+                          ))}
+                        </>
+                      ) : filteredStocks.length > 0 ? (
+                        filteredStocks.map(stock => (
+                          <div
+                            key={stock}
+                            onClick={() => handleStockSelect(stock)}
+                            className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
+                          >
+                            {stock}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">
+                          No stocks found
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex-1">
+                <label className="block text-sm font-medium mb-2">Date Range:</label>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                  />
+                  <span className="text-sm text-muted-foreground">to</span>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                  />
+                  <Button onClick={addDateRange} size="sm">
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex-1">
+                <label className="block text-sm font-medium mb-2">Quick Select:</label>
+                <div className="flex gap-2">
                 <select 
-                  value={selectedStock}
-                  onChange={(e) => setSelectedStock(e.target.value)}
-                  className="px-3 py-2 border border-border rounded-md bg-input-background text-foreground"
-                >
-                  <option value="WFH">WFH</option>
-                  <option value="BBRI">BBRI</option>
-                  <option value="BBCA">BBCA</option>
-                  <option value="BMRI">BMRI</option>
+                    className="flex-1 px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                    value={dateRangeMode}
+                    onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
+                  >
+                    <option value="1day">1 Day</option>
+                    <option value="3days">3 Days</option>
+                    <option value="1week">1 Week</option>
+                    <option value="custom">Custom</option>
                 </select>
+                  {dateRangeMode === 'custom' && (
+                    <Button onClick={clearAllDates} variant="outline" size="sm">
+                      <RotateCcw className="w-4 h-4 mr-1" />
+                      Clear
+                    </Button>
+                  )}
               </div>
             </div>
 
-            {/* View Mode Selection */}
-            <div>
-              <label className="text-sm font-medium">Pivot View:</label>
-              <div className="flex gap-2 mt-2">
+              <div className="flex-1">
+                <label className="block text-sm font-medium mb-2">Layout:</label>
+                <div className="flex gap-2">
                 <Button
-                  variant={viewMode === 'price' ? 'default' : 'outline'}
+                    variant={layoutMode === 'horizontal' ? 'default' : 'outline'}
                   size="sm"
-                  onClick={() => setViewMode('price')}
-                  className="flex items-center gap-1"
+                    onClick={() => setLayoutMode('horizontal')}
+                    className="flex-1"
                 >
-                  <DollarSign className="w-4 h-4" />
-                  By Price
+                    Horizontal
                 </Button>
                 <Button
-                  variant={viewMode === 'broker' ? 'default' : 'outline'}
+                    variant={layoutMode === 'vertical' ? 'default' : 'outline'}
                   size="sm"
-                  onClick={() => setViewMode('broker')}
-                  className="flex items-center gap-1"
-                >
-                  <Users className="w-4 h-4" />
-                  By Broker
+                    onClick={() => setLayoutMode('vertical')}
+                    className="flex-1"
+                  >
+                    Vertical
                 </Button>
-                <Button
-                  variant={viewMode === 'time' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setViewMode('time')}
-                  className="flex items-center gap-1"
-                >
-                  <Clock className="w-4 h-4" />
-                  By Time
-                </Button>
+                </div>
               </div>
             </div>
 
-            {/* Selected Dates */}
+            {/* Row 2: Selected Dates */}
             <div>
               <label className="text-sm font-medium">Selected Dates:</label>
               <div className="flex flex-wrap gap-2 mt-2">
@@ -343,89 +901,48 @@ export function StockTransactionDoneDetail() {
                 ))}
               </div>
             </div>
-
-            {/* Add New Date */}
-            <div className="flex gap-2">
-              <input
-                type="date"
-                value={newDate}
-                onChange={(e) => setNewDate(e.target.value)}
-                className="px-3 py-2 border border-border rounded-md bg-input-background text-foreground"
-              />
-              <Button onClick={addDate} size="sm">
-                <Plus className="w-4 h-4 mr-1" />
-                Add Date
-              </Button>
-            </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Pivot Tables for Each Date */}
-      <div className="space-y-6">
-        {selectedDates.map((date) => {
-          const doneDetailData = generateDoneDetailData(date);
-          
-          return (
-            <Card key={date}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Grid3X3 className="w-5 h-5" />
-                  View Done Detail - {selectedStock} ({formatDisplayDate(date)})
-                  <Badge variant="outline" className="ml-2">
-                    {viewMode === 'price' ? 'By Price' : 
-                     viewMode === 'broker' ? 'By Broker' : 'By Time'}
-                  </Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {renderPivotTable(doneDetailData, date)}
-                
-                {/* Summary */}
-                <div className="mt-4 pt-4 border-t border-border">
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">Total Transactions: </span>
-                      <span className="font-medium">{doneDetailData.length}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Total Buy: </span>
-                      <span className="font-medium text-green-600">
-                        {doneDetailData.filter(d => d.side === 'B').reduce((sum, d) => sum + d.qty, 0)}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Total Sell: </span>
-                      <span className="font-medium text-red-600">
-                        {doneDetailData.filter(d => d.side === 'S').reduce((sum, d) => sum + d.qty, 0)}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Net Volume: </span>
-                      <span className="font-medium">
-                        {doneDetailData.filter(d => d.side === 'B').reduce((sum, d) => sum + d.qty, 0) - 
-                         doneDetailData.filter(d => d.side === 'S').reduce((sum, d) => sum + d.qty, 0)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
+      {/* Main Data Display */}
+      {layoutMode === 'horizontal' ? renderHorizontalView() : renderVerticalView()}
 
       {/* Info Card */}
       <Card>
-        <CardHeader>
-          <CardTitle>Pivot Table Information</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2 text-sm text-muted-foreground">
-            <p><strong>By Price:</strong> Menampilkan distribusi transaksi per harga across brokers</p>
-            <p><strong>By Broker:</strong> Menampilkan aktivitas broker per waktu</p>
-            <p><strong>By Time:</strong> Menampilkan distribusi harga per waktu</p>
-            <p><strong>B:</strong> Buy transactions | <strong>S:</strong> Sell transactions</p>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+            <ChevronDown className="w-5 h-5" />
+            Done Detail Information & Column Legend
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+          <div className="space-y-4 text-sm text-muted-foreground">
+                    <div>
+              <p className="font-medium text-foreground mb-2">Column Definitions:</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <ul className="space-y-2 ml-4">
+                  <li><span className="font-medium text-foreground">Time:</span> Transaction execution time (HH:MM:SS)</li>
+                  <li><span className="font-medium text-foreground">Brd:</span> Board type (RG = Regular Board, TN = Cash Market, NG = Negotiated board)</li>
+                  <li><span className="font-medium text-foreground">Price:</span> Transaction price per share</li>
+                  <li><span className="font-medium text-foreground">Qty:</span> Transaction volume (number of shares)</li>
+                </ul>
+                <ul className="space-y-2 ml-4">
+                  <li><span className="text-blue-600 font-medium">BBCode:</span> Buyer Broker Code (Broker Beli)</li>
+                  <li><span className="text-red-600 font-medium">SBCode:</span> Seller Broker Code (Broker Jual)</li>
+                  <li><span className="text-gray-600 font-medium">BT:</span> Buyer Type (I=Indonesia, A=Asing)</li>
+                  <li><span className="text-gray-600 font-medium">ST:</span> Seller Type (I=Individual, F=Foreign, etc.)</li>
+                </ul>
+                    </div>
+                  </div>
+
+            <div className="pt-2 border-t border-border">
+              <p className="font-medium text-foreground mb-2">Layout Options:</p>
+              <ul className="space-y-1 ml-4">
+                <li><strong>Horizontal:</strong> Combined view showing all transactions across selected dates</li>
+                <li><strong>Vertical:</strong> Separate tables for each selected date</li>
+              </ul>
+      </div>
           </div>
         </CardContent>
       </Card>

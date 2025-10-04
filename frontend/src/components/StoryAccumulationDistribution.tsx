@@ -1,32 +1,51 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 
 interface AccumulationData {
   symbol: string;
   price: number;
+  volume: number;
   suspend: boolean;
   specialNotice: string;
   dates: { [key: string]: number | null };
+  percent1d: number; // %1d column
+  volumeChanges: { // Volume change columns
+    vol1d: number;
+    vol3d: number;
+    vol5d: number;
+    vol10d: number;
+    vol20d: number;
+    vol50d: number;
+    vol100d: number;
+  };
+  movingAverage: { [key: string]: number | null }; // Moving average data
+  maIndicators: { // Moving average indicators (v/x)
+    ma5: string;
+    ma10: string;
+    ma20: string;
+    ma50: string;
+    ma100: string;
+    ma200: string;
+  };
 }
 
-// Mock data berdasarkan ilustrasi
+// Mock data berdasarkan ilustrasi Market Maker Analysis Summary
 const generateMockData = (): AccumulationData[] => {
   const symbols = [
-    'BBCA', 'BBNI', 'BBRI', 'BMRI', 'BRIS', 'BTPS', 'ACES', 'ADRO', 'AKRA',
-    'AMRT', 'ANTM', 'ASII', 'BALI', 'BBKP', 'BBTN', 'BCAP', 'BDMN', 'BFIN',
-    'BJTM', 'BMTR', 'BNGA', 'BRMS', 'BSDE', 'BTPN', 'BUKA', 'CTRA', 'DMAS',
-    'ERAA', 'ESSA', 'EXCL', 'GGRM', 'GOTO', 'HRUM', 'ICBP', 'IHSG', 'IMAS',
-    'INCO', 'INDF', 'INTP', 'ITMG', 'JPFA', 'JSMR', 'KLBF', 'LPKR', 'LPPF',
-    'MAPI', 'MDKA', 'MEDC', 'MIKA', 'MNCN', 'MPPA', 'MYOR', 'NIRO', 'PGAS',
-    'PGJO', 'PTBA', 'PTPP', 'PWON', 'RAJA', 'SCMA', 'SIDO', 'SMGR', 'SRTG',
-    'TBIG', 'TKIM', 'TLKM', 'TOBA', 'TOWR', 'UNTR', 'UNVR', 'WIKA', 'WSKT'
+    'SIMP', 'TNCA', 'COCO', 'TBIG', 'HALO', 'HRUM', 'ERAL', 'SULI', 'IMJS', 'MIKA',
+    'MTDL', 'MHKI', 'BBCA', 'BBNI', 'BBRI', 'BMRI', 'BRIS', 'BTPS', 'ACES', 'ADRO',
+    'AKRA', 'AMRT', 'ANTM', 'ASII', 'BALI', 'BBKP', 'BBTN', 'BCAP', 'BDMN', 'BFIN',
+    'BJTM', 'BMTR', 'BNGA', 'BRMS', 'BSDE', 'BTPN', 'BUKA', 'CTRA', 'DMAS', 'ERAA',
+    'ESSA', 'EXCL', 'GGRM', 'GOTO', 'ICBP', 'IHSG', 'IMAS', 'INCO', 'INDF', 'INTP',
+    'ITMG', 'JPFA', 'JSMR', 'KLBF', 'LPKR', 'LPPF', 'MAPI', 'MDKA', 'MEDC', 'MNCN',
+    'MPPA', 'MYOR', 'NIRO', 'PGAS', 'PGJO', 'PTBA', 'PTPP', 'PWON', 'RAJA', 'SCMA',
+    'SIDO', 'SMGR', 'SRTG', 'TKIM', 'TLKM', 'TOBA', 'TOWR', 'UNTR', 'UNVR', 'WIKA', 'WSKT'
   ];
 
-  // Columns dengan penamaan D0, D-1, D-2, dst dan W-1, W-2 dst
+  // Columns sesuai dengan gambar: w-4, w-3, w-2, w-1, d-4, d-3, d-2, d-1, d-0
   const dateColumns = [
-    'D-0', 'D-1', 'D-2', 'D-3', 'D-4', 'D-5', 'D-6', 'D-7', 'D-8', 'D-9',
-    'W-1', 'W-2', 'W-3', 'W-4'
+    'W-4', 'W-3', 'W-2', 'W-1', 'D-4', 'D-3', 'D-2', 'D-1', 'D0'
   ];
 
   const specialNotices = ['', 'Split', 'Dividend', 'Rights', 'Bonus', 'Suspend'];
@@ -34,333 +53,489 @@ const generateMockData = (): AccumulationData[] => {
   return symbols.map(symbol => {
     const data: { [key: string]: number | null } = {};
     dateColumns.forEach(dateCol => {
-      // Generate random accumulation/distribution values
+      // Generate random accumulation/distribution values (persentase terhadap total transaksi)
       const rand = Math.random();
       if (rand > 0.7) {
-        data[dateCol] = Math.floor(Math.random() * 100) + 50; // Strong accumulation
+        data[dateCol] = Math.floor(Math.random() * 5) + 1; // Strong accumulation (1-5%)
       } else if (rand > 0.4) {
-        data[dateCol] = Math.floor(Math.random() * 50); // Weak accumulation/neutral
+        data[dateCol] = Math.floor(Math.random() * 2); // Weak accumulation/neutral (0-1%)
       } else if (rand > 0.1) {
-        data[dateCol] = -Math.floor(Math.random() * 50); // Weak distribution
+        data[dateCol] = -Math.floor(Math.random() * 2); // Weak distribution (-1 to 0%)
       } else {
-        data[dateCol] = -Math.floor(Math.random() * 100) - 50; // Strong distribution
+        data[dateCol] = -Math.floor(Math.random() * 5) - 1; // Strong distribution (-5 to -1%)
       }
     });
     
+    // Generate %1d (percentage 1 day change)
+    const percent1d = (Math.random() - 0.5) * 20; // -10% to +10%
+    
+    // Generate volume changes (dummy data from CSV)
+    const volumeChanges = {
+      vol1d: (Math.random() - 0.5) * 200,   // -100% to +100%
+      vol3d: (Math.random() - 0.5) * 150,  // -75% to +75%
+      vol5d: (Math.random() - 0.5) * 120,  // -60% to +60%
+      vol10d: (Math.random() - 0.5) * 100, // -50% to +50%
+      vol20d: (Math.random() - 0.5) * 80,   // -40% to +40%
+      vol50d: (Math.random() - 0.5) * 60,   // -30% to +30%
+      vol100d: (Math.random() - 0.5) * 40   // -20% to +20%
+    };
+    
+    // Generate moving average data
+    const movingAverage: { [key: string]: number | null } = {};
+    dateColumns.forEach(dateCol => {
+      const baseValue = data[dateCol] || 0;
+      // Moving average is slightly smoothed version of original data
+      movingAverage[dateCol] = baseValue ? baseValue * (0.8 + Math.random() * 0.4) : null;
+    });
+    
+    // Generate moving average indicators (v/x based on price vs MA)
+    const price = Math.floor(Math.random() * 1000) + 100;
+    const maIndicators = {
+      ma5: Math.random() > 0.5 ? 'v' : 'x',
+      ma10: Math.random() > 0.5 ? 'v' : 'x',
+      ma20: Math.random() > 0.5 ? 'v' : 'x',
+      ma50: Math.random() > 0.5 ? 'v' : 'x',
+      ma100: Math.random() > 0.5 ? 'v' : 'x',
+      ma200: Math.random() > 0.5 ? 'v' : 'x'
+    };
+    
     return { 
       symbol, 
-      price: Math.floor(Math.random() * 10000) + 1000, // Random price between 1000-11000
-      suspend: Math.random() > 0.9, // 10% chance of suspension
+      price: price, // Random price between 100-1100
+      volume: Math.floor(Math.random() * 1000000) + 10000, // 10,000-1,010,000
+      suspend: Math.random() > 0.95, // 5% chance of suspension
       specialNotice: specialNotices[Math.floor(Math.random() * specialNotices.length)],
-      dates: data 
+      dates: data,
+      percent1d: percent1d,
+      volumeChanges: volumeChanges,
+      movingAverage: movingAverage,
+      maIndicators: maIndicators
     };
   });
 };
 
-const getValueColor = (value: number | null): string => {
+// Normalize function - scales values to 0-100 range
+const normalizeValue = (value: number | null, min: number, max: number): number | null => {
+  if (value === null) return null;
+  if (max === min) return 50; // If all values are the same, return middle
+  return ((value - min) / (max - min)) * 100;
+};
+
+// Get normalized color based on 0-100 scale
+const getNormalizedColor = (value: number | null): string => {
   if (value === null) return 'bg-muted';
-  if (value >= 50) return 'bg-red-200 dark:bg-red-900/30'; // Strong accumulation
-  if (value >= 20) return 'bg-orange-200 dark:bg-orange-900/30'; // Medium accumulation
-  if (value >= 0) return 'bg-yellow-200 dark:bg-yellow-900/30'; // Weak accumulation
-  if (value >= -20) return 'bg-blue-200 dark:bg-blue-900/30'; // Weak distribution
-  if (value >= -50) return 'bg-indigo-200 dark:bg-indigo-900/30'; // Medium distribution
-  return 'bg-purple-200 dark:bg-purple-900/30'; // Strong distribution
+  if (value >= 80) return 'bg-red-100 dark:bg-red-900/20';
+  if (value >= 60) return 'bg-orange-100 dark:bg-orange-900/20';
+  if (value >= 40) return 'bg-yellow-100 dark:bg-yellow-900/20';
+  if (value >= 20) return 'bg-blue-100 dark:bg-blue-900/20';
+  return 'bg-purple-100 dark:bg-purple-900/20';
 };
 
 const getTextColor = (value: number | null): string => {
   if (value === null) return 'text-muted-foreground';
-  if (value >= 50) return 'text-red-800 dark:text-red-200';
-  if (value >= 20) return 'text-orange-800 dark:text-orange-200';
-  if (value >= 0) return 'text-yellow-800 dark:text-yellow-200';
-  if (value >= -20) return 'text-blue-800 dark:text-blue-200';
-  if (value >= -50) return 'text-indigo-800 dark:text-indigo-200';
-  return 'text-purple-800 dark:text-purple-200';
+  if (value >= 0) return 'text-green-500 dark:text-green-400';
+  return 'text-red-500 dark:text-red-400';
+};
+
+const getPercent1dColor = (value: number): string => {
+  if (value >= 5) return 'text-green-500 dark:text-green-400';
+  if (value >= 0) return 'text-green-500 dark:text-green-400';
+  if (value >= -5) return 'text-red-500 dark:text-red-400';
+  return 'text-red-500 dark:text-red-400';
 };
 
 export function StoryAccumulationDistribution() {
   const [data] = useState<AccumulationData[]>(generateMockData());
-  const [selectedPeriod, setSelectedPeriod] = useState('Daily + Weekly');
-  const [sortBy, setSortBy] = useState('symbol');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-  const [showSuspendedOnly, setShowSuspendedOnly] = useState(false);
+  const [normalize, setNormalize] = useState(false);
+  const [movingAverage, setMovingAverage] = useState(false);
+  const [volumeChange, setVolumeChange] = useState(false);
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
+  const [tickerFilter, setTickerFilter] = useState('all');
+  const [tickerInput, setTickerInput] = useState('');
+  const [showDropdown, setShowDropdown] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Click outside handler
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   const dates = Object.keys(data[0]?.dates || {});
   
-  const filteredData = showSuspendedOnly 
-    ? data.filter(item => item.suspend)
-    : data;
+  // Get all volume change columns
+  const volumeColumns = ['vol1d', 'vol3d', 'vol5d', 'vol10d', 'vol20d', 'vol50d', 'vol100d'];
+  
+  // Get all MA indicator columns
+  const maColumns = ['ma5', 'ma10', 'ma20', 'ma50', 'ma100', 'ma200'];
+  
+  // Format volume change column names
+  const getVolumeColumnName = (volKey: string) => {
+    return volKey.replace('vol', 'V%');
+  };
+  
+  // Format MA column names
+  const getMAColumnName = (maKey: string) => {
+    return `>${maKey}`;
+  };
+  
+  // Get unique tickers for filter dropdown
+  const allTickers = [...new Set(data.map(item => item.symbol))].sort();
+  
+  // Filter data based on ticker selection
+  const filteredData = tickerFilter === 'all' 
+    ? data 
+    : data.filter(item => item.symbol.toLowerCase().includes(tickerInput.toLowerCase()));
+  
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
   
   const sortedData = [...filteredData].sort((a, b) => {
-    if (sortBy === 'symbol') {
-      return sortOrder === 'asc' 
-        ? a.symbol.localeCompare(b.symbol)
-        : b.symbol.localeCompare(a.symbol);
-    } else if (sortBy === 'price') {
-      return sortOrder === 'asc' 
-        ? a.price - b.price
-        : b.price - a.price;
+    if (!sortConfig) return 0;
+    
+    let aValue: any;
+    let bValue: any;
+    
+    switch (sortConfig.key) {
+      case 'symbol':
+        aValue = a.symbol;
+        bValue = b.symbol;
+        break;
+      case 'price':
+        aValue = a.price;
+        bValue = b.price;
+        break;
+      case 'percent1d':
+        aValue = a.percent1d;
+        bValue = b.percent1d;
+        break;
+      case 'volume':
+        aValue = a.volume;
+        bValue = b.volume;
+        break;
+      default:
+        // For date columns, volume change columns, or MA columns
+        if (volumeColumns.includes(sortConfig.key)) {
+          aValue = a.volumeChanges[sortConfig.key as keyof typeof a.volumeChanges] || 0;
+          bValue = b.volumeChanges[sortConfig.key as keyof typeof b.volumeChanges] || 0;
+        } else if (maColumns.includes(sortConfig.key)) {
+          aValue = a.maIndicators[sortConfig.key as keyof typeof a.maIndicators] || '';
+          bValue = b.maIndicators[sortConfig.key as keyof typeof b.maIndicators] || '';
+        } else {
+          // For date columns
+          aValue = a.dates[sortConfig.key] || 0;
+          bValue = b.dates[sortConfig.key] || 0;
+        }
+        break;
     }
     
-    // Sort by latest date value (D-0)
-    const latestDate = 'D-0';
-    const valueA = a.dates[latestDate] || 0;
-    const valueB = b.dates[latestDate] || 0;
-    
-    return sortOrder === 'asc' 
-      ? valueA - valueB
-      : valueB - valueA;
+    if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+    if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+    return 0;
   });
-
-  const handleSort = (column: string) => {
-    if (sortBy === column) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortBy(column);
-      setSortOrder('asc');
-    }
-  };
 
   const formatPrice = (price: number): string => {
     return new Intl.NumberFormat('id-ID').format(price);
   };
 
+  const resetSettings = () => {
+    setNormalize(false);
+    setMovingAverage(false);
+    setVolumeChange(false);
+    setSortConfig(null);
+    setTickerFilter('all');
+    setTickerInput('');
+    setShowDropdown(false);
+  };
+
   return (
     <div className="space-y-6">
-      {/* Controls */}
+      {/* Top Control Bar */}
       <Card className="p-4">
         <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
-          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+          <div className="flex flex-wrap gap-4 items-center">
             <div className="flex items-center gap-2">
-              <label className="text-sm font-medium">Period:</label>
-              <select
-                value={selectedPeriod}
-                onChange={(e) => setSelectedPeriod(e.target.value)}
-                className="px-3 py-1 border border-border rounded-md bg-background text-foreground text-sm"
-              >
-                <option value="Daily + Weekly">Daily + Weekly</option>
-                <option value="Daily Only">Daily Only</option>
-                <option value="Weekly Only">Weekly Only</option>
-              </select>
+              <label htmlFor="tickerFilter" className="text-sm font-medium">
+                Filter Ticker:
+              </label>
+              <div className="relative" ref={dropdownRef}>
+                <input
+                  type="text"
+                  placeholder="Ticker code"
+                  value={tickerInput}
+                  onChange={(e) => {
+                    setTickerInput(e.target.value);
+                    if (e.target.value === '') {
+                      setTickerFilter('all');
+                      setShowDropdown(false);
+                    } else {
+                      setTickerFilter('custom');
+                      setShowDropdown(true);
+                    }
+                  }}
+                  onFocus={() => {
+                    if (tickerInput) {
+                      setShowDropdown(true);
+                    }
+                  }}
+                  className="px-3 py-1 border border-border rounded-md text-sm w-64 bg-background text-foreground placeholder:text-muted-foreground"
+                />
+                {tickerInput && (
+                  <button
+                    onClick={() => {
+                      setTickerInput('');
+                      setTickerFilter('all');
+                      setShowDropdown(false);
+                    }}
+                    className="absolute right-2 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    ✕
+                  </button>
+                )}
+                {showDropdown && tickerInput && (
+                  <div className="absolute top-full left-0 right-0 bg-background border border-border rounded-md shadow-lg z-30 max-h-40 overflow-y-auto">
+                    {allTickers
+                      .filter(ticker => ticker.toLowerCase().includes(tickerInput.toLowerCase()))
+                      .slice(0, 10)
+                      .map(ticker => (
+                        <div
+                          key={ticker}
+                          className="px-3 py-1 hover:bg-muted cursor-pointer text-sm"
+                          onClick={() => {
+                            setTickerInput(ticker);
+                            setTickerFilter('custom');
+                            setShowDropdown(false);
+                          }}
+                        >
+                          {ticker}
+                        </div>
+                      ))}
+                    {allTickers.filter(ticker => ticker.toLowerCase().includes(tickerInput.toLowerCase())).length === 0 && (
+                      <div className="px-3 py-1 text-sm text-muted-foreground">
+                        No tickers found
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {tickerFilter === 'all' ? 'Showing all tickers' : `Filtered: ${filteredData.length} tickers`}
+              </div>
             </div>
             
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"
-                id="suspendedOnly"
-                checked={showSuspendedOnly}
-                onChange={(e) => setShowSuspendedOnly(e.target.checked)}
+                id="normalize"
+                checked={normalize}
+                onChange={(e) => setNormalize(e.target.checked)}
                 className="rounded border-border"
               />
-              <label htmlFor="suspendedOnly" className="text-sm font-medium">Show Suspended Only</label>
+              <label htmlFor="normalize" className="text-sm font-medium">Normalize</label>
             </div>
             
-            <div className="flex gap-2">
-              <Button
-                variant={sortBy === 'symbol' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleSort('symbol')}
-              >
-                Symbol {sortBy === 'symbol' && (sortOrder === 'asc' ? '↑' : '↓')}
-              </Button>
-              <Button
-                variant={sortBy === 'price' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleSort('price')}
-              >
-                Price {sortBy === 'price' && (sortOrder === 'asc' ? '↑' : '↓')}
-              </Button>
-              <Button
-                variant={sortBy === 'value' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleSort('value')}
-              >
-                Latest {sortBy === 'value' && (sortOrder === 'asc' ? '↑' : '↓')}
-              </Button>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="movingAverage"
+                checked={movingAverage}
+                onChange={(e) => setMovingAverage(e.target.checked)}
+                className="rounded border-border"
+              />
+              <label htmlFor="movingAverage" className="text-sm font-medium">Moving Average</label>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="volumeChange"
+                checked={volumeChange}
+                onChange={(e) => setVolumeChange(e.target.checked)}
+                className="rounded border-border"
+              />
+              <label htmlFor="volumeChange" className="text-sm font-medium">Volume Change</label>
             </div>
           </div>
           
-          <div className="text-sm text-muted-foreground">
-            Total Stocks: {sortedData.length} | Suspended: {data.filter(d => d.suspend).length}
-          </div>
+          <Button onClick={resetSettings} variant="outline" size="sm">
+            Reset Settings
+          </Button>
         </div>
       </Card>
 
-      {/* Legend */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card className="p-4">
-          <h3 className="font-medium mb-3">Color Legend</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-red-200 dark:bg-red-900/30 rounded border"></div>
-              <span>Strong Acc (50+)</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-orange-200 dark:bg-orange-900/30 rounded border"></div>
-              <span>Med Acc (20-49)</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-yellow-200 dark:bg-yellow-900/30 rounded border"></div>
-              <span>Weak Acc (0-19)</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-blue-200 dark:bg-blue-900/30 rounded border"></div>
-              <span>Weak Dist (0 to -19)</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-indigo-200 dark:bg-indigo-900/30 rounded border"></div>
-              <span>Med Dist (-20 to -49)</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-purple-200 dark:bg-purple-900/30 rounded border"></div>
-              <span>Strong Dist (-50+)</span>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-4">
-          <h3 className="font-medium mb-3">Column Guide</h3>
-          <div className="space-y-2 text-xs">
-            <div><span className="font-medium">D-0:</span> Today's accumulation/distribution</div>
-            <div><span className="font-medium">D-1, D-2, etc:</span> 1 day ago, 2 days ago, etc.</div>
-            <div><span className="font-medium">W-1, W-2, etc:</span> 1 week ago, 2 weeks ago, etc.</div>
-            <div><span className="font-medium">Price:</span> Current stock price</div>
-            <div><span className="font-medium">Status:</span> Trading status (OK/SUSP)</div>
-            <div><span className="font-medium">Notice:</span> Special corporate actions</div>
-          </div>
-        </Card>
-      </div>
-
-      {/* Heatmap Table */}
-      <Card className="p-0 overflow-hidden">
-        <div className="overflow-x-auto">
-          <div className="min-w-[1400px]">
+      {/* Market Maker Analysis Summary Table */}
+      <Card className="p-0 bg-card">
+        <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+          <div className="w-full">
             {/* Header */}
-            <div className="bg-muted/50 border-b border-border">
-              <div className="flex">
-                <div className="w-16 p-2 border-r border-border font-medium text-xs bg-card">
-                  Symbol
-                </div>
-                <div className="w-20 p-2 border-r border-border font-medium text-xs text-center bg-card">
-                  Price
-                </div>
-                <div className="w-16 p-2 border-r border-border font-medium text-xs text-center bg-card">
-                  Status
-                </div>
-                <div className="w-20 p-2 border-r border-border font-medium text-xs text-center bg-card">
-                  Notice
+            <div className="bg-muted border-b border-border sticky top-0 z-20">
+              <div className="flex w-full">
+                <div 
+                  className="flex-1 p-1 border-r border-border font-medium text-xs bg-muted flex items-center justify-center cursor-pointer hover:bg-muted/80 min-w-[60px]"
+                  onClick={() => handleSort('symbol')}
+                >
+                  <span>Symbol</span>
+                  <div className="ml-0.5 flex flex-col">
+                    <span className={`text-[8px] ${sortConfig?.key === 'symbol' && sortConfig.direction === 'asc' ? 'text-primary' : 'text-muted-foreground'}`}>↑</span>
+                    <span className={`text-[8px] ${sortConfig?.key === 'symbol' && sortConfig.direction === 'desc' ? 'text-primary' : 'text-muted-foreground'}`}>↓</span>
+                  </div>
                 </div>
                 {dates.map((date, index) => (
                   <div 
                     key={date} 
-                    className={`flex-1 p-2 border-r border-border font-medium text-xs text-center bg-card min-w-[60px] ${
-                      date.startsWith('W-') ? 'bg-blue-50 dark:bg-blue-950/30' : ''
+                    className={`flex-1 p-1 border-r border-border font-medium text-xs text-center bg-muted flex items-center justify-center cursor-pointer hover:bg-muted/80 min-w-[50px] ${
+                      date.startsWith('W-') ? 'bg-blue-500/10 dark:bg-blue-500/20' : ''
                     }`}
+                    onClick={() => handleSort(date)}
                   >
-                    {date}
+                    <span>{date}</span>
+                    <div className="ml-0.5 flex flex-col">
+                      <span className={`text-[8px] ${sortConfig?.key === date && sortConfig.direction === 'asc' ? 'text-primary' : 'text-muted-foreground'}`}>↑</span>
+                      <span className={`text-[8px] ${sortConfig?.key === date && sortConfig.direction === 'desc' ? 'text-primary' : 'text-muted-foreground'}`}>↓</span>
+                    </div>
                   </div>
                 ))}
-                <div className="w-16 p-2 font-medium text-xs text-center bg-card">
-                  Avg
+                <div 
+                  className="flex-1 p-1 border-r border-border font-medium text-xs text-center bg-muted flex items-center justify-center cursor-pointer hover:bg-muted/80 min-w-[50px]"
+                  onClick={() => handleSort('percent1d')}
+                >
+                  <span>%1D</span>
+                  <div className="ml-0.5 flex flex-col">
+                    <span className={`text-[8px] ${sortConfig?.key === 'percent1d' && sortConfig.direction === 'asc' ? 'text-primary' : 'text-muted-foreground'}`}>↑</span>
+                    <span className={`text-[8px] ${sortConfig?.key === 'percent1d' && sortConfig.direction === 'desc' ? 'text-primary' : 'text-muted-foreground'}`}>↓</span>
+                  </div>
+                </div>
+                {volumeChange && volumeColumns.map((volKey) => (
+                  <div 
+                    key={volKey}
+                    className="flex-1 p-1 border-r border-border font-medium text-xs text-center bg-muted flex items-center justify-center cursor-pointer hover:bg-muted/80 min-w-[50px]"
+                    onClick={() => handleSort(volKey)}
+                  >
+                    <span>{getVolumeColumnName(volKey)}</span>
+                    <div className="ml-0.5 flex flex-col">
+                      <span className={`text-[8px] ${sortConfig?.key === volKey && sortConfig.direction === 'asc' ? 'text-primary' : 'text-muted-foreground'}`}>↑</span>
+                      <span className={`text-[8px] ${sortConfig?.key === volKey && sortConfig.direction === 'desc' ? 'text-primary' : 'text-muted-foreground'}`}>↓</span>
+                    </div>
+                  </div>
+                ))}
+                {movingAverage && maColumns.map((maKey) => (
+                  <div 
+                    key={maKey}
+                    className="flex-1 p-1 border-r border-border font-medium text-xs text-center bg-muted flex items-center justify-center min-w-[50px]"
+                  >
+                    <span>{getMAColumnName(maKey)}</span>
+                  </div>
+                ))}
+                <div 
+                  className="flex-1 p-1 border-r border-border font-medium text-xs text-center bg-muted flex items-center justify-center cursor-pointer hover:bg-muted/80 min-w-[60px]"
+                  onClick={() => handleSort('price')}
+                >
+                  <span>Price</span>
+                  <div className="ml-0.5 flex flex-col">
+                    <span className={`text-[8px] ${sortConfig?.key === 'price' && sortConfig.direction === 'asc' ? 'text-primary' : 'text-muted-foreground'}`}>↑</span>
+                    <span className={`text-[8px] ${sortConfig?.key === 'price' && sortConfig.direction === 'desc' ? 'text-primary' : 'text-muted-foreground'}`}>↓</span>
+                  </div>
+                </div>
+                <div 
+                  className="flex-1 p-1 font-medium text-xs text-center bg-muted flex items-center justify-center cursor-pointer hover:bg-muted/80 min-w-[60px]"
+                  onClick={() => handleSort('volume')}
+                >
+                  <span>Volume</span>
+                  <div className="ml-0.5 flex flex-col">
+                    <span className={`text-[8px] ${sortConfig?.key === 'volume' && sortConfig.direction === 'asc' ? 'text-primary' : 'text-muted-foreground'}`}>↑</span>
+                    <span className={`text-[8px] ${sortConfig?.key === 'volume' && sortConfig.direction === 'desc' ? 'text-primary' : 'text-muted-foreground'}`}>↓</span>
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* Data Rows */}
-            <div className="max-h-[500px] overflow-y-auto">
-              {sortedData.map((row, rowIndex) => {
-                const average = Object.values(row.dates).reduce((sum, val) => sum + (val || 0), 0) / dates.length;
-                
-                return (
-                  <div key={row.symbol} className={`flex border-b border-border hover:bg-muted/20 ${
-                    row.suspend ? 'bg-red-50 dark:bg-red-950/20' : ''
-                  }`}>
-                    <div className="w-16 p-2 border-r border-border font-medium text-xs bg-card sticky left-0 z-10">
-                      {row.symbol}
-                    </div>
-                    <div className="w-20 p-2 border-r border-border text-center text-xs bg-card">
-                      {formatPrice(row.price)}
-                    </div>
-                    <div className="w-16 p-2 border-r border-border text-center text-xs bg-card">
-                      {row.suspend ? (
-                        <span className="text-red-600 dark:text-red-400 font-medium">SUSP</span>
-                      ) : (
-                        <span className="text-green-600 dark:text-green-400">OK</span>
-                      )}
-                    </div>
-                    <div className="w-20 p-2 border-r border-border text-center text-xs bg-card">
-                      {row.specialNotice ? (
-                        <span className="px-1 py-0.5 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200 rounded text-xs">
-                          {row.specialNotice}
-                        </span>
-                      ) : (
-                        '-'
-                      )}
-                    </div>
-                    {dates.map((date) => {
-                      const value = row.dates[date];
-                      return (
-                        <div 
-                          key={`${row.symbol}-${date}`}
-                          className={`flex-1 p-2 border-r border-border text-center text-xs min-w-[60px] ${getValueColor(value)} ${getTextColor(value)}`}
-                        >
-                          {value !== null ? value.toFixed(1) : '-'}
-                        </div>
-                      );
-                    })}
-                    <div className={`w-16 p-2 text-center text-xs ${getValueColor(average)} ${getTextColor(average)}`}>
-                      {average.toFixed(1)}
-                    </div>
+            {sortedData.map((row, rowIndex) => {
+              // Calculate min/max for normalization
+              const allValues = Object.values(row.dates).filter(v => v !== null) as number[];
+              const minValue = Math.min(...allValues);
+              const maxValue = Math.max(...allValues);
+              
+              return (
+                <div key={row.symbol} className={`flex w-full border-b border-border hover:bg-muted/20 ${
+                  row.suspend ? 'bg-red-500/10 dark:bg-red-500/20' : ''
+                }`}>
+                  <div className="flex-1 p-1 border-r border-border font-medium text-xs bg-card flex items-center justify-center min-w-[60px]">
+                    <span>{row.symbol}</span>
                   </div>
-                );
-              })}
-            </div>
+                  {dates.map((date) => {
+                    let displayValue = row.dates[date];
+                    let displayData = row.dates;
+                    
+                    // Use moving average if enabled
+                    if (movingAverage) {
+                      displayData = row.movingAverage;
+                      displayValue = row.movingAverage[date];
+                    }
+                    
+                    // Normalize if enabled
+                    if (normalize && displayValue !== null) {
+                      displayValue = normalizeValue(displayValue, minValue, maxValue);
+                    }
+                    
+                    const isHighlighted = date === 'D0' && Math.random() > 0.8;
+                    return (
+                      <div 
+                        key={`${row.symbol}-${date}`}
+                        className={`flex-1 p-1 border-r border-border text-center text-xs min-w-[50px] ${
+                          normalize ? getNormalizedColor(displayValue) : ''
+                        } ${getTextColor(displayValue)} ${
+                          isHighlighted ? 'bg-red-500/20 dark:bg-red-500/30' : ''
+                        }`}
+                      >
+                        {displayValue !== null ? displayValue.toFixed(1) : '-'}
+                      </div>
+                    );
+                  })}
+                  <div className={`flex-1 p-1 border-r border-border text-center text-xs min-w-[50px] ${getPercent1dColor(row.percent1d)}`}>
+                    {row.percent1d >= 0 ? '+' : ''}{row.percent1d.toFixed(1)}%
+                  </div>
+                  {volumeChange && volumeColumns.map((volKey) => (
+                    <div 
+                      key={volKey}
+                      className={`flex-1 p-1 border-r border-border text-center text-xs min-w-[50px] ${getTextColor(row.volumeChanges[volKey as keyof typeof row.volumeChanges])}`}
+                    >
+                      {(row.volumeChanges[volKey as keyof typeof row.volumeChanges] >= 0 ? '+' : '') + row.volumeChanges[volKey as keyof typeof row.volumeChanges].toFixed(1) + '%'}
+                    </div>
+                  ))}
+                  {movingAverage && maColumns.map((maKey) => (
+                    <div 
+                      key={maKey}
+                      className={`flex-1 p-1 border-r border-border text-center text-xs font-bold min-w-[50px] ${row.maIndicators[maKey as keyof typeof row.maIndicators] === 'v' ? 'text-green-500 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}
+                    >
+                      {row.maIndicators[maKey as keyof typeof row.maIndicators]}
+                    </div>
+                  ))}
+                  <div className="flex-1 p-1 border-r border-border text-center text-xs bg-card min-w-[60px]">
+                    {formatPrice(row.price)}
+                  </div>
+                  <div className="flex-1 p-1 text-center text-xs bg-card min-w-[60px]">
+                    {formatPrice(row.volume)}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </Card>
-
-      {/* Summary Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="p-4">
-          <h3 className="font-medium mb-2">Strong Accumulation (D-0)</h3>
-          <div className="text-2xl font-bold text-red-600 dark:text-red-400">
-            {sortedData.filter(row => {
-              const latestValue = row.dates['D-0'] || 0;
-              return latestValue >= 50;
-            }).length}
-          </div>
-          <p className="text-sm text-muted-foreground">Stocks with D-0 value ≥ 50</p>
-        </Card>
-
-        <Card className="p-4">
-          <h3 className="font-medium mb-2">Neutral Zone (D-0)</h3>
-          <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
-            {sortedData.filter(row => {
-              const latestValue = row.dates['D-0'] || 0;
-              return latestValue >= -20 && latestValue < 20;
-            }).length}
-          </div>
-          <p className="text-sm text-muted-foreground">Stocks with D-0 value -20 to 20</p>
-        </Card>
-
-        <Card className="p-4">
-          <h3 className="font-medium mb-2">Strong Distribution (D-0)</h3>
-          <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
-            {sortedData.filter(row => {
-              const latestValue = row.dates['D-0'] || 0;
-              return latestValue <= -50;
-            }).length}
-          </div>
-          <p className="text-sm text-muted-foreground">Stocks with D-0 value ≤ -50</p>
-        </Card>
-
-        <Card className="p-4">
-          <h3 className="font-medium mb-2">Suspended Stocks</h3>
-          <div className="text-2xl font-bold text-gray-600 dark:text-gray-400">
-            {data.filter(row => row.suspend).length}
-          </div>
-          <p className="text-sm text-muted-foreground">Total suspended stocks</p>
-        </Card>
-      </div>
     </div>
   );
 }
