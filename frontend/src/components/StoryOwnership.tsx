@@ -1,144 +1,340 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 
-// Mock data untuk ownership breakdown
-const ownershipData = [
-  {
-    category: 'Government of Singapore',
-    percentage: 25.8,
-    shares: 12500000000,
-    color: '#3b82f6'
-  },
-  {
-    category: 'Government of Norway',
-    percentage: 18.2,
-    shares: 8800000000,
-    color: '#06b6d4'
-  },
-  {
-    category: 'BlackRock Inc',
-    percentage: 12.4,
-    shares: 6000000000,
-    color: '#8b5cf6'
-  },
-  {
-    category: 'Vanguard Group Inc',
-    percentage: 8.9,
-    shares: 4300000000,
-    color: '#10b981'
-  },
-  {
-    category: 'State Street Corp',
-    percentage: 6.7,  
-    shares: 3200000000,
-    color: '#f59e0b'
-  },
-  {
-    category: 'Domestic Institution',
-    percentage: 15.2,
-    shares: 7350000000,
-    color: '#ef4444'
-  },
-  {
-    category: 'Public/Retail',
-    percentage: 12.8,
-    shares: 6200000000,
-    color: '#84cc16'
-  }
-];
+// Function to parse CSV data and create ownership data
+const parseOwnershipData = () => {
+  // Raw CSV data from BBCA.csv (latest data - 2025-08-31)
+  const csvData = [
+    { name: 'PT Dwimuria Investama Andalan', percentage: 54.942, shares: 67729950000, category: 'Controlling Shareholder' },
+    { name: 'Masyarakat Non Warkat', percentage: 42.463, shares: 52346743930, category: 'Public/Retail' },
+    { name: 'Pihak Afiliasi Pengendali', percentage: 2.455, shares: 3026977500, category: 'Affiliate' },
+    { name: 'Jahja Setiaatmadja', percentage: 0.03, shares: 34805144, category: 'Board Member' },
+    { name: 'Saham Treasury', percentage: 0.023, shares: 28317500, category: 'Treasury' },
+    { name: 'Robert Budi Hartono', percentage: 0.023, shares: 28135000, category: 'Major Shareholder' },
+    { name: 'Bambang Hartono', percentage: 0.022, shares: 27025000, category: 'Major Shareholder' },
+    { name: 'Masyarakat Warkat', percentage: 0.009, shares: 11248880, category: 'Public/Retail' },
+    { name: 'Tan Ho Hien/Subur', percentage: 0.009, shares: 11169044, category: 'Board Member' },
+    { name: 'Tonny Kusnadi', percentage: 0.006, shares: 7502058, category: 'Board Member' },
+    { name: 'Others', percentage: 0.017, shares: 21000000, category: 'Others' }
+  ];
 
-// Mock data untuk historical ownership (stacked bar chart)
-const historicalOwnership = [
-  { period: 'Q1 2023', gov_singapore: 26.1, gov_norway: 17.8, blackrock: 12.1, vanguard: 8.5, state_street: 6.2, domestic: 14.8, retail: 14.5 },
-  { period: 'Q2 2023', gov_singapore: 25.9, gov_norway: 18.0, blackrock: 12.3, vanguard: 8.7, state_street: 6.5, domestic: 15.0, retail: 13.6 },
-  { period: 'Q3 2023', gov_singapore: 25.7, gov_norway: 18.1, blackrock: 12.2, vanguard: 8.8, state_street: 6.4, domestic: 15.1, retail: 13.7 },
-  { period: 'Q4 2023', gov_singapore: 25.6, gov_norway: 18.3, blackrock: 12.4, vanguard: 8.9, state_street: 6.6, domestic: 15.3, retail: 12.9 },
-  { period: 'Q1 2024', gov_singapore: 25.8, gov_norway: 18.2, blackrock: 12.4, vanguard: 8.9, state_street: 6.7, domestic: 15.2, retail: 12.8 }
+  // Separate major and minor shareholders
+  const majorShareholders = csvData.filter(item => item.percentage >= 2);
+  const minorShareholders = csvData.filter(item => item.percentage < 2);
+  
+  // Calculate total for others
+  const othersTotal = minorShareholders.reduce((sum, item) => ({
+    percentage: sum.percentage + item.percentage,
+    shares: sum.shares + item.shares
+  }), { percentage: 0, shares: 0 });
+
+  // Combine data
+  const combinedData = [
+    ...majorShareholders,
+    { name: 'Others', percentage: othersTotal.percentage, shares: othersTotal.shares, category: 'Others' }
+  ];
+
+  const colors = ['#3b82f6', '#06b6d4', '#8b5cf6', '#10b981'];
+
+  return combinedData.map((item, index) => ({
+    ...item,
+    color: colors[index % colors.length]
+  }));
+};
+
+// Get ownership data
+const ownershipData = parseOwnershipData();
+
+// Historical data from BBCA.csv - grouped by month
+const historicalOwnershipData = [
+  { period: 'Aug 2025', controlling: 54.942, public: 42.463, affiliate: 2.455, others: 0.14 },
+  { period: 'Jul 2025', controlling: 54.942, public: 42.463, affiliate: 2.455, others: 0.14 },
+  { period: 'Jun 2025', controlling: 54.942, public: 42.463, affiliate: 2.455, others: 0.14 },
+  { period: 'May 2025', controlling: 54.942, public: 42.376, affiliate: 2.455, others: 0.227 },
+  { period: 'Apr 2025', controlling: 54.942, public: 42.399, affiliate: 2.455, others: 0.204 },
+  { period: 'Mar 2025', controlling: 54.942, public: 42.399, affiliate: 2.455, others: 0.204 },
+  { period: 'Feb 2025', controlling: 54.942, public: 42.404, affiliate: 2.455, others: 0.199 },
+  { period: 'Jan 2025', controlling: 54.942, public: 42.404, affiliate: 2.455, others: 0.199 },
+  { period: 'Dec 2024', controlling: 54.942, public: 42.404, affiliate: 2.455, others: 0.199 },
+  { period: 'Nov 2024', controlling: 54.942, public: 42.404, affiliate: 2.455, others: 0.199 },
+  { period: 'Oct 2024', controlling: 54.942, public: 42.404, affiliate: 2.455, others: 0.199 },
+  { period: 'Sep 2024', controlling: 54.942, public: 42.405, affiliate: 2.455, others: 0.198 }
 ];
 
 // Colors untuk historical chart
 const stackColors = {
-  gov_singapore: '#3b82f6',
-  gov_norway: '#06b6d4', 
-  blackrock: '#8b5cf6',
-  vanguard: '#10b981',
-  state_street: '#f59e0b',
-  domestic: '#ef4444',
-  retail: '#84cc16'
+  controlling: '#3b82f6',
+  public: '#06b6d4', 
+  affiliate: '#8b5cf6',
+  others: '#10b981'
 };
 
-// Mock detailed ownership table data
+// Complete detailed ownership data from BBCA.csv (all shareholders)
 const detailedOwnership = [
   {
     rank: 1,
-    holder: 'Government of Singapore Investment Corp',
-    type: 'Sovereign Wealth Fund',
-    country: 'Singapore',
-    shares: 12500000000,
-    percentage: 25.8,
-    value: 58250000000,
-    change: '+0.2%',
-    lastUpdate: '2024-03-15'
+    holder: 'PT Dwimuria Investama Andalan',
+    type: 'Lebih dari 5%',
+    shares: 67729950000,
+    percentage: 54.942,
+    value: 315045367500,
+    change: '0.0%',
+    lastUpdate: '2025-08-31'
   },
   {
     rank: 2,
-    holder: 'Government Pension Fund Global',
-    type: 'Sovereign Wealth Fund', 
-    country: 'Norway',
-    shares: 8800000000,
-    percentage: 18.2,
-    value: 40920000000,
-    change: '-0.1%',
-    lastUpdate: '2024-03-14'
+    holder: 'Masyarakat Non Warkat',
+    type: 'Masyarakat Non Warkat',
+    shares: 52346743930,
+    percentage: 42.463,
+    value: 243412359975,
+    change: '0.0%',
+    lastUpdate: '2025-08-31'
   },
   {
     rank: 3,
-    holder: 'BlackRock Inc',
-    type: 'Asset Manager',
-    country: 'United States',
-    shares: 6000000000,
-    percentage: 12.4,
-    value: 27900000000,
-    change: '+0.3%',
-    lastUpdate: '2024-03-15'
+    holder: 'Pihak Afiliasi Pengendali',
+    type: 'Lebih dari 5%',
+    shares: 3026977500,
+    percentage: 2.455,
+    value: 14075455375,
+    change: '0.0%',
+    lastUpdate: '2025-08-31'
   },
   {
     rank: 4,
-    holder: 'The Vanguard Group Inc',
-    type: 'Asset Manager',
-    country: 'United States', 
-    shares: 4300000000,
-    percentage: 8.9,
-    value: 20005000000,
-    change: '+0.1%',
-    lastUpdate: '2024-03-13'
+    holder: 'Jahja Setiaatmadja',
+    type: 'Komisaris',
+    shares: 34805144,
+    percentage: 0.03,
+    value: 161843920,
+    change: '0.0%',
+    lastUpdate: '2025-08-31'
   },
   {
     rank: 5,
-    holder: 'State Street Corp',
-    type: 'Asset Manager',
-    country: 'United States',
-    shares: 3200000000,
-    percentage: 6.7,
-    value: 14880000000,
-    change: '+0.2%',
-    lastUpdate: '2024-03-14'
+    holder: 'Saham Treasury',
+    type: 'Saham Treasury',
+    shares: 28317500,
+    percentage: 0.023,
+    value: 131676375,
+    change: '0.0%',
+    lastUpdate: '2025-08-31'
+  },
+  {
+    rank: 6,
+    holder: 'Robert Budi Hartono',
+    type: 'Lebih dari 5%',
+    shares: 28135000,
+    percentage: 0.023,
+    value: 130827750,
+    change: '0.0%',
+    lastUpdate: '2025-08-31'
+  },
+  {
+    rank: 7,
+    holder: 'Bambang Hartono',
+    type: 'Lebih dari 5%',
+    shares: 27025000,
+    percentage: 0.022,
+    value: 125666250,
+    change: '0.0%',
+    lastUpdate: '2025-08-31'
+  },
+  {
+    rank: 8,
+    holder: 'Masyarakat Warkat',
+    type: 'Masyarakat Warkat',
+    shares: 11248880,
+    percentage: 0.009,
+    value: 52307292,
+    change: '0.0%',
+    lastUpdate: '2025-08-31'
+  },
+  {
+    rank: 9,
+    holder: 'Tan Ho Hien/Subur disebut juga Subur Tan',
+    type: 'Direksi',
+    shares: 11169044,
+    percentage: 0.009,
+    value: 51936055,
+    change: '0.0%',
+    lastUpdate: '2025-08-31'
+  },
+  {
+    rank: 10,
+    holder: 'Tonny Kusnadi',
+    type: 'Komisaris',
+    shares: 7502058,
+    percentage: 0.006,
+    value: 34884570,
+    change: '0.0%',
+    lastUpdate: '2025-08-31'
+  },
+  {
+    rank: 11,
+    holder: 'Armand Wahyudi Hartono',
+    type: 'Direksi',
+    shares: 4256065,
+    percentage: 0.003,
+    value: 19791022,
+    change: '0.0%',
+    lastUpdate: '2025-08-31'
+  },
+  {
+    rank: 12,
+    holder: 'Rudy Susanto',
+    type: 'Direksi',
+    shares: 3431711,
+    percentage: 0.003,
+    value: 15957456,
+    change: '0.0%',
+    lastUpdate: '2025-08-31'
+  },
+  {
+    rank: 13,
+    holder: 'Santoso',
+    type: 'Direksi',
+    shares: 3169028,
+    percentage: 0.003,
+    value: 14735980,
+    change: '0.0%',
+    lastUpdate: '2025-08-31'
+  },
+  {
+    rank: 14,
+    holder: 'Lianawaty Suwono',
+    type: 'Direksi',
+    shares: 2840417,
+    percentage: 0.002,
+    value: 13207939,
+    change: '0.0%',
+    lastUpdate: '2025-08-31'
+  },
+  {
+    rank: 15,
+    holder: 'Vera Eve Lim',
+    type: 'Direksi',
+    shares: 2731601,
+    percentage: 0.002,
+    value: 12701945,
+    change: '0.0%',
+    lastUpdate: '2025-08-31'
+  },
+  {
+    rank: 16,
+    holder: 'Frengky Chandra Kusuma',
+    type: 'Direksi',
+    shares: 2429926,
+    percentage: 0.002,
+    value: 11299156,
+    change: '0.0%',
+    lastUpdate: '2025-08-31'
+  },
+  {
+    rank: 17,
+    holder: 'Gregory Hendra Lembong',
+    type: 'Direksi',
+    shares: 1531282,
+    percentage: 0.001,
+    value: 7120461,
+    change: '0.0%',
+    lastUpdate: '2025-08-31'
+  },
+  {
+    rank: 18,
+    holder: 'John Kosasih',
+    type: 'Direksi',
+    shares: 1094492,
+    percentage: 0.001,
+    value: 5089388,
+    change: '0.0%',
+    lastUpdate: '2025-08-31'
+  },
+  {
+    rank: 19,
+    holder: 'Haryanto Tiara Budiman',
+    type: 'Direksi',
+    shares: 1057378,
+    percentage: 0.001,
+    value: 4916808,
+    change: '0.0%',
+    lastUpdate: '2025-08-31'
+  },
+  {
+    rank: 20,
+    holder: 'Antonius Widodo Mulyono',
+    type: 'Direksi',
+    shares: 440838,
+    percentage: 0.0,
+    value: 2049897,
+    change: '0.0%',
+    lastUpdate: '2025-08-31'
+  },
+  {
+    rank: 21,
+    holder: 'Hendra Tanumihardja',
+    type: 'Direksi',
+    shares: 193206,
+    percentage: 0.0,
+    value: 898408,
+    change: '0.0%',
+    lastUpdate: '2025-08-31'
   }
 ];
 
 export function StoryOwnership() {
-  const [selectedStock, setSelectedStock] = useState('BBRI');
+  const [selectedStock, setSelectedStock] = useState('BBCA');
   const [selectedView, setSelectedView] = useState('summary');
-  const [selectedPeriod, setSelectedPeriod] = useState('Q1 2024');
+  const [dataRange, setDataRange] = useState(6); // Default 6 months
+  const [stockInput, setStockInput] = useState('BBCA');
+  const [showStockSuggestions, setShowStockSuggestions] = useState(false);
 
-  const stocks = ['BBRI', 'BBCA', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM'];
+  const stocks = ['BBCA', 'BBRI', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM', 'ICBP', 'INDF', 'KLBF', 'ADRO', 'ANTM', 'ITMG', 'PTBA', 'SMGR', 'INTP', 'WIKA', 'WSKT', 'PGAS'];
   const views = [
     { key: 'summary', label: 'Summary' },
-    { key: 'detailed', label: 'Detailed' },
-    { key: 'historical', label: 'Historical' }
+    { key: 'detailed', label: 'Detailed' }
   ];
+
+  // Filter stocks based on input
+  const filteredStocks = stocks.filter(stock => 
+    stock.toLowerCase().includes(stockInput.toLowerCase())
+  );
+
+  const handleStockSelect = (stock: string) => {
+    setStockInput(stock);
+    setSelectedStock(stock);
+    setShowStockSuggestions(false);
+  };
+
+  const handleStockInputChange = (value: string) => {
+    setStockInput(value.toUpperCase());
+    setShowStockSuggestions(true);
+    // Auto-select if exact match
+    if (stocks.includes(value.toUpperCase())) {
+      setSelectedStock(value.toUpperCase());
+    }
+  };
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+      if (!target.closest('.stock-dropdown-container')) {
+        setShowStockSuggestions(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Get historical data based on selected range
+  const getHistoricalData = () => {
+    return historicalOwnershipData.slice(0, dataRange);
+  };
 
   const formatNumber = (num: number): string => {
     if (num >= 1000000000) {
@@ -162,15 +358,50 @@ export function StoryOwnership() {
             <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
               <div className="flex items-center gap-2">
                 <label className="font-medium">Stock:</label>
-                <select
-                  value={selectedStock}
-                  onChange={(e) => setSelectedStock(e.target.value)}
-                  className="px-3 py-1 border border-border rounded-md bg-background text-foreground"
-                >
-                  {stocks.map(stock => (
-                    <option key={stock} value={stock}>{stock}</option>
-                  ))}
-                </select>
+                <div className="relative stock-dropdown-container">
+                  <input
+                    type="text"
+                    value={stockInput}
+                    onChange={(e) => handleStockInputChange(e.target.value)}
+                    onFocus={() => setShowStockSuggestions(true)}
+                    placeholder="Enter stock code..."
+                    className="px-3 py-1 border border-border rounded-md bg-background text-foreground w-40"
+                  />
+                  {showStockSuggestions && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                      {stockInput === '' ? (
+                        <>
+                          <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
+                            All Stocks
+                          </div>
+                          {stocks.map(stock => (
+                            <div
+                              key={stock}
+                              onClick={() => handleStockSelect(stock)}
+                              className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
+                            >
+                              {stock}
+                            </div>
+                          ))}
+                        </>
+                      ) : filteredStocks.length > 0 ? (
+                        filteredStocks.map(stock => (
+                          <div
+                            key={stock}
+                            onClick={() => handleStockSelect(stock)}
+                            className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
+                          >
+                            {stock}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">
+                          No stocks found
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
               
               <div className="flex items-center gap-2">
@@ -189,22 +420,6 @@ export function StoryOwnership() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <label className="font-medium">Period:</label>
-                <select
-                  value={selectedPeriod}
-                  onChange={(e) => setSelectedPeriod(e.target.value)}
-                  className="px-3 py-1 border border-border rounded-md bg-background text-foreground text-sm"
-                >
-                  {historicalOwnership.map(period => (
-                    <option key={period.period} value={period.period}>{period.period}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            
-            <div className="text-sm text-muted-foreground">
-              📊 Analisa Kepemilikan - Last Updated: Mar 15, 2024
             </div>
           </div>
         </CardContent>
@@ -214,36 +429,28 @@ export function StoryOwnership() {
       {selectedView === 'summary' && (
         <>
           {/* Key Metrics */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card>
               <CardContent className="p-4">
                 <h3 className="font-medium mb-2">Total Shares</h3>
-                <div className="text-2xl font-bold text-primary">48.35B</div>
+                <div className="text-2xl font-bold text-primary">123.3B</div>
                 <p className="text-sm text-muted-foreground">Outstanding shares</p>
               </CardContent>
             </Card>
             
             <Card>
               <CardContent className="p-4">
-                <h3 className="font-medium mb-2">Market Value</h3>
-                <div className="text-2xl font-bold text-green-600">$225.2B</div>
-                <p className="text-sm text-muted-foreground">Total market cap</p>
+                <h3 className="font-medium mb-2">Controlling Shareholder</h3>
+                <div className="text-2xl font-bold text-blue-600">54.94%</div>
+                <p className="text-sm text-muted-foreground">PT Dwimuria Investama</p>
               </CardContent>
             </Card>
             
             <Card>
               <CardContent className="p-4">
-                <h3 className="font-medium mb-2">Foreign Ownership</h3>
-                <div className="text-2xl font-bold text-blue-600">52.3%</div>
-                <p className="text-sm text-muted-foreground">International investors</p>
-              </CardContent>
-            </Card>
-            
-            <Card>
-              <CardContent className="p-4">
-                <h3 className="font-medium mb-2">Free Float</h3>
-                <div className="text-2xl font-bold text-purple-600">35.2%</div>
-                <p className="text-sm text-muted-foreground">Publicly traded</p>
+                <h3 className="font-medium mb-2">Public Ownership</h3>
+                <div className="text-2xl font-bold text-green-600">42.46%</div>
+                <p className="text-sm text-muted-foreground">Masyarakat Non Warkat</p>
               </CardContent>
             </Card>
           </div>
@@ -267,6 +474,7 @@ export function StoryOwnership() {
                         outerRadius={120}
                         paddingAngle={2}
                         dataKey="percentage"
+                        nameKey="name"
                       >
                         {ownershipData.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.color} />
@@ -275,23 +483,22 @@ export function StoryOwnership() {
                       <Tooltip 
                         formatter={(value, name, props) => [
                           `${value}%`,
-                          props.payload.category
+                          props.payload.name
                         ]}
                         contentStyle={{
                           backgroundColor: 'hsl(var(--popover))',
                           border: '1px solid hsl(var(--border))',
                           borderRadius: '6px',
-                          fontSize: '12px'
+                          fontSize: '12px',
+                          color: 'hsl(var(--popover-foreground))'
+                        }}
+                        labelStyle={{
+                          color: 'hsl(var(--popover-foreground))'
                         }}
                       />
                       <Legend 
                         verticalAlign="bottom" 
                         height={36}
-                        formatter={(value, entry) => (
-                          <span style={{ color: entry.color, fontSize: '12px' }}>
-                            {ownershipData[entry.payload?.index]?.category}
-                          </span>
-                        )}
                       />
                     </PieChart>
                   </ResponsiveContainer>
@@ -307,14 +514,14 @@ export function StoryOwnership() {
               <CardContent>
                 <div className="overflow-y-auto max-h-80">
                   <table className="w-full text-sm">
-                    <thead className="sticky top-0 bg-muted/50">
-                      <tr className="border-b border-border">
-                        <th className="text-left p-2">Shareholder</th>
-                        <th className="text-right p-2">%</th>
-                        <th className="text-right p-2">Shares</th>
-                        <th className="text-right p-2">Value</th>
-                      </tr>
-                    </thead>
+                     <thead className="sticky top-0 bg-muted/50">
+                       <tr className="border-b border-border">
+                         <th className="text-left p-2 text-foreground">Shareholder</th>
+                         <th className="text-right p-2 text-foreground">%</th>
+                         <th className="text-right p-2 text-foreground">Shares</th>
+                         <th className="text-right p-2 text-foreground">Value</th>
+                       </tr>
+                     </thead>
                     <tbody>
                       {ownershipData.map((owner, index) => (
                         <tr key={index} className="border-b border-border/50 hover:bg-muted/20">
@@ -324,14 +531,14 @@ export function StoryOwnership() {
                                 className="w-3 h-3 rounded-full" 
                                 style={{ backgroundColor: owner.color }}
                               ></div>
-                              <span className="truncate" title={owner.category}>
-                                {owner.category}
+                              <span className="truncate text-foreground" title={owner.name}>
+                                {owner.name}
                               </span>
                             </div>
                           </td>
-                          <td className="p-2 text-right font-medium">{owner.percentage}%</td>
-                          <td className="p-2 text-right">{formatNumber(owner.shares)}</td>
-                          <td className="p-2 text-right">{formatCurrency(owner.shares * 4.65)}</td>
+                          <td className="p-2 text-right font-medium text-foreground">{owner.percentage}%</td>
+                          <td className="p-2 text-right text-foreground">{formatNumber(owner.shares)}</td>
+                          <td className="p-2 text-right text-foreground">{formatCurrency(owner.shares * 4.65)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -340,6 +547,71 @@ export function StoryOwnership() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Historical Ownership Chart */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Historical Ownership Trends</CardTitle>
+              <div className="flex items-center gap-4">
+                <p className="text-sm text-muted-foreground">Ownership changes over time</p>
+                <div className="flex items-center gap-2">
+                  <label className="text-sm font-medium">Data Range:</label>
+                  <select
+                    value={dataRange}
+                    onChange={(e) => setDataRange(Number(e.target.value))}
+                    className="px-2 py-1 border border-border rounded-md bg-background text-foreground text-sm"
+                  >
+                    {[3, 6, 9, 12].map(num => (
+                      <option key={num} value={num}>{num} months</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={getHistoricalData()}
+                    margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+                    <XAxis 
+                      dataKey="period" 
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
+                    />
+                    <YAxis 
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
+                      domain={[0, 100]}
+                    />
+                    <Tooltip 
+                      contentStyle={{
+                        backgroundColor: 'hsl(var(--popover))',
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '6px',
+                        fontSize: '12px',
+                        color: 'hsl(var(--popover-foreground))'
+                      }}
+                      labelStyle={{
+                        color: 'hsl(var(--popover-foreground))'
+                      }}
+                      formatter={(value, name) => [`${value}%`, name]}
+                    />
+                    <Legend />
+                    
+                    <Bar dataKey="controlling" stackId="ownership" fill={stackColors.controlling} name="Controlling" />
+                    <Bar dataKey="public" stackId="ownership" fill={stackColors.public} name="Public" />
+                    <Bar dataKey="affiliate" stackId="ownership" fill={stackColors.affiliate} name="Affiliate" />
+                    <Bar dataKey="others" stackId="ownership" fill={stackColors.others} name="Others" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
         </>
       )}
 
@@ -352,33 +624,31 @@ export function StoryOwnership() {
           <CardContent>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-muted/50">
-                    <th className="text-left p-3">Rank</th>
-                    <th className="text-left p-3">Holder Name</th>
-                    <th className="text-left p-3">Type</th>
-                    <th className="text-left p-3">Country</th>
-                    <th className="text-right p-3">Shares</th>
-                    <th className="text-right p-3">%</th>
-                    <th className="text-right p-3">Market Value</th>
-                    <th className="text-right p-3">Change</th>
-                    <th className="text-right p-3">Last Update</th>
-                  </tr>
-                </thead>
+                 <thead>
+                   <tr className="border-b border-border bg-muted/50">
+                     <th className="text-left p-3 text-foreground">Rank</th>
+                     <th className="text-left p-3 text-foreground">Holder Name</th>
+                     <th className="text-left p-3 text-foreground">Type</th>
+                     <th className="text-right p-3 text-foreground">Shares</th>
+                     <th className="text-right p-3 text-foreground">%</th>
+                     <th className="text-right p-3 text-foreground">Market Value</th>
+                     <th className="text-right p-3 text-foreground">Change</th>
+                     <th className="text-right p-3 text-foreground">Last Update</th>
+                   </tr>
+                 </thead>
                 <tbody>
                   {detailedOwnership.map((holder, index) => (
                     <tr key={index} className="border-b border-border/50 hover:bg-muted/20">
-                      <td className="p-3 font-medium">#{holder.rank}</td>
-                      <td className="p-3 font-medium">{holder.holder}</td>
+                      <td className="p-3 font-medium text-foreground">#{holder.rank}</td>
+                      <td className="p-3 font-medium text-foreground">{holder.holder}</td>
                       <td className="p-3">
                         <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded text-xs">
                           {holder.type}
                         </span>
                       </td>
-                      <td className="p-3">{holder.country}</td>
-                      <td className="p-3 text-right font-mono">{formatNumber(holder.shares)}</td>
-                      <td className="p-3 text-right font-medium">{holder.percentage}%</td>
-                      <td className="p-3 text-right font-mono">{formatCurrency(holder.value)}</td>
+                      <td className="p-3 text-right font-mono text-foreground">{formatNumber(holder.shares)}</td>
+                      <td className="p-3 text-right font-medium text-foreground">{holder.percentage}%</td>
+                      <td className="p-3 text-right font-mono text-foreground">{formatCurrency(holder.value)}</td>
                       <td className="p-3 text-right">
                         <span className={holder.change.startsWith('+') ? 'text-green-600' : holder.change.startsWith('-') ? 'text-red-600' : 'text-gray-600'}>
                           {holder.change}
@@ -389,84 +659,6 @@ export function StoryOwnership() {
                   ))}
                 </tbody>
               </table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Historical View */}
-      {selectedView === 'historical' && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Historical Ownership Trends</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-96 mb-6">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={historicalOwnership}
-                  margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-                  <XAxis 
-                    dataKey="period" 
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
-                  />
-                  <YAxis 
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
-                    domain={[0, 100]}
-                  />
-                  <Tooltip 
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--popover))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '6px',
-                      fontSize: '12px'
-                    }}
-                    formatter={(value, name) => [`${value}%`, name]}
-                  />
-                  <Legend />
-                  
-                  <Bar dataKey="gov_singapore" stackId="ownership" fill={stackColors.gov_singapore} name="Gov Singapore" />
-                  <Bar dataKey="gov_norway" stackId="ownership" fill={stackColors.gov_norway} name="Gov Norway" />
-                  <Bar dataKey="blackrock" stackId="ownership" fill={stackColors.blackrock} name="BlackRock" />
-                  <Bar dataKey="vanguard" stackId="ownership" fill={stackColors.vanguard} name="Vanguard" />
-                  <Bar dataKey="state_street" stackId="ownership" fill={stackColors.state_street} name="State Street" />
-                  <Bar dataKey="domestic" stackId="ownership" fill={stackColors.domestic} name="Domestic Inst" />
-                  <Bar dataKey="retail" stackId="ownership" fill={stackColors.retail} name="Public/Retail" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Historical Summary Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Card>
-                <CardContent className="p-4 bg-muted/30">
-                  <h4 className="font-medium mb-2">Largest Increase</h4>
-                  <div className="text-lg font-bold text-green-600">Government of Singapore</div>
-                  <p className="text-sm text-muted-foreground">+0.2% from Q4 2023</p>
-                </CardContent>
-              </Card>
-              
-              <Card>
-                <CardContent className="p-4 bg-muted/30">
-                  <h4 className="font-medium mb-2">Largest Decrease</h4>
-                  <div className="text-lg font-bold text-red-600">Public/Retail</div>
-                  <p className="text-sm text-muted-foreground">-0.1% from Q4 2023</p>
-                </CardContent>
-              </Card>
-              
-              <Card>
-                <CardContent className="p-4 bg-muted/30">
-                  <h4 className="font-medium mb-2">Most Stable</h4>
-                  <div className="text-lg font-bold text-blue-600">BlackRock Inc</div>
-                  <p className="text-sm text-muted-foreground">Consistent ~12.4%</p>
-                </CardContent>
-              </Card>
             </div>
           </CardContent>
         </Card>

@@ -1,27 +1,37 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
+import {
+  createChart,
+  ColorType,
+  CrosshairMode,
+  LineSeries,
+  AreaSeries,
+  CandlestickSeries,
+  HistogramSeries,
+  type IChartApi,
+} from 'lightweight-charts';
 
-// Mock data untuk candlestick chart
+// Mock data untuk candlestick chart - convert to TradingView format with proper dates
 const candlestickData = [
-  { date: '09:00', open: 4620, high: 4650, low: 4610, close: 4640, volume: 15000 },
-  { date: '09:30', open: 4640, high: 4680, low: 4630, close: 4670, volume: 18000 },
-  { date: '10:00', open: 4670, high: 4690, low: 4650, close: 4660, volume: 12000 },
-  { date: '10:30', open: 4660, high: 4675, low: 4640, close: 4655, volume: 14000 },
-  { date: '11:00', open: 4655, high: 4670, low: 4645, close: 4665, volume: 16000 },
-  { date: '11:30', open: 4665, high: 4690, low: 4660, close: 4685, volume: 20000 },
-  { date: '12:00', open: 4685, high: 4700, low: 4680, close: 4695, volume: 22000 },
-  { date: '13:00', open: 4695, high: 4720, low: 4690, close: 4710, volume: 25000 },
-  { date: '13:30', open: 4710, high: 4730, low: 4705, close: 4725, volume: 28000 },
-  { date: '14:00', open: 4725, high: 4740, low: 4720, close: 4735, volume: 30000 },
-  { date: '14:30', open: 4735, high: 4750, low: 4730, close: 4745, volume: 32000 },
-  { date: '15:00', open: 4745, high: 4760, low: 4740, close: 4755, volume: 35000 },
+  { time: '2024-01-01' as any, open: 4620, high: 4650, low: 4610, close: 4640, volume: 15000 },
+  { time: '2024-01-02' as any, open: 4640, high: 4680, low: 4630, close: 4670, volume: 18000 },
+  { time: '2024-01-03' as any, open: 4670, high: 4690, low: 4650, close: 4660, volume: 12000 },
+  { time: '2024-01-04' as any, open: 4660, high: 4675, low: 4640, close: 4655, volume: 14000 },
+  { time: '2024-01-05' as any, open: 4655, high: 4670, low: 4645, close: 4665, volume: 16000 },
+  { time: '2024-01-08' as any, open: 4665, high: 4690, low: 4660, close: 4685, volume: 20000 },
+  { time: '2024-01-09' as any, open: 4685, high: 4700, low: 4680, close: 4695, volume: 22000 },
+  { time: '2024-01-10' as any, open: 4695, high: 4720, low: 4690, close: 4710, volume: 25000 },
+  { time: '2024-01-11' as any, open: 4710, high: 4730, low: 4705, close: 4725, volume: 28000 },
+  { time: '2024-01-12' as any, open: 4725, high: 4740, low: 4720, close: 4735, volume: 30000 },
+  { time: '2024-01-15' as any, open: 4735, high: 4750, low: 4730, close: 4745, volume: 32000 },
+  { time: '2024-01-16' as any, open: 4745, high: 4760, low: 4740, close: 4755, volume: 35000 },
 ];
 
 // Mock data untuk volume chart
 const volumeData = candlestickData.map(item => ({
-  date: item.date,
+  time: item.time,
   volume: item.volume,
   buyVolume: item.volume * 0.6,
   sellVolume: item.volume * 0.4,
@@ -43,20 +53,20 @@ const participantData = [
   { date: '15:00', domestic: 58, foreign: 27, retail: 15 },
 ];
 
-// Mock data untuk money flow
+// Mock data untuk money flow - convert to TradingView format with proper dates
 const moneyFlowData = [
-  { date: '09:00', moneyFlow: 120, inflow: 800, outflow: 680 },
-  { date: '09:30', moneyFlow: 180, inflow: 950, outflow: 770 },
-  { date: '10:00', moneyFlow: -60, inflow: 600, outflow: 660 },
-  { date: '10:30', moneyFlow: 140, inflow: 850, outflow: 710 },
-  { date: '11:00', moneyFlow: 250, inflow: 1100, outflow: 850 },
-  { date: '11:30', moneyFlow: 350, inflow: 1300, outflow: 950 },
-  { date: '12:00', moneyFlow: 300, inflow: 1200, outflow: 900 },
-  { date: '13:00', moneyFlow: 420, inflow: 1400, outflow: 980 },
-  { date: '13:30', moneyFlow: 500, inflow: 1500, outflow: 1000 },
-  { date: '14:00', moneyFlow: 550, inflow: 1600, outflow: 1050 },
-  { date: '14:30', moneyFlow: 600, inflow: 1700, outflow: 1100 },
-  { date: '15:00', moneyFlow: 650, inflow: 1800, outflow: 1150 },
+  { time: '2024-01-01' as any, moneyFlow: 1200, inflow: 8000, outflow: 6800 },
+  { time: '2024-01-02' as any, moneyFlow: 1800, inflow: 9500, outflow: 7700 },
+  { time: '2024-01-03' as any, moneyFlow: -600, inflow: 6000, outflow: 6600 },
+  { time: '2024-01-04' as any, moneyFlow: 1400, inflow: 8500, outflow: 7100 },
+  { time: '2024-01-05' as any, moneyFlow: 2500, inflow: 11000, outflow: 8500 },
+  { time: '2024-01-08' as any, moneyFlow: 3500, inflow: 13000, outflow: 9500 },
+  { time: '2024-01-09' as any, moneyFlow: 3000, inflow: 12000, outflow: 9000 },
+  { time: '2024-01-10' as any, moneyFlow: 4200, inflow: 14000, outflow: 9800 },
+  { time: '2024-01-11' as any, moneyFlow: 5000, inflow: 15000, outflow: 10000 },
+  { time: '2024-01-12' as any, moneyFlow: 5500, inflow: 16000, outflow: 10500 },
+  { time: '2024-01-15' as any, moneyFlow: 6000, inflow: 17000, outflow: 11000 },
+  { time: '2024-01-16' as any, moneyFlow: 6500, inflow: 18000, outflow: 11500 },
 ];
 
 // Mock data untuk net flows
@@ -129,75 +139,249 @@ const localStackedData = localStackedDataRaw.sort((a, b) => new Date(a.date).get
 const foreignStackedData = foreignStackedDataRaw.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 const combinedStackedData = combinedStackedDataRaw.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-// Custom Candlestick component using Line Chart
-const CustomCandlestick = ({ data }: { data: any }) => (
-  <ResponsiveContainer width="100%" height="100%">
-    <LineChart data={data} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
-      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-      <XAxis 
-        dataKey="date" 
-        axisLine={false}
-        tickLine={false}
-        tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-      />
-      <YAxis 
-        axisLine={false}
-        tickLine={false}
-        tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-        domain={['dataMin - 20', 'dataMax + 20']}
-      />
-      <Tooltip 
-        contentStyle={{
-          backgroundColor: 'hsl(var(--popover))',
-          border: '1px solid hsl(var(--border))',
-          borderRadius: '6px',
-          fontSize: '12px'
-        }}
-        formatter={(value, name) => {
-          if (name === 'close') return [`${value}`, 'Close Price'];
-          if (name === 'high') return [`${value}`, 'High'];
-          if (name === 'low') return [`${value}`, 'Low'];
-          if (name === 'open') return [`${value}`, 'Open'];
-          return [value, name];
-        }}
-      />
-      <Line 
-        type="monotone" 
-        dataKey="close" 
-        stroke="#3b82f6" 
-        strokeWidth={2} 
-        dot={{ r: 2, fill: '#3b82f6' }}
-        name="Close Price"
-      />
-      <Line 
-        type="monotone" 
-        dataKey="high" 
-        stroke="#22c55e" 
-        strokeWidth={1} 
-        dot={false}
-        strokeDasharray="2 2"
-        name="High"
-      />
-      <Line 
-        type="monotone" 
-        dataKey="low" 
-        stroke="#ef4444" 
-        strokeWidth={1} 
-        dot={false}
-        strokeDasharray="2 2"
-        name="Low"
-      />
-    </LineChart>
-  </ResponsiveContainer>
-);
+// TradingView-style chart with multiple panes
+const TradingViewMultiPaneChart = ({ 
+  candlestickData, 
+  moneyFlowData, 
+  volumeData 
+}: { 
+  candlestickData: any[], 
+  moneyFlowData: any[], 
+  volumeData: any[] 
+}) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+
+  // Get theme-aware colors
+  const getThemeColors = () => {
+    const isDark = document.documentElement.classList.contains('dark');
+    return {
+      textColor: isDark ? '#f9fafb' : '#111827',
+      gridColor: isDark ? '#4b5563' : '#e5e7eb',
+      borderColor: isDark ? '#6b7280' : '#d1d5db',
+      axisTextColor: isDark ? '#d1d5db' : '#6b7280',
+      separatorColor: isDark ? '#4b5563' : '#e5e7eb',
+      separatorHoverColor: isDark ? '#6b7280' : '#d1d5db'
+    };
+  };
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    // Clean up existing chart
+    if (chartRef.current) {
+      chartRef.current.remove();
+      chartRef.current = null;
+    }
+    
+    const width = el.clientWidth || 800;
+    const height = el.clientHeight || 650;
+    const colors = getThemeColors();
+    
+    // Create chart with panes configuration
+    chartRef.current = createChart(el, {
+      width,
+      height,
+      layout: { 
+        background: { type: ColorType.Solid, color: 'transparent' }, 
+        textColor: colors.axisTextColor,
+        panes: {
+          separatorColor: colors.separatorColor,
+          separatorHoverColor: colors.separatorHoverColor,
+          enableResize: true,
+        }
+      },
+      grid: { 
+        horzLines: { color: colors.gridColor, style: 1 }, 
+        vertLines: { color: colors.gridColor, style: 1 } 
+      },
+      rightPriceScale: { 
+        borderColor: colors.borderColor
+      },
+      timeScale: { 
+        borderColor: colors.borderColor,
+        timeVisible: true,
+        secondsVisible: false,
+        tickMarkFormatter: (time: any, tickMarkType: any, locale: string) => {
+          let date: Date;
+          if (typeof time === 'string') {
+            date = new Date(time);
+          } else {
+            date = new Date(time * 1000);
+          }
+          const day = date.getDate();
+          const month = date.toLocaleDateString('en-US', { month: 'short' });
+          return `${day} ${month}`;
+        }
+      },
+        crosshair: { mode: CrosshairMode.Normal },
+      });
+
+    if (!candlestickData.length) return;
+
+    try {
+      // Pane 0 (Main): Price Action - Candlestick Chart
+      const candlestickSeries = chartRef.current.addSeries(CandlestickSeries, {
+        upColor: '#16a34a',
+        downColor: '#dc2626',
+        borderVisible: false,
+        wickUpColor: '#16a34a',
+        wickDownColor: '#dc2626',
+      }, 0); // Pane index 0
+
+      candlestickSeries.setData(candlestickData.map(d => ({
+        time: d.time,
+        open: d.open,
+        high: d.high,
+        low: d.low,
+        close: d.close,
+      })));
+
+      // Pane 1: Money Flow Analysis
+      const moneyFlowSeries = chartRef.current.addSeries(HistogramSeries, {
+        color: '#3b82f6',
+        priceFormat: { type: 'volume' },
+      }, 1); // Pane index 1
+
+      moneyFlowSeries.setData(moneyFlowData.map(d => ({
+        time: d.time,
+        value: d.moneyFlow,
+        color: d.moneyFlow >= 0 ? '#16a34a' : '#dc2626',
+      })));
+
+      // Pane 2: Volume Analysis
+      const volumeSeries = chartRef.current.addSeries(HistogramSeries, {
+        color: '#8b5cf6',
+        priceFormat: { type: 'volume' },
+      }, 2); // Pane index 2
+
+      volumeSeries.setData(volumeData.map(d => ({
+        time: d.time,
+        value: d.volume,
+        color: d.buyVolume > d.sellVolume ? '#16a34a' : '#dc2626',
+      })));
+
+      // Force separate panes by setting heights
+      setTimeout(() => {
+        const panes = chartRef.current?.panes();
+        if (panes && panes.length >= 3) {
+          // Set pane heights - 6:1:1 ratio (Price:Money Flow:Volume) - Fixed ratio
+          panes[0].setHeight(450); // Main price chart - 6 parts (64.3%)
+          panes[1].setHeight(125); // Money flow - 1 part (17.9%) - Tidak gepeng
+          panes[2].setHeight(125); // Volume - 1 part (17.9%) - Tidak gepeng
+        }
+      }, 200);
+
+      chartRef.current.timeScale().fitContent();
+    } catch (e) {
+      console.error('Multi-pane chart render error:', e);
+    }
+  }, [candlestickData, moneyFlowData, volumeData]);
+
+  // Resize responsif
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      const cr = entries[0]?.contentRect;
+      if (!cr || !chartRef.current) return;
+      chartRef.current.applyOptions({
+        width: Math.max(1, Math.floor(cr.width)),
+        height: Math.max(1, Math.floor(cr.height)),
+      });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (chartRef.current) {
+        chartRef.current.remove();
+        chartRef.current = null;
+      }
+    };
+  }, []);
+
+  return (
+    <div className="h-[700px] w-full relative">
+      <style>{`
+        #tv-attr-logo {
+          display: none !important;
+        }
+        .tv-attr-logo {
+          display: none !important;
+        }
+        [data-tv-attr-logo] {
+          display: none !important;
+        }
+      `}</style>
+      
+      {/* Y-axis titles - positioned for 6:1:1 ratio yang fixed */}
+      <div className="absolute -left-4 top-45 text-sm font-bold text-muted-foreground transform -rotate-90 origin-left whitespace-nowrap z-10">
+        Price
+      </div>
+      <div className="absolute -left-4 top-120 text-sm font-bold text-muted-foreground transform -rotate-90 origin-left whitespace-nowrap z-10">
+        Money Flow
+      </div>
+      <div className="absolute -left-4 top-155 text-sm font-bold text-muted-foreground transform -rotate-90 origin-left whitespace-nowrap z-10">
+        Volume
+      </div>
+      
+      {/* X-axis title */}
+      <div className="absolute -bottom-4 left-1/2 transform -translate-x-1/2 text-sm font-bold text-muted-foreground z-10">
+        Date
+      </div>
+      
+      <div ref={containerRef} className="h-full w-full" />
+    </div>
+  );
+};
 
 export function StoryMarketParticipant() {
   const [selectedStock, setSelectedStock] = useState('BBRI');
   const [selectedTimeframe, setSelectedTimeframe] = useState('1D');
   const [showHistory, setShowHistory] = useState(false);
+  const [stockInput, setStockInput] = useState('BBRI');
+  const [showStockSuggestions, setShowStockSuggestions] = useState(false);
 
   const timeframes = ['1D', '5D', '1M', '3M', '6M', '1Y'];
-  const stocks = ['BBRI', 'BBCA', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM'];
+  const stocks = ['BBRI', 'BBCA', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM', 'ICBP', 'INDF', 'KLBF', 'ADRO', 'ANTM', 'ITMG', 'PTBA', 'SMGR', 'INTP', 'WIKA', 'WSKT', 'PGAS'];
+
+  // Filter stocks based on input
+  const filteredStocks = stocks.filter(stock => 
+    stock.toLowerCase().includes(stockInput.toLowerCase())
+  );
+
+  const handleStockSelect = (stock: string) => {
+    setStockInput(stock);
+    setSelectedStock(stock);
+    setShowStockSuggestions(false);
+  };
+
+  const handleStockInputChange = (value: string) => {
+    setStockInput(value.toUpperCase());
+    setShowStockSuggestions(true);
+    // Auto-select if exact match
+    if (stocks.includes(value.toUpperCase())) {
+      setSelectedStock(value.toUpperCase());
+    }
+  };
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+      if (!target.closest('.stock-dropdown-container')) {
+        setShowStockSuggestions(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   return (
     <div className="space-y-4">
@@ -208,15 +392,50 @@ export function StoryMarketParticipant() {
             <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
               <div className="flex items-center gap-2">
                 <label className="font-medium">Stock:</label>
-                <select
-                  value={selectedStock}
-                  onChange={(e) => setSelectedStock(e.target.value)}
-                  className="px-3 py-1 border border-border rounded-md bg-background text-foreground"
-                >
-                  {stocks.map(stock => (
-                    <option key={stock} value={stock}>{stock}</option>
-                  ))}
-                </select>
+                <div className="relative stock-dropdown-container">
+                  <input
+                    type="text"
+                    value={stockInput}
+                    onChange={(e) => handleStockInputChange(e.target.value)}
+                    onFocus={() => setShowStockSuggestions(true)}
+                    placeholder="Enter stock code..."
+                    className="px-3 py-1 border border-border rounded-md bg-background text-foreground w-40"
+                  />
+                  {showStockSuggestions && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                      {stockInput === '' ? (
+                        <>
+                          <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
+                            All Stocks
+                          </div>
+                          {stocks.map(stock => (
+                            <div
+                              key={stock}
+                              onClick={() => handleStockSelect(stock)}
+                              className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
+                            >
+                              {stock}
+                            </div>
+                          ))}
+                        </>
+                      ) : filteredStocks.length > 0 ? (
+                        filteredStocks.map(stock => (
+                          <div
+                            key={stock}
+                            onClick={() => handleStockSelect(stock)}
+                            className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
+                          >
+                            {stock}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">
+                          No stocks found
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
               
               <div className="flex items-center gap-2">
@@ -239,119 +458,32 @@ export function StoryMarketParticipant() {
         </CardContent>
       </Card>
 
-      {/* Main Chart Layout - All components stacked vertically */}
+      {/* Main Chart Layout - TradingView Style with Panes */}
       <div className="space-y-4">
-        {/* Price Action Chart */}
+        {/* Combined TradingView Chart with Multiple Panes */}
         <Card>
           <CardHeader>
-            <CardTitle>{selectedStock} - Price Action</CardTitle>
-            <p className="text-sm text-muted-foreground">Real-time price movement with volume</p>
+            <CardTitle>{selectedStock} - Market Analysis</CardTitle>
+            <p className="text-sm text-muted-foreground">Price action, money flow, and volume analysis</p>
           </CardHeader>
           <CardContent>
-            <div className="h-80">
-              <CustomCandlestick data={candlestickData} />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Money Flow Chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Money Flow Analysis</CardTitle>
-            <p className="text-sm text-muted-foreground">Money flow in/out analysis</p>
-          </CardHeader>
-          <CardContent>
-            <div className="h-60">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={moneyFlowData} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-                  <XAxis 
-                    dataKey="date" 
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                  />
-                  <YAxis 
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                  />
-                  <Tooltip 
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--popover))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '6px',
-                      fontSize: '12px'
-                    }}
-                    formatter={(value, name) => {
-                      if (name === 'Money Flow' || name === 'Inflow' || name === 'Outflow') {
-                        return [`${value}M`, name];
-                      }
-                      return [value, name];
-                    }}
-                  />
-                  <Bar dataKey="moneyFlow" fill="#3b82f6" name="Money Flow" />
-                  <Line type="monotone" dataKey="inflow" stroke="#22c55e" strokeWidth={2} dot={false} name="Inflow" />
-                  <Line type="monotone" dataKey="outflow" stroke="#ef4444" strokeWidth={2} dot={false} name="Outflow" />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Volume Chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Volume Analysis</CardTitle>
-            <p className="text-sm text-muted-foreground">Buy vs Sell volume breakdown</p>
-          </CardHeader>
-          <CardContent>
-            <div className="h-60">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={volumeData} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-                  <XAxis 
-                    dataKey="date" 
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                  />
-                  <YAxis 
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
-                  />
-                  <Tooltip 
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--popover))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '6px',
-                      fontSize: '12px'
-                    }}
-                    formatter={(value, name) => {
-                      if (name === 'Buy Volume' || name === 'Sell Volume') {
-                        return [`${value.toLocaleString()}`, name];
-                      }
-                      return [value, name];
-                    }}
-                  />
-                  <Bar dataKey="buyVolume" stackId="volume" fill="#22c55e" name="Buy Volume" />
-                  <Bar dataKey="sellVolume" stackId="volume" fill="#ef4444" name="Sell Volume" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            <TradingViewMultiPaneChart 
+              candlestickData={candlestickData}
+              moneyFlowData={moneyFlowData}
+              volumeData={volumeData}
+            />
           </CardContent>
         </Card>
 
         {/* Stacked Bar Charts Section */}
         <div className="space-y-4">
           {/* Local Market Participants Stacked Chart */}
-          <Card>
-            <CardHeader>
+        <Card>
+          <CardHeader>
               <CardTitle>Local Market Participants Breakdown</CardTitle>
               <p className="text-sm text-muted-foreground">Local investor types distribution over time</p>
-            </CardHeader>
-            <CardContent>
+          </CardHeader>
+          <CardContent>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={localStackedData} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
@@ -387,16 +519,16 @@ export function StoryMarketParticipant() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-            </CardContent>
-          </Card>
+          </CardContent>
+        </Card>
 
           {/* Foreign Market Participants Stacked Chart */}
-          <Card>
-            <CardHeader>
+        <Card>
+          <CardHeader>
               <CardTitle>Foreign Market Participants Breakdown</CardTitle>
               <p className="text-sm text-muted-foreground">Foreign investor types distribution over time</p>
-            </CardHeader>
-            <CardContent>
+          </CardHeader>
+          <CardContent>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={foreignStackedData} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
@@ -432,8 +564,8 @@ export function StoryMarketParticipant() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-            </CardContent>
-          </Card>
+          </CardContent>
+        </Card>
 
           {/* Combined Local vs Foreign Chart */}
           <Card>
