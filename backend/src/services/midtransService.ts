@@ -195,13 +195,7 @@ export class MidtransService {
     };
 
     if (!this.config.serverKey || !this.config.clientKey) {
-      console.warn('⚠️  Midtrans credentials tidak diisi, menggunakan mode development tanpa Midtrans');
-      // Create mock Midtrans service for development
-      this.snap = {
-        createTransaction: () => Promise.resolve({ token: 'mock-token' }),
-        createTransactionToken: () => Promise.resolve('mock-token')
-      } as any;
-      return;
+      throw new Error('Midtrans credentials not configured');
     }
 
     // Initialize Snap
