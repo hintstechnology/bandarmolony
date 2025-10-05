@@ -73,7 +73,7 @@ jobs:
     - name: Get deployment URL
       if: github.event_name == 'push'
       run: |
-        echo "Backend deployed to: https://bandarmolony-backend.orangegrass-7de105a8.southeastasia.azurecontainerapps.io"
+        echo "Backend succesfully deployed to: https://bandarmolony-backend.orangegrass-7de105a8.southeastasia.azurecontainerapps.io"
 
     - name: Build completed (PR)
       if: github.event_name == 'pull_request'
