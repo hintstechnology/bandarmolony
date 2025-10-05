@@ -1,5 +1,5 @@
 node_modules
-migration
+migrations
 npm-debug.log
 dist
 .git
