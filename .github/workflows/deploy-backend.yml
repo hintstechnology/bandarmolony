@@ -5,6 +5,10 @@ on:
     branches: [ main ]
     paths:
       - 'backend/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'backend/**'
 
 env:
   AZURE_CONTAINER_REGISTRY: backendacr.azurecr.io
@@ -44,18 +48,18 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         context: ./backend
-        push: true
+        push: ${{ github.event_name == 'push' }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
 
     - name: Azure Login
+      if: github.event_name == 'push'
       uses: azure/login@v1
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
     - name: Deploy to Azure Container Apps
+      if: github.event_name == 'push'
       uses: azure/container-apps-deploy-action@v1
       with:
         acrName: ${{ secrets.CONTAINER_REGISTRY }}
@@ -67,5 +71,12 @@ jobs:
         ingress: external
 
     - name: Get deployment URL
+      if: github.event_name == 'push'
       run: |
         echo "Backend deployed to: https://bandarmolony-backend.orangegrass-7de105a8.southeastasia.azurecontainerapps.io"
+
+    - name: Build completed (PR)
+      if: github.event_name == 'pull_request'
+      run: |
+        echo "✅ Build completed successfully for PR #${{ github.event.number }}"
+        echo "Ready for merge to main branch"
