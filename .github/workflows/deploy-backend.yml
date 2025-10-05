@@ -1,0 +1,71 @@
+name: Deploy Backend to Azure Container Apps
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'backend/**'
+
+env:
+  AZURE_CONTAINER_REGISTRY: backendacr.azurecr.io
+  CONTAINER_NAME: bandarmolony-backend
+  RESOURCE_GROUP: bandarmolony-rg
+  CONTAINER_APP_NAME: bandarmolony-backend
+  CONTAINER_APP_ENVIRONMENT: bandarmolony-env
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Azure Container Registry
+      uses: azure/docker-login@v1
+      with:
+        login-server: ${{ env.AZURE_CONTAINER_REGISTRY }}
+        username: ${{ secrets.ACR_USERNAME }}
+        password: ${{ secrets.ACR_PASSWORD }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.CONTAINER_NAME }}
+        tags: |
+          type=sha,prefix=main-
+          type=raw,value=latest
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./backend
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Deploy to Azure Container Apps
+      uses: azure/container-apps-deploy-action@v1
+      with:
+        acrName: ${{ secrets.CONTAINER_REGISTRY }}
+        containerAppName: ${{ env.CONTAINER_APP_NAME }}
+        resourceGroup: ${{ env.RESOURCE_GROUP }}
+        containerAppEnvironment: ${{ env.CONTAINER_APP_ENVIRONMENT }}
+        imageToDeploy: ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.CONTAINER_NAME }}:${{ github.sha }}
+        targetPort: 8080
+        ingress: external
+
+    - name: Get deployment URL
+      run: |
+        echo "Backend deployed to: https://bandarmolony-backend.orangegrass-7de105a8.southeastasia.azurecontainerapps.io"
