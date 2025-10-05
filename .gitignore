@@ -30,6 +30,12 @@ Thumbs.db
 npm-debug.log*
 yarn-error.log*
 pnpm-debug.log*
++!backend/package-lock.json
++!frontend/package-lock.json
++!backend/pnpm-lock.yaml
++!frontend/pnpm-lock.yaml
++!backend/yarn.lock
++!frontend/yarn.lock
 
 # Env
 .env
