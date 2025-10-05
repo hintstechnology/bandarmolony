@@ -874,6 +874,37 @@ export const api = {
     }
   },
 
+  async regenerateSnapToken(data: {
+    transactionId: string;
+  }): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.access_token) {
+        throw new Error('No active session found');
+      }
+
+      const response = await fetch(`${API_URL}/api/subscription/regenerate-snap-token`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify(data)
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to regenerate snap token');
+      }
+
+      return { success: true, data: result.data };
+    } catch (error: any) {
+      return { success: false, error: error.message || 'Failed to regenerate snap token' };
+    }
+  },
+
   async cancelPendingTransaction(data: {
     transactionId: string;
     reason?: string;

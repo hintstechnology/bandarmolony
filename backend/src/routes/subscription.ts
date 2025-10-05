@@ -195,26 +195,8 @@ router.post('/create-order', requireSupabaseUser, async (req: any, res) => {
       throw subscriptionError;
     }
 
-    // Create transaction record
+    // Create Midtrans transaction first
     const midtransOrderId = `SUB-${Date.now()}-${userId.substring(0, 8)}`;
-    const { data: transaction, error: transactionError } = await supabaseAdmin
-      .from('transactions')
-      .insert({
-        user_id: userId,
-        subscription_id: subscription.id,
-        midtrans_order_id: midtransOrderId,
-        payment_method: paymentMethod,
-        amount: plan.price,
-        status: 'pending'
-      })
-      .select()
-      .single();
-
-    if (transactionError) {
-      throw transactionError;
-    }
-
-    // Create Midtrans transaction
     const midtransTransaction = await midtransService.createSubscriptionTransaction({
       orderId: midtransOrderId,
       planId: plan.id,
@@ -231,6 +213,28 @@ router.post('/create-order', requireSupabaseUser, async (req: any, res) => {
         pending: config.PENDING_URL
       }
     });
+
+    // Get Snap redirect URL
+    const paymentUrl = await midtransService.createSnapRedirectUrl(midtransTransaction);
+
+    // Create transaction record
+    const { data: transaction, error: transactionError } = await supabaseAdmin
+      .from('transactions')
+      .insert({
+        user_id: userId,
+        subscription_id: subscription.id,
+        midtrans_order_id: midtransOrderId,
+        payment_method: paymentMethod,
+        amount: plan.price,
+        status: 'pending',
+        payment_url: paymentUrl
+      })
+      .select()
+      .single();
+
+    if (transactionError) {
+      throw transactionError;
+    }
 
     // Get Snap token
     const snapToken = await midtransService.createSnapToken(midtransTransaction);
@@ -274,7 +278,8 @@ router.post('/create-order', requireSupabaseUser, async (req: any, res) => {
       snapToken,
       orderId: midtransOrderId,
       amount: plan.price,
-      plan: plan
+      plan: plan,
+      paymentUrl: paymentUrl
     }, 'Payment order created successfully'));
 
   } catch (error: any) {
@@ -750,6 +755,107 @@ router.post('/cancel', requireSupabaseUser, async (req: any, res) => {
 });
 
 /**
+ * POST /api/subscription/regenerate-snap-token
+ * Regenerate snap token for existing pending transaction
+ */
+router.post('/regenerate-snap-token', requireSupabaseUser, async (req: any, res) => {
+  try {
+    const userId = req.user.id;
+    const { transactionId } = req.body;
+
+    if (!transactionId) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json(createErrorResponse(
+        'Transaction ID is required',
+        ERROR_CODES.VALIDATION_ERROR,
+        'transactionId',
+        HTTP_STATUS.BAD_REQUEST
+      ));
+    }
+
+    // Get pending transaction
+    const { data: transaction, error: transactionError } = await supabaseAdmin
+      .from('transactions')
+      .select(`
+        *,
+        subscriptions (
+          plan_name,
+          plan_id,
+          plan_duration
+        )
+      `)
+      .eq('id', transactionId)
+      .eq('user_id', userId)
+      .eq('status', 'pending')
+      .single();
+
+    if (transactionError || !transaction) {
+      return res.status(HTTP_STATUS.NOT_FOUND).json(createErrorResponse(
+        'Pending transaction not found',
+        ERROR_CODES.NOT_FOUND,
+        undefined,
+        HTTP_STATUS.NOT_FOUND
+      ));
+    }
+
+    // Get plan details
+    const plan = subscriptionPlans.find(p => p.id === transaction.subscriptions?.plan_id);
+    if (!plan) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json(createErrorResponse(
+        'Invalid plan for transaction',
+        ERROR_CODES.VALIDATION_ERROR,
+        'plan',
+        HTTP_STATUS.BAD_REQUEST
+      ));
+    }
+
+    // Create new Midtrans transaction with same details
+    const midtransTransaction = await midtransService.createSubscriptionTransaction({
+      orderId: transaction.midtrans_order_id,
+      planId: plan.id,
+      planName: plan.name,
+      planDuration: plan.duration,
+      price: plan.price,
+      customer: {
+        name: req.user.user_metadata?.full_name || 'User',
+        email: req.user.email
+      },
+      callbacks: {
+        finish: config.SUCCESS_URL,
+        error: config.ERROR_URL,
+        pending: config.PENDING_URL
+      }
+    });
+
+    // Get new snap token
+    const snapToken = await midtransService.createSnapToken(midtransTransaction);
+
+    // Update payment URL
+    const paymentUrl = await midtransService.createSnapRedirectUrl(midtransTransaction);
+    await supabaseAdmin
+      .from('transactions')
+      .update({
+        payment_url: paymentUrl,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', transaction.id);
+
+    res.json(createSuccessResponse({
+      snapToken,
+      orderId: transaction.midtrans_order_id,
+      paymentUrl: paymentUrl
+    }, 'Snap token regenerated successfully'));
+
+  } catch (error: any) {
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+      'Failed to regenerate snap token',
+      ERROR_CODES.INTERNAL_SERVER_ERROR,
+      undefined,
+      HTTP_STATUS.INTERNAL_SERVER_ERROR
+    ));
+  }
+});
+
+/**
  * POST /api/subscription/cancel-pending
  * Cancel pending transaction
  */
@@ -786,7 +892,8 @@ router.post('/cancel-pending', requireSupabaseUser, async (req: any, res) => {
     }
 
     // Update transaction status to cancelled
-    await supabaseAdmin
+    console.log('Cancelling transaction:', transaction.id);
+    const { error: transactionUpdateError } = await supabaseAdmin
       .from('transactions')
       .update({
         status: 'cancel',
@@ -794,8 +901,14 @@ router.post('/cancel-pending', requireSupabaseUser, async (req: any, res) => {
       })
       .eq('id', transaction.id);
 
+    if (transactionUpdateError) {
+      console.error('Error updating transaction:', transactionUpdateError);
+      throw transactionUpdateError;
+    }
+
     // Update subscription status to cancelled
-    await supabaseAdmin
+    console.log('Cancelling subscription:', transaction.subscription_id);
+    const { error: subscriptionUpdateError } = await supabaseAdmin
       .from('subscriptions')
       .update({
         status: 'cancelled',
@@ -804,6 +917,11 @@ router.post('/cancel-pending', requireSupabaseUser, async (req: any, res) => {
         updated_at: new Date().toISOString()
       })
       .eq('id', transaction.subscription_id);
+
+    if (subscriptionUpdateError) {
+      console.error('Error updating subscription:', subscriptionUpdateError);
+      throw subscriptionUpdateError;
+    }
 
     // Log cancellation
     await supabaseAdmin.rpc('log_payment_activity', {
@@ -821,7 +939,11 @@ router.post('/cancel-pending', requireSupabaseUser, async (req: any, res) => {
       }
     });
 
-    res.json(createSuccessResponse({}, 'Pending transaction cancelled successfully'));
+    console.log('Transaction cancelled successfully:', transaction.id);
+    res.json(createSuccessResponse({ 
+      transactionId: transaction.id,
+      status: 'cancel' 
+    }, 'Pending transaction cancelled successfully'));
 
   } catch (error: any) {
     res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
