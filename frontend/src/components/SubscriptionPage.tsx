@@ -66,17 +66,24 @@ export function SubscriptionPage() {
         setSubscriptionStatus(response.data);
         setTransactions(response.data.transactions || []);
         
-        // Check if there's an active payment
+        // Debug logging
+        console.log('Subscription data:', response.data);
+        console.log('Transactions:', response.data.transactions);
+        
+        // Check if there's an active payment (only pending, not settlement or cancel)
         const hasPendingPayment = response.data.transactions?.some(
-          (tx: any) => tx.status === 'pending' || tx.status === 'settlement'
+          (tx: any) => tx.status === 'pending'
         );
         setHasActivePayment(hasPendingPayment || false);
         
-        // Load pending transactions
+        // Load pending transactions (only truly pending ones, exclude cancelled)
         const pendingTxs = response.data.transactions?.filter(
           (tx: any) => tx.status === 'pending'
         ) || [];
         setPendingTransactions(pendingTxs);
+        
+        console.log('Has pending payment:', hasPendingPayment);
+        console.log('Pending transactions:', pendingTxs);
       }
     } catch (error) {
       console.error('Failed to load subscription status:', error);
@@ -180,6 +187,11 @@ export function SubscriptionPage() {
               console.log('Payment popup closed');
               toast.info('Payment dibatalkan.');
               setHasActivePayment(false);
+              // Auto-refresh data setelah popup ditutup
+              setTimeout(() => {
+                loadSubscriptionStatus();
+                loadPaymentActivity();
+              }, 1000);
             }
           });
         } else {
@@ -222,46 +234,68 @@ export function SubscriptionPage() {
     try {
       setLoading(true);
       
-      // Get the transaction details and create new payment
-      const response = await api.createSubscriptionOrder({
-        planId: transaction.subscriptions?.plan_id || 'premium',
-        paymentMethod: 'snap'
-      });
-
-      if (response.success) {
-        // Initialize Midtrans Snap
-        if ((window as any).snap) {
-          (window as any).snap.pay(response.data.snapToken, {
-            onSuccess: (result: any) => {
-              console.log('Payment success:', result);
-              toast.success('Payment berhasil! Subscription Anda telah diaktifkan.');
-              setTimeout(() => {
-                loadSubscriptionStatus();
-                loadPaymentActivity();
-              }, 2000);
-            },
-            onPending: (result: any) => {
-              console.log('Payment pending:', result);
-              toast.info('Payment sedang diproses. Silakan tunggu konfirmasi.');
-              setTimeout(() => {
-                loadSubscriptionStatus();
-                loadPaymentActivity();
-              }, 2000);
-            },
-            onError: (result: any) => {
-              console.log('Payment error:', result);
-              toast.error('Payment gagal. Silakan coba lagi.');
-            },
-            onClose: () => {
-              console.log('Payment popup closed');
-              toast.info('Payment dibatalkan.');
-            }
+      // Check payment status first
+      const statusResponse = await api.checkPaymentStatus(transaction.midtrans_order_id);
+      
+      if (statusResponse.success) {
+        const { currentStatus, midtransStatus } = statusResponse.data;
+        
+        // If transaction is still pending, regenerate snap token for the same transaction
+        if (currentStatus === 'pending' || midtransStatus === 'pending') {
+          // Regenerate snap token for existing transaction
+          const response = await api.regenerateSnapToken({
+            transactionId: transaction.id
           });
+
+          if (response.success) {
+            // Initialize Midtrans Snap popup with new token
+            if ((window as any).snap) {
+              (window as any).snap.pay(response.data.snapToken, {
+                onSuccess: (result: any) => {
+                  console.log('Payment success:', result);
+                  toast.success('Payment berhasil! Subscription Anda telah diaktifkan.');
+                  setTimeout(() => {
+                    loadSubscriptionStatus();
+                    loadPaymentActivity();
+                  }, 2000);
+                },
+                onPending: (result: any) => {
+                  console.log('Payment pending:', result);
+                  toast.info('Payment sedang diproses. Silakan tunggu konfirmasi.');
+                  setTimeout(() => {
+                    loadSubscriptionStatus();
+                    loadPaymentActivity();
+                  }, 2000);
+                },
+                onError: (result: any) => {
+                  console.log('Payment error:', result);
+                  toast.error('Payment gagal. Silakan coba lagi.');
+                },
+                onClose: () => {
+                  console.log('Payment popup closed');
+                  toast.info('Payment dibatalkan.');
+                  // Auto-refresh data setelah popup ditutup
+                  setTimeout(() => {
+                    loadSubscriptionStatus();
+                    loadPaymentActivity();
+                  }, 1000);
+                }
+              });
+            } else {
+              toast.error('Payment gateway tidak tersedia. Silakan refresh halaman.');
+            }
+          } else {
+            toast.error(response.error || 'Gagal regenerate snap token');
+          }
+        } else if (currentStatus === 'settlement' || midtransStatus === 'settlement') {
+          toast.success('Pembayaran sudah berhasil!');
+          loadSubscriptionStatus();
+          loadPaymentActivity();
         } else {
-          toast.error('Payment gateway tidak tersedia. Silakan refresh halaman.');
+          toast.error('Status pembayaran tidak valid. Silakan buat transaksi baru.');
         }
       } else {
-        toast.error(response.error || 'Gagal membuat order pembayaran');
+        toast.error('Gagal memeriksa status pembayaran');
       }
     } catch (error: any) {
       console.error('Continue payment error:', error);
@@ -283,8 +317,14 @@ export function SubscriptionPage() {
 
       if (response.success) {
         toast.success('Transaksi berhasil dibatalkan');
-        loadSubscriptionStatus();
-        loadPaymentActivity();
+        // Force refresh all data
+        await Promise.all([
+          loadSubscriptionStatus(),
+          loadPaymentActivity()
+        ]);
+        // Reset states
+        setHasActivePayment(false);
+        setPendingTransactions([]);
       } else {
         toast.error(response.error || 'Gagal membatalkan transaksi');
       }
