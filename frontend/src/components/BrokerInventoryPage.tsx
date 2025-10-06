@@ -4,6 +4,7 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Calendar, Plus, X } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, BarChart, Bar, ComposedChart } from 'recharts';
+import { getBrokerBackgroundClass, getBrokerTextClass, useDarkMode } from '../utils/brokerColors';
 import {
   createChart,
   ColorType,
@@ -14,6 +15,7 @@ import {
   HistogramSeries,
   type IChartApi,
 } from 'lightweight-charts';
+import { useUserChartColors } from '../hooks/useUserChartColors';
 
 interface BrokerInventoryData {
   broker: string;
@@ -221,6 +223,7 @@ const TradingViewChart = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const userColors = useUserChartColors();
 
   // Get theme-aware colors
   const getThemeColors = () => {
@@ -291,11 +294,11 @@ const TradingViewChart = ({
     try {
       // Add candlestick series (right Y-axis - Price) to Pane 0
       const candlestickSeries = chart.addSeries(CandlestickSeries, {
-        upColor: '#16a34a',
-        downColor: '#dc2626',
+        upColor: userColors.bullish,
+        downColor: userColors.bearish,
         borderVisible: false,
-        wickUpColor: '#16a34a',
-        wickDownColor: '#dc2626',
+        wickUpColor: userColors.bullish,
+        wickDownColor: userColors.bearish,
         priceScaleId: 'right', // Use right price scale
       }, 0);
 
@@ -332,11 +335,21 @@ const TradingViewChart = ({
           priceScaleId: 'right',
         }, 1);
 
-        volumeSeries.setData(volumeData.map(d => ({
-          time: d.time,
-          value: d.value,
-          color: d.color,
-        })));
+        // Compute color based on corresponding candlestick movement
+        const upMap: Record<string, boolean> = {};
+        candlestickData.forEach((c: any) => {
+          const t = c.time;
+          upMap[t] = (c.close ?? 0) >= (c.open ?? 0);
+        });
+
+        volumeSeries.setData(volumeData.map(d => {
+          const up = upMap[d.time] ?? ((d.value ?? 0) >= 0);
+          return {
+            time: d.time,
+            value: d.value,
+            color: up ? userColors.bullish : userColors.bearish,
+          };
+        }));
 
         // Set volume pane height to be smaller
         const volumePane = chart.panes()[1];
@@ -349,7 +362,7 @@ const TradingViewChart = ({
     } catch (e) {
       console.error('Chart render error:', e);
     }
-  }, [candlestickData, inventoryData, selectedBrokers, volumeData]);
+  }, [candlestickData, inventoryData, selectedBrokers, volumeData, userColors]);
 
   // Resize responsif
   useEffect(() => {
@@ -428,9 +441,10 @@ const TradingViewChart = ({
 };
 
 // Volume Chart Component
-const VolumeChart = ({ volumeData, showLabel = true }: { volumeData: any[], showLabel?: boolean }) => {
+const VolumeChart = ({ volumeData, candlestickData, showLabel = true }: { volumeData: any[], candlestickData?: any[], showLabel?: boolean }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const userColors = useUserChartColors();
 
   // Get theme-aware colors
   const getThemeColors = () => {
@@ -503,17 +517,29 @@ const VolumeChart = ({ volumeData, showLabel = true }: { volumeData: any[], show
         priceScaleId: '',
       });
 
-      volumeSeries.setData(volumeData.map(d => ({
-        time: d.time,
-        value: d.value,
-        color: d.color,
-      })));
+      // Build price up/down map if candlestickData provided
+      const upMap: Record<string, boolean> = {};
+      if (candlestickData && Array.isArray(candlestickData)) {
+        candlestickData.forEach((c: any) => {
+          const t = c.time;
+          upMap[t] = (c.close ?? 0) >= (c.open ?? 0);
+        });
+      }
+
+      volumeSeries.setData(volumeData.map(d => {
+        const up = upMap[d.time] ?? (d.value ?? 0) >= 0;
+        return {
+          time: d.time,
+          value: d.value,
+          color: up ? userColors.bullish : userColors.bearish,
+        };
+      }));
 
       chart.timeScale().fitContent();
     } catch (e) {
       console.error('Volume chart render error:', e);
     }
-  }, [volumeData]);
+  }, [volumeData, candlestickData, userColors]);
 
   // Resize responsif
   useEffect(() => {
@@ -578,6 +604,7 @@ const VolumeChart = ({ volumeData, showLabel = true }: { volumeData: any[], show
 const PriceChart = ({ candlestickData }: { candlestickData: any[] }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const userColors = useUserChartColors();
 
   const getThemeColors = () => {
     const isDark = document.documentElement.classList.contains('dark');
@@ -640,11 +667,11 @@ const PriceChart = ({ candlestickData }: { candlestickData: any[] }) => {
 
     try {
       const candlestickSeries = chart.addSeries(CandlestickSeries, {
-        upColor: '#16a34a',
-        downColor: '#dc2626',
+        upColor: userColors.bullish,
+        downColor: userColors.bearish,
         borderVisible: false,
-        wickUpColor: '#16a34a',
-        wickDownColor: '#dc2626',
+        wickUpColor: userColors.bullish,
+        wickDownColor: userColors.bearish,
         priceScaleId: 'right',
       });
 
@@ -660,7 +687,7 @@ const PriceChart = ({ candlestickData }: { candlestickData: any[] }) => {
     } catch (e) {
       console.error('Price chart render error:', e);
     }
-  }, [candlestickData]);
+  }, [candlestickData, userColors]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -1313,7 +1340,7 @@ export function BrokerInventoryPage() {
                   </p>
                 </CardHeader>
                 <CardContent>
-                  <VolumeChart volumeData={volumeData} showLabel={true} />
+                  <VolumeChart volumeData={volumeData} candlestickData={candlestickData} showLabel={true} />
                 </CardContent>
               </Card>
             </>
@@ -1360,9 +1387,11 @@ export function BrokerInventoryPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {big5TableData.map((row, index) => (
-                      <tr key={row.broker} className="border-b border-border/50 hover:bg-accent/50 relative">
-                        <td className="py-3 px-3 font-medium relative z-10">
+                    {big5TableData.map((row, index) => {
+                      const isDarkMode = useDarkMode();
+                      return (
+                        <tr key={row.broker} className={`border-b border-border/50 hover:opacity-80 relative ${getBrokerBackgroundClass(row.broker, isDarkMode)}`}>
+                          <td className={`py-3 px-3 font-medium relative z-10 ${getBrokerTextClass(row.broker, isDarkMode)}`}>
                           <div className="flex items-center gap-2">
                             <div 
                               className="w-3 h-3 rounded-full" 
@@ -1387,7 +1416,8 @@ export function BrokerInventoryPage() {
                           brokerColor={row.color}
                         />
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
           </div>

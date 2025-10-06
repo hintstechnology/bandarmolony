@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { TrendingUp, TrendingDown, Package } from 'lucide-react';
+import { getBrokerColorClass, useDarkMode } from '../utils/brokerColors';
 
 const inventoryData = [
   {
@@ -52,6 +53,8 @@ const inventoryData = [
 ];
 
 export function BrokerInventory() {
+  const isDarkMode = useDarkMode();
+  
   return (
     <Card>
       <CardHeader>
@@ -64,7 +67,7 @@ export function BrokerInventory() {
       <CardContent>
         <div className="space-y-4">
           {inventoryData.map((broker) => (
-            <div key={broker.broker} className="p-4 border border-border rounded-lg space-y-3">
+            <div key={broker.broker} className={`p-4 border rounded-lg space-y-3 ${getBrokerColorClass(broker.broker, isDarkMode)}`}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <span className="font-bold text-lg text-card-foreground">{broker.broker}</span>

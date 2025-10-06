@@ -1,6 +1,7 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
+import { getBrokerColorClass, useDarkMode } from '../utils/brokerColors';
 
 const brokerData = [
   { 
@@ -73,6 +74,8 @@ const CustomBar = (props: any) => {
 };
 
 export function BrokerSummary() {
+  const isDarkMode = useDarkMode();
+  
   return (
     <Card>
       <CardHeader>
@@ -150,10 +153,10 @@ export function BrokerSummary() {
             {brokerData.map((broker) => (
               <div 
                 key={broker.broker} 
-                className={`p-3 border rounded-lg ${
+                className={`p-3 border rounded-lg ${getBrokerColorClass(broker.broker, isDarkMode)} ${
                   broker.isBig5 
-                    ? 'bg-accent/50 border-primary/20' 
-                    : 'border-border'
+                    ? 'border-2' 
+                    : 'border'
                 }`}
               >
                 <div className="flex justify-between items-start mb-2">

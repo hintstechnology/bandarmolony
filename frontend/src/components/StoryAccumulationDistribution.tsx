@@ -356,8 +356,8 @@ export function StoryAccumulationDistribution() {
                 className="rounded border-border"
               />
               <label htmlFor="movingAverage" className="text-sm font-medium">Moving Average</label>
-            </div>
-            
+          </div>
+          
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -367,14 +367,14 @@ export function StoryAccumulationDistribution() {
                 className="rounded border-border"
               />
               <label htmlFor="volumeChange" className="text-sm font-medium">Volume Change</label>
-            </div>
           </div>
+        </div>
           
           <Button onClick={resetSettings} variant="outline" size="sm">
             Reset Settings
           </Button>
-        </div>
-      </Card>
+          </div>
+        </Card>
 
       {/* Market Maker Analysis Summary Table */}
       <Card className="p-0 bg-card">
@@ -391,7 +391,7 @@ export function StoryAccumulationDistribution() {
                   <div className="ml-0.5 flex flex-col">
                     <span className={`text-[8px] ${sortConfig?.key === 'symbol' && sortConfig.direction === 'asc' ? 'text-primary' : 'text-muted-foreground'}`}>↑</span>
                     <span className={`text-[8px] ${sortConfig?.key === 'symbol' && sortConfig.direction === 'desc' ? 'text-primary' : 'text-muted-foreground'}`}>↓</span>
-                  </div>
+                </div>
                 </div>
                 {dates.map((date, index) => (
                   <div 
@@ -463,20 +463,20 @@ export function StoryAccumulationDistribution() {
             </div>
 
             {/* Data Rows */}
-            {sortedData.map((row, rowIndex) => {
+              {sortedData.map((row, rowIndex) => {
               // Calculate min/max for normalization
               const allValues = Object.values(row.dates).filter(v => v !== null) as number[];
               const minValue = Math.min(...allValues);
               const maxValue = Math.max(...allValues);
-              
-              return (
+                
+                return (
                 <div key={row.symbol} className={`flex w-full border-b border-border hover:bg-muted/20 ${
                   row.suspend ? 'bg-red-500/10 dark:bg-red-500/20' : ''
                 }`}>
                   <div className="flex-1 p-1 border-r border-border font-medium text-xs bg-card flex items-center justify-center min-w-[60px]">
                     <span>{row.symbol}</span>
-                  </div>
-                  {dates.map((date) => {
+                    </div>
+                    {dates.map((date) => {
                     let displayValue = row.dates[date];
                     let displayData = row.dates;
                     
@@ -492,9 +492,9 @@ export function StoryAccumulationDistribution() {
                     }
                     
                     const isHighlighted = date === 'D0' && Math.random() > 0.8;
-                    return (
-                      <div 
-                        key={`${row.symbol}-${date}`}
+                      return (
+                        <div 
+                          key={`${row.symbol}-${date}`}
                         className={`flex-1 p-1 border-r border-border text-center text-xs min-w-[50px] ${
                           normalize ? getNormalizedColor(displayValue) : ''
                         } ${getTextColor(displayValue)} ${
@@ -502,9 +502,9 @@ export function StoryAccumulationDistribution() {
                         }`}
                       >
                         {displayValue !== null ? displayValue.toFixed(1) : '-'}
-                      </div>
-                    );
-                  })}
+                        </div>
+                      );
+                    })}
                   <div className={`flex-1 p-1 border-r border-border text-center text-xs min-w-[50px] ${getPercent1dColor(row.percent1d)}`}>
                     {row.percent1d >= 0 ? '+' : ''}{row.percent1d.toFixed(1)}%
                   </div>
@@ -529,13 +529,13 @@ export function StoryAccumulationDistribution() {
                   </div>
                   <div className="flex-1 p-1 text-center text-xs bg-card min-w-[60px]">
                     {formatPrice(row.volume)}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
-        </div>
-      </Card>
+        </Card>
     </div>
   );
 }

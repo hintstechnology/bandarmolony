@@ -11,6 +11,7 @@ import {
   HistogramSeries,
   type IChartApi,
 } from 'lightweight-charts';
+import { chartPreferencesService } from '../services/chartPreferences';
 
 // Type declaration for import.meta.glob
 declare global {
@@ -70,7 +71,7 @@ type Timeframe = '1M' | '5M' | '15M' | '30M' | '1H' | '1D' | '1W' | '1MO' | '3M'
 type Indicator = {
   id: string;
   name: string;
-  type: 'sma' | 'ema' | 'rsi' | 'macd' | 'volume_histogram' | 'footprint_bidask';
+  type: 'sma' | 'ema' | 'rsi' | 'macd' | 'volume_histogram';
   period: number;
   color: string;
   enabled: boolean;
@@ -425,9 +426,8 @@ function generateFootprintData(ohlcData: OhlcRow[]): FootprintData[] {
   console.log('generateFootprintData called with', ohlcData.length, 'rows');
   const result: FootprintData[] = [];
 
-  // For historical data, take the last 14 candles from the dataset
-  // Since we're working with historical data (2005-2016), we can't filter by "last 14 days"
-  const limitedData = ohlcData.slice(-14); // Take last 14 candles from the dataset
+  // Limit to the last 30 timestamps/candles to keep the footprint clean
+  const limitedData = ohlcData.slice(-30);
   console.log('Limited data (last 14 candles):', limitedData.length, 'rows');
   
   for (const candle of limitedData) {
@@ -799,10 +799,18 @@ export function TechnicalAnalysisTradingView() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
-  const [chartColors, setChartColors] = useState({
-    line: '#2563eb',
-    candles: { up: '#16a34a', down: '#dc2626', wickUp: '#16a34a', wickDown: '#dc2626' },
-    area: { line: '#2563eb', top: 'rgba(37,99,235,0.20)', bottom: 'rgba(37,99,235,0.05)' }
+  const [chartColors, setChartColors] = useState(() => {
+    const cached = chartPreferencesService.getCachedColors();
+    return {
+      line: '#2563eb',
+      candles: {
+        up: cached?.bullish ?? '#16a34a',
+        down: cached?.bearish ?? '#dc2626',
+        wickUp: cached?.bullish ?? '#16a34a',
+        wickDown: cached?.bearish ?? '#dc2626'
+      },
+      area: { line: '#2563eb', top: 'rgba(37,99,235,0.20)', bottom: 'rgba(37,99,235,0.05)' }
+    };
   });
   const [indicatorChartHeight, setIndicatorChartHeight] = useState(100);
   const [rsiSettings, setRsiSettings] = useState({
@@ -831,7 +839,18 @@ export function TechnicalAnalysisTradingView() {
     const savedColors = localStorage.getItem('chartColors');
     if (savedColors) {
       try {
-        setChartColors(JSON.parse(savedColors));
+        const parsed = JSON.parse(savedColors);
+        setChartColors((prev) => ({
+          ...prev,
+          line: parsed.line ?? prev.line,
+          candles: {
+            up: parsed.candles?.up ?? prev.candles.up,
+            down: parsed.candles?.down ?? prev.candles.down,
+            wickUp: parsed.candles?.wickUp ?? prev.candles.wickUp,
+            wickDown: parsed.candles?.wickDown ?? prev.candles.wickDown,
+          },
+          area: parsed.area ?? prev.area,
+        }));
       } catch (e) {
         console.log('Failed to load saved colors, using defaults');
       }
@@ -886,6 +905,42 @@ export function TechnicalAnalysisTradingView() {
     localStorage.setItem('volumeHistogramSettings', JSON.stringify(volumeHistogramSettings));
   }, [volumeHistogramSettings]);
 
+  // Load user chart colors (bullish/bearish) from Supabase once
+  useEffect(() => {
+    (async () => {
+      try {
+        const userColors = await chartPreferencesService.loadColors();
+        if (userColors) {
+          setChartColors((prev) => ({
+            ...prev,
+            candles: {
+              ...prev.candles,
+              up: userColors.bullish,
+              wickUp: userColors.bullish,
+              down: userColors.bearish,
+              wickDown: userColors.bearish,
+            },
+          }));
+          // Force re-render of chart series to apply new colors immediately
+          try {
+            if (chartRef.current && priceRef.current) {
+              const series = priceRef.current;
+              const options = {
+                upColor: userColors.bullish,
+                downColor: userColors.bearish,
+                wickUpColor: userColors.bullish,
+                wickDownColor: userColors.bearish,
+              } as any;
+              if (series.applyOptions) series.applyOptions(options);
+            }
+          } catch (_) {}
+        }
+      } catch (e) {
+        console.log('Failed to load user chart colors from Supabase:', e);
+      }
+    })();
+  }, []);
+
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -905,8 +960,7 @@ export function TechnicalAnalysisTradingView() {
       'ema': 12,
       'rsi': 14,
       'macd': 12,
-      'volume_histogram': 1,
-      'footprint_bidask': 1
+      'volume_histogram': 1
     };
     
     const newIndicator: Indicator = {
@@ -1524,9 +1578,6 @@ export function TechnicalAnalysisTradingView() {
           case 'volume_histogram':
             indicatorData = calculateVolumeHistogram(filteredRows);
             break;
-          case 'footprint_bidask':
-            // Footprint bid-ask should not be added to main chart
-            return;
         }
         
         if (indicatorData.length > 0) {
@@ -1580,7 +1631,7 @@ export function TechnicalAnalysisTradingView() {
 
   // Create separate charts for indicators
   useEffect(() => {
-    const enabledSeparateIndicators = indicators.filter(ind => ind.enabled && ind.separateScale && ind.type !== 'footprint_bidask');
+    const enabledSeparateIndicators = indicators.filter(ind => ind.enabled && ind.separateScale);
     
     indicators.forEach((indicator) => {
       // Remove chart if indicator is disabled
@@ -1645,13 +1696,9 @@ export function TechnicalAnalysisTradingView() {
         case 'volume_histogram':
           indicatorData = calculateVolumeHistogram(filteredRows);
           break;
-        case 'footprint_bidask':
-          // For footprint bid-ask, we'll use the loaded data
-          indicatorData = [];
-          break;
       }
       
-      if (indicatorData.length > 0 || indicator.type === 'footprint_bidask') {
+      if (indicatorData.length > 0) {
         // Add indicator series
         let indicatorSeries;
         if (indicator.type === 'volume_histogram') {
@@ -1669,19 +1716,6 @@ export function TechnicalAnalysisTradingView() {
             value: d.volume ?? 0,
             color: d.close >= d.open ? volumeHistogramSettings.upColor : volumeHistogramSettings.downColor,
           })));
-        } else if (indicator.type === 'footprint_bidask') {
-          // For footprint bid-ask, create a simple line series as placeholder
-          indicatorSeries = indicatorChart.addSeries(LineSeries, {
-            color: indicator.color,
-            lineWidth: 1,
-            title: indicator.name
-          });
-          
-          // Set minimal data for chart structure
-          indicatorSeries.setData([{
-            time: Date.now() / 1000,
-            value: 0
-          }]);
         } else {
           // Use LineSeries for other indicators
           indicatorSeries = indicatorChart.addSeries(LineSeries, {
@@ -1999,14 +2033,7 @@ export function TechnicalAnalysisTradingView() {
       <Card className="flex-1 p-0 relative">
         <div ref={containerRef} className="h-full w-full min-h-[400px] relative">
           {/* Bid-Ask Footprint Overlay for main chart */}
-          {indicators.some(ind => ind.type === 'footprint_bidask' && ind.enabled) && bidAskFootprintData.length > 0 && (
-            <BidAskFootprintOverlay 
-              data={bidAskFootprintData}
-              containerRef={containerRef.current}
-              chartRef={chartRef as React.RefObject<IChartApi>}
-              candlestickData={filteredRows}
-            />
-          )}
+          {/* Footprint overlay as indicator removed: footprint is only via Chart Style now */}
         </div>
         {(() => {
           console.log('Checking footprint conditions:', { 
@@ -2031,7 +2058,7 @@ export function TechnicalAnalysisTradingView() {
       </Card>
 
       {/* Separate indicator charts */}
-      {indicators.filter(ind => ind.separateScale && ind.type !== 'footprint_bidask').map(indicator => (
+      {indicators.filter(ind => ind.separateScale).map(indicator => (
         <Card key={indicator.id} className="p-0 relative">
           <div className="p-2 border-b border-border">
             <div className="flex items-center justify-between">
@@ -2226,7 +2253,17 @@ export function TechnicalAnalysisTradingView() {
                 Reset Default
               </button>
                   <button
-                    onClick={() => setShowSettings(false)}
+                    onClick={async () => {
+                      try {
+                        await chartPreferencesService.saveColors({
+                          bullish: chartColors.candles.up,
+                          bearish: chartColors.candles.down,
+                        });
+                      } catch (e) {
+                        console.log('Failed to save user chart colors to Supabase:', e);
+                      }
+                      setShowSettings(false);
+                    }}
                     className="px-3 py-1 text-xs bg-primary text-primary-foreground rounded hover:bg-primary/90"
                   >
                     Save Changes
@@ -2287,13 +2324,7 @@ export function TechnicalAnalysisTradingView() {
                   >
                     Volume Histogram
                   </button>
-                  <button
-                    onClick={() => addIndicator('footprint_bidask', '#8b5cf6', false)}
-                    className="px-3 py-2 text-xs border border-border rounded hover:bg-accent"
-                    title="Add Bid-Ask Footprint Table (main chart)"
-                  >
-                    Bid-Ask Footprint
-                  </button>
+                  {/* Footprint indicator removed: use Chart Style 'footprint' instead */}
                 </div>
               </div>
 
@@ -2777,6 +2808,7 @@ function FootprintOverlay({
 }) {
   const [visibleData, setVisibleData] = useState<FootprintData[]>([]);
   const [chartDimensions, setChartDimensions] = useState({ width: 0, height: 0 });
+  const [activeTime, setActiveTime] = useState<number | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
 
   console.log('FootprintOverlay rendering:', { 
@@ -2813,7 +2845,7 @@ function FootprintOverlay({
     }
 
     // Listen for time scale changes
-    const unsubscribe = timeScale.subscribeVisibleTimeRangeChange((timeRange) => {
+    const onRangeChange = (timeRange: any) => {
       console.log('Time range changed:', timeRange);
       if (timeRange) {
         const filteredData = footprintData.filter(data => 
@@ -2821,9 +2853,22 @@ function FootprintOverlay({
         );
         setVisibleData(filteredData);
       }
-    });
+    };
+    timeScale.subscribeVisibleTimeRangeChange(onRangeChange);
 
-    return unsubscribe;
+    // Track crosshair to show single active timestamp footprint
+    const onCrosshairMove = (param: any) => {
+      if (param && param.time) {
+        const t = Number(param.time as any);
+        if (!Number.isNaN(t)) setActiveTime(t);
+      }
+    };
+    chart.subscribeCrosshairMove(onCrosshairMove);
+
+    return () => {
+      try { timeScale.unsubscribeVisibleTimeRangeChange(onRangeChange); } catch (_) {}
+      try { chart.unsubscribeCrosshairMove(onCrosshairMove); } catch (_) {}
+    };
   }, [chartRef, footprintData]);
 
   // Separate effect for dimensions
@@ -2850,34 +2895,68 @@ function FootprintOverlay({
     };
   }, []);
 
-  // Show limited data for performance - max 8 candles to prevent overflow
-  const displayData = visibleData.length > 0 ? visibleData.slice(0, 8) : footprintData.slice(0, 8);
+  // Determine the single footprint to display (crosshair time or latest visible)
+  const pool = (visibleData.length > 0 ? visibleData : footprintData).slice(-30);
+  let selected: FootprintData | null = null;
+  if (activeTime) {
+    selected = pool.find(d => d.time === activeTime) || null;
+  }
+  if (!selected && pool.length) {
+    selected = pool[pool.length - 1];
+  }
 
-  console.log('Display data length:', displayData.length);
+  console.log('Selected footprint present:', !!selected);
 
-  if (!displayData.length) {
+  if (!selected) {
     console.log('No display data, returning null');
     return null;
   }
 
-  console.log('Rendering FootprintOverlay with', displayData.length, 'items');
+  console.log('Rendering FootprintOverlay for time', selected?.time);
+
+  // Helper to map time to X coordinate (approx)
+  const getX = (time: number) => {
+    if (!chartRef.current) return 0;
+    const ts = chartRef.current.timeScale();
+    const vr = ts.getVisibleRange();
+    if (!vr) return 0;
+    const from = Number(vr.from as any);
+    const to = Number(vr.to as any);
+    const pos = (time - from) / Math.max(1, (to - from));
+    return Math.max(0, Math.min(chartDimensions.width - 1, pos * chartDimensions.width));
+  };
+
+  const x = getX(selected.time);
+  const priceLevelsSorted = [...selected.priceLevels]
+    .sort((a, b) => b.price - a.price);
+  const significant = priceLevelsSorted
+    .sort((a, b) => (b.bidVolume + b.askVolume) - (a.bidVolume + a.askVolume))
+    .slice(0, 12);
+
+  const format = (v: number) => v >= 1000000 ? `${Math.round(v/1000)/1000}M` : v >= 1000 ? `${Math.round(v/100)/10}k` : `${v}`;
 
   return (
-    <div 
-      ref={overlayRef}
-      className="absolute inset-0 pointer-events-none"
-      style={{ zIndex: 10 }}
-    >
-      {displayData.map((footprint, index) => (
-        <FootprintColumn
-          key={footprint.time}
-          data={footprint}
-          index={index}
-          total={displayData.length}
-          chartWidth={chartDimensions.width}
-          chartHeight={chartDimensions.height}
-        />
-      ))}
+    <div ref={overlayRef} className="absolute inset-0 pointer-events-none" style={{ zIndex: 10 }}>
+      <div
+        className="absolute pointer-events-none"
+        style={{
+          left: Math.min(Math.max(0, x + 10), Math.max(0, chartDimensions.width - 140)),
+          top: 20,
+          width: 140,
+          background: 'rgba(0,0,0,0.5)',
+          border: '1px solid rgba(255,255,255,0.15)',
+          borderRadius: 6,
+          padding: '6px 8px'
+        }}
+      >
+        {significant.map((lvl, i) => (
+          <div key={i} className="flex items-center justify-between py-[1px]">
+            <span className="text-[10px] font-mono text-red-400">{format(lvl.bidVolume)}</span>
+            <span className="text-[10px] font-mono text-muted-foreground mx-2">|</span>
+            <span className="text-[10px] font-mono text-green-400">{format(lvl.askVolume)}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

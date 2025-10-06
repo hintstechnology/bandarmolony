@@ -4,6 +4,7 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Calendar, TrendingUp, TrendingDown, Users, Globe, Building2, Briefcase, ArrowUpDown, ChevronDown, X } from 'lucide-react';
 import { createChart, IChartApi, ISeriesApi, ColorType, LineStyle, CandlestickData, HistogramData, CandlestickSeries, HistogramSeries, CrosshairMode, PriceScaleMode } from 'lightweight-charts';
+import { useUserChartColors } from '../hooks/useUserChartColors';
 
 // Data interfaces
 interface PriceData {
@@ -212,6 +213,159 @@ const generateVolumeData = (ticker: string, timeframe: string): VolumeData[] => 
   return data;
 };
 
+// Individual chart component for split view
+const IndividualChart = ({ 
+  data, 
+  chartType, 
+  title, 
+  color, 
+  height = 200 
+}: { 
+  data: any[], 
+  chartType: 'candlestick' | 'histogram', 
+  title: string,
+  color?: string,
+  height?: number
+}) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const userColors = useUserChartColors();
+
+  const getThemeColors = () => {
+    const isDark = document.documentElement.classList.contains('dark');
+    return {
+      textColor: isDark ? '#f9fafb' : '#111827',
+      gridColor: isDark ? '#4b5563' : '#e5e7eb',
+      borderColor: isDark ? '#6b7280' : '#d1d5db',
+      axisTextColor: isDark ? '#d1d5db' : '#6b7280',
+    };
+  };
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    if (chartRef.current) {
+      chartRef.current.remove();
+      chartRef.current = null;
+    }
+    
+    const width = el.clientWidth || 800;
+    const colors = getThemeColors();
+    
+    chartRef.current = createChart(el, {
+      width,
+      height,
+      layout: { 
+        background: { type: ColorType.Solid, color: 'transparent' }, 
+        textColor: colors.axisTextColor,
+      },
+      grid: { 
+        horzLines: { color: colors.gridColor, style: 1 }, 
+        vertLines: { color: colors.gridColor, style: 1 } 
+      },
+      rightPriceScale: { 
+        borderColor: colors.borderColor
+      },
+      timeScale: { 
+        borderColor: colors.borderColor,
+        timeVisible: true,
+        secondsVisible: false,
+        tickMarkFormatter: (time: any, tickMarkType: any, locale: string) => {
+          let date: Date;
+          if (typeof time === 'string') {
+            date = new Date(time);
+          } else {
+            date = new Date(time * 1000);
+          }
+          const day = date.getDate();
+          const month = date.toLocaleDateString('en-US', { month: 'short' });
+          return `${day} ${month}`;
+        }
+      },
+      crosshair: { mode: CrosshairMode.Normal },
+    });
+
+    if (!data.length) return;
+
+    try {
+      if (chartType === 'candlestick') {
+        const candlestickSeries = chartRef.current.addSeries(CandlestickSeries, {
+          upColor: userColors.bullish,
+          downColor: userColors.bearish,
+          borderVisible: false,
+          wickUpColor: userColors.bullish,
+          wickDownColor: userColors.bearish,
+        });
+
+        candlestickSeries.setData(data.map(d => ({
+          time: d.time,
+          open: d.open,
+          high: d.high,
+          low: d.low,
+          close: d.close,
+        })));
+      } else {
+        const histogramSeries = chartRef.current.addSeries(HistogramSeries, {
+          color: color || '#3b82f6',
+          priceFormat: { type: 'volume' },
+        });
+
+        histogramSeries.setData(data.map(d => ({
+          time: d.time,
+          value: d.value || d.netBuy || d.volume,
+          color: d.color || (d.value >= 0 ? userColors.bullish : userColors.bearish),
+        })));
+      }
+
+      chartRef.current.timeScale().fitContent();
+    } catch (e) {
+      console.error('Individual chart render error:', e);
+    }
+  }, [data, chartType, color, height, userColors]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      const cr = entries[0]?.contentRect;
+      if (!cr || !chartRef.current) return;
+      chartRef.current.applyOptions({
+        width: Math.max(1, Math.floor(cr.width)),
+        height: Math.max(1, Math.floor(cr.height)),
+      });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (chartRef.current) {
+        chartRef.current.remove();
+        chartRef.current = null;
+      }
+    };
+  }, []);
+
+  return (
+    <div className="w-full relative">
+      <style>{`
+        #tv-attr-logo {
+          display: none !important;
+        }
+        .tv-attr-logo {
+          display: none !important;
+        }
+        [data-tv-attr-logo] {
+          display: none !important;
+        }
+      `}</style>
+      <div ref={containerRef} className="w-full" style={{ height: `${height}px` }} />
+    </div>
+  );
+};
+
 // TradingView-style chart with multiple panes
 const TradingViewMultiPaneChart = ({ 
   candlestickData, 
@@ -224,6 +378,7 @@ const TradingViewMultiPaneChart = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const userColors = useUserChartColors();
 
   // Get theme-aware colors
   const getThemeColors = () => {
@@ -291,11 +446,11 @@ const TradingViewMultiPaneChart = ({
     try {
       // Pane 0 (Main): Price Action - Candlestick Chart
       const candlestickSeries = chartRef.current.addSeries(CandlestickSeries, {
-        upColor: '#16a34a',
-        downColor: '#dc2626',
+        upColor: userColors.bullish,
+        downColor: userColors.bearish,
         borderVisible: false,
-        wickUpColor: '#16a34a',
-        wickDownColor: '#dc2626',
+        wickUpColor: userColors.bullish,
+        wickDownColor: userColors.bearish,
       }, 0); // Pane index 0
 
       candlestickSeries.setData(candlestickData.map(d => ({
@@ -315,7 +470,7 @@ const TradingViewMultiPaneChart = ({
       foreignFlowSeries.setData(foreignFlowData.map(d => ({
         time: d.time,
         value: d.netBuy,
-        color: d.netBuy >= 0 ? '#16a34a' : '#dc2626',
+        color: d.netBuy >= 0 ? userColors.bullish : userColors.bearish,
       })));
 
       // Pane 2: Volume Analysis
@@ -327,7 +482,7 @@ const TradingViewMultiPaneChart = ({
       volumeSeries.setData(volumeData.map(d => ({
         time: d.time,
         value: d.volume,
-        color: d.buyVolume > d.sellVolume ? '#16a34a' : '#dc2626',
+        color: d.buyVolume > d.sellVolume ? userColors.bullish : userColors.bearish,
       })));
 
       // Force separate panes by setting heights
@@ -345,7 +500,7 @@ const TradingViewMultiPaneChart = ({
     } catch (e) {
       console.error('Multi-pane chart render error:', e);
     }
-  }, [candlestickData, foreignFlowData, volumeData]);
+  }, [candlestickData, foreignFlowData, volumeData, userColors]);
 
   // Resize responsif
   useEffect(() => {
@@ -413,6 +568,7 @@ export function StoryForeignFlow() {
   const [tickerInput, setTickerInput] = useState('BBCA');
   const [selectedTicker, setSelectedTicker] = useState('BBCA');
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
+  const [layoutMode, setLayoutMode] = useState<'split' | 'combined'>('combined');
 
   const timeframes = ['1D', '5D', '1M', '3M', '6M', '1Y'];
   const stocks = ['BBCA', 'BBRI', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM', 'ICBP', 'INDF', 'KLBF', 'ADRO', 'ANTM', 'ITMG', 'PTBA', 'SMGR', 'INTP', 'WIKA', 'WSKT', 'PGAS'];
@@ -552,29 +708,110 @@ export function StoryForeignFlow() {
                 {tf}
               </Button>
             ))}
-          </div>
         </div>
+      </div>
+
+        <div className="flex items-center gap-2">
+                <label className="font-medium">Layout:</label>
+                <div className="flex gap-1">
+                  <Button
+                    variant={layoutMode === 'combined' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setLayoutMode('combined')}
+                  >
+                    Combine
+                  </Button>
+                  <Button
+                    variant={layoutMode === 'split' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setLayoutMode('split')}
+                  >
+                    Split
+                  </Button>
+              </div>
+            </div>
               </div>
             </div>
           </CardContent>
         </Card>
 
-      {/* Main Chart Layout - TradingView Style with Panes */}
+      {/* Main Chart Layout */}
       <div className="space-y-4">
-        {/* Combined TradingView Chart with Multiple Panes */}
-        <Card>
-          <CardHeader>
-            <CardTitle>{selectedTicker} - Foreign Flow Analysis</CardTitle>
-            <p className="text-sm text-muted-foreground">Price action, foreign flow, and volume analysis</p>
-          </CardHeader>
-          <CardContent>
-            <TradingViewMultiPaneChart 
-              candlestickData={candlestickData}
-              foreignFlowData={foreignFlowChartData}
-              volumeData={volumeChartData}
-            />
-          </CardContent>
-        </Card>
+        {layoutMode === 'combined' ? (
+          /* Combined TradingView Chart with Multiple Panes */
+            <Card>
+              <CardHeader>
+              <CardTitle>{selectedTicker} - Foreign Flow Analysis</CardTitle>
+              <p className="text-sm text-muted-foreground">Price action, foreign flow, and volume analysis</p>
+              </CardHeader>
+              <CardContent>
+              <TradingViewMultiPaneChart 
+                candlestickData={candlestickData}
+                foreignFlowData={foreignFlowChartData}
+                volumeData={volumeChartData}
+              />
+              </CardContent>
+            </Card>
+        ) : (
+          /* Split View - Individual Charts */
+          <div className="space-y-4">
+            {/* Price Chart */}
+            <Card>
+              <CardHeader>
+                <CardTitle>{selectedTicker} - Price Action</CardTitle>
+                <p className="text-sm text-muted-foreground">Candlestick chart showing price movement</p>
+              </CardHeader>
+              <CardContent>
+                <IndividualChart 
+                  data={candlestickData}
+                  chartType="candlestick"
+                  title="Price"
+                  height={300}
+                />
+            </CardContent>
+          </Card>
+
+            {/* Foreign Flow Chart */}
+          <Card>
+            <CardHeader>
+                <CardTitle>{selectedTicker} - Foreign Flow</CardTitle>
+                <p className="text-sm text-muted-foreground">Foreign investor buying and selling activity</p>
+            </CardHeader>
+            <CardContent>
+                <IndividualChart 
+                  data={foreignFlowChartData.map(d => ({
+                    time: d.time,
+                    value: d.netBuy
+                  }))}
+                  chartType="histogram"
+                  title="Foreign Flow"
+                  color="#3b82f6"
+                  height={200}
+                />
+            </CardContent>
+          </Card>
+
+            {/* Volume Chart */}
+          <Card>
+            <CardHeader>
+                <CardTitle>{selectedTicker} - Volume</CardTitle>
+                <p className="text-sm text-muted-foreground">Trading volume analysis</p>
+            </CardHeader>
+            <CardContent>
+                <IndividualChart 
+                  data={volumeChartData.map(d => ({
+                    time: d.time,
+                    value: d.volume
+                  }))}
+                  chartType="histogram"
+                  title="Volume"
+                  color="#8b5cf6"
+                  height={200}
+                />
+            </CardContent>
+          </Card>
+        </div>
+        )}
       </div>
     </div>
   );

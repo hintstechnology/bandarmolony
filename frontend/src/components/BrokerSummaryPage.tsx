@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Calendar, Plus, X, RotateCcw } from 'lucide-react';
+import { getBrokerBackgroundClass, getBrokerTextClass, useDarkMode } from '../utils/brokerColors';
 
 interface BrokerSummaryData {
   broker: string;
@@ -117,7 +118,10 @@ const formatValue = (value: number): string => {
 };
 
 const getBrokerRowClass = (broker: string, data: BrokerSummaryData): string => {
-  return 'hover:bg-accent/50';
+  const isDarkMode = useDarkMode();
+  const backgroundClass = getBrokerBackgroundClass(broker, isDarkMode);
+  const textClass = getBrokerTextClass(broker, isDarkMode);
+  return `${backgroundClass} ${textClass} hover:opacity-80`;
 };
 
 
