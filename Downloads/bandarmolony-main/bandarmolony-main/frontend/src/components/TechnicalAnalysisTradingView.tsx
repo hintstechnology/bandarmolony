@@ -118,7 +118,7 @@ type Timeframe = '1M' | '5M' | '15M' | '30M' | '1H' | '1D' | '1W' | '1MO' | '3M'
 type Indicator = {
   id: string;
   name: string;
-  type: 'sma' | 'ema' | 'rsi' | 'macd' | 'stochastic' | 'volume_histogram';
+  type: 'sma' | 'ema' | 'rsi' | 'macd' | 'stochastic' | 'volume_histogram' | 'buy_sell_frequency';
   period: number;
   color: string;
   enabled: boolean;
@@ -303,17 +303,17 @@ function calculateRSI(data: OhlcRow[], period: number): IndicatorData[] {
   return result;
 }
 
-function calculateMACD(data: OhlcRow[], fastPeriod: number = 12, slowPeriod: number = 26, signalPeriod: number = 9): IndicatorData[] {
-  const result: IndicatorData[] = [];
+function calculateMACD(data: OhlcRow[], fastPeriod: number = 12, slowPeriod: number = 26, signalPeriod: number = 9): { macd: IndicatorData[], signal: IndicatorData[] } {
+  const macdLine: IndicatorData[] = [];
+  const signalLine: IndicatorData[] = [];
   
-  if (data.length < slowPeriod) return result;
+  if (data.length < slowPeriod) return { macd: macdLine, signal: signalLine };
   
   // Calculate EMAs
   const fastEMA = calculateEMA(data, fastPeriod);
   const slowEMA = calculateEMA(data, slowPeriod);
   
   // Calculate MACD line
-  const macdLine: IndicatorData[] = [];
   for (let i = 0; i < Math.min(fastEMA.length, slowEMA.length); i++) {
     if (fastEMA[i] && slowEMA[i]) {
       macdLine.push({
@@ -324,19 +324,19 @@ function calculateMACD(data: OhlcRow[], fastPeriod: number = 12, slowPeriod: num
   }
   
   // Calculate signal line (EMA of MACD line)
-  const signalLine = calculateEMA(macdLine.map(d => ({ time: d.time, open: d.value, high: d.value, low: d.value, close: d.value })), signalPeriod);
+  const signalLineData = calculateEMA(macdLine.map(d => ({ time: d.time, open: d.value, high: d.value, low: d.value, close: d.value })), signalPeriod);
   
-  // Calculate histogram (MACD - Signal)
-  for (let i = 0; i < Math.min(macdLine.length, signalLine.length); i++) {
-    if (macdLine[i] && signalLine[i]) {
-      result.push({
-        time: macdLine[i].time,
-        value: macdLine[i].value - signalLine[i].value
+  // Convert signal line data to IndicatorData format
+  for (let i = 0; i < signalLineData.length; i++) {
+    if (signalLineData[i]) {
+      signalLine.push({
+        time: signalLineData[i].time,
+        value: signalLineData[i].value
       });
     }
   }
   
-  return result;
+  return { macd: macdLine, signal: signalLine };
 }
 
 
@@ -353,6 +353,167 @@ function calculateVolumeHistogram(data: OhlcRow[]): IndicatorData[] {
   }
   
   return result;
+}
+
+function calculateBuySellFrequency(data: OhlcRow[], period: number = 14): { buyFreq: IndicatorData[], sellFreq: IndicatorData[] } {
+  const buyFreq: IndicatorData[] = [];
+  const sellFreq: IndicatorData[] = [];
+  
+  // Extended dummy data for demonstration - in real implementation, this would come from done summary
+  const dummyData = [
+    { price: 650, bFreq: 0, sFreq: 8421 },
+    { price: 645, bFreq: 150, sFreq: 3200 },
+    { price: 640, bFreq: 300, sFreq: 2800 },
+    { price: 635, bFreq: 450, sFreq: 2400 },
+    { price: 630, bFreq: 600, sFreq: 2000 },
+    { price: 625, bFreq: 750, sFreq: 1800 },
+    { price: 620, bFreq: 900, sFreq: 1600 },
+    { price: 615, bFreq: 1050, sFreq: 1400 },
+    { price: 610, bFreq: 1200, sFreq: 1200 },
+    { price: 605, bFreq: 1350, sFreq: 1000 },
+    { price: 600, bFreq: 1500, sFreq: 800 },
+    { price: 595, bFreq: 1650, sFreq: 600 },
+    { price: 590, bFreq: 1800, sFreq: 400 },
+    { price: 585, bFreq: 1950, sFreq: 200 },
+    { price: 580, bFreq: 2100, sFreq: 100 },
+    { price: 575, bFreq: 2250, sFreq: 50 },
+    { price: 570, bFreq: 2400, sFreq: 25 },
+    { price: 565, bFreq: 0, sFreq: 292 },
+    { price: 560, bFreq: 669, sFreq: 762 },
+    { price: 555, bFreq: 1210, sFreq: 865 },
+    { price: 550, bFreq: 1406, sFreq: 2112 },
+    { price: 545, bFreq: 3088, sFreq: 3108 },
+    { price: 540, bFreq: 4699, sFreq: 140 },
+    { price: 535, bFreq: 111, sFreq: 0 },
+    { price: 530, bFreq: 200, sFreq: 500 },
+    { price: 525, bFreq: 400, sFreq: 800 },
+    { price: 520, bFreq: 600, sFreq: 1200 },
+    { price: 515, bFreq: 800, sFreq: 1500 },
+    { price: 510, bFreq: 1000, sFreq: 1800 },
+    { price: 505, bFreq: 1200, sFreq: 2000 },
+    { price: 500, bFreq: 1400, sFreq: 2200 },
+    { price: 495, bFreq: 1600, sFreq: 2400 },
+    { price: 490, bFreq: 1800, sFreq: 2600 },
+    { price: 485, bFreq: 2000, sFreq: 2800 },
+    { price: 480, bFreq: 2200, sFreq: 3000 },
+    { price: 475, bFreq: 2400, sFreq: 3200 },
+    { price: 470, bFreq: 2600, sFreq: 3400 },
+    { price: 465, bFreq: 2800, sFreq: 3600 },
+    { price: 460, bFreq: 3000, sFreq: 3800 },
+    { price: 455, bFreq: 3200, sFreq: 4000 },
+    { price: 450, bFreq: 3400, sFreq: 4200 },
+    { price: 445, bFreq: 3600, sFreq: 4400 },
+    { price: 440, bFreq: 3800, sFreq: 4600 },
+    { price: 435, bFreq: 4000, sFreq: 4800 },
+    { price: 430, bFreq: 4200, sFreq: 5000 },
+    { price: 425, bFreq: 4400, sFreq: 5200 },
+    { price: 420, bFreq: 4600, sFreq: 5400 },
+    { price: 415, bFreq: 4800, sFreq: 5600 },
+    { price: 410, bFreq: 5000, sFreq: 5800 },
+    { price: 405, bFreq: 5200, sFreq: 6000 },
+    { price: 400, bFreq: 5400, sFreq: 6200 },
+    { price: 395, bFreq: 5600, sFreq: 6400 },
+    { price: 390, bFreq: 5800, sFreq: 6600 },
+    { price: 385, bFreq: 6000, sFreq: 6800 },
+    { price: 380, bFreq: 6200, sFreq: 7000 },
+    { price: 375, bFreq: 6400, sFreq: 7200 },
+    { price: 370, bFreq: 6600, sFreq: 7400 },
+    { price: 365, bFreq: 6800, sFreq: 7600 },
+    { price: 360, bFreq: 7000, sFreq: 7800 },
+    { price: 355, bFreq: 7200, sFreq: 8000 },
+    { price: 350, bFreq: 7400, sFreq: 8200 },
+    { price: 345, bFreq: 7600, sFreq: 8400 },
+    { price: 340, bFreq: 7800, sFreq: 8600 },
+    { price: 335, bFreq: 8000, sFreq: 8800 },
+    { price: 330, bFreq: 8200, sFreq: 9000 },
+    { price: 325, bFreq: 8400, sFreq: 9200 },
+    { price: 320, bFreq: 8600, sFreq: 9400 },
+    { price: 315, bFreq: 8800, sFreq: 9600 },
+    { price: 310, bFreq: 9000, sFreq: 9800 },
+    { price: 305, bFreq: 9200, sFreq: 10000 },
+    { price: 300, bFreq: 9400, sFreq: 10200 },
+    { price: 295, bFreq: 9600, sFreq: 10400 },
+    { price: 290, bFreq: 9800, sFreq: 10600 },
+    { price: 285, bFreq: 10000, sFreq: 10800 },
+    { price: 280, bFreq: 10200, sFreq: 11000 },
+    { price: 275, bFreq: 10400, sFreq: 11200 },
+    { price: 270, bFreq: 10600, sFreq: 11400 },
+    { price: 265, bFreq: 10800, sFreq: 11600 },
+    { price: 260, bFreq: 11000, sFreq: 11800 },
+    { price: 255, bFreq: 11200, sFreq: 12000 },
+    { price: 250, bFreq: 11400, sFreq: 12200 },
+    { price: 245, bFreq: 11600, sFreq: 12400 },
+    { price: 240, bFreq: 11800, sFreq: 12600 },
+    { price: 235, bFreq: 12000, sFreq: 12800 },
+    { price: 230, bFreq: 12200, sFreq: 13000 },
+    { price: 225, bFreq: 12400, sFreq: 13200 },
+    { price: 220, bFreq: 12600, sFreq: 13400 },
+    { price: 215, bFreq: 12800, sFreq: 13600 },
+    { price: 210, bFreq: 13000, sFreq: 13800 },
+    { price: 205, bFreq: 13200, sFreq: 14000 },
+    { price: 200, bFreq: 13400, sFreq: 14200 },
+    { price: 195, bFreq: 13600, sFreq: 14400 },
+    { price: 190, bFreq: 13800, sFreq: 14600 },
+    { price: 185, bFreq: 14000, sFreq: 14800 },
+    { price: 180, bFreq: 14200, sFreq: 15000 },
+    { price: 175, bFreq: 14400, sFreq: 15200 },
+    { price: 170, bFreq: 14600, sFreq: 15400 },
+    { price: 165, bFreq: 14800, sFreq: 15600 },
+    { price: 160, bFreq: 15000, sFreq: 15800 },
+    { price: 155, bFreq: 15200, sFreq: 16000 },
+    { price: 150, bFreq: 15400, sFreq: 16200 },
+    { price: 145, bFreq: 15600, sFreq: 16400 },
+    { price: 140, bFreq: 15800, sFreq: 16600 },
+    { price: 135, bFreq: 16000, sFreq: 16800 },
+    { price: 130, bFreq: 16200, sFreq: 17000 },
+    { price: 125, bFreq: 16400, sFreq: 17200 },
+    { price: 120, bFreq: 16600, sFreq: 17400 },
+    { price: 115, bFreq: 16800, sFreq: 17600 },
+    { price: 110, bFreq: 17000, sFreq: 17800 },
+    { price: 105, bFreq: 17200, sFreq: 18000 },
+    { price: 100, bFreq: 17400, sFreq: 18200 },
+    { price: 95, bFreq: 17600, sFreq: 18400 },
+    { price: 90, bFreq: 17800, sFreq: 18600 },
+    { price: 85, bFreq: 18000, sFreq: 18800 },
+    { price: 80, bFreq: 18200, sFreq: 19000 },
+    { price: 75, bFreq: 18400, sFreq: 19200 },
+    { price: 70, bFreq: 18600, sFreq: 19400 },
+    { price: 65, bFreq: 18800, sFreq: 19600 },
+    { price: 60, bFreq: 19000, sFreq: 19800 },
+    { price: 55, bFreq: 19200, sFreq: 20000 },
+    { price: 50, bFreq: 19400, sFreq: 20200 },
+    { price: 45, bFreq: 19600, sFreq: 20400 },
+    { price: 40, bFreq: 19800, sFreq: 20600 },
+    { price: 35, bFreq: 20000, sFreq: 20800 },
+    { price: 30, bFreq: 20200, sFreq: 21000 },
+    { price: 25, bFreq: 20400, sFreq: 21200 },
+    { price: 20, bFreq: 20600, sFreq: 21400 },
+    { price: 15, bFreq: 20800, sFreq: 21600 },
+    { price: 10, bFreq: 21000, sFreq: 21800 },
+    { price: 5, bFreq: 21200, sFreq: 22000 }
+  ];
+  
+  // Generate time-based data from dummy data (spread over 3 months)
+  const baseTime = Date.now() - (90 * 24 * 60 * 60 * 1000); // Start from 3 months ago
+  const timeInterval = (90 * 24 * 60 * 60 * 1000) / dummyData.length; // Spread data over 3 months
+  
+  for (let i = 0; i < dummyData.length; i++) {
+    const time = baseTime + (i * timeInterval);
+    
+    // Buy frequency (positive values)
+    buyFreq.push({
+      time,
+      value: dummyData[i].bFreq
+    });
+    
+    // Sell frequency (negative values for diverging chart)
+    sellFreq.push({
+      time,
+      value: -dummyData[i].sFreq
+    });
+  }
+  
+  return { buyFreq, sellFreq };
 }
 
 function calculateStochastic(data: OhlcRow[], kPeriod: number = 14, dPeriod: number = 3): { k: IndicatorData[], d: IndicatorData[] } {
@@ -717,9 +878,9 @@ export function TechnicalAnalysisTradingView() {
   const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   const [chartColors, setChartColors] = useState({
-    line: '#2563eb',
+      line: '#2563eb',
     candles: { up: '#16a34a', down: '#dc2626', wickUp: '#16a34a', wickDown: '#dc2626' },
-    area: { line: '#2563eb', top: 'rgba(37,99,235,0.20)', bottom: 'rgba(37,99,235,0.05)' }
+      area: { line: '#2563eb', top: 'rgba(37,99,235,0.20)', bottom: 'rgba(37,99,235,0.05)' }
   });
   const [indicatorChartHeight, setIndicatorChartHeight] = useState(100);
   const [rsiSettings, setRsiSettings] = useState({
@@ -733,6 +894,12 @@ export function TechnicalAnalysisTradingView() {
     downColor: 'rgba(220,38,38,0.6)',
     showUpColor: true,
     showDownColor: true
+  });
+  const [stochasticSettings, setStochasticSettings] = useState({
+    kColor: '#9b59b6',
+    dColor: '#ffa726',
+    showOverbought: true,
+    showOversold: true
   });
   const [showSettings, setShowSettings] = useState(false);
   const [indicators, setIndicators] = useState<Indicator[]>([]);
@@ -831,12 +998,15 @@ export function TechnicalAnalysisTradingView() {
       'rsi': 14,
       'macd': 12,
       'stochastic': 14,
-      'volume_histogram': 1
+      'volume_histogram': 1,
+      'buy_sell_frequency': 14
     };
     
     const newIndicator: Indicator = {
       id: `${type}_${Date.now()}`,
-      name: `${type.toUpperCase()}`,
+      name: type === 'stochastic' ? '%K (Stochastic)' : 
+            type === 'buy_sell_frequency' ? 'Buy / Sell Frequency' : 
+            `${type.toUpperCase()}`,
       type,
       period: defaultPeriods[type],
       color,
@@ -1443,7 +1613,8 @@ export function TechnicalAnalysisTradingView() {
             indicatorData = calculateRSI(filteredRows, indicator.period);
             break;
           case 'macd':
-            indicatorData = calculateMACD(filteredRows, 12, 26, 9);
+            const macdData = calculateMACD(filteredRows, 12, 26, 9);
+            indicatorData = macdData.macd;
             break;
           case 'stochastic':
             const stochasticData = calculateStochastic(filteredRows, indicator.period, 3);
@@ -1452,6 +1623,10 @@ export function TechnicalAnalysisTradingView() {
             break;
           case 'volume_histogram':
             indicatorData = calculateVolumeHistogram(filteredRows);
+            break;
+          case 'buy_sell_frequency':
+            const buySellData = calculateBuySellFrequency(filteredRows, indicator.period);
+            indicatorData = buySellData.buyFreq;
             break;
         }
         
@@ -1487,21 +1662,53 @@ export function TechnicalAnalysisTradingView() {
             });
             indicatorSeries.setData(indicatorData);
             
-            // Add %D line for Stochastic Oscillator in main chart
-            if (indicator.type === 'stochastic') {
-              const stochasticData = calculateStochastic(filteredRows, indicator.period, 3);
-              if (stochasticData.d.length > 0) {
-                const dSeries = chart.addSeries(LineSeries, {
-                  color: '#ffa726', // Orange color for %D line
-                  lineWidth: 2,
-                  title: '%D (Signal)'
-                });
-                dSeries.setData(stochasticData.d.map(d => ({
-                  time: d.time as any,
-                  value: d.value
-                })));
-              }
-            }
+        // Add %D line for Stochastic Oscillator in main chart
+        if (indicator.type === 'stochastic') {
+          const stochasticData = calculateStochastic(filteredRows, indicator.period, 3);
+          if (stochasticData.d.length > 0) {
+            const dSeries = chart.addSeries(LineSeries, {
+              color: stochasticSettings.dColor,
+              lineWidth: 2,
+              title: '%D (Signal)'
+            });
+            dSeries.setData(stochasticData.d.map(d => ({
+              time: d.time as any,
+              value: d.value
+            })));
+          }
+        }
+        
+        // Add signal line for MACD in main chart
+        if (indicator.type === 'macd') {
+          const macdData = calculateMACD(filteredRows, 12, 26, 9);
+          if (macdData.signal.length > 0) {
+            const signalSeries = chart.addSeries(LineSeries, {
+              color: '#ff6b6b',
+              lineWidth: 2,
+              title: 'MACD Signal'
+            });
+            signalSeries.setData(macdData.signal.map(s => ({
+              time: s.time as any,
+              value: s.value
+            })));
+          }
+        }
+        
+        // Add sell frequency line for Buy/Sell Frequency in main chart
+        if (indicator.type === 'buy_sell_frequency') {
+          const buySellData = calculateBuySellFrequency(filteredRows, indicator.period);
+          if (buySellData.sellFreq.length > 0) {
+            const sellSeries = chart.addSeries(LineSeries, {
+              color: '#e74c3c',
+              lineWidth: 2,
+              title: 'Sell Frequency'
+            });
+            sellSeries.setData(buySellData.sellFreq.map(s => ({
+              time: s.time as any,
+              value: s.value
+            })));
+          }
+        }
           }
           
           indicatorRefs.current[indicator.id] = indicatorSeries;
@@ -1610,7 +1817,8 @@ export function TechnicalAnalysisTradingView() {
           indicatorData = calculateRSI(filteredRows, indicator.period);
           break;
         case 'macd':
-          indicatorData = calculateMACD(filteredRows, 12, 26, 9);
+          const macdData = calculateMACD(filteredRows, 12, 26, 9);
+          indicatorData = macdData.macd;
           break;
         case 'stochastic':
           const stochasticData = calculateStochastic(filteredRows, indicator.period, 3);
@@ -1619,6 +1827,10 @@ export function TechnicalAnalysisTradingView() {
           break;
         case 'volume_histogram':
           indicatorData = calculateVolumeHistogram(filteredRows);
+          break;
+        case 'buy_sell_frequency':
+          const buySellData = calculateBuySellFrequency(filteredRows, indicator.period);
+          indicatorData = buySellData.buyFreq;
           break;
       }
       
@@ -1710,7 +1922,7 @@ export function TechnicalAnalysisTradingView() {
           const stochasticData = calculateStochastic(filteredRows, indicator.period, 3);
           if (stochasticData.d.length > 0) {
             const dSeries = indicatorChart.addSeries(LineSeries, {
-              color: '#ffa726', // Orange color for %D line
+              color: stochasticSettings.dColor,
               lineWidth: 2,
               title: '%D (Signal)'
             });
@@ -1724,7 +1936,7 @@ export function TechnicalAnalysisTradingView() {
           }
         }
         
-        // Add zero line for MACD
+        // Add zero line and signal line for MACD
         if (indicator.type === 'macd') {
           indicatorSeries.createPriceLine({
             price: 0,
@@ -1734,6 +1946,42 @@ export function TechnicalAnalysisTradingView() {
             axisLabelVisible: true,
             title: 'Zero'
           });
+          
+          // Add signal line
+          const macdData = calculateMACD(filteredRows, 12, 26, 9);
+          if (macdData.signal.length > 0) {
+            const signalSeries = indicatorChart.addSeries(LineSeries, {
+              color: '#ff6b6b',
+              lineWidth: 2,
+              title: 'MACD Signal'
+            });
+            
+            const signalChartData = macdData.signal.map(s => ({
+              time: s.time as any,
+              value: s.value
+            }));
+            
+            signalSeries.setData(signalChartData);
+          }
+        }
+        
+        // Add sell frequency line for Buy/Sell Frequency in separate chart
+        if (indicator.type === 'buy_sell_frequency') {
+          const buySellData = calculateBuySellFrequency(filteredRows, indicator.period);
+          if (buySellData.sellFreq.length > 0) {
+            const sellSeries = indicatorChart.addSeries(LineSeries, {
+              color: '#e74c3c',
+              lineWidth: 2,
+              title: 'Sell Frequency'
+            });
+            
+            const sellChartData = buySellData.sellFreq.map(s => ({
+              time: s.time as any,
+              value: s.value
+            }));
+            
+            sellSeries.setData(sellChartData);
+          }
         }
         
         indicatorChart.timeScale().fitContent();
@@ -2086,18 +2334,18 @@ export function TechnicalAnalysisTradingView() {
             {/* Line Chart Colors (Area Chart) */}
             {style === 'line' && (
               <div className="space-y-3">
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">Line Color</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-muted-foreground">Line Color</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
                       value={chartColors.area.line}
                       onChange={(e) => setChartColors(prev => ({ 
                         ...prev, 
                         area: { ...prev.area, line: e.target.value }
                       }))}
-                      className="w-8 h-6 border border-border rounded cursor-pointer"
-                    />
+                    className="w-8 h-6 border border-border rounded cursor-pointer"
+                  />
                     <span className="text-xs text-muted-foreground font-mono">{chartColors.area.line}</span>
                   </div>
                 </div>
@@ -2314,42 +2562,48 @@ export function TechnicalAnalysisTradingView() {
               {/* Add New Indicator */}
               <div className="space-y-3">
                 <h4 className="text-xs font-medium text-muted-foreground">Add New Indicator</h4>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="max-h-48 overflow-y-auto space-y-2">
                   <button
                     onClick={() => addIndicator('sma', '#ff6b6b', false)}
-                    className="px-3 py-2 text-xs border border-border rounded hover:bg-accent"
+                    className="w-full px-3 py-2 text-xs border border-border rounded hover:bg-accent text-left"
                   >
                     SMA
                   </button>
                   <button
                     onClick={() => addIndicator('ema', '#45b7d1', false)}
-                    className="px-3 py-2 text-xs border border-border rounded hover:bg-accent"
+                    className="w-full px-3 py-2 text-xs border border-border rounded hover:bg-accent text-left"
                   >
                     EMA
                   </button>
                   <button
                     onClick={() => addIndicator('rsi', '#6c5ce7', true)}
-                    className="px-3 py-2 text-xs border border-border rounded hover:bg-accent"
+                    className="w-full px-3 py-2 text-xs border border-border rounded hover:bg-accent text-left"
                   >
                     Relative Strength Index
                   </button>
                   <button
                     onClick={() => addIndicator('macd', '#e17055', true)}
-                    className="px-3 py-2 text-xs border border-border rounded hover:bg-accent"
+                    className="w-full px-3 py-2 text-xs border border-border rounded hover:bg-accent text-left"
                   >
                     Moving Average Convergence Divergence
                   </button>
                   <button
                     onClick={() => addIndicator('stochastic', '#9b59b6', true)}
-                    className="px-3 py-2 text-xs border border-border rounded hover:bg-accent"
+                    className="w-full px-3 py-2 text-xs border border-border rounded hover:bg-accent text-left"
                   >
                     Stochastic Oscillator
                   </button>
                   <button
                     onClick={() => addIndicator('volume_histogram', '#e67e22', false)}
-                    className="px-3 py-2 text-xs border border-border rounded hover:bg-accent"
+                    className="w-full px-3 py-2 text-xs border border-border rounded hover:bg-accent text-left"
                   >
                     Volume Histogram
+                  </button>
+                  <button
+                    onClick={() => addIndicator('buy_sell_frequency', '#8e44ad', true)}
+                    className="w-full px-3 py-2 text-xs border border-border rounded hover:bg-accent text-left"
+                  >
+                    Buy / Sell Frequency
                   </button>
                 </div>
               </div>
@@ -2783,6 +3037,46 @@ function IndicatorEditor({
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        );
+
+      case 'buy_sell_frequency':
+        return (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">Line Color</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={editedIndicator.color}
+                  onChange={(e) => setEditedIndicator(prev => ({ ...prev, color: e.target.value }))}
+                  className="w-8 h-8 border border-border rounded cursor-pointer"
+                />
+                <span className="text-sm text-muted-foreground">{editedIndicator.color}</span>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Period</label>
+              <input
+                type="number"
+                value={editedIndicator.period}
+                onChange={(e) => setEditedIndicator(prev => ({ ...prev, period: parseInt(e.target.value) || 14 }))}
+                min="1"
+                max="100"
+                className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Chart Type</label>
+              <select
+                value={editedIndicator.separateScale ? 'separate' : 'overlay'}
+                onChange={(e) => setEditedIndicator(prev => ({ ...prev, separateScale: e.target.value === 'separate' }))}
+                className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
+              >
+                <option value="overlay">Overlay on Price</option>
+                <option value="separate">Separate Chart</option>
+              </select>
             </div>
           </div>
         );
