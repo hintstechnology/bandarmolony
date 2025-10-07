@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Calendar, Plus, X, RotateCcw } from 'lucide-react';
+import { getBrokerBackgroundClass, getBrokerTextClass } from '../utils/brokerColors';
 
 interface IssuerData {
   ticker: string;
