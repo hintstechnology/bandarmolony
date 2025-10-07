@@ -1,0 +1,49 @@
+# OS & IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Node monorepo
+**/node_modules/
+**/.pnpm-store/
+**/pnpm-lock.yaml
+**/yarn.lock
+**/package-lock.json
+
+# Izinkan lockfile di backend dan frontend
+!backend/package-lock.json
+!frontend/package-lock.json
+!backend/pnpm-lock.yaml
+!frontend/pnpm-lock.yaml
+!backend/yarn.lock
+!frontend/yarn.lock
+
+# Build artifacts
+**/dist/
+**/build/
+**/.cache/
+**/.vite/
+**/.turbo/
+**/.eslintcache
+**/.stylelintcache
+
+# Test & coverage
+**/coverage/
+**/.nyc_output/
+
+# Logs
+**/*.log
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Misc
+**/tmp/
+**/temp/
