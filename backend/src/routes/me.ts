@@ -15,6 +15,8 @@ router.get('/', requireSupabaseUser, async (req: any, res) => {
   try {
     const userId = req.user.id as string;
     const userEmail = req.user.email as string;
+    
+    console.log(`📋 GET /api/me - User: ${userId}, Email: ${userEmail}`);
 
 
     // Fetch user profile (should exist due to trigger)
@@ -43,20 +45,22 @@ router.get('/', requireSupabaseUser, async (req: any, res) => {
       throw new Error('No user data found');
     }
 
+    console.log(`✅ GET /api/me - Profile found for user: ${userId}`);
+
     // Update last_login_at
     await supabaseAdmin
       .from('users')
       .update({ last_login_at: new Date().toISOString() })
       .eq('id', userId);
 
-
+    console.log(`📤 GET /api/me - Sending response for user: ${userId}`);
     res.json(createSuccessResponse(data));
   } catch (err: any) {
-    
+    console.error('GET /api/me error:', err);
     res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Internal server error',
       ERROR_CODES.INTERNAL_SERVER_ERROR,
-      undefined,
+      err.message,
       HTTP_STATUS.INTERNAL_SERVER_ERROR
     ));
   }
@@ -68,9 +72,11 @@ router.get('/', requireSupabaseUser, async (req: any, res) => {
  */
 router.put('/', requireSupabaseUser, async (req: any, res) => {
   try {
-    
     const userId = req.user.id as string;
     const userEmail = req.user.email as string;
+    
+    console.log(`📝 PUT /api/me - User: ${userId}, Email: ${userEmail}`);
+    console.log(`📝 PUT /api/me - Request body:`, req.body);
 
 
     // Validate input data
@@ -144,6 +150,7 @@ router.put('/', requireSupabaseUser, async (req: any, res) => {
       }
 
       updatedProfile = newUser;
+      console.log(`✅ PUT /api/me - Created new user profile for: ${userId}`);
     } else if (checkError) {
       console.error('Error checking user existence:', checkError);
       return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
@@ -154,6 +161,7 @@ router.put('/', requireSupabaseUser, async (req: any, res) => {
       ));
     } else {
       // User exists, update profile
+      console.log(`📝 PUT /api/me - Updating existing profile for: ${userId}`);
       
       // Handle avatar_url: convert empty string to null
       const updatePayload: any = {
@@ -188,15 +196,18 @@ router.put('/', requireSupabaseUser, async (req: any, res) => {
       }
 
       updatedProfile = updated;
+      console.log(`✅ PUT /api/me - Updated profile for: ${userId}`);
     }
 
+    console.log(`📤 PUT /api/me - Sending response for user: ${userId}`);
     res.json(createSuccessResponse(updatedProfile, 'Profile updated successfully'));
 
   } catch (err: any) {
+    console.error('PUT /api/me error:', err);
     res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Internal server error. Please try again later',
       ERROR_CODES.INTERNAL_SERVER_ERROR,
-      undefined,
+      err.message,
       HTTP_STATUS.INTERNAL_SERVER_ERROR
     ));
   }

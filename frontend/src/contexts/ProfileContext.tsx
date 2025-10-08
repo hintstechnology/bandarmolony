@@ -46,9 +46,16 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
       } else {
         setProfile(null);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ ProfileContext: Error refreshing profile:', error);
-      setProfile(null);
+      
+      // Don't clear profile on timeout errors, just log them
+      if (error.message?.includes('timeout') || error.message?.includes('Request timeout')) {
+        console.warn('⚠️ ProfileContext: Request timeout, keeping existing profile');
+        // Keep existing profile data
+      } else {
+        setProfile(null);
+      }
     } finally {
       if (showLoading) {
         setIsLoading(false);

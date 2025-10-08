@@ -1118,14 +1118,19 @@ router.post('/upload-avatar', upload.single('avatar'), handleMulterError, async 
     }
 
     // Check file size (additional check)
+    const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
+    console.log(`🔍 Backend: File size validation: ${file.size} bytes (${fileSizeMB}MB)`);
+    
     if (file.size > 1 * 1024 * 1024) {
+      console.log(`❌ Backend: File size validation failed: ${fileSizeMB}MB > 1MB`);
       return res.status(400).json(createErrorResponse(
-        'File size too large. Maximum size is 1MB',
+        `File size too large (${fileSizeMB}MB). Maximum size is 1MB`,
         'FILE_TOO_LARGE',
         'avatar',
         400
       ));
     }
+    console.log(`✅ Backend: File size validation passed: ${fileSizeMB}MB <= 1MB`);
 
     // Check file type (additional check)
     const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
@@ -1136,6 +1141,34 @@ router.post('/upload-avatar', upload.single('avatar'), handleMulterError, async 
         'avatar',
         400
       ));
+    }
+
+    // Check if user has existing avatar and delete it
+    const { data: existingProfile } = await supabaseAdmin
+      .from('users')
+      .select('avatar_url')
+      .eq('id', user.id)
+      .single();
+
+    if (existingProfile?.avatar_url) {
+      console.log(`🗑️ Deleting old avatar: ${existingProfile.avatar_url}`);
+      
+      // Remove avatars/ prefix if present for storage path
+      const oldStoragePath = existingProfile.avatar_url.startsWith('avatars/') 
+        ? existingProfile.avatar_url.substring(8) // Remove 'avatars/' prefix
+        : existingProfile.avatar_url;
+      
+      // Delete old avatar from storage
+      const { error: deleteOldError } = await supabaseAdmin.storage
+        .from('avatars')
+        .remove([oldStoragePath]);
+      
+      if (deleteOldError) {
+        console.warn('Failed to delete old avatar:', deleteOldError);
+        // Continue with upload even if old file deletion fails
+      } else {
+        console.log(`✅ Old avatar deleted: ${oldStoragePath}`);
+      }
     }
 
     // Generate unique filename
@@ -1171,6 +1204,8 @@ router.post('/upload-avatar', upload.single('avatar'), handleMulterError, async 
 
     // Update user's avatar_url in database
     const fullPath = `avatars/${filePath}`;
+    console.log(`📝 POST /api/upload-avatar - Updating database with path: ${fullPath}`);
+    
     const { error: updateError } = await supabaseAdmin
       .from('users')
       .update({ 
@@ -1194,6 +1229,7 @@ router.post('/upload-avatar', upload.single('avatar'), handleMulterError, async 
       ));
     }
 
+    console.log(`✅ POST /api/upload-avatar - Avatar uploaded successfully for user: ${user.id}`);
     res.json(createSuccessResponse({
       avatarUrl: avatarUrl,
       filePath: fullPath
@@ -1276,11 +1312,15 @@ router.delete('/avatar', async (req, res) => {
       ));
     }
 
+    console.log(`🗑️ DELETE /api/avatar - Deleting avatar: ${profile.avatar_url}`);
+
     // Delete from storage
     // Remove avatars/ prefix if present for storage path
     const storagePath = profile.avatar_url.startsWith('avatars/') 
       ? profile.avatar_url.substring(8) // Remove 'avatars/' prefix
       : profile.avatar_url;
+    
+    console.log(`🗑️ DELETE /api/avatar - Storage path: ${storagePath}`);
     
     const { error: deleteError } = await supabaseAdmin.storage
       .from('avatars')
@@ -1295,6 +1335,8 @@ router.delete('/avatar', async (req, res) => {
         400
       ));
     }
+
+    console.log(`✅ DELETE /api/avatar - Storage file deleted: ${storagePath}`);
 
     // Update database
     const { error: updateError } = await supabaseAdmin
@@ -1315,6 +1357,7 @@ router.delete('/avatar', async (req, res) => {
       ));
     }
 
+    console.log(`✅ DELETE /api/avatar - Database updated for user: ${user.id}`);
     res.json(createSuccessResponse(null, 'Avatar deleted successfully'));
 
   } catch (err: any) {
