@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "./ui/dialog";
 import { Button } from "./ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
@@ -22,64 +22,184 @@ export function EditProfile({ isOpen, onClose, profile, onSave }: Props) {
   const [localAvatar, setLocalAvatar] = useState(profile.avatar_url || profile.avatarUrl || profile.avatar);
   const [isUploading, setIsUploading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isRemoving, setIsRemoving] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
-  const handlePick = () => fileRef.current?.click();
+  // Cleanup preview URL and pending file on unmount
+  useEffect(() => {
+    return () => {
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+      // Clear pending file
+      (window as any).pendingAvatarFile = null;
+    };
+  }, [previewUrl]);
+
+  const handlePick = () => {
+    if (fileRef.current) {
+      // Reset the input to ensure change event fires
+      fileRef.current.value = '';
+      fileRef.current.click();
+    }
+  };
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Show file info
+    const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
+    console.log(`📁 Selected file: ${file.name} (${fileSizeMB}MB)`);
+
     // Validate file type
     if (!isValidAvatarFile(file)) {
       toast.error('Invalid file type. Please select a JPEG, PNG, GIF, or WebP image.');
+      // Clear the input
+      if (fileRef.current) {
+        fileRef.current.value = '';
+      }
       return;
     }
 
     // Validate file size (1MB - matches backend limit)
-    if (!isValidAvatarSize(file, 1)) {
-      toast.error('File size too large. Please select an image smaller than 1MB.');
+    console.log(`🔍 File size validation: ${file.size} bytes (${fileSizeMB}MB), limit: 1MB`);
+    console.log(`🔍 isValidAvatarSize result:`, isValidAvatarSize(file, 1));
+    console.log(`🔍 File size comparison: ${file.size} <= ${1 * 1024 * 1024} = ${file.size <= 1 * 1024 * 1024}`);
+    
+    // Double check with direct comparison
+    const maxSizeBytes = 1 * 1024 * 1024; // 1MB
+    if (file.size > maxSizeBytes || !isValidAvatarSize(file, 1)) {
+      console.log(`❌ File size validation failed: ${fileSizeMB}MB > 1MB`);
+      
+      // Show both toast and alert for maximum visibility
+      toast.error(`File size too large (${fileSizeMB}MB). Please select an image smaller than 1MB.`);
+      alert(`File size too large (${fileSizeMB}MB). Please select an image smaller than 1MB.`);
+      
+      // Clear the input
+      if (fileRef.current) {
+        fileRef.current.value = '';
+      }
       return;
+    }
+    console.log(`✅ File size validation passed: ${fileSizeMB}MB <= 1MB`);
+
+    // Show file size info for valid files
+    if (file.size > 500 * 1024) { // > 500KB
+      toast.info(`Uploading ${fileSizeMB}MB file...`);
     }
 
     setIsUploading(true);
-        try {
-          const result = await api.uploadAvatar(file);
-          setLocalAvatar(result.filePath);
-          // Update profile context immediately for real-time UI update
-          updateProfile({ avatar_url: result.filePath });
-          toast.success('Avatar uploaded successfully!');
-        } catch (error: any) {
-          console.error('Upload error:', error);
-          toast.error(error.message || 'Failed to upload avatar');
-        } finally {
-          setIsUploading(false);
-        }
+    setUploadProgress(0);
+    
+    // Simulate progress for better UX
+    const progressInterval = setInterval(() => {
+      setUploadProgress(prev => {
+        if (prev >= 90) return prev;
+        return prev + Math.random() * 20;
+      });
+    }, 200);
+    
+    try {
+      // Create a preview URL for the file (local only, not uploaded to server)
+      const newPreviewUrl = URL.createObjectURL(file);
+      
+      // Clean up previous preview URL
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+      
+      setPreviewUrl(newPreviewUrl);
+      setLocalAvatar(newPreviewUrl);
+      
+      // Store the file for later upload
+      (window as any).pendingAvatarFile = file;
+      
+      setUploadProgress(100);
+      toast.success('Avatar selected! Click Save to upload.');
+    } catch (error: any) {
+      console.error('File processing error:', error);
+      toast.error('Failed to process file. Please try again.');
+    } finally {
+      clearInterval(progressInterval);
+      setIsUploading(false);
+      setUploadProgress(0);
+    }
   };
 
-  const handleRemoveAvatar = async () => {
-    try {
-      await api.deleteAvatar();
+  const handleRemoveAvatar = () => {
+    setIsRemoving(true);
+    
+    // Simulate loading for better UX
+    setTimeout(() => {
+      // Clean up preview URL if exists
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+        setPreviewUrl(null);
+      }
+      
+      // Clear pending file
+      (window as any).pendingAvatarFile = null;
+      
+      // Only update local state, don't delete from server yet
       setLocalAvatar('');
-      // Update profile context immediately for real-time UI update
-      updateProfile({ avatar_url: undefined });
-      toast.success('Avatar removed successfully!');
-    } catch (error: any) {
-      console.error('Delete error:', error);
-      toast.error(error.message || 'Failed to remove avatar');
-    }
+      setIsRemoving(false);
+      console.log('🗑️ Avatar marked for removal (local state only)');
+    }, 500);
   };
 
   const handleSave = async () => {
     setIsSaving(true);
     try {
+      let finalAvatarUrl = localAvatar;
+      
+      // Check if there's a pending file to upload
+      const pendingFile = (window as any).pendingAvatarFile;
+      if (pendingFile) {
+        console.log('📤 Uploading pending avatar file...');
+        try {
+          const result = await api.uploadAvatar(pendingFile);
+          finalAvatarUrl = result.filePath;
+          console.log('✅ Avatar uploaded to server:', finalAvatarUrl);
+          
+          // Clear the pending file and preview URL
+          (window as any).pendingAvatarFile = null;
+          if (previewUrl) {
+            URL.revokeObjectURL(previewUrl);
+            setPreviewUrl(null);
+          }
+        } catch (uploadError: any) {
+          console.error('❌ Failed to upload avatar:', uploadError);
+          toast.error('Failed to upload avatar. Please try again.');
+          return;
+        }
+      }
+      
+      // Check if avatar was marked for removal
+      const shouldDeleteAvatar = localAvatar === '' && (profile.avatar_url || profile.avatarUrl || profile.avatar);
+      
+      if (shouldDeleteAvatar) {
+        console.log('🗑️ Avatar marked for deletion, calling delete API...');
+        try {
+          await api.deleteAvatar();
+          console.log('✅ Avatar deleted from server');
+          finalAvatarUrl = undefined;
+        } catch (deleteError: any) {
+          console.error('❌ Failed to delete avatar:', deleteError);
+          toast.error('Failed to remove avatar. Please try again.');
+          return;
+        }
+      }
+      
       const dataToSave = { 
         full_name: localName,
-        avatar_url: localAvatar || undefined
+        avatar_url: finalAvatarUrl || undefined
       };
       
       console.log('EditProfile: Saving data:', dataToSave);
       console.log('EditProfile: localName type:', typeof localName, 'value:', localName);
-      console.log('EditProfile: localAvatar type:', typeof localAvatar, 'value:', localAvatar);
+      console.log('EditProfile: finalAvatarUrl type:', typeof finalAvatarUrl, 'value:', finalAvatarUrl);
       
       await onSave(dataToSave);
       toast.success('Profile updated successfully!');
@@ -120,6 +240,18 @@ export function EditProfile({ isOpen, onClose, profile, onSave }: Props) {
                 )}
               </Avatar>
               {isUploading && (
+                <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center">
+                  <Loader2 className="w-6 h-6 text-white animate-spin mb-2" />
+                  <div className="w-16 h-1 bg-white/20 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-white rounded-full transition-all duration-300"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-white mt-1">{Math.round(uploadProgress)}%</p>
+                </div>
+              )}
+              {isRemoving && (
                 <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                   <Loader2 className="w-6 h-6 text-white animate-spin" />
                 </div>
@@ -137,16 +269,44 @@ export function EditProfile({ isOpen, onClose, profile, onSave }: Props) {
                   <Upload className="w-4 h-4 mr-2" />
                   {isUploading ? 'Uploading...' : 'Upload Photo'}
                 </Button>
-                {localAvatar && (
+                {(profile.avatar_url || profile.avatarUrl || profile.avatar) && localAvatar && (
                   <Button 
                     size="sm" 
                     variant="outline" 
                     onClick={handleRemoveAvatar}
-                    disabled={isUploading}
+                    disabled={isUploading || isRemoving}
                     className="w-fit"
                   >
-                    <X className="w-4 h-4 mr-2" />
-                    Remove
+                    {isRemoving ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <X className="w-4 h-4 mr-2" />
+                    )}
+                    {isRemoving ? 'Removing...' : 'Remove'}
+                  </Button>
+                )}
+                {!localAvatar && (profile.avatar_url || profile.avatarUrl || profile.avatar) && (
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => {
+                      // Clean up any existing preview URL
+                      if (previewUrl) {
+                        URL.revokeObjectURL(previewUrl);
+                        setPreviewUrl(null);
+                      }
+                      
+                      // Clear pending file
+                      (window as any).pendingAvatarFile = null;
+                      
+                      setLocalAvatar(profile.avatar_url || profile.avatarUrl || profile.avatar || '');
+                      console.log('🔄 Avatar restored');
+                    }}
+                    disabled={isUploading || isRemoving}
+                    className="w-fit"
+                  >
+                    <User className="w-4 h-4 mr-2" />
+                    Restore
                   </Button>
                 )}
               </div>
@@ -159,6 +319,8 @@ export function EditProfile({ isOpen, onClose, profile, onSave }: Props) {
                 accept="image/jpeg,image/png,image/gif,image/webp"
                 className="hidden"
                 onChange={handleFile}
+                // HTML5 validation attributes
+                data-max-size="1048576" // 1MB in bytes
               />
             </div>
           </div>

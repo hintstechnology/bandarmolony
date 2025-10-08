@@ -53,7 +53,7 @@ export const api = {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       controller.abort();
-    }, 5000); // 5 second timeout
+    }, 15000); // 15 second timeout
     
     try {
       const response = await fetch(`${API_URL}/api/me`, {
@@ -99,6 +99,7 @@ export const api = {
       clearTimeout(timeoutId);
       
       if (error.name === 'AbortError') {
+        console.warn('⚠️ Profile fetch timeout, this might be a temporary issue');
         throw new Error('Request timeout');
       }
       
@@ -118,6 +119,16 @@ export const api = {
         throw new Error('No active session');
       }
 
+      // Pre-validate file size
+      const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
+      console.log(`🔍 API: File size validation: ${file.size} bytes (${fileSizeMB}MB)`);
+      
+      if (file.size > 1 * 1024 * 1024) {
+        console.log(`❌ API: File size validation failed: ${fileSizeMB}MB > 1MB`);
+        throw new Error(`File size too large (${fileSizeMB}MB). Maximum size is 1MB`);
+      }
+      console.log(`✅ API: File size validation passed: ${fileSizeMB}MB <= 1MB`);
+
       const formData = new FormData();
       formData.append('avatar', file);
 
@@ -130,13 +141,39 @@ export const api = {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to upload avatar');
+        let errorMessage = 'Failed to upload avatar';
+        
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } catch (parseError) {
+          // If we can't parse the error response, use status-based messages
+          if (response.status === 413) {
+            errorMessage = 'File size too large. Maximum size is 1MB';
+          } else if (response.status === 400) {
+            errorMessage = 'Invalid file type or format';
+          } else if (response.status === 401) {
+            errorMessage = 'Authentication failed. Please log in again';
+          } else if (response.status >= 500) {
+            errorMessage = 'Server error. Please try again later';
+          }
+        }
+        
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();
       return result.data;
-    } catch (error) {
+    } catch (error: any) {
+      // Re-throw with more specific error messages
+      if (error.message?.includes('File size too large')) {
+        throw new Error('File size too large. Please select an image smaller than 1MB');
+      } else if (error.message?.includes('Invalid file type')) {
+        throw new Error('Invalid file type. Please select a JPEG, PNG, GIF, or WebP image');
+      } else if (error.message?.includes('Failed to fetch')) {
+        throw new Error('Network error. Please check your connection');
+      }
+      
       throw error;
     }
   },
@@ -158,10 +195,30 @@ export const api = {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to delete avatar');
+        let errorMessage = 'Failed to delete avatar';
+        
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } catch (parseError) {
+          // If we can't parse the error response, use status-based messages
+          if (response.status === 404) {
+            errorMessage = 'No avatar found to delete';
+          } else if (response.status === 401) {
+            errorMessage = 'Authentication failed. Please log in again';
+          } else if (response.status >= 500) {
+            errorMessage = 'Server error. Please try again later';
+          }
+        }
+        
+        throw new Error(errorMessage);
       }
-    } catch (error) {
+    } catch (error: any) {
+      // Re-throw with more specific error messages
+      if (error.message?.includes('Failed to fetch')) {
+        throw new Error('Network error. Please check your connection');
+      }
+      
       throw error;
     }
   },
