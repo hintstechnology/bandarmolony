@@ -90,7 +90,7 @@ const sectorOptions = [
 
 // Index options
 const indexOptions = [
-  { name: 'IHSG', color: '#000000' },
+  { name: 'COMPOSITE', color: '#000000' },
   { name: 'LQ45', color: '#374151' },
   { name: 'IDX30', color: '#4B5563' },
   { name: 'IDX80', color: '#6B7280' },
@@ -153,7 +153,7 @@ const CustomTooltip = ({ active, payload }: any) => {
 
 export function MarketRotationRRG() {
   const [viewMode, setViewMode] = useState<'sector' | 'stock'>('sector');
-  const [selectedIndex, setSelectedIndex] = useState<string>('IHSG');
+  const [selectedIndex, setSelectedIndex] = useState<string>('COMPOSITE');
   const [selectedItems, setSelectedItems] = useState<string[]>(['Technology', 'Healthcare', 'Finance']);
   const [searchQuery, setSearchQuery] = useState('');
   const [indexSearchQuery, setIndexSearchQuery] = useState('');

@@ -1,79 +1,63 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
-const participantData = [
-  { time: "09:00", domestic: 65, foreign: 35, retail: 45, institutional: 55 },
-  { time: "10:00", domestic: 68, foreign: 32, retail: 42, institutional: 58 },
-  { time: "11:00", domestic: 62, foreign: 38, retail: 48, institutional: 52 },
-  { time: "12:00", domestic: 70, foreign: 30, retail: 40, institutional: 60 },
-  { time: "13:00", domestic: 66, foreign: 34, retail: 46, institutional: 54 },
-  { time: "14:00", domestic: 72, foreign: 28, retail: 38, institutional: 62 },
-  { time: "15:00", domestic: 69, foreign: 31, retail: 43, institutional: 57 },
+// Combined Local vs Foreign data from StoryMarketParticipant.tsx
+const combinedStackedDataRaw = [
+  { date: '2025-06-30', Local: 17.94, Foreign: 82.06 },
+  { date: '2024-09-30', Local: 13.94, Foreign: 86.06 },
+  { date: '2025-02-28', Local: 16.52, Foreign: 83.48 },
+  { date: '2025-05-28', Local: 17.09, Foreign: 82.91 },
+  { date: '2025-03-27', Local: 17.63, Foreign: 82.37 },
+  { date: '2025-01-31', Local: 15.73, Foreign: 84.27 },
+  { date: '2024-11-29', Local: 14.91, Foreign: 85.09 },
+  { date: '2025-04-30', Local: 17.72, Foreign: 82.28 },
+  { date: '2024-08-30', Local: 14.36, Foreign: 85.64 },
+  { date: '2024-12-30', Local: 15.20, Foreign: 84.80 },
+  { date: '2025-08-29', Local: 19.48, Foreign: 80.52 },
+  { date: '2024-10-31', Local: 14.20, Foreign: 85.80 },
+  { date: '2025-07-31', Local: 18.99, Foreign: 81.01 },
 ];
 
-export function MarketParticipant() {
+// Sort data by date (oldest to newest)
+const combinedStackedData = combinedStackedDataRaw.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+interface MarketParticipantProps {
+  selectedStock?: string;
+}
+
+export function MarketParticipant({ selectedStock = 'BBRI' }: MarketParticipantProps) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Market Participant</CardTitle>
-        <p className="text-sm text-muted-foreground">Trading activity breakdown by participant type</p>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-6">
-          <ResponsiveContainer width="100%" height={300}>
-            <AreaChart data={participantData}>
-              <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-              <XAxis dataKey="time" className="text-muted-foreground" />
-              <YAxis className="text-muted-foreground" />
+    <div>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={combinedStackedData} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+              <XAxis 
+                dataKey="date" 
+                axisLine={false}
+                tickLine={false}
+                tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+              />
+              <YAxis 
+                axisLine={false}
+                tickLine={false}
+                tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+              />
               <Tooltip 
-                formatter={(value) => [`${value}%`, ""]} 
-                contentStyle={{ 
-                  backgroundColor: 'hsl(var(--card))',
+                contentStyle={{
+                  backgroundColor: 'hsl(var(--popover))',
                   border: '1px solid hsl(var(--border))',
-                  borderRadius: '6px'
+                  borderRadius: '6px',
+                  fontSize: '12px'
                 }}
+                formatter={(value, name) => [`${value}%`, name]}
               />
-              <Legend />
-              <Area 
-                type="monotone" 
-                dataKey="domestic" 
-                stackId="1" 
-                stroke="hsl(var(--chart-1))" 
-                fill="hsl(var(--chart-1))"
-                name="Domestic"
-              />
-              <Area 
-                type="monotone" 
-                dataKey="foreign" 
-                stackId="1" 
-                stroke="hsl(var(--chart-2))" 
-                fill="hsl(var(--chart-2))"
-                name="Foreign"
-              />
-            </AreaChart>
+              <Bar dataKey="Local" stackId="combined" fill="#3b82f6" name="Local" />
+              <Bar dataKey="Foreign" stackId="combined" fill="#f59e0b" name="Foreign" />
+            </BarChart>
           </ResponsiveContainer>
-          
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="text-center p-4 border border-border rounded-lg">
-              <p className="text-2xl font-bold" style={{ color: 'hsl(var(--chart-1))' }}>69%</p>
-              <p className="text-sm text-muted-foreground">Domestic</p>
-            </div>
-            <div className="text-center p-4 border border-border rounded-lg">
-              <p className="text-2xl font-bold" style={{ color: 'hsl(var(--chart-2))' }}>31%</p>
-              <p className="text-sm text-muted-foreground">Foreign</p>
-            </div>
-            <div className="text-center p-4 border border-border rounded-lg">
-              <p className="text-2xl font-bold" style={{ color: 'hsl(var(--chart-3))' }}>43%</p>
-              <p className="text-sm text-muted-foreground">Retail</p>
-            </div>
-            <div className="text-center p-4 border border-border rounded-lg">
-              <p className="text-2xl font-bold" style={{ color: 'hsl(var(--chart-4))' }}>57%</p>
-              <p className="text-sm text-muted-foreground">Institutional</p>
-            </div>
-          </div>
         </div>
-      </CardContent>
-    </Card>
+    </div>
   );
 }

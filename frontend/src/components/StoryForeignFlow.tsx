@@ -564,13 +564,11 @@ const TradingViewMultiPaneChart = ({
 };
 
 export function StoryForeignFlow() {
-  const [selectedTimeframe, setSelectedTimeframe] = useState('1D');
   const [tickerInput, setTickerInput] = useState('BBCA');
   const [selectedTicker, setSelectedTicker] = useState('BBCA');
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [layoutMode, setLayoutMode] = useState<'split' | 'combined'>('combined');
 
-  const timeframes = ['1D', '5D', '1M', '3M', '6M', '1Y'];
   const stocks = ['BBCA', 'BBRI', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM', 'ICBP', 'INDF', 'KLBF', 'ADRO', 'ANTM', 'ITMG', 'PTBA', 'SMGR', 'INTP', 'WIKA', 'WSKT', 'PGAS'];
 
   // Filter stocks based on input
@@ -607,9 +605,9 @@ export function StoryForeignFlow() {
   }, []);
 
   // Generate data based on selected ticker and timeframe
-  const priceData = generatePriceData(selectedTicker, selectedTimeframe);
-  const foreignFlowData = generateForeignFlowData(selectedTicker, selectedTimeframe);
-  const volumeData = generateVolumeData(selectedTicker, selectedTimeframe);
+  const priceData = generatePriceData(selectedTicker, '1D');
+  const foreignFlowData = generateForeignFlowData(selectedTicker, '1D');
+  const volumeData = generateVolumeData(selectedTicker, '1D');
 
   // Convert to candlestick format for TradingView chart
   const candlestickData = priceData.map(d => ({
@@ -693,45 +691,29 @@ export function StoryForeignFlow() {
                     </div>
                   )}
                 </div>
-        </div>
-        
-        <div className="flex items-center gap-2">
-                <label className="font-medium">Timeframe:</label>
-                <div className="flex gap-1">
-                  {timeframes.map(tf => (
-              <Button
-                key={tf}
-                      variant={selectedTimeframe === tf ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setSelectedTimeframe(tf)}
-              >
-                {tf}
-              </Button>
-            ))}
-        </div>
-      </div>
-
-        <div className="flex items-center gap-2">
-                <label className="font-medium">Layout:</label>
-                <div className="flex gap-1">
-                  <Button
-                    variant={layoutMode === 'combined' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setLayoutMode('combined')}
-                  >
-                    Combine
-                  </Button>
-                  <Button
-                    variant={layoutMode === 'split' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setLayoutMode('split')}
-                  >
-                    Split
-                  </Button>
               </div>
             </div>
+            
+            <div className="flex items-center gap-2">
+              <label className="font-medium">Layout:</label>
+              <div className="flex gap-1">
+                <Button
+                  variant={layoutMode === 'combined' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setLayoutMode('combined')}
+                >
+                  Combine
+                </Button>
+                <Button
+                  variant={layoutMode === 'split' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setLayoutMode('split')}
+                >
+                  Split
+                </Button>
               </div>
             </div>
+          </div>
           </CardContent>
         </Card>
 

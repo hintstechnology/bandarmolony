@@ -37,7 +37,7 @@ const generateMockData = (): AccumulationData[] => {
     'MTDL', 'MHKI', 'BBCA', 'BBNI', 'BBRI', 'BMRI', 'BRIS', 'BTPS', 'ACES', 'ADRO',
     'AKRA', 'AMRT', 'ANTM', 'ASII', 'BALI', 'BBKP', 'BBTN', 'BCAP', 'BDMN', 'BFIN',
     'BJTM', 'BMTR', 'BNGA', 'BRMS', 'BSDE', 'BTPN', 'BUKA', 'CTRA', 'DMAS', 'ERAA',
-    'ESSA', 'EXCL', 'GGRM', 'GOTO', 'ICBP', 'IHSG', 'IMAS', 'INCO', 'INDF', 'INTP',
+    'ESSA', 'EXCL', 'GGRM', 'GOTO', 'ICBP', 'COMPOSITE', 'IMAS', 'INCO', 'INDF', 'INTP',
     'ITMG', 'JPFA', 'JSMR', 'KLBF', 'LPKR', 'LPPF', 'MAPI', 'MDKA', 'MEDC', 'MNCN',
     'MPPA', 'MYOR', 'NIRO', 'PGAS', 'PGJO', 'PTBA', 'PTPP', 'PWON', 'RAJA', 'SCMA',
     'SIDO', 'SMGR', 'SRTG', 'TKIM', 'TLKM', 'TOBA', 'TOWR', 'UNTR', 'UNVR', 'WIKA', 'WSKT'

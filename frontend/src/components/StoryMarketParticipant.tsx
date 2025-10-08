@@ -508,13 +508,11 @@ const TradingViewMultiPaneChart = ({
 
 export function StoryMarketParticipant() {
   const [selectedStock, setSelectedStock] = useState('BBRI');
-  const [selectedTimeframe, setSelectedTimeframe] = useState('1D');
   const [showHistory, setShowHistory] = useState(false);
   const [stockInput, setStockInput] = useState('BBRI');
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [layoutMode, setLayoutMode] = useState<'split' | 'combined'>('combined');
 
-  const timeframes = ['1D', '5D', '1M', '3M', '6M', '1Y'];
   const stocks = ['BBRI', 'BBCA', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM', 'ICBP', 'INDF', 'KLBF', 'ADRO', 'ANTM', 'ITMG', 'PTBA', 'SMGR', 'INTP', 'WIKA', 'WSKT', 'PGAS'];
 
   // Filter stocks based on input
@@ -604,42 +602,26 @@ export function StoryMarketParticipant() {
                   )}
                 </div>
               </div>
-              
-              <div className="flex items-center gap-2">
-                <label className="font-medium">Timeframe:</label>
-                <div className="flex gap-1">
-                  {timeframes.map(tf => (
-                    <Button
-                      key={tf}
-                      variant={selectedTimeframe === tf ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setSelectedTimeframe(tf)}
-                    >
-                      {tf}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-              
-              <div className="flex items-center gap-2">
-                <label className="font-medium">Layout:</label>
-                <div className="flex gap-1">
-                  <Button
-                    variant={layoutMode === 'combined' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setLayoutMode('combined')}
-                  >
-                    Combine
-                  </Button>
-                  <Button
-                    variant={layoutMode === 'split' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setLayoutMode('split')}
-                  >
-                    Split
-                  </Button>
-              </div>
             </div>
+            
+            <div className="flex items-center gap-2">
+              <label className="font-medium">Layout:</label>
+              <div className="flex gap-1">
+                <Button
+                  variant={layoutMode === 'combined' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setLayoutMode('combined')}
+                >
+                  Combine
+                </Button>
+                <Button
+                  variant={layoutMode === 'split' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setLayoutMode('split')}
+                >
+                  Split
+                </Button>
+              </div>
             </div>
           </div>
         </CardContent>
