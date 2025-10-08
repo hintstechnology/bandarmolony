@@ -21,10 +21,16 @@ app.use(corsConfig);
 
 // CORS configuration (backup)
 app.use(cors({ 
-  origin: config.CORS_ORIGIN,
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'https://bandarmolony.hintstechnology.com',
+    'https://bandarmolony-frontend.orangegrass-7de105a8.southeastasia.azurecontainerapps.io'
+  ],
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  optionsSuccessStatus: 200
 }));
 
 app.use(express.json({ limit: '10mb' }));

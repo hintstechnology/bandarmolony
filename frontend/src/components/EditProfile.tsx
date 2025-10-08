@@ -26,16 +26,13 @@ export function EditProfile({ isOpen, onClose, profile, onSave }: Props) {
   const [isRemoving, setIsRemoving] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
-  // Cleanup preview URL and pending file on unmount
+  // Cleanup pending file on unmount
   useEffect(() => {
     return () => {
-      if (previewUrl) {
-        URL.revokeObjectURL(previewUrl);
-      }
       // Clear pending file
       (window as any).pendingAvatarFile = null;
     };
-  }, [previewUrl]);
+  }, []);
 
   const handlePick = () => {
     if (fileRef.current) {
@@ -102,22 +99,20 @@ export function EditProfile({ isOpen, onClose, profile, onSave }: Props) {
     }, 200);
     
     try {
-      // Create a preview URL for the file (local only, not uploaded to server)
-      const newPreviewUrl = URL.createObjectURL(file);
-      
-      // Clean up previous preview URL
-      if (previewUrl) {
-        URL.revokeObjectURL(previewUrl);
-      }
-      
-      setPreviewUrl(newPreviewUrl);
-      setLocalAvatar(newPreviewUrl);
+      // Create a base64 preview for the file (local only, not uploaded to server)
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const base64Url = e.target?.result as string;
+        setPreviewUrl(base64Url);
+        setLocalAvatar(base64Url);
+        setUploadProgress(100);
+        toast.success('Avatar selected! Click Save to upload.');
+      };
+      reader.readAsDataURL(file);
       
       // Store the file for later upload
       (window as any).pendingAvatarFile = file;
       
-      setUploadProgress(100);
-      toast.success('Avatar selected! Click Save to upload.');
     } catch (error: any) {
       console.error('File processing error:', error);
       toast.error('Failed to process file. Please try again.');
@@ -134,10 +129,7 @@ export function EditProfile({ isOpen, onClose, profile, onSave }: Props) {
     // Simulate loading for better UX
     setTimeout(() => {
       // Clean up preview URL if exists
-      if (previewUrl) {
-        URL.revokeObjectURL(previewUrl);
-        setPreviewUrl(null);
-      }
+      setPreviewUrl(null);
       
       // Clear pending file
       (window as any).pendingAvatarFile = null;
@@ -165,10 +157,7 @@ export function EditProfile({ isOpen, onClose, profile, onSave }: Props) {
           
           // Clear the pending file and preview URL
           (window as any).pendingAvatarFile = null;
-          if (previewUrl) {
-            URL.revokeObjectURL(previewUrl);
-            setPreviewUrl(null);
-          }
+          setPreviewUrl(null);
         } catch (uploadError: any) {
           console.error('❌ Failed to upload avatar:', uploadError);
           toast.error('Failed to upload avatar. Please try again.');
@@ -291,10 +280,7 @@ export function EditProfile({ isOpen, onClose, profile, onSave }: Props) {
                     variant="outline" 
                     onClick={() => {
                       // Clean up any existing preview URL
-                      if (previewUrl) {
-                        URL.revokeObjectURL(previewUrl);
-                        setPreviewUrl(null);
-                      }
+                      setPreviewUrl(null);
                       
                       // Clear pending file
                       (window as any).pendingAvatarFile = null;
