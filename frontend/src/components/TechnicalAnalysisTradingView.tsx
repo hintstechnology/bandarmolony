@@ -788,8 +788,8 @@ function aggregateByTradingDay(rows: OhlcRow[]): OhlcRow[] {
 /* ============================================================================
    4) KOMPONEN UTAMA
 ============================================================================ */
-export function TechnicalAnalysisTradingView() {
-  const [symbol, setSymbol] = useState<string>('BBCA');
+export function TechnicalAnalysisTradingView({ hideControls = false, selectedSymbol }: { hideControls?: boolean; selectedSymbol?: string } = {}) {
+  const [symbol, setSymbol] = useState<string>(selectedSymbol || 'BBCA');
   const [timeframe, setTimeframe] = useState<Timeframe>('1D');
   const [style, setStyle] = useState<ChartStyle>('candles');
   const [rows, setRows] = useState<OhlcRow[]>([]);
@@ -830,6 +830,13 @@ export function TechnicalAnalysisTradingView() {
   const [showIndicatorSettings, setShowIndicatorSettings] = useState(false);
   const [editingIndicator, setEditingIndicator] = useState<Indicator | null>(null);
   const [showIndicatorEditor, setShowIndicatorEditor] = useState(false);
+
+  // Update symbol when selectedSymbol prop changes
+  useEffect(() => {
+    if (selectedSymbol && selectedSymbol !== symbol) {
+      setSymbol(selectedSymbol);
+    }
+  }, [selectedSymbol, symbol]);
   const [showIndividualSettings, setShowIndividualSettings] = useState(false);
   const [selectedIndicatorForSettings, setSelectedIndicatorForSettings] = useState<Indicator | null>(null);
   const [bidAskFootprintData, setBidAskFootprintData] = useState<BidAskFootprintData[]>([]);
@@ -1917,7 +1924,8 @@ export function TechnicalAnalysisTradingView() {
           display: none !important;
         }
       `}</style>
-      <Card className="p-3">
+      {!hideControls && (
+        <Card className="p-3">
         <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
           <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
             <div className="flex items-center gap-2 relative">
@@ -2029,6 +2037,7 @@ export function TechnicalAnalysisTradingView() {
           </div>
         </div>
       </Card>
+      )}
 
       <Card className="flex-1 p-0 relative">
         <div ref={containerRef} className="h-full w-full min-h-[400px] relative">

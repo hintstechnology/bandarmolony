@@ -7,25 +7,25 @@ import { X, Search, Plus } from 'lucide-react';
 
 // Sample RRC data with multiple indices
 const rrcData = [
-  { date: 'Jan', IHSG: 100, LQ45: 98, IDX30: 102, Technology: 98, Healthcare: 102, Finance: 96, Energy: 104, Consumer: 99, Industrial: 101, Materials: 97 },
-  { date: 'Feb', IHSG: 102, LQ45: 101, IDX30: 105, Technology: 101, Healthcare: 105, Finance: 94, Energy: 108, Consumer: 100, Industrial: 103, Materials: 95 },
-  { date: 'Mar', IHSG: 104, LQ45: 106, IDX30: 108, Technology: 106, Healthcare: 108, Finance: 92, Energy: 112, Consumer: 102, Industrial: 106, Materials: 94 },
-  { date: 'Apr', IHSG: 106, LQ45: 110, IDX30: 112, Technology: 110, Healthcare: 112, Finance: 90, Energy: 115, Consumer: 104, Industrial: 108, Materials: 92 },
-  { date: 'May', IHSG: 108, LQ45: 115, IDX30: 115, Technology: 115, Healthcare: 115, Finance: 88, Energy: 118, Consumer: 106, Industrial: 111, Materials: 90 },
-  { date: 'Jun', IHSG: 110, LQ45: 120, IDX30: 118, Technology: 120, Healthcare: 118, Finance: 86, Energy: 122, Consumer: 108, Industrial: 114, Materials: 88 },
+  { date: 'Jan', COMPOSITE: 100, LQ45: 98, IDX30: 102, Technology: 98, Healthcare: 102, Finance: 96, Energy: 104, Consumer: 99, Industrial: 101, Materials: 97 },
+  { date: 'Feb', COMPOSITE: 102, LQ45: 101, IDX30: 105, Technology: 101, Healthcare: 105, Finance: 94, Energy: 108, Consumer: 100, Industrial: 103, Materials: 95 },
+  { date: 'Mar', COMPOSITE: 104, LQ45: 106, IDX30: 108, Technology: 106, Healthcare: 108, Finance: 92, Energy: 112, Consumer: 102, Industrial: 106, Materials: 94 },
+  { date: 'Apr', COMPOSITE: 106, LQ45: 110, IDX30: 112, Technology: 110, Healthcare: 112, Finance: 90, Energy: 115, Consumer: 104, Industrial: 108, Materials: 92 },
+  { date: 'May', COMPOSITE: 108, LQ45: 115, IDX30: 115, Technology: 115, Healthcare: 115, Finance: 88, Energy: 118, Consumer: 106, Industrial: 111, Materials: 90 },
+  { date: 'Jun', COMPOSITE: 110, LQ45: 120, IDX30: 118, Technology: 120, Healthcare: 118, Finance: 86, Energy: 122, Consumer: 108, Industrial: 114, Materials: 88 },
 ];
 
 const stockRrcData = [
-  { date: 'Jan', IHSG: 100, LQ45: 98, IDX30: 102, BBRI: 98, BBCA: 102, BMRI: 96, TLKM: 104, ASII: 99, UNVR: 101 },
-  { date: 'Feb', IHSG: 102, LQ45: 101, IDX30: 105, BBRI: 101, BBCA: 105, BMRI: 94, TLKM: 108, ASII: 100, UNVR: 103 },
-  { date: 'Mar', IHSG: 104, LQ45: 106, IDX30: 108, BBRI: 106, BBCA: 108, BMRI: 92, TLKM: 112, ASII: 102, UNVR: 106 },
-  { date: 'Apr', IHSG: 106, LQ45: 110, IDX30: 112, BBRI: 110, BBCA: 112, BMRI: 90, TLKM: 115, ASII: 104, UNVR: 108 },
-  { date: 'May', IHSG: 108, LQ45: 115, IDX30: 115, BBRI: 115, BBCA: 115, BMRI: 88, TLKM: 118, ASII: 106, UNVR: 111 },
-  { date: 'Jun', IHSG: 110, LQ45: 120, IDX30: 118, BBRI: 120, BBCA: 118, BMRI: 86, TLKM: 122, ASII: 108, UNVR: 114 },
+  { date: 'Jan', COMPOSITE: 100, LQ45: 98, IDX30: 102, BBRI: 98, BBCA: 102, BMRI: 96, TLKM: 104, ASII: 99, UNVR: 101 },
+  { date: 'Feb', COMPOSITE: 102, LQ45: 101, IDX30: 105, BBRI: 101, BBCA: 105, BMRI: 94, TLKM: 108, ASII: 100, UNVR: 103 },
+  { date: 'Mar', COMPOSITE: 104, LQ45: 106, IDX30: 108, BBRI: 106, BBCA: 108, BMRI: 92, TLKM: 112, ASII: 102, UNVR: 106 },
+  { date: 'Apr', COMPOSITE: 106, LQ45: 110, IDX30: 112, BBRI: 110, BBCA: 112, BMRI: 90, TLKM: 115, ASII: 104, UNVR: 108 },
+  { date: 'May', COMPOSITE: 108, LQ45: 115, IDX30: 115, BBRI: 115, BBCA: 115, BMRI: 88, TLKM: 118, ASII: 106, UNVR: 111 },
+  { date: 'Jun', COMPOSITE: 110, LQ45: 120, IDX30: 118, BBRI: 120, BBCA: 118, BMRI: 86, TLKM: 122, ASII: 108, UNVR: 114 },
 ];
 
 const indexOptions = [
-  { name: 'IHSG', color: '#000000' },
+  { name: 'COMPOSITE', color: '#000000' },
   { name: 'LQ45', color: '#374151' },
   { name: 'IDX30', color: '#4B5563' },
   { name: 'IDX80', color: '#6B7280' },
@@ -67,7 +67,7 @@ const stockOptions = [
 
 export function MarketRotationRRC() {
   const [viewMode, setViewMode] = useState<'sector' | 'stock'>('sector');
-  const [selectedIndex, setSelectedIndex] = useState<string>('IHSG');
+  const [selectedIndex, setSelectedIndex] = useState<string>('COMPOSITE');
   const [selectedItems, setSelectedItems] = useState<string[]>(['Technology', 'Healthcare', 'Finance']);
   const [searchQuery, setSearchQuery] = useState('');
   const [indexSearchQuery, setIndexSearchQuery] = useState('');

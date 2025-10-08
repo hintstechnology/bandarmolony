@@ -103,7 +103,7 @@ const getTextColor = (performance: number): string => {
 
 // Index options
 const indexOptions = [
-  { name: 'IHSG', color: '#000000' },
+  { name: 'COMPOSITE', color: '#000000' },
   { name: 'LQ45', color: '#374151' },
   { name: 'IDX30', color: '#4B5563' },
   { name: 'IDX80', color: '#6B7280' },
@@ -112,7 +112,7 @@ const indexOptions = [
 
 // Index seasonality data
 const indexSeasonalityData: SeasonalityData = {
-  IHSG: [
+  COMPOSITE: [
     { month: 'Jan', performance: 1.5 }, { month: 'Feb', performance: 2.1 }, { month: 'Mar', performance: -0.8 },
     { month: 'Apr', performance: 2.4 }, { month: 'May', performance: 1.2 }, { month: 'Jun', performance: -1.6 },
     { month: 'Jul', performance: 2.8 }, { month: 'Aug', performance: -0.4 }, { month: 'Sep', performance: 1.7 },
@@ -155,7 +155,7 @@ const availableStocks = [
 export function MarketRotationSeasonality() {
   const [showSector, setShowSector] = useState(true);
   const [showStock, setShowStock] = useState(true);
-  const [selectedIndices, setSelectedIndices] = useState(['IHSG']);
+  const [selectedIndices, setSelectedIndices] = useState(['COMPOSITE']);
   const [selectedStocks, setSelectedStocks] = useState(['BBRI', 'BBCA', 'BMRI']);
   const [showAddStock, setShowAddStock] = useState(false);
   const [showAddIndex, setShowAddIndex] = useState(false);

@@ -1,141 +1,246 @@
-import React from 'react';
+import React, { useRef, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Badge } from './ui/badge';
-import { TrendingUp, TrendingDown, Package } from 'lucide-react';
-import { getBrokerColorClass, useDarkMode } from '../utils/brokerColors';
+import { createChart, IChartApi, LineSeries, ColorType, CrosshairMode } from 'lightweight-charts';
 
-const inventoryData = [
-  {
-    broker: "INDO",
-    position: "Long",
-    shares: 15750000,
-    avgPrice: 4520,
-    currentPrice: 4650,
-    unrealizedPL: 2047500,
-    percentage: 2.1,
-  },
-  {
-    broker: "MIRA", 
-    position: "Long",
-    shares: 8900000,
-    avgPrice: 4580,
-    currentPrice: 4650,
-    unrealizedPL: 623000,
-    percentage: 0.7,
-  },
-  {
-    broker: "TRAM",
-    position: "Short", 
-    shares: -5200000,
-    avgPrice: 4620,
-    currentPrice: 4650,
-    unrealizedPL: -156000,
-    percentage: -0.3,
-  },
-  {
-    broker: "TRIM",
-    position: "Long",
-    shares: 12300000,
-    avgPrice: 4490,
-    currentPrice: 4650,
-    unrealizedPL: 1968000,
-    percentage: 1.9,
-  },
-  {
-    broker: "CITI",
-    position: "Long",
-    shares: 6750000,
-    avgPrice: 4550,
-    currentPrice: 4650,
-    unrealizedPL: 675000,
-    percentage: 0.8,
-  },
+interface BrokerInventoryProps {
+  selectedStock?: string;
+}
+
+// Available brokers
+const AVAILABLE_BROKERS = [
+  'LG', 'MG', 'BR', 'RG', 'CC', 'AK', 'BK', 'DH', 'KZ', 'YU', 'ZP',
+  'AG', 'NI', 'PD', 'SQ', 'SS', 'CIMB', 'UOB', 'COIN', 'NH', 'RG'
 ];
 
-export function BrokerInventory() {
-  const isDarkMode = useDarkMode();
-  
+// Broker colors
+const getBrokerColor = (broker: string): string => {
+  const colors = {
+    LG: '#3B82F6', MG: '#10B981', BR: '#8B5CF6', RG: '#F59E0B', CC: '#EC4899',
+    AK: '#22C55E', BK: '#06B6D4', DH: '#8B5CF6', KZ: '#84CC16', YU: '#F97316',
+    ZP: '#6B7280', AG: '#EF4444', NI: '#F59E0B', PD: '#10B981', SQ: '#8B5CF6',
+    SS: '#DC2626', CIMB: '#059669', UOB: '#7C3AED', COIN: '#EA580C', NH: '#BE185D'
+  };
+  return colors[broker as keyof typeof colors] || '#6B7280';
+};
+
+// Generate inventory data for selected brokers
+const generateInventoryData = (ticker: string, selectedBrokers: string[]) => {
+  const data: any[] = [];
+  const days = 30; // Last 30 days
+
+  for (let i = 0; i < days; i++) {
+    const currentDate = new Date();
+    currentDate.setDate(currentDate.getDate() - (days - 1 - i));
+    const timeStr = currentDate.toISOString().split('T')[0];
+
+    const dayData: any = { time: timeStr };
+
+    selectedBrokers.forEach(broker => {
+      // Start from 0, simulate cumulative net flow changes
+      const baseValue = i === 0 ? 0 : (Math.random() - 0.5) * 20;
+      const trend = Math.sin(i * 0.1) * 10; // Some trend
+      const noise = (Math.random() - 0.5) * 5; // Random noise
+
+      dayData[broker] = Math.round(baseValue + trend + noise);
+    });
+
+    data.push(dayData);
+  }
+
+  return data;
+};
+
+// TradingView-style chart component for broker inventory
+const BrokerInventoryChart = ({
+  inventoryData,
+  selectedBrokers,
+}: {
+  inventoryData: any[],
+  selectedBrokers: string[],
+}) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+
+  // Get theme-aware colors
+  const getThemeColors = () => {
+    const isDark = document.documentElement.classList.contains('dark');
+    return {
+      textColor: isDark ? '#f9fafb' : '#111827',
+      gridColor: isDark ? '#4b5563' : '#e5e7eb',
+      borderColor: isDark ? '#6b7280' : '#d1d5db',
+      axisTextColor: isDark ? '#d1d5db' : '#6b7280'
+    };
+  };
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    // Clear existing chart
+    if (chartRef.current) {
+      chartRef.current.remove();
+      chartRef.current = null;
+    }
+
+    const width = el.clientWidth || 800;
+    const height = el.clientHeight || 300;
+    const colors = getThemeColors();
+
+    chartRef.current = createChart(el, {
+      width,
+      height,
+      layout: {
+        background: { type: ColorType.Solid, color: 'transparent' },
+        textColor: colors.axisTextColor
+      },
+      grid: {
+        horzLines: { color: colors.gridColor, style: 1 },
+        vertLines: { color: colors.gridColor, style: 1 }
+      },
+      rightPriceScale: {
+        borderColor: colors.borderColor,
+        scaleMargins: { top: 0.1, bottom: 0.1 }
+      },
+      timeScale: {
+        borderColor: colors.borderColor,
+        timeVisible: true,
+        secondsVisible: false,
+        tickMarkFormatter: (time: any, tickMarkType: any, locale: string) => {
+          let date: Date;
+          if (typeof time === 'string') {
+            date = new Date(time);
+          } else {
+            date = new Date(time * 1000);
+          }
+          const day = date.getDate();
+          const month = date.toLocaleDateString('en-US', { month: 'short' });
+          return `${day} ${month}`;
+        }
+      },
+      crosshair: { mode: CrosshairMode.Normal },
+    });
+
+    const chart = chartRef.current!;
+
+    try {
+      // Add inventory lines for each selected broker
+      selectedBrokers.forEach(broker => {
+        const lineSeries = chart.addSeries(LineSeries, {
+          color: getBrokerColor(broker),
+          lineWidth: 2,
+          title: broker,
+        });
+
+        lineSeries.setData(inventoryData.map(d => ({
+          time: d.time,
+          value: d[broker] as number,
+        })));
+      });
+
+      chart.timeScale().fitContent();
+    } catch (e) {
+      console.error('Broker inventory chart render error:', e);
+    }
+  }, [inventoryData, selectedBrokers]);
+
+  // Resize responsif
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      const cr = entries[0]?.contentRect;
+      if (!cr || !chartRef.current) return;
+      chartRef.current.applyOptions({
+        width: Math.max(1, Math.floor(cr.width)),
+        height: Math.max(1, Math.floor(cr.height)),
+      });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (chartRef.current) {
+        chartRef.current.remove();
+        chartRef.current = null;
+      }
+    };
+  }, []);
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Package className="w-5 h-5" />
-          Broker Inventory
-        </CardTitle>
-        <p className="text-sm text-muted-foreground">Current broker positions and P&L</p>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
-          {inventoryData.map((broker) => (
-            <div key={broker.broker} className={`p-4 border rounded-lg space-y-3 ${getBrokerColorClass(broker.broker, isDarkMode)}`}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="font-bold text-lg text-card-foreground">{broker.broker}</span>
-                  <Badge variant={broker.position === "Long" ? 'default' : 'destructive'}>
-                    {broker.position}
-                  </Badge>
-                </div>
-                <div className="text-right">
-                  <div className="flex items-center gap-1">
-                    {broker.unrealizedPL >= 0 ? (
-                      <TrendingUp className="w-4 h-4 text-green-600" />
-                    ) : (
-                      <TrendingDown className="w-4 h-4 text-red-600" />
-                    )}
-                    <span className={`font-bold ${broker.unrealizedPL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {broker.unrealizedPL >= 0 ? '+' : ''}{broker.unrealizedPL.toLocaleString()}
-                    </span>
-                  </div>
-                  <p className="text-sm text-muted-foreground">{broker.percentage}%</p>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                <div>
-                  <p className="text-muted-foreground">Shares</p>
-                  <p className="font-medium text-card-foreground">{Math.abs(broker.shares).toLocaleString()}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Avg Price</p>
-                  <p className="font-medium text-card-foreground">{broker.avgPrice.toLocaleString()}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Current Price</p>
-                  <p className="font-medium text-card-foreground">{broker.currentPrice.toLocaleString()}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">P&L per Share</p>
-                  <p className={`font-medium ${broker.currentPrice - broker.avgPrice >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {broker.currentPrice - broker.avgPrice >= 0 ? '+' : ''}{broker.currentPrice - broker.avgPrice}
-                  </p>
-                </div>
-              </div>
+    <div className="h-[280px] w-full relative px-6 pb-8">
+      <style>{`
+        #tv-attr-logo {
+          display: none !important;
+        }
+        .tv-attr-logo {
+          display: none !important;
+        }
+        [data-tv-attr-logo] {
+          display: none !important;
+        }
+      `}</style>
+
+      {/* Axis Labels */}
+      <div
+        className="absolute top-1/2 -left-20 text-sm text-muted-foreground font-bold whitespace-nowrap"
+        style={{
+          transform: 'translateY(-50%) rotate(-90deg)',
+          transformOrigin: 'center',
+          zIndex: 10
+        }}
+      >
+        Kumulatif Net Flow (lot)
+      </div>
+      <div
+        className="absolute -bottom-3 left-1/2 text-sm text-muted-foreground font-bold whitespace-nowrap"
+        style={{
+          transform: 'translateX(-50%)',
+          zIndex: 10
+        }}
+      >
+        Timeframe
+      </div>
+
+      <div ref={containerRef} className="h-full w-full" />
+    </div>
+  );
+};
+
+export function BrokerInventory({ selectedStock = 'BBRI' }: BrokerInventoryProps) {
+  // Select top 5 brokers for dashboard display
+  const selectedBrokers = useMemo(() => ['LG', 'MG', 'BR', 'RG', 'CC'], []);
+
+  // Generate inventory data
+  const inventoryData = useMemo(() =>
+    generateInventoryData(selectedStock, selectedBrokers),
+    [selectedStock, selectedBrokers]
+  );
+
+  return (
+    <div>
+      <div className="space-y-4">
+        {/* Chart */}
+        <BrokerInventoryChart
+          inventoryData={inventoryData}
+          selectedBrokers={selectedBrokers}
+        />
+        
+        {/* Legend */}
+        <div className="flex flex-wrap gap-3 justify-center mt-6">
+          {selectedBrokers.map(broker => (
+            <div key={broker} className="flex items-center gap-2">
+              <div 
+                className="w-3 h-3 rounded-full" 
+                style={{ backgroundColor: getBrokerColor(broker) }}
+              />
+              <span className="text-sm font-medium">{broker}</span>
             </div>
           ))}
         </div>
-        
-        <div className="mt-6 p-4 bg-muted rounded-lg">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-            <div>
-              <p className="text-sm text-muted-foreground">Total Long</p>
-              <p className="text-lg font-bold text-green-600">+5.5%</p>
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Total Short</p>
-              <p className="text-lg font-bold text-red-600">-0.3%</p>
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Net Position</p>
-              <p className="text-lg font-bold text-card-foreground">+5.2%</p>
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Total P&L</p>
-              <p className="text-lg font-bold text-green-600">+5.16M</p>
-            </div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
-

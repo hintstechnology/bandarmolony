@@ -403,23 +403,22 @@ export function StoryOwnership() {
                   )}
                 </div>
               </div>
-              
-              <div className="flex items-center gap-2">
-                <label className="font-medium">View:</label>
-                <div className="flex gap-1">
-                  {views.map(view => (
-                    <Button
-                      key={view.key}
-                      variant={selectedView === view.key ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setSelectedView(view.key)}
-                    >
-                      {view.label}
-                    </Button>
-                  ))}
-                </div>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <label className="font-medium">View:</label>
+              <div className="flex gap-1">
+                {views.map(view => (
+                  <Button
+                    key={view.key}
+                    variant={selectedView === view.key ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setSelectedView(view.key)}
+                  >
+                    {view.label}
+                  </Button>
+                ))}
               </div>
-
             </div>
           </div>
         </CardContent>
@@ -519,7 +518,6 @@ export function StoryOwnership() {
                          <th className="text-left p-2 text-foreground">Shareholder</th>
                          <th className="text-right p-2 text-foreground">%</th>
                          <th className="text-right p-2 text-foreground">Shares</th>
-                         <th className="text-right p-2 text-foreground">Value</th>
                        </tr>
                      </thead>
                     <tbody>
@@ -538,7 +536,6 @@ export function StoryOwnership() {
                           </td>
                           <td className="p-2 text-right font-medium text-foreground">{owner.percentage}%</td>
                           <td className="p-2 text-right text-foreground">{formatNumber(owner.shares)}</td>
-                          <td className="p-2 text-right text-foreground">{formatCurrency(owner.shares * 4.65)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -631,7 +628,6 @@ export function StoryOwnership() {
                      <th className="text-left p-3 text-foreground">Type</th>
                      <th className="text-right p-3 text-foreground">Shares</th>
                      <th className="text-right p-3 text-foreground">%</th>
-                     <th className="text-right p-3 text-foreground">Market Value</th>
                      <th className="text-right p-3 text-foreground">Change</th>
                      <th className="text-right p-3 text-foreground">Last Update</th>
                    </tr>
@@ -648,7 +644,6 @@ export function StoryOwnership() {
                       </td>
                       <td className="p-3 text-right font-mono text-foreground">{formatNumber(holder.shares)}</td>
                       <td className="p-3 text-right font-medium text-foreground">{holder.percentage}%</td>
-                      <td className="p-3 text-right font-mono text-foreground">{formatCurrency(holder.value)}</td>
                       <td className="p-3 text-right">
                         <span className={holder.change.startsWith('+') ? 'text-green-600' : holder.change.startsWith('-') ? 'text-red-600' : 'text-gray-600'}>
                           {holder.change}
