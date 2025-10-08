@@ -1,6 +1,54 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
+import { FootprintChart } from './footprint/FootprintChart';
+
+// Error Boundary Component
+class ChartErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error?: Error }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('Chart Error Boundary caught an error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full min-h-[400px] p-4">
+          <div className="text-center">
+            <h3 className="text-lg font-semibold text-destructive mb-2">
+              Chart Error
+            </h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              {this.state.error?.message || 'An error occurred while rendering the chart'}
+            </p>
+            <button
+              onClick={() => {
+                this.setState({ hasError: false, error: undefined });
+                window.location.reload();
+              }}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
+            >
+              Reload Chart
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 import {
   createChart,
   ColorType,
@@ -11,7 +59,6 @@ import {
   HistogramSeries,
   type IChartApi,
 } from 'lightweight-charts';
-import { chartPreferencesService } from '../services/chartPreferences';
 
 // Type declaration for import.meta.glob
 declare global {
@@ -65,13 +112,13 @@ type OhlcRow = {
   volume?: number;
 };
 
-type ChartStyle = 'line' | 'candles' | 'area' | 'footprint';
+type ChartStyle = 'line' | 'candles' | 'footprint';
 type Timeframe = '1M' | '5M' | '15M' | '30M' | '1H' | '1D' | '1W' | '1MO' | '3M' | '6M' | '1Y';
 
 type Indicator = {
   id: string;
   name: string;
-  type: 'sma' | 'ema' | 'rsi' | 'macd' | 'volume_histogram';
+  type: 'sma' | 'ema' | 'rsi' | 'macd' | 'stochastic' | 'volume_histogram' | 'buy_sell_frequency';
   period: number;
   color: string;
   enabled: boolean;
@@ -83,30 +130,6 @@ type IndicatorData = {
   value: number;
 };
 
-// Footprint chart data structure
-type FootprintData = {
-  time: number;
-  priceLevels: {
-    price: number;
-    bidVolume: number;
-    askVolume: number;
-    delta: number; // askVolume - bidVolume
-  }[];
-};
-
-// Bid-Ask Footprint data structure
-type BidAskFootprintData = {
-  time: number;
-  priceLevels: {
-    price: number;
-    bidVolume: number;
-    askVolume: number;
-    netVolume: number; // bidVolume - askVolume
-    totalVolume: number;
-    bidCount: number;
-    askCount: number;
-  }[];
-};
 
 function detectDelimiter(header: string): string {
   const c = (header.match(/,/g) || []).length;
@@ -280,17 +303,17 @@ function calculateRSI(data: OhlcRow[], period: number): IndicatorData[] {
   return result;
 }
 
-function calculateMACD(data: OhlcRow[], fastPeriod: number = 12, slowPeriod: number = 26, signalPeriod: number = 9): IndicatorData[] {
-  const result: IndicatorData[] = [];
+function calculateMACD(data: OhlcRow[], fastPeriod: number = 12, slowPeriod: number = 26, signalPeriod: number = 9): { macd: IndicatorData[], signal: IndicatorData[] } {
+  const macdLine: IndicatorData[] = [];
+  const signalLine: IndicatorData[] = [];
   
-  if (data.length < slowPeriod) return result;
+  if (data.length < slowPeriod) return { macd: macdLine, signal: signalLine };
   
   // Calculate EMAs
   const fastEMA = calculateEMA(data, fastPeriod);
   const slowEMA = calculateEMA(data, slowPeriod);
   
   // Calculate MACD line
-  const macdLine: IndicatorData[] = [];
   for (let i = 0; i < Math.min(fastEMA.length, slowEMA.length); i++) {
     if (fastEMA[i] && slowEMA[i]) {
       macdLine.push({
@@ -301,19 +324,19 @@ function calculateMACD(data: OhlcRow[], fastPeriod: number = 12, slowPeriod: num
   }
   
   // Calculate signal line (EMA of MACD line)
-  const signalLine = calculateEMA(macdLine.map(d => ({ time: d.time, open: d.value, high: d.value, low: d.value, close: d.value })), signalPeriod);
+  const signalLineData = calculateEMA(macdLine.map(d => ({ time: d.time, open: d.value, high: d.value, low: d.value, close: d.value })), signalPeriod);
   
-  // Calculate histogram (MACD - Signal)
-  for (let i = 0; i < Math.min(macdLine.length, signalLine.length); i++) {
-    if (macdLine[i] && signalLine[i]) {
-      result.push({
-        time: macdLine[i].time,
-        value: macdLine[i].value - signalLine[i].value
+  // Convert signal line data to IndicatorData format
+  for (let i = 0; i < signalLineData.length; i++) {
+    if (signalLineData[i]) {
+      signalLine.push({
+        time: signalLineData[i].time,
+        value: signalLineData[i].value
       });
     }
   }
   
-  return result;
+  return { macd: macdLine, signal: signalLine };
 }
 
 
@@ -332,148 +355,203 @@ function calculateVolumeHistogram(data: OhlcRow[]): IndicatorData[] {
   return result;
 }
 
-// Load bid-ask footprint data from CSV
-async function loadBidAskFootprintData(symbol: string, date: string): Promise<BidAskFootprintData[]> {
-  try {
-    // Try to load from by_stock CSV first
-    const stockCsvPath = `../bid_ask_250919/by_stock/by_stock.csv`;
-    const response = await fetch(stockCsvPath);
-    
-    if (!response.ok) {
-      throw new Error(`Failed to load bid-ask data for ${symbol}`);
-    }
-    
-    const text = await response.text();
-    const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '');
-    
-    if (lines.length < 2) return [];
-    
-    const header = lines[0].split(',').map((h) => h.trim().toLowerCase());
-    const stockCodeIdx = header.findIndex(h => h === 'stockcode');
-    const priceIdx = header.findIndex(h => h === 'price');
-    const bidVolumeIdx = header.findIndex(h => h === 'bidvolume');
-    const askVolumeIdx = header.findIndex(h => h === 'askvolume');
-    const netVolumeIdx = header.findIndex(h => h === 'netvolume');
-    const totalVolumeIdx = header.findIndex(h => h === 'totalvolume');
-    const bidCountIdx = header.findIndex(h => h === 'bidcount');
-    const askCountIdx = header.findIndex(h => h === 'askcount');
-    
-    if (stockCodeIdx === -1 || priceIdx === -1) return [];
-    
-    // Filter data for specific symbol
-    const symbolData = lines.slice(1)
-      .map(line => {
-        const cols = line.split(',');
-        return {
-          stockCode: cols[stockCodeIdx]?.trim(),
-          price: parseFloat(cols[priceIdx] || '0'),
-          bidVolume: parseFloat(cols[bidVolumeIdx] || '0'),
-          askVolume: parseFloat(cols[askVolumeIdx] || '0'),
-          netVolume: parseFloat(cols[netVolumeIdx] || '0'),
-          totalVolume: parseFloat(cols[totalVolumeIdx] || '0'),
-          bidCount: parseInt(cols[bidCountIdx] || '0'),
-          askCount: parseInt(cols[askCountIdx] || '0')
-        };
-      })
-      .filter(row => row.stockCode === symbol && !isNaN(row.price));
-    
-    // Group by price level
-    const priceLevelMap = new Map<number, typeof symbolData[0]>();
-    
-    symbolData.forEach(row => {
-      const existing = priceLevelMap.get(row.price);
-      if (existing) {
-        // Aggregate volumes for same price level
-        existing.bidVolume += row.bidVolume;
-        existing.askVolume += row.askVolume;
-        existing.netVolume += row.netVolume;
-        existing.totalVolume += row.totalVolume;
-        existing.bidCount += row.bidCount;
-        existing.askCount += row.askCount;
-      } else {
-        priceLevelMap.set(row.price, { ...row });
-      }
-    });
-    
-    // Convert to footprint data format
-    const priceLevels = Array.from(priceLevelMap.values())
-      .sort((a, b) => b.price - a.price); // Sort by price descending
-    
-    // Create timestamp for the date (assuming it's 2025-09-19 based on folder name)
-    const timestamp = new Date('2025-09-19').getTime() / 1000;
-    
-    return [{
-      time: timestamp,
-      priceLevels: priceLevels.map(level => ({
-        price: level.price,
-        bidVolume: level.bidVolume,
-        askVolume: level.askVolume,
-        netVolume: level.netVolume,
-        totalVolume: level.totalVolume,
-        bidCount: level.bidCount,
-        askCount: level.askCount
-      }))
-    }];
-    
-  } catch (error) {
-    console.error('Error loading bid-ask footprint data:', error);
-    return [];
-  }
-}
-
-// Generate mock footprint data for demonstration
-function generateFootprintData(ohlcData: OhlcRow[]): FootprintData[] {
-  console.log('generateFootprintData called with', ohlcData.length, 'rows');
-  const result: FootprintData[] = [];
-
-  // Limit to the last 30 timestamps/candles to keep the footprint clean
-  const limitedData = ohlcData.slice(-30);
-  console.log('Limited data (last 14 candles):', limitedData.length, 'rows');
+function calculateBuySellFrequency(data: OhlcRow[], period: number = 14): { buyFreq: IndicatorData[], sellFreq: IndicatorData[] } {
+  const buyFreq: IndicatorData[] = [];
+  const sellFreq: IndicatorData[] = [];
   
-  for (const candle of limitedData) {
-    const priceLevels: FootprintData['priceLevels'] = [];
+  // Extended dummy data for demonstration - in real implementation, this would come from done summary
+  const dummyData = [
+    { price: 650, bFreq: 0, sFreq: 8421 },
+    { price: 645, bFreq: 150, sFreq: 3200 },
+    { price: 640, bFreq: 300, sFreq: 2800 },
+    { price: 635, bFreq: 450, sFreq: 2400 },
+    { price: 630, bFreq: 600, sFreq: 2000 },
+    { price: 625, bFreq: 750, sFreq: 1800 },
+    { price: 620, bFreq: 900, sFreq: 1600 },
+    { price: 615, bFreq: 1050, sFreq: 1400 },
+    { price: 610, bFreq: 1200, sFreq: 1200 },
+    { price: 605, bFreq: 1350, sFreq: 1000 },
+    { price: 600, bFreq: 1500, sFreq: 800 },
+    { price: 595, bFreq: 1650, sFreq: 600 },
+    { price: 590, bFreq: 1800, sFreq: 400 },
+    { price: 585, bFreq: 1950, sFreq: 200 },
+    { price: 580, bFreq: 2100, sFreq: 100 },
+    { price: 575, bFreq: 2250, sFreq: 50 },
+    { price: 570, bFreq: 2400, sFreq: 25 },
+    { price: 565, bFreq: 0, sFreq: 292 },
+    { price: 560, bFreq: 669, sFreq: 762 },
+    { price: 555, bFreq: 1210, sFreq: 865 },
+    { price: 550, bFreq: 1406, sFreq: 2112 },
+    { price: 545, bFreq: 3088, sFreq: 3108 },
+    { price: 540, bFreq: 4699, sFreq: 140 },
+    { price: 535, bFreq: 111, sFreq: 0 },
+    { price: 530, bFreq: 200, sFreq: 500 },
+    { price: 525, bFreq: 400, sFreq: 800 },
+    { price: 520, bFreq: 600, sFreq: 1200 },
+    { price: 515, bFreq: 800, sFreq: 1500 },
+    { price: 510, bFreq: 1000, sFreq: 1800 },
+    { price: 505, bFreq: 1200, sFreq: 2000 },
+    { price: 500, bFreq: 1400, sFreq: 2200 },
+    { price: 495, bFreq: 1600, sFreq: 2400 },
+    { price: 490, bFreq: 1800, sFreq: 2600 },
+    { price: 485, bFreq: 2000, sFreq: 2800 },
+    { price: 480, bFreq: 2200, sFreq: 3000 },
+    { price: 475, bFreq: 2400, sFreq: 3200 },
+    { price: 470, bFreq: 2600, sFreq: 3400 },
+    { price: 465, bFreq: 2800, sFreq: 3600 },
+    { price: 460, bFreq: 3000, sFreq: 3800 },
+    { price: 455, bFreq: 3200, sFreq: 4000 },
+    { price: 450, bFreq: 3400, sFreq: 4200 },
+    { price: 445, bFreq: 3600, sFreq: 4400 },
+    { price: 440, bFreq: 3800, sFreq: 4600 },
+    { price: 435, bFreq: 4000, sFreq: 4800 },
+    { price: 430, bFreq: 4200, sFreq: 5000 },
+    { price: 425, bFreq: 4400, sFreq: 5200 },
+    { price: 420, bFreq: 4600, sFreq: 5400 },
+    { price: 415, bFreq: 4800, sFreq: 5600 },
+    { price: 410, bFreq: 5000, sFreq: 5800 },
+    { price: 405, bFreq: 5200, sFreq: 6000 },
+    { price: 400, bFreq: 5400, sFreq: 6200 },
+    { price: 395, bFreq: 5600, sFreq: 6400 },
+    { price: 390, bFreq: 5800, sFreq: 6600 },
+    { price: 385, bFreq: 6000, sFreq: 6800 },
+    { price: 380, bFreq: 6200, sFreq: 7000 },
+    { price: 375, bFreq: 6400, sFreq: 7200 },
+    { price: 370, bFreq: 6600, sFreq: 7400 },
+    { price: 365, bFreq: 6800, sFreq: 7600 },
+    { price: 360, bFreq: 7000, sFreq: 7800 },
+    { price: 355, bFreq: 7200, sFreq: 8000 },
+    { price: 350, bFreq: 7400, sFreq: 8200 },
+    { price: 345, bFreq: 7600, sFreq: 8400 },
+    { price: 340, bFreq: 7800, sFreq: 8600 },
+    { price: 335, bFreq: 8000, sFreq: 8800 },
+    { price: 330, bFreq: 8200, sFreq: 9000 },
+    { price: 325, bFreq: 8400, sFreq: 9200 },
+    { price: 320, bFreq: 8600, sFreq: 9400 },
+    { price: 315, bFreq: 8800, sFreq: 9600 },
+    { price: 310, bFreq: 9000, sFreq: 9800 },
+    { price: 305, bFreq: 9200, sFreq: 10000 },
+    { price: 300, bFreq: 9400, sFreq: 10200 },
+    { price: 295, bFreq: 9600, sFreq: 10400 },
+    { price: 290, bFreq: 9800, sFreq: 10600 },
+    { price: 285, bFreq: 10000, sFreq: 10800 },
+    { price: 280, bFreq: 10200, sFreq: 11000 },
+    { price: 275, bFreq: 10400, sFreq: 11200 },
+    { price: 270, bFreq: 10600, sFreq: 11400 },
+    { price: 265, bFreq: 10800, sFreq: 11600 },
+    { price: 260, bFreq: 11000, sFreq: 11800 },
+    { price: 255, bFreq: 11200, sFreq: 12000 },
+    { price: 250, bFreq: 11400, sFreq: 12200 },
+    { price: 245, bFreq: 11600, sFreq: 12400 },
+    { price: 240, bFreq: 11800, sFreq: 12600 },
+    { price: 235, bFreq: 12000, sFreq: 12800 },
+    { price: 230, bFreq: 12200, sFreq: 13000 },
+    { price: 225, bFreq: 12400, sFreq: 13200 },
+    { price: 220, bFreq: 12600, sFreq: 13400 },
+    { price: 215, bFreq: 12800, sFreq: 13600 },
+    { price: 210, bFreq: 13000, sFreq: 13800 },
+    { price: 205, bFreq: 13200, sFreq: 14000 },
+    { price: 200, bFreq: 13400, sFreq: 14200 },
+    { price: 195, bFreq: 13600, sFreq: 14400 },
+    { price: 190, bFreq: 13800, sFreq: 14600 },
+    { price: 185, bFreq: 14000, sFreq: 14800 },
+    { price: 180, bFreq: 14200, sFreq: 15000 },
+    { price: 175, bFreq: 14400, sFreq: 15200 },
+    { price: 170, bFreq: 14600, sFreq: 15400 },
+    { price: 165, bFreq: 14800, sFreq: 15600 },
+    { price: 160, bFreq: 15000, sFreq: 15800 },
+    { price: 155, bFreq: 15200, sFreq: 16000 },
+    { price: 150, bFreq: 15400, sFreq: 16200 },
+    { price: 145, bFreq: 15600, sFreq: 16400 },
+    { price: 140, bFreq: 15800, sFreq: 16600 },
+    { price: 135, bFreq: 16000, sFreq: 16800 },
+    { price: 130, bFreq: 16200, sFreq: 17000 },
+    { price: 125, bFreq: 16400, sFreq: 17200 },
+    { price: 120, bFreq: 16600, sFreq: 17400 },
+    { price: 115, bFreq: 16800, sFreq: 17600 },
+    { price: 110, bFreq: 17000, sFreq: 17800 },
+    { price: 105, bFreq: 17200, sFreq: 18000 },
+    { price: 100, bFreq: 17400, sFreq: 18200 },
+    { price: 95, bFreq: 17600, sFreq: 18400 },
+    { price: 90, bFreq: 17800, sFreq: 18600 },
+    { price: 85, bFreq: 18000, sFreq: 18800 },
+    { price: 80, bFreq: 18200, sFreq: 19000 },
+    { price: 75, bFreq: 18400, sFreq: 19200 },
+    { price: 70, bFreq: 18600, sFreq: 19400 },
+    { price: 65, bFreq: 18800, sFreq: 19600 },
+    { price: 60, bFreq: 19000, sFreq: 19800 },
+    { price: 55, bFreq: 19200, sFreq: 20000 },
+    { price: 50, bFreq: 19400, sFreq: 20200 },
+    { price: 45, bFreq: 19600, sFreq: 20400 },
+    { price: 40, bFreq: 19800, sFreq: 20600 },
+    { price: 35, bFreq: 20000, sFreq: 20800 },
+    { price: 30, bFreq: 20200, sFreq: 21000 },
+    { price: 25, bFreq: 20400, sFreq: 21200 },
+    { price: 20, bFreq: 20600, sFreq: 21400 },
+    { price: 15, bFreq: 20800, sFreq: 21600 },
+    { price: 10, bFreq: 21000, sFreq: 21800 },
+    { price: 5, bFreq: 21200, sFreq: 22000 }
+  ];
+  
+  // Generate time-based data from dummy data (spread over 3 months)
+  const baseTime = Date.now() - (90 * 24 * 60 * 60 * 1000); // Start from 3 months ago
+  const timeInterval = (90 * 24 * 60 * 60 * 1000) / dummyData.length; // Spread data over 3 months
+  
+  for (let i = 0; i < dummyData.length; i++) {
+    const time = baseTime + (i * timeInterval);
     
-    // Create price levels with smaller steps for better visualization
-    const priceRange = candle.high - candle.low;
-    const priceStep = Math.max(0.1, priceRange / 12); // 12 price levels max for performance
-    const numLevels = Math.min(12, Math.max(6, Math.floor(priceRange / priceStep)));
+    // Buy frequency (positive values)
+    buyFreq.push({
+      time,
+      value: dummyData[i].bFreq
+    });
     
-    // Generate price levels
-    for (let i = 0; i < numLevels; i++) {
-      const price = candle.low + (i * priceStep);
-      
-      // Generate more realistic volume distribution
-      const baseVolume = (candle.volume || 1000000) / numLevels;
-      const pricePosition = (price - candle.low) / (candle.high - candle.low);
-      
-      // Higher volume at open/close prices and middle range
-      let volumeMultiplier = 1;
-      if (Math.abs(price - candle.open) < priceStep * 2) volumeMultiplier = 2.5;
-      else if (Math.abs(price - candle.close) < priceStep * 2) volumeMultiplier = 2.5;
-      else if (pricePosition > 0.3 && pricePosition < 0.7) volumeMultiplier = 1.5;
-      
-      // Generate bid/ask volumes with some correlation
-      const randomFactor = 0.4 + Math.random() * 0.6;
-      const bidVolume = Math.floor(baseVolume * volumeMultiplier * randomFactor);
-      const askVolume = Math.floor(baseVolume * volumeMultiplier * (0.3 + Math.random() * 0.7));
-      
-      priceLevels.push({
-        price: Math.round(price * 100) / 100,
-        bidVolume,
-        askVolume,
-        delta: askVolume - bidVolume
-      });
-    }
-    
-    result.push({
-      time: candle.time,
-      priceLevels: priceLevels.sort((a, b) => b.price - a.price) // Sort by price descending
+    // Sell frequency (negative values for diverging chart)
+    sellFreq.push({
+      time,
+      value: -dummyData[i].sFreq
     });
   }
-
-  console.log('Generated footprint data:', result.length, 'items');
-  return result;
+  
+  return { buyFreq, sellFreq };
 }
+
+function calculateStochastic(data: OhlcRow[], kPeriod: number = 14, dPeriod: number = 3): { k: IndicatorData[], d: IndicatorData[] } {
+  const kValues: IndicatorData[] = [];
+  const dValues: IndicatorData[] = [];
+  
+  if (data.length < kPeriod) return { k: kValues, d: dValues };
+  
+  // Calculate %K values
+  for (let i = kPeriod - 1; i < data.length; i++) {
+    const slice = data.slice(i - kPeriod + 1, i + 1);
+    const highestHigh = Math.max(...slice.map(item => item.high));
+    const lowestLow = Math.min(...slice.map(item => item.low));
+    const currentClose = data[i].close;
+    
+    // Calculate %K
+    const kPercent = ((currentClose - lowestLow) / (highestHigh - lowestLow)) * 100;
+    
+    kValues.push({
+      time: data[i].time,
+      value: kPercent
+    });
+  }
+  
+  // Calculate %D values (SMA of %K)
+  for (let i = dPeriod - 1; i < kValues.length; i++) {
+    const slice = kValues.slice(i - dPeriod + 1, i + 1);
+    const dValue = slice.reduce((sum, item) => sum + item.value, 0) / dPeriod;
+    
+    dValues.push({
+      time: kValues[i].time,
+      value: dValue
+    });
+  }
+  
+  return { k: kValues, d: dValues };
+}
+
 
 /* ============================================================================
    4) AGGREGATION FUNCTIONS
@@ -788,8 +866,8 @@ function aggregateByTradingDay(rows: OhlcRow[]): OhlcRow[] {
 /* ============================================================================
    4) KOMPONEN UTAMA
 ============================================================================ */
-export function TechnicalAnalysisTradingView({ hideControls = false, selectedSymbol }: { hideControls?: boolean; selectedSymbol?: string } = {}) {
-  const [symbol, setSymbol] = useState<string>(selectedSymbol || 'BBCA');
+export function TechnicalAnalysisTradingView() {
+  const [symbol, setSymbol] = useState<string>(AVAILABLE_SYMBOLS[0] ?? 'MOCK');
   const [timeframe, setTimeframe] = useState<Timeframe>('1D');
   const [style, setStyle] = useState<ChartStyle>('candles');
   const [rows, setRows] = useState<OhlcRow[]>([]);
@@ -799,18 +877,10 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
-  const [chartColors, setChartColors] = useState(() => {
-    const cached = chartPreferencesService.getCachedColors();
-    return {
+  const [chartColors, setChartColors] = useState({
       line: '#2563eb',
-      candles: {
-        up: cached?.bullish ?? '#16a34a',
-        down: cached?.bearish ?? '#dc2626',
-        wickUp: cached?.bullish ?? '#16a34a',
-        wickDown: cached?.bearish ?? '#dc2626'
-      },
+    candles: { up: '#16a34a', down: '#dc2626', wickUp: '#16a34a', wickDown: '#dc2626' },
       area: { line: '#2563eb', top: 'rgba(37,99,235,0.20)', bottom: 'rgba(37,99,235,0.05)' }
-    };
   });
   const [indicatorChartHeight, setIndicatorChartHeight] = useState(100);
   const [rsiSettings, setRsiSettings] = useState({
@@ -825,39 +895,35 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
     showUpColor: true,
     showDownColor: true
   });
+  const [stochasticSettings, setStochasticSettings] = useState({
+    kColor: '#9b59b6',
+    dColor: '#ffa726',
+    showOverbought: true,
+    showOversold: true
+  });
   const [showSettings, setShowSettings] = useState(false);
   const [indicators, setIndicators] = useState<Indicator[]>([]);
   const [showIndicatorSettings, setShowIndicatorSettings] = useState(false);
   const [editingIndicator, setEditingIndicator] = useState<Indicator | null>(null);
   const [showIndicatorEditor, setShowIndicatorEditor] = useState(false);
-
-  // Update symbol when selectedSymbol prop changes
-  useEffect(() => {
-    if (selectedSymbol && selectedSymbol !== symbol) {
-      setSymbol(selectedSymbol);
-    }
-  }, [selectedSymbol, symbol]);
   const [showIndividualSettings, setShowIndividualSettings] = useState(false);
   const [selectedIndicatorForSettings, setSelectedIndicatorForSettings] = useState<Indicator | null>(null);
-  const [bidAskFootprintData, setBidAskFootprintData] = useState<BidAskFootprintData[]>([]);
+  
+  // Footprint chart settings
+  const [footprintSettings, setFootprintSettings] = useState({
+    showCrosshair: true,
+    showPOC: true,
+    showDelta: false, // Default delta off
+    timeframe: '15m',
+    zoom: 1.1 // Default zoom 1.1x
+  });
 
   // Load saved colors from localStorage
   useEffect(() => {
     const savedColors = localStorage.getItem('chartColors');
     if (savedColors) {
       try {
-        const parsed = JSON.parse(savedColors);
-        setChartColors((prev) => ({
-          ...prev,
-          line: parsed.line ?? prev.line,
-          candles: {
-            up: parsed.candles?.up ?? prev.candles.up,
-            down: parsed.candles?.down ?? prev.candles.down,
-            wickUp: parsed.candles?.wickUp ?? prev.candles.wickUp,
-            wickDown: parsed.candles?.wickDown ?? prev.candles.wickDown,
-          },
-          area: parsed.area ?? prev.area,
-        }));
+        setChartColors(JSON.parse(savedColors));
       } catch (e) {
         console.log('Failed to load saved colors, using defaults');
       }
@@ -912,42 +978,6 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
     localStorage.setItem('volumeHistogramSettings', JSON.stringify(volumeHistogramSettings));
   }, [volumeHistogramSettings]);
 
-  // Load user chart colors (bullish/bearish) from Supabase once
-  useEffect(() => {
-    (async () => {
-      try {
-        const userColors = await chartPreferencesService.loadColors();
-        if (userColors) {
-          setChartColors((prev) => ({
-            ...prev,
-            candles: {
-              ...prev.candles,
-              up: userColors.bullish,
-              wickUp: userColors.bullish,
-              down: userColors.bearish,
-              wickDown: userColors.bearish,
-            },
-          }));
-          // Force re-render of chart series to apply new colors immediately
-          try {
-            if (chartRef.current && priceRef.current) {
-              const series = priceRef.current;
-              const options = {
-                upColor: userColors.bullish,
-                downColor: userColors.bearish,
-                wickUpColor: userColors.bullish,
-                wickDownColor: userColors.bearish,
-              } as any;
-              if (series.applyOptions) series.applyOptions(options);
-            }
-          } catch (_) {}
-        }
-      } catch (e) {
-        console.log('Failed to load user chart colors from Supabase:', e);
-      }
-    })();
-  }, []);
-
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -967,12 +997,16 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
       'ema': 12,
       'rsi': 14,
       'macd': 12,
-      'volume_histogram': 1
+      'stochastic': 14,
+      'volume_histogram': 1,
+      'buy_sell_frequency': 14
     };
     
     const newIndicator: Indicator = {
       id: `${type}_${Date.now()}`,
-      name: `${type.toUpperCase()}`,
+      name: type === 'stochastic' ? '%K (Stochastic)' : 
+            type === 'buy_sell_frequency' ? 'Buy / Sell Frequency' : 
+            `${type.toUpperCase()}`,
       type,
       period: defaultPeriods[type],
       color,
@@ -1102,12 +1136,12 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
       .slice(0, 10); // Limit to 10 results
   }, [symbols, searchQuery]);
 
-  // Initialize search query with default symbol only once
+  // Update search query when symbol changes externally
   useEffect(() => {
     if (symbol && !searchQuery) {
       setSearchQuery(symbol);
     }
-  }, [symbol]); // Remove searchQuery from dependencies
+  }, [symbol, searchQuery]);
 
   // Handle keyboard navigation
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -1221,26 +1255,6 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
           setErr(e?.message ?? 'CSV load error');
           setRows([]);
           setSrc('none');
-        }
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [symbol]);
-
-  // Load bid-ask footprint data when symbol changes
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const footprintData = await loadBidAskFootprintData(symbol, '2025-09-19');
-        if (!cancelled) {
-          setBidAskFootprintData(footprintData);
-        }
-      } catch (error) {
-        console.error('Error loading bid-ask footprint data:', error);
-        if (!cancelled) {
-          setBidAskFootprintData([]);
         }
       }
     })();
@@ -1386,8 +1400,21 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
 
   // Build / Update chart saat data/gaya berubah
   useEffect(() => {
+    // Early return for footprint style - don't create any chart
+    if (style === 'footprint' as ChartStyle) {
+      console.log('🚫 Skipping chart creation for footprint style');
+      // Cleanup any existing chart
+      if (chartRef.current) {
+        chartRef.current.remove();
+        chartRef.current = null;
+      }
+      return;
+    }
+
     const el = containerRef.current;
     if (!el) return;
+
+    console.log('📊 Creating lightweight-charts for style:', style);
 
     // init chart atau update existing chart
     if (!chartRef.current) {
@@ -1413,7 +1440,9 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
           borderColor: colors.borderColor,
           visible: !indicators.some(ind => ind.enabled && ind.separateScale)
         },
-        crosshair: { mode: CrosshairMode.Normal },
+        crosshair: { mode: style === 'footprint' as ChartStyle ? CrosshairMode.Hidden : CrosshairMode.Normal },
+        handleScroll: style === 'footprint' as ChartStyle ? false : true,
+        handleScale: style === 'footprint' as ChartStyle ? false : true,
       });
     }
 
@@ -1484,8 +1513,24 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
     }
 
     // bersihkan seri lama
-    if (priceRef.current) { chart.removeSeries(priceRef.current); priceRef.current = null; }
-    if (volRef.current) { chart.removeSeries(volRef.current); volRef.current = null; }
+    if (priceRef.current) { 
+      try {
+        chart.removeSeries(priceRef.current); 
+      } catch (error) {
+        console.warn('Error removing price series:', error);
+      } finally {
+        priceRef.current = null; 
+      }
+    }
+    if (volRef.current) { 
+      try {
+        chart.removeSeries(volRef.current); 
+      } catch (error) {
+        console.warn('Error removing volume series:', error);
+      } finally {
+        volRef.current = null; 
+      }
+    }
 
     if (!filteredRows.length) { 
       console.log('No rows to plot');
@@ -1497,13 +1542,6 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
     try {
       // --- price series (v5 pakai addSeries(TipeSeri, opsi)) ---
       if (style === 'line') {
-        const s = chart.addSeries(LineSeries, { 
-          color: chartColors.line, 
-          lineWidth: 2 
-        });
-        s.setData(filteredRows.map(d => ({ time: d.time as any, value: d.close })));
-        priceRef.current = s;
-      } else if (style === 'area') {
         const s = chart.addSeries(AreaSeries, {
           lineColor: chartColors.area.line,
           topColor: chartColors.area.top,
@@ -1511,9 +1549,8 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
         });
         s.setData(filteredRows.map(d => ({ time: d.time as any, value: d.close })));
         priceRef.current = s;
-      } else if (style === 'footprint') {
-        // For footprint chart, we'll use a custom series that replaces candles
-        // We'll create a simple line series as base and render footprint data on top
+      } else if (style === 'footprint' as ChartStyle) {
+        // For footprint chart, we'll use a simple line series as base
         const s = chart.addSeries(LineSeries, {
           color: '#666666',
           lineWidth: 1,
@@ -1524,15 +1561,11 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
         
         // Set minimal line data for chart structure
         const lineData = filteredRows.map(d => ({
-          time: d.time,
+          time: d.time as any,
           value: (d.open + d.close) / 2, // Use mid price
         }));
-        s.setData(lineData.map(d => ({ time: d.time as any, value: d.value })));
+        s.setData(lineData);
         priceRef.current = s;
-
-        // Store footprint data for custom rendering
-        const footprintData = generateFootprintData(filteredRows);
-        (chart as any)._footprintData = footprintData;
       } else {
         const s = chart.addSeries(CandlestickSeries, {
           upColor: chartColors.candles.up,
@@ -1580,10 +1613,20 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
             indicatorData = calculateRSI(filteredRows, indicator.period);
             break;
           case 'macd':
-            indicatorData = calculateMACD(filteredRows, 12, 26, 9);
+            const macdData = calculateMACD(filteredRows, 12, 26, 9);
+            indicatorData = macdData.macd;
+            break;
+          case 'stochastic':
+            const stochasticData = calculateStochastic(filteredRows, indicator.period, 3);
+            // For main chart, we'll use %K line
+            indicatorData = stochasticData.k;
             break;
           case 'volume_histogram':
             indicatorData = calculateVolumeHistogram(filteredRows);
+            break;
+          case 'buy_sell_frequency':
+            const buySellData = calculateBuySellFrequency(filteredRows, indicator.period);
+            indicatorData = buySellData.buyFreq;
             break;
         }
         
@@ -1618,6 +1661,54 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
               title: indicator.name
             });
             indicatorSeries.setData(indicatorData);
+            
+        // Add %D line for Stochastic Oscillator in main chart
+        if (indicator.type === 'stochastic') {
+          const stochasticData = calculateStochastic(filteredRows, indicator.period, 3);
+          if (stochasticData.d.length > 0) {
+            const dSeries = chart.addSeries(LineSeries, {
+              color: stochasticSettings.dColor,
+              lineWidth: 2,
+              title: '%D (Signal)'
+            });
+            dSeries.setData(stochasticData.d.map(d => ({
+              time: d.time as any,
+              value: d.value
+            })));
+          }
+        }
+        
+        // Add signal line for MACD in main chart
+        if (indicator.type === 'macd') {
+          const macdData = calculateMACD(filteredRows, 12, 26, 9);
+          if (macdData.signal.length > 0) {
+            const signalSeries = chart.addSeries(LineSeries, {
+              color: '#ff6b6b',
+              lineWidth: 2,
+              title: 'MACD Signal'
+            });
+            signalSeries.setData(macdData.signal.map(s => ({
+              time: s.time as any,
+              value: s.value
+            })));
+          }
+        }
+        
+        // Add sell frequency line for Buy/Sell Frequency in main chart
+        if (indicator.type === 'buy_sell_frequency') {
+          const buySellData = calculateBuySellFrequency(filteredRows, indicator.period);
+          if (buySellData.sellFreq.length > 0) {
+            const sellSeries = chart.addSeries(LineSeries, {
+              color: '#e74c3c',
+              lineWidth: 2,
+              title: 'Sell Frequency'
+            });
+            sellSeries.setData(buySellData.sellFreq.map(s => ({
+              time: s.time as any,
+              value: s.value
+            })));
+          }
+        }
           }
           
           indicatorRefs.current[indicator.id] = indicatorSeries;
@@ -1636,8 +1727,36 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
     }
   }, [filteredRows, style, chartColors, indicators, volumeHistogramSettings]);
 
+  // Separate useEffect for footprint cleanup and chart recreation
+  useEffect(() => {
+    if (style === 'footprint' as ChartStyle && chartRef.current) {
+      console.log('🧹 Cleaning up chart for footprint style');
+      // Clean up series refs first
+      priceRef.current = null;
+      volRef.current = null;
+      // Then remove chart
+      chartRef.current.remove();
+      chartRef.current = null;
+    } else if (style !== 'footprint' as ChartStyle && !chartRef.current) {
+      console.log('🔄 Force recreating chart after footprint switch');
+      // Force recreation by resetting state
+      setPlotted(0);
+      setErr('');
+      // Small delay to ensure DOM is ready
+      setTimeout(() => {
+        // Trigger chart recreation by updating a dependency
+        setPlotted(0);
+      }, 50);
+    }
+  }, [style]);
+
   // Create separate charts for indicators
   useEffect(() => {
+    // Skip indicator charts for footprint style
+    if (style === 'footprint' as ChartStyle) {
+      return;
+    }
+    
     const enabledSeparateIndicators = indicators.filter(ind => ind.enabled && ind.separateScale);
     
     indicators.forEach((indicator) => {
@@ -1688,7 +1807,7 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
           borderColor: colors.borderColor,
           visible: separateIndex === enabledSeparateIndicators.length - 1
         },
-        crosshair: { mode: CrosshairMode.Normal },
+        crosshair: { mode: style === 'footprint' as ChartStyle ? CrosshairMode.Hidden : CrosshairMode.Normal },
       });
       
       // Calculate indicator data
@@ -1698,10 +1817,20 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
           indicatorData = calculateRSI(filteredRows, indicator.period);
           break;
         case 'macd':
-          indicatorData = calculateMACD(filteredRows, 12, 26, 9);
+          const macdData = calculateMACD(filteredRows, 12, 26, 9);
+          indicatorData = macdData.macd;
+          break;
+        case 'stochastic':
+          const stochasticData = calculateStochastic(filteredRows, indicator.period, 3);
+          // For separate chart, we'll use %K line
+          indicatorData = stochasticData.k;
           break;
         case 'volume_histogram':
           indicatorData = calculateVolumeHistogram(filteredRows);
+          break;
+        case 'buy_sell_frequency':
+          const buySellData = calculateBuySellFrequency(filteredRows, indicator.period);
+          indicatorData = buySellData.buyFreq;
           break;
       }
       
@@ -1767,7 +1896,47 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
           }
         }
         
-        // Add zero line for MACD
+        // Add reference lines for Stochastic Oscillator
+        if (indicator.type === 'stochastic') {
+          // Overbought line (80)
+          indicatorSeries.createPriceLine({
+            price: 80,
+            color: '#ff6b6b',
+            lineWidth: 1,
+            lineStyle: 2, // dashed
+            axisLabelVisible: true,
+            title: 'Overbought (80)'
+          });
+          
+          // Oversold line (20)
+          indicatorSeries.createPriceLine({
+            price: 20,
+            color: '#4ecdc4',
+            lineWidth: 1,
+            lineStyle: 2, // dashed
+            axisLabelVisible: true,
+            title: 'Oversold (20)'
+          });
+          
+          // Add %D line (signal line)
+          const stochasticData = calculateStochastic(filteredRows, indicator.period, 3);
+          if (stochasticData.d.length > 0) {
+            const dSeries = indicatorChart.addSeries(LineSeries, {
+              color: stochasticSettings.dColor,
+              lineWidth: 2,
+              title: '%D (Signal)'
+            });
+            
+            const dChartData = stochasticData.d.map(d => ({
+              time: d.time as any,
+              value: d.value
+            }));
+            
+            dSeries.setData(dChartData);
+          }
+        }
+        
+        // Add zero line and signal line for MACD
         if (indicator.type === 'macd') {
           indicatorSeries.createPriceLine({
             price: 0,
@@ -1777,6 +1946,42 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
             axisLabelVisible: true,
             title: 'Zero'
           });
+          
+          // Add signal line
+          const macdData = calculateMACD(filteredRows, 12, 26, 9);
+          if (macdData.signal.length > 0) {
+            const signalSeries = indicatorChart.addSeries(LineSeries, {
+              color: '#ff6b6b',
+              lineWidth: 2,
+              title: 'MACD Signal'
+            });
+            
+            const signalChartData = macdData.signal.map(s => ({
+              time: s.time as any,
+              value: s.value
+            }));
+            
+            signalSeries.setData(signalChartData);
+          }
+        }
+        
+        // Add sell frequency line for Buy/Sell Frequency in separate chart
+        if (indicator.type === 'buy_sell_frequency') {
+          const buySellData = calculateBuySellFrequency(filteredRows, indicator.period);
+          if (buySellData.sellFreq.length > 0) {
+            const sellSeries = indicatorChart.addSeries(LineSeries, {
+              color: '#e74c3c',
+              lineWidth: 2,
+              title: 'Sell Frequency'
+            });
+            
+            const sellChartData = buySellData.sellFreq.map(s => ({
+              time: s.time as any,
+              value: s.value
+            }));
+            
+            sellSeries.setData(sellChartData);
+          }
         }
         
         indicatorChart.timeScale().fitContent();
@@ -1829,11 +2034,18 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
               try {
                 console.log(`Syncing to main chart from ${indicator.id}:`, param.logical);
                 
-                // Try crosshair positioning with proper parameters
+                // Try both time and logical positioning
+                if (chartRef.current.setCrosshairPosition) {
                   try {
-                  (chartRef.current as any).setCrosshairPosition(param.time, param.logical);
+                    chartRef.current.setCrosshairPosition(param.time as any, param.seriesData as any, param.time as any);
                   } catch (timeError) {
-                  console.log('Crosshair positioning failed on main chart:', timeError);
+                    console.log('Time positioning failed on main chart, trying logical:', timeError);
+                    try {
+                      chartRef.current.setCrosshairPosition(param.logical as any, param.seriesData as any, param.logical as any);
+                    } catch (logicalError) {
+                      console.log('Logical positioning also failed on main chart:', logicalError);
+                    }
+                  }
                 }
               } catch (error) {
                 console.log('Error syncing crosshair to main chart:', error);
@@ -1876,6 +2088,11 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
 
   // Resize responsif
   useEffect(() => {
+    // Skip resize observer for footprint style
+    if (style === 'footprint' as ChartStyle) {
+      return;
+    }
+
     const el = containerRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver((entries) => {
@@ -1888,7 +2105,7 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [style]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -1924,13 +2141,11 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
           display: none !important;
         }
       `}</style>
-      {!hideControls && (
-        <Card className="p-3">
+      <Card className="p-3">
         <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
           <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
             <div className="flex items-center gap-2 relative">
               <label className="font-medium">Symbol:</label>
-              <div className="relative">
               <div className="relative">
                 <input
                   type="text"
@@ -1943,23 +2158,9 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
                   onFocus={() => setShowSuggestions(true)}
                   onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
                   onKeyDown={handleKeyDown}
-                    placeholder="Type symbol code..."
-                    className="px-3 py-1 pr-8 border border-border rounded-md font-mono w-48 bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  />
-                  {searchQuery && (
-                    <button
-                      onClick={() => {
-                        setSearchQuery('');
-                        setShowSuggestions(true);
-                        setSelectedIndex(-1);
-                      }}
-                      className="absolute right-2 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground text-sm"
-                      title="Clear"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
+                  placeholder="Search symbol..."
+                  className="px-3 py-1 border border-border rounded-md font-mono w-48 bg-background text-foreground"
+                />
                 {showSuggestions && filteredSymbols.length > 0 && (
                   <div className="absolute top-full left-0 right-0 bg-popover border border-border rounded-md shadow-lg z-10 max-h-48 overflow-y-auto">
                     {filteredSymbols.map((s, index) => (
@@ -2009,8 +2210,7 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
               >
                 <option value="line">Line</option>
                 <option value="candles">Candles</option>
-                <option value="area">Area</option>
-                <option value="footprint">Footprint (Chart Style)</option>
+                <option value="footprint">Footprint</option>
               </select>
               <button
                 onClick={() => setShowSettings(true)}
@@ -2037,33 +2237,26 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
           </div>
         </div>
       </Card>
-      )}
 
-      <Card className="flex-1 p-0 relative">
-        <div ref={containerRef} className="h-full w-full min-h-[400px] relative">
-          {/* Bid-Ask Footprint Overlay for main chart */}
-          {/* Footprint overlay as indicator removed: footprint is only via Chart Style now */}
-        </div>
-        {(() => {
-          console.log('Checking footprint conditions:', { 
-            style, 
-            filteredRowsLength: filteredRows.length,
-            shouldRender: style === 'footprint' && filteredRows.length > 0
-          });
-          
-          if (style === 'footprint' && filteredRows.length > 0) {
-            console.log('Rendering FootprintOverlay with', filteredRows.length, 'filtered rows');
-            const footprintData = generateFootprintData(filteredRows);
-            console.log('Generated footprint data:', footprintData.length, 'items');
-            return (
-              <FootprintOverlay 
-                chartRef={chartRef}
-                footprintData={footprintData}
+      <Card className="flex-1 p-0 relative" style={{ padding: 0, margin: 0 }}>
+        <ChartErrorBoundary>
+          {style === 'footprint' ? (
+            <div className="w-full h-full" style={{ height: '100%', padding: 0, margin: 0 }}>
+              <FootprintChart 
+                showCrosshair={footprintSettings.showCrosshair}
+                showPOC={footprintSettings.showPOC}
+                showDelta={footprintSettings.showDelta}
+                timeframe={footprintSettings.timeframe}
+                zoom={footprintSettings.zoom}
               />
-            );
-          }
-          return null;
-        })()}
+        </div>
+          ) : (
+            <div 
+              ref={containerRef} 
+              className="h-full w-full min-h-[400px]"
+            />
+          )}
+        </ChartErrorBoundary>
       </Card>
 
       {/* Separate indicator charts */}
@@ -2116,7 +2309,7 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
                   indicatorContainerRefs.current[indicator.id] = el;
                 }
               }}
-              className="w-full relative"
+              className="w-full"
               style={{ height: `${indicatorChartHeight}px` }}
             />
           )}
@@ -2138,18 +2331,53 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
           </div>
 
           <div className="space-y-3">
-            {/* Line Chart Colors */}
+            {/* Line Chart Colors (Area Chart) */}
             {style === 'line' && (
+              <div className="space-y-3">
               <div className="space-y-2">
                 <label className="text-xs font-medium text-muted-foreground">Line Color</label>
                 <div className="flex items-center gap-2">
                   <input
                     type="color"
-                    value={chartColors.line}
-                    onChange={(e) => setChartColors(prev => ({ ...prev, line: e.target.value }))}
+                      value={chartColors.area.line}
+                      onChange={(e) => setChartColors(prev => ({ 
+                        ...prev, 
+                        area: { ...prev.area, line: e.target.value }
+                      }))}
                     className="w-8 h-6 border border-border rounded cursor-pointer"
                   />
-                  <span className="text-xs text-muted-foreground font-mono">{chartColors.line}</span>
+                    <span className="text-xs text-muted-foreground font-mono">{chartColors.area.line}</span>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-muted-foreground">Top Color</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={chartColors.area.top}
+                      onChange={(e) => setChartColors(prev => ({ 
+                        ...prev, 
+                        area: { ...prev.area, top: e.target.value }
+                      }))}
+                      className="w-8 h-6 border border-border rounded cursor-pointer"
+                    />
+                    <span className="text-xs text-muted-foreground font-mono">{chartColors.area.top}</span>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-muted-foreground">Bottom Color</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={chartColors.area.bottom}
+                      onChange={(e) => setChartColors(prev => ({ 
+                        ...prev, 
+                        area: { ...prev.area, bottom: e.target.value }
+                      }))}
+                      className="w-8 h-6 border border-border rounded cursor-pointer"
+                    />
+                    <span className="text-xs text-muted-foreground font-mono">{chartColors.area.bottom}</span>
+                  </div>
                 </div>
               </div>
             )}
@@ -2190,37 +2418,79 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
               </div>
             )}
 
-            {/* Area Chart Colors */}
-            {style === 'area' && (
-              <div className="space-y-3">
+
+            {/* Footprint Chart Settings */}
+            {style === 'footprint' && (
+              <div className="space-y-3 border-t border-border pt-3">
+                <h4 className="text-xs font-medium text-muted-foreground">Footprint Chart Settings</h4>
+                
+                {/* Display Controls */}
                 <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">Line Color</label>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs text-muted-foreground">Show Crosshair</label>
                     <input
-                      type="color"
-                      value={chartColors.area.line}
-                      onChange={(e) => setChartColors(prev => ({ 
-                        ...prev, 
-                        area: { ...prev.area, line: e.target.value }
-                      }))}
-                      className="w-8 h-6 border border-border rounded cursor-pointer"
+                      type="checkbox"
+                      checked={footprintSettings.showCrosshair}
+                      onChange={(e) => setFootprintSettings(prev => ({ ...prev, showCrosshair: e.target.checked }))}
+                      className="w-3 h-3"
                     />
-                    <span className="text-xs text-muted-foreground font-mono">{chartColors.area.line}</span>
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs text-muted-foreground">Show POC</label>
+                    <input
+                      type="checkbox"
+                      checked={footprintSettings.showPOC}
+                      onChange={(e) => setFootprintSettings(prev => ({ ...prev, showPOC: e.target.checked }))}
+                      className="w-3 h-3"
+                    />
+                </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs text-muted-foreground">Show Delta</label>
+                    <input
+                      type="checkbox"
+                      checked={footprintSettings.showDelta}
+                      onChange={(e) => setFootprintSettings(prev => ({ ...prev, showDelta: e.target.checked }))}
+                      className="w-3 h-3"
+                    />
                   </div>
                 </div>
+                
+                {/* Timeframe Selection */}
                 <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">Fill Color</label>
+                  <label className="text-xs font-medium text-muted-foreground">Timeframe</label>
+                  <select
+                    value={footprintSettings.timeframe}
+                    onChange={(e) => setFootprintSettings(prev => ({ ...prev, timeframe: e.target.value }))}
+                    className="w-full px-2 py-1 text-xs border border-border rounded bg-background text-foreground"
+                  >
+                    <option value="1m">1 Minute</option>
+                    <option value="5m">5 Minutes</option>
+                    <option value="15m">15 Minutes</option>
+                    <option value="30m">30 Minutes</option>
+                    <option value="1h">1 Hour</option>
+                    <option value="4h">4 Hours</option>
+                    <option value="1d">1 Day</option>
+                  </select>
+                </div>
+                
+                {/* Zoom Control */}
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-muted-foreground">Zoom Level</label>
                   <div className="flex items-center gap-2">
                     <input
-                      type="color"
-                      value={chartColors.area.top}
-                      onChange={(e) => setChartColors(prev => ({ 
-                        ...prev, 
-                        area: { ...prev.area, top: e.target.value + '33', bottom: e.target.value + '0D' }
-                      }))}
-                      className="w-8 h-6 border border-border rounded cursor-pointer"
+                      type="range"
+                      min="0.5"
+                      max="3"
+                      step="0.1"
+                      value={footprintSettings.zoom}
+                      onChange={(e) => setFootprintSettings(prev => ({ ...prev, zoom: parseFloat(e.target.value) }))}
+                      className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
                     />
-                    <span className="text-xs text-muted-foreground font-mono">{chartColors.area.top}</span>
+                    <span className="text-xs text-muted-foreground font-mono w-12 text-right">
+                      {footprintSettings.zoom.toFixed(1)}x
+                    </span>
                   </div>
                 </div>
               </div>
@@ -2262,17 +2532,7 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
                 Reset Default
               </button>
                   <button
-                    onClick={async () => {
-                      try {
-                        await chartPreferencesService.saveColors({
-                          bullish: chartColors.candles.up,
-                          bearish: chartColors.candles.down,
-                        });
-                      } catch (e) {
-                        console.log('Failed to save user chart colors to Supabase:', e);
-                      }
-                      setShowSettings(false);
-                    }}
+                    onClick={() => setShowSettings(false)}
                     className="px-3 py-1 text-xs bg-primary text-primary-foreground rounded hover:bg-primary/90"
                   >
                     Save Changes
@@ -2302,38 +2562,49 @@ export function TechnicalAnalysisTradingView({ hideControls = false, selectedSym
               {/* Add New Indicator */}
               <div className="space-y-3">
                 <h4 className="text-xs font-medium text-muted-foreground">Add New Indicator</h4>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="max-h-48 overflow-y-auto space-y-2">
                   <button
                     onClick={() => addIndicator('sma', '#ff6b6b', false)}
-                    className="px-3 py-2 text-xs border border-border rounded hover:bg-accent"
+                    className="w-full px-3 py-2 text-xs border border-border rounded hover:bg-accent text-left"
                   >
                     SMA
                   </button>
                   <button
                     onClick={() => addIndicator('ema', '#45b7d1', false)}
-                    className="px-3 py-2 text-xs border border-border rounded hover:bg-accent"
+                    className="w-full px-3 py-2 text-xs border border-border rounded hover:bg-accent text-left"
                   >
                     EMA
                   </button>
                   <button
                     onClick={() => addIndicator('rsi', '#6c5ce7', true)}
-                    className="px-3 py-2 text-xs border border-border rounded hover:bg-accent"
+                    className="w-full px-3 py-2 text-xs border border-border rounded hover:bg-accent text-left"
                   >
                     Relative Strength Index
                   </button>
                   <button
                     onClick={() => addIndicator('macd', '#e17055', true)}
-                    className="px-3 py-2 text-xs border border-border rounded hover:bg-accent"
+                    className="w-full px-3 py-2 text-xs border border-border rounded hover:bg-accent text-left"
                   >
                     Moving Average Convergence Divergence
                   </button>
                   <button
+                    onClick={() => addIndicator('stochastic', '#9b59b6', true)}
+                    className="w-full px-3 py-2 text-xs border border-border rounded hover:bg-accent text-left"
+                  >
+                    Stochastic Oscillator
+                  </button>
+                  <button
                     onClick={() => addIndicator('volume_histogram', '#e67e22', false)}
-                    className="px-3 py-2 text-xs border border-border rounded hover:bg-accent"
+                    className="w-full px-3 py-2 text-xs border border-border rounded hover:bg-accent text-left"
                   >
                     Volume Histogram
                   </button>
-                  {/* Footprint indicator removed: use Chart Style 'footprint' instead */}
+                  <button
+                    onClick={() => addIndicator('buy_sell_frequency', '#8e44ad', true)}
+                    className="w-full px-3 py-2 text-xs border border-border rounded hover:bg-accent text-left"
+                  >
+                    Buy / Sell Frequency
+                  </button>
                 </div>
               </div>
 
@@ -2770,6 +3041,46 @@ function IndicatorEditor({
           </div>
         );
 
+      case 'buy_sell_frequency':
+        return (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">Line Color</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={editedIndicator.color}
+                  onChange={(e) => setEditedIndicator(prev => ({ ...prev, color: e.target.value }))}
+                  className="w-8 h-8 border border-border rounded cursor-pointer"
+                />
+                <span className="text-sm text-muted-foreground">{editedIndicator.color}</span>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Period</label>
+              <input
+                type="number"
+                value={editedIndicator.period}
+                onChange={(e) => setEditedIndicator(prev => ({ ...prev, period: parseInt(e.target.value) || 14 }))}
+                min="1"
+                max="100"
+                className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Chart Type</label>
+              <select
+                value={editedIndicator.separateScale ? 'separate' : 'overlay'}
+                onChange={(e) => setEditedIndicator(prev => ({ ...prev, separateScale: e.target.value === 'separate' }))}
+                className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
+              >
+                <option value="overlay">Overlay on Price</option>
+                <option value="separate">Separate Chart</option>
+              </select>
+            </div>
+          </div>
+        );
+
       default:
         return <div>Unknown indicator type</div>;
     }
@@ -2807,531 +3118,3 @@ function IndicatorEditor({
   );
 }
 
-// Footprint Overlay Component
-function FootprintOverlay({ 
-  chartRef, 
-  footprintData 
-}: { 
-  chartRef: React.RefObject<IChartApi | null>; 
-  footprintData: FootprintData[] 
-}) {
-  const [visibleData, setVisibleData] = useState<FootprintData[]>([]);
-  const [chartDimensions, setChartDimensions] = useState({ width: 0, height: 0 });
-  const [activeTime, setActiveTime] = useState<number | null>(null);
-  const overlayRef = useRef<HTMLDivElement>(null);
-
-  console.log('FootprintOverlay rendering:', { 
-    footprintDataLength: footprintData.length, 
-    chartRef: !!chartRef.current,
-    overlayRef: !!overlayRef.current 
-  });
-
-  useEffect(() => {
-    console.log('FootprintOverlay useEffect triggered');
-    
-    // Set initial data immediately
-    setVisibleData(footprintData);
-    
-    if (!chartRef.current) {
-      console.log('Missing chartRef');
-      return;
-    }
-
-    const chart = chartRef.current;
-    
-    // Get visible time range
-    const timeScale = chart.timeScale();
-    const visibleRange = timeScale.getVisibleRange();
-    
-    console.log('Visible range:', visibleRange);
-    
-    if (visibleRange) {
-      const filteredData = footprintData.filter(data => 
-        data.time >= (visibleRange.from as number) && data.time <= (visibleRange.to as number)
-      );
-      console.log('Filtered data length:', filteredData.length);
-      setVisibleData(filteredData);
-    }
-
-    // Listen for time scale changes
-    const onRangeChange = (timeRange: any) => {
-      console.log('Time range changed:', timeRange);
-      if (timeRange) {
-        const filteredData = footprintData.filter(data => 
-          data.time >= (timeRange.from as number) && data.time <= (timeRange.to as number)
-        );
-        setVisibleData(filteredData);
-      }
-    };
-    timeScale.subscribeVisibleTimeRangeChange(onRangeChange);
-
-    // Track crosshair to show single active timestamp footprint
-    const onCrosshairMove = (param: any) => {
-      if (param && param.time) {
-        const t = Number(param.time as any);
-        if (!Number.isNaN(t)) setActiveTime(t);
-      }
-    };
-    chart.subscribeCrosshairMove(onCrosshairMove);
-
-    return () => {
-      try { timeScale.unsubscribeVisibleTimeRangeChange(onRangeChange); } catch (_) {}
-      try { chart.unsubscribeCrosshairMove(onCrosshairMove); } catch (_) {}
-    };
-  }, [chartRef, footprintData]);
-
-  // Separate effect for dimensions
-  useEffect(() => {
-    if (!overlayRef.current) return;
-
-    const container = overlayRef.current;
-    
-    // Get chart dimensions
-    const updateDimensions = () => {
-      const rect = container.getBoundingClientRect();
-      console.log('Chart dimensions:', rect);
-      setChartDimensions({ width: rect.width, height: rect.height });
-    };
-    
-    updateDimensions();
-
-    // Listen for resize
-    const resizeObserver = new ResizeObserver(updateDimensions);
-    resizeObserver.observe(container);
-
-    return () => {
-      resizeObserver.disconnect();
-    };
-  }, []);
-
-  // Determine the single footprint to display (crosshair time or latest visible)
-  const pool = (visibleData.length > 0 ? visibleData : footprintData).slice(-30);
-  let selected: FootprintData | null = null;
-  if (activeTime) {
-    selected = pool.find(d => d.time === activeTime) || null;
-  }
-  if (!selected && pool.length) {
-    selected = pool[pool.length - 1];
-  }
-
-  console.log('Selected footprint present:', !!selected);
-
-  if (!selected) {
-    console.log('No display data, returning null');
-    return null;
-  }
-
-  console.log('Rendering FootprintOverlay for time', selected?.time);
-
-  // Helper to map time to X coordinate (approx)
-  const getX = (time: number) => {
-    if (!chartRef.current) return 0;
-    const ts = chartRef.current.timeScale();
-    const vr = ts.getVisibleRange();
-    if (!vr) return 0;
-    const from = Number(vr.from as any);
-    const to = Number(vr.to as any);
-    const pos = (time - from) / Math.max(1, (to - from));
-    return Math.max(0, Math.min(chartDimensions.width - 1, pos * chartDimensions.width));
-  };
-
-  const x = getX(selected.time);
-  const priceLevelsSorted = [...selected.priceLevels]
-    .sort((a, b) => b.price - a.price);
-  const significant = priceLevelsSorted
-    .sort((a, b) => (b.bidVolume + b.askVolume) - (a.bidVolume + a.askVolume))
-    .slice(0, 12);
-
-  const format = (v: number) => v >= 1000000 ? `${Math.round(v/1000)/1000}M` : v >= 1000 ? `${Math.round(v/100)/10}k` : `${v}`;
-
-  return (
-    <div ref={overlayRef} className="absolute inset-0 pointer-events-none" style={{ zIndex: 10 }}>
-      <div
-        className="absolute pointer-events-none"
-        style={{
-          left: Math.min(Math.max(0, x + 10), Math.max(0, chartDimensions.width - 140)),
-          top: 20,
-          width: 140,
-          background: 'rgba(0,0,0,0.5)',
-          border: '1px solid rgba(255,255,255,0.15)',
-          borderRadius: 6,
-          padding: '6px 8px'
-        }}
-      >
-        {significant.map((lvl, i) => (
-          <div key={i} className="flex items-center justify-between py-[1px]">
-            <span className="text-[10px] font-mono text-red-400">{format(lvl.bidVolume)}</span>
-            <span className="text-[10px] font-mono text-muted-foreground mx-2">|</span>
-            <span className="text-[10px] font-mono text-green-400">{format(lvl.askVolume)}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// Individual Footprint Column Component
-function FootprintColumn({ 
-  data, 
-  index, 
-  total, 
-  chartWidth, 
-  chartHeight 
-}: { 
-  data: FootprintData; 
-  index: number; 
-  total: number; 
-  chartWidth: number; 
-  chartHeight: number 
-}) {
-  const columnWidth = Math.max(30, chartWidth / total);
-  const x = index * columnWidth;
-
-  // Calculate price range for this footprint
-  const prices = data.priceLevels.map(level => level.price);
-  const minPrice = Math.min(...prices);
-  const maxPrice = Math.max(...prices);
-  const priceRange = maxPrice - minPrice;
-
-  // Calculate max volume for scaling
-  const maxVolume = Math.max(...data.priceLevels.map(level => Math.max(level.bidVolume, level.askVolume)));
-
-  // Reduce crowding by showing only top 8 most significant levels
-  const significantLevels = data.priceLevels
-    .filter(level => level.bidVolume > maxVolume * 0.15 || level.askVolume > maxVolume * 0.15)
-    .sort((a, b) => (b.bidVolume + b.askVolume) - (a.bidVolume + a.askVolume))
-    .slice(0, 8);
-
-         return (
-           <div
-             className="absolute top-0 bottom-0"
-             style={{
-               left: Math.max(0, Math.min(x, chartWidth - columnWidth)),
-               width: Math.min(columnWidth, chartWidth - x),
-               height: chartHeight
-             }}
-           >
-      {significantLevels.map((level, levelIndex) => {
-        // Calculate position based on price - distribute evenly across chart height
-        const priceY = ((maxPrice - level.price) / priceRange) * chartHeight;
-        const barHeight = Math.max(8, chartHeight / 12); // Fixed height for consistency
-
-        // Calculate bar widths - much smaller to prevent overflow
-        const maxBarWidth = Math.min(columnWidth * 0.15, 20); // Reduced to 15% of column width, max 20px
-        const bidBarWidth = maxVolume > 0 ? Math.min((level.bidVolume / maxVolume) * maxBarWidth, maxBarWidth) : 0;
-        const askBarWidth = maxVolume > 0 ? Math.min((level.askVolume / maxVolume) * maxBarWidth, maxBarWidth) : 0;
-
-        return (
-          <div
-            key={levelIndex}
-            className="absolute flex items-center justify-between"
-            style={{
-              top: priceY - barHeight / 2,
-              height: barHeight,
-              width: columnWidth,
-              left: 0
-            }}
-          >
-            {/* Bid Volume Bar (Left side, Red) */}
-            {bidBarWidth > 1 && (
-              <div
-                className="bg-red-500 opacity-90 rounded-sm"
-                style={{
-                  width: `${bidBarWidth}px`,
-                  height: barHeight,
-                  minWidth: '1px',
-                  maxWidth: `${maxBarWidth}px`
-                }}
-                title={`Bid: ${level.bidVolume}`}
-              />
-            )}
-
-                     {/* Price Label - only show for very significant levels */}
-                     {level.bidVolume > maxVolume * 0.3 || level.askVolume > maxVolume * 0.3 ? (
-                       <div className="flex-1 text-center px-1">
-                         <span className="text-xs font-mono text-foreground px-1 text-center">
-                           {level.price.toFixed(1)}
-                         </span>
-                       </div>
-                     ) : (
-                       <div className="flex-1" />
-                     )}
-
-            {/* Ask Volume Bar (Right side, Green) */}
-            {askBarWidth > 1 && (
-              <div
-                className="bg-green-500 opacity-90 rounded-sm"
-                style={{
-                  width: `${askBarWidth}px`,
-                  height: barHeight,
-                  minWidth: '1px',
-                  maxWidth: `${maxBarWidth}px`
-                }}
-                title={`Ask: ${level.askVolume}`}
-              />
-            )}
-
-            {/* Delta Value - only show for most significant levels */}
-            {(level.bidVolume > maxVolume * 0.4 || level.askVolume > maxVolume * 0.4) && (
-              <div className="absolute -right-6 top-0 text-xs font-mono px-1">
-                <span className={`${level.delta >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {level.delta >= 0 ? '+' : ''}{Math.round(level.delta / 1000)}k
-                </span>
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// Bid-Ask Footprint Individual Candlestick Overlay Component
-function BidAskFootprintOverlay({ 
-  data, 
-  containerRef,
-  chartRef,
-  candlestickData
-}: { 
-  data: BidAskFootprintData[]; 
-  containerRef: HTMLDivElement | null;
-  chartRef: React.RefObject<IChartApi>;
-  candlestickData: any[];
-}) {
-  const [chartDimensions, setChartDimensions] = useState({ width: 0, height: 0 });
-  const [priceRange, setPriceRange] = useState({ min: 0, max: 0 });
-  const [timeRange, setTimeRange] = useState({ from: 0, to: 0 });
-  const overlayRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!containerRef || !chartRef.current) return;
-
-    const updateDimensions = () => {
-      const rect = containerRef.getBoundingClientRect();
-      setChartDimensions({ width: rect.width, height: rect.height });
-      
-      // Get price range from chart
-      const priceScale = chartRef.current?.priceScale('right');
-      if (priceScale) {
-        const priceRange = priceScale.getVisibleRange();
-        if (priceRange) {
-          setPriceRange({ min: priceRange.from, max: priceRange.to });
-        }
-      }
-
-      // Get time range from chart
-      const timeScale = chartRef.current?.timeScale();
-      if (timeScale) {
-        const timeRange = timeScale.getVisibleRange();
-        if (timeRange) {
-          setTimeRange({ from: timeRange.from as number, to: timeRange.to as number });
-        }
-      }
-    };
-    
-    updateDimensions();
-
-    const resizeObserver = new ResizeObserver(updateDimensions);
-    resizeObserver.observe(containerRef);
-
-    // Use interval to update ranges for real-time tracking
-    const interval = setInterval(updateDimensions, 100); // Update every 100ms
-
-    return () => {
-      resizeObserver.disconnect();
-      clearInterval(interval);
-    };
-  }, [containerRef, chartRef]);
-
-  if (!data.length || !chartDimensions.width || !chartDimensions.height || priceRange.min === 0 || !candlestickData.length) {
-    return null;
-  }
-
-  const formatVolume = (volume: number) => {
-    if (volume >= 1000000) {
-      return `${(volume / 1000000).toFixed(1)}M`;
-    } else if (volume >= 1000) {
-      return `${(volume / 1000).toFixed(0)}K`;
-    } else {
-      return volume.toString();
-    }
-  };
-
-  // Calculate position for each candlestick based on actual candlestick data
-  const getCandlestickX = (time: number) => {
-    const timeRangeSize = timeRange.to - timeRange.from;
-    const timePosition = (time - timeRange.from) / timeRangeSize;
-    return timePosition * chartDimensions.width;
-  };
-
-  const getCandlestickY = (price: number) => {
-    const priceRangeSize = priceRange.max - priceRange.min;
-    const pricePosition = (priceRange.max - price) / priceRangeSize;
-    return pricePosition * chartDimensions.height;
-  };
-
-  // Filter candlesticks that are within visible time range and limit to latest 30
-  const visibleCandlesticks = candlestickData
-    .filter(candle => candle.time >= timeRange.from && candle.time <= timeRange.to)
-    .sort((a, b) => b.time - a.time) // Sort by time descending (newest first)
-    .slice(0, 30); // Take only latest 30 candlesticks
-
-  console.log('BidAskFootprintOverlay Debug:', {
-    dataLength: data.length,
-    candlestickDataLength: candlestickData.length,
-    visibleCandlesticksLength: visibleCandlesticks.length,
-    chartDimensions,
-    priceRange,
-    timeRange,
-    firstCandlestick: visibleCandlesticks[0],
-    firstFootprint: data[0],
-    limitedTo30: true,
-    note: 'Showing only latest 30 candlesticks'
-  });
-
-  return (
-    <div 
-      ref={overlayRef}
-      className="absolute top-0 left-0 pointer-events-none"
-      style={{ 
-        zIndex: 20,
-        width: chartDimensions.width,
-        height: chartDimensions.height
-      }}
-    >
-      {visibleCandlesticks.map((candle, index) => {
-        const x = getCandlestickX(candle.time);
-        const y = getCandlestickY(candle.close);
-        const isVisible = x >= 0 && x <= chartDimensions.width && y >= 0 && y <= chartDimensions.height;
-        
-        console.log(`Candlestick ${index}:`, {
-          candle,
-          x,
-          y,
-          isVisible,
-          chartDimensions
-        });
-        
-        if (!isVisible) return null;
-
-        // Find corresponding footprint data for this candlestick time
-        const footprintData = data.find(point => point.time === candle.time);
-        
-        console.log(`Footprint data for candlestick ${index}:`, {
-          candleTime: candle.time,
-          footprintData,
-          allFootprintTimes: data.map(d => d.time)
-        });
-        
-        // Get top 5 price levels for this data point
-        let topLevels: any[] = [];
-        if (footprintData) {
-          topLevels = footprintData.priceLevels
-            .sort((a, b) => b.totalVolume - a.totalVolume)
-            .slice(0, 5);
-        } else {
-          // Fallback: create dummy data for testing
-          topLevels = [
-            { bidVolume: 1000, askVolume: 2000, totalVolume: 3000 },
-            { bidVolume: 500, askVolume: 1500, totalVolume: 2000 },
-            { bidVolume: 800, askVolume: 1200, totalVolume: 2000 },
-            { bidVolume: 300, askVolume: 900, totalVolume: 1200 },
-            { bidVolume: 600, askVolume: 400, totalVolume: 1000 }
-          ];
-        }
-
-        console.log(`Rendering table for candlestick ${index}:`, {
-          x: x + 15,
-          y: Math.max(10, y - 30),
-          topLevels
-        });
-
-        // Calculate candlestick height and position
-        const candleHighY = getCandlestickY(candle.high);
-        const candleLowY = getCandlestickY(candle.low);
-        const candleHeight = Math.abs(candleHighY - candleLowY);
-        const candleTop = Math.min(candleHighY, candleLowY);
-
-        return (
-          <div
-            key={index}
-            className="absolute pointer-events-none"
-            style={{
-              left: `${x + 8}px`, // 8px offset from candlestick edge
-              top: `${candleTop}px`, // Align with candlestick top
-              zIndex: 25,
-              width: '12px', // Very thin footprint bar
-              height: `${candleHeight}px` // Match candlestick height
-            }}
-          >
-            {/* Vertical footprint bar */}
-            <div 
-              className="relative"
-              style={{ 
-                width: '12px',
-                height: `${candleHeight}px`,
-                background: 'rgba(0, 0, 0, 0.8)',
-                border: '1px solid rgba(255, 255, 255, 0.3)',
-                borderRadius: '2px'
-              }}
-            >
-              {/* Render horizontal segments for each price level */}
-              {topLevels.map((level, levelIndex) => {
-                // Calculate position of this price level within the candlestick
-                const levelPrice = level.price || (candle.high - (levelIndex * (candle.high - candle.low) / topLevels.length));
-                const levelY = getCandlestickY(levelPrice);
-                const relativeY = levelY - candleTop;
-                
-                // Calculate segment widths based on volume
-                const maxVolume = Math.max(...topLevels.map(l => Math.max(l.bidVolume, l.askVolume)));
-                const bidWidth = level.bidVolume > 0 ? (level.bidVolume / maxVolume) * 6 : 0;
-                const askWidth = level.askVolume > 0 ? (level.askVolume / maxVolume) * 6 : 0;
-                
-                return (
-                  <div
-                    key={levelIndex}
-                    className="absolute"
-                    style={{
-                      top: `${relativeY}px`,
-                      left: '0px',
-                      width: '12px',
-                      height: '2px'
-                    }}
-                  >
-                    {/* Bid segment (left side) */}
-                    {bidWidth > 0 && (
-                      <div
-                        className="absolute bg-red-500"
-                        style={{
-                          left: '0px',
-                          top: '0px',
-                          width: `${bidWidth}px`,
-                          height: '2px',
-                          borderRadius: '1px'
-                        }}
-                      />
-                    )}
-                    
-                    {/* Ask segment (right side) */}
-                    {askWidth > 0 && (
-                      <div
-                        className="absolute bg-green-500"
-                        style={{
-                          right: '0px',
-                          top: '0px',
-                          width: `${askWidth}px`,
-                          height: '2px',
-                          borderRadius: '1px'
-                        }}
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
