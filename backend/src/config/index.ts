@@ -23,13 +23,28 @@ export const config = {
   
   // URLs - All configurable via environment variables
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:3000',
-  WEBHOOK_URL: process.env.WEBHOOK_URL || 'http://localhost:3001/api/subscription/webhook',
-  SUCCESS_URL: process.env.SUCCESS_URL || 'http://localhost:3000/subscription/success',
-  ERROR_URL: process.env.ERROR_URL || 'http://localhost:3000/subscription/error',
-  PENDING_URL: process.env.PENDING_URL || 'http://localhost:3000/subscription/pending',
+  
+  // Midtrans Webhook URLs
+  WEBHOOK_URL: process.env.MIDTRANS_PAYMENT_NOTIFICATION_URL || 'http://localhost:3001/api/subscription/webhook',
+  RECURRING_WEBHOOK_URL: process.env.MIDTRANS_RECURRING_NOTIFICATION_URL || 'http://localhost:3001/api/subscription/webhook',
+  PAY_ACCOUNT_WEBHOOK_URL: process.env.MIDTRANS_PAY_ACCOUNT_NOTIFICATION_URL || 'http://localhost:3001/api/subscription/webhook',
+  
+  // Midtrans Callback URLs
+  SUCCESS_URL: process.env.MIDTRANS_FINISH_REDIRECT_URL || 'http://localhost:3000/subscription/success',
+  ERROR_URL: process.env.MIDTRANS_ERROR_REDIRECT_URL || 'http://localhost:3000/subscription/error',
+  PENDING_URL: process.env.MIDTRANS_UNFINISH_REDIRECT_URL || 'http://localhost:3000/subscription/pending',
   
   // CORS
   CORS_ORIGIN: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  
+  // Payment Configuration
+  PAYMENT_TIMEOUT_MINUTES: parseInt(process.env.PAYMENT_TIMEOUT_MINUTES || '15'),
+  
+  // External Services (untuk fitur yang akan datang)
+  AZURE_STORAGE_CONNECTION_STRING: process.env.AZURE_STORAGE_CONNECTION_STRING || '',
+  AZURE_STORAGE_CONTAINER_NAME: process.env.AZURE_STORAGE_CONTAINER_NAME || 'stock-trading-data',
+  TICMI_API_KEY: process.env.TICMI_API_KEY || '',
+  TICMI_API_URL: process.env.TICMI_API_URL || 'https://api2.ticmidata.co.id/direct/v1/saham',
   
   // Logging
   LOG_LEVEL: process.env.LOG_LEVEL || 'debug',

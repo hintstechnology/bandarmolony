@@ -9,6 +9,60 @@ import config from '../config';
 
 const router = express.Router();
 
+// Function to check and expire pending transactions
+const checkExpiredTransactions = async () => {
+  try {
+    const now = new Date().toISOString();
+    
+    // Find expired pending transactions
+    const { data: expiredTransactions, error } = await supabaseAdmin
+      .from('transactions')
+      .select('*')
+      .eq('status', 'pending')
+      .lt('expiry_time', now);
+
+    if (error) {
+      console.error('Error checking expired transactions:', error);
+      return;
+    }
+
+    if (expiredTransactions && expiredTransactions.length > 0) {
+      // Update expired transactions to cancelled
+      const { error: updateError } = await supabaseAdmin
+        .from('transactions')
+        .update({
+          status: 'cancel',
+          updated_at: now
+        })
+        .eq('status', 'pending')
+        .lt('expiry_time', now);
+
+      if (updateError) {
+        console.error('Error updating expired transactions:', updateError);
+        return;
+      }
+
+      // Update related subscriptions to failed
+      for (const transaction of expiredTransactions) {
+        await supabaseAdmin
+          .from('subscriptions')
+          .update({
+            status: 'failed',
+            updated_at: now
+          })
+          .eq('id', transaction.subscription_id);
+      }
+
+      console.log(`Expired ${expiredTransactions.length} pending transactions`);
+    }
+  } catch (error) {
+    console.error('Error in checkExpiredTransactions:', error);
+  }
+};
+
+// Run expired transaction check every 5 minutes
+setInterval(checkExpiredTransactions, 5 * 60 * 1000);
+
 // Subscription plans configuration
 const subscriptionPlans = [
   {
@@ -122,6 +176,41 @@ router.get('/payment-methods', async (req, res) => {
 });
 
 /**
+ * GET /api/subscription/test-midtrans
+ * Test Midtrans connection
+ */
+router.get('/test-midtrans', async (req, res) => {
+  try {
+    const isConnected = await midtransService.testConnection();
+    
+    res.json(createSuccessResponse({
+      connected: isConnected,
+      config: {
+        isProduction: config.MIDTRANS_IS_PRODUCTION,
+        hasServerKey: !!config.MIDTRANS_SERVER_KEY,
+        hasClientKey: !!config.MIDTRANS_CLIENT_KEY,
+        hasMerchantId: !!config.MIDTRANS_MERCHANT_ID
+      },
+      urls: {
+        webhook: config.WEBHOOK_URL,
+        recurringWebhook: config.RECURRING_WEBHOOK_URL,
+        payAccountWebhook: config.PAY_ACCOUNT_WEBHOOK_URL,
+        success: config.SUCCESS_URL,
+        error: config.ERROR_URL,
+        pending: config.PENDING_URL
+      }
+    }, isConnected ? 'Midtrans connection successful' : 'Midtrans connection failed'));
+  } catch (error: any) {
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+      'Failed to test Midtrans connection',
+      ERROR_CODES.INTERNAL_SERVER_ERROR,
+      undefined,
+      HTTP_STATUS.INTERNAL_SERVER_ERROR
+    ));
+  }
+});
+
+/**
  * POST /api/subscription/create-order
  * Create subscription order and payment
  */
@@ -227,7 +316,8 @@ router.post('/create-order', requireSupabaseUser, async (req: any, res) => {
         payment_method: paymentMethod,
         amount: plan.price,
         status: 'pending',
-        payment_url: paymentUrl
+        payment_url: paymentUrl,
+        expiry_time: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() // 24 hours expiry
       })
       .select()
       .single();
@@ -258,13 +348,13 @@ router.post('/create-order', requireSupabaseUser, async (req: any, res) => {
     // Log payment activity
     await supabaseAdmin.rpc('log_payment_activity', {
       p_user_id: userId,
-      p_activity_type: 'payment_created',
+      p_activity_type: 'payment_pending',
       p_transaction_id: transaction.id,
       p_subscription_id: subscription.id,
       p_status_to: 'pending',
       p_amount: plan.price,
       p_payment_method: paymentMethod,
-      p_description: `Payment created for ${plan.name} plan`,
+      p_description: `Payment pending for ${plan.name} plan`,
       p_metadata: {
         plan_id: planId,
         order_id: midtransOrderId,
@@ -294,6 +384,27 @@ router.post('/create-order', requireSupabaseUser, async (req: any, res) => {
 
     res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Failed to create payment order',
+      ERROR_CODES.INTERNAL_SERVER_ERROR,
+      undefined,
+      HTTP_STATUS.INTERNAL_SERVER_ERROR
+    ));
+  }
+});
+
+/**
+ * GET /api/subscription/webhook/test
+ * Test webhook endpoint
+ */
+router.get('/webhook/test', async (req, res) => {
+  try {
+    res.json(createSuccessResponse({
+      message: 'Webhook endpoint is working',
+      timestamp: new Date().toISOString(),
+      url: config.WEBHOOK_URL
+    }, 'Webhook test successful'));
+  } catch (error: any) {
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+      'Webhook test failed',
       ERROR_CODES.INTERNAL_SERVER_ERROR,
       undefined,
       HTTP_STATUS.INTERNAL_SERVER_ERROR
@@ -341,12 +452,21 @@ router.post('/webhook', async (req, res) => {
         data: webhookData
       });
 
-    // Update transaction status
+    // Map Midtrans status to our internal status
+    let internalStatus: string = webhookData.transaction_status;
+    if (webhookData.transaction_status === 'settlement' || webhookData.transaction_status === 'capture') {
+      internalStatus = 'paid';
+    } else if (webhookData.transaction_status === 'deny' || webhookData.transaction_status === 'cancel' || webhookData.transaction_status === 'expire' || webhookData.transaction_status === 'failure') {
+      internalStatus = 'cancelled';
+    }
+
+    // Update transaction status and payment method
     const { data: transaction, error: transactionError } = await supabaseAdmin
       .from('transactions')
       .update({
-        status: webhookData.transaction_status,
+        status: internalStatus,
         midtrans_transaction_id: webhookData.transaction_id,
+        payment_method: webhookData.payment_type || 'snap', // Update payment method from webhook
         settlement_time: webhookData.settlement_time ? new Date(webhookData.settlement_time).toISOString() : null,
         updated_at: new Date().toISOString()
       })
@@ -368,7 +488,7 @@ router.post('/webhook', async (req, res) => {
     }
 
     // Handle successful payment
-    if (webhookData.transaction_status === 'settlement') {
+    if (internalStatus === 'paid') {
       // Update subscription status
       const endDate = new Date();
       endDate.setMonth(endDate.getMonth() + transaction.plan_duration);
@@ -446,7 +566,7 @@ router.post('/webhook', async (req, res) => {
     }
 
     // Handle failed payment
-    if (['deny', 'cancel', 'expire', 'failure'].includes(webhookData.transaction_status)) {
+    if (internalStatus === 'cancelled') {
       await supabaseAdmin
         .from('subscriptions')
         .update({
@@ -468,6 +588,24 @@ router.post('/webhook', async (req, res) => {
             status_message: webhookData.status_message
           }
         });
+
+      // Log payment activity for cancellation
+      await supabaseAdmin.rpc('log_payment_activity', {
+        p_user_id: transaction.user_id,
+        p_activity_type: 'payment_cancelled',
+        p_transaction_id: transaction.id,
+        p_subscription_id: transaction.subscription_id,
+        p_status_from: 'pending',
+        p_status_to: 'cancelled',
+        p_amount: transaction.amount,
+        p_payment_method: transaction.payment_method,
+        p_description: `Payment ${webhookData.transaction_status}`,
+        p_metadata: {
+          transaction_status: webhookData.transaction_status,
+          status_message: webhookData.status_message,
+          midtrans_transaction_id: webhookData.transaction_id
+        }
+      });
     }
 
     res.json(createSuccessResponse({}, 'Webhook processed successfully'));
@@ -591,9 +729,20 @@ router.get('/payment-activity', requireSupabaseUser, async (req: any, res) => {
       throw summaryError;
     }
 
+    // Get total count for pagination
+    const { count: totalCount, error: countError } = await supabaseAdmin
+      .from('payment_activity')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId);
+
+    if (countError) {
+      throw countError;
+    }
+
     res.json(createSuccessResponse({
       activities: activities || [],
       summary: summary?.[0] || null,
+      total: totalCount || 0,
       pagination: {
         limit,
         offset,
@@ -647,7 +796,18 @@ router.post('/check-status', requireSupabaseUser, async (req: any, res) => {
     }
 
     // Check status from Midtrans
-    const midtransStatus = await midtransService.getTransactionStatus(orderId);
+    let midtransStatus;
+    try {
+      midtransStatus = await midtransService.getTransactionStatus(orderId);
+    } catch (error) {
+      // If transaction not found in Midtrans, treat as pending
+      console.log('Transaction not found in Midtrans:', error);
+      midtransStatus = {
+        transaction_status: 'pending',
+        transaction_id: null,
+        settlement_time: null
+      };
+    }
     
     // Update transaction status if changed
     if (midtransStatus.transaction_status !== transaction.status) {
@@ -797,6 +957,27 @@ router.post('/regenerate-snap-token', requireSupabaseUser, async (req: any, res)
       ));
     }
 
+    // Check if transaction is not expired
+    const now = new Date();
+    const expiryTime = new Date(transaction.expiry_time);
+    if (now > expiryTime) {
+      // Update transaction to expired
+      await supabaseAdmin
+        .from('transactions')
+        .update({
+          status: 'expire',
+          updated_at: now.toISOString()
+        })
+        .eq('id', transaction.id);
+
+      return res.status(HTTP_STATUS.BAD_REQUEST).json(createErrorResponse(
+        'Transaction has expired. Please create a new order.',
+        ERROR_CODES.VALIDATION_ERROR,
+        'expired',
+        HTTP_STATUS.BAD_REQUEST
+      ));
+    }
+
     // Get plan details
     const plan = subscriptionPlans.find(p => p.id === transaction.subscriptions?.plan_id);
     if (!plan) {
@@ -808,42 +989,98 @@ router.post('/regenerate-snap-token', requireSupabaseUser, async (req: any, res)
       ));
     }
 
-    // Create new Midtrans transaction with same details
-    const midtransTransaction = await midtransService.createSubscriptionTransaction({
-      orderId: transaction.midtrans_order_id,
-      planId: plan.id,
-      planName: plan.name,
-      planDuration: plan.duration,
-      price: plan.price,
-      customer: {
-        name: req.user.user_metadata?.full_name || 'User',
-        email: req.user.email
-      },
-      callbacks: {
-        finish: config.SUCCESS_URL,
-        error: config.ERROR_URL,
-        pending: config.PENDING_URL
+    // Check if payment method is already selected
+    const hasPaymentMethod = transaction.payment_method && transaction.payment_method !== 'snap';
+    
+    if (hasPaymentMethod) {
+      // If payment method is already selected, try to use existing transaction first
+      try {
+        const existingOrderId = transaction.midtrans_order_id;
+        const midtransStatus = await midtransService.getTransactionStatus(existingOrderId);
+        
+        if (midtransStatus.transaction_status === 'pending') {
+          // Use existing transaction with selected payment method
+          const midtransTransaction = await midtransService.createSubscriptionTransaction({
+            orderId: existingOrderId,
+            planId: plan.id,
+            planName: plan.name,
+            planDuration: plan.duration,
+            price: plan.price,
+            customer: {
+              name: req.user.user_metadata?.full_name || 'User',
+              email: req.user.email
+            },
+            callbacks: {
+              finish: config.SUCCESS_URL,
+              error: config.ERROR_URL,
+              pending: config.PENDING_URL
+            },
+            paymentMethod: transaction.payment_method
+          });
+
+          const snapToken = await midtransService.createSnapToken(midtransTransaction);
+          const paymentUrl = await midtransService.createSnapRedirectUrl(midtransTransaction);
+
+          res.json(createSuccessResponse({
+            snapToken,
+            orderId: existingOrderId,
+            paymentUrl: paymentUrl,
+            transactionId: transaction.id
+          }, 'Snap token retrieved successfully'));
+          return;
+        }
+      } catch (error) {
+        console.log('Existing transaction not found, creating new one');
       }
-    });
+    }
 
-    // Get new snap token
-    const snapToken = await midtransService.createSnapToken(midtransTransaction);
+    // Create new transaction if no payment method selected or existing transaction not found
+    const newOrderId = `SUB-${Date.now()}-${userId.substring(0, 8)}-R${Math.random().toString(36).substr(2, 4)}`;
+    
+    try {
+      const midtransTransaction = await midtransService.createSubscriptionTransaction({
+        orderId: newOrderId,
+        planId: plan.id,
+        planName: plan.name,
+        planDuration: plan.duration,
+        price: plan.price,
+        customer: {
+          name: req.user.user_metadata?.full_name || 'User',
+          email: req.user.email
+        },
+        callbacks: {
+          finish: config.SUCCESS_URL,
+          error: config.ERROR_URL,
+          pending: config.PENDING_URL
+        },
+        paymentMethod: hasPaymentMethod ? transaction.payment_method : undefined
+      });
 
-    // Update payment URL
-    const paymentUrl = await midtransService.createSnapRedirectUrl(midtransTransaction);
-    await supabaseAdmin
-      .from('transactions')
-      .update({
-        payment_url: paymentUrl,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', transaction.id);
+      // Get new snap token
+      const snapToken = await midtransService.createSnapToken(midtransTransaction);
 
-    res.json(createSuccessResponse({
-      snapToken,
-      orderId: transaction.midtrans_order_id,
-      paymentUrl: paymentUrl
-    }, 'Snap token regenerated successfully'));
+      // Update payment URL and order ID in database
+      const paymentUrl = await midtransService.createSnapRedirectUrl(midtransTransaction);
+      await supabaseAdmin
+        .from('transactions')
+        .update({
+          midtrans_order_id: newOrderId,
+          payment_url: paymentUrl,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', transaction.id);
+
+      res.json(createSuccessResponse({
+        snapToken,
+        orderId: newOrderId,
+        paymentUrl: paymentUrl,
+        transactionId: transaction.id
+      }, 'Snap token regenerated successfully'));
+
+    } catch (error) {
+      console.error('Error creating new transaction:', error);
+      throw new Error('Failed to create new payment transaction');
+    }
 
   } catch (error: any) {
     res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
@@ -891,6 +1128,15 @@ router.post('/cancel-pending', requireSupabaseUser, async (req: any, res) => {
       ));
     }
 
+    // Cancel transaction in Midtrans first
+    try {
+      await midtransService.cancelTransaction(transaction.midtrans_order_id);
+      console.log('Transaction cancelled in Midtrans successfully');
+    } catch (error) {
+      console.error('Error cancelling transaction in Midtrans:', error);
+      // Continue with local cancellation even if Midtrans fails
+    }
+
     // Update transaction status to cancelled
     console.log('Cancelling transaction:', transaction.id);
     const { error: transactionUpdateError } = await supabaseAdmin
@@ -923,21 +1169,23 @@ router.post('/cancel-pending', requireSupabaseUser, async (req: any, res) => {
       throw subscriptionUpdateError;
     }
 
-    // Log cancellation
-    await supabaseAdmin.rpc('log_payment_activity', {
-      p_user_id: userId,
-      p_activity_type: 'payment_cancelled',
-      p_transaction_id: transaction.id,
-      p_subscription_id: transaction.subscription_id,
-      p_status_from: 'pending',
-      p_status_to: 'cancel',
-      p_amount: transaction.amount,
-      p_payment_method: transaction.payment_method,
-      p_description: 'Pending transaction cancelled by user',
-      p_metadata: {
-        reason: reason || 'User cancelled pending transaction'
-      }
-    });
+    // Update existing payment activity status instead of creating new entry
+    const { error: activityUpdateError } = await supabaseAdmin
+      .from('payment_activity')
+      .update({
+        status_to: 'cancelled',
+        description: 'Pending transaction cancelled by user',
+        payment_method: transaction.payment_method,
+        updated_at: new Date().toISOString()
+      })
+      .eq('transaction_id', transaction.id)
+      .eq('user_id', userId)
+      .eq('status_to', 'pending');
+
+    if (activityUpdateError) {
+      console.error('Error updating payment activity:', activityUpdateError);
+      // Don't throw error, just log it
+    }
 
     console.log('Transaction cancelled successfully:', transaction.id);
     res.json(createSuccessResponse({ 
@@ -948,6 +1196,60 @@ router.post('/cancel-pending', requireSupabaseUser, async (req: any, res) => {
   } catch (error: any) {
     res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Failed to cancel pending transaction',
+      ERROR_CODES.INTERNAL_SERVER_ERROR,
+      undefined,
+      HTTP_STATUS.INTERNAL_SERVER_ERROR
+    ));
+  }
+});
+
+/**
+ * POST /api/subscription/update-payment-method
+ * Update payment method for a transaction
+ */
+router.post('/update-payment-method', requireSupabaseUser, async (req: any, res) => {
+  try {
+    const userId = req.user.id;
+    const { transactionId, paymentMethod } = req.body;
+
+    if (!transactionId || !paymentMethod) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json(createErrorResponse(
+        'Transaction ID and payment method are required',
+        ERROR_CODES.VALIDATION_ERROR,
+        'transactionId, paymentMethod',
+        HTTP_STATUS.BAD_REQUEST
+      ));
+    }
+
+    // Update transaction payment method
+    const { data: transaction, error: transactionError } = await supabaseAdmin
+      .from('transactions')
+      .update({
+        payment_method: paymentMethod,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', transactionId)
+      .eq('user_id', userId)
+      .select()
+      .single();
+
+    if (transactionError || !transaction) {
+      return res.status(HTTP_STATUS.NOT_FOUND).json(createErrorResponse(
+        'Transaction not found',
+        ERROR_CODES.NOT_FOUND,
+        undefined,
+        HTTP_STATUS.NOT_FOUND
+      ));
+    }
+
+    res.json(createSuccessResponse({
+      transactionId: transaction.id,
+      paymentMethod: paymentMethod
+    }, 'Payment method updated successfully'));
+
+  } catch (error: any) {
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+      'Failed to update payment method',
       ERROR_CODES.INTERNAL_SERVER_ERROR,
       undefined,
       HTTP_STATUS.INTERNAL_SERVER_ERROR
