@@ -87,8 +87,9 @@ export function corsConfig(req: Request, res: Response, next: NextFunction) {
   const allowedOrigins = [
     'http://localhost:3000',
     'http://localhost:5173',
-    'https://bandarmolony.hintstechnology.com', // Production domain
-    'https://bandarmolony-frontend.orangegrass-7de105a8.southeastasia.azurecontainerapps.io' // Azure Container Apps domain
+    'https://bandarmolony.hintstechnology.com',
+    'https://bandarmolony.com',
+    'https://bandarmolony-frontend.orangegrass-7de105a8.southeastasia.azurecontainerapps.io'
   ];
 
   console.log(`🌐 CORS: Origin: ${origin}, Method: ${req.method}, Path: ${req.path}`);

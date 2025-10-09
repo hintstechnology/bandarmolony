@@ -8,10 +8,10 @@ on:
   workflow_dispatch:
 
 env:
-  REGISTRY: backendacr.azurecr.io
+  REGISTRY: ${{ secrets.CONTAINER_REGISTRY }}
   IMAGE_REPO: bandarmolony-backend
-  RESOURCE_GROUP: bandarmolony-rg
-  CONTAINER_APP_NAME: bandarmolony-backend
+  RESOURCE_GROUP: ${{ secrets.RESOURCE_GROUP }}
+  CONTAINER_APP_NAME: ${{ secrets.CONTAINER_APP_NAME }}
 
 jobs:
   build-and-deploy:
@@ -70,8 +70,8 @@ jobs:
         resourceGroup: ${{ env.RESOURCE_GROUP }}
         imageToDeploy: ${{ env.IMAGE }}
         environmentVariables: |
-          NODE_ENV=production
-          PORT=8080
+          NODE_ENV=${{ secrets.NODE_ENV }}
+          PORT=${{ secrets.PORT }}
           SUPABASE_URL=${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -95,7 +95,7 @@ jobs:
           AZURE_STORAGE_CONTAINER_NAME=${{ secrets.AZURE_STORAGE_CONTAINER_NAME }}
           TICMI_API_KEY=${{ secrets.TICMI_API_KEY }}
           TICMI_API_URL=${{ secrets.TICMI_API_URL }}
-          LOG_LEVEL=error
+          LOG_LEVEL=${{ secrets.LOG_LEVEL }}
 
     - name: Show deployed image
       run: |
