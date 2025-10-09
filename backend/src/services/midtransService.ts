@@ -194,6 +194,15 @@ export class MidtransService {
       merchantId: config.MIDTRANS_MERCHANT_ID
     };
 
+    console.log('Midtrans Config:', {
+      isProduction: this.config.isProduction,
+      hasServerKey: !!this.config.serverKey,
+      hasClientKey: !!this.config.clientKey,
+      hasMerchantId: !!this.config.merchantId,
+      serverKeyLength: this.config.serverKey?.length,
+      clientKeyLength: this.config.clientKey?.length
+    });
+
     if (!this.config.serverKey || !this.config.clientKey) {
       throw new Error('Midtrans credentials not configured');
     }
@@ -218,9 +227,12 @@ export class MidtransService {
    */
   async createSnapToken(transaction: MidtransTransaction): Promise<string> {
     try {
+      console.log('Creating snap token with transaction:', JSON.stringify(transaction, null, 2));
       const response = await this.snap.createTransaction(transaction);
+      console.log('Snap token response:', response);
       return response.token;
     } catch (error: any) {
+      console.error('Error creating snap token:', error);
       throw new Error(`Failed to create Snap token: ${error.message}`);
     }
   }
@@ -273,17 +285,6 @@ export class MidtransService {
     }
   }
 
-  /**
-   * Cancel transaction
-   */
-  async cancelTransaction(orderId: string): Promise<MidtransResponse> {
-    try {
-      const response = await this.coreApi.transaction.cancel(orderId);
-      return response;
-    } catch (error: any) {
-      throw new Error(`Failed to cancel transaction: ${error.message}`);
-    }
-  }
 
   /**
    * Refund transaction
@@ -347,6 +348,7 @@ export class MidtransService {
       phone?: string;
     };
     callbacks: Callbacks;
+    paymentMethod?: string;
   }): Promise<MidtransTransaction> {
     const transaction: MidtransTransaction = {
       transaction_details: {
@@ -368,7 +370,7 @@ export class MidtransService {
         merchant_name: 'Website Saham'
       }],
       callbacks: data.callbacks,
-      enabled_payments: [
+      enabled_payments: data.paymentMethod ? this.mapPaymentMethodToMidtrans(data.paymentMethod) : [
         'credit_card',
         'bca_va',
         'bni_va',
@@ -382,6 +384,7 @@ export class MidtransService {
         'indomaret',
         'alfamart'
       ],
+      disabled_payments: [],
       credit_card: {
         secure: true,
         channel: 'migs',
@@ -418,6 +421,64 @@ export class MidtransService {
       'indomaret',
       'alfamart'
     ];
+  }
+
+  /**
+   * Map payment method to Midtrans format
+   */
+  private mapPaymentMethodToMidtrans(paymentMethod: string): string[] {
+    const methodMap: { [key: string]: string[] } = {
+      'credit_card': ['credit_card'],
+      'bank_transfer': ['bca_va', 'bni_va', 'mandiri_va', 'permata_va'],
+      'bca': ['bca_va'],
+      'bni': ['bni_va'],
+      'mandiri': ['mandiri_va'],
+      'permata': ['permata_va'],
+      'gopay': ['gopay'],
+      'dana': ['dana'],
+      'ovo': ['shopeepay'],
+      'shopeepay': ['shopeepay'],
+      'linkaja': ['linkaja'],
+      'qris': ['qris'],
+      'indomaret': ['indomaret'],
+      'alfamart': ['alfamart'],
+      'echannel': ['echannel'],
+      'bri_va': ['bri_va'],
+      'other_va': ['other_va']
+    };
+
+    const result = methodMap[paymentMethod] || [paymentMethod];
+    console.log(`Mapped payment method '${paymentMethod}' to:`, result);
+    return result;
+  }
+
+  /**
+   * Cancel transaction using Core API
+   */
+  async cancelTransaction(orderId: string): Promise<MidtransResponse> {
+    try {
+      console.log(`Cancelling transaction: ${orderId}`);
+      const response = await this.coreApi.transaction.cancel(orderId);
+      console.log('Cancel transaction response:', response);
+      return response;
+    } catch (error: any) {
+      console.error('Error cancelling transaction:', error);
+      throw new Error(`Failed to cancel transaction: ${error.message}`);
+    }
+  }
+
+  /**
+   * Test Midtrans connection
+   */
+  async testConnection(): Promise<boolean> {
+    try {
+      // Try to get transaction status with a dummy order ID
+      await this.coreApi.transaction.status('test-connection');
+      return true;
+    } catch (error: any) {
+      console.error('Midtrans connection test failed:', error);
+      return false;
+    }
   }
 
   /**

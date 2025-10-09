@@ -52,6 +52,258 @@ export function SubscriptionPage() {
   const [paymentActivities, setPaymentActivities] = useState<any[]>([]);
   const [hasActivePayment, setHasActivePayment] = useState(false);
   const [pendingTransactions, setPendingTransactions] = useState<any[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [hasScrolledToPending, setHasScrolledToPending] = useState(false);
+
+  // Helper function for image error handling
+  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+    e.currentTarget.style.display = 'none';
+    const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+    if (fallback) {
+      fallback.style.display = 'inline';
+    }
+  };
+
+  // Helper function to get Supabase URL
+  const getSupabaseUrl = () => {
+    return (import.meta as any).env?.VITE_SUPABASE_URL || 'https://bandarmolony.supabase.co';
+  };
+
+  // Helper function to get payment logo URL
+  const getPaymentLogoUrl = (logoFile: string) => {
+    return `${getSupabaseUrl()}/storage/v1/object/public/assets/images/pay_logo/${logoFile}`;
+  };
+
+  // Helper function to get display name from logo file
+  const getLogoDisplayName = (logoFile: string) => {
+    return logoFile.replace('logo_', '').replace('.png', '').toUpperCase();
+  };
+
+  // Helper function to get payment method display name
+  const getPaymentMethodDisplayName = (paymentMethod: string) => {
+    if (!paymentMethod || paymentMethod === 'snap') return '-';
+    
+    const methodMap: { [key: string]: string } = {
+      'credit_card': 'Credit Card',
+      'bank_transfer': 'Bank Transfer',
+      'bca': 'BCA',
+      'bni': 'BNI',
+      'mandiri': 'Mandiri',
+      'permata': 'Permata',
+      'gopay': 'GoPay',
+      'dana': 'DANA',
+      'ovo': 'OVO',
+      'shopeepay': 'ShopeePay',
+      'qris': 'QRIS',
+      'alfamart': 'Alfamart',
+      'indomaret': 'Indomaret'
+    };
+    
+    return methodMap[paymentMethod] || paymentMethod.toUpperCase();
+  };
+
+  // Helper function to get status color
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'paid':
+      case 'settlement':
+      case 'capture':
+      case 'payment_success':
+      case 'subscription_activated':
+        return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400';
+      case 'pending':
+      case 'payment_pending':
+        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400';
+      case 'cancelled':
+      case 'cancel':
+      case 'deny':
+      case 'expire':
+      case 'failure':
+      case 'payment_cancelled':
+      case 'payment_failed':
+      case 'payment_expired':
+        return 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400';
+      default:
+        return 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400';
+    }
+  };
+
+  // Helper function to get status text
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'payment_created':
+        return 'Created';
+      case 'pending':
+      case 'payment_pending':
+        return 'Pending';
+      case 'paid':
+      case 'settlement':
+      case 'capture':
+      case 'payment_success':
+      case 'subscription_activated':
+        return 'Paid';
+      case 'cancelled':
+      case 'cancel':
+      case 'deny':
+      case 'payment_cancelled':
+        return 'Cancelled';
+      case 'expire':
+      case 'failure':
+      case 'payment_failed':
+      case 'payment_expired':
+        return 'Expired';
+      default:
+        return status;
+    }
+  };
+
+  // Helper function to get plan info
+  const getPlanInfo = (activity: any) => {
+    // Check metadata first
+    if (activity.metadata?.plan_name) {
+      return activity.metadata.plan_name;
+    }
+    
+    // Check if activity has subscription data
+    if (activity.subscriptions?.plan_name) {
+      return activity.subscriptions.plan_name;
+    }
+    
+    // Check description for plan names
+    if (activity.description) {
+      if (activity.description.includes('Plus')) return 'Plus';
+      if (activity.description.includes('Premium')) return 'Premium';
+      if (activity.description.includes('Pro')) return 'Pro';
+      if (activity.description.includes('Free Trial')) return 'Free Trial';
+    }
+    
+    // Check amount to infer plan
+    if (activity.amount) {
+      if (activity.amount === 35000) return 'Plus';
+      if (activity.amount === 89000) return 'Premium';
+      if (activity.amount === 165000) return 'Pro';
+      if (activity.amount === 0) return 'Free Trial';
+    }
+    
+    return '-';
+  };
+
+  // Helper function to get duration
+  const getDuration = (activity: any) => {
+    // Check metadata first
+    if (activity.metadata?.plan_duration) {
+      const duration = activity.metadata.plan_duration;
+      if (duration === 0.25) return '1 Week';
+      if (duration === 1) return '1 Month';
+      if (duration === 3) return '3 Months';
+      if (duration === 6) return '6 Months';
+      return `${duration} Month${duration > 1 ? 's' : ''}`;
+    }
+    
+    // Check if activity has subscription data
+    if (activity.subscriptions?.plan_duration) {
+      const duration = activity.subscriptions.plan_duration;
+      if (duration === 0.25) return '1 Week';
+      if (duration === 1) return '1 Month';
+      if (duration === 3) return '3 Months';
+      if (duration === 6) return '6 Months';
+      return `${duration} Month${duration > 1 ? 's' : ''}`;
+    }
+    
+    // Infer duration from amount
+    if (activity.amount) {
+      if (activity.amount === 35000) return '1 Month'; // Plus
+      if (activity.amount === 89000) return '3 Months'; // Premium
+      if (activity.amount === 165000) return '6 Months'; // Pro
+      if (activity.amount === 0) return '1 Week'; // Free Trial
+    }
+    
+    return '-';
+  };
+
+  // Helper function to format date
+  const formatPaymentDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('id-ID', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  // Pagination functions
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    loadPaymentActivity(page, 5);
+  };
+
+  // Auto scroll to pending payment on first load
+  useEffect(() => {
+    if (pendingTransactions.length > 0 && !hasScrolledToPending) {
+      const timer = setTimeout(() => {
+        const pendingSection = document.getElementById('pending-transactions');
+        if (pendingSection) {
+          pendingSection.scrollIntoView({ behavior: 'smooth' });
+          setHasScrolledToPending(true);
+        }
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [pendingTransactions.length, hasScrolledToPending]);
+
+  // Payment methods configuration
+  const paymentMethodsConfig = {
+    qris: {
+      title: 'QRIS',
+      logos: ['logo_qris.png']
+    },
+    ewallet: {
+      title: 'E-wallet',
+      logos: ['logo_gopay.png', 'logo_spay.png', 'logo_dana.png']
+    },
+    virtualAccount: {
+      title: 'Virtual Account',
+      logos: ['logo_bca.png', 'logo_bni.png', 'logo_pb.png']
+    },
+    creditCard: {
+      title: 'Credit/Debit Card',
+      logos: ['logo_visa.png', 'logo_mastercard.png', 'logo_jcb.png', 'logo_amex.png']
+    },
+    alfaGroup: {
+      title: 'Alfa Group',
+      logos: ['logo_alfamart.png', 'logo_alfamidi.png', 'logo_dandan.png']
+    },
+    indomaret: {
+      title: 'Indomaret',
+      logos: ['logo_indomaret.png', 'logo_isaku.png']
+    }
+  };
+
+  // PaymentLogo component
+  const PaymentLogo = ({ logoFile }: { logoFile: string }) => (
+    <div className="bg-white rounded-lg p-2 shadow-sm border border-gray-200 w-16 h-16 flex items-center justify-center">
+      <img 
+        src={getPaymentLogoUrl(logoFile)}
+        alt={getLogoDisplayName(logoFile)} 
+        className="w-12 h-12 object-contain"
+        onError={handleImageError}
+      />
+    </div>
+  );
+
+  // PaymentGroup component
+  const PaymentGroup = ({ title, logos }: { title: string; logos: string[] }) => (
+    <div className="flex-shrink-0 border border-gray-200 rounded-lg p-3">
+      <h4 className="text-xs font-semibold mb-2 text-center text-white">{title}</h4>
+      <div className="flex gap-2">
+        {logos.map((logoFile, index) => (
+          <PaymentLogo key={index} logoFile={logoFile} />
+        ))}
+      </div>
+    </div>
+  );
 
   useEffect(() => {
     loadSubscriptionStatus();
@@ -76,11 +328,23 @@ export function SubscriptionPage() {
         );
         setHasActivePayment(hasPendingPayment || false);
         
-        // Load pending transactions (only truly pending ones, exclude cancelled)
+        // Load pending transactions (only truly pending ones, exclude cancelled and expired)
         const pendingTxs = response.data.transactions?.filter(
-          (tx: any) => tx.status === 'pending'
+          (tx: any) => {
+            if (tx.status !== 'pending') return false;
+            
+            // Check if transaction is not expired
+            const now = new Date();
+            const expiryTime = new Date(tx.expiry_time);
+            return now <= expiryTime;
+          }
         ) || [];
         setPendingTransactions(pendingTxs);
+        
+        // Reset scroll flag when new pending transactions are loaded
+        if (pendingTxs.length > 0) {
+          setHasScrolledToPending(false);
+        }
         
         console.log('Has pending payment:', hasPendingPayment);
         console.log('Pending transactions:', pendingTxs);
@@ -101,11 +365,17 @@ export function SubscriptionPage() {
     }
   };
 
-  const loadPaymentActivity = async () => {
+  const loadPaymentActivity = async (page: number = 1, limit: number = 5) => {
     try {
-      const response = await api.getPaymentActivity({ limit: 20 });
+      const response = await api.getPaymentActivity({ offset: (page - 1) * limit, limit });
       if (response.success) {
+        console.log('Payment activity response:', response.data);
         setPaymentActivities(response.data.activities || []);
+        const total = response.data.total || 0;
+        const totalPages = Math.ceil(total / limit);
+        console.log('Total activities:', total, 'Total pages:', totalPages);
+        setTotalPages(totalPages);
+        setCurrentPage(page);
       }
     } catch (error) {
       console.error('Failed to load payment activity:', error);
@@ -139,6 +409,15 @@ export function SubscriptionPage() {
     };
   };
 
+  // Function to update payment method
+  const updatePaymentMethod = async (transactionId: string, paymentType: string) => {
+    try {
+      await api.updatePaymentMethod({ transactionId, paymentMethod: paymentType });
+    } catch (error) {
+      console.error('Failed to update payment method:', error);
+    }
+  };
+
   const handleSubscribe = async (planId: string) => {
     // Check if there are pending transactions
     if (hasActivePayment) {
@@ -152,7 +431,7 @@ export function SubscriptionPage() {
       
       const response = await api.createSubscriptionOrder({
         planId,
-        paymentMethod: 'snap'
+        paymentMethod: 'snap' // Snap adalah gateway, payment method akan dipilih user di popup
       });
 
       if (response.success) {
@@ -161,23 +440,27 @@ export function SubscriptionPage() {
           (window as any).snap.pay(response.data.snapToken, {
             onSuccess: (result: any) => {
               console.log('Payment success:', result);
+              // Update payment method based on result
+              if (result.payment_type) {
+                updatePaymentMethod(response.data.transactionId, result.payment_type);
+              }
               toast.success('Payment berhasil! Subscription Anda telah diaktifkan.');
               setHasActivePayment(false);
-              // Refresh data after successful payment
-              setTimeout(() => {
-                loadSubscriptionStatus();
-                loadPaymentActivity();
-              }, 2000);
+              // Refresh status immediately
+              loadSubscriptionStatus();
+              loadPaymentActivity();
             },
             onPending: (result: any) => {
               console.log('Payment pending:', result);
+              // Update payment method based on result
+              if (result.payment_type) {
+                updatePaymentMethod(response.data.transactionId, result.payment_type);
+              }
               toast.info('Payment sedang diproses. Silakan tunggu konfirmasi.');
               setHasActivePayment(true);
-              // Refresh data after pending payment
-              setTimeout(() => {
-                loadSubscriptionStatus();
-                loadPaymentActivity();
-              }, 2000);
+              // Refresh status immediately
+              loadSubscriptionStatus();
+              loadPaymentActivity();
             },
             onError: (result: any) => {
               console.log('Payment error:', result);
@@ -187,11 +470,9 @@ export function SubscriptionPage() {
               console.log('Payment popup closed');
               toast.info('Payment dibatalkan.');
               setHasActivePayment(false);
-              // Auto-refresh data setelah popup ditutup
-              setTimeout(() => {
-                loadSubscriptionStatus();
-                loadPaymentActivity();
-              }, 1000);
+              // Refresh status immediately
+              loadSubscriptionStatus();
+              loadPaymentActivity();
             }
           });
         } else {
@@ -234,72 +515,40 @@ export function SubscriptionPage() {
     try {
       setLoading(true);
       
-      // Check payment status first
-      const statusResponse = await api.checkPaymentStatus(transaction.midtrans_order_id);
+      // Always regenerate snap token to ensure it's fresh and valid
+      toast.info('Mempersiapkan halaman pembayaran...');
       
-      if (statusResponse.success) {
-        const { currentStatus, midtransStatus } = statusResponse.data;
-        
-        // If transaction is still pending, regenerate snap token for the same transaction
-        if (currentStatus === 'pending' || midtransStatus === 'pending') {
-          // Regenerate snap token for existing transaction
-          const response = await api.regenerateSnapToken({
-            transactionId: transaction.id
-          });
+      const response = await api.regenerateSnapToken({
+        transactionId: transaction.id
+      });
 
-          if (response.success) {
-            // Initialize Midtrans Snap popup with new token
-            if ((window as any).snap) {
-              (window as any).snap.pay(response.data.snapToken, {
-                onSuccess: (result: any) => {
-                  console.log('Payment success:', result);
-                  toast.success('Payment berhasil! Subscription Anda telah diaktifkan.');
-                  setTimeout(() => {
-                    loadSubscriptionStatus();
-                    loadPaymentActivity();
-                  }, 2000);
-                },
-                onPending: (result: any) => {
-                  console.log('Payment pending:', result);
-                  toast.info('Payment sedang diproses. Silakan tunggu konfirmasi.');
-                  setTimeout(() => {
-                    loadSubscriptionStatus();
-                    loadPaymentActivity();
-                  }, 2000);
-                },
-                onError: (result: any) => {
-                  console.log('Payment error:', result);
-                  toast.error('Payment gagal. Silakan coba lagi.');
-                },
-                onClose: () => {
-                  console.log('Payment popup closed');
-                  toast.info('Payment dibatalkan.');
-                  // Auto-refresh data setelah popup ditutup
-                  setTimeout(() => {
-                    loadSubscriptionStatus();
-                    loadPaymentActivity();
-                  }, 1000);
-                }
-              });
-            } else {
-              toast.error('Payment gateway tidak tersedia. Silakan refresh halaman.');
-            }
-          } else {
-            toast.error(response.error || 'Gagal regenerate snap token');
-          }
-        } else if (currentStatus === 'settlement' || midtransStatus === 'settlement') {
-          toast.success('Pembayaran sudah berhasil!');
+      if (response.success) {
+        // Open payment URL in new tab for pending payments
+        if (response.data.paymentUrl) {
+          window.open(response.data.paymentUrl, '_blank');
+          toast.success('Halaman pembayaran dibuka di tab baru. Silakan selesaikan pembayaran Anda.');
+          // Refresh status after a short delay
+          setTimeout(() => {
+            loadSubscriptionStatus();
+            loadPaymentActivity();
+          }, 3000);
+        } else {
+          toast.error('URL pembayaran tidak tersedia. Silakan coba lagi.');
+        }
+      } else {
+        // Handle specific error cases
+        if (response.error?.includes('expired')) {
+          toast.error('Transaksi telah expired. Silakan buat order baru.');
+          // Refresh data to remove expired transaction
           loadSubscriptionStatus();
           loadPaymentActivity();
         } else {
-          toast.error('Status pembayaran tidak valid. Silakan buat transaksi baru.');
+          toast.error(response.error || 'Gagal mempersiapkan halaman pembayaran. Silakan coba lagi.');
         }
-      } else {
-        toast.error('Gagal memeriksa status pembayaran');
       }
     } catch (error: any) {
       console.error('Continue payment error:', error);
-      toast.error(error.message || 'Terjadi kesalahan saat memproses payment');
+      toast.error('Terjadi kesalahan saat mempersiapkan pembayaran. Silakan coba lagi atau hubungi support.');
     } finally {
       setLoading(false);
     }
@@ -350,7 +599,7 @@ export function SubscriptionPage() {
     <div className="space-y-6">
       {/* Pending Transaction Section */}
       {pendingTransactions.length > 0 && (
-        <Card className="border-orange-500 bg-orange-500/10">
+        <Card id="pending-transactions" className="border-orange-500 bg-orange-500/10">
           <CardHeader>
             <CardTitle className="text-orange-100 flex items-center gap-2">
               <AlertCircle className="w-5 h-5" />
@@ -422,7 +671,10 @@ export function SubscriptionPage() {
                       ) : (
                         <>
                           <CreditCard className="w-4 h-4 mr-2" />
-                          Bayar
+                          {pendingTransactions[0]?.payment_method && pendingTransactions[0].payment_method !== 'snap' 
+                            ? 'Lanjut Bayar' 
+                            : 'Pilih & Bayar'
+                          }
                         </>
                       )}
                     </Button>
@@ -453,8 +705,14 @@ export function SubscriptionPage() {
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
                   <div className="space-y-1 text-sm">
-                    <p>Transaksi hanya bisa di-cancel kalau sudah pilih metode pembayaran.</p>
-                    <p>Klik bayar untuk memilih metode pembayaran.</p>
+                    {pendingTransactions[0]?.payment_method && pendingTransactions[0].payment_method !== 'snap' ? (
+                      <p>Metode pembayaran sudah dipilih: <strong>{getPaymentMethodDisplayName(pendingTransactions[0].payment_method)}</strong></p>
+                    ) : (
+                      <>
+                        <p>Transaksi hanya bisa di-cancel kalau sudah pilih metode pembayaran.</p>
+                        <p>Klik bayar untuk memilih metode pembayaran.</p>
+                      </>
+                    )}
                   </div>
                 </AlertDescription>
               </Alert>
@@ -578,66 +836,47 @@ export function SubscriptionPage() {
                       </ul>
                     </div>
                     
-                    <Button 
-                      className="w-full" 
-                      variant={selectedPlan === plan.id ? 'default' : 'outline'}
-                      onClick={() => setSelectedPlan(plan.id)}
-                             disabled={hasActivePayment}
-                    >
-                      {selectedPlan === plan.id ? 'Selected' : 'Select Plan'}
-                    </Button>
+                             <Button 
+                               className="w-full" 
+                               onClick={() => handleSubscribe(plan.id)}
+                               disabled={hasActivePayment || loading}
+                             >
+                               {loadingPlan === plan.id ? (
+                                 <>
+                                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                   Processing...
+                                 </>
+                               ) : hasActivePayment ? (
+                                 'Payment in Progress...'
+                               ) : (
+                                 `Subscribe to ${plan.name}`
+                               )}
+                             </Button>
                   </div>
                 </CardContent>
               </Card>
             ))}
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Subscribe Button */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="text-center">
+          
+          {/* Refresh Button */}
+          <div className="mt-6 text-center">
             <Button 
-              size="lg" 
-              className="px-8"
-              onClick={() => handleSubscribe(selectedPlan)}
-              disabled={hasActivePayment || loading}
+              variant="outline" 
+              size="sm"
+              onClick={() => {
+                loadSubscriptionStatus();
+                loadPaymentActivity();
+                toast.info('Status refreshed');
+              }}
+              disabled={loading}
             >
-              {loadingPlan === selectedPlan ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Processing Payment...
-                </>
-              ) : hasActivePayment ? (
-                'Payment in Progress...'
-              ) : (
-                `Subscribe to ${subscriptionPlans.find(p => p.id === selectedPlan)?.name}`
-              )}
+              <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              Refresh Status
             </Button>
-            <p className="text-sm text-muted-foreground mt-2">
-              You can cancel or change your plan at any time
-            </p>
-            
-            {/* Manual Refresh Button */}
-            <div className="mt-4">
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={() => {
-                  loadSubscriptionStatus();
-                  loadPaymentActivity();
-                  toast.info('Status refreshed');
-                }}
-                disabled={loading}
-              >
-                <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                Refresh Status
-              </Button>
-            </div>
           </div>
         </CardContent>
       </Card>
+
 
       {/* Payment Methods */}
       <Card>
@@ -645,18 +884,15 @@ export function SubscriptionPage() {
           <CardTitle>Payment Methods</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="flex items-center justify-center p-4 border border-border rounded-lg">
-              <span className="text-sm font-medium">Credit Card</span>
-            </div>
-            <div className="flex items-center justify-center p-4 border border-border rounded-lg">
-              <span className="text-sm font-medium">Bank Transfer</span>
-            </div>
-            <div className="flex items-center justify-center p-4 border border-border rounded-lg">
-              <span className="text-sm font-medium">E-Wallet</span>
-            </div>
-            <div className="flex items-center justify-center p-4 border border-border rounded-lg">
-              <span className="text-sm font-medium">Crypto</span>
+          <div className="overflow-x-auto">
+            <div className="flex gap-4 pb-4" style={{ width: 'max-content' }}>
+              {Object.values(paymentMethodsConfig).map((group, index) => (
+                <PaymentGroup 
+                  key={index} 
+                  title={group.title} 
+                  logos={group.logos} 
+                />
+              ))}
             </div>
           </div>
         </CardContent>
@@ -665,95 +901,122 @@ export function SubscriptionPage() {
       {/* Payment Activity */}
       <Card>
         <CardHeader>
-          <CardTitle>Payment Activity</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Payment History</CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => loadPaymentActivity(1, 5)}
+            >
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Refresh
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {paymentActivities.length > 0 ? paymentActivities.map((activity) => {
-              const getStatusColor = (activityType: string) => {
-                switch (activityType) {
-                  case 'payment_success':
-                  case 'subscription_activated':
-                    return 'bg-green-100 text-green-800';
-                  case 'payment_pending':
-                    return 'bg-yellow-100 text-yellow-800';
-                  case 'payment_failed':
-                  case 'payment_cancelled':
-                  case 'payment_expired':
-                    return 'bg-red-100 text-red-800';
-                  default:
-                    return 'bg-gray-100 text-gray-800';
-                }
-              };
+          {paymentActivities.length > 0 ? (
+            <div className="space-y-4">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="text-left py-3 px-4 font-medium text-muted-foreground">No</th>
+                      <th className="text-left py-3 px-4 font-medium text-muted-foreground">Date</th>
+                      <th className="text-left py-3 px-4 font-medium text-muted-foreground">Status</th>
+                      <th className="text-left py-3 px-4 font-medium text-muted-foreground">Amount</th>
+                      <th className="text-left py-3 px-4 font-medium text-muted-foreground">Payment Method</th>
+                      <th className="text-left py-3 px-4 font-medium text-muted-foreground">Plan</th>
+                      <th className="text-left py-3 px-4 font-medium text-muted-foreground">Duration</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paymentActivities.map((activity, index) => (
+                      <tr key={activity.id} className="border-b border-border hover:bg-muted/50 transition-colors">
+                        <td className="py-3 px-4 text-sm text-muted-foreground">
+                          {((currentPage - 1) * 5) + index + 1}
+                        </td>
+                        <td className="py-3 px-4 text-sm">
+                          {formatPaymentDate(activity.created_at)}
+                        </td>
+                        <td className="py-3 px-4">
+                          <Badge
+                            variant="secondary"
+                            className={`text-xs ${getStatusColor(activity.activity_type)}`}
+                          >
+                            {getStatusText(activity.activity_type)}
+                          </Badge>
+                        </td>
+                        <td className="py-3 px-4 text-sm font-medium">
+                          {activity.amount ? `Rp ${activity.amount.toLocaleString()}` : '-'}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-muted-foreground">
+                          {getPaymentMethodDisplayName(activity.payment_method)}
+                        </td>
+                        <td className="py-3 px-4 text-sm">
+                          {getPlanInfo(activity)}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-muted-foreground">
+                          {getDuration(activity)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
 
-              const getStatusText = (activityType: string) => {
-                switch (activityType) {
-                  case 'payment_created':
-                    return 'Payment Created';
-                  case 'payment_pending':
-                    return 'Payment Pending';
-                  case 'payment_success':
-                    return 'Payment Success';
-                  case 'payment_failed':
-                    return 'Payment Failed';
-                  case 'payment_cancelled':
-                    return 'Payment Cancelled';
-                  case 'payment_expired':
-                    return 'Payment Expired';
-                  case 'subscription_activated':
-                    return 'Subscription Activated';
-                  case 'subscription_cancelled':
-                    return 'Subscription Cancelled';
-                  case 'subscription_expired':
-                    return 'Subscription Expired';
-                  default:
-                    return activityType;
-                }
-              };
-
-              return (
-                <div key={activity.id} className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-muted/50 transition-colors">
-                  <div className="flex-1">
-                    <div className="font-medium">{activity.description || 'Payment Activity'}</div>
-                    <div className="text-sm text-muted-foreground">
-                      {activity.payment_method ? `${activity.payment_method}` : 'Payment Activity'}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {new Date(activity.created_at).toLocaleDateString('id-ID', {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
+              {/* Pagination */}
+              {(() => {
+                console.log('Rendering pagination - totalPages:', totalPages, 'currentPage:', currentPage);
+                return null;
+              })()}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between pt-4 border-t border-border">
+                  <div className="text-sm text-muted-foreground">
+                    Showing {((currentPage - 1) * 5) + 1} to {Math.min(currentPage * 5, paymentActivities.length)} of {paymentActivities.length} results
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handlePageChange(currentPage - 1)}
+                      disabled={currentPage === 1}
+                    >
+                      Previous
+                    </Button>
+                    <div className="flex items-center gap-1">
+                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                        const page = i + 1;
+                        return (
+                          <Button
+                            key={page}
+                            variant={currentPage === page ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => handlePageChange(page)}
+                            className="w-8 h-8 p-0"
+                          >
+                            {page}
+                          </Button>
+                        );
                       })}
                     </div>
-                  </div>
-                  <div className="text-right">
-                    {activity.amount && (
-                      <div className="font-medium">Rp {activity.amount.toLocaleString()}</div>
-                    )}
-                    <Badge
-                      variant="secondary"
-                      className={getStatusColor(activity.activity_type)}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handlePageChange(currentPage + 1)}
+                      disabled={currentPage === totalPages}
                     >
-                      {getStatusText(activity.activity_type)}
-                    </Badge>
+                      Next
+                    </Button>
                   </div>
                 </div>
-              );
-            }) : (
-              <div className="text-center py-8 text-muted-foreground">
-                <p>No payment activity yet</p>
-                <p className="text-sm">Your payment history will appear here</p>
-              </div>
-            )}
-            
-            <div className="pt-4 border-t border-border">
-              <Button variant="outline" className="w-full hover:bg-primary/10 hover:text-primary transition-colors">
-                View All Payment History
-              </Button>
+              )}
             </div>
-          </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              <p>No payment activity yet</p>
+              <p className="text-sm">Your payment history will appear here</p>
+            </div>
+          )}
         </CardContent>
       </Card>
 
