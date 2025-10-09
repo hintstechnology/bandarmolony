@@ -11,11 +11,6 @@ interface LandingPageProps {
 }
 
 export function LandingPage({ onStartTrial, onSignIn, onRegister }: LandingPageProps) {
-  // Set document title for landing page
-  React.useEffect(() => {
-    document.title = 'BandarmoloNY';
-  }, []);
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/20 to-background relative overflow-hidden">
       {/* Background decorative elements */}

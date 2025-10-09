@@ -52,11 +52,6 @@ function DashboardLayout() {
     }
   }, [profile, isLoading, navigate]);
 
-  // Set document title
-  useEffect(() => {
-    document.title = 'BandarmoloNY';
-  }, []);
-
   // Show loading while profile is being fetched
   if (isLoading) {
     return (
