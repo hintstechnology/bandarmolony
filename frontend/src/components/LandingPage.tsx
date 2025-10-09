@@ -1,7 +1,8 @@
 import React from "react";
 import { Button } from "./ui/button";
-import { MessageCircle, Send, Instagram, TrendingUp } from "lucide-react";
+import { MessageCircle, Send, Instagram } from "lucide-react";
 import { motion } from "framer-motion";
+import Logo from "./Logo";
 
 interface LandingPageProps {
   onStartTrial?: () => void;
@@ -10,6 +11,11 @@ interface LandingPageProps {
 }
 
 export function LandingPage({ onStartTrial, onSignIn, onRegister }: LandingPageProps) {
+  // Set document title for landing page
+  React.useEffect(() => {
+    document.title = 'BandarmoloNY';
+  }, []);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/20 to-background relative overflow-hidden">
       {/* Background decorative elements */}
@@ -28,10 +34,12 @@ export function LandingPage({ onStartTrial, onSignIn, onRegister }: LandingPageP
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.6 }}
         >
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center shadow-2xl border border-primary/20">
-            <TrendingUp className="w-5 h-5 text-primary-foreground" />
-          </div>
-          <span className="text-foreground font-semibold text-lg h-8 flex items-center tracking-wide">BandarmoloNY</span>
+          <Logo 
+            className="h-8"
+            badgeClassName="w-10 h-8"
+            textClassName="text-foreground font-semibold text-lg tracking-wide"
+            showText={true}
+          />
         </motion.div>
         
         <motion.div 
@@ -65,12 +73,12 @@ export function LandingPage({ onStartTrial, onSignIn, onRegister }: LandingPageP
           className="mb-8"
         >
           <div className="flex items-center justify-center gap-6 mb-8">
-            <div className="w-20 h-20 bg-primary rounded-3xl flex items-center justify-center shadow-2xl border border-primary/20 backdrop-blur-sm">
-              <TrendingUp className="w-12 h-12 text-primary-foreground" />
-            </div>
-            <h1 className="text-5xl md:text-7xl font-bold text-foreground tracking-tight drop-shadow-2xl h-16 md:h-20 flex items-center">
-              BandarmoloNY
-            </h1>
+            <Logo 
+              className="h-20 md:h-24"
+              badgeClassName="w-24 h-20 md:w-28 md:h-24"
+              textClassName="text-5xl md:text-7xl font-bold text-foreground tracking-tight drop-shadow-2xl"
+              showText={true}
+            />
           </div>
           
           <motion.p 

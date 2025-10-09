@@ -40,7 +40,7 @@ export const config = {
   // Payment Configuration
   PAYMENT_TIMEOUT_MINUTES: parseInt(process.env.PAYMENT_TIMEOUT_MINUTES || ''),
   
-  // External Services (untuk fitur yang akan datang)
+  // External Services
   AZURE_STORAGE_CONNECTION_STRING: process.env.AZURE_STORAGE_CONNECTION_STRING || '',
   AZURE_STORAGE_CONTAINER_NAME: process.env.AZURE_STORAGE_CONTAINER_NAME || '',
   TICMI_API_KEY: process.env.TICMI_API_KEY || '',
