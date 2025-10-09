@@ -8,10 +8,10 @@ on:
   workflow_dispatch:
 
 env:
-  REGISTRY: backendacr.azurecr.io
+  REGISTRY: ${{ secrets.CONTAINER_REGISTRY }}
   IMAGE_REPO: bandarmolony-frontend
-  RESOURCE_GROUP: bandarmolony-rg
-  CONTAINER_APP_NAME: bandarmolony-frontend
+  RESOURCE_GROUP: ${{ secrets.RESOURCE_GROUP }}
+  CONTAINER_APP_NAME: ${{ secrets.CONTAINER_APP_NAME }}
 
 jobs:
   build-and-deploy:
