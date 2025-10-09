@@ -25,6 +25,7 @@ app.use(cors({
     'http://localhost:3000',
     'http://localhost:5173',
     'https://bandarmolony.hintstechnology.com',
+    'https://bandarmolony.com',
     'https://bandarmolony-frontend.orangegrass-7de105a8.southeastasia.azurecontainerapps.io'
   ],
   credentials: true,
