@@ -1177,6 +1177,10 @@ router.post('/upload-avatar', upload.single('avatar'), handleMulterError, async 
     const filePath = `${user.id}/${fileName}`;
 
     // Upload to Supabase Storage
+    console.log(`📤 Uploading to Supabase Storage: ${filePath}`);
+    console.log(`📤 File size: ${file.size} bytes`);
+    console.log(`📤 File type: ${file.mimetype}`);
+    
     const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
       .from('avatars')
       .upload(filePath, file.buffer, {
@@ -1184,6 +1188,8 @@ router.post('/upload-avatar', upload.single('avatar'), handleMulterError, async 
         cacheControl: '3600',
         upsert: false
       });
+
+    console.log(`📤 Upload result:`, { uploadData, uploadError });
 
     if (uploadError) {
       console.error('Avatar upload error:', uploadError);
