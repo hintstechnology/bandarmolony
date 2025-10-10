@@ -10,10 +10,13 @@ router.get('/live', (_req, res) => {
 
 router.get('/db', async (_req, res) => {
   try {
+    console.log('🔍 Health check: Testing database connection...');
     const ok = await testDbConnection();
-    res.json({ ok, via: 'pg' });
+    console.log('✅ Health check: Database connection OK');
+    res.json({ ok, via: 'pg', timestamp: new Date().toISOString() });
   } catch (err: any) {
-    res.status(500).json({ ok: false, error: err?.message });
+    console.error('❌ Health check: Database connection failed:', err?.message);
+    res.status(500).json({ ok: false, error: err?.message, timestamp: new Date().toISOString() });
   }
 });
 

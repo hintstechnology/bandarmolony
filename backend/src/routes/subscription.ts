@@ -176,6 +176,52 @@ router.get('/payment-methods', async (req, res) => {
 });
 
 /**
+ * GET /api/subscription/test-service-role
+ * Test service role access
+ */
+router.get('/test-service-role', async (req, res) => {
+  try {
+    console.log('🔧 Testing service role access...');
+    
+    // Test basic connection
+    const { data: testData, error: testError } = await supabaseAdmin
+      .from('users')
+      .select('id, email')
+      .limit(1);
+    
+    if (testError) {
+      console.error('❌ Service role test failed:', testError);
+      return res.status(500).json(createErrorResponse('Service role test failed', testError.message));
+    }
+    
+    console.log('✅ Service role test successful:', testData);
+    
+    // Test transaction access
+    const { data: transactionData, error: transactionError } = await supabaseAdmin
+      .from('transactions')
+      .select('id, status, user_id')
+      .limit(1);
+    
+    if (transactionError) {
+      console.error('❌ Transaction access test failed:', transactionError);
+      return res.status(500).json(createErrorResponse('Transaction access test failed', transactionError.message));
+    }
+    
+    console.log('✅ Transaction access test successful:', transactionData);
+    
+    res.json(createSuccessResponse({
+      message: 'Service role access working correctly',
+      userAccess: testData,
+      transactionAccess: transactionData
+    }));
+    
+  } catch (error) {
+    console.error('❌ Service role test error:', error);
+    res.status(500).json(createErrorResponse('Service role test error', error instanceof Error ? error.message : 'Unknown error'));
+  }
+});
+
+/**
  * GET /api/subscription/test-midtrans
  * Test Midtrans connection
  */
@@ -662,7 +708,7 @@ router.get('/status', requireSupabaseUser, async (req: any, res) => {
       throw subscriptionError;
     }
 
-    // Get user's payment history with subscription details
+    // Get user's payment history with subscription details (exclude cancelled transactions)
     const { data: transactions, error: transactionsError } = await supabaseAdmin
       .from('transactions')
       .select(`
@@ -674,6 +720,7 @@ router.get('/status', requireSupabaseUser, async (req: any, res) => {
         )
       `)
       .eq('user_id', userId)
+      .not('status', 'eq', 'cancel') // Exclude cancelled transactions
       .order('created_at', { ascending: false })
       .limit(10);
 
@@ -1139,22 +1186,30 @@ router.post('/cancel-pending', requireSupabaseUser, async (req: any, res) => {
 
     // Update transaction status to cancelled
     console.log('Cancelling transaction:', transaction.id);
-    const { error: transactionUpdateError } = await supabaseAdmin
+    console.log('🔧 Using service role for transaction update');
+    
+    const { data: transactionUpdateData, error: transactionUpdateError } = await supabaseAdmin
       .from('transactions')
       .update({
         status: 'cancel',
         updated_at: new Date().toISOString()
       })
-      .eq('id', transaction.id);
+      .eq('id', transaction.id)
+      .select();
 
     if (transactionUpdateError) {
-      console.error('Error updating transaction:', transactionUpdateError);
+      console.error('❌ Error updating transaction:', transactionUpdateError);
+      console.error('❌ Error details:', JSON.stringify(transactionUpdateError, null, 2));
       throw transactionUpdateError;
     }
+    
+    console.log('✅ Transaction updated successfully:', transactionUpdateData);
 
     // Update subscription status to cancelled
     console.log('Cancelling subscription:', transaction.subscription_id);
-    const { error: subscriptionUpdateError } = await supabaseAdmin
+    console.log('🔧 Using service role for subscription update');
+    
+    const { data: subscriptionUpdateData, error: subscriptionUpdateError } = await supabaseAdmin
       .from('subscriptions')
       .update({
         status: 'cancelled',
@@ -1162,15 +1217,21 @@ router.post('/cancel-pending', requireSupabaseUser, async (req: any, res) => {
         cancellation_reason: reason || 'User cancelled pending transaction',
         updated_at: new Date().toISOString()
       })
-      .eq('id', transaction.subscription_id);
+      .eq('id', transaction.subscription_id)
+      .select();
 
     if (subscriptionUpdateError) {
-      console.error('Error updating subscription:', subscriptionUpdateError);
+      console.error('❌ Error updating subscription:', subscriptionUpdateError);
+      console.error('❌ Error details:', JSON.stringify(subscriptionUpdateError, null, 2));
       throw subscriptionUpdateError;
     }
+    
+    console.log('✅ Subscription updated successfully:', subscriptionUpdateData);
 
     // Update existing payment activity status instead of creating new entry
-    const { error: activityUpdateError } = await supabaseAdmin
+    console.log('🔧 Using service role for payment activity update');
+    
+    const { data: activityUpdateData, error: activityUpdateError } = await supabaseAdmin
       .from('payment_activity')
       .update({
         status_to: 'cancelled',
@@ -1180,11 +1241,15 @@ router.post('/cancel-pending', requireSupabaseUser, async (req: any, res) => {
       })
       .eq('transaction_id', transaction.id)
       .eq('user_id', userId)
-      .eq('status_to', 'pending');
+      .eq('status_to', 'pending')
+      .select();
 
     if (activityUpdateError) {
-      console.error('Error updating payment activity:', activityUpdateError);
+      console.error('❌ Error updating payment activity:', activityUpdateError);
+      console.error('❌ Error details:', JSON.stringify(activityUpdateError, null, 2));
       // Don't throw error, just log it
+    } else {
+      console.log('✅ Payment activity updated successfully:', activityUpdateData);
     }
 
     console.log('Transaction cancelled successfully:', transaction.id);

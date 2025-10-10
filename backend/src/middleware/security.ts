@@ -79,40 +79,4 @@ export function sanitizeInput(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
-/**
- * CORS configuration
- */
-export function corsConfig(req: Request, res: Response, next: NextFunction) {
-  const origin = req.headers.origin;
-  const allowedOrigins = [
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'https://bandarmolony.hintstechnology.com',
-    'https://bandarmolony.com',
-    'https://bandarmolony-frontend.orangegrass-7de105a8.southeastasia.azurecontainerapps.io'
-  ];
-
-  console.log(`🌐 CORS: Origin: ${origin}, Method: ${req.method}, Path: ${req.path}`);
-  console.log(`🌐 CORS: Allowed origins:`, allowedOrigins);
-
-  if (origin && allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    console.log(`✅ CORS: Origin allowed: ${origin}`);
-  } else {
-    console.log(`❌ CORS: Origin not allowed: ${origin}`);
-  }
-
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
-
-  if (req.method === 'OPTIONS') {
-    console.log(`🔄 CORS: Handling OPTIONS preflight for ${req.path}`);
-    res.status(200).end();
-    return;
-  }
-
-  next();
-}
 

@@ -9,7 +9,7 @@ import authRoutes from './routes/auth';
 import adminRoutes from './routes/admin';
 import subscriptionRoutes from './routes/subscription';
 import { requireSupabaseUser } from './middleware/requireSupabaseUser';
-import { securityHeaders, sanitizeInput, corsConfig } from './middleware/security';
+import { securityHeaders, sanitizeInput } from './middleware/security';
 import { createErrorResponse, ERROR_CODES, HTTP_STATUS } from './utils/responseUtils';
 
 const app = express();
@@ -17,17 +17,34 @@ const app = express();
 // Security middleware
 app.use(securityHeaders);
 app.use(sanitizeInput);
-app.use(corsConfig);
 
-// CORS configuration (backup)
+// CORS configuration using environment variables
+const allowedOrigins = config.CORS_ORIGIN
+  ? config.CORS_ORIGIN.split(',').map(origin => origin.trim()).filter(Boolean)
+  : [
+      'http://localhost:3000',
+      'http://localhost:5173',
+      'https://bandarmolony.hintstechnology.com',
+      'https://bandarmolony.com',
+      'https://www.bandarmolony.com',
+      'https://bandarmolony-frontend.proudforest-3316dee8.eastus.azurecontainerapps.io',
+    ];
+
+console.log('🌐 CORS: Allowed origins from config:', allowedOrigins);
+
 app.use(cors({ 
-  origin: [
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'https://bandarmolony.hintstechnology.com',
-    'https://bandarmolony.com',
-    'https://bandarmolony-frontend.orangegrass-7de105a8.southeastasia.azurecontainerapps.io'
-  ],
+  origin: (origin, callback) => {
+    console.log(`🌐 CORS: Origin: ${origin}`);
+    console.log(`🌐 CORS: Allowed origins:`, allowedOrigins);
+    
+    if (!origin || allowedOrigins.includes(origin)) {
+      console.log(`✅ CORS: Origin allowed: ${origin}`);
+      callback(null, true);
+    } else {
+      console.log(`❌ CORS: Origin not allowed: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],

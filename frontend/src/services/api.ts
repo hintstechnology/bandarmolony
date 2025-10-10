@@ -1,7 +1,8 @@
-import { supabase, auth } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { getAuthError } from '../utils/errorHandler';
 import { setAuthState, clearAuthState, getAuthState } from '../utils/auth';
 import { getAvatarUrl } from '../utils/avatar';
+import config from '../config';
 
 export interface ProfileData {
   id: string;
@@ -35,7 +36,7 @@ export interface AuthResponse {
   message?: string;
 }
 
-const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
+const API_URL = config.API_URL;
 
 export const api = {
   async getProfile(): Promise<ProfileData> {
@@ -53,7 +54,7 @@ export const api = {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       controller.abort();
-    }, 15000); // 15 second timeout
+    }, config.API_TIMEOUT);
     
     try {
       const response = await fetch(`${API_URL}/api/me`, {
@@ -123,11 +124,11 @@ export const api = {
       const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
       console.log(`🔍 API: File size validation: ${file.size} bytes (${fileSizeMB}MB)`);
       
-      if (file.size > 1 * 1024 * 1024) {
-        console.log(`❌ API: File size validation failed: ${fileSizeMB}MB > 1MB`);
-        throw new Error(`File size too large (${fileSizeMB}MB). Maximum size is 1MB`);
+      if (file.size > config.MAX_FILE_SIZE) {
+        console.log(`❌ API: File size validation failed: ${fileSizeMB}MB > ${config.MAX_FILE_SIZE / (1024 * 1024)}MB`);
+        throw new Error(`File size too large (${fileSizeMB}MB). Maximum size is ${config.MAX_FILE_SIZE / (1024 * 1024)}MB`);
       }
-      console.log(`✅ API: File size validation passed: ${fileSizeMB}MB <= 1MB`);
+      console.log(`✅ API: File size validation passed: ${fileSizeMB}MB <= ${config.MAX_FILE_SIZE / (1024 * 1024)}MB`);
 
       const formData = new FormData();
       formData.append('avatar', file);

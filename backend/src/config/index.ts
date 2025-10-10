@@ -1,7 +1,4 @@
-import dotenv from 'dotenv';
-
-// Load environment variables
-dotenv.config();
+// Environment variables loaded in index.ts
 
 export const config = {
   // Environment
