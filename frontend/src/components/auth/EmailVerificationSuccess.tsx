@@ -1,7 +1,7 @@
 import React from 'react';
 import { CheckCircle, ArrowRight } from 'lucide-react';
 import { Button } from '../ui/button';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 
 interface EmailVerificationSuccessProps {
   onLogin?: () => void;

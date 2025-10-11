@@ -1,5 +1,4 @@
 import { supabaseAdmin } from '../supabaseClient';
-import { SessionManager } from '../utils/sessionManager';
 import { createErrorResponse, ERROR_CODES, HTTP_STATUS } from '../utils/responseUtils';
 
 export async function requireSupabaseUser(req: any, res: any, next: any) {
@@ -28,7 +27,7 @@ export async function requireSupabaseUser(req: any, res: any, next: any) {
 
     // Ensure user exists in public.users table (fallback for failed triggers)
     try {
-      const { data: userProfile, error: profileError } = await supabaseAdmin
+      const { data: _userProfile, error: profileError } = await supabaseAdmin
         .from('users')
         .select('id, role')
         .eq('id', user.id)
@@ -42,7 +41,7 @@ export async function requireSupabaseUser(req: any, res: any, next: any) {
           .insert({
             id: user.id,
             email: user.email,
-            full_name: user.user_metadata?.full_name || '',
+            full_name: user.user_metadata?.['full_name'] || '',
             avatar_url: null,
             email_verified: user.email_confirmed_at ? true : false,
             role: 'user',

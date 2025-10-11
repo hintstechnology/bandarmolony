@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { useTabFocus } from "../../hooks/useTabFocus";
+import { useToast } from "../../contexts/ToastContext";
 
 interface User {
   id: string;
@@ -43,6 +44,7 @@ interface UserListResponse {
 }
 
 export function UserManagement() {
+  const { showToast } = useToast();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -92,10 +94,12 @@ export function UserManagement() {
 
   // Use tab focus hook to prevent unnecessary refreshes
   useTabFocus(() => {
-    if (isInitialized) {
+    // Only refresh if data is stale (older than 5 minutes)
+    const now = Date.now();
+    if (isInitialized && (now - lastFetchTime) > 5 * 60 * 1000) {
       fetchUsers();
     }
-  }, 2 * 60 * 1000, lastFetchTime); // 2 minutes stale time
+  }, 5 * 60 * 1000, lastFetchTime); // 5 minutes stale time
 
   useEffect(() => {
     // Fetch on filter changes or page changes
@@ -198,7 +202,11 @@ export function UserManagement() {
       }
     } catch (err: any) {
       console.error('Error updating user status:', err);
-      alert(`Error: ${err.message}`);
+      showToast({
+        type: 'error',
+        title: 'Error',
+        message: err.message || 'Failed to update user status',
+      });
     } finally {
       setActionLoading(null);
     }

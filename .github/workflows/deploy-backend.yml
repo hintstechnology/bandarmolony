@@ -64,38 +64,38 @@ jobs:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
     - name: Deploy to Azure Container Apps
-      uses: azure/container-apps-deploy-action@v1
-      with:
-        containerAppName: ${{ env.CONTAINER_APP_NAME }}
-        resourceGroup: ${{ env.RESOURCE_GROUP }}
-        imageToDeploy: ${{ env.IMAGE }}
-        environmentVariables: |
-          NODE_ENV=${{ secrets.NODE_ENV }}
-          PORT=${{ secrets.PORT }}
-          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          DATABASE_URL=${{ secrets.DATABASE_URL }}
-          MIDTRANS_MERCHANT_ID=${{ secrets.MIDTRANS_MERCHANT_ID }}
-          MIDTRANS_CLIENT_KEY=${{ secrets.MIDTRANS_CLIENT_KEY }}
-          MIDTRANS_SERVER_KEY=${{ secrets.MIDTRANS_SERVER_KEY }}
-          MIDTRANS_IS_PRODUCTION=${{ secrets.MIDTRANS_IS_PRODUCTION }}
-          MIDTRANS_3DS=${{ secrets.MIDTRANS_3DS }}
-          MIDTRANS_SANITIZED=${{ secrets.MIDTRANS_SANITIZED }}
-          MIDTRANS_PAYMENT_NOTIFICATION_URL=${{ secrets.MIDTRANS_PAYMENT_NOTIFICATION_URL }}
-          MIDTRANS_RECURRING_NOTIFICATION_URL=${{ secrets.MIDTRANS_RECURRING_NOTIFICATION_URL }}
-          MIDTRANS_PAY_ACCOUNT_NOTIFICATION_URL=${{ secrets.MIDTRANS_PAY_ACCOUNT_NOTIFICATION_URL }}
-          MIDTRANS_FINISH_REDIRECT_URL=${{ secrets.MIDTRANS_FINISH_REDIRECT_URL }}
-          MIDTRANS_UNFINISH_REDIRECT_URL=${{ secrets.MIDTRANS_UNFINISH_REDIRECT_URL }}
-          MIDTRANS_ERROR_REDIRECT_URL=${{ secrets.MIDTRANS_ERROR_REDIRECT_URL }}
-          FRONTEND_URL=${{ secrets.FRONTEND_URL }}
-          CORS_ORIGIN=${{ secrets.CORS_ORIGIN }}
-          PAYMENT_TIMEOUT_MINUTES=${{ secrets.PAYMENT_TIMEOUT_MINUTES }}
-          AZURE_STORAGE_CONNECTION_STRING=${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
-          AZURE_STORAGE_CONTAINER_NAME=${{ secrets.AZURE_STORAGE_CONTAINER_NAME }}
-          TICMI_API_KEY=${{ secrets.TICMI_API_KEY }}
-          TICMI_API_URL=${{ secrets.TICMI_API_URL }}
-          LOG_LEVEL=${{ secrets.LOG_LEVEL }}
+      run: |
+        az containerapp update \
+          --name ${{ env.CONTAINER_APP_NAME }} \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --image ${{ env.IMAGE }} \
+          --replace-env-vars \
+            NODE_ENV=${{ secrets.NODE_ENV }} \
+            PORT=${{ secrets.PORT }} \
+            SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
+            SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} \
+            SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }} \
+            DATABASE_URL=${{ secrets.DATABASE_URL }} \
+            MIDTRANS_MERCHANT_ID=${{ secrets.MIDTRANS_MERCHANT_ID }} \
+            MIDTRANS_CLIENT_KEY=${{ secrets.MIDTRANS_CLIENT_KEY }} \
+            MIDTRANS_SERVER_KEY=${{ secrets.MIDTRANS_SERVER_KEY }} \
+            MIDTRANS_IS_PRODUCTION=${{ secrets.MIDTRANS_IS_PRODUCTION }} \
+            MIDTRANS_3DS=${{ secrets.MIDTRANS_3DS }} \
+            MIDTRANS_SANITIZED=${{ secrets.MIDTRANS_SANITIZED }} \
+            MIDTRANS_PAYMENT_NOTIFICATION_URL=${{ secrets.MIDTRANS_PAYMENT_NOTIFICATION_URL }} \
+            MIDTRANS_RECURRING_NOTIFICATION_URL=${{ secrets.MIDTRANS_RECURRING_NOTIFICATION_URL }} \
+            MIDTRANS_PAY_ACCOUNT_NOTIFICATION_URL=${{ secrets.MIDTRANS_PAY_ACCOUNT_NOTIFICATION_URL }} \
+            MIDTRANS_FINISH_REDIRECT_URL=${{ secrets.MIDTRANS_FINISH_REDIRECT_URL }} \
+            MIDTRANS_UNFINISH_REDIRECT_URL=${{ secrets.MIDTRANS_UNFINISH_REDIRECT_URL }} \
+            MIDTRANS_ERROR_REDIRECT_URL=${{ secrets.MIDTRANS_ERROR_REDIRECT_URL }} \
+            FRONTEND_URL=${{ secrets.FRONTEND_URL }} \
+            CORS_ORIGIN=${{ secrets.CORS_ORIGIN }} \
+            PAYMENT_TIMEOUT_MINUTES=${{ secrets.PAYMENT_TIMEOUT_MINUTES }} \
+            AZURE_STORAGE_CONNECTION_STRING=${{ secrets.AZURE_STORAGE_CONNECTION_STRING }} \
+            AZURE_STORAGE_CONTAINER_NAME=${{ secrets.AZURE_STORAGE_CONTAINER_NAME }} \
+            TICMI_API_KEY=${{ secrets.TICMI_API_KEY }} \
+            TICMI_API_URL=${{ secrets.TICMI_API_URL }} \
+            LOG_LEVEL=${{ secrets.LOG_LEVEL }}
 
     - name: Show deployed image
       run: |

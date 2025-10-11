@@ -96,7 +96,7 @@ const generateDummyData = (): CandleData[] => {
     }
     
     data.push({
-      timestamp: times[i],
+      timestamp: times[i] || '',
       open,
       high,
       low,
@@ -118,25 +118,25 @@ interface FootprintChartProps {
   zoom?: number;
 }
 
-export const FootprintChart: React.FC<FootprintChartProps> = ({
+export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
   showCrosshair: propShowCrosshair,
   showPOC: propShowPOC,
   showDelta: propShowDelta,
-  timeframe: propTimeframe,
+  // timeframe: propTimeframe,
   zoom: propZoom
 }) => {
-  const [data] = useState<CandleData[]>(generateDummyData());
+  const [data] = useState<CandleData[]>(() => generateDummyData() || []);
   const [crosshair, setCrosshair] = useState<CrosshairData>({
     x: 0, y: 0, price: 0, time: '', bidVol: 0, askVol: 0, delta: 0, visible: false
   });
   // Chart dimensions and layout - responsive
   const CHART_HEIGHT = Math.max(400, (typeof window !== 'undefined' ? window.innerHeight : 800) - 250); // Responsive height
-  const PRICE_LEVEL_HEIGHT = 16;
+  // const PRICE_LEVEL_HEIGHT = 16;
 
   const [showCrosshair, setShowCrosshair] = useState(propShowCrosshair ?? true);
   const [showPOC, setShowPOC] = useState(propShowPOC ?? true);
   const [showDelta, setShowDelta] = useState(propShowDelta ?? false);
-  const [timeframe, setTimeframe] = useState(propTimeframe ?? '15m');
+  // const [timeframe, setTimeframe] = useState(propTimeframe ?? '15m');
   const [zoom, setZoom] = useState(propZoom ?? 1.1);
   
   // Theme detection
@@ -150,10 +150,10 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
   const [dragMode, setDragMode] = useState<'none' | 'pan' | 'zoom'>('none');
   const [verticalScale, setVerticalScale] = useState(1.6); // Default 160%
   const [horizontalScale, setHorizontalScale] = useState(1.5); // Default 150%
-  const [containerHeight, setContainerHeight] = useState(400);
-  const [isDoubleClicking, setIsDoubleClicking] = useState(false);
+  // const [containerHeight, setContainerHeight] = useState(400);
+  // const [isDoubleClicking, setIsDoubleClicking] = useState(false);
   const [lastPinchDistance, setLastPinchDistance] = useState(0);
-  const [isPinching, setIsPinching] = useState(false);
+  // const [isPinching, setIsPinching] = useState(false);
   const [showPanIndicator, setShowPanIndicator] = useState(false);
 
   // Sync props with state
@@ -161,9 +161,9 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
     if (propShowCrosshair !== undefined) setShowCrosshair(propShowCrosshair);
     if (propShowPOC !== undefined) setShowPOC(propShowPOC);
     if (propShowDelta !== undefined) setShowDelta(propShowDelta);
-    if (propTimeframe !== undefined) setTimeframe(propTimeframe);
+    // if (propTimeframe !== undefined) setTimeframe(propTimeframe);
     if (propZoom !== undefined) setZoom(propZoom);
-  }, [propShowCrosshair, propShowPOC, propShowDelta, propTimeframe, propZoom]);
+  }, [propShowCrosshair, propShowPOC, propShowDelta, propZoom]);
 
   // Theme detection
   useEffect(() => {
@@ -184,7 +184,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
         setChartHeight(containerHeight - 24); // Subtract X-axis height
         
         // Update container height state
-        setContainerHeight(containerHeight);
+        // setContainerHeight(containerHeight);
       }
     };
 
@@ -197,72 +197,44 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
   useEffect(() => {
     if (data.length > 0) {
       const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
-      const visibleBars = Math.floor(screenWidth / CANDLE_WIDTH);
+      // const visibleBars = Math.floor(screenWidth / CANDLE_WIDTH); // Removed unused variable
       const rightMargin = screenWidth * 0.1; // 10% of screen width for better margin
       const totalBars = data.length;
       
-      // Debug: Calculate different approaches
-      const approach1 = Math.max(0, (totalBars - visibleBars) * CANDLE_WIDTH + rightMargin);
-      const approach2 = Math.max(0, (totalBars - 1) * CANDLE_WIDTH - screenWidth + rightMargin);
-      const approach3 = Math.max(0, totalBars * CANDLE_WIDTH - screenWidth + rightMargin);
-      
-      // Use approach 3 - show the very last bar
-      const lastCandlePosition = approach3;
-      
+      // Calculate scroll position to show the last bar
+      const lastCandlePosition = Math.max(0, totalBars * CANDLE_WIDTH - screenWidth + rightMargin);
       setScrollX(lastCandlePosition);
-      console.log('🔍 DEBUG Auto scroll to last bar:', {
-        totalBars,
-        visibleBars,
-        screenWidth,
-        CANDLE_WIDTH,
-        rightMargin,
-        approach1: `(${totalBars} - ${visibleBars}) * ${CANDLE_WIDTH} + ${rightMargin} = ${approach1}`,
-        approach2: `(${totalBars} - 1) * ${CANDLE_WIDTH} - ${screenWidth} + ${rightMargin} = ${approach2}`,
-        approach3: `${totalBars} * ${CANDLE_WIDTH} - ${screenWidth} + ${rightMargin} = ${approach3}`,
-        selected: lastCandlePosition,
-        totalChartWidth: totalBars * CANDLE_WIDTH,
-        shouldShowLastBar: lastCandlePosition >= (totalBars - 1) * CANDLE_WIDTH - screenWidth
-      });
-      
-      // Verify scroll position after a short delay
-      setTimeout(() => {
-        console.log('🔍 VERIFY Scroll position after delay:', {
-          currentScrollX: scrollX,
-          expectedScrollX: lastCandlePosition,
-          isCorrect: Math.abs(scrollX - lastCandlePosition) < 10
-        });
-      }, 100);
     }
   }, [data.length]);
 
-  // Get theme colors from the main app
-  const getThemeColors = () => {
-    const isDark = document.documentElement.classList.contains('dark');
-    return {
-      textColor: isDark ? '#f9fafb' : '#111827',
-      gridColor: isDark ? '#4b5563' : '#e5e7eb',
-      borderColor: isDark ? '#6b7280' : '#d1d5db',
-      axisTextColor: isDark ? '#d1d5db' : '#6b7280',
-      backgroundColor: isDark ? '#131722' : '#FFFFFF',
-      cardBackground: isDark ? '#1E222D' : '#FFFFFF',
-      cardBorder: isDark ? '#2A2E39' : '#E1E3E6'
-    };
-  };
+  // Get theme colors from the main app (unused for now)
+  // const getThemeColors = () => {
+  //   const isDark = document.documentElement.classList.contains('dark');
+  //   return {
+  //     textColor: isDark ? '#f9fafb' : '#111827',
+  //     gridColor: isDark ? '#4b5563' : '#e5e7eb',
+  //     borderColor: isDark ? '#6b7280' : '#d1d5db',
+  //     axisTextColor: isDark ? '#d1d5db' : '#6b7280',
+  //     backgroundColor: isDark ? '#131722' : '#FFFFFF',
+  //     cardBackground: isDark ? '#1E222D' : '#FFFFFF',
+  //     cardBorder: isDark ? '#2A2E39' : '#E1E3E6'
+  //   };
+  // };
 
-  const themeColors = getThemeColors();
+  // const themeColors = getThemeColors();
   
   const chartRef = useRef<HTMLDivElement>(null);
   
   // Update container height on mount and resize
-  useEffect(() => {
-    const updateHeight = () => {
-      setContainerHeight(window.innerHeight - 80);
-    };
+  // useEffect(() => {
+  //   const updateHeight = () => {
+  //     setContainerHeight(window.innerHeight - 80);
+  //   };
     
-    updateHeight();
-    window.addEventListener('resize', updateHeight);
-    return () => window.removeEventListener('resize', updateHeight);
-  }, []);
+  //   updateHeight();
+  //   window.addEventListener('resize', updateHeight);
+  //   return () => window.removeEventListener('resize', updateHeight);
+  // }, []);
   
   // Chart dimensions with scaling
   const CANDLE_WIDTH = 120 * horizontalScale; // Apply horizontal scaling
@@ -270,7 +242,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
   // Auto-scroll to show the last candles by default with 5% right margin
   const totalBars = data.length;
   const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
-  const visibleBars = Math.floor(screenWidth / CANDLE_WIDTH);
+  // const visibleBars = Math.floor(screenWidth / CANDLE_WIDTH);
   const rightMargin = screenWidth * 0.1; // 10% of screen width for better margin
   // Calculate position to show the very last bar with margin
   const lastCandlePosition = Math.max(0, totalBars * CANDLE_WIDTH - screenWidth + rightMargin);
@@ -298,6 +270,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
     
     if (candleIndex >= 0 && candleIndex < data.length) {
       const candle = data[candleIndex];
+      if (!candle) return;
       
       // Visual-based detection: Check if mouse is over any volume bar element
       const elementsAtPoint = document.elementsFromPoint(e.clientX, e.clientY);
@@ -374,13 +347,13 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
     setZoom(prev => Math.max(0.5, Math.min(3, prev + delta)));
   }, []);
 
-  const handleVerticalScale = useCallback((delta: number) => {
-    setVerticalScale(prev => {
-      const newScale = Math.max(0.5, Math.min(3, prev + delta));
-      console.log('Vertical Scale:', { from: prev, to: newScale, percentage: Math.round(newScale * 100) + '%' });
-      return newScale;
-    });
-  }, []);
+  // const handleVerticalScale = useCallback((delta: number) => {
+  //   setVerticalScale(prev => {
+  //     const newScale = Math.max(0.5, Math.min(3, prev + delta));
+  //     console.log('Vertical Scale:', { from: prev, to: newScale, percentage: Math.round(newScale * 100) + '%' });
+  //     return newScale;
+  //   });
+  // }, []);
 
   const handleYAxisDrag = useCallback((deltaY: number) => {
     const scaleDelta = deltaY * -0.001; // Less sensitive scaling
@@ -419,10 +392,11 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
   }, []);
 
   // Calculate distance between two touch points
-  const getPinchDistance = useCallback((touches: TouchList) => {
+  const getPinchDistance = useCallback((touches: React.TouchList) => {
     if (touches.length < 2) return 0;
     const touch1 = touches[0];
     const touch2 = touches[1];
+    if (!touch1 || !touch2) return 0;
     const dx = touch1.clientX - touch2.clientX;
     const dy = touch1.clientY - touch2.clientY;
     return Math.sqrt(dx * dx + dy * dy);
@@ -446,7 +420,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
       }
       
       setLastPinchDistance(currentDistance);
-      setIsPinching(true);
+      // setIsPinching(true);
     }
   }, [lastPinchDistance, getPinchDistance]);
 
@@ -455,7 +429,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
     if (e.touches.length === 2) {
       const distance = getPinchDistance(e.touches);
       setLastPinchDistance(distance);
-      setIsPinching(true);
+      // setIsPinching(true);
     }
   }, [getPinchDistance]);
 
@@ -463,12 +437,12 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
   const handleTouchEnd = useCallback((e: React.TouchEvent) => {
     if (e.touches.length < 2) {
       setLastPinchDistance(0);
-      setIsPinching(false);
+      // setIsPinching(false);
     }
   }, []);
   
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (!chartRef.current || isDoubleClicking) return;
+    if (!chartRef.current) return;
     
     const rect = chartRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -484,20 +458,20 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
   }, []);
 
   // Reset view to show latest data
-  const resetView = useCallback(() => {
-    const totalBars = data.length;
-    const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
-    const visibleBars = Math.floor(screenWidth / CANDLE_WIDTH);
-    const rightMargin = screenWidth * 0.1; // 10% of screen width for better margin
-    // Calculate position to show the very last bar with margin
-    const lastCandlePosition = Math.max(0, totalBars * CANDLE_WIDTH - screenWidth + rightMargin);
+  // const resetView = useCallback(() => {
+  //   const totalBars = data.length;
+  //   const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
+  //   const visibleBars = Math.floor(screenWidth / CANDLE_WIDTH);
+  //   const rightMargin = screenWidth * 0.1; // 10% of screen width for better margin
+  //   // Calculate position to show the very last bar with margin
+  //   const lastCandlePosition = Math.max(0, totalBars * CANDLE_WIDTH - screenWidth + rightMargin);
     
-    setScrollX(lastCandlePosition);
-    setScrollY(0);
-    setZoom(1);
-    setVerticalScale(1.6);
-    setHorizontalScale(1.5);
-  }, [data.length, CANDLE_WIDTH]);
+  //   setScrollX(lastCandlePosition);
+  //   setScrollY(0);
+  //   setZoom(1);
+  //   setVerticalScale(1.6);
+  //   setHorizontalScale(1.5);
+  // }, [data.length, CANDLE_WIDTH]);
   
 
   
@@ -560,6 +534,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
         document.removeEventListener('dragstart', (e) => e.preventDefault());
       };
     }
+    return undefined;
   }, [isDragging, handleMouseMoveGlobal, handleMouseUp]);
 
   // Add keyboard shortcuts for panning
@@ -694,7 +669,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
                   data={candle}
                   index={index}
                   width={CANDLE_WIDTH}
-                  height="100%" // Use full height
+                  height={CHART_HEIGHT} // Use full height
                   minPrice={minPrice}
                   maxPrice={maxPrice}
                   showPOC={showPOC}
@@ -709,7 +684,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
           
           {/* Crosshair */}
           {showCrosshair && (
-            <Crosshair data={crosshair} chartHeight="100%" />
+            <Crosshair data={crosshair} chartHeight={CHART_HEIGHT} />
           )}
           
           {/* Pan Indicator */}
@@ -762,4 +737,4 @@ export const FootprintChart: React.FC<FootprintChartProps> = ({
       
     </div>
   );
-};
+});

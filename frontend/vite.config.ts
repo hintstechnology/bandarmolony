@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react-swc';
+import react from '@vitejs/plugin-react';
 import path from 'path';
 
 export default defineConfig({
@@ -11,13 +11,32 @@ export default defineConfig({
     },
   },
   build: {
-    target: 'esnext',
+    target: 'ES2022',
     outDir: 'dist',
-    sourcemap: false,
+    sourcemap: true,
     minify: 'terser',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          router: ['react-router-dom'],
+          ui: ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu'],
+          charts: ['lightweight-charts', 'recharts'],
+          utils: ['clsx', 'tailwind-merge', 'sonner']
+        }
+      }
+    }
   },
   server: {
     port: 3000,
     open: true,
+    host: true
   },
+  preview: {
+    port: 3000,
+    host: true
+  },
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'react-router-dom']
+  }
 });

@@ -10,7 +10,8 @@ import { api } from '../../services/api';
 import { toast } from 'sonner';
 import { getAuthError } from '../../utils/errorHandler';
 import { setAuthState } from '../../utils/auth';
-import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../contexts/AuthContext';
+import { useToast } from '../../contexts/ToastContext';
 
 interface AuthPageProps {
   initialMode?: 'login' | 'signup';
@@ -45,7 +46,23 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
     }
   }, [searchParams]);
 
+  const { isAuthenticated, isLoading } = useAuth();
+  const { showToast } = useToast();
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
+      console.log('AuthPage: Already authenticated, redirecting to dashboard');
+      navigate('/dashboard', { replace: true });
+    }
+  }, [isAuthenticated, isLoading, navigate]);
+
   const handleAuthSuccess = () => {
+    showToast({
+      type: 'success',
+      title: 'Login Berhasil!',
+      message: 'Selamat datang kembali!',
+    });
     navigate('/dashboard'); // Redirect to dashboard
   };
 

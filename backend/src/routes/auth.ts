@@ -8,7 +8,6 @@ import { createSuccessResponse, createErrorResponse, ERROR_CODES, HTTP_STATUS } 
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import { Request, Response } from 'express';
-import crypto from 'crypto';
 
 const router = Router();
 
@@ -19,7 +18,7 @@ const upload = multer({
   limits: {
     fileSize: 1 * 1024 * 1024, // 1MB limit
   },
-  fileFilter: (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  fileFilter: (_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
     const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
     if (allowedMimes.includes(file.mimetype)) {
       cb(null, true);
@@ -30,7 +29,7 @@ const upload = multer({
 });
 
 // Multer error handling middleware
-const handleMulterError = (err: any, req: any, res: any, next: any) => {
+const handleMulterError = (err: any, _req: any, res: any, next: any) => {
   if (err instanceof multer.MulterError) {
     if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json(createErrorResponse(
@@ -276,7 +275,7 @@ router.post('/login', async (req, res) => {
             .insert({
               id: data.user.id,
               email: data.user.email,
-              full_name: data.user.user_metadata?.full_name || '',
+              full_name: data.user.user_metadata?.['full_name'] || '',
               avatar_url: null,
               email_verified: data.user.email_confirmed_at ? true : false,
               role: 'user',
@@ -327,7 +326,7 @@ router.post('/login', async (req, res) => {
       user: data.session.user
     } : null;
 
-    res.json(createSuccessResponse({
+    return res.json(createSuccessResponse({
       user: data.user,
       session: sessionData,
       profile: userProfile || null
@@ -348,7 +347,7 @@ router.post('/login', async (req, res) => {
     
     // Log unexpected errors
     console.error('Unexpected login error:', err);
-    res.status(500).json(createErrorResponse(
+    return res.status(500).json(createErrorResponse(
       'Internal server error. Please try again later',
       'INTERNAL_SERVER_ERROR',
       undefined,
@@ -374,7 +373,7 @@ router.post('/signup', async (req, res) => {
         data: {
           full_name: full_name.trim()
         },
-        emailRedirectTo: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/callback`
+        emailRedirectTo: `${process.env['FRONTEND_URL'] || 'http://localhost:3000'}/auth/verify?type=signup`
       }
     });
 
@@ -447,7 +446,7 @@ router.post('/signup', async (req, res) => {
       ? 'Account created successfully' 
       : 'Account created. Please check your email to verify your account.';
 
-    res.json(createSuccessResponse({
+    return res.json(createSuccessResponse({
       user: data.user,
       session: data.session
     }, message));
@@ -467,7 +466,7 @@ router.post('/signup', async (req, res) => {
     
     // Log unexpected errors
     console.error('Unexpected signup error:', err);
-    res.status(500).json(createErrorResponse(
+    return res.status(500).json(createErrorResponse(
       'Internal server error. Please try again later',
       'INTERNAL_SERVER_ERROR',
       undefined,
@@ -493,7 +492,7 @@ router.post('/logout', async (req, res) => {
     }
 
     // Get user info before signing out
-    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
+    const { data: { user }, error: _userError } = await supabaseAdmin.auth.getUser(token);
     
     // Sign out with Supabase Auth
     const { error } = await supabaseAdmin.auth.signOut();
@@ -510,9 +509,9 @@ router.post('/logout', async (req, res) => {
       await SessionManager.deactivateUserSessions(user.id, token);
     }
 
-    res.json({ ok: true, message: 'Logged out successfully' });
+    return res.json({ ok: true, message: 'Logged out successfully' });
   } catch (err: any) {
-    res.status(500).json({ 
+    return res.status(500).json({ 
       ok: false, 
       error: 'Internal server error' 
     });
@@ -540,14 +539,14 @@ router.post('/check-email', async (req, res) => {
     const normalizedEmail = email.toLowerCase().trim();
 
     // Check if user exists in our users table
-    const { data: userData, error: userError } = await supabaseAdmin
+    const { data: userData, error: _userError } = await supabaseAdmin
       .from('users')
       .select('id, email')
       .eq('email', normalizedEmail)
       .single();
 
-    if (userError && userError.code !== 'PGRST116') {
-      console.error('Error checking email:', userError);
+    if (_userError && _userError.code !== 'PGRST116') {
+      console.error('Error checking email:', _userError);
       return res.status(500).json(createErrorResponse(
         'Failed to check email',
         'EMAIL_CHECK_FAILED',
@@ -558,11 +557,11 @@ router.post('/check-email', async (req, res) => {
 
     const exists = !!userData;
 
-    res.json(createSuccessResponse({ exists }));
+    return res.json(createSuccessResponse({ exists }));
 
   } catch (err: any) {
     console.error('Check email error:', err);
-    res.status(500).json(createErrorResponse(
+    return res.status(500).json(createErrorResponse(
       'Internal server error',
       'INTERNAL_SERVER_ERROR',
       undefined,
@@ -583,8 +582,25 @@ router.post('/forgot-password', async (req, res) => {
     // Note: We'll let Supabase Auth handle user existence check
     // This provides better error messages and handles edge cases
 
+    // First check if user exists by querying the users table
+    const { data: userData, error: _userError } = await supabaseAdmin
+      .from('users')
+      .select('id, email')
+      .eq('email', normalizedEmail)
+      .single();
+    
+    if (_userError || !userData) {
+      console.log(`User not found for email: ${normalizedEmail}`);
+      return res.status(404).json(createErrorResponse(
+        'No account found with this email address',
+        'USER_NOT_FOUND',
+        'email',
+        404
+      ));
+    }
+
     const { error } = await supabaseAdmin.auth.resetPasswordForEmail(normalizedEmail, {
-      redirectTo: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/callback?type=recovery`
+      redirectTo: `${process.env['FRONTEND_URL'] || 'http://localhost:3000'}/auth/reset-password`
     });
 
     if (error) {
@@ -607,11 +623,6 @@ router.post('/forgot-password', async (req, res) => {
           errorMessage = 'Please enter a valid email address';
           statusCode = 400;
           break;
-        case 'User not found':
-        case 'Invalid login credentials':
-          errorMessage = 'No account found with this email address';
-          statusCode = 404;
-          break;
         default:
           errorMessage = error.message;
       }
@@ -624,9 +635,9 @@ router.post('/forgot-password', async (req, res) => {
       ));
     }
 
-    res.json(createSuccessResponse(
+    return res.json(createSuccessResponse(
       null,
-      'If an account with this email exists, a password reset link has been sent'
+      'Password reset link has been sent to your email'
     ));
   } catch (err: any) {
     if (err.name === 'ZodError') {
@@ -638,7 +649,7 @@ router.post('/forgot-password', async (req, res) => {
       ));
     }
     console.error('Forgot password error:', err);
-    res.status(500).json(createErrorResponse(
+    return res.status(500).json(createErrorResponse(
       'Internal server error. Please try again later',
       'INTERNAL_SERVER_ERROR',
       undefined,
@@ -673,7 +684,7 @@ router.post('/refresh', async (req, res) => {
       });
     }
 
-    res.json({
+    return res.json({
       ok: true,
       data: {
         user: data.user,
@@ -681,7 +692,7 @@ router.post('/refresh', async (req, res) => {
       }
     });
   } catch (err: any) {
-    res.status(500).json({ 
+    return res.status(500).json({ 
       ok: false, 
       error: 'Internal server error' 
     });
@@ -718,7 +729,7 @@ router.post('/check-attempts', async (req, res) => {
     const isSuspended = attemptData?.is_suspended || false;
     const isBlocked = !rateLimitResult.data.allowed && !isSuspended;
 
-    res.json(createSuccessResponse({
+    return res.json(createSuccessResponse({
       allowed: rateLimitResult.data.allowed,
       remainingAttempts,
       blockedUntil: rateLimitResult.data.blocked_until,
@@ -740,7 +751,7 @@ router.post('/check-attempts', async (req, res) => {
       ));
     }
     console.error('Check attempts error:', err);
-    res.status(500).json(createErrorResponse(
+    return res.status(500).json(createErrorResponse(
       'Internal server error. Please try again later',
       'INTERNAL_SERVER_ERROR',
       undefined,
@@ -813,7 +824,7 @@ router.post('/verify-email', async (req, res) => {
       }
     }
 
-    res.json(createSuccessResponse({
+    return res.json(createSuccessResponse({
       user: data.user,
       session: data.session
     }, 'Email verified successfully'));
@@ -823,12 +834,12 @@ router.post('/verify-email', async (req, res) => {
       return res.status(400).json(createErrorResponse(
         err.errors?.[0]?.message || 'Validation error',
         'VALIDATION_ERROR',
-        err.errors?.[0]?.path?.join('.') || 'unknown',
+        err.errors?.[0]?.['path']?.join('.') || 'unknown',
         400
       ));
     }
     console.error('Email verification error:', err);
-    res.status(500).json(createErrorResponse(
+    return res.status(500).json(createErrorResponse(
       'Internal server error. Please try again later',
       'INTERNAL_SERVER_ERROR',
       undefined,
@@ -888,7 +899,7 @@ router.post('/resend-verification', async (req, res) => {
       ));
     }
 
-    res.json(createSuccessResponse(
+    return res.json(createSuccessResponse(
       null,
       'Verification email sent successfully'
     ));
@@ -903,7 +914,7 @@ router.post('/resend-verification', async (req, res) => {
       ));
     }
     console.error('Resend verification error:', err);
-    res.status(500).json(createErrorResponse(
+    return res.status(500).json(createErrorResponse(
       'Internal server error. Please try again later',
       'INTERNAL_SERVER_ERROR',
       undefined,
@@ -980,7 +991,7 @@ router.post('/reset-password', async (req, res) => {
 
     // Log successful password reset
 
-    res.json(createSuccessResponse(
+    return res.json(createSuccessResponse(
       { userId: data.user.id },
       'Password has been reset successfully. You can now log in with your new password.'
     ));
@@ -990,12 +1001,12 @@ router.post('/reset-password', async (req, res) => {
       return res.status(400).json(createErrorResponse(
         err.errors?.[0]?.message || 'Validation error',
         'VALIDATION_ERROR',
-        err.errors?.[0]?.path?.join('.') || 'unknown',
+        err.errors?.[0]?.['path']?.join('.') || 'unknown',
         400
       ));
     }
     console.error('Password reset error:', err);
-    res.status(500).json(createErrorResponse(
+    return res.status(500).json(createErrorResponse(
       'Internal server error. Please try again later',
       'INTERNAL_SERVER_ERROR',
       undefined,
@@ -1016,11 +1027,25 @@ router.post('/resend-forgot-password', async (req, res) => {
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    // Note: We'll let Supabase Auth handle user existence check
-    // This provides better error messages and handles edge cases
+    // First check if user exists by querying the users table
+    const { data: userData, error: _userError } = await supabaseAdmin
+      .from('users')
+      .select('id, email')
+      .eq('email', normalizedEmail)
+      .single();
+    
+    if (_userError || !userData) {
+      console.log(`User not found for email: ${normalizedEmail}`);
+      return res.status(404).json(createErrorResponse(
+        'No account found with this email address',
+        'USER_NOT_FOUND',
+        'email',
+        404
+      ));
+    }
 
     const { error } = await supabaseAdmin.auth.resetPasswordForEmail(normalizedEmail, {
-      redirectTo: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/callback?type=recovery`
+      redirectTo: `${process.env['FRONTEND_URL'] || 'http://localhost:3000'}/auth/reset-password`
     });
 
     if (error) {
@@ -1096,9 +1121,9 @@ router.post('/upload-avatar', upload.single('avatar'), handleMulterError, async 
     }
 
     // Verify the token with Supabase
-    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
+    const { data: { user }, error: _userError } = await supabaseAdmin.auth.getUser(token);
     
-    if (userError || !user) {
+    if (_userError || !user) {
       return res.status(401).json(createErrorResponse(
         'Invalid or expired token',
         'UNAUTHORIZED',
@@ -1236,7 +1261,7 @@ router.post('/upload-avatar', upload.single('avatar'), handleMulterError, async 
     }
 
     console.log(`✅ POST /api/upload-avatar - Avatar uploaded successfully for user: ${user.id}`);
-    res.json(createSuccessResponse({
+    return res.json(createSuccessResponse({
       avatarUrl: avatarUrl,
       filePath: fullPath
     }, 'Avatar uploaded successfully'));
@@ -1263,7 +1288,7 @@ router.post('/upload-avatar', upload.single('avatar'), handleMulterError, async 
       ));
     }
     
-    res.status(500).json(createErrorResponse(
+    return res.status(500).json(createErrorResponse(
       'Internal server error. Please try again later',
       'INTERNAL_SERVER_ERROR',
       undefined,
@@ -1291,9 +1316,9 @@ router.delete('/avatar', async (req, res) => {
     }
 
     // Verify the token with Supabase
-    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
+    const { data: { user }, error: _userError } = await supabaseAdmin.auth.getUser(token);
     
-    if (userError || !user) {
+    if (_userError || !user) {
       return res.status(401).json(createErrorResponse(
         'Invalid or expired token',
         'UNAUTHORIZED',
@@ -1364,11 +1389,11 @@ router.delete('/avatar', async (req, res) => {
     }
 
     console.log(`✅ DELETE /api/avatar - Database updated for user: ${user.id}`);
-    res.json(createSuccessResponse(null, 'Avatar deleted successfully'));
+    return res.json(createSuccessResponse(null, 'Avatar deleted successfully'));
 
   } catch (err: any) {
     console.error('Delete avatar error:', err);
-    res.status(500).json(createErrorResponse(
+    return res.status(500).json(createErrorResponse(
       'Internal server error. Please try again later',
       'INTERNAL_SERVER_ERROR',
       undefined,
@@ -1396,9 +1421,9 @@ router.get('/sessions', async (req, res) => {
     }
 
     // Verify the token with Supabase
-    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
+    const { data: { user }, error: _userError } = await supabaseAdmin.auth.getUser(token);
     
-    if (userError || !user) {
+    if (_userError || !user) {
       return res.status(401).json(createErrorResponse(
         'Invalid or expired token',
         'UNAUTHORIZED',
@@ -1410,14 +1435,14 @@ router.get('/sessions', async (req, res) => {
     // Get active sessions
     const sessions = await SessionTracker.getUserActiveSessions(user.id);
 
-    res.json(createSuccessResponse({
+    return res.json(createSuccessResponse({
       sessions,
       count: sessions.length
     }, 'Sessions retrieved successfully'));
 
   } catch (err: any) {
     console.error('Get sessions error:', err);
-    res.status(500).json(createErrorResponse(
+    return res.status(500).json(createErrorResponse(
       'Internal server error. Please try again later',
       'INTERNAL_SERVER_ERROR',
       undefined,
@@ -1445,9 +1470,9 @@ router.delete('/sessions/:sessionId', async (req, res) => {
     }
 
     // Verify the token with Supabase
-    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
+    const { data: { user }, error: _userError } = await supabaseAdmin.auth.getUser(token);
     
-    if (userError || !user) {
+    if (_userError || !user) {
       return res.status(401).json(createErrorResponse(
         'Invalid or expired token',
         'UNAUTHORIZED',
@@ -1478,11 +1503,11 @@ router.delete('/sessions/:sessionId', async (req, res) => {
       ));
     }
 
-    res.json(createSuccessResponse(null, 'Session deactivated successfully'));
+    return res.json(createSuccessResponse(null, 'Session deactivated successfully'));
 
   } catch (err: any) {
     console.error('Deactivate session error:', err);
-    res.status(500).json(createErrorResponse(
+    return res.status(500).json(createErrorResponse(
       'Internal server error. Please try again later',
       'INTERNAL_SERVER_ERROR',
       undefined,
@@ -1510,9 +1535,9 @@ router.delete('/sessions/all', async (req, res) => {
     }
 
     // Verify the token with Supabase
-    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
+    const { data: { user }, error: _userError } = await supabaseAdmin.auth.getUser(token);
     
-    if (userError || !user) {
+    if (_userError || !user) {
       return res.status(401).json(createErrorResponse(
         'Invalid or expired token',
         'UNAUTHORIZED',
@@ -1524,11 +1549,11 @@ router.delete('/sessions/all', async (req, res) => {
     // Deactivate all sessions
     await SessionManager.deactivateUserSessions(user.id);
 
-    res.json(createSuccessResponse(null, 'All sessions deactivated successfully'));
+    return res.json(createSuccessResponse(null, 'All sessions deactivated successfully'));
 
   } catch (err: any) {
     console.error('Deactivate all sessions error:', err);
-    res.status(500).json(createErrorResponse(
+    return res.status(500).json(createErrorResponse(
       'Internal server error. Please try again later',
       'INTERNAL_SERVER_ERROR',
       undefined,
@@ -1566,9 +1591,9 @@ router.post('/reset-password', async (req, res) => {
     const token = authHeader.substring(7);
 
     // Verify the token and get user
-    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
+    const { data: { user }, error: _userError } = await supabaseAdmin.auth.getUser(token);
     
-    if (userError || !user) {
+    if (_userError || !user) {
       return res.status(HTTP_STATUS.UNAUTHORIZED).json(createErrorResponse(
         'Token tidak valid atau telah expired',
         ERROR_CODES.UNAUTHORIZED,
@@ -1593,18 +1618,140 @@ router.post('/reset-password', async (req, res) => {
     }
 
 
-    res.json(createSuccessResponse(
+    return res.json(createSuccessResponse(
       { message: 'Password berhasil diubah' },
       'Password berhasil diubah'
     ));
 
   } catch (error) {
     console.error('Reset password error:', error);
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Terjadi kesalahan server',
       ERROR_CODES.INTERNAL_SERVER_ERROR,
       undefined,
       HTTP_STATUS.INTERNAL_SERVER_ERROR
+    ));
+  }
+});
+
+/**
+ * POST /api/auth/change-password
+ * Change password for authenticated user
+ */
+router.post('/change-password', async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = z.object({
+      currentPassword: z.string().min(1, 'Current password is required'),
+      newPassword: z.string().min(6, 'New password must be at least 6 characters')
+    }).parse(req.body);
+
+    // Get user from session
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json(createErrorResponse(
+        'No valid session found',
+        'UNAUTHORIZED',
+        undefined,
+        401
+      ));
+    }
+
+    const token = authHeader.split(' ')[1];
+    const { data: { user }, error: _userError } = await supabaseAdmin.auth.getUser(token);
+    
+    if (_userError || !user) {
+      return res.status(401).json(createErrorResponse(
+        'Invalid session',
+        'UNAUTHORIZED',
+        undefined,
+        401
+      ));
+    }
+
+    // Verify current password by attempting to sign in
+    const { error: signInError } = await supabaseAdmin.auth.signInWithPassword({
+      email: user.email!,
+      password: currentPassword
+    });
+
+    if (signInError) {
+      return res.status(400).json(createErrorResponse(
+        'Current password is incorrect',
+        'INVALID_PASSWORD',
+        'currentPassword',
+        400
+      ));
+    }
+
+    // Check if new password is same as current password
+    if (currentPassword === newPassword) {
+      return res.status(400).json(createErrorResponse(
+        'New password must be different from current password',
+        'SAME_PASSWORD',
+        'newPassword',
+        400
+      ));
+    }
+
+    // Update password
+    const { error: updateError } = await supabaseAdmin.auth.updateUser({
+      password: newPassword
+    });
+
+    if (updateError) {
+      console.error('Password update error:', updateError);
+      
+      // Handle specific Supabase errors
+      if (updateError.message?.includes('same_password')) {
+        return res.status(400).json(createErrorResponse(
+          'New password must be different from current password',
+          'SAME_PASSWORD',
+          'newPassword',
+          400
+        ));
+      }
+      
+      if (updateError.message?.includes('Password should be at least')) {
+        return res.status(400).json(createErrorResponse(
+          'Password must be at least 6 characters',
+          'PASSWORD_TOO_SHORT',
+          'newPassword',
+          400
+        ));
+      }
+
+      return res.status(400).json(createErrorResponse(
+        updateError.message || 'Failed to update password',
+        'UPDATE_FAILED',
+        'newPassword',
+        400
+      ));
+    }
+
+    return res.json(createSuccessResponse(
+      { message: 'Password changed successfully' },
+      'Password changed successfully'
+    ));
+
+  } catch (error: any) {
+    console.error('Change password error:', error);
+    
+    // Handle Zod validation errors
+    if (error.name === 'ZodError') {
+      const firstError = error.errors[0];
+      return res.status(400).json(createErrorResponse(
+        firstError.message,
+        'VALIDATION_ERROR',
+        firstError.path[0],
+        400
+      ));
+    }
+    
+    return res.status(500).json(createErrorResponse(
+      'Internal server error',
+      'INTERNAL_SERVER_ERROR',
+      undefined,
+      500
     ));
   }
 });

@@ -47,9 +47,17 @@ export function ForgotPasswordForm({ onSwitchToLogin, onForgotPassword }: Forgot
     
     try {
       const result = await onForgotPassword(email);
-      if (result && typeof result === 'object' && 'success' in result && result.success) {
-        setEmailSent(true);
-        setResendCooldown(60); // 60 seconds cooldown
+      if (result && typeof result === 'object' && 'success' in result) {
+        if (result.success) {
+          setEmailSent(true);
+          setResendCooldown(60); // 60 seconds cooldown
+          toast.success(result.message || 'Password reset email sent successfully!');
+        } else {
+          // Handle error case
+          const errorMessage = result.error || 'Failed to send password reset email';
+          setError(errorMessage);
+          toast.error(errorMessage);
+        }
       }
     } catch (error: any) {
       const errorMessage = error.message || 'Something went wrong. Please try again.';
@@ -221,7 +229,6 @@ export function ForgotPasswordForm({ onSwitchToLogin, onForgotPassword }: Forgot
             }}
             className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 focus:border-blue-400 dark:focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-600 dark:placeholder:text-gray-400 focus:placeholder:opacity-0 pl-3"
           />
-          {error && <p className="text-sm text-red-500">{error}</p>}
         </div>
 
         <Button 

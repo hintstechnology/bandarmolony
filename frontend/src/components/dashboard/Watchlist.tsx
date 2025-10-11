@@ -1,0 +1,298 @@
+import React, { useState, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { TrendingUp, TrendingDown, Star, Search, X } from 'lucide-react';
+
+// Extended stock data with more companies
+const allStocksData = [
+  {
+    symbol: "BBRI",
+    name: "Bank Rakyat Indonesia",
+    price: 4650,
+    change: 50,
+    changePercent: 1.09,
+  },
+  {
+    symbol: "BBCA",
+    name: "Bank Central Asia",
+    price: 9150,
+    change: -25,
+    changePercent: -0.27,
+  },
+  {
+    symbol: "BMRI",
+    name: "Bank Mandiri",
+    price: 5675,
+    change: 75,
+    changePercent: 1.34,
+  },
+  {
+    symbol: "BBNI",
+    name: "Bank Negara Indonesia",
+    price: 4850,
+    change: 30,
+    changePercent: 0.62,
+  },
+  {
+    symbol: "TLKM",
+    name: "Telkom Indonesia",
+    price: 3580,
+    change: -20,
+    changePercent: -0.56,
+  },
+  {
+    symbol: "ASII",
+    name: "Astra International",
+    price: 5200,
+    change: 100,
+    changePercent: 1.96,
+  },
+  {
+    symbol: "UNVR",
+    name: "Unilever Indonesia",
+    price: 2850,
+    change: -15,
+    changePercent: -0.52,
+  },
+  {
+    symbol: "GGRM",
+    name: "Gudang Garam",
+    price: 18500,
+    change: 200,
+    changePercent: 1.09,
+  },
+  {
+    symbol: "ICBP",
+    name: "Indofood CBP Sukses Makmur",
+    price: 10250,
+    change: -50,
+    changePercent: -0.49,
+  },
+  {
+    symbol: "INDF",
+    name: "Indofood Sukses Makmur",
+    price: 6250,
+    change: 75,
+    changePercent: 1.22,
+  },
+  {
+    symbol: "KLBF",
+    name: "Kalbe Farma",
+    price: 1850,
+    change: 25,
+    changePercent: 1.37,
+  },
+  {
+    symbol: "ADRO",
+    name: "Adaro Energy",
+    price: 3250,
+    change: -40,
+    changePercent: -1.22,
+  },
+  {
+    symbol: "ANTM",
+    name: "Aneka Tambang",
+    price: 1250,
+    change: 15,
+    changePercent: 1.22,
+  },
+  {
+    symbol: "ITMG",
+    name: "Indo Tambangraya Megah",
+    price: 28500,
+    change: -300,
+    changePercent: -1.04,
+  },
+  {
+    symbol: "PTBA",
+    name: "Bukit Asam",
+    price: 3250,
+    change: 50,
+    changePercent: 1.56,
+  },
+  {
+    symbol: "SMGR",
+    name: "Semen Indonesia",
+    price: 4250,
+    change: -25,
+    changePercent: -0.58,
+  },
+  {
+    symbol: "INTP",
+    name: "Indocement Tunggal Prakarsa",
+    price: 12500,
+    change: 100,
+    changePercent: 0.81,
+  },
+  {
+    symbol: "WIKA",
+    name: "Wijaya Karya",
+    price: 850,
+    change: -5,
+    changePercent: -0.58,
+  },
+  {
+    symbol: "WSKT",
+    name: "Waskita Karya",
+    price: 450,
+    change: 10,
+    changePercent: 2.27,
+  },
+  {
+    symbol: "PGAS",
+    name: "Perusahaan Gas Negara",
+    price: 1850,
+    change: -20,
+    changePercent: -1.07,
+  },
+];
+
+interface WatchlistProps {
+  selectedStock: string;
+  onStockSelect: (symbol: string) => void;
+}
+
+export function Watchlist({ selectedStock, onStockSelect }: WatchlistProps) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [favorites, setFavorites] = useState<string[]>(() => {
+    // Load favorites from localStorage
+    const saved = localStorage.getItem('watchlist-favorites');
+    return saved ? JSON.parse(saved) : ['BBRI', 'BBCA', 'BMRI'];
+  });
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+
+  // Save favorites to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('watchlist-favorites', JSON.stringify(favorites));
+  }, [favorites]);
+
+  const toggleFavorite = (symbol: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent stock selection when clicking star
+    setFavorites(prev => 
+      prev.includes(symbol) 
+        ? prev.filter(fav => fav !== symbol)
+        : [...prev, symbol]
+    );
+  };
+
+  const filteredStocks = allStocksData.filter(stock => {
+    const matchesSearch = stock.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         stock.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesFavorites = showFavoritesOnly ? favorites.includes(stock.symbol) : true;
+    return matchesSearch && matchesFavorites;
+  });
+
+  // Sort: favorites first, then by symbol
+  const sortedStocks = filteredStocks.sort((a, b) => {
+    const aIsFavorite = favorites.includes(a.symbol);
+    const bIsFavorite = favorites.includes(b.symbol);
+    
+    if (aIsFavorite && !bIsFavorite) return -1;
+    if (!aIsFavorite && bIsFavorite) return 1;
+    return a.symbol.localeCompare(b.symbol);
+  });
+
+  return (
+    <Card className="h-full flex flex-col">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center justify-between mb-3">
+          <span>Watchlist</span>
+          <Button
+            variant={showFavoritesOnly ? "default" : "outline"}
+            size="sm"
+            onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
+            className="flex items-center gap-1"
+          >
+            <Star className={`w-4 h-4 ${showFavoritesOnly ? 'fill-current' : ''}`} />
+            {favorites.length}
+          </Button>
+        </CardTitle>
+        
+        {/* Search Bar */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
+          <input
+            type="text"
+            placeholder="Search stocks..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-8 py-2 border border-border rounded-md bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </CardHeader>
+      
+      <CardContent className="flex-1 overflow-y-auto pb-4">
+        <div className="space-y-2">
+          {sortedStocks.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <p>No stocks found</p>
+              {searchQuery && (
+                <p className="text-sm">Try adjusting your search</p>
+              )}
+            </div>
+          ) : (
+            sortedStocks.map((stock) => (
+              <div 
+                key={stock.symbol} 
+                className={`
+                  flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all duration-200 hover:shadow-md
+                  ${selectedStock === stock.symbol 
+                    ? 'border-primary bg-primary/5 shadow-sm' 
+                    : 'border-border hover:border-primary/50'
+                  }
+                `}
+                onClick={() => onStockSelect(stock.symbol)}
+              >
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <button
+                      onClick={(e) => toggleFavorite(stock.symbol, e)}
+                      className="hover:scale-110 transition-transform"
+                    >
+                      <Star 
+                        className={`w-4 h-4 ${
+                          favorites.includes(stock.symbol) 
+                            ? 'fill-yellow-400 text-yellow-400' 
+                            : 'text-muted-foreground hover:text-yellow-400'
+                        }`} 
+                      />
+                    </button>
+                    <span className={`font-medium ${selectedStock === stock.symbol ? 'text-primary' : 'text-card-foreground'}`}>
+                      {stock.symbol}
+                    </span>
+                    <Badge variant={stock.changePercent > 0 ? 'default' : 'destructive'} className="text-xs flex items-center gap-1">
+                      {stock.changePercent > 0 ? (
+                        <TrendingUp className="w-3 h-3" />
+                      ) : (
+                        <TrendingDown className="w-3 h-3" />
+                      )}
+                      {Math.abs(stock.changePercent)}%
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground truncate">{stock.name}</p>
+                </div>
+                <div className="text-right">
+                  <p className={`font-medium ${selectedStock === stock.symbol ? 'text-primary' : 'text-card-foreground'}`}>
+                    {stock.price.toLocaleString()}
+                  </p>
+                  <p className={`text-sm ${stock.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {stock.change >= 0 ? '+' : ''}{stock.change}
+                  </p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

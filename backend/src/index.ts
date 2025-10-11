@@ -1,6 +1,5 @@
 import express from 'express';
 import cors from 'cors';
-import 'dotenv/config';
 import config from './config';
 import healthRoutes from './routes/health';
 import demoRoutes from './routes/demo';
@@ -24,7 +23,6 @@ const allowedOrigins = config.CORS_ORIGIN
   : [
       'http://localhost:3000',
       'http://localhost:5173',
-      'https://bandarmolony.hintstechnology.com',
       'https://bandarmolony.com',
       'https://www.bandarmolony.com',
       'https://bandarmolony-frontend.proudforest-3316dee8.eastus.azurecontainerapps.io',
@@ -68,7 +66,7 @@ app.get('/me', requireSupabaseUser, (req: any, res) => {
 });
 
 // Error handling middleware
-app.use((err: any, req: any, res: any, next: any) => {
+app.use((err: any, _req: any, res: any, _next: any) => {
   console.error('Server error:', err);
   res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
     'Internal server error',
@@ -79,7 +77,7 @@ app.use((err: any, req: any, res: any, next: any) => {
 });
 
 // 404 handler (Express 5 compatible)
-app.use((req, res) => {
+app.use((_req, res) => {
   res.status(HTTP_STATUS.NOT_FOUND).json(createErrorResponse(
     'Route not found',
     ERROR_CODES.NOT_FOUND,

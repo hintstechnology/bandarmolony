@@ -1,56 +1,54 @@
 import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
-import { ThemeProvider } from "./components/ThemeProvider";
-import { ProfileProvider, useProfile } from "./contexts/ProfileContext";
+import { ThemeProvider } from "./components/dashboard/ThemeProvider";
+import { AuthProvider } from "./contexts/AuthContext";
+import { ProfileProvider } from "./contexts/ProfileContext";
+import { ToastProvider } from "./contexts/ToastContext";
+import { ConfirmationProvider } from "./contexts/ConfirmationContext";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { useNavigation } from "./hooks/useNavigation";
 import { AuthPage } from "./components/auth/AuthPage";
 import { EmailVerificationHandler } from "./components/auth/EmailVerificationHandler";
 import { SupabaseRedirectHandler } from "./components/auth/SupabaseRedirectHandler";
 import { ResetPasswordPage } from "./components/auth/ResetPasswordPage";
-import { ProtectedRoute } from "./components/ProtectedRoute";
-import { PublicRoute } from "./components/PublicRoute";
-import { Sidebar } from "./components/Sidebar";
-import { ThemeToggle } from "./components/ThemeToggle";
+import { ProtectedRoute } from "./components/dashboard/ProtectedRoute";
+import { PublicRoute } from "./components/dashboard/PublicRoute";
+import { Sidebar } from "./components/dashboard/Sidebar";
+import { ThemeToggle } from "./components/dashboard/ThemeToggle";
 import { Avatar, AvatarFallback, AvatarImage } from "./components/ui/avatar";
 import { User, Home, ChevronRight, ChevronDown } from "lucide-react";
 // Import all dashboard components
-import { MarketRotationRRG } from "./components/MarketRotationRRG";
-import { MarketRotationRRC } from "./components/MarketRotationRRC";
-import { MarketRotationSeasonality } from "./components/MarketRotationSeasonality";
-import { MarketRotationTrendFilter } from "./components/MarketRotationTrendFilter";
-import { BrokerTransaction } from "./components/BrokerTransaction";
-import { BrokerSummaryPage } from "./components/BrokerSummaryPage";
-import { BrokerInventoryPage } from "./components/BrokerInventoryPage";
-import { StockTransactionDoneSummary } from "./components/StockTransactionDoneSummary";
-import { StockTransactionDoneDetail } from "./components/StockTransactionDoneDetail";
-import { StoryAccumulationDistribution } from "./components/StoryAccumulationDistribution";
-import { StoryMarketParticipant } from "./components/StoryMarketParticipant";
-import { StoryOwnership } from "./components/StoryOwnership";
-import { StoryForeignFlow } from "./components/StoryForeignFlow";
-import { AstrologyLunarCalendar } from "./components/AstrologyLunarCalendar";
-import { TechnicalAnalysis } from "./components/TechnicalAnalysis";
-import { TechnicalAnalysisTradingView } from "./components/TechnicalAnalysisTradingView";
-import { ProfilePage } from "./components/ProfilePage";
-import { SubscriptionPage } from "./components/SubscriptionPage";
-import { AdminPage } from "./components/AdminPage";
-import { Dashboard } from "./components/Dashboard";
-import { LandingPage } from "./components/LandingPage";
-import { SubscriptionSuccess } from "./pages/SubscriptionSuccess";
-import { SubscriptionError } from "./pages/SubscriptionError";
-import { SubscriptionPending } from "./pages/SubscriptionPending";
+import { MarketRotationRRG } from "./components/market-rotation/MarketRotationRRG";
+import { MarketRotationRRC } from "./components/market-rotation/MarketRotationRRC";
+import { MarketRotationSeasonality } from "./components/market-rotation/MarketRotationSeasonality";
+import { MarketRotationTrendFilter } from "./components/market-rotation/MarketRotationTrendFilter";
+import { BrokerTransaction } from "./components/broker-activity/BrokerTransaction";
+import { BrokerSummaryPage } from "./components/broker-activity/BrokerSummaryPage";
+import { BrokerInventoryPage } from "./components/broker-activity/BrokerInventoryPage";
+import { StockTransactionDoneSummary } from "./components/stock-transaction/StockTransactionDoneSummary";
+import { StockTransactionDoneDetail } from "./components/stock-transaction/StockTransactionDoneDetail";
+import { StoryAccumulationDistribution } from "./components/story/StoryAccumulationDistribution";
+import { StoryMarketParticipant } from "./components/story/StoryMarketParticipant";
+import { StoryOwnership } from "./components/story/StoryOwnership";
+import { StoryForeignFlow } from "./components/story/StoryForeignFlow";
+import { AstrologyLunarCalendar } from "./components/astrology/AstrologyLunarCalendar";
+import { TechnicalAnalysis } from "./components/technical-analysis/TechnicalAnalysis";
+import { TechnicalAnalysisTradingView } from "./components/technical-analysis/TechnicalAnalysisTradingView";
+import { ProfilePage } from "./components/profile/ProfilePage";
+import { SubscriptionPage } from "./components/subscription/SubscriptionPage";
+import { AdminPage } from "./components/admin/AdminPage";
+import { Dashboard } from "./components/dashboard/Dashboard";
+import { LandingPage } from "./components/dashboard/LandingPage";
+import { SubscriptionSuccess } from "./components/subscription/SubscriptionSuccess";
+import { SubscriptionError } from "./components/subscription/SubscriptionError";
+import { SubscriptionPending } from "./components/subscription/SubscriptionPending";
 
 // Dashboard Layout Component
 function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const { profile, isLoading } = useProfile();
+  const { profile, isLoading } = useNavigation();
   const location = useLocation();
   const navigate = useNavigate();
-
-  // Redirect to auth if no profile and not loading
-  useEffect(() => {
-    if (!isLoading && !profile) {
-      navigate('/auth', { replace: true });
-    }
-  }, [profile, isLoading, navigate]);
 
   // Show loading while profile is being fetched
   if (isLoading) {
@@ -83,9 +81,12 @@ function DashboardLayout() {
 
   const currentRoute = getCurrentRoute();
 
-  // Handle profile click
+  // Handle profile click with debounce
   const handleProfileClick = () => {
-    navigate('/profile');
+    // Prevent rapid navigation
+    if (location.pathname !== '/profile') {
+      navigate('/profile');
+    }
   };
 
   // Render main content based on route
@@ -207,14 +208,6 @@ function DashboardLayout() {
           </div>
           
           <div className="flex items-center gap-3">
-            {/* Notifications */}
-            <button className="relative p-1.5 rounded-md hover:bg-accent hover:text-accent-foreground active:bg-accent/80 transition-all duration-200 group">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-              </svg>
-              <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-            </button>
-            
             {/* Theme Toggle */}
             <ThemeToggle />
             
@@ -257,17 +250,43 @@ function DashboardLayout() {
 export default function App() {
   return (
     <ThemeProvider>
-      <ProfileProvider>
-        <Router>
-          <Routes>
+      <ToastProvider>
+        <ConfirmationProvider>
+          <AuthProvider>
+            <ProfileProvider>
+              <Router>
+                <ErrorBoundary>
+                  <Routes>
             {/* Landing page - public route */}
             <Route 
               path="/" 
               element={
                 <LandingPage 
-                  onStartTrial={() => window.location.href = '/auth?mode=register'} 
-                  onSignIn={() => window.location.href = '/auth?mode=login'}
-                  onRegister={() => window.location.href = '/auth?mode=register'}
+                  onStartTrial={() => {
+                    // Use navigate instead of window.location.href
+                    const navigate = (window as any).navigate;
+                    if (navigate) {
+                      navigate('/auth?mode=register');
+                    } else {
+                      window.location.href = '/auth?mode=register';
+                    }
+                  }} 
+                  onSignIn={() => {
+                    const navigate = (window as any).navigate;
+                    if (navigate) {
+                      navigate('/auth?mode=login');
+                    } else {
+                      window.location.href = '/auth?mode=login';
+                    }
+                  }}
+                  onRegister={() => {
+                    const navigate = (window as any).navigate;
+                    if (navigate) {
+                      navigate('/auth?mode=register');
+                    } else {
+                      window.location.href = '/auth?mode=register';
+                    }
+                  }}
                 />
               } 
             />
@@ -287,7 +306,7 @@ export default function App() {
             {/* Password reset page */}
             <Route 
               path="/auth/reset-password" 
-              element={<ResetPasswordPage />} 
+              element={<ResetPasswordPage key={window.location.search} />} 
             />
             
             {/* Public routes - redirect to dashboard if authenticated */}
@@ -391,9 +410,13 @@ export default function App() {
               path="/subscription/pending" 
               element={<SubscriptionPending />} 
             />
-          </Routes>
-        </Router>
-      </ProfileProvider>
+                  </Routes>
+                </ErrorBoundary>
+              </Router>
+            </ProfileProvider>
+          </AuthProvider>
+        </ConfirmationProvider>
+      </ToastProvider>
     </ThemeProvider>
   );
 }

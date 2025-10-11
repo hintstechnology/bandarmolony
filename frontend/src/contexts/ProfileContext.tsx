@@ -1,8 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { ProfileData, api } from '../services/api';
-import { supabase } from '../lib/supabase';
 import { getAvatarUrl } from '../utils/avatar';
-import { useTabFocus } from '../hooks/useTabFocus';
+import { useAuth } from './AuthContext';
 
 interface ProfileContextType {
   profile: ProfileData | null;
@@ -27,39 +26,49 @@ interface ProfileProviderProps {
 }
 
 export function ProfileProvider({ children }: ProfileProviderProps) {
+  const { user, isAuthenticated } = useAuth();
   const [profile, setProfile] = useState<ProfileData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [lastFetchTime, setLastFetchTime] = useState<number>(0);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const refreshProfile = async (showLoading = false) => {
+  const refreshProfile = async () => {
+    if (!isAuthenticated || !user) {
+      console.log('ProfileContext: No user, clearing profile');
+      setProfile(null);
+      return;
+    }
+
     try {
-      if (showLoading) {
-        setIsLoading(true);
-      }
+      console.log('ProfileContext: Refreshing profile...');
+      setIsLoading(true);
       
-      console.log('🔄 ProfileContext: Refreshing profile...');
       const response = await api.getProfile();
       
       if (response) {
         setProfile(response);
-        setLastFetchTime(Date.now());
+        console.log('ProfileContext: Profile refreshed successfully');
       } else {
+        console.log('ProfileContext: No profile data received');
         setProfile(null);
       }
     } catch (error: any) {
-      console.error('❌ ProfileContext: Error refreshing profile:', error);
+      console.error('ProfileContext: Error refreshing profile:', error);
       
-      // Don't clear profile on timeout errors, just log them
-      if (error.message?.includes('timeout') || error.message?.includes('Request timeout')) {
-        console.warn('⚠️ ProfileContext: Request timeout, keeping existing profile');
+      // Handle different error types
+      if (error.message?.includes('Session expired') || error.message?.includes('401')) {
+        console.log('ProfileContext: Session expired, clearing profile');
+        setProfile(null);
+      } else if (error.message?.includes('timeout') || error.message?.includes('Request timeout')) {
+        console.warn('ProfileContext: Request timeout, keeping existing profile');
         // Keep existing profile data
+      } else if (error.message?.includes('No active session') || error.message?.includes('No access token')) {
+        console.log('ProfileContext: No valid session, clearing profile');
+        setProfile(null);
       } else {
+        console.log('ProfileContext: Other error, clearing profile');
         setProfile(null);
       }
     } finally {
-      if (showLoading) {
-        setIsLoading(false);
-      }
+      setIsLoading(false);
     }
   };
 
@@ -83,54 +92,19 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
   const clearProfile = () => {
     setProfile(null);
     setIsLoading(false);
-    setLastFetchTime(0);
   };
 
+  // Refresh profile when authentication state changes
   useEffect(() => {
-    // Listen for auth state changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) {
-        // Only refresh if we don't have profile data yet
-        if (!profile) {
-          refreshProfile(true);
-        }
-      } else if (event === 'SIGNED_OUT') {
-        clearProfile();
+    if (isAuthenticated && user) {
+      // Only refresh if we don't have profile data yet
+      if (!profile) {
+        refreshProfile();
       }
-    });
-
-    // Check if user is already signed in (page refresh)
-    const checkInitialSession = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
-          // Only show loading on initial page load if no profile data
-          if (!profile) {
-            refreshProfile(true);
-          } else {
-            setIsLoading(false);
-          }
-        } else {
-          setIsLoading(false);
-        }
-      } catch (error) {
-        setIsLoading(false);
-      }
-    };
-
-    checkInitialSession();
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [profile]); // Add profile as dependency to prevent unnecessary refreshes
-
-  // Use tab focus hook to prevent unnecessary refreshes
-  useTabFocus(() => {
-    if (profile) {
-      refreshProfile(false); // Silent refresh
+    } else {
+      clearProfile();
     }
-  }, 5 * 60 * 1000, lastFetchTime); // 5 minutes stale time
+  }, [isAuthenticated]); // Remove user dependency to prevent unnecessary refreshes
 
   const value: ProfileContextType = {
     profile,
