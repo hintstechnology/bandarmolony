@@ -60,7 +60,7 @@ const BrokerInventoryChart = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
 
-  // Get theme-aware colors
+  // Get theme-aware colors 
   const getThemeColors = () => {
     const isDark = document.documentElement.classList.contains('dark');
     return {
