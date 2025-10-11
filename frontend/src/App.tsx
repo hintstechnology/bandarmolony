@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { ThemeProvider } from "./components/ThemeProvider";
-import { ProfileProvider, useProfile } from "./contexts/ProfileContext";
+import { AuthProvider } from "./contexts/AuthContext";
+import { ProfileProvider } from "./contexts/ProfileContext";
+import { useNavigation } from "./hooks/useNavigation";
 import { AuthPage } from "./components/auth/AuthPage";
 import { EmailVerificationHandler } from "./components/auth/EmailVerificationHandler";
 import { SupabaseRedirectHandler } from "./components/auth/SupabaseRedirectHandler";
@@ -41,16 +43,9 @@ import { SubscriptionPending } from "./pages/SubscriptionPending";
 // Dashboard Layout Component
 function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const { profile, isLoading } = useProfile();
+  const { profile, isLoading } = useNavigation();
   const location = useLocation();
   const navigate = useNavigate();
-
-  // Redirect to auth if no profile and not loading
-  useEffect(() => {
-    if (!isLoading && !profile) {
-      navigate('/auth', { replace: true });
-    }
-  }, [profile, isLoading, navigate]);
 
   // Show loading while profile is being fetched
   if (isLoading) {
@@ -83,9 +78,12 @@ function DashboardLayout() {
 
   const currentRoute = getCurrentRoute();
 
-  // Handle profile click
+  // Handle profile click with debounce
   const handleProfileClick = () => {
-    navigate('/profile');
+    // Prevent rapid navigation
+    if (location.pathname !== '/profile') {
+      navigate('/profile');
+    }
   };
 
   // Render main content based on route
@@ -249,17 +247,40 @@ function DashboardLayout() {
 export default function App() {
   return (
     <ThemeProvider>
-      <ProfileProvider>
-        <Router>
+      <AuthProvider>
+        <ProfileProvider>
+          <Router>
           <Routes>
             {/* Landing page - public route */}
             <Route 
               path="/" 
               element={
                 <LandingPage 
-                  onStartTrial={() => window.location.href = '/auth?mode=register'} 
-                  onSignIn={() => window.location.href = '/auth?mode=login'}
-                  onRegister={() => window.location.href = '/auth?mode=register'}
+                  onStartTrial={() => {
+                    // Use navigate instead of window.location.href
+                    const navigate = (window as any).navigate;
+                    if (navigate) {
+                      navigate('/auth?mode=register');
+                    } else {
+                      window.location.href = '/auth?mode=register';
+                    }
+                  }} 
+                  onSignIn={() => {
+                    const navigate = (window as any).navigate;
+                    if (navigate) {
+                      navigate('/auth?mode=login');
+                    } else {
+                      window.location.href = '/auth?mode=login';
+                    }
+                  }}
+                  onRegister={() => {
+                    const navigate = (window as any).navigate;
+                    if (navigate) {
+                      navigate('/auth?mode=register');
+                    } else {
+                      window.location.href = '/auth?mode=register';
+                    }
+                  }}
                 />
               } 
             />
@@ -279,7 +300,7 @@ export default function App() {
             {/* Password reset page */}
             <Route 
               path="/auth/reset-password" 
-              element={<ResetPasswordPage />} 
+              element={<ResetPasswordPage key={window.location.search} />} 
             />
             
             {/* Public routes - redirect to dashboard if authenticated */}
@@ -385,7 +406,8 @@ export default function App() {
             />
           </Routes>
         </Router>
-      </ProfileProvider>
+        </ProfileProvider>
+      </AuthProvider>
     </ThemeProvider>
   );
 }

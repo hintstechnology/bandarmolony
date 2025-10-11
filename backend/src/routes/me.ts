@@ -17,6 +17,7 @@ router.get('/', requireSupabaseUser, async (req: any, res) => {
     const userEmail = req.user.email as string;
     
     console.log(`📋 GET /api/me - User: ${userId}, Email: ${userEmail}`);
+    console.log(`📋 GET /api/me - User data:`, req.user);
 
 
     // Fetch user profile (should exist due to trigger)
@@ -54,6 +55,7 @@ router.get('/', requireSupabaseUser, async (req: any, res) => {
       .eq('id', userId);
 
     console.log(`📤 GET /api/me - Sending response for user: ${userId}`);
+    console.log(`📤 GET /api/me - Response data:`, data);
     res.json(createSuccessResponse(data));
   } catch (err: any) {
     console.error('GET /api/me error:', err);
@@ -200,7 +202,22 @@ router.put('/', requireSupabaseUser, async (req: any, res) => {
     }
 
     console.log(`📤 PUT /api/me - Sending response for user: ${userId}`);
-    res.json(createSuccessResponse(updatedProfile, 'Profile updated successfully'));
+    
+    // Ensure we return consistent profile data structure
+    const responseData = {
+      id: updatedProfile.id,
+      email: updatedProfile.email,
+      full_name: updatedProfile.full_name,
+      avatar_url: updatedProfile.avatar_url,
+      role: updatedProfile.role,
+      is_active: updatedProfile.is_active,
+      email_verified: updatedProfile.email_verified,
+      last_login_at: updatedProfile.last_login_at,
+      created_at: updatedProfile.created_at,
+      updated_at: updatedProfile.updated_at
+    };
+    
+    res.json(createSuccessResponse(responseData, 'Profile updated successfully'));
 
   } catch (err: any) {
     console.error('PUT /api/me error:', err);

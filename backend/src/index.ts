@@ -24,7 +24,6 @@ const allowedOrigins = config.CORS_ORIGIN
   : [
       'http://localhost:3000',
       'http://localhost:5173',
-      'https://bandarmolony.hintstechnology.com',
       'https://bandarmolony.com',
       'https://www.bandarmolony.com',
       'https://bandarmolony-frontend.proudforest-3316dee8.eastus.azurecontainerapps.io',

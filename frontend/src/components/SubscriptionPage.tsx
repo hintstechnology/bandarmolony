@@ -446,9 +446,11 @@ export function SubscriptionPage() {
               }
               toast.success('Payment berhasil! Subscription Anda telah diaktifkan.');
               setHasActivePayment(false);
-              // Refresh status immediately
-              loadSubscriptionStatus();
-              loadPaymentActivity();
+              // Refresh status with delay to prevent race conditions
+              setTimeout(() => {
+                loadSubscriptionStatus();
+                loadPaymentActivity();
+              }, 1000);
             },
             onPending: (result: any) => {
               console.log('Payment pending:', result);
@@ -458,9 +460,11 @@ export function SubscriptionPage() {
               }
               toast.info('Payment sedang diproses. Silakan tunggu konfirmasi.');
               setHasActivePayment(true);
-              // Refresh status immediately
-              loadSubscriptionStatus();
-              loadPaymentActivity();
+              // Refresh status with delay to prevent race conditions
+              setTimeout(() => {
+                loadSubscriptionStatus();
+                loadPaymentActivity();
+              }, 1000);
             },
             onError: (result: any) => {
               console.log('Payment error:', result);

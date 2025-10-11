@@ -10,6 +10,7 @@ import { useProfile } from "../contexts/ProfileContext";
 import { api } from "../services/api";
 import { toast } from "sonner";
 import { getAvatarUrl } from "../utils/avatar";
+import { supabase } from "../lib/supabase";
 
 export function ProfilePage() {
   const { profile, isLoading, updateProfile, refreshProfile } = useProfile();
@@ -68,12 +69,55 @@ export function ProfilePage() {
         name: typeof data.name,
         avatarUrl: typeof data.avatarUrl
       });
-      await api.updateProfile(data);
+      
+      // Update profile via API
+      const updatedProfile = await api.updateProfile(data);
+      
       // Update profile in context for real-time UI update
-      updateProfile(data);
-      await refreshProfile(); // Refresh from server to get latest data
+      updateProfile(updatedProfile);
+      
+      console.log('✅ ProfilePage: Profile updated successfully');
     } catch (error) {
       console.error('ProfilePage: Failed to update profile:', error);
+      throw error;
+    }
+  };
+
+  const handleChangePassword = async (data: { currentPassword: string; newPassword: string }) => {
+    try {
+      if (!profile?.email) {
+        throw new Error('Profile email not found');
+      }
+
+      // Use Supabase direct password change
+      const { error } = await supabase.auth.updateUser({
+        password: data.newPassword
+      });
+      
+      if (error) {
+        if (error.message?.includes('same_password')) {
+          throw new Error('New password must be different from current password');
+        } else if (error.message?.includes('Password should be at least')) {
+          throw new Error('Password must be at least 6 characters');
+        } else if (error.message?.includes('session_not_found')) {
+          throw new Error('Session expired. Please sign in again.');
+        } else {
+          throw new Error(error.message || 'Failed to change password');
+        }
+      }
+
+      toast.success('Password updated successfully!');
+      setIsEditPasswordOpen(false);
+      
+      // Refresh profile after password change to ensure UI is updated
+      try {
+        await refreshProfile();
+      } catch (error) {
+        console.warn('Profile refresh failed after password change:', error);
+      }
+    } catch (error: any) {
+      console.error('ProfilePage: Failed to change password:', error);
+      toast.error(error.message || 'Failed to change password');
       throw error;
     }
   };
@@ -341,6 +385,7 @@ export function ProfilePage() {
             isOpen={isEditPasswordOpen}
             onClose={() => setIsEditPasswordOpen(false)}
             email={profile.email}
+            onSubmit={handleChangePassword}
           />
         </div>
       </div>

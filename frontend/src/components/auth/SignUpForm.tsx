@@ -158,7 +158,7 @@ export function SignUpForm({ onSwitchToLogin, onSwitchToEmailVerification, onSig
       } else {
         toast.error(result.error || 'Failed to create account');
         if (result.field) {
-          setErrors(prev => ({ ...prev, [result.field]: result.error }));
+          setErrors(prev => ({ ...prev, [result.field as string]: result.error || '' }));
         }
       }
     } catch (error: any) {

@@ -374,7 +374,7 @@ router.post('/signup', async (req, res) => {
         data: {
           full_name: full_name.trim()
         },
-        emailRedirectTo: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/callback`
+        emailRedirectTo: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/verify?type=signup`
       }
     });
 
@@ -583,8 +583,25 @@ router.post('/forgot-password', async (req, res) => {
     // Note: We'll let Supabase Auth handle user existence check
     // This provides better error messages and handles edge cases
 
+    // First check if user exists by querying the users table
+    const { data: userData, error: userError } = await supabaseAdmin
+      .from('users')
+      .select('id, email')
+      .eq('email', normalizedEmail)
+      .single();
+    
+    if (userError || !userData) {
+      console.log(`User not found for email: ${normalizedEmail}`);
+      return res.status(404).json(createErrorResponse(
+        'No account found with this email address',
+        'USER_NOT_FOUND',
+        'email',
+        404
+      ));
+    }
+
     const { error } = await supabaseAdmin.auth.resetPasswordForEmail(normalizedEmail, {
-      redirectTo: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/callback?type=recovery`
+      redirectTo: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/reset-password`
     });
 
     if (error) {
@@ -607,11 +624,6 @@ router.post('/forgot-password', async (req, res) => {
           errorMessage = 'Please enter a valid email address';
           statusCode = 400;
           break;
-        case 'User not found':
-        case 'Invalid login credentials':
-          errorMessage = 'No account found with this email address';
-          statusCode = 404;
-          break;
         default:
           errorMessage = error.message;
       }
@@ -626,7 +638,7 @@ router.post('/forgot-password', async (req, res) => {
 
     res.json(createSuccessResponse(
       null,
-      'If an account with this email exists, a password reset link has been sent'
+      'Password reset link has been sent to your email'
     ));
   } catch (err: any) {
     if (err.name === 'ZodError') {
@@ -1016,11 +1028,25 @@ router.post('/resend-forgot-password', async (req, res) => {
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    // Note: We'll let Supabase Auth handle user existence check
-    // This provides better error messages and handles edge cases
+    // First check if user exists by querying the users table
+    const { data: userData, error: userError } = await supabaseAdmin
+      .from('users')
+      .select('id, email')
+      .eq('email', normalizedEmail)
+      .single();
+    
+    if (userError || !userData) {
+      console.log(`User not found for email: ${normalizedEmail}`);
+      return res.status(404).json(createErrorResponse(
+        'No account found with this email address',
+        'USER_NOT_FOUND',
+        'email',
+        404
+      ));
+    }
 
     const { error } = await supabaseAdmin.auth.resetPasswordForEmail(normalizedEmail, {
-      redirectTo: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/callback?type=recovery`
+      redirectTo: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/reset-password`
     });
 
     if (error) {
@@ -1605,6 +1631,128 @@ router.post('/reset-password', async (req, res) => {
       ERROR_CODES.INTERNAL_SERVER_ERROR,
       undefined,
       HTTP_STATUS.INTERNAL_SERVER_ERROR
+    ));
+  }
+});
+
+/**
+ * POST /api/auth/change-password
+ * Change password for authenticated user
+ */
+router.post('/change-password', async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = z.object({
+      currentPassword: z.string().min(1, 'Current password is required'),
+      newPassword: z.string().min(6, 'New password must be at least 6 characters')
+    }).parse(req.body);
+
+    // Get user from session
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json(createErrorResponse(
+        'No valid session found',
+        'UNAUTHORIZED',
+        undefined,
+        401
+      ));
+    }
+
+    const token = authHeader.split(' ')[1];
+    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
+    
+    if (userError || !user) {
+      return res.status(401).json(createErrorResponse(
+        'Invalid session',
+        'UNAUTHORIZED',
+        undefined,
+        401
+      ));
+    }
+
+    // Verify current password by attempting to sign in
+    const { error: signInError } = await supabaseAdmin.auth.signInWithPassword({
+      email: user.email!,
+      password: currentPassword
+    });
+
+    if (signInError) {
+      return res.status(400).json(createErrorResponse(
+        'Current password is incorrect',
+        'INVALID_PASSWORD',
+        'currentPassword',
+        400
+      ));
+    }
+
+    // Check if new password is same as current password
+    if (currentPassword === newPassword) {
+      return res.status(400).json(createErrorResponse(
+        'New password must be different from current password',
+        'SAME_PASSWORD',
+        'newPassword',
+        400
+      ));
+    }
+
+    // Update password
+    const { error: updateError } = await supabaseAdmin.auth.updateUser({
+      password: newPassword
+    });
+
+    if (updateError) {
+      console.error('Password update error:', updateError);
+      
+      // Handle specific Supabase errors
+      if (updateError.message?.includes('same_password')) {
+        return res.status(400).json(createErrorResponse(
+          'New password must be different from current password',
+          'SAME_PASSWORD',
+          'newPassword',
+          400
+        ));
+      }
+      
+      if (updateError.message?.includes('Password should be at least')) {
+        return res.status(400).json(createErrorResponse(
+          'Password must be at least 6 characters',
+          'PASSWORD_TOO_SHORT',
+          'newPassword',
+          400
+        ));
+      }
+
+      return res.status(400).json(createErrorResponse(
+        updateError.message || 'Failed to update password',
+        'UPDATE_FAILED',
+        'newPassword',
+        400
+      ));
+    }
+
+    res.json(createSuccessResponse(
+      { message: 'Password changed successfully' },
+      'Password changed successfully'
+    ));
+
+  } catch (error: any) {
+    console.error('Change password error:', error);
+    
+    // Handle Zod validation errors
+    if (error.name === 'ZodError') {
+      const firstError = error.errors[0];
+      return res.status(400).json(createErrorResponse(
+        firstError.message,
+        'VALIDATION_ERROR',
+        firstError.path[0],
+        400
+      ));
+    }
+    
+    res.status(500).json(createErrorResponse(
+      'Internal server error',
+      'INTERNAL_SERVER_ERROR',
+      undefined,
+      500
     ));
   }
 });

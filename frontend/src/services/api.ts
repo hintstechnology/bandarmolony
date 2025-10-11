@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabase';
 import { getAuthError } from '../utils/errorHandler';
 import { setAuthState, clearAuthState, getAuthState } from '../utils/auth';
 import { getAvatarUrl } from '../utils/avatar';
-import config from '../config';
+// import config from '../config';
 
 export interface ProfileData {
   id: string;
@@ -36,25 +36,31 @@ export interface AuthResponse {
   message?: string;
 }
 
-const API_URL = config.API_URL;
+const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
 
 export const api = {
   async getProfile(): Promise<ProfileData> {
+    console.log('🔍 API: Getting profile...');
+    
     const { data: { session } } = await supabase.auth.getSession();
     
     if (!session?.user) {
+      console.log('❌ API: No active session');
       throw new Error('No active session');
     }
 
     if (!session.access_token) {
+      console.log('❌ API: No access token');
       throw new Error('No access token');
     }
+    
+    console.log('✅ API: Session and token found, making request');
     
     // Add timeout to fetch
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       controller.abort();
-    }, config.API_TIMEOUT);
+    }, 10000); // 10 seconds timeout
     
     try {
       const response = await fetch(`${API_URL}/api/me`, {
@@ -68,6 +74,12 @@ export const api = {
       clearTimeout(timeoutId);
       
       if (!response.ok) {
+        if (response.status === 401) {
+          // Clear session on unauthorized
+          await supabase.auth.signOut();
+          throw new Error('Session expired. Please sign in again.');
+        }
+        
         const errorText = await response.text();
         throw new Error(`Failed to fetch profile: ${response.status} ${errorText}`);
       }
@@ -124,11 +136,12 @@ export const api = {
       const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
       console.log(`🔍 API: File size validation: ${file.size} bytes (${fileSizeMB}MB)`);
       
-      if (file.size > config.MAX_FILE_SIZE) {
-        console.log(`❌ API: File size validation failed: ${fileSizeMB}MB > ${config.MAX_FILE_SIZE / (1024 * 1024)}MB`);
-        throw new Error(`File size too large (${fileSizeMB}MB). Maximum size is ${config.MAX_FILE_SIZE / (1024 * 1024)}MB`);
+      const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+      if (file.size > MAX_FILE_SIZE) {
+        console.log(`❌ API: File size validation failed: ${fileSizeMB}MB > ${MAX_FILE_SIZE / (1024 * 1024)}MB`);
+        throw new Error(`File size too large (${fileSizeMB}MB). Maximum size is ${MAX_FILE_SIZE / (1024 * 1024)}MB`);
       }
-      console.log(`✅ API: File size validation passed: ${fileSizeMB}MB <= ${config.MAX_FILE_SIZE / (1024 * 1024)}MB`);
+      console.log(`✅ API: File size validation passed: ${fileSizeMB}MB <= ${MAX_FILE_SIZE / (1024 * 1024)}MB`);
 
       const formData = new FormData();
       formData.append('avatar', file);
@@ -326,11 +339,12 @@ export const api = {
       }
 
       const result = await response.json();
+      console.log('📥 API: Received response:', result);
       
       if (result.ok && result.data) {
         const profile = result.data;
         const avatarUrl = getAvatarUrl(profile.avatar_url);
-        return {
+        const processedProfile = {
           ...profile,
           // Legacy fields for backward compatibility
           name: profile.full_name,
@@ -345,54 +359,59 @@ export const api = {
           subscriptionStatus: profile.is_active ? 'active' : 'inactive' as const,
           subscriptionEndDate: profile.role === 'admin' ? 'December 25, 2025' : undefined,
         };
+        console.log('✅ API: Profile processed successfully');
+        return processedProfile;
       }
 
+      console.log('❌ API: Invalid profile data received');
       throw new Error('Invalid profile data');
     } catch (error) {
+      console.error('❌ API: Error in getProfile:', error);
       throw error;
     }
   },
 
   async login(email: string, password: string): Promise<AuthResponse> {
     try {
-      const response = await fetch(`${API_URL}/api/auth/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ email, password })
+      // Use Supabase direct login instead of backend API
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.toLowerCase().trim(),
+        password: password
       });
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        // Handle structured error responses from backend
-        return { 
-          success: false, 
-          error: result.error || 'Login failed',
-          code: result.code,
-          field: result.field
+      if (error) {
+        // Handle Supabase auth errors
+        let errorCode = 'LOGIN_FAILED';
+        let field = 'general';
+        
+        if (error.message?.includes('Invalid login credentials')) {
+          errorCode = 'INVALID_CREDENTIALS';
+          field = 'general';
+        } else if (error.message?.includes('Email not confirmed')) {
+          errorCode = 'EMAIL_NOT_CONFIRMED';
+          field = 'email';
+        } else if (error.message?.includes('Too many requests')) {
+          errorCode = 'RATE_LIMITED';
+          field = 'general';
+        }
+        
+        return {
+          success: false,
+          error: error.message || 'Login failed',
+          code: errorCode,
+          field: field
         };
       }
 
-      if (result.ok && result.data) {
-        // Store session using Supabase client for proper session management
-        if (result.data.session) {
-          // Set session in Supabase client
-          await supabase.auth.setSession({
-            access_token: result.data.session.access_token,
-            refresh_token: result.data.session.refresh_token
-          });
-          
-          // Also store in localStorage for compatibility
-          setAuthState(result.data.user, result.data.session);
-        }
+      if (data.user && data.session) {
+        // Store session for compatibility
+        setAuthState(data.user, data.session);
         
-        return { 
-          success: true, 
-          token: result.data.session?.access_token,
-          user: result.data.user,
-          session: result.data.session
+        return {
+          success: true,
+          token: data.session.access_token,
+          user: data.user,
+          session: data.session
         };
       }
 
@@ -501,26 +520,28 @@ export const api = {
 
   async forgotPassword(email: string): Promise<{ success: boolean; error?: string; message?: string }> {
     try {
-      // Use Supabase resetPasswordForEmail - this will use the "Reset Password" template
-      // which sends magic link for password reset
+      // Use Supabase direct forgot password
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth/callback?type=recovery`
+        redirectTo: `${window.location.origin}/auth/reset-password`
       });
 
       if (error) {
-        return { 
-          success: false, 
-          error: error.message || 'Failed to send reset email'
+        return {
+          success: false,
+          error: error.message || 'Failed to send password reset email'
         };
       }
 
-      // Always return success to prevent email enumeration
-      return { 
-        success: true, 
-        message: 'Jika email terdaftar, kami telah mengirim link reset password.' 
+      return {
+        success: true,
+        message: 'Jika email terdaftar, kami telah mengirim link reset password.'
       };
     } catch (error: any) {
-      return { success: false, error: error.message || 'Failed to send reset email' };
+      console.error('Forgot password error:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to send reset email. Please try again.'
+      };
     }
   },
 
@@ -1024,6 +1045,47 @@ export const api = {
       return { success: true, data: result.data };
     } catch (error: any) {
       return { success: false, error: error.message || 'Failed to update payment method' };
+    }
+  },
+
+  async changePassword(data: {
+    currentPassword: string;
+    newPassword: string;
+  }): Promise<{ success: boolean; error?: string; message?: string }> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.access_token) {
+        throw new Error('No active session found');
+      }
+
+      const response = await fetch(`${API_URL}/api/auth/change-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify(data)
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        return { 
+          success: false, 
+          error: result.error || 'Failed to change password'
+        };
+      }
+
+      return { 
+        success: true, 
+        message: result.message || 'Password changed successfully'
+      };
+    } catch (error: any) {
+      return { 
+        success: false, 
+        error: error.message || 'Failed to change password'
+      };
     }
   },
 
