@@ -30,7 +30,7 @@ RUN echo "VITE_SUPABASE_URL: $VITE_SUPABASE_URL" && \
     echo "VITE_NODE_ENV: $VITE_NODE_ENV"
 
 # ===== runtime (Nginx) =====
-FROM nginx:1.25-alpine AS runner
+FROM nginx:1.26-alpine AS runner
 
 # Konfigurasi Nginx kustom jika ada (opsional)
 # Pastikan file nginx.conf ada di repo (root proyek frontend)

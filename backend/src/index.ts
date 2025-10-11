@@ -1,6 +1,5 @@
 import express from 'express';
 import cors from 'cors';
-import 'dotenv/config';
 import config from './config';
 import healthRoutes from './routes/health';
 import demoRoutes from './routes/demo';
@@ -67,7 +66,7 @@ app.get('/me', requireSupabaseUser, (req: any, res) => {
 });
 
 // Error handling middleware
-app.use((err: any, req: any, res: any, next: any) => {
+app.use((err: any, _req: any, res: any, _next: any) => {
   console.error('Server error:', err);
   res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
     'Internal server error',
@@ -78,7 +77,7 @@ app.use((err: any, req: any, res: any, next: any) => {
 });
 
 // 404 handler (Express 5 compatible)
-app.use((req, res) => {
+app.use((_req, res) => {
   res.status(HTTP_STATUS.NOT_FOUND).json(createErrorResponse(
     'Route not found',
     ERROR_CODES.NOT_FOUND,

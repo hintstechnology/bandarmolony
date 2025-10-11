@@ -135,11 +135,11 @@ const webhookSchema = z.object({
  * GET /api/subscription/plans
  * Get available subscription plans
  */
-router.get('/plans', async (req, res) => {
+router.get('/plans', async (_req, res) => {
   try {
-    res.json(createSuccessResponse(subscriptionPlans, 'Subscription plans retrieved successfully'));
+    return res.json(createSuccessResponse(subscriptionPlans, 'Subscription plans retrieved successfully'));
   } catch (error: any) {
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Failed to retrieve subscription plans',
       ERROR_CODES.INTERNAL_SERVER_ERROR,
       undefined,
@@ -152,7 +152,7 @@ router.get('/plans', async (req, res) => {
  * GET /api/subscription/payment-methods
  * Get available payment methods
  */
-router.get('/payment-methods', async (req, res) => {
+router.get('/payment-methods', async (_req, res) => {
   try {
     const { data: paymentMethods, error } = await supabaseAdmin
       .from('payment_methods')
@@ -164,9 +164,9 @@ router.get('/payment-methods', async (req, res) => {
       throw error;
     }
 
-    res.json(createSuccessResponse(paymentMethods, 'Payment methods retrieved successfully'));
+    return res.json(createSuccessResponse(paymentMethods, 'Payment methods retrieved successfully'));
   } catch (error: any) {
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Failed to retrieve payment methods',
       ERROR_CODES.INTERNAL_SERVER_ERROR,
       undefined,
@@ -179,7 +179,7 @@ router.get('/payment-methods', async (req, res) => {
  * GET /api/subscription/test-service-role
  * Test service role access
  */
-router.get('/test-service-role', async (req, res) => {
+router.get('/test-service-role', async (_req, res) => {
   try {
     console.log('🔧 Testing service role access...');
     
@@ -209,7 +209,7 @@ router.get('/test-service-role', async (req, res) => {
     
     console.log('✅ Transaction access test successful:', transactionData);
     
-    res.json(createSuccessResponse({
+    return res.json(createSuccessResponse({
       message: 'Service role access working correctly',
       userAccess: testData,
       transactionAccess: transactionData
@@ -217,7 +217,7 @@ router.get('/test-service-role', async (req, res) => {
     
   } catch (error) {
     console.error('❌ Service role test error:', error);
-    res.status(500).json(createErrorResponse('Service role test error', error instanceof Error ? error.message : 'Unknown error'));
+    return res.status(500).json(createErrorResponse('Service role test error', error instanceof Error ? error.message : 'Unknown error'));
   }
 });
 
@@ -225,11 +225,11 @@ router.get('/test-service-role', async (req, res) => {
  * GET /api/subscription/test-midtrans
  * Test Midtrans connection
  */
-router.get('/test-midtrans', async (req, res) => {
+router.get('/test-midtrans', async (_req, res) => {
   try {
     const isConnected = await midtransService.testConnection();
     
-    res.json(createSuccessResponse({
+    return res.json(createSuccessResponse({
       connected: isConnected,
       config: {
         isProduction: config.MIDTRANS_IS_PRODUCTION,
@@ -247,7 +247,7 @@ router.get('/test-midtrans', async (req, res) => {
       }
     }, isConnected ? 'Midtrans connection successful' : 'Midtrans connection failed'));
   } catch (error: any) {
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Failed to test Midtrans connection',
       ERROR_CODES.INTERNAL_SERVER_ERROR,
       undefined,
@@ -265,7 +265,7 @@ router.post('/create-order', requireSupabaseUser, async (req: any, res) => {
     const { planId, paymentMethod } = createOrderSchema.parse(req.body);
     const userId = req.user.id;
     const userEmail = req.user.email;
-    const userName = req.user.user_metadata?.full_name || 'User';
+    const userName = req.user.user_metadata?.['full_name'] || 'User';
 
     // Validate plan
     const plan = subscriptionPlans.find(p => p.id === planId);
@@ -408,7 +408,7 @@ router.post('/create-order', requireSupabaseUser, async (req: any, res) => {
       }
     });
 
-    res.json(createSuccessResponse({
+    return res.json(createSuccessResponse({
       subscriptionId: subscription.id,
       transactionId: transaction.id,
       snapToken,
@@ -423,12 +423,12 @@ router.post('/create-order', requireSupabaseUser, async (req: any, res) => {
       return res.status(HTTP_STATUS.BAD_REQUEST).json(createErrorResponse(
         'Invalid request data',
         ERROR_CODES.VALIDATION_ERROR,
-        error.errors[0]?.path?.join('.'),
+        error.errors[0]?.['path']?.join('.'),
         HTTP_STATUS.BAD_REQUEST
       ));
     }
 
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Failed to create payment order',
       ERROR_CODES.INTERNAL_SERVER_ERROR,
       undefined,
@@ -441,15 +441,15 @@ router.post('/create-order', requireSupabaseUser, async (req: any, res) => {
  * GET /api/subscription/webhook/test
  * Test webhook endpoint
  */
-router.get('/webhook/test', async (req, res) => {
+router.get('/webhook/test', async (_req, res) => {
   try {
-    res.json(createSuccessResponse({
+    return res.json(createSuccessResponse({
       message: 'Webhook endpoint is working',
       timestamp: new Date().toISOString(),
       url: config.WEBHOOK_URL
     }, 'Webhook test successful'));
   } catch (error: any) {
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Webhook test failed',
       ERROR_CODES.INTERNAL_SERVER_ERROR,
       undefined,
@@ -654,19 +654,19 @@ router.post('/webhook', async (req, res) => {
       });
     }
 
-    res.json(createSuccessResponse({}, 'Webhook processed successfully'));
+    return res.json(createSuccessResponse({}, 'Webhook processed successfully'));
 
   } catch (error: any) {
     if (error.name === 'ZodError') {
       return res.status(HTTP_STATUS.BAD_REQUEST).json(createErrorResponse(
         'Invalid webhook data',
         ERROR_CODES.VALIDATION_ERROR,
-        error.errors[0]?.path?.join('.'),
+        error.errors[0]?.['path']?.join('.'),
         HTTP_STATUS.BAD_REQUEST
       ));
     }
 
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Webhook processing failed',
       ERROR_CODES.INTERNAL_SERVER_ERROR,
       undefined,
@@ -728,14 +728,14 @@ router.get('/status', requireSupabaseUser, async (req: any, res) => {
       throw transactionsError;
     }
 
-    res.json(createSuccessResponse({
+    return res.json(createSuccessResponse({
       subscription: subscription || null,
       transactions: transactions || [],
       plans: subscriptionPlans
     }, 'Subscription status retrieved successfully'));
 
   } catch (error: any) {
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Failed to retrieve subscription status',
       ERROR_CODES.INTERNAL_SERVER_ERROR,
       undefined,
@@ -786,7 +786,7 @@ router.get('/payment-activity', requireSupabaseUser, async (req: any, res) => {
       throw countError;
     }
 
-    res.json(createSuccessResponse({
+    return res.json(createSuccessResponse({
       activities: activities || [],
       summary: summary?.[0] || null,
       total: totalCount || 0,
@@ -798,7 +798,7 @@ router.get('/payment-activity', requireSupabaseUser, async (req: any, res) => {
     }, 'Payment activity retrieved successfully'));
 
   } catch (error: any) {
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Failed to retrieve payment activity',
       ERROR_CODES.INTERNAL_SERVER_ERROR,
       undefined,
@@ -886,7 +886,7 @@ router.post('/check-status', requireSupabaseUser, async (req: any, res) => {
       });
     }
 
-    res.json(createSuccessResponse({
+    return res.json(createSuccessResponse({
       orderId,
       currentStatus: transaction.status,
       midtransStatus: midtransStatus.transaction_status,
@@ -894,7 +894,7 @@ router.post('/check-status', requireSupabaseUser, async (req: any, res) => {
     }, 'Status checked successfully'));
 
   } catch (error: any) {
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Failed to check payment status',
       ERROR_CODES.INTERNAL_SERVER_ERROR,
       undefined,
@@ -949,10 +949,10 @@ router.post('/cancel', requireSupabaseUser, async (req: any, res) => {
       })
       .eq('id', userId);
 
-    res.json(createSuccessResponse({}, 'Subscription cancelled successfully'));
+    return res.json(createSuccessResponse({}, 'Subscription cancelled successfully'));
 
   } catch (error: any) {
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Failed to cancel subscription',
       ERROR_CODES.INTERNAL_SERVER_ERROR,
       undefined,
@@ -1054,7 +1054,7 @@ router.post('/regenerate-snap-token', requireSupabaseUser, async (req: any, res)
             planDuration: plan.duration,
             price: plan.price,
             customer: {
-              name: req.user.user_metadata?.full_name || 'User',
+              name: req.user.user_metadata?.['full_name'] || 'User',
               email: req.user.email
             },
             callbacks: {
@@ -1092,7 +1092,7 @@ router.post('/regenerate-snap-token', requireSupabaseUser, async (req: any, res)
         planDuration: plan.duration,
         price: plan.price,
         customer: {
-          name: req.user.user_metadata?.full_name || 'User',
+          name: req.user.user_metadata?.['full_name'] || 'User',
           email: req.user.email
         },
         callbacks: {
@@ -1117,7 +1117,7 @@ router.post('/regenerate-snap-token', requireSupabaseUser, async (req: any, res)
         })
         .eq('id', transaction.id);
 
-      res.json(createSuccessResponse({
+      return res.json(createSuccessResponse({
         snapToken,
         orderId: newOrderId,
         paymentUrl: paymentUrl,
@@ -1130,7 +1130,7 @@ router.post('/regenerate-snap-token', requireSupabaseUser, async (req: any, res)
     }
 
   } catch (error: any) {
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Failed to regenerate snap token',
       ERROR_CODES.INTERNAL_SERVER_ERROR,
       undefined,
@@ -1253,13 +1253,13 @@ router.post('/cancel-pending', requireSupabaseUser, async (req: any, res) => {
     }
 
     console.log('Transaction cancelled successfully:', transaction.id);
-    res.json(createSuccessResponse({ 
+    return res.json(createSuccessResponse({ 
       transactionId: transaction.id,
       status: 'cancel' 
     }, 'Pending transaction cancelled successfully'));
 
   } catch (error: any) {
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Failed to cancel pending transaction',
       ERROR_CODES.INTERNAL_SERVER_ERROR,
       undefined,
@@ -1307,13 +1307,13 @@ router.post('/update-payment-method', requireSupabaseUser, async (req: any, res)
       ));
     }
 
-    res.json(createSuccessResponse({
+    return res.json(createSuccessResponse({
       transactionId: transaction.id,
       paymentMethod: paymentMethod
     }, 'Payment method updated successfully'));
 
   } catch (error: any) {
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Failed to update payment method',
       ERROR_CODES.INTERNAL_SERVER_ERROR,
       undefined,

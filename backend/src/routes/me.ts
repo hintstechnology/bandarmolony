@@ -56,10 +56,10 @@ router.get('/', requireSupabaseUser, async (req: any, res) => {
 
     console.log(`📤 GET /api/me - Sending response for user: ${userId}`);
     console.log(`📤 GET /api/me - Response data:`, data);
-    res.json(createSuccessResponse(data));
+    return res.json(createSuccessResponse(data));
   } catch (err: any) {
     console.error('GET /api/me error:', err);
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Internal server error',
       ERROR_CODES.INTERNAL_SERVER_ERROR,
       err.message,
@@ -104,13 +104,13 @@ router.put('/', requireSupabaseUser, async (req: any, res) => {
       return res.status(HTTP_STATUS.BAD_REQUEST).json(createErrorResponse(
         validationError.errors?.[0]?.message || 'Validation error',
         ERROR_CODES.VALIDATION_ERROR,
-        validationError.errors?.[0]?.path?.join('.') || 'unknown',
+        validationError.errors?.[0]?.['path']?.join('.') || 'unknown',
         HTTP_STATUS.BAD_REQUEST
       ));
     }
 
     // First check if user exists in public.users
-    const { data: existingUser, error: checkError } = await supabaseAdmin
+    const { data: _existingUser, error: checkError } = await supabaseAdmin
       .from('users')
       .select('id')
       .eq('id', userId)
@@ -130,7 +130,7 @@ router.put('/', requireSupabaseUser, async (req: any, res) => {
         .insert({
           id: userId,
           email: userEmail,
-          full_name: updateData.full_name || req.user.user_metadata?.full_name || '',
+          full_name: updateData.full_name || req.user.user_metadata?.['full_name'] || '',
           avatar_url: avatarUrl,
           email_verified: req.user.email_confirmed_at ? true : false,
           role: 'user',
@@ -217,11 +217,11 @@ router.put('/', requireSupabaseUser, async (req: any, res) => {
       updated_at: updatedProfile.updated_at
     };
     
-    res.json(createSuccessResponse(responseData, 'Profile updated successfully'));
+    return res.json(createSuccessResponse(responseData, 'Profile updated successfully'));
 
   } catch (err: any) {
     console.error('PUT /api/me error:', err);
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Internal server error. Please try again later',
       ERROR_CODES.INTERNAL_SERVER_ERROR,
       err.message,

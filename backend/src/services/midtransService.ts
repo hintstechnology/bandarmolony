@@ -356,8 +356,8 @@ export class MidtransService {
         gross_amount: data.price
       },
       customer_details: {
-        first_name: data.customer.name.split(' ')[0],
-        last_name: data.customer.name.split(' ').slice(1).join(' '),
+        first_name: data.customer.name.split(' ')[0] || 'User',
+        last_name: data.customer.name.split(' ').slice(1).join(' ') || '',
         email: data.customer.email,
         phone: data.customer.phone || ''
       },
@@ -395,7 +395,7 @@ export class MidtransService {
       },
       custom_expiry: {
         order_time: new Date().toISOString(),
-        expiry_duration: parseInt(process.env.PAYMENT_TIMEOUT_MINUTES || '15'),
+        expiry_duration: parseInt(process.env['PAYMENT_TIMEOUT_MINUTES'] || '15'),
         unit: 'minute'
       }
     };

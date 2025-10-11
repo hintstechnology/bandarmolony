@@ -27,14 +27,22 @@ export function createErrorResponse(
   field?: string, 
   statusCode: number = 400
 ): ErrorResponse {
-  return {
+  const response: ErrorResponse = {
     ok: false,
     error: message,
-    code,
-    field,
     timestamp: new Date().toISOString(),
     statusCode
   };
+  
+  if (code !== undefined) {
+    response.code = code;
+  }
+  
+  if (field !== undefined) {
+    response.field = field;
+  }
+  
+  return response;
 }
 
 /**
@@ -44,12 +52,17 @@ export function createSuccessResponse<T = any>(
   data: T, 
   message?: string
 ): SuccessResponse<T> {
-  return {
+  const response: SuccessResponse<T> = {
     ok: true,
     data,
-    message,
     timestamp: new Date().toISOString()
   };
+  
+  if (message !== undefined) {
+    response.message = message;
+  }
+  
+  return response;
 }
 
 /**

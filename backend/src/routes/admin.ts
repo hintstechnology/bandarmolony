@@ -82,7 +82,7 @@ const requireAdmin = async (req: any, res: any, next: any) => {
  * GET /api/admin/stats
  * Get user statistics
  */
-router.get('/stats', requireAdmin, async (req, res) => {
+router.get('/stats', requireAdmin, async (_req, res) => {
   try {
     // Get total users using service role (bypasses RLS)
     const { count: totalUsers, error: totalError } = await supabaseAdmin
@@ -179,11 +179,11 @@ router.get('/stats', requireAdmin, async (req, res) => {
  */
 router.get('/users', requireAdmin, async (req, res) => {
   try {
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10;
-    const search = req.query.search as string || '';
-    const role = req.query.role as string || '';
-    const status = req.query.status as string || '';
+    const page = parseInt(req.query['page'] as string) || 1;
+    const limit = parseInt(req.query['limit'] as string) || 10;
+    const search = req.query['search'] as string || '';
+    const role = req.query['role'] as string || '';
+    const status = req.query['status'] as string || '';
 
     // Build query with filters
     let query = supabaseAdmin
@@ -283,11 +283,11 @@ router.put('/users/:id/suspend', requireAdmin, async (req, res) => {
       throw updateError;
     }
 
-    res.json(createSuccessResponse(updatedUser, `User ${suspended ? 'suspended' : 'unsuspended'} successfully`));
+    return res.json(createSuccessResponse(updatedUser, `User ${suspended ? 'suspended' : 'unsuspended'} successfully`));
 
   } catch (error) {
     console.error('Suspend user error:', error);
-    res.status(500).json(createErrorResponse(
+    return res.status(500).json(createErrorResponse(
       'Failed to update user status',
       'INTERNAL_SERVER_ERROR',
       undefined,
@@ -302,7 +302,7 @@ router.put('/users/:id/suspend', requireAdmin, async (req, res) => {
  */
 router.get('/recent-users', requireAdmin, async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit as string) || 5;
+    const limit = parseInt(req.query['limit'] as string) || 5;
 
     const { data: recentUsers, error: recentError } = await supabaseAdmin
       .from('users')
