@@ -1,7 +1,6 @@
-import React, { useState, useRef } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { useState, useRef } from 'react';
+import { Card } from '../ui/card';
 import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -14,11 +13,7 @@ import {
   Code, 
   Settings, 
   Plus, 
-  BarChart3, 
-  Activity, 
-  LineChart as LineChartIcon,
-  Maximize2,
-  ChevronDown,
+  BarChart3,
   Play,
   Pause,
   RotateCcw,
@@ -45,7 +40,7 @@ interface CandlestickData {
   signal: number;
 }
 
-const generateCandlestickData = (symbol: string): CandlestickData[] => {
+const generateCandlestickData = (_symbol: string): CandlestickData[] => {
   const data: CandlestickData[] = [];
   let price = 4500 + Math.random() * 500;
   
@@ -57,7 +52,7 @@ const generateCandlestickData = (symbol: string): CandlestickData[] => {
     const volume = Math.floor(Math.random() * 10000000) + 1000000;
     
     data.push({
-      time: new Date(Date.now() - (99 - i) * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      time: new Date(Date.now() - (99 - i) * 24 * 60 * 60 * 1000).toISOString().split('T')[0] ?? '',
       open: Math.round(open),
       high: Math.round(high),
       low: Math.round(low),
@@ -148,8 +143,9 @@ export function TechnicalAnalysis() {
   
   const chartData = generateCandlestickData(selectedSymbol);
   const latestPrice = chartData[chartData.length - 1];
-  const priceChange = latestPrice.close - chartData[chartData.length - 2].close;
-  const priceChangePercent = (priceChange / chartData[chartData.length - 2].close) * 100;
+  const previousPrice = chartData[chartData.length - 2];
+  const priceChange = latestPrice?.close && previousPrice?.close ? latestPrice.close - previousPrice.close : 0;
+  const priceChangePercent = previousPrice?.close ? (priceChange / previousPrice.close) * 100 : 0;
 
   const toggleIndicator = (id: string) => {
     setIndicators(prev => prev.map(ind => 
@@ -211,7 +207,7 @@ export function TechnicalAnalysis() {
           <div className="flex items-center gap-4">
             <div className="text-right">
               <div className="font-mono text-lg font-medium">
-                {latestPrice.close.toLocaleString()}
+                {latestPrice?.close?.toLocaleString() ?? '0'}
               </div>
               <div className={`text-sm font-medium ${priceChange >= 0 ? 'text-chart-2' : 'text-destructive'}`}>
                 {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(0)} ({priceChangePercent.toFixed(2)}%)

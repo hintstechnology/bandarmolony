@@ -1,16 +1,15 @@
-import React, { useRef, useEffect, useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { useRef, useEffect, useMemo } from 'react';
 import { createChart, IChartApi, LineSeries, ColorType, CrosshairMode } from 'lightweight-charts';
 
 interface BrokerInventoryProps {
   selectedStock?: string;
 }
 
-// Available brokers
-const AVAILABLE_BROKERS = [
-  'LG', 'MG', 'BR', 'RG', 'CC', 'AK', 'BK', 'DH', 'KZ', 'YU', 'ZP',
-  'AG', 'NI', 'PD', 'SQ', 'SS', 'CIMB', 'UOB', 'COIN', 'NH', 'RG'
-];
+// Available brokers (unused for now)
+// const AVAILABLE_BROKERS = [
+//   'LG', 'MG', 'BR', 'RG', 'CC', 'AK', 'BK', 'DH', 'KZ', 'YU', 'ZP',
+//   'AG', 'NI', 'PD', 'SQ', 'SS', 'CIMB', 'UOB', 'COIN', 'NH', 'RG'
+// ];
 
 // Broker colors
 const getBrokerColor = (broker: string): string => {
@@ -24,7 +23,7 @@ const getBrokerColor = (broker: string): string => {
 };
 
 // Generate inventory data for selected brokers
-const generateInventoryData = (ticker: string, selectedBrokers: string[]) => {
+const generateInventoryData = (_ticker: string, selectedBrokers: string[]) => {
   const data: any[] = [];
   const days = 30; // Last 30 days
 
@@ -105,7 +104,7 @@ const BrokerInventoryChart = ({
         borderColor: colors.borderColor,
         timeVisible: true,
         secondsVisible: false,
-        tickMarkFormatter: (time: any, tickMarkType: any, locale: string) => {
+        tickMarkFormatter: (time: any) => {
           let date: Date;
           if (typeof time === 'string') {
             date = new Date(time);

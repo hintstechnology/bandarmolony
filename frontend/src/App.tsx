@@ -5,6 +5,7 @@ import { AuthProvider } from "./contexts/AuthContext";
 import { ProfileProvider } from "./contexts/ProfileContext";
 import { ToastProvider } from "./contexts/ToastContext";
 import { ConfirmationProvider } from "./contexts/ConfirmationContext";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { useNavigation } from "./hooks/useNavigation";
 import { AuthPage } from "./components/auth/AuthPage";
 import { EmailVerificationHandler } from "./components/auth/EmailVerificationHandler";
@@ -254,7 +255,8 @@ export default function App() {
           <AuthProvider>
             <ProfileProvider>
               <Router>
-          <Routes>
+                <ErrorBoundary>
+                  <Routes>
             {/* Landing page - public route */}
             <Route 
               path="/" 
@@ -408,8 +410,9 @@ export default function App() {
               path="/subscription/pending" 
               element={<SubscriptionPending />} 
             />
-          </Routes>
-        </Router>
+                  </Routes>
+                </ErrorBoundary>
+              </Router>
             </ProfileProvider>
           </AuthProvider>
         </ConfirmationProvider>

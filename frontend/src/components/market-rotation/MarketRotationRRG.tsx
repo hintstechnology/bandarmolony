@@ -1,8 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback, memo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, LineChart, Line, ComposedChart } from 'recharts';
+import { Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ComposedChart, Line } from 'recharts';
 import { X, Search, Plus } from 'lucide-react';
 
 // Type definition for trajectory data
@@ -18,29 +18,36 @@ interface TrajectoryPoint {
   radius: number;
 }
 
-// Generate trajectory data for each stock (10 points)
+// Optimized trajectory data generation with memoization
 const generateTrajectoryData = (
   baseRsRatio: number,
   baseRsMomentum: number,
   color: string,
-  name: string
+  name: string,
+  seed: number = 0
 ): TrajectoryPoint[] => {
   const points: TrajectoryPoint[] = [];
-  for (let i = 0; i < 10; i++) {
-    // Create realistic trajectory movement
-    const rsRatioVariation = (Math.random() - 0.5) * 8; // ±4 range
-    const rsMomentumVariation = (Math.random() - 0.5) * 8; // ±4 range
+  // Use seed for consistent data generation
+  const random = (seed: number) => {
+    const x = Math.sin(seed) * 10000;
+    return x - Math.floor(x);
+  };
+  
+  for (let i = 0; i < 6; i++) { // Reduced from 10 to 6 points for better performance
+    const seedValue = seed + i;
+    const rsRatioVariation = (random(seedValue) - 0.5) * 6; // ±3 range (reduced)
+    const rsMomentumVariation = (random(seedValue + 1000) - 0.5) * 6; // ±3 range (reduced)
 
     points.push({
       point: i + 1,
-      rsRatio: baseRsRatio + rsRatioVariation + i * 0.2, // Slight trend
-      rsMomentum: baseRsMomentum + rsMomentumVariation + i * 0.1, // Slight trend
+      rsRatio: baseRsRatio + rsRatioVariation + i * 0.15, // Slight trend
+      rsMomentum: baseRsMomentum + rsMomentumVariation + i * 0.08, // Slight trend
       color,
       name,
-      isLatest: i === 9,
+      isLatest: i === 5, // Updated for 6 points
       fill: color,
       stroke: color,
-      radius: i === 9 ? 16 : 1 // titik 10 jauh lebih besar
+      radius: i === 5 ? 12 : 1 // Reduced size
     });
   }
   return points;
@@ -67,15 +74,24 @@ const stockData = [
   { name: 'UNVR', rsRatio: 99.8, rsMomentum: 100.5, performance: 0.3, color: '#06B6D4' },
 ];
 
-// Generate trajectory data for all stocks
-const stockTrajectoryData: TrajectoryPoint[] = stockData.map(stock => 
-  generateTrajectoryData(stock.rsRatio, stock.rsMomentum, stock.color, stock.name)
-).flat();
-
-// Generate trajectory data for all sectors
-const sectorTrajectoryData: TrajectoryPoint[] = sectorData.map(sector => 
-  generateTrajectoryData(sector.rsRatio, sector.rsMomentum, sector.color, sector.name)
-).flat();
+// Memoized trajectory data generation - only generate when needed
+const generateTrajectoryDataMemo = (() => {
+  const cache = new Map<string, TrajectoryPoint[]>();
+  
+  return (data: any[], type: 'stock' | 'sector') => {
+    const cacheKey = `${type}-${data.length}`;
+    if (cache.has(cacheKey)) {
+      return cache.get(cacheKey)!;
+    }
+    
+    const trajectoryData = data.map((item, index) => 
+      generateTrajectoryData(item.rsRatio, item.rsMomentum, item.color, item.name, index)
+    ).flat();
+    
+    cache.set(cacheKey, trajectoryData);
+    return trajectoryData;
+  };
+})();
 
 // Sector options - matching RRC
 const sectorOptions = [
@@ -151,7 +167,7 @@ const CustomTooltip = ({ active, payload }: any) => {
   return null;
 };
 
-export function MarketRotationRRG() {
+const MarketRotationRRG = memo(function MarketRotationRRG() {
   const [viewMode, setViewMode] = useState<'sector' | 'stock'>('sector');
   const [selectedIndex, setSelectedIndex] = useState<string>('COMPOSITE');
   const [selectedItems, setSelectedItems] = useState<string[]>(['Technology', 'Healthcare', 'Finance']);
@@ -165,6 +181,34 @@ export function MarketRotationRRG() {
   const searchRef = useRef<HTMLDivElement>(null);
   const indexSearchRef = useRef<HTMLDivElement>(null);
   const screenerSearchRef = useRef<HTMLDivElement>(null);
+
+  // Memoized data calculations
+  const currentData = useMemo(() => 
+    viewMode === 'sector' ? sectorData : stockData, 
+    [viewMode]
+  );
+
+  const currentOptions = useMemo(() => 
+    viewMode === 'sector' ? sectorOptions : stockOptions,
+    [viewMode]
+  );
+
+  // Memoized trajectory data - only generate when selectedItems change
+  const filteredTrajectoryData = useMemo(() => {
+    const trajectoryData = generateTrajectoryDataMemo(currentData, viewMode);
+    return trajectoryData.filter(point => selectedItems.includes(point.name));
+  }, [selectedItems, viewMode, currentData]);
+
+  // Lazy loading state for chart
+  const [isChartLoaded, setIsChartLoaded] = useState(false);
+
+  useEffect(() => {
+    // Delay chart rendering to improve initial load performance
+    const timer = setTimeout(() => {
+      setIsChartLoaded(true);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [selectedItems, viewMode]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -185,15 +229,10 @@ export function MarketRotationRRG() {
     };
   }, []);
 
-  const currentData = viewMode === 'sector' ? sectorData : stockData;
-  const currentOptions = viewMode === 'sector' ? sectorOptions : stockOptions;
-  
-  // Filter trajectory data based on selected items
-  const filteredTrajectoryData = viewMode === 'sector'
-    ? sectorTrajectoryData.filter(point => selectedItems.includes(point.name))
-    : stockTrajectoryData.filter(point => selectedItems.includes(point.name));
+  // Removed old data calculations - now using memoized versions above
 
-  const getBadgeVariant = (trend: string) => {
+  // Memoized functions to prevent unnecessary re-renders
+  const getBadgeVariant = useCallback((trend: string) => {
     switch (trend) {
       case 'STRONG': return 'default';
       case 'IMPROVING': return 'secondary';
@@ -201,24 +240,24 @@ export function MarketRotationRRG() {
       case 'WEAK': return 'destructive';
       default: return 'secondary';
     }
-  };
+  }, []);
 
-  const toggleItem = (itemName: string) => {
+  const toggleItem = useCallback((itemName: string) => {
     setSelectedItems(prev => 
       prev.includes(itemName) 
         ? prev.filter(item => item !== itemName)
         : [...prev, itemName]
     );
-  };
+  }, []);
 
-  const removeItem = (itemName: string) => {
+  const removeItem = useCallback((itemName: string) => {
     setSelectedItems(prev => {
       const newItems = prev.filter(item => item !== itemName);
       return newItems.length > 0 ? newItems : prev;
     });
-  };
+  }, []);
 
-  const handleViewModeChange = (mode: 'sector' | 'stock') => {
+  const handleViewModeChange = useCallback((mode: 'sector' | 'stock') => {
     setViewMode(mode);
     setSearchQuery('');
     setIndexSearchQuery('');
@@ -229,65 +268,66 @@ export function MarketRotationRRG() {
     } else {
       setSelectedItems(['BBRI', 'BBCA', 'BMRI']);
     }
-  };
+  }, []);
 
-  const getFilteredOptions = () => {
+  // Memoized filter functions
+  const getFilteredOptions = useMemo(() => {
     if (viewMode === 'sector') return currentOptions;
     
     return currentOptions.filter(option => 
       option.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
       !selectedItems.includes(option.name)
     );
-  };
+  }, [viewMode, currentOptions, searchQuery, selectedItems]);
 
-  const getFilteredIndexOptions = () => {
+  const getFilteredIndexOptions = useMemo(() => {
     return indexOptions.filter(option => 
       option.name.toLowerCase().includes(indexSearchQuery.toLowerCase())
     );
-  };
+  }, [indexSearchQuery]);
 
-  const addFromSearch = (itemName: string) => {
+  const getFilteredScreenerOptions = useMemo(() => {
+    return stockOptions.filter(option => 
+      option.name.toLowerCase().includes(screenerSearchQuery.toLowerCase()) &&
+      !screenerStocks.some(stock => stock.symbol === option.name)
+    );
+  }, [screenerSearchQuery, screenerStocks]);
+
+  const addFromSearch = useCallback((itemName: string) => {
     if (!selectedItems.includes(itemName)) {
       setSelectedItems(prev => [...prev, itemName]);
     }
     setSearchQuery('');
     setShowSearchDropdown(false);
-  };
+  }, [selectedItems]);
 
-  const getFilteredScreenerOptions = () => {
-    return stockOptions.filter(option => 
-      option.name.toLowerCase().includes(screenerSearchQuery.toLowerCase()) &&
-      !screenerStocks.some(stock => stock.symbol === option.name)
-    );
-  };
-
-  const addToScreener = (stockName: string) => {
+  const addToScreener = useCallback((stockName: string) => {
     const stockOption = stockOptions.find(opt => opt.name === stockName);
     if (stockOption && !screenerStocks.some(stock => stock.symbol === stockName)) {
       const newStock = {
         symbol: stockName,
-        sector: 'Unknown', // You might want to map this properly
-        rsRatio: Math.random() * 20 + 90, // Random values for demo
+        sector: 'Unknown',
+        rsRatio: Math.random() * 20 + 90,
         rsMomentum: Math.random() * 20 + 90,
         performance: (Math.random() - 0.5) * 10,
-        volume: ['HIGH', 'MEDIUM', 'LOW'][Math.floor(Math.random() * 3)],
-        trend: ['STRONG', 'IMPROVING', 'WEAKENING', 'WEAK'][Math.floor(Math.random() * 4)]
+        volume: ['HIGH', 'MEDIUM', 'LOW'][Math.floor(Math.random() * 3)] || 'MEDIUM',
+        trend: ['STRONG', 'IMPROVING', 'WEAKENING', 'WEAK'][Math.floor(Math.random() * 4)] || 'IMPROVING'
       };
       setScreenerStocks(prev => [...prev, newStock]);
     }
     setScreenerSearchQuery('');
     setShowScreenerSearchDropdown(false);
-  };
+  }, [screenerStocks]);
 
-  const removeFromScreener = (symbol: string) => {
+  const removeFromScreener = useCallback((symbol: string) => {
     setScreenerStocks(prev => prev.filter(stock => stock.symbol !== symbol));
-  };
+  }, []);
 
-  const selectIndex = (indexName: string) => {
+  const selectIndex = useCallback((indexName: string) => {
     setSelectedIndex(indexName);
     setIndexSearchQuery('');
     setShowIndexSearchDropdown(false);
-  };
+  }, []);
 
   return (
     <div className="h-screen overflow-hidden">
@@ -322,8 +362,16 @@ export function MarketRotationRRG() {
               <CardTitle>Relative Rotation Graph (RRG) vs {selectedIndex}</CardTitle>
             </CardHeader>
             <CardContent className="relative">
-              <ResponsiveContainer width="100%" height={600}>
-                <ComposedChart data={filteredTrajectoryData} margin={{ bottom: 50, left: 15 }}>
+              {!isChartLoaded ? (
+                <div className="flex items-center justify-center h-[600px]">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                    <p className="text-muted-foreground">Loading chart...</p>
+                  </div>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={600}>
+                  <ComposedChart data={filteredTrajectoryData} margin={{ bottom: 50, left: 15 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--muted-foreground))" opacity={0.3} />
                   <XAxis 
                     type="number" 
@@ -347,8 +395,26 @@ export function MarketRotationRRG() {
                   <ReferenceLine y={100} stroke="hsl(var(--foreground))" strokeDasharray="2 2" />
                   <Tooltip content={<CustomTooltip />} />
                   
-                  {/* Plot trajectory lines for each item */}
-                  {selectedItems.map((itemName) => {
+                  {/* Optimized trajectory rendering - single Scatter with all data */}
+                  <Scatter 
+                    dataKey="rsMomentum" 
+                    fill="#8884d8"
+                    data={filteredTrajectoryData}
+                  >
+                    {filteredTrajectoryData.map((point, index) => (
+                      <Scatter 
+                        key={`${point.name}-${index}`} 
+                        fill={point.fill}
+                        stroke={point.stroke}
+                        fillOpacity={0.8}
+                        strokeOpacity={0.8}
+                        r={point.radius}
+                      />
+                    ))}
+                  </Scatter>
+                  
+                  {/* Simplified trajectory lines - only for selected items */}
+                  {selectedItems.slice(0, 3).map((itemName) => {
                     const itemOption = currentOptions.find(opt => opt.name === itemName);
                     const itemTrajectory = filteredTrajectoryData.filter(point => point.name === itemName);
                     
@@ -358,36 +424,12 @@ export function MarketRotationRRG() {
                         type="monotone"
                         dataKey="rsMomentum"
                         stroke={itemOption?.color || '#6B7280'}
-                        strokeWidth={2}
+                        strokeWidth={1.5}
                         dot={false}
                         data={itemTrajectory}
                         connectNulls={false}
+                        strokeOpacity={0.7}
                       />
-                    );
-                  })}
-                  
-                  {/* Plot trajectory points for each item */}
-                  {selectedItems.map((itemName) => {
-                    const itemTrajectory = filteredTrajectoryData.filter(point => point.name === itemName);
-                    
-                    return (
-                      <Scatter 
-                        key={`scatter-${itemName}`} 
-                        dataKey="rsMomentum" 
-                        fill="#8884d8"
-                        data={itemTrajectory}
-                      >
-                        {itemTrajectory.map((point, index) => (
-                          <Scatter 
-                            key={`${itemName}-${index}`} 
-                            fill={point.fill}
-                            stroke={point.stroke}
-                            fillOpacity={1}
-                            strokeOpacity={1}
-                            r={point.radius}
-                          />
-                        ))}
-                      </Scatter>
                     );
                   })}
                   
@@ -398,8 +440,9 @@ export function MarketRotationRRG() {
                     data={[{ rsRatio: 100, rsMomentum: 100 }]}
                     r={8} 
                   />
-                </ComposedChart>
-              </ResponsiveContainer>
+                  </ComposedChart>
+                </ResponsiveContainer>
+              )}
               
               {/* Quadrant Labels positioned based on chart corners */}
               <div className="absolute inset-0 pointer-events-none">
@@ -456,7 +499,7 @@ export function MarketRotationRRG() {
                   {/* Index Search Dropdown */}
                   {showIndexSearchDropdown && indexSearchQuery && (
                     <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-10 max-h-48 overflow-y-auto">
-                      {getFilteredIndexOptions().map((option) => (
+                      {getFilteredIndexOptions.map((option: any) => (
                         <button
                           key={option.name}
                           onClick={() => selectIndex(option.name)}
@@ -472,7 +515,7 @@ export function MarketRotationRRG() {
                           <Plus className="w-3 h-3 text-muted-foreground" />
                         </button>
                       ))}
-                      {getFilteredIndexOptions().length === 0 && (
+                      {getFilteredIndexOptions.length === 0 && (
                         <div className="p-2 text-sm text-muted-foreground">
                           No index found
                         </div>
@@ -568,7 +611,7 @@ export function MarketRotationRRG() {
                     {/* Search Dropdown */}
                     {showSearchDropdown && searchQuery && (
                       <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-10 max-h-48 overflow-y-auto">
-                        {getFilteredOptions().map((option) => (
+                        {getFilteredOptions.map((option: any) => (
                           <button
                             key={option.name}
                             onClick={() => addFromSearch(option.name)}
@@ -584,7 +627,7 @@ export function MarketRotationRRG() {
                             <Plus className="w-3 h-3 text-muted-foreground" />
                           </button>
                         ))}
-                        {getFilteredOptions().length === 0 && (
+                        {getFilteredOptions.length === 0 && (
                           <div className="p-2 text-sm text-muted-foreground">
                             {stockOptions.filter(s => !selectedItems.includes(s.name)).length === 0 
                               ? 'All stocks already selected' 
@@ -654,7 +697,7 @@ export function MarketRotationRRG() {
               {/* Screener Search Dropdown */}
               {showScreenerSearchDropdown && screenerSearchQuery && (
                 <div className="absolute top-full right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-10 max-h-48 overflow-y-auto min-w-48">
-                  {getFilteredScreenerOptions().map((option) => (
+                  {getFilteredScreenerOptions.map((option: any) => (
                     <button
                       key={option.name}
                       onClick={() => addToScreener(option.name)}
@@ -670,7 +713,7 @@ export function MarketRotationRRG() {
                       <Plus className="w-3 h-3 text-muted-foreground" />
                     </button>
                   ))}
-                  {getFilteredScreenerOptions().length === 0 && (
+                  {getFilteredScreenerOptions.length === 0 && (
                     <div className="p-2 text-sm text-muted-foreground">
                       {stockOptions.filter(s => !screenerStocks.some(stock => stock.symbol === s.name)).length === 0 
                         ? 'All stocks already in screener' 
@@ -735,4 +778,6 @@ export function MarketRotationRRG() {
       </div>
     </div>
   );
-}
+});
+
+export { MarketRotationRRG };

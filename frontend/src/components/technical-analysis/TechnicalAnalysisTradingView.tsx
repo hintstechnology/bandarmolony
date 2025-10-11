@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from '../ui/card';
-import { Button } from '../ui/button';
+// import { Button } from '../ui/button';
 import { FootprintChart } from '../footprint/FootprintChart';
 
 // Error Boundary Component
@@ -17,11 +17,11 @@ class ChartErrorBoundary extends React.Component<
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+  override componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('Chart Error Boundary caught an error:', error, errorInfo);
   }
 
-  render() {
+  override render() {
     if (this.state.hasError) {
       return (
         <div className="flex flex-col items-center justify-center h-full min-h-[400px] p-4">
@@ -34,7 +34,7 @@ class ChartErrorBoundary extends React.Component<
             </p>
             <button
               onClick={() => {
-                this.setState({ hasError: false, error: undefined });
+                this.setState({ hasError: false });
                 window.location.reload();
               }}
               className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
@@ -165,7 +165,7 @@ function toUnix(v: string): number | undefined {
   }
   if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(s)) {
     const [d, m, yRaw] = s.split('/');
-    const y = Number(yRaw.length === 2 ? '20' + yRaw : yRaw);
+    const y = Number((yRaw?.length === 2 ? '20' + yRaw : yRaw) ?? '2024');
     const iso = `${y}-${String(Number(m)).padStart(2, '0')}-${String(Number(d)).padStart(2, '0')}`;
     const t = Date.parse(iso + 'T00:00:00');
     return Number.isFinite(t) ? Math.floor(t / 1000) : undefined;
@@ -177,9 +177,9 @@ function toUnix(v: string): number | undefined {
 function parseCsv(text: string): OhlcRow[] {
   const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '');
   if (lines.length < 2) return [];
-  const delim = detectDelimiter(lines[0]);
+  const delim = detectDelimiter(lines[0] ?? '');
   const split = (line: string) => line.split(delim).map((s) => s.trim());
-  const header = split(lines[0]).map((h) => h.toLowerCase());
+  const header = split(lines[0] ?? '').map((h) => h.toLowerCase());
 
   const findIdx = (...names: string[]) => {
     const i = header.findIndex((h) => names.some((n) => new RegExp(`^${n}$`, 'i').test(h)));
@@ -205,20 +205,20 @@ function parseCsv(text: string): OhlcRow[] {
 
   const out: OhlcRow[] = [];
   for (let r = 1; r < lines.length; r++) {
-    const cols = split(lines[r]);
+    const cols = split(lines[r] ?? '');
     if (!cols.length) continue;
 
-    const t = toUnix(cols[iTime]);
-    const c = toNum(cols[iClose]);
+    const t = toUnix(cols[iTime] ?? '');
+    const c = toNum(cols[iClose] ?? '');
     if (!t || c === undefined) {
       if (r <= 5) console.log(`Skipping row ${r}:`, { time: cols[iTime], close: cols[iClose], t, c });
       continue;
     }
 
-    const o = iOpen !== undefined ? toNum(cols[iOpen]) : undefined;
-    const h = iHigh !== undefined ? toNum(cols[iHigh]) : undefined;
-    const l = iLow !== undefined ? toNum(cols[iLow]) : undefined;
-    const v = iVol !== undefined ? toNum(cols[iVol]) : undefined;
+    const o = iOpen !== undefined ? toNum(cols[iOpen] ?? '') : undefined;
+    const h = iHigh !== undefined ? toNum(cols[iHigh] ?? '') : undefined;
+    const l = iLow !== undefined ? toNum(cols[iLow] ?? '') : undefined;
+    const v = iVol !== undefined ? toNum(cols[iVol] ?? '') : undefined;
 
     out.push({
       time: t,
@@ -226,7 +226,7 @@ function parseCsv(text: string): OhlcRow[] {
       high: h ?? c,
       low: l ?? c,
       close: c,
-      volume: v,
+      volume: v ?? 0,
     });
   }
   out.sort((a, b) => a.time - b.time);
@@ -245,7 +245,7 @@ function calculateSMA(data: OhlcRow[], period: number): IndicatorData[] {
     const sma = sum / period;
     
     result.push({
-      time: data[i].time,
+      time: data[i]?.time ?? 0,
       value: sma
     });
   }
@@ -260,12 +260,12 @@ function calculateEMA(data: OhlcRow[], period: number): IndicatorData[] {
   if (data.length === 0) return result;
   
   // First EMA is the first close price
-  let ema = data[0].close;
-  result.push({ time: data[0].time, value: ema });
+  let ema = data[0]?.close ?? 0;
+  result.push({ time: data[0]?.time ?? 0, value: ema });
   
   for (let i = 1; i < data.length; i++) {
-    ema = (data[i].close * multiplier) + (ema * (1 - multiplier));
-    result.push({ time: data[i].time, value: ema });
+    ema = ((data[i]?.close ?? 0) * multiplier) + (ema * (1 - multiplier));
+    result.push({ time: data[i]?.time ?? 0, value: ema });
   }
   
   return result;
@@ -281,7 +281,7 @@ function calculateRSI(data: OhlcRow[], period: number): IndicatorData[] {
   
   // Calculate price changes
   for (let i = 1; i < data.length; i++) {
-    const change = data[i].close - data[i - 1].close;
+    const change = (data[i]?.close ?? 0) - (data[i - 1]?.close ?? 0);
     gains.push(change > 0 ? change : 0);
     losses.push(change < 0 ? Math.abs(change) : 0);
   }
@@ -292,11 +292,11 @@ function calculateRSI(data: OhlcRow[], period: number): IndicatorData[] {
     const avgLoss = losses.slice(i - period, i).reduce((sum, loss) => sum + loss, 0) / period;
     
     if (avgLoss === 0) {
-      result.push({ time: data[i + 1].time, value: 100 });
+      result.push({ time: data[i + 1]?.time ?? 0, value: 100 });
     } else {
       const rs = avgGain / avgLoss;
       const rsi = 100 - (100 / (1 + rs));
-      result.push({ time: data[i + 1].time, value: rsi });
+      result.push({ time: data[i + 1]?.time ?? 0, value: rsi });
     }
   }
   
@@ -317,8 +317,8 @@ function calculateMACD(data: OhlcRow[], fastPeriod: number = 12, slowPeriod: num
   for (let i = 0; i < Math.min(fastEMA.length, slowEMA.length); i++) {
     if (fastEMA[i] && slowEMA[i]) {
       macdLine.push({
-        time: fastEMA[i].time,
-        value: fastEMA[i].value - slowEMA[i].value
+        time: fastEMA[i]?.time ?? 0,
+        value: (fastEMA[i]?.value ?? 0) - (slowEMA[i]?.value ?? 0)
       });
     }
   }
@@ -330,8 +330,8 @@ function calculateMACD(data: OhlcRow[], fastPeriod: number = 12, slowPeriod: num
   for (let i = 0; i < signalLineData.length; i++) {
     if (signalLineData[i]) {
       signalLine.push({
-        time: signalLineData[i].time,
-        value: signalLineData[i].value
+        time: signalLineData[i]?.time ?? 0,
+        value: signalLineData[i]?.value ?? 0
       });
     }
   }
@@ -344,10 +344,10 @@ function calculateVolumeHistogram(data: OhlcRow[]): IndicatorData[] {
   const result: IndicatorData[] = [];
   
   for (let i = 0; i < data.length; i++) {
-    if (data[i].volume !== undefined) {
+    if (data[i]?.volume !== undefined) {
       result.push({
-        time: data[i].time,
-        value: data[i].volume!
+        time: data[i]?.time ?? 0,
+        value: data[i]?.volume ?? 0
       });
     }
   }
@@ -355,7 +355,7 @@ function calculateVolumeHistogram(data: OhlcRow[]): IndicatorData[] {
   return result;
 }
 
-function calculateBuySellFrequency(data: OhlcRow[], period: number = 14): { buyFreq: IndicatorData[], sellFreq: IndicatorData[] } {
+function calculateBuySellFrequency(_data: OhlcRow[], _period: number = 14): { buyFreq: IndicatorData[], sellFreq: IndicatorData[] } {
   const buyFreq: IndicatorData[] = [];
   const sellFreq: IndicatorData[] = [];
   
@@ -503,13 +503,13 @@ function calculateBuySellFrequency(data: OhlcRow[], period: number = 14): { buyF
     // Buy frequency (positive values)
     buyFreq.push({
       time,
-      value: dummyData[i].bFreq
+      value: dummyData[i]?.bFreq ?? 0
     });
     
     // Sell frequency (negative values for diverging chart)
     sellFreq.push({
       time,
-      value: -dummyData[i].sFreq
+      value: -(dummyData[i]?.sFreq ?? 0)
     });
   }
   
@@ -525,15 +525,15 @@ function calculateStochastic(data: OhlcRow[], kPeriod: number = 14, dPeriod: num
   // Calculate %K values
   for (let i = kPeriod - 1; i < data.length; i++) {
     const slice = data.slice(i - kPeriod + 1, i + 1);
-    const highestHigh = Math.max(...slice.map(item => item.high));
-    const lowestLow = Math.min(...slice.map(item => item.low));
-    const currentClose = data[i].close;
+    const highestHigh = Math.max(...slice.map(item => item?.high ?? 0));
+    const lowestLow = Math.min(...slice.map(item => item?.low ?? 0));
+    const currentClose = data[i]?.close ?? 0;
     
     // Calculate %K
     const kPercent = ((currentClose - lowestLow) / (highestHigh - lowestLow)) * 100;
     
     kValues.push({
-      time: data[i].time,
+      time: data[i]?.time ?? 0,
       value: kPercent
     });
   }
@@ -544,7 +544,7 @@ function calculateStochastic(data: OhlcRow[], kPeriod: number = 14, dPeriod: num
     const dValue = slice.reduce((sum, item) => sum + item.value, 0) / dPeriod;
     
     dValues.push({
-      time: kValues[i].time,
+      time: kValues[i]?.time ?? 0,
       value: dValue
     });
   }
@@ -579,14 +579,16 @@ function aggregateByWeek(rows: OhlcRow[]): OhlcRow[] {
     const first = sortedWeek[0];
     const last = sortedWeek[sortedWeek.length - 1];
     
-    weeklyData.push({
-      time: first.time,
-      open: first.open,
-      high: Math.max(...sortedWeek.map(r => r.high)),
-      low: Math.min(...sortedWeek.map(r => r.low)),
-      close: last.close,
-      volume: sortedWeek.reduce((sum, r) => sum + (r.volume || 0), 0)
-    });
+    if (first && last) {
+      weeklyData.push({
+        time: first.time,
+        open: first.open,
+        high: Math.max(...sortedWeek.map(r => r?.high ?? 0)),
+        low: Math.min(...sortedWeek.map(r => r?.low ?? 0)),
+        close: last.close,
+        volume: sortedWeek.reduce((sum, r) => sum + (r?.volume || 0), 0)
+      });
+    }
   });
   
   return weeklyData.sort((a, b) => a.time - b.time);
@@ -613,14 +615,16 @@ function aggregateByMonth(rows: OhlcRow[]): OhlcRow[] {
     const first = sortedMonth[0];
     const last = sortedMonth[sortedMonth.length - 1];
     
-    monthlyData.push({
-      time: first.time,
-      open: first.open,
-      high: Math.max(...sortedMonth.map(r => r.high)),
-      low: Math.min(...sortedMonth.map(r => r.low)),
-      close: last.close,
-      volume: sortedMonth.reduce((sum, r) => sum + (r.volume || 0), 0)
-    });
+    if (first && last) {
+      monthlyData.push({
+        time: first.time,
+        open: first.open,
+        high: Math.max(...sortedMonth.map(r => r?.high ?? 0)),
+        low: Math.min(...sortedMonth.map(r => r?.low ?? 0)),
+        close: last.close,
+        volume: sortedMonth.reduce((sum, r) => sum + (r?.volume || 0), 0)
+      });
+    }
   });
   
   return monthlyData.sort((a, b) => a.time - b.time);
@@ -648,14 +652,16 @@ function aggregateByQuarter(rows: OhlcRow[]): OhlcRow[] {
     const first = sortedQuarter[0];
     const last = sortedQuarter[sortedQuarter.length - 1];
     
-    quarterlyData.push({
-      time: first.time,
-      open: first.open,
-      high: Math.max(...sortedQuarter.map(r => r.high)),
-      low: Math.min(...sortedQuarter.map(r => r.low)),
-      close: last.close,
-      volume: sortedQuarter.reduce((sum, r) => sum + (r.volume || 0), 0)
-    });
+    if (first && last) {
+      quarterlyData.push({
+        time: first.time,
+        open: first.open,
+        high: Math.max(...sortedQuarter.map(r => r?.high ?? 0)),
+        low: Math.min(...sortedQuarter.map(r => r?.low ?? 0)),
+        close: last.close,
+        volume: sortedQuarter.reduce((sum, r) => sum + (r?.volume || 0), 0)
+      });
+    }
   });
   
   return quarterlyData.sort((a, b) => a.time - b.time);
@@ -683,14 +689,16 @@ function aggregateByHalfYear(rows: OhlcRow[]): OhlcRow[] {
     const first = sortedHalfYear[0];
     const last = sortedHalfYear[sortedHalfYear.length - 1];
     
-    halfYearData.push({
-      time: first.time,
-      open: first.open,
-      high: Math.max(...sortedHalfYear.map(r => r.high)),
-      low: Math.min(...sortedHalfYear.map(r => r.low)),
-      close: last.close,
-      volume: sortedHalfYear.reduce((sum, r) => sum + (r.volume || 0), 0)
-    });
+    if (first && last) {
+      halfYearData.push({
+        time: first.time,
+        open: first.open,
+        high: Math.max(...sortedHalfYear.map(r => r?.high ?? 0)),
+        low: Math.min(...sortedHalfYear.map(r => r?.low ?? 0)),
+        close: last.close,
+        volume: sortedHalfYear.reduce((sum, r) => sum + (r?.volume || 0), 0)
+      });
+    }
   });
   
   return halfYearData.sort((a, b) => a.time - b.time);
@@ -717,14 +725,16 @@ function aggregateByYear(rows: OhlcRow[]): OhlcRow[] {
     const first = sortedYear[0];
     const last = sortedYear[sortedYear.length - 1];
     
-    yearlyData.push({
-      time: first.time,
-      open: first.open,
-      high: Math.max(...sortedYear.map(r => r.high)),
-      low: Math.min(...sortedYear.map(r => r.low)),
-      close: last.close,
-      volume: sortedYear.reduce((sum, r) => sum + (r.volume || 0), 0)
-    });
+    if (first && last) {
+      yearlyData.push({
+        time: first.time,
+        open: first.open,
+        high: Math.max(...sortedYear.map(r => r?.high ?? 0)),
+        low: Math.min(...sortedYear.map(r => r?.low ?? 0)),
+        close: last.close,
+        volume: sortedYear.reduce((sum, r) => sum + (r?.volume || 0), 0)
+      });
+    }
   });
   
   return yearlyData.sort((a, b) => a.time - b.time);
@@ -765,14 +775,16 @@ function aggregateByMinute(rows: OhlcRow[], minutes: number): OhlcRow[] {
     const first = sortedMinute[0];
     const last = sortedMinute[sortedMinute.length - 1];
     
-    minuteData.push({
-      time: first.time,
-      open: first.open,
-      high: Math.max(...sortedMinute.map(r => r.high)),
-      low: Math.min(...sortedMinute.map(r => r.low)),
-      close: last.close,
-      volume: sortedMinute.reduce((sum, r) => sum + (r.volume || 0), 0)
-    });
+    if (first && last) {
+      minuteData.push({
+        time: first.time,
+        open: first.open,
+        high: Math.max(...sortedMinute.map(r => r?.high ?? 0)),
+        low: Math.min(...sortedMinute.map(r => r?.low ?? 0)),
+        close: last.close,
+        volume: sortedMinute.reduce((sum, r) => sum + (r?.volume || 0), 0)
+      });
+    }
   });
   
   return minuteData.sort((a, b) => a.time - b.time);
@@ -804,14 +816,16 @@ function aggregateByHour(rows: OhlcRow[]): OhlcRow[] {
     const first = sortedHour[0];
     const last = sortedHour[sortedHour.length - 1];
     
-    hourlyData.push({
-      time: first.time,
-      open: first.open,
-      high: Math.max(...sortedHour.map(r => r.high)),
-      low: Math.min(...sortedHour.map(r => r.low)),
-      close: last.close,
-      volume: sortedHour.reduce((sum, r) => sum + (r.volume || 0), 0)
-    });
+    if (first && last) {
+      hourlyData.push({
+        time: first.time,
+        open: first.open,
+        high: Math.max(...sortedHour.map(r => r?.high ?? 0)),
+        low: Math.min(...sortedHour.map(r => r?.low ?? 0)),
+        close: last.close,
+        volume: sortedHour.reduce((sum, r) => sum + (r?.volume || 0), 0)
+      });
+    }
   });
   
   return hourlyData.sort((a, b) => a.time - b.time);
@@ -840,7 +854,7 @@ function aggregateByTradingDay(rows: OhlcRow[]): OhlcRow[] {
     if (!tradingDayGroups[tradingDay]) {
       tradingDayGroups[tradingDay] = [];
     }
-    tradingDayGroups[tradingDay].push(row);
+    tradingDayGroups[tradingDay]?.push(row);
   });
   
   Object.values(tradingDayGroups).forEach(tradingDayRows => {
@@ -850,14 +864,16 @@ function aggregateByTradingDay(rows: OhlcRow[]): OhlcRow[] {
     const first = sortedTradingDay[0];
     const last = sortedTradingDay[sortedTradingDay.length - 1];
     
-    tradingDayData.push({
-      time: first.time,
-      open: first.open,
-      high: Math.max(...sortedTradingDay.map(r => r.high)),
-      low: Math.min(...sortedTradingDay.map(r => r.low)),
-      close: last.close,
-      volume: sortedTradingDay.reduce((sum, r) => sum + (r.volume || 0), 0)
-    });
+    if (first && last) {
+      tradingDayData.push({
+        time: first.time,
+        open: first.open,
+        high: Math.max(...sortedTradingDay.map(r => r?.high ?? 0)),
+        low: Math.min(...sortedTradingDay.map(r => r?.low ?? 0)),
+        close: last.close,
+        volume: sortedTradingDay.reduce((sum, r) => sum + (r?.volume || 0), 0)
+      });
+    }
   });
   
   return tradingDayData.sort((a, b) => a.time - b.time);
@@ -866,14 +882,14 @@ function aggregateByTradingDay(rows: OhlcRow[]): OhlcRow[] {
 /* ============================================================================
    4) KOMPONEN UTAMA
 ============================================================================ */
-export function TechnicalAnalysisTradingView() {
+export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysisTradingView() {
   const [symbol, setSymbol] = useState<string>(AVAILABLE_SYMBOLS[0] ?? 'MOCK');
   const [timeframe, setTimeframe] = useState<Timeframe>('1D');
   const [style, setStyle] = useState<ChartStyle>('candles');
   const [rows, setRows] = useState<OhlcRow[]>([]);
-  const [src, setSrc] = useState<'file' | 'mock' | 'none'>('none');
-  const [plotted, setPlotted] = useState(0);
-  const [err, setErr] = useState<string | null>(null);
+  const [, setSrc] = useState<'file' | 'mock' | 'none'>('none');
+  const [, setPlotted] = useState(0);
+  const [, setErr] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
@@ -895,7 +911,7 @@ export function TechnicalAnalysisTradingView() {
     showUpColor: true,
     showDownColor: true
   });
-  const [stochasticSettings, setStochasticSettings] = useState({
+  const [stochasticSettings] = useState({
     kColor: '#9b59b6',
     dColor: '#ffa726',
     showOverbought: true,
@@ -1132,7 +1148,7 @@ export function TechnicalAnalysisTradingView() {
   const filteredSymbols = useMemo(() => {
     if (!searchQuery.trim()) return symbols.slice(0, 10); // Show first 10 if no search
     return symbols
-      .filter(s => s.toLowerCase().includes(searchQuery.toLowerCase()))
+      .filter(s => s?.toLowerCase().includes(searchQuery.toLowerCase()))
       .slice(0, 10); // Limit to 10 results
   }, [symbols, searchQuery]);
 
@@ -1164,8 +1180,8 @@ export function TechnicalAnalysisTradingView() {
         e.preventDefault();
         if (selectedIndex >= 0 && selectedIndex < filteredSymbols.length) {
           const selectedSymbol = filteredSymbols[selectedIndex];
-          setSymbol(selectedSymbol);
-          setSearchQuery(selectedSymbol);
+          setSymbol(selectedSymbol ?? '');
+          setSearchQuery(selectedSymbol ?? '');
           setShowSuggestions(false);
           setSelectedIndex(-1);
         }
@@ -1237,7 +1253,7 @@ export function TechnicalAnalysisTradingView() {
         if (!path) throw new Error(`CSV untuk ${symbol} tidak ditemukan di src/data`);
         const url = csvFiles[path];
 
-        const res = await fetch(url, { cache: 'no-store' });
+        const res = await fetch(url ?? '', { cache: 'no-store' });
         if (!res.ok) throw new Error(`Gagal fetch CSV ${symbol}`);
 
         const text = await res.text();
@@ -1272,7 +1288,7 @@ export function TechnicalAnalysisTradingView() {
     // Calculate time differences between consecutive data points
     const timeDiffs: number[] = [];
     for (let i = 1; i < Math.min(sortedRows.length, 10); i++) {
-      const diff = sortedRows[i].time - sortedRows[i-1].time;
+      const diff = (sortedRows[i]?.time ?? 0) - (sortedRows[i-1]?.time ?? 0);
       timeDiffs.push(diff);
     }
     
@@ -1325,7 +1341,7 @@ export function TechnicalAnalysisTradingView() {
       const currentTimeframe = availableTimeframes.find(tf => tf.value === timeframe);
       if (!currentTimeframe) {
         // Current timeframe is not available, select the first available one
-        setTimeframe(availableTimeframes[0].value);
+        setTimeframe(availableTimeframes[0]?.value ?? '1D');
       }
     }
   }, [availableTimeframes, timeframe]);
@@ -1398,7 +1414,7 @@ export function TechnicalAnalysisTradingView() {
     return sortedRows;
   }, [rows, timeframe]);
 
-  // Build / Update chart saat data/gaya berubah
+  // Create chart only once when container is ready
   useEffect(() => {
     // Early return for footprint style - don't create any chart
     if (style === 'footprint' as ChartStyle) {
@@ -1412,39 +1428,41 @@ export function TechnicalAnalysisTradingView() {
     }
 
     const el = containerRef.current;
-    if (!el) return;
+    if (!el || chartRef.current) return;
 
     console.log('📊 Creating lightweight-charts for style:', style);
 
-    // init chart atau update existing chart
-    if (!chartRef.current) {
-      const width = el.clientWidth || 800;
-      const height = el.clientHeight || 420;
-      const colors = getThemeColors();
-      console.log(`Creating chart with dimensions: ${width}x${height}`);
-      chartRef.current = createChart(el, {
-        width,
-        height,
-        layout: { 
-          background: { type: ColorType.Solid, color: 'transparent' }, 
-          textColor: colors.axisTextColor
-        },
-        grid: { 
-          horzLines: { color: colors.gridColor, style: 1 }, 
-          vertLines: { color: colors.gridColor, style: 1 } 
-        },
-        rightPriceScale: { 
-          borderColor: colors.borderColor
-        },
-        timeScale: { 
-          borderColor: colors.borderColor,
-          visible: !indicators.some(ind => ind.enabled && ind.separateScale)
-        },
-        crosshair: { mode: style === 'footprint' as ChartStyle ? CrosshairMode.Hidden : CrosshairMode.Normal },
-        handleScroll: style === 'footprint' as ChartStyle ? false : true,
-        handleScale: style === 'footprint' as ChartStyle ? false : true,
-      });
-    }
+    const width = el.clientWidth || 800;
+    const height = el.clientHeight || 420;
+    const colors = getThemeColors();
+    console.log(`Creating chart with dimensions: ${width}x${height}`);
+    chartRef.current = createChart(el, {
+      width,
+      height,
+      layout: { 
+        background: { type: ColorType.Solid, color: 'transparent' }, 
+        textColor: colors.axisTextColor
+      },
+      grid: { 
+        horzLines: { color: colors.gridColor, style: 1 }, 
+        vertLines: { color: colors.gridColor, style: 1 } 
+      },
+      rightPriceScale: { 
+        borderColor: colors.borderColor
+      },
+      timeScale: { 
+        borderColor: colors.borderColor,
+        visible: !indicators.some(ind => ind.enabled && ind.separateScale)
+      },
+      crosshair: { mode: style === 'footprint' as ChartStyle ? CrosshairMode.Hidden : CrosshairMode.Normal },
+      handleScroll: style === 'footprint' as ChartStyle ? false : true,
+      handleScale: style === 'footprint' as ChartStyle ? false : true,
+    });
+  }, [style, indicators]);
+
+  // Update chart data when data changes
+  useEffect(() => {
+    if (!chartRef.current || style === 'footprint' as ChartStyle) return;
 
     const chart = chartRef.current!;
     
@@ -1453,64 +1471,6 @@ export function TechnicalAnalysisTradingView() {
     chart.timeScale().applyOptions({
       visible: !hasVisibleSeparateCharts
     });
-    
-    
-    // Add time scale change listener for synchronization (only once)
-    if (!(chart as any)._timeScaleListenerAdded) {
-      const timeScale = chart.timeScale();
-      const unsubscribeTimeScale = timeScale.subscribeVisibleTimeRangeChange((timeRange) => {
-        if (timeRange) {
-          // Sync with all indicator charts
-          Object.values(indicatorChartRefs.current).forEach(indicatorChart => {
-            if (indicatorChart && (indicatorChart as any).timeScale) {
-              (indicatorChart as any).timeScale().setVisibleRange(timeRange);
-            }
-          });
-        }
-      });
-      
-      // Sync crosshair from main chart to indicator charts
-      const unsubscribeCrosshair = chart.subscribeCrosshairMove((param) => {
-        if (param && param.time) {
-          console.log('Main chart crosshair move:', {
-            time: param.time,
-            logical: param.logical,
-            seriesData: param.seriesData,
-            indicatorCharts: Object.keys(indicatorChartRefs.current).length
-          });
-          
-          // Sync with all indicator charts using direct crosshair positioning
-          Object.values(indicatorChartRefs.current).forEach((indicatorChart, index) => {
-            if (indicatorChart) {
-              try {
-                console.log(`Syncing to indicator chart ${index}:`, param.logical);
-                
-                // Try both time and logical positioning
-                if ((indicatorChart as any).setCrosshairPosition) {
-                  try {
-                    (indicatorChart as any).setCrosshairPosition(param.time, param.seriesData || {});
-                  } catch (timeError) {
-                    console.log('Time positioning failed, trying logical:', timeError);
-                    try {
-                      (indicatorChart as any).setCrosshairPosition(param.logical, param.seriesData || {});
-                    } catch (logicalError) {
-                      console.log('Logical positioning also failed:', logicalError);
-                    }
-                  }
-                }
-              } catch (error) {
-                console.log('Error syncing crosshair to indicator chart:', error);
-              }
-            }
-          });
-        }
-      });
-      
-      // Store unsubscribe functions
-      (chart as any)._timeScaleUnsubscribe = unsubscribeTimeScale;
-      (chart as any)._crosshairUnsubscribe = unsubscribeCrosshair;
-      (chart as any)._timeScaleListenerAdded = true;
-    }
 
     // bersihkan seri lama
     if (priceRef.current) { 
@@ -1649,7 +1609,7 @@ export function TechnicalAnalysisTradingView() {
             
             // Set data with color based on price movement
             indicatorSeries.setData(filteredRows.map(d => ({
-              time: d.time,
+              time: d.time as any,
               value: d.volume ?? 0,
               color: d.close >= d.open ? volumeHistogramSettings.upColor : volumeHistogramSettings.downColor,
             })));
@@ -1660,7 +1620,10 @@ export function TechnicalAnalysisTradingView() {
               lineWidth: 2,
               title: indicator.name
             });
-            indicatorSeries.setData(indicatorData);
+            indicatorSeries.setData(indicatorData.map(d => ({
+              time: d.time as any,
+              value: d.value
+            })));
             
         // Add %D line for Stochastic Oscillator in main chart
         if (indicator.type === 'stochastic') {
@@ -1725,7 +1688,61 @@ export function TechnicalAnalysisTradingView() {
       setErr(e?.message ?? 'render error');
       setPlotted(0);
     }
-  }, [filteredRows, style, chartColors, indicators, volumeHistogramSettings]);
+  }, [filteredRows, chartColors, volumeHistogramSettings, rsiSettings, stochasticSettings]);
+
+  // Add chart listeners only once
+  useEffect(() => {
+    if (!chartRef.current || style === 'footprint' as ChartStyle) return;
+
+    const chart = chartRef.current;
+    
+    // Add time scale change listener for synchronization (only once)
+    if (!(chart as any)._timeScaleListenerAdded) {
+      const timeScale = chart.timeScale();
+      const unsubscribeTimeScale = timeScale.subscribeVisibleTimeRangeChange((timeRange) => {
+        if (timeRange) {
+          // Sync with all indicator charts
+          Object.values(indicatorChartRefs.current).forEach(indicatorChart => {
+            if (indicatorChart && (indicatorChart as any).timeScale) {
+              (indicatorChart as any).timeScale().setVisibleRange(timeRange);
+            }
+          });
+        }
+      });
+      
+      // Sync crosshair from main chart to indicator charts
+      const unsubscribeCrosshair = chart.subscribeCrosshairMove((param) => {
+        if (param && param.time) {
+          // Sync with all indicator charts using direct crosshair positioning
+          Object.values(indicatorChartRefs.current).forEach((indicatorChart, _index) => {
+            if (indicatorChart) {
+              try {
+                // Try both time and logical positioning
+                if ((indicatorChart as any).setCrosshairPosition) {
+                  try {
+                    (indicatorChart as any).setCrosshairPosition(param.time, param.seriesData || {});
+                  } catch (timeError) {
+                    try {
+                      (indicatorChart as any).setCrosshairPosition(param.logical, param.seriesData || {});
+                    } catch (logicalError) {
+                      // Silent fail
+                    }
+                  }
+                }
+              } catch (error) {
+                // Silent fail
+              }
+            }
+          });
+        }
+      });
+      
+      // Store unsubscribe functions
+      (chart as any)._timeScaleUnsubscribe = unsubscribeTimeScale;
+      (chart as any)._crosshairUnsubscribe = unsubscribeCrosshair;
+      (chart as any)._timeScaleListenerAdded = true;
+    }
+  }, [style]);
 
   // Separate useEffect for footprint cleanup and chart recreation
   useEffect(() => {
@@ -1767,7 +1784,7 @@ export function TechnicalAnalysisTradingView() {
           if ((chart as any)._timeScaleUnsubscribe) {
             (chart as any)._timeScaleUnsubscribe();
           }
-          chart.remove();
+          chart?.remove();
           delete indicatorChartRefs.current[indicator.id];
         }
         return;
@@ -1783,7 +1800,7 @@ export function TechnicalAnalysisTradingView() {
       
       // Always remove existing chart to force recreation
       if (indicatorChartRefs.current[indicator.id]) {
-        indicatorChartRefs.current[indicator.id].remove();
+        indicatorChartRefs.current[indicator.id]?.remove();
         delete indicatorChartRefs.current[indicator.id];
       }
       
@@ -1848,7 +1865,7 @@ export function TechnicalAnalysisTradingView() {
           
           // Set data with color based on price movement
           indicatorSeries.setData(filteredRows.map(d => ({
-            time: d.time,
+            time: d.time as any,
             value: d.volume ?? 0,
             color: d.close >= d.open ? volumeHistogramSettings.upColor : volumeHistogramSettings.downColor,
           })));
@@ -2141,12 +2158,12 @@ export function TechnicalAnalysisTradingView() {
           display: none !important;
         }
       `}</style>
-      <Card className="p-3">
-        <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
-          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-            <div className="flex items-center gap-2 relative">
-              <label className="font-medium">Symbol:</label>
-              <div className="relative">
+      <Card className="p-2 sm:p-3">
+        <div className="flex flex-col xl:flex-row gap-3 sm:gap-4 items-start xl:items-center justify-between">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-start sm:items-center w-full xl:w-auto">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 relative w-full sm:w-auto">
+              <label className="font-medium text-xs sm:text-sm whitespace-nowrap">Symbol:</label>
+              <div className="relative w-full sm:w-auto">
                 <input
                   type="text"
                   value={searchQuery}
@@ -2159,7 +2176,7 @@ export function TechnicalAnalysisTradingView() {
                   onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
                   onKeyDown={handleKeyDown}
                   placeholder="Search symbol..."
-                  className="px-3 py-1 border border-border rounded-md font-mono w-48 bg-background text-foreground"
+                  className="w-full sm:w-48 px-2 sm:px-3 py-1 text-xs sm:text-sm border border-border rounded-md font-mono bg-background text-foreground"
                 />
                 {showSuggestions && filteredSymbols.length > 0 && (
                   <div className="absolute top-full left-0 right-0 bg-popover border border-border rounded-md shadow-lg z-10 max-h-48 overflow-y-auto">
@@ -2167,8 +2184,8 @@ export function TechnicalAnalysisTradingView() {
                       <button
                         key={s}
                         onClick={() => {
-                          setSymbol(s);
-                          setSearchQuery(s);
+                          setSymbol(s ?? '');
+                          setSearchQuery(s ?? '');
                           setShowSuggestions(false);
                           setSelectedIndex(-1);
                         }}
@@ -2186,12 +2203,12 @@ export function TechnicalAnalysisTradingView() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Timeframe:</span>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
+              <span className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">Timeframe:</span>
               <select
                 value={timeframe}
                 onChange={(e) => setTimeframe(e.target.value as Timeframe)}
-                className="px-3 py-1 border border-border rounded-md text-sm bg-background text-foreground"
+                className="w-full sm:w-auto px-2 sm:px-3 py-1 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground"
               >
                 {availableTimeframes.map(tf => (
                   <option key={tf.value} value={tf.value}>
@@ -2201,12 +2218,12 @@ export function TechnicalAnalysisTradingView() {
               </select>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Chart Style:</span>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
+              <span className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">Chart Style:</span>
               <select
                 value={style}
                 onChange={(e) => setStyle(e.target.value as ChartStyle)}
-                className="px-3 py-1 border border-border rounded-md text-sm bg-background text-foreground"
+                className="w-full sm:w-auto px-2 sm:px-3 py-1 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground"
               >
                 <option value="line">Line</option>
                 <option value="candles">Candles</option>
@@ -2214,23 +2231,23 @@ export function TechnicalAnalysisTradingView() {
               </select>
               <button
                 onClick={() => setShowSettings(true)}
-                className="px-3 py-1 border border-border rounded-md text-sm bg-background text-foreground hover:bg-accent"
+                className="w-full sm:w-auto px-2 sm:px-3 py-1 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground hover:bg-accent"
               >
                 ⚙️ Settings
               </button>
               <button
                 onClick={() => setShowIndicatorSettings(true)}
-                className="px-3 py-1 border border-border rounded-md text-sm bg-background text-foreground hover:bg-accent"
+                className="w-full sm:w-auto px-2 sm:px-3 py-1 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground hover:bg-accent"
               >
                 📊 Indicators
               </button>
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <div className="font-mono text-lg font-medium">{latest ? latest.close.toLocaleString() : '-'}</div>
-              <div className={`text-sm font-medium ${chg >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+          <div className="flex items-center gap-2 sm:gap-4 w-full xl:w-auto justify-center xl:justify-end">
+            <div className="text-center xl:text-right">
+              <div className="font-mono text-sm sm:text-lg font-medium">{latest ? latest.close.toLocaleString() : '-'}</div>
+              <div className={`text-xs sm:text-sm font-medium ${chg >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                 {chg >= 0 ? '+' : ''}{chg.toFixed(0)} ({chgPct.toFixed(2)}%)
               </div>
             </div>
@@ -2238,7 +2255,7 @@ export function TechnicalAnalysisTradingView() {
         </div>
       </Card>
 
-      <Card className="flex-1 p-0 relative" style={{ padding: 0, margin: 0 }}>
+      <Card className="flex-1 p-0 relative min-h-[400px] sm:min-h-[500px] lg:min-h-[600px]" style={{ padding: 0, margin: 0 }}>
         <ChartErrorBoundary>
           {style === 'footprint' ? (
             <div className="w-full h-full" style={{ height: '100%', padding: 0, margin: 0 }}>
@@ -2805,7 +2822,7 @@ export function TechnicalAnalysisTradingView() {
       )}
     </div>
   );
-}
+});
 
 // Indicator Editor Component
 function IndicatorEditor({ 
@@ -3018,7 +3035,7 @@ function IndicatorEditor({
                     <input
                       type="color"
                       value={volumeHistogramSettings.upColor}
-                      onChange={(e) => setVolumeHistogramSettings(prev => ({ ...prev, upColor: e.target.value }))}
+                      onChange={(e) => setVolumeHistogramSettings((prev: any) => ({ ...prev, upColor: e.target.value }))}
                       className="w-8 h-6 border border-border rounded cursor-pointer"
                     />
                     <span className="text-xs text-muted-foreground font-mono">{volumeHistogramSettings.upColor}</span>
@@ -3030,7 +3047,7 @@ function IndicatorEditor({
                     <input
                       type="color"
                       value={volumeHistogramSettings.downColor}
-                      onChange={(e) => setVolumeHistogramSettings(prev => ({ ...prev, downColor: e.target.value }))}
+                      onChange={(e) => setVolumeHistogramSettings((prev: any) => ({ ...prev, downColor: e.target.value }))}
                       className="w-8 h-6 border border-border rounded cursor-pointer"
                     />
                     <span className="text-xs text-muted-foreground font-mono">{volumeHistogramSettings.downColor}</span>

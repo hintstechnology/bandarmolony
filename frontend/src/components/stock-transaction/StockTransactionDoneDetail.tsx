@@ -372,8 +372,9 @@ export function StockTransactionDoneDetail() {
   // Render table like IPOT format - showing individual transactions
   const renderTransactionTable = (data: DoneDetailData[], date: string) => {
         return (
-          <div className="overflow-x-auto">
-        <table className="w-full text-xs border-collapse">
+          <div className="overflow-x-auto -mx-4 sm:mx-0">
+            <div className="min-w-full px-4 sm:px-0">
+        <table className="w-full text-xs border-collapse min-w-[600px]">
               <thead>
                 <tr className="border-b border-border bg-muted/50">
               <th className="text-left py-2 px-2 font-medium sticky left-0 bg-muted/50 z-10">Time</th>
@@ -417,6 +418,7 @@ export function StockTransactionDoneDetail() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         );
   };
@@ -768,21 +770,21 @@ export function StockTransactionDoneDetail() {
 
 
   return (
-    <div className="space-y-6">
+    <div className="min-h-screen space-y-4 sm:space-y-6 p-2 sm:p-4 lg:p-6">
       {/* Top Controls */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calendar className="w-5 h-5" />
+          <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
+            <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
             Stock Selection & Date Range (Max 7 Days)
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
+          <div className="space-y-3 sm:space-y-4">
             {/* Row 1: Stock, Date Range, Clear, Last 3 Days, Layout */}
-            <div className="flex flex-col sm:flex-row gap-4 items-end">
-              <div className="flex-1">
-                <label className="block text-sm font-medium mb-2">Stock:</label>
+            <div className="flex flex-col xl:flex-row gap-3 sm:gap-4 items-start xl:items-end">
+              <div className="flex-1 w-full xl:w-auto">
+                <label className="block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Stock:</label>
                 <div className="relative" ref={dropdownRef}>
                   <input
                     type="text"
@@ -790,7 +792,7 @@ export function StockTransactionDoneDetail() {
                     onChange={(e) => handleStockInputChange(e.target.value)}
                     onFocus={() => setShowStockSuggestions(true)}
                     placeholder="Enter stock code..."
-                    className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
+                    className="w-full px-2 sm:px-3 py-1 sm:py-2 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground"
                   />
                   {showStockSuggestions && (
                     <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
@@ -829,33 +831,34 @@ export function StockTransactionDoneDetail() {
                 </div>
               </div>
 
-              <div className="flex-1">
-                <label className="block text-sm font-medium mb-2">Date Range:</label>
-                <div className="flex gap-2 items-center">
+              <div className="flex-1 w-full xl:w-auto">
+                <label className="block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Date Range:</label>
+                <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
                   <input
                     type="date"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
-                    className="flex-1 px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                    className="w-full sm:flex-1 px-2 sm:px-3 py-1 sm:py-2 text-xs sm:text-sm border border-border rounded-md bg-input text-foreground"
                   />
-                  <span className="text-sm text-muted-foreground">to</span>
+                  <span className="text-xs sm:text-sm text-muted-foreground hidden sm:inline">to</span>
                   <input
                     type="date"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
-                    className="flex-1 px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                    className="w-full sm:flex-1 px-2 sm:px-3 py-1 sm:py-2 text-xs sm:text-sm border border-border rounded-md bg-input text-foreground"
                   />
-                  <Button onClick={addDateRange} size="sm">
-                    <Plus className="w-4 h-4" />
+                  <Button onClick={addDateRange} size="sm" className="w-full sm:w-auto">
+                    <Plus className="w-3 h-3 sm:w-4 sm:h-4" />
+                    <span className="ml-1 text-xs sm:hidden">Add</span>
                   </Button>
                 </div>
               </div>
 
-              <div className="flex-1">
-                <label className="block text-sm font-medium mb-2">Quick Select:</label>
-                <div className="flex gap-2">
+              <div className="flex-1 w-full xl:w-auto">
+                <label className="block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Quick Select:</label>
+                <div className="flex flex-col sm:flex-row gap-2">
                 <select 
-                    className="flex-1 px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                    className="w-full xl:flex-1 px-2 sm:px-3 py-1 sm:py-2 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground"
                     value={dateRangeMode}
                     onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
                   >
@@ -865,32 +868,34 @@ export function StockTransactionDoneDetail() {
                     <option value="custom">Custom</option>
                 </select>
                   {dateRangeMode === 'custom' && (
-                    <Button onClick={clearAllDates} variant="outline" size="sm">
-                      <RotateCcw className="w-4 h-4 mr-1" />
-                      Clear
+                    <Button onClick={clearAllDates} variant="outline" size="sm" className="w-full sm:w-auto">
+                      <RotateCcw className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
+                      <span className="text-xs sm:text-sm">Clear</span>
                     </Button>
                   )}
               </div>
             </div>
 
-              <div className="flex-1">
-                <label className="block text-sm font-medium mb-2">Layout:</label>
-                <div className="flex gap-2">
+              <div className="flex-1 w-full xl:w-auto">
+                <label className="block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Layout:</label>
+                <div className="flex gap-1">
                 <Button
                     variant={layoutMode === 'horizontal' ? 'default' : 'outline'}
                   size="sm"
                     onClick={() => setLayoutMode('horizontal')}
-                    className="flex-1"
+                    className="flex-1 text-xs sm:text-sm"
                 >
-                    Horizontal
+                    <span className="hidden sm:inline">Horizontal</span>
+                    <span className="sm:hidden">H</span>
                 </Button>
                 <Button
                     variant={layoutMode === 'vertical' ? 'default' : 'outline'}
                   size="sm"
                     onClick={() => setLayoutMode('vertical')}
-                    className="flex-1"
+                    className="flex-1 text-xs sm:text-sm"
                   >
-                    Vertical
+                    <span className="hidden sm:inline">Vertical</span>
+                    <span className="sm:hidden">V</span>
                 </Button>
                 </div>
               </div>
@@ -898,15 +903,15 @@ export function StockTransactionDoneDetail() {
 
             {/* Row 2: Selected Dates */}
             <div>
-              <label className="text-sm font-medium">Selected Dates:</label>
-              <div className="flex flex-wrap gap-2 mt-2">
+              <label className="text-xs sm:text-sm font-medium">Selected Dates:</label>
+              <div className="flex flex-wrap gap-1 sm:gap-2 mt-1 sm:mt-2">
                 {selectedDates.map((date) => (
-                  <Badge key={date} variant="secondary" className="px-3 py-1">
+                  <Badge key={date} variant="secondary" className="px-2 sm:px-3 py-1 text-xs sm:text-sm">
                     {formatDisplayDate(date)}
                     {selectedDates.length > 1 && (
                       <button
                         onClick={() => removeDate(date)}
-                        className="ml-2 hover:text-destructive"
+                        className="ml-1 sm:ml-2 hover:text-destructive"
                       >
                         <X className="w-3 h-3" />
                       </button>

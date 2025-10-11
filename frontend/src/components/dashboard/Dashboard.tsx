@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { Watchlist } from './Watchlist';
 import { TechnicalAnalysisTradingView } from '../technical-analysis/TechnicalAnalysisTradingView';
 import { DoneSummary } from '../stock-transaction/DoneSummary';
@@ -45,7 +45,7 @@ export function Dashboard() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="min-h-screen space-y-4 sm:space-y-6 p-2 sm:p-4 lg:p-6">
       {/* Shortcut Section */}
       <Card className="bg-gradient-to-r from-primary/5 to-secondary/5 border-primary/20">
         <CardHeader className="pb-3">
@@ -56,18 +56,18 @@ export function Dashboard() {
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-0">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl mx-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 max-w-2xl mx-auto">
             {/* Bandarmology Button */}
             <div className="group">
               <Button 
                 onClick={handleBandarmologyClick}
-                className="w-full h-24 flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white border-0 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 rounded-lg"
+                className="w-full h-20 sm:h-24 flex flex-col items-center justify-center gap-1 sm:gap-2 bg-gradient-to-br from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white border-0 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 rounded-lg"
               >
-                <div className="flex items-center gap-2">
-                  <BarChart3 className="w-7 h-7" />
-                  <TrendingUp className="w-6 h-6" />
+                <div className="flex items-center gap-1 sm:gap-2">
+                  <BarChart3 className="w-5 h-5 sm:w-7 sm:h-7" />
+                  <TrendingUp className="w-4 h-4 sm:w-6 sm:h-6" />
                 </div>
-                <span className="font-semibold text-base">Bandarmology</span>
+                <span className="font-semibold text-sm sm:text-base">Bandarmology</span>
               </Button>
             </div>
             
@@ -76,13 +76,13 @@ export function Dashboard() {
               <Button 
                 onClick={handleBazimologyClick}
                 variant="outline"
-                className="w-full h-24 flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white border-0 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 rounded-lg"
+                className="w-full h-20 sm:h-24 flex flex-col items-center justify-center gap-1 sm:gap-2 bg-gradient-to-br from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white border-0 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 rounded-lg"
               >
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-7 h-7" />
-                  <Sparkles className="w-6 h-6" />
+                <div className="flex items-center gap-1 sm:gap-2">
+                  <Calendar className="w-5 h-5 sm:w-7 sm:h-7" />
+                  <Sparkles className="w-4 h-4 sm:w-6 sm:h-6" />
                 </div>
-                <span className="font-semibold text-base">Bazimology</span>
+                <span className="font-semibold text-sm sm:text-base">Bazimology</span>
               </Button>
             </div>
           </div>

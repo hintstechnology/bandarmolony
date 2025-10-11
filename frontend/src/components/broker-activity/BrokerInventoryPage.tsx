@@ -2,29 +2,21 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { Calendar, Plus, X } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, BarChart, Bar, ComposedChart } from 'recharts';
+import { X } from 'lucide-react';
+// Removed unused Recharts imports
 import { getBrokerBackgroundClass, getBrokerTextClass, useDarkMode } from '../../utils/brokerColors';
 import {
   createChart,
   ColorType,
   CrosshairMode,
   LineSeries,
-  AreaSeries,
   CandlestickSeries,
   HistogramSeries,
   type IChartApi,
 } from 'lightweight-charts';
 import { useUserChartColors } from '../../hooks/useUserChartColors';
 
-interface BrokerInventoryData {
-  broker: string;
-  nblot: number;
-  nbval: number;
-  bavg: number;
-  gross: number;
-  net: number;
-}
+// Removed unused interface
 
 interface InventoryTimeSeries {
   time: string;
@@ -56,7 +48,7 @@ const getBrokerColor = (broker: string): string => {
 };
 
 // Generate inventory data for selected brokers and date range
-const generateInventoryData = (ticker: string, selectedBrokers: string[], startDate: string, endDate: string) => {
+const generateInventoryData = (_ticker: string, selectedBrokers: string[], startDate: string, endDate: string) => {
   const start = new Date(startDate);
   const end = new Date(endDate);
   const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
@@ -66,7 +58,7 @@ const generateInventoryData = (ticker: string, selectedBrokers: string[], startD
   for (let i = 0; i <= days; i++) {
     const currentDate = new Date(start);
     currentDate.setDate(start.getDate() + i);
-    const timeStr = currentDate.toISOString().split('T')[0];
+    const timeStr = currentDate.toISOString().split('T')[0] ?? '';
 
     const dayData: InventoryTimeSeries = { time: timeStr };
 
@@ -86,7 +78,7 @@ const generateInventoryData = (ticker: string, selectedBrokers: string[], startD
 };
 
 // Generate candlestick data for price chart
-const generateCandlestickData = (ticker: string, startDate: string, endDate: string) => {
+const generateCandlestickData = (_ticker: string, startDate: string, endDate: string) => {
   const start = new Date(startDate);
   const end = new Date(endDate);
   const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
@@ -97,7 +89,7 @@ const generateCandlestickData = (ticker: string, startDate: string, endDate: str
   for (let i = 0; i <= days; i++) {
     const currentDate = new Date(start);
     currentDate.setDate(start.getDate() + i);
-    const timeStr = currentDate.toISOString().split('T')[0];
+    const timeStr = currentDate.toISOString().split('T')[0] ?? '';
 
     const open = basePrice;
     const change = (Math.random() - 0.5) * 20;
@@ -121,7 +113,7 @@ const generateCandlestickData = (ticker: string, startDate: string, endDate: str
 };
 
 // Generate volume data
-const generateVolumeData = (ticker: string, startDate: string, endDate: string) => {
+const generateVolumeData = (_ticker: string, startDate: string, endDate: string) => {
   const start = new Date(startDate);
   const end = new Date(endDate);
   const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
@@ -131,7 +123,7 @@ const generateVolumeData = (ticker: string, startDate: string, endDate: string) 
   for (let i = 0; i <= days; i++) {
     const currentDate = new Date(start);
     currentDate.setDate(start.getDate() + i);
-    const timeStr = currentDate.toISOString().split('T')[0];
+    const timeStr = currentDate.toISOString().split('T')[0] ?? '';
 
     // Generate volume with some correlation to price movement
     const baseVolume = Math.floor(Math.random() * 2000000 + 500000);
@@ -148,35 +140,10 @@ const generateVolumeData = (ticker: string, startDate: string, endDate: string) 
 };
 
 // Generate broker gross/net data for horizontal bar chart
-const generateBrokerGrossNetData = (ticker: string, selectedBrokers: string[]) => {
-  return selectedBrokers.map(broker => {
-    const gross = Math.floor(Math.random() * 100000 + 20000);
-    const net = Math.floor((Math.random() - 0.3) * gross); // Net can be positive or negative
-    
-    return {
-      broker,
-      gross,
-      net,
-      grossColor: '#3B82F6',
-      netColor: net >= 0 ? '#10B981' : '#EF4444'
-    };
-  });
-};
-
-// Generate broker summary data for bar chart with numbers
-const generateBrokerSummaryData = (ticker: string, selectedBrokers: string[]) => {
-  return selectedBrokers.map(broker => {
-    const value = Math.floor(Math.random() * 50000 + 10000);
-    return {
-      broker,
-      value,
-      color: getBrokerColor(broker)
-    };
-  });
-};
+// Removed unused data generation functions to improve performance
 
 // Generate Big 5 Gross & Net table data
-const generateBig5TableData = (ticker: string) => {
+const generateBig5TableData = (_ticker: string) => {
 const topBrokers = ['LG', 'MG', 'BR', 'RG', 'CC'];
 
   // Generate data for all brokers first
@@ -212,7 +179,7 @@ const TradingViewChart = ({
   candlestickData,
   inventoryData,
   selectedBrokers,
-  title,
+  title: _title,
   volumeData
 }: {
   candlestickData: any[],
@@ -274,7 +241,7 @@ const TradingViewChart = ({
         borderColor: colors.borderColor,
         timeVisible: true,
         secondsVisible: false,
-        tickMarkFormatter: (time: any, tickMarkType: any, locale: string) => {
+        tickMarkFormatter: (time: any) => {
           let date: Date;
           if (typeof time === 'string') {
             date = new Date(time);
@@ -490,7 +457,7 @@ const VolumeChart = ({ volumeData, candlestickData, showLabel = true }: { volume
         borderColor: colors.borderColor,
         timeVisible: true,
         secondsVisible: false,
-        tickMarkFormatter: (time: any, tickMarkType: any, locale: string) => {
+        tickMarkFormatter: (time: any) => {
           let date: Date;
           if (typeof time === 'string') {
             date = new Date(time);
@@ -648,7 +615,7 @@ const PriceChart = ({ candlestickData }: { candlestickData: any[] }) => {
         borderColor: colors.borderColor,
         timeVisible: true,
         secondsVisible: false,
-        tickMarkFormatter: (time: any, tickMarkType: any, locale: string) => {
+        tickMarkFormatter: (time: any) => {
           let date: Date;
           if (typeof time === 'string') {
             date = new Date(time);
@@ -790,7 +757,7 @@ const InventoryChart = ({ inventoryData, selectedBrokers }: { inventoryData: Inv
         borderColor: colors.borderColor,
         timeVisible: true,
         secondsVisible: false,
-        tickMarkFormatter: (time: any, tickMarkType: any, locale: string) => {
+        tickMarkFormatter: (time: any) => {
           let date: Date;
           if (typeof time === 'string') {
             date = new Date(time);
@@ -883,73 +850,7 @@ const InventoryChart = ({ inventoryData, selectedBrokers }: { inventoryData: Inv
   );
 };
 
-// Broker Gross/Net Horizontal Bar Chart Component
-const BrokerGrossNetChart = ({ data }: { data: any[] }) => {
-  const maxValue = Math.max(...data.map(d => Math.max(d.gross, Math.abs(d.net))));
-
-  return (
-    <div className="space-y-3">
-      {data.map((item, index) => (
-        <div key={item.broker} className="space-y-1">
-          <div className="flex items-center justify-between text-sm">
-            <span className="font-medium">{item.broker}</span>
-            <div className="flex gap-4 text-xs">
-              <span className="text-blue-600">Gross: {item.gross.toLocaleString()}</span>
-              <span className={item.net >= 0 ? 'text-green-600' : 'text-red-600'}>
-                Net: {item.net >= 0 ? '+' : ''}{item.net.toLocaleString()}
-              </span>
-            </div>
-          </div>
-          <div className="relative h-6 bg-gray-100 rounded">
-            {/* Gross Bar */}
-            <div 
-              className="absolute top-0 left-0 h-3 rounded-l"
-              style={{ 
-                width: `${(item.gross / maxValue) * 100}%`,
-                backgroundColor: item.grossColor 
-              }}
-            />
-            {/* Net Bar */}
-            <div 
-              className="absolute bottom-0 left-0 h-3 rounded-r"
-              style={{ 
-                width: `${(Math.abs(item.net) / maxValue) * 100}%`,
-                backgroundColor: item.netColor 
-              }}
-            />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-// Broker Summary Bar Chart Component
-const BrokerSummaryChart = ({ data }: { data: any[] }) => {
-  const maxValue = Math.max(...data.map(d => d.value));
-  
-  return (
-    <div className="space-y-3">
-      {data.map((item, index) => (
-        <div key={item.broker} className="space-y-1">
-          <div className="flex items-center justify-between text-sm">
-            <span className="font-medium">{item.broker}</span>
-            <span className="text-sm font-bold">{item.value.toLocaleString()}</span>
-          </div>
-          <div className="relative h-6 bg-gray-100 rounded">
-            <div 
-              className="absolute top-0 left-0 h-full rounded"
-              style={{ 
-                width: `${(item.value / maxValue) * 100}%`,
-                backgroundColor: item.color 
-              }}
-            />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-};
+// Removed unused chart components to improve performance
 
 // Broker Footprint Overlay Component
 const BrokerFootprintOverlay = ({ nblot, totalNblot, brokerColor }: { nblot: number, totalNblot: number, brokerColor: string }) => {
@@ -973,7 +874,7 @@ const BrokerFootprintOverlay = ({ nblot, totalNblot, brokerColor }: { nblot: num
   );
 };
 
-export function BrokerInventoryPage() {
+export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
   // State management
   const [selectedTicker, setSelectedTicker] = useState('BBCA');
   const [selectedBrokers, setSelectedBrokers] = useState<string[]>(['LG', 'MG', 'BR']);
@@ -1049,30 +950,22 @@ export function BrokerInventoryPage() {
   }, []);
 
   // Generate data based on current selections
-  const candlestickData = useMemo(() =>
-    generateCandlestickData(selectedTicker, startDate, endDate),
-    [selectedTicker, startDate, endDate]
-  );
+  const candlestickData = useMemo(() => {
+    if (!selectedTicker || !startDate || !endDate) return [];
+    return generateCandlestickData(selectedTicker, startDate, endDate);
+  }, [selectedTicker, startDate, endDate]);
 
-  const inventoryData = useMemo(() =>
-    generateInventoryData(selectedTicker, selectedBrokers, startDate, endDate),
-    [selectedTicker, selectedBrokers, startDate, endDate]
-  );
+  const inventoryData = useMemo(() => {
+    if (!selectedTicker || !startDate || !endDate) return [];
+    return generateInventoryData(selectedTicker, selectedBrokers, startDate, endDate);
+  }, [selectedTicker, selectedBrokers, startDate, endDate]);
 
-  const volumeData = useMemo(() =>
-    generateVolumeData(selectedTicker, startDate, endDate),
-    [selectedTicker, startDate, endDate]
-  );
+  const volumeData = useMemo(() => {
+    if (!selectedTicker || !startDate || !endDate) return [];
+    return generateVolumeData(selectedTicker, startDate, endDate);
+  }, [selectedTicker, startDate, endDate]);
 
-  const brokerGrossNetData = useMemo(() =>
-    generateBrokerGrossNetData(selectedTicker, selectedBrokers),
-    [selectedTicker, selectedBrokers]
-  );
-
-  const brokerSummaryData = useMemo(() =>
-    generateBrokerSummaryData(selectedTicker, selectedBrokers),
-    [selectedTicker, selectedBrokers]
-  );
+  // Removed unused data generation functions to improve performance
 
   const big5TableData = useMemo(() =>
     generateBig5TableData(selectedTicker),
@@ -1387,7 +1280,7 @@ export function BrokerInventoryPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {big5TableData.map((row, index) => {
+                    {big5TableData.map((row, _index) => {
                       const isDarkMode = useDarkMode();
                       return (
                         <tr key={row.broker} className={`border-b border-border/50 hover:opacity-80 relative ${getBrokerBackgroundClass(row.broker, isDarkMode)}`}>
@@ -1427,4 +1320,4 @@ export function BrokerInventoryPage() {
       </div>
     </div>
   );
-}
+});

@@ -1,5 +1,4 @@
-import React, { useRef, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { useRef, useEffect } from 'react';
 import { createChart, IChartApi, HistogramSeries, ColorType, CrosshairMode } from 'lightweight-charts';
 import { useUserChartColors } from '../../hooks/useUserChartColors';
 
@@ -8,7 +7,7 @@ interface ForeignFlowProps {
 }
 
 // Generate foreign flow data (from StoryForeignFlow.tsx)
-const generateForeignFlowData = (ticker: string): any[] => {
+const generateForeignFlowData = (_ticker: string): any[] => {
   const data: any[] = [];
   const now = new Date();
   
@@ -84,7 +83,7 @@ export function ForeignFlow({ selectedStock = 'BBRI' }: ForeignFlowProps) {
         borderColor: colors.borderColor,
         timeVisible: true,
         secondsVisible: false,
-        tickMarkFormatter: (time: any, tickMarkType: any, locale: string) => {
+        tickMarkFormatter: (time: any) => {
           let date: Date;
           if (typeof time === 'string') {
             date = new Date(time);

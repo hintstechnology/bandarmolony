@@ -1,6 +1,5 @@
-import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 
 interface OwnershipProps {
   selectedStock?: string;
@@ -48,7 +47,8 @@ const parseOwnershipData = () => {
 };
 
 // Complete detailed ownership data from BBCA.csv (all shareholders)
-const detailedOwnership = [
+  // Removed unused detailed ownership data to improve performance
+  /*
   {
     rank: 1,
     holder: 'PT Dwimuria Investama Andalan',
@@ -149,7 +149,7 @@ const detailedOwnership = [
     change: '0.0%',
     lastUpdate: '2025-08-31'
   }
-];
+  */
 
 // Get ownership data
 const ownershipData = parseOwnershipData();
@@ -163,7 +163,7 @@ const formatNumber = (num: number): string => {
   return num.toLocaleString();
 };
 
-export function Ownership({ selectedStock = 'BBRI' }: OwnershipProps) {
+export function Ownership({ selectedStock: _selectedStock = 'BBRI' }: OwnershipProps) {
   return (
     <div>
         <div className="space-y-2">
@@ -189,7 +189,7 @@ export function Ownership({ selectedStock = 'BBRI' }: OwnershipProps) {
                        ))}
                      </Pie>
                      <Tooltip 
-                       formatter={(value, name, props) => [
+                       formatter={(value, _name, props) => [
                          `${value}%`,
                          props.payload.name
                        ]}

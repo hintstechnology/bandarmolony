@@ -1,21 +1,21 @@
-import React, { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
+import { useState } from "react";
+import { Card } from "../ui/card";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  PieChart,
-  Pie,
-  Cell,
-} from "recharts";
+// import {
+//   BarChart,
+//   Bar,
+//   XAxis,
+//   YAxis,
+//   CartesianGrid,
+//   Tooltip,
+//   ResponsiveContainer,
+//   LineChart,
+//   Line,
+//   PieChart,
+//   Pie,
+//   Cell,
+// } from "recharts";
 import {
   TrendingUp,
   TrendingDown,
@@ -23,8 +23,8 @@ import {
   Filter,
   Search,
   Calendar,
-  ArrowUp,
-  ArrowDown,
+  // ArrowUp,
+  // ArrowDown,
   BarChart3,
   Target,
   ChevronLeft,
@@ -350,7 +350,7 @@ export function MarketRotationTrendFilter() {
   const [selectedSector, setSelectedSector] =
     useState("All Sectors");
   const [selectedTrend, setSelectedTrend] = useState("uptrend");
-  const [searchQuery, setSearchQuery] = useState("");
+  // const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState({
     uptrend: 0,
     sideways: 0,
@@ -381,18 +381,18 @@ export function MarketRotationTrendFilter() {
     }
   };
 
-  const getTrendColor = (trend: string) => {
-    switch (trend) {
-      case "uptrend":
-        return "text-green-600 bg-green-50 dark:bg-green-900/20";
-      case "sideways":
-        return "text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20";
-      case "downtrend":
-        return "text-red-600 bg-red-50 dark:bg-red-900/20";
-      default:
-        return "";
-    }
-  };
+  // const getTrendColor = (trend: string) => {
+  //   switch (trend) {
+  //     case "uptrend":
+  //       return "text-green-600 bg-green-50 dark:bg-green-900/20";
+  //     case "sideways":
+  //       return "text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20";
+  //     case "downtrend":
+  //       return "text-red-600 bg-red-50 dark:bg-red-900/20";
+  //     default:
+  //       return "";
+  //   }
+  // };
 
   const getFilteredData = () => {
     if (selectedTrend === "all") {
@@ -403,31 +403,31 @@ export function MarketRotationTrendFilter() {
       };
     }
     return {
-      [selectedTrend]: trendData[selectedTrend] || [],
+      [selectedTrend]: (trendData as any)[selectedTrend] || [],
     };
   };
 
   const filteredData = getFilteredData();
 
   const getPaginatedData = (trendType: string) => {
-    const data = trendData[trendType] || [];
-    const query = searchQueries[trendType].toLowerCase();
+    const data = (trendData as any)[trendType] || [];
+    const query = (searchQueries as any)[trendType].toLowerCase();
     const filtered = query
       ? data.filter(
-          (stock) =>
+          (stock: any) =>
             stock.symbol.toLowerCase().includes(query) ||
             stock.name.toLowerCase().includes(query),
         )
       : data;
 
-    const startIndex = currentPage[trendType] * itemsPerPage;
+    const startIndex = (currentPage as any)[trendType] * itemsPerPage;
     return {
       data: filtered.slice(
         startIndex,
         startIndex + itemsPerPage,
       ),
       totalPages: Math.ceil(filtered.length / itemsPerPage),
-      currentPage: currentPage[trendType],
+      currentPage: (currentPage as any)[trendType],
       totalItems: filtered.length,
     };
   };
@@ -436,8 +436,8 @@ export function MarketRotationTrendFilter() {
     setCurrentPage((prev) => ({
       ...prev,
       [trendType]: Math.min(
-        prev[trendType] + 1,
-        Math.ceil(trendData[trendType].length / itemsPerPage) -
+        (prev as any)[trendType] + 1,
+        Math.ceil((trendData as any)[trendType].length / itemsPerPage) -
           1,
       ),
     }));
@@ -446,7 +446,7 @@ export function MarketRotationTrendFilter() {
   const handlePrevPage = (trendType: string) => {
     setCurrentPage((prev) => ({
       ...prev,
-      [trendType]: Math.max(prev[trendType] - 1, 0),
+      [trendType]: Math.max((prev as any)[trendType] - 1, 0),
     }));
   };
 
@@ -621,7 +621,7 @@ export function MarketRotationTrendFilter() {
       {/* Trend Categories */}
       <div className="space-y-6">
         {Object.entries(filteredData).map(
-          ([trendType, stocks]) => {
+          ([trendType, _stocks]) => {
             const paginatedResult = getPaginatedData(trendType);
             return (
               <Card key={trendType} className="p-6">
@@ -642,7 +642,7 @@ export function MarketRotationTrendFilter() {
                     <input
                       type="text"
                       placeholder={`Search ${trendType} stocks...`}
-                      value={searchQueries[trendType]}
+                      value={(searchQueries as any)[trendType]}
                       onChange={(e) =>
                         handleSearchChange(
                           trendType,
@@ -677,7 +677,7 @@ export function MarketRotationTrendFilter() {
                     </thead>
                     <tbody>
                       {paginatedResult.data.map(
-                        (stock, index) => (
+                        (stock: any, index: number) => (
                           <tr
                             key={index}
                             className="border-b border-border/50 hover:bg-muted/50 transition-colors"

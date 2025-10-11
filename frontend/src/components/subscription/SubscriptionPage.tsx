@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Alert, AlertDescription } from '../ui/alert';
-import { Loader2, CheckCircle, XCircle, Clock, RefreshCw, AlertCircle, CreditCard } from 'lucide-react';
+import { Loader2, XCircle, RefreshCw, AlertCircle, CreditCard } from 'lucide-react';
 import { api } from '../../services/api';
 import { toast } from 'sonner';
 
@@ -35,20 +35,15 @@ const subscriptionPlans = [
   }
 ];
 
-const currentSubscription = {
-  plan: 'pro',
-  status: 'active',
-  nextBilling: '2024-02-15',
-  autoRenew: true
-};
+// Removed unused currentSubscription object
 
 export function SubscriptionPage() {
-  const [selectedPlan, setSelectedPlan] = useState('premium');
+  const [selectedPlan] = useState('premium');
   const [loading, setLoading] = useState(false);
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
   const [subscriptionStatus, setSubscriptionStatus] = useState<any>(null);
-  const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
-  const [transactions, setTransactions] = useState<any[]>([]);
+  // const [paymentMethods] = useState<any[]>([]); // Removed unused variable
+  // const [transactions] = useState<any[]>([]); // Removed unused variable
   const [paymentActivities, setPaymentActivities] = useState<any[]>([]);
   const [hasActivePayment, setHasActivePayment] = useState(false);
   const [pendingTransactions, setPendingTransactions] = useState<any[]>([]);
@@ -251,6 +246,7 @@ export function SubscriptionPage() {
       }, 500);
       return () => clearTimeout(timer);
     }
+    return undefined; // Explicit return for all code paths
   }, [pendingTransactions.length, hasScrolledToPending]);
 
   // Payment methods configuration
@@ -306,9 +302,18 @@ export function SubscriptionPage() {
   );
 
   useEffect(() => {
-    loadSubscriptionStatus();
-    loadPaymentMethods();
-    loadPaymentActivity();
+    // Load data sequentially to prevent race conditions
+    const loadData = async () => {
+      try {
+        await loadSubscriptionStatus();
+        await loadPaymentMethods();
+        await loadPaymentActivity();
+      } catch (error) {
+        console.error('Error loading subscription data:', error);
+      }
+    };
+    
+    loadData();
   }, []);
 
   const loadSubscriptionStatus = async () => {
@@ -316,7 +321,7 @@ export function SubscriptionPage() {
       const response = await api.getSubscriptionStatus();
       if (response.success) {
         setSubscriptionStatus(response.data);
-        setTransactions(response.data.transactions || []);
+        // setTransactions(response.data.transactions || []); // Removed unused setter
         
         // Debug logging
         console.log('Subscription data:', response.data);
@@ -358,7 +363,7 @@ export function SubscriptionPage() {
     try {
       const response = await api.getPaymentMethods();
       if (response.success) {
-        setPaymentMethods(response.data);
+        // setPaymentMethods(response.data); // Removed unused setter
       }
     } catch (error) {
       console.error('Failed to load payment methods:', error);
@@ -600,7 +605,7 @@ export function SubscriptionPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="min-h-screen space-y-4 sm:space-y-6 p-2 sm:p-4 lg:p-6">
       {/* Pending Transaction Section */}
       {pendingTransactions.length > 0 && (
         <Card id="pending-transactions" className="border-orange-500 bg-orange-500/10">
@@ -804,7 +809,7 @@ export function SubscriptionPage() {
           </p>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
             {subscriptionPlans.map((plan) => (
               <Card 
                 key={plan.id} 

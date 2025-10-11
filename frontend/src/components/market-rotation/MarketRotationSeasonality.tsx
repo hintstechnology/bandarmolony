@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { useState, useEffect, useRef } from 'react';
+import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { X, Plus, TrendingUp, Search } from 'lucide-react';
@@ -222,15 +222,15 @@ export function MarketRotationSeasonality() {
     setSelectedStocks(selectedStocks.filter(s => s !== stock));
   };
 
-  const getSelectedStockData = () => {
-    const result: SeasonalityData = {};
-    selectedStocks.forEach(stock => {
-      if (stockSeasonalityData[stock]) {
-        result[stock] = stockSeasonalityData[stock];
-      }
-    });
-    return result;
-  };
+  // const getSelectedStockData = () => {
+  //   const result: SeasonalityData = {};
+  //   selectedStocks.forEach(stock => {
+  //     if (stockSeasonalityData[stock]) {
+  //       result[stock] = stockSeasonalityData[stock];
+  //     }
+  //   });
+  //   return result;
+  // };
 
   return (
     <div className="space-y-6">
@@ -454,7 +454,7 @@ export function MarketRotationSeasonality() {
                   <div className="flex items-center text-sm font-medium text-card-foreground">
                     {sector}
                   </div>
-                  {sectorSeasonalityData[sector].map((monthData, index) => (
+                  {sectorSeasonalityData[sector]?.map((monthData, index) => (
                     <div 
                       key={index}
                       className="h-16 rounded-md flex items-center justify-center text-sm font-medium transition-colors hover:opacity-80"

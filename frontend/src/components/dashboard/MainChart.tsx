@@ -1,4 +1,4 @@
-import React from 'react';
+// import { useState } from 'react';
 import { Card } from '../ui/card';
 import { CardContent, CardHeader, CardTitle } from '../ui/card';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -95,25 +95,25 @@ interface MainChartProps {
 }
 
 export function MainChart({ selectedStock }: MainChartProps) {
-  const chartData = stockChartData[selectedStock] || stockChartData.BBRI;
-  const info = stockInfo[selectedStock] || stockInfo.BBRI;
+  const chartData = stockChartData[selectedStock] || stockChartData['BBRI'];
+  const info = stockInfo[selectedStock] || stockInfo['BBRI'];
 
   return (
     <Card className="h-full flex flex-col">
       <CardHeader className="pb-4">
-        <CardTitle className="text-lg font-semibold truncate">{selectedStock} - {info.name}</CardTitle>
+        <CardTitle className="text-lg font-semibold truncate">{selectedStock} - {info?.name}</CardTitle>
         <div className="flex items-center gap-4 mt-2">
           <span className="text-2xl font-bold text-foreground">
-            {info.price.toLocaleString()}
+            {info?.price.toLocaleString()}
           </span>
-          <span className={`text-sm font-medium ${info.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-            {info.change >= 0 ? '+' : ''}{info.change} ({info.change >= 0 ? '+' : ''}{info.changePercent.toFixed(2)}%)
+          <span className={`text-sm font-medium ${(info?.change ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            {(info?.change ?? 0) >= 0 ? '+' : ''}{info?.change} ({(info?.change ?? 0) >= 0 ? '+' : ''}{info?.changePercent.toFixed(2)}%)
           </span>
         </div>
       </CardHeader>
       <CardContent className="flex-1 min-h-0">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={chartData}>
+          <LineChart data={chartData || []}>
             <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
             <XAxis 
               dataKey="time" 
@@ -136,9 +136,9 @@ export function MainChart({ selectedStock }: MainChartProps) {
             <Line 
               type="monotone" 
               dataKey="price" 
-              stroke={info.change >= 0 ? "hsl(var(--chart-1))" : "hsl(var(--destructive))"} 
+              stroke={(info?.change ?? 0) >= 0 ? "hsl(var(--chart-1))" : "hsl(var(--destructive))"} 
               strokeWidth={2}
-              dot={{ fill: info.change >= 0 ? "hsl(var(--chart-1))" : "hsl(var(--destructive))", r: 3 }}
+              dot={{ fill: (info?.change ?? 0) >= 0 ? "hsl(var(--chart-1))" : "hsl(var(--destructive))", r: 3 }}
             />
           </LineChart>
         </ResponsiveContainer>

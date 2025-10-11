@@ -1,6 +1,3 @@
-import React from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { TrendingUp } from 'lucide-react';
 import { getBrokerBackgroundClass, getBrokerTextClass, useDarkMode } from '../../utils/brokerColors';
 
 interface BrokerSummaryData {
@@ -34,8 +31,8 @@ const generateTodayBrokerSummaryData = (stock: string): BrokerSummaryData[] => {
   ];
 
   // Create a seed based on stock and today's date for consistent data
-  const today = new Date().toISOString().split('T')[0];
-  const seed = stock.charCodeAt(0) + today.split('-').reduce((acc, part) => acc + parseInt(part), 0);
+  const today = new Date().toISOString().split('T')[0] ?? '';
+  // const _seed = stock.charCodeAt(0) + (today.split('-').reduce((acc, part) => acc + parseInt(part), 0)); // Removed unused variable
   
   // Add stock-based variation to simulate broker participation by issuer
   const stockImpact = 0.7 + (seededRandom(stock) * 0.8);
@@ -74,7 +71,7 @@ const formatValue = (value: number): string => {
   return formatNumber(value);
 };
 
-const getBrokerRowClass = (broker: string, data: BrokerSummaryData): string => {
+const getBrokerRowClass = (broker: string, _data: BrokerSummaryData): string => {
   const isDarkMode = useDarkMode();
   const backgroundClass = getBrokerBackgroundClass(broker, isDarkMode);
   const textClass = getBrokerTextClass(broker, isDarkMode);

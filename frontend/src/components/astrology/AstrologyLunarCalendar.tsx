@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
+// @ts-ignore
 import { getImageUrl } from '../../utils/imageMapping';
 
 // Image paths for zodiac and element images from Supabase Storage
@@ -57,10 +58,6 @@ const heavenlyStems = [
   'Gui'   // 癸 Yin Water
 ];
 
-// Basic 5 Elements for backward compatibility
-const basicElements = [
-  'Wood', 'Wood', 'Fire', 'Fire', 'Earth', 'Earth', 'Metal', 'Metal', 'Water', 'Water'
-];
 
 // Colors for elements based on Bazi system
 const elementColors = {
@@ -71,12 +68,12 @@ const elementColors = {
   'Water': { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-300', border: 'border-blue-300' }
 };
 
-// Custom images mapping for elements and zodiac
-const elementImages = {
-  'Water': waterElementImg, // ✅ 癸 (Gui) Yin Water
-  'Wood': jiaYangWoodImg,   // ✅ 甲 (Jia) Yang Wood - using as main Wood representation
-  // Still need: Fire 火, Earth 土, Metal 金
-};
+// Custom images mapping for elements and zodiac (unused for now)
+// const elementImages = {
+//   'Water': waterElementImg, // ✅ 癸 (Gui) Yin Water
+//   'Wood': jiaYangWoodImg,   // ✅ 甲 (Jia) Yang Wood - using as main Wood representation
+//   // Still need: Fire 火, Earth 土, Metal 金
+// };
 
 // ✅ COMPLETE Heavenly Stems images mapping - 10/10 DONE! 🎉🎯
 const heavenlyStemImages = {
@@ -149,7 +146,7 @@ const ZodiacDisplay = ({ zodiac, size = 'text-xl' }: { zodiac: typeof chineseZod
 // Component to render Heavenly Stem with detailed image - Clean format (no Chinese names)
 const HeavenlyStemDisplay = ({ heavenlyStem, className = '' }: { heavenlyStem: string, className?: string }) => {
   const customImage = heavenlyStemImages[heavenlyStem as keyof typeof heavenlyStemImages];
-  const stemInfo = heavenlyStemInfo[heavenlyStem];
+  const stemInfo = heavenlyStemInfo[heavenlyStem as keyof typeof heavenlyStemInfo];
   const elementColor = elementColors[stemInfo?.element as keyof typeof elementColors];
   
   if (customImage && stemInfo) {
@@ -167,7 +164,6 @@ const HeavenlyStemDisplay = ({ heavenlyStem, className = '' }: { heavenlyStem: s
   }
   
   // Fallback to basic element display (clean format)
-  const basicElement = stemInfo?.element || heavenlyStem;
   return (
     <td className={`p-2 text-center border-r border-border ${elementColor?.bg} ${className}`}>
       <div className={`px-2 py-1 rounded text-xs font-medium ${elementColor?.text}`}>
@@ -177,35 +173,6 @@ const HeavenlyStemDisplay = ({ heavenlyStem, className = '' }: { heavenlyStem: s
   );
 };
 
-// Component to render basic element with image or text fallback
-const ElementDisplay = ({ element, className = '' }: { element: string, className?: string }) => {
-  const customImage = elementImages[element as keyof typeof elementImages];
-  
-  if (customImage) {
-    return (
-      <td className={`p-2 text-center border-r border-border ${className}`}>
-        <div className="flex flex-col items-center gap-1">
-          <img 
-            src={customImage} 
-            alt={element}
-            className="w-14 h-14 object-contain"
-          />
-          <span className={`text-xs font-medium ${elementColors[element as keyof typeof elementColors].text}`}>
-            {element}
-          </span>
-        </div>
-      </td>
-    );
-  }
-  
-  return (
-    <td className={`p-2 text-center border-r border-border ${elementColors[element as keyof typeof elementColors].bg} ${className}`}>
-      <div className={`px-2 py-1 rounded text-xs font-medium ${elementColors[element as keyof typeof elementColors].text}`}>
-        {element}
-      </div>
-    </td>
-  );
-};
 
 // Function untuk mendapatkan detailed Heavenly Stem berdasarkan tanggal
 // Base reference: kemarin=Ji(己Yin Earth), today=Geng(庚Yang Metal), besok=Xin(辛Yin Metal)
@@ -227,13 +194,14 @@ const getHeavenlyStemByDate = (date: Date, type: 'daily' | 'monthly' | 'yearly')
     baseIndex = (6 + yearsDiff) % 10;
   }
   
-  return heavenlyStems[baseIndex < 0 ? baseIndex + 10 : baseIndex];
+  const finalIndex = ((baseIndex % 10) + 10) % 10;
+  return heavenlyStems[finalIndex]!;
 };
 
 // Function untuk mendapatkan basic element (for backward compatibility)
 const getElementByDate = (date: Date, type: 'daily' | 'monthly' | 'yearly'): string => {
   const heavenlyStem = getHeavenlyStemByDate(date, type);
-  return heavenlyStemInfo[heavenlyStem].element;
+  return heavenlyStemInfo[heavenlyStem as keyof typeof heavenlyStemInfo]?.element || 'Wood';
 };
 
 const getZodiacByDate = (date: Date, type: 'daily' | 'monthly' | 'yearly'): typeof chineseZodiac[0] => {
@@ -254,8 +222,8 @@ const getZodiacByDate = (date: Date, type: 'daily' | 'monthly' | 'yearly'): type
     baseIndex = (4 + yearsDiff) % 12;
   }
   
-  const finalIndex = baseIndex < 0 ? baseIndex + 12 : baseIndex;
-  return chineseZodiac[finalIndex];
+  const finalIndex = ((baseIndex % 12) + 12) % 12;
+  return chineseZodiac[finalIndex]!;
 };
 
 // Type definition for astrology data
@@ -341,7 +309,7 @@ const generateAstrologyData = (): AstrologyData[] => {
       
       data.push({
         id: `${i + 1}-${stock}`,
-        date: date.toISOString().split('T')[0],
+        date: date.toISOString().split('T')[0] || '',
         dateFormatted: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
         yearHeavenlyStem,
         yearElement,
@@ -377,7 +345,6 @@ const generateAstrologyData = (): AstrologyData[] => {
 export function AstrologyLunarCalendar() {
   const [selectedStock, setSelectedStock] = useState('ALL');
   const [filterType, setFilterType] = useState('all');
-  const [selectedZodiac, setSelectedZodiac] = useState('all');
   const [showPivot, setShowPivot] = useState(false);
   const [priceFilter, setPriceFilter] = useState('all'); // all, 5%, 10%
   const [spikeFilter, setSpikeFilter] = useState('all'); // all, 5%, 10%
@@ -674,7 +641,7 @@ export function AstrologyLunarCalendar() {
               </tr>
             </thead>
             <tbody>
-              {filteredData.map((row, index) => (
+              {filteredData.map((row) => (
                 <tr key={row.id} className={`border-b border-border/50 hover:bg-muted/20 ${row.isRising ? 'bg-green-50 dark:bg-green-950/20' : ''}`}>
                   <td className="py-1 px-1 text-center border-r border-border">
                     <div className="text-xs font-bold text-blue-600 dark:text-blue-400">{row.stock}</div>
@@ -758,7 +725,7 @@ export function AstrologyLunarCalendar() {
             </div>
             
             <div className="max-h-64 overflow-y-auto">
-              {risingStocks.map((stock, index) => (
+              {risingStocks.map((stock) => (
                 <div key={stock.id} className="flex items-center justify-between p-2 bg-green-50 dark:bg-green-950/20 rounded mb-1">
                   <div className="flex items-center gap-2">
                     <div className="flex-shrink-0">
@@ -792,9 +759,9 @@ export function AstrologyLunarCalendar() {
               const risingCount = elementData.filter(item => item.avgChange > 5).length;
               
               return (
-                <div key={element} className={`p-3 rounded ${elementColors[element].bg} ${elementColors[element].border} border`}>
+                <div key={element} className={`p-3 rounded ${elementColors[element as keyof typeof elementColors].bg} ${elementColors[element as keyof typeof elementColors].border} border`}>
                   <div className="flex justify-between items-center mb-2">
-                    <span className={`font-medium ${elementColors[element].text}`}>{element}</span>
+                    <span className={`font-medium ${elementColors[element as keyof typeof elementColors].text}`}>{element}</span>
                     <span className={`font-medium ${avgPercentage > 0 ? 'text-green-600' : 'text-red-600'}`}>
                       {avgPercentage > 0 ? '+' : ''}{avgPercentage.toFixed(2)}%
                     </span>

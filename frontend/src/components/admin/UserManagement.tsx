@@ -94,10 +94,12 @@ export function UserManagement() {
 
   // Use tab focus hook to prevent unnecessary refreshes
   useTabFocus(() => {
-    if (isInitialized) {
+    // Only refresh if data is stale (older than 5 minutes)
+    const now = Date.now();
+    if (isInitialized && (now - lastFetchTime) > 5 * 60 * 1000) {
       fetchUsers();
     }
-  }, 2 * 60 * 1000, lastFetchTime); // 2 minutes stale time
+  }, 5 * 60 * 1000, lastFetchTime); // 5 minutes stale time
 
   useEffect(() => {
     // Fetch on filter changes or page changes
