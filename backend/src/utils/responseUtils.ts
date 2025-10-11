@@ -1,5 +1,5 @@
 /**
- * Standardized response utilities for consistent API responses
+ * Standardized response utilities for consistent API responses 
  */
 
 export interface ErrorResponse {
