@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Calendar, Plus, X, ChevronDown, RotateCcw, TrendingUp } from 'lucide-react';
+import { useToast } from '../contexts/ToastContext';
 
 interface PriceData {
   price: number;
@@ -343,6 +344,7 @@ const getLastThreeDays = (): string[] => {
 };
 
 export function StockTransactionDoneSummary() {
+  const { showToast } = useToast();
   const [selectedDates, setSelectedDates] = useState<string[]>(getLastThreeDays());
   const [startDate, setStartDate] = useState(() => {
     const threeDays = getLastThreeDays();
@@ -374,7 +376,11 @@ export function StockTransactionDoneSummary() {
       
       // Check if range is valid
       if (start > end) {
-        alert('Start date must be before end date');
+        showToast({
+          type: 'warning',
+          title: 'Tanggal Tidak Valid',
+          message: 'Tanggal mulai harus sebelum tanggal akhir',
+        });
         return;
       }
       
@@ -383,7 +389,11 @@ export function StockTransactionDoneSummary() {
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
       
       if (diffDays > 7) {
-        alert('Maximum 7 days range allowed');
+        showToast({
+          type: 'warning',
+          title: 'Rentang Tanggal Terlalu Panjang',
+          message: 'Maksimal rentang tanggal adalah 7 hari',
+        });
         return;
       }
       

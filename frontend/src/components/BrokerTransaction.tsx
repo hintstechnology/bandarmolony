@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Calendar, Plus, X, RotateCcw } from 'lucide-react';
+import { useToast } from '../contexts/ToastContext';
 import { getBrokerBackgroundClass, getBrokerTextClass } from '../utils/brokerColors';
 
 interface IssuerData {
@@ -114,6 +115,7 @@ const getLastThreeDays = (): string[] => {
 };
 
 export function BrokerTransaction() {
+  const { showToast } = useToast();
   const [selectedDates, setSelectedDates] = useState<string[]>(getLastThreeDays());
   const [startDate, setStartDate] = useState(() => {
     const threeDays = getLastThreeDays();
@@ -144,7 +146,11 @@ export function BrokerTransaction() {
       
       // Check if range is valid
       if (start > end) {
-        alert('Start date must be before end date');
+        showToast({
+          type: 'warning',
+          title: 'Tanggal Tidak Valid',
+          message: 'Tanggal mulai harus sebelum tanggal akhir',
+        });
         return;
       }
       
@@ -164,7 +170,11 @@ export function BrokerTransaction() {
       
       // Check if total dates would exceed 7
       if (sortedDates.length > 7) {
-        alert('Maximum 7 dates allowed');
+        showToast({
+          type: 'warning',
+          title: 'Terlalu Banyak Tanggal',
+          message: 'Maksimal 7 tanggal yang bisa dipilih',
+        });
         return;
       }
       

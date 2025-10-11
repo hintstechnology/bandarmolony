@@ -18,6 +18,7 @@ import {
   Shield,
 } from "lucide-react";
 import { useProfile } from "../contexts/ProfileContext";
+import { useToast } from "../contexts/ToastContext";
 import { api } from "../services/api";
 
 /** ===== MENU ===== */
@@ -110,6 +111,7 @@ export function Sidebar({
   const [isHovered, setIsHovered] = useState(false);
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
   const { profile } = useProfile();
+  const { showToast } = useToast();
   const [isPinned, setIsPinned] = useState(false);
 
   const isExpanded = isOpen || isPinned || isHovered;
@@ -134,6 +136,11 @@ export function Sidebar({
     if (route === 'logout') {
       try {
         await api.logout();
+        showToast({
+          type: 'success',
+          title: 'Logout Berhasil!',
+          message: 'Anda telah berhasil logout.',
+        });
         navigate('/auth');
       } catch (error) {
         console.error('Logout error:', error);

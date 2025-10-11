@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { getAuthError } from '../../utils/errorHandler';
 import { setAuthState } from '../../utils/auth';
 import { useAuth } from '../../contexts/AuthContext';
+import { useToast } from '../../contexts/ToastContext';
 
 interface AuthPageProps {
   initialMode?: 'login' | 'signup';
@@ -46,6 +47,7 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
   }, [searchParams]);
 
   const { isAuthenticated, isLoading } = useAuth();
+  const { showToast } = useToast();
 
   // Redirect if already authenticated
   useEffect(() => {
@@ -56,6 +58,11 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
   }, [isAuthenticated, isLoading, navigate]);
 
   const handleAuthSuccess = () => {
+    showToast({
+      type: 'success',
+      title: 'Login Berhasil!',
+      message: 'Selamat datang kembali!',
+    });
     navigate('/dashboard'); // Redirect to dashboard
   };
 

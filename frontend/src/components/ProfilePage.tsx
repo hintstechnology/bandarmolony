@@ -9,11 +9,13 @@ import { EditPassword } from "./EditPassword";
 import { useProfile } from "../contexts/ProfileContext";
 import { api } from "../services/api";
 import { toast } from "sonner";
+import { useToast } from "../contexts/ToastContext";
 import { getAvatarUrl } from "../utils/avatar";
 import { supabase } from "../lib/supabase";
 
 export function ProfilePage() {
   const { profile, isLoading, updateProfile, refreshProfile } = useProfile();
+  const { showToast } = useToast();
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [isEditPasswordOpen, setIsEditPasswordOpen] = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<any>(null);
@@ -75,6 +77,12 @@ export function ProfilePage() {
       
       // Update profile in context for real-time UI update
       updateProfile(updatedProfile);
+      
+      showToast({
+        type: 'success',
+        title: 'Profile Berhasil Diupdate!',
+        message: 'Perubahan telah disimpan.',
+      });
       
       console.log('✅ ProfilePage: Profile updated successfully');
     } catch (error) {

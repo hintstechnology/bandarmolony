@@ -6,6 +6,8 @@ import { User, Upload, X, Loader2 } from "lucide-react";
 import { ProfileData, api } from "../services/api";
 import { useProfile } from "../contexts/ProfileContext";
 import { toast } from "sonner";
+import { useToast } from "../contexts/ToastContext";
+import { useConfirmation } from "../contexts/ConfirmationContext";
 import { getAvatarUrl, isValidAvatarFile, isValidAvatarSize } from "../utils/avatar";
 
 type Props = {
@@ -17,6 +19,8 @@ type Props = {
 
 export function EditProfile({ isOpen, onClose, profile, onSave }: Props) {
   const { updateProfile } = useProfile();
+  const { showToast } = useToast();
+  const { confirm } = useConfirmation();
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [localName, setLocalName] = useState(profile.full_name || profile.name);
   const [localAvatar, setLocalAvatar] = useState(profile.avatar_url || profile.avatarUrl || profile.avatar);
@@ -70,9 +74,16 @@ export function EditProfile({ isOpen, onClose, profile, onSave }: Props) {
     if (file.size > maxSizeBytes || !isValidAvatarSize(file, 1)) {
       console.log(`❌ File size validation failed: ${fileSizeMB}MB > 1MB`);
       
-      // Show both toast and alert for maximum visibility
-      toast.error(`File size too large (${fileSizeMB}MB). Please select an image smaller than 1MB.`);
-      alert(`File size too large (${fileSizeMB}MB). Please select an image smaller than 1MB.`);
+      // Show custom confirmation modal instead of raw alert
+      confirm(
+        'File Terlalu Besar',
+        `File yang dipilih terlalu besar (${fileSizeMB}MB). Maksimal ukuran file adalah 1MB. Silakan pilih file yang lebih kecil.`,
+        {
+          type: 'warning',
+          confirmText: 'OK',
+          showCancel: false,
+        }
+      );
       
       // Clear the input
       if (fileRef.current) {

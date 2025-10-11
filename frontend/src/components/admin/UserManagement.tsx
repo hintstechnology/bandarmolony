@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { useTabFocus } from "../../hooks/useTabFocus";
+import { useToast } from "../../contexts/ToastContext";
 
 interface User {
   id: string;
@@ -43,6 +44,7 @@ interface UserListResponse {
 }
 
 export function UserManagement() {
+  const { showToast } = useToast();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -198,7 +200,11 @@ export function UserManagement() {
       }
     } catch (err: any) {
       console.error('Error updating user status:', err);
-      alert(`Error: ${err.message}`);
+      showToast({
+        type: 'error',
+        title: 'Error',
+        message: err.message || 'Failed to update user status',
+      });
     } finally {
       setActionLoading(null);
     }

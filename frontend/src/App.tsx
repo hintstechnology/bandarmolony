@@ -3,6 +3,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavig
 import { ThemeProvider } from "./components/ThemeProvider";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ProfileProvider } from "./contexts/ProfileContext";
+import { ToastProvider } from "./contexts/ToastContext";
+import { ConfirmationProvider } from "./contexts/ConfirmationContext";
 import { useNavigation } from "./hooks/useNavigation";
 import { AuthPage } from "./components/auth/AuthPage";
 import { EmailVerificationHandler } from "./components/auth/EmailVerificationHandler";
@@ -247,9 +249,11 @@ function DashboardLayout() {
 export default function App() {
   return (
     <ThemeProvider>
-      <AuthProvider>
-        <ProfileProvider>
-          <Router>
+      <ToastProvider>
+        <ConfirmationProvider>
+          <AuthProvider>
+            <ProfileProvider>
+              <Router>
           <Routes>
             {/* Landing page - public route */}
             <Route 
@@ -406,8 +410,10 @@ export default function App() {
             />
           </Routes>
         </Router>
-        </ProfileProvider>
-      </AuthProvider>
+            </ProfileProvider>
+          </AuthProvider>
+        </ConfirmationProvider>
+      </ToastProvider>
     </ThemeProvider>
   );
 }

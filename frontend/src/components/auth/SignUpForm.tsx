@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
+import { useToast } from '../../contexts/ToastContext';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -14,6 +15,7 @@ interface SignUpFormProps {
 }
 
 export function SignUpForm({ onSwitchToLogin, onSwitchToEmailVerification, onSignUp }: SignUpFormProps) {
+  const { showToast } = useToast();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [formData, setFormData] = useState({
@@ -145,14 +147,22 @@ export function SignUpForm({ onSwitchToLogin, onSwitchToEmailVerification, onSig
       if (result.success) {
         if (result.user && result.session) {
           // User was created and signed in immediately
-          toast.success('Account created successfully! Welcome!');
+          showToast({
+            type: 'success',
+            title: 'Akun Berhasil Dibuat!',
+            message: 'Selamat datang!',
+          });
           // Redirect to dashboard after 1 second
           setTimeout(() => {
             window.location.href = '/dashboard';
           }, 1000);
         } else {
           // User needs to verify email
-          toast.success(result.message || 'Account created! Please check your email to verify your account.');
+          showToast({
+            type: 'success',
+            title: 'Akun Berhasil Dibuat!',
+            message: 'Silakan cek email untuk verifikasi akun.',
+          });
           onSwitchToEmailVerification(formData.email, 'signup');
         }
       } else {

@@ -4,6 +4,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Eye, EyeOff } from "lucide-react";
+import { useToast } from "../contexts/ToastContext";
 
 type Props = {
   isOpen: boolean;
@@ -13,6 +14,7 @@ type Props = {
 };
 
 export function EditPassword({ isOpen, onClose, email, onSubmit }: Props) {
+  const { showToast } = useToast();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -42,6 +44,13 @@ export function EditPassword({ isOpen, onClose, email, onSubmit }: Props) {
       setLoading(true);
       setError("");
       await onSubmit?.({ currentPassword, newPassword });
+      
+      showToast({
+        type: 'success',
+        title: 'Password Berhasil Diubah!',
+        message: 'Password Anda telah berhasil diubah.',
+      });
+      
       // Don't close automatically - let the parent handle success/error
     } catch (error: any) {
       setError(error.message || "Failed to change password");
