@@ -882,8 +882,15 @@ function aggregateByTradingDay(rows: OhlcRow[]): OhlcRow[] {
 /* ============================================================================
    4) KOMPONEN UTAMA
 ============================================================================ */
-export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysisTradingView() {
-  const [symbol, setSymbol] = useState<string>(AVAILABLE_SYMBOLS[0] ?? 'MOCK');
+interface TechnicalAnalysisTradingViewProps {
+  selectedStock?: string;
+  hideControls?: boolean;
+  styleProp?: ChartStyle;
+  timeframeProp?: string;
+}
+
+export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysisTradingView({ selectedStock, hideControls = false, styleProp, timeframeProp }: TechnicalAnalysisTradingViewProps) {
+  const [symbol, setSymbol] = useState<string>(selectedStock || (AVAILABLE_SYMBOLS[0] ?? 'MOCK'));
   const [timeframe, setTimeframe] = useState<Timeframe>('1D');
   const [style, setStyle] = useState<ChartStyle>('candles');
   const [rows, setRows] = useState<OhlcRow[]>([]);
@@ -924,6 +931,33 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   const [showIndicatorEditor, setShowIndicatorEditor] = useState(false);
   const [showIndividualSettings, setShowIndividualSettings] = useState(false);
   const [selectedIndicatorForSettings, setSelectedIndicatorForSettings] = useState<Indicator | null>(null);
+  
+  // New: measure controls height and compute available viewport height for the chart
+  const controlsContainerRef = useRef<HTMLDivElement | null>(null);
+  const [chartViewportHeight, setChartViewportHeight] = useState<number>(600);
+  useEffect(() => {
+    const HEADER_H = 56; // h-14 in header
+    const MAIN_PADDING_V = 48; // p-6 top+bottom in <main>
+    const GAPS = 16; // approximate vertical gaps between elements
+
+    const recalc = () => {
+      const controlsH = hideControls ? 0 : (controlsContainerRef.current?.offsetHeight || 0);
+      const h = window.innerHeight - HEADER_H - MAIN_PADDING_V - GAPS - (hideControls ? 0 : GAPS) - 0;
+      // Deduct controls height to fit without page scroll
+      const finalH = Math.max(320, h - controlsH);
+      setChartViewportHeight(finalH);
+    };
+    recalc();
+    window.addEventListener('resize', recalc);
+    return () => window.removeEventListener('resize', recalc);
+  }, [hideControls]);
+  
+  // Update symbol when selectedStock prop changes
+  useEffect(() => {
+    if (selectedStock && selectedStock !== symbol) {
+      setSymbol(selectedStock);
+    }
+  }, [selectedStock, symbol]);
   
   // Footprint chart settings
   const [footprintSettings, setFootprintSettings] = useState({
@@ -1428,7 +1462,16 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
     }
 
     const el = containerRef.current;
-    if (!el || chartRef.current) return;
+    if (!el) return;
+    
+    // Cleanup existing chart when style changes
+    if (chartRef.current) {
+      console.log('🗑️ Removing existing chart for style change');
+      chartRef.current.remove();
+      chartRef.current = null;
+      priceRef.current = null;
+      volRef.current = null;
+    }
 
     console.log('📊 Creating lightweight-charts for style:', style);
 
@@ -1688,7 +1731,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       setErr(e?.message ?? 'render error');
       setPlotted(0);
     }
-  }, [filteredRows, chartColors, volumeHistogramSettings, rsiSettings, stochasticSettings]);
+  }, [filteredRows, chartColors, volumeHistogramSettings, rsiSettings, stochasticSettings, style, indicators]);
 
   // Add chart listeners only once
   useEffect(() => {
@@ -2151,14 +2194,30 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   const chg = latest && prev ? latest.close - prev.close : 0;
   const chgPct = latest && prev ? (chg / prev.close) * 100 : 0;
 
+  // Sync style from parent when provided
+  useEffect(() => {
+    if (styleProp && styleProp !== style) {
+      setStyle(styleProp);
+    }
+  }, [styleProp, style]);
+
+  // Sync timeframe from parent when provided
+  useEffect(() => {
+    if (timeframeProp && timeframeProp !== timeframe) {
+      setTimeframe(timeframeProp as Timeframe);
+    }
+  }, [timeframeProp, timeframe]);
+
   return (
-    <div className="flex flex-col space-y-2 h-[560px]">
+    <div className="flex flex-col space-y-2 h-full">
       <style>{`
         #tv-attr-logo {
           display: none !important;
         }
       `}</style>
-      <Card className="p-2 sm:p-3">
+      
+      {!hideControls && (
+        <Card className="p-2 sm:p-3" ref={controlsContainerRef}>
         <div className="flex flex-col xl:flex-row gap-3 sm:gap-4 items-start xl:items-center justify-between">
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-start sm:items-center w-full xl:w-auto">
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 relative w-full sm:w-auto">
@@ -2253,9 +2312,10 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             </div>
           </div>
         </div>
-      </Card>
+        </Card>
+      )}
 
-      <Card className="flex-1 p-0 relative min-h-[400px] sm:min-h-[500px] lg:min-h-[600px]" style={{ padding: 0, margin: 0 }}>
+      <Card className="flex-1 p-0 relative" style={{ padding: 0, margin: 0, height: chartViewportHeight }}>
         <ChartErrorBoundary>
           {style === 'footprint' ? (
             <div className="w-full h-full" style={{ height: '100%', padding: 0, margin: 0 }}>
@@ -2265,12 +2325,19 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                 showDelta={footprintSettings.showDelta}
                 timeframe={footprintSettings.timeframe}
                 zoom={footprintSettings.zoom}
+                ohlc={filteredRows.map(d => ({
+                  timestamp: new Date((d.time || 0) * 1000).toISOString(),
+                  open: d.open,
+                  high: d.high,
+                  low: d.low,
+                  close: d.close
+                }))}
               />
         </div>
           ) : (
             <div 
               ref={containerRef} 
-              className="h-full w-full min-h-[400px]"
+              className="h-full w-full"
             />
           )}
         </ChartErrorBoundary>

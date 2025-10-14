@@ -60,7 +60,7 @@ export const api = {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       controller.abort();
-    }, 10000); // 10 seconds timeout
+    }, 30000); // 30 seconds timeout
     
     try {
       const response = await fetch(`${API_URL}/api/me`, {

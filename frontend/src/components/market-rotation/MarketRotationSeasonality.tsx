@@ -153,16 +153,21 @@ const availableStocks = [
 ];
 
 export function MarketRotationSeasonality() {
+  const [showIndex, setShowIndex] = useState(true);
   const [showSector, setShowSector] = useState(true);
   const [showStock, setShowStock] = useState(true);
   const [selectedIndices, setSelectedIndices] = useState(['COMPOSITE']);
+  const [selectedSectors, setSelectedSectors] = useState(['Technology', 'Healthcare', 'Finance']);
   const [selectedStocks, setSelectedStocks] = useState(['BBRI', 'BBCA', 'BMRI']);
   const [showAddStock, setShowAddStock] = useState(false);
   const [showAddIndex, setShowAddIndex] = useState(false);
+  const [showAddSector, setShowAddSector] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [indexSearchQuery, setIndexSearchQuery] = useState('');
+  const [sectorSearchQuery, setSectorSearchQuery] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
   const indexDropdownRef = useRef<HTMLDivElement>(null);
+  const sectorDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -171,6 +176,9 @@ export function MarketRotationSeasonality() {
       }
       if (indexDropdownRef.current && !indexDropdownRef.current.contains(event.target as Node)) {
         setShowAddIndex(false);
+      }
+      if (sectorDropdownRef.current && !sectorDropdownRef.current.contains(event.target as Node)) {
+        setShowAddSector(false);
       }
     };
 
@@ -201,6 +209,25 @@ export function MarketRotationSeasonality() {
     if (newIndices.length > 0) {
       setSelectedIndices(newIndices);
     }
+  };
+
+  const addSector = (sector: string) => {
+    if (!selectedSectors.includes(sector)) {
+      setSelectedSectors([...selectedSectors, sector]);
+    }
+    setShowAddSector(false);
+    setSectorSearchQuery('');
+  };
+
+  const getFilteredSectors = () => {
+    return Object.keys(sectorSeasonalityData).filter(sector => 
+      sector.toLowerCase().includes(sectorSearchQuery.toLowerCase()) &&
+      !selectedSectors.includes(sector)
+    );
+  };
+
+  const removeSector = (sector: string) => {
+    setSelectedSectors(selectedSectors.filter(s => s !== sector));
   };
 
   const addStock = (stock: string) => {
@@ -236,21 +263,23 @@ export function MarketRotationSeasonality() {
     <div className="space-y-6">
       {/* Display Options */}
       <Card className="p-4">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+        <div className="space-y-4">
           <div className="flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-muted-foreground" />
             <span className="text-sm font-medium">Display Options:</span>
           </div>
           
-          <div className="flex items-center gap-4">
-            {/* Index - Always enabled */}
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-primary rounded flex items-center justify-center">
-                <div className="w-2 h-2 bg-primary-foreground rounded"></div>
-              </div>
+          <div className="flex flex-col sm:flex-row gap-4">
+            {/* Index toggle */}
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showIndex}
+                onChange={(e) => setShowIndex(e.target.checked)}
+                className="w-4 h-4 text-primary bg-background border border-border rounded focus:ring-primary focus:ring-2 hover:border-primary/50 transition-colors"
+              />
               <span className="text-sm font-medium">Index</span>
-              <Badge variant="secondary" className="text-xs">Required</Badge>
-            </div>
+            </label>
             
             {/* Sector toggle */}
             <label className="flex items-center gap-2 cursor-pointer">
@@ -277,10 +306,11 @@ export function MarketRotationSeasonality() {
         </div>
       </Card>
 
-      {/* Index Seasonality - Always shown */}
+      {/* Index Seasonality */}
+      {showIndex && (
       <Card className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
+          <div className="mb-4">
+            <div className="flex items-center gap-2 mb-4">
               <h3 className="font-semibold">Index Seasonality Pattern</h3>
               <Badge variant="outline" className="text-xs">{selectedIndices.length} Indices</Badge>
             </div>
@@ -299,7 +329,7 @@ export function MarketRotationSeasonality() {
                     setShowAddIndex(true);
                   }}
                   onFocus={() => setShowAddIndex(true)}
-                  className="pl-7 pr-3 py-1.5 text-xs bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 w-32 hover:border-primary/50 transition-colors"
+                  className="pl-7 pr-3 h-8 text-xs bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 w-40 hover:border-primary/50 transition-colors"
                 />
               </div>
               
@@ -309,7 +339,7 @@ export function MarketRotationSeasonality() {
                   variant="outline"
                   size="sm"
                   onClick={() => setShowAddIndex(!showAddIndex)}
-                  className="flex items-center gap-2 hover:bg-primary/10 hover:text-primary transition-colors"
+                  className="h-8 px-3 flex items-center gap-2 hover:bg-primary/10 hover:text-primary transition-colors"
                 >
                   <Plus className="w-3 h-3" />
                   Add Index
@@ -358,12 +388,10 @@ export function MarketRotationSeasonality() {
                     )}
                   </div>
                 )}
-              </div>
-            </div>
           </div>
 
           {/* Selected Indices */}
-          <div className="flex flex-wrap gap-2 mb-4">
+              <div className="flex flex-wrap gap-2">
             {selectedIndices.map(index => (
               <div key={index} className="flex items-center gap-1 bg-muted px-2 py-1 rounded-md text-xs">
                 {index}
@@ -379,6 +407,8 @@ export function MarketRotationSeasonality() {
                 </button>
               </div>
             ))}
+              </div>
+            </div>
           </div>
 
           {selectedIndices.length > 0 && (
@@ -428,14 +458,109 @@ export function MarketRotationSeasonality() {
             </div>
           )}
         </Card>
+      )}
 
       {/* Sector Seasonality */}
       {showSector && (
         <Card className="p-6">
+          <div className="mb-4">
           <div className="flex items-center gap-2 mb-4">
             <h3 className="font-semibold">Sector Seasonality Heatmap</h3>
-            <Badge variant="outline" className="text-xs">{Object.keys(sectorSeasonalityData).length} Sectors</Badge>
+              <Badge variant="outline" className="text-xs">{selectedSectors.length} Sectors</Badge>
+            </div>
+            
+            {/* Add Sector Section */}
+            <div className="flex items-center gap-3">
+              {/* Search Input */}
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Search sectors..."
+                  value={sectorSearchQuery}
+                  onChange={(e) => {
+                    setSectorSearchQuery(e.target.value);
+                    setShowAddSector(true);
+                  }}
+                  onFocus={() => setShowAddSector(true)}
+                  className="pl-7 pr-3 h-8 text-xs bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 w-40 hover:border-primary/50 transition-colors"
+                />
+              </div>
+              
+              {/* Add Sector Button */}
+              <div className="relative" ref={sectorDropdownRef}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowAddSector(!showAddSector)}
+                  className="h-8 px-3 flex items-center gap-2 hover:bg-primary/10 hover:text-primary transition-colors"
+                >
+                  <Plus className="w-3 h-3" />
+                  Add Sector
+                </Button>
+                
+                {/* Add Sector Dropdown */}
+                {showAddSector && (
+                  <div className="absolute right-0 top-full mt-2 w-48 bg-card border border-border rounded-lg shadow-lg z-10 max-h-48 overflow-y-auto">
+                    {/* Show search results if there's a query, otherwise show all available */}
+                    {sectorSearchQuery ? (
+                      <>
+                        {getFilteredSectors().map(sector => (
+                          <button
+                            key={sector}
+                            onClick={() => addSector(sector)}
+                            className="w-full px-3 py-2 text-left text-sm hover:bg-muted transition-colors flex items-center justify-between"
+                          >
+                            <span className="font-medium">{sector}</span>
+                            <Plus className="w-3 h-3 text-muted-foreground" />
+                          </button>
+                        ))}
+                        {getFilteredSectors().length === 0 && (
+                          <div className="px-3 py-2 text-sm text-muted-foreground">
+                            No sectors found matching "{sectorSearchQuery}"
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {Object.keys(sectorSeasonalityData)
+                          .filter(sector => !selectedSectors.includes(sector))
+                          .map(sector => (
+                            <button
+                              key={sector}
+                              onClick={() => addSector(sector)}
+                              className="w-full px-3 py-2 text-left text-sm hover:bg-muted transition-colors flex items-center justify-between"
+                            >
+                              {sector}
+                              <Plus className="w-3 h-3 text-muted-foreground" />
+                            </button>
+                          ))}
+                        {Object.keys(sectorSeasonalityData).filter(sector => !selectedSectors.includes(sector)).length === 0 && (
+                          <div className="px-3 py-2 text-sm text-muted-foreground">No more sectors available</div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Selected Sectors */}
+              <div className="flex flex-wrap gap-2">
+                {selectedSectors.map(sector => (
+                  <div key={sector} className="flex items-center gap-1 bg-muted px-2 py-1 rounded-md text-xs">
+                    {sector}
+                    <button
+                      onClick={() => removeSector(sector)}
+                      className="text-muted-foreground hover:text-destructive transition-colors"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
+          {selectedSectors.length > 0 && (
           <div className="overflow-x-auto">
             <div className="min-w-[800px]">
               {/* Header row */}
@@ -449,12 +574,13 @@ export function MarketRotationSeasonality() {
               </div>
               
               {/* Data rows */}
-              {Object.keys(sectorSeasonalityData).map((sector) => (
+                {selectedSectors.map((sector) => (
+                  sectorSeasonalityData[sector] && (
                 <div key={sector} className="grid grid-cols-13 gap-2 mb-2">
                   <div className="flex items-center text-sm font-medium text-card-foreground">
                     {sector}
                   </div>
-                  {sectorSeasonalityData[sector]?.map((monthData, index) => (
+                      {sectorSeasonalityData[sector].map((monthData, index) => (
                     <div 
                       key={index}
                       className="h-16 rounded-md flex items-center justify-center text-sm font-medium transition-colors hover:opacity-80"
@@ -467,17 +593,27 @@ export function MarketRotationSeasonality() {
                     </div>
                   ))}
                 </div>
+                  )
               ))}
             </div>
           </div>
+          )}
+
+          {selectedSectors.length === 0 && (
+            <div className="text-center py-8 text-muted-foreground">
+              <Plus className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <p>No sectors selected</p>
+              <p className="text-sm">Click "Add Sector" to add sectors to compare</p>
+            </div>
+          )}
         </Card>
       )}
 
       {/* Stock Seasonality */}
       {showStock && (
         <Card className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
+          <div className="mb-4">
+            <div className="flex items-center gap-2 mb-4">
               <h3 className="font-semibold">Stock Seasonality Heatmap</h3>
               <Badge variant="outline" className="text-xs">{selectedStocks.length} Stocks</Badge>
             </div>
@@ -496,7 +632,7 @@ export function MarketRotationSeasonality() {
                     setShowAddStock(true);
                   }}
                   onFocus={() => setShowAddStock(true)}
-                  className="pl-7 pr-3 py-1.5 text-xs bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 w-32 hover:border-primary/50 transition-colors"
+                  className="pl-7 pr-3 h-8 text-xs bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 w-40 hover:border-primary/50 transition-colors"
                 />
               </div>
               
@@ -506,7 +642,7 @@ export function MarketRotationSeasonality() {
                   variant="outline"
                   size="sm"
                   onClick={() => setShowAddStock(!showAddStock)}
-                  className="flex items-center gap-2 hover:bg-primary/10 hover:text-primary transition-colors"
+                  className="h-8 px-3 flex items-center gap-2 hover:bg-primary/10 hover:text-primary transition-colors"
                 >
                   <Plus className="w-3 h-3" />
                   Add Stock
@@ -561,12 +697,10 @@ export function MarketRotationSeasonality() {
                     )}
                   </div>
                 )}
-              </div>
-            </div>
           </div>
 
           {/* Selected Stocks */}
-          <div className="flex flex-wrap gap-2 mb-4">
+              <div className="flex flex-wrap gap-2">
             {selectedStocks.map(stock => (
               <div key={stock} className="flex items-center gap-1 bg-muted px-2 py-1 rounded-md text-xs">
                 {stock}
@@ -578,6 +712,8 @@ export function MarketRotationSeasonality() {
                 </button>
               </div>
             ))}
+              </div>
+            </div>
           </div>
 
           {selectedStocks.length > 0 && (

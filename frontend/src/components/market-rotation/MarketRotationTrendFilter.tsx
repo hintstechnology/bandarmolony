@@ -468,7 +468,7 @@ export function MarketRotationTrendFilter() {
     <div className="space-y-6">
       {/* Filter Controls */}
       <Card className="p-4">
-        <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+        <div className="space-y-4">
           <div className="flex items-center gap-2">
             <Filter className="w-4 h-4 text-muted-foreground" />
             <span className="text-sm font-medium">
@@ -476,99 +476,101 @@ export function MarketRotationTrendFilter() {
             </span>
           </div>
 
-          {/* Timeframe Filter */}
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-muted-foreground" />
-            <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
-              {timeframes.map((tf) => (
+          <div className="flex flex-col lg:flex-row gap-4">
+            {/* Timeframe Filter */}
+            <div>
+              <label className="block text-sm font-medium mb-2">Timeframe:</label>
+              <div className="flex items-center gap-1 border border-border rounded-lg p-1">
+                {timeframes.map((tf) => (
+                  <Button
+                    key={tf}
+                    variant={
+                      selectedTimeframe === tf
+                        ? "default"
+                        : "ghost"
+                    }
+                    size="sm"
+                    onClick={() => setSelectedTimeframe(tf)}
+                    className="px-3 py-1 h-8 text-xs hover:bg-primary/10 hover:text-primary transition-colors"
+                  >
+                    {tf}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {/* Trend Filter */}
+            <div>
+              <label className="block text-sm font-medium mb-2">Trend:</label>
+              <div className="flex items-center gap-1 border border-border rounded-lg p-1">
                 <Button
-                  key={tf}
                   variant={
-                    selectedTimeframe === tf
+                    selectedTrend === "all" ? "default" : "ghost"
+                  }
+                  size="sm"
+                  onClick={() => setSelectedTrend("all")}
+                  className="px-3 py-1 h-8 text-xs hover:bg-primary/10 hover:text-primary transition-colors"
+                >
+                  All
+                </Button>
+                <Button
+                  variant={
+                    selectedTrend === "uptrend"
                       ? "default"
                       : "ghost"
                   }
                   size="sm"
-                  onClick={() => setSelectedTimeframe(tf)}
-                  className="px-3 py-1 h-8 text-xs hover:bg-primary/10 hover:text-primary transition-colors"
+                  onClick={() => setSelectedTrend("uptrend")}
+                  className="px-3 py-1 h-8 text-xs flex items-center gap-1 hover:bg-primary/10 hover:text-primary transition-colors"
                 >
-                  {tf}
+                  <TrendingUp className="w-3 h-3" />
+                  Up
                 </Button>
-              ))}
+                <Button
+                  variant={
+                    selectedTrend === "sideways"
+                      ? "default"
+                      : "ghost"
+                  }
+                  size="sm"
+                  onClick={() => setSelectedTrend("sideways")}
+                  className="px-3 py-1 h-8 text-xs flex items-center gap-1 hover:bg-primary/10 hover:text-primary transition-colors"
+                >
+                  <Minus className="w-3 h-3" />
+                  Side
+                </Button>
+                <Button
+                  variant={
+                    selectedTrend === "downtrend"
+                      ? "default"
+                      : "ghost"
+                  }
+                  size="sm"
+                  onClick={() => setSelectedTrend("downtrend")}
+                  className="px-3 py-1 h-8 text-xs flex items-center gap-1 hover:bg-primary/10 hover:text-primary transition-colors"
+                >
+                  <TrendingDown className="w-3 h-3" />
+                  Down
+                </Button>
+              </div>
             </div>
-          </div>
 
-          {/* Sector Filter */}
-          <div className="flex items-center gap-2">
-            <BarChart3 className="w-4 h-4 text-muted-foreground" />
-            <select
-              value={selectedSector}
-              onChange={(e) =>
-                setSelectedSector(e.target.value)
-              }
-              className="px-3 py-1 text-xs bg-background border border-border rounded-md hover:border-primary/50 transition-colors"
-            >
-              {sectors.map((sector) => (
-                <option key={sector} value={sector}>
-                  {sector}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Trend Filter */}
-          <div className="flex items-center gap-2">
-            <Target className="w-4 h-4 text-muted-foreground" />
-            <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
-              <Button
-                variant={
-                  selectedTrend === "all" ? "default" : "ghost"
+            {/* Sector Filter */}
+            <div>
+              <label className="block text-sm font-medium mb-2">Sector:</label>
+              <select
+                value={selectedSector}
+                onChange={(e) =>
+                  setSelectedSector(e.target.value)
                 }
-                size="sm"
-                onClick={() => setSelectedTrend("all")}
-                className="px-3 py-1 h-8 text-xs hover:bg-primary/10 hover:text-primary transition-colors"
+                className="w-48 px-3 py-2 h-10 text-xs bg-background border border-border rounded-md hover:border-primary/50 transition-colors"
               >
-                All
-              </Button>
-              <Button
-                variant={
-                  selectedTrend === "uptrend"
-                    ? "default"
-                    : "ghost"
-                }
-                size="sm"
-                onClick={() => setSelectedTrend("uptrend")}
-                className="px-3 py-1 h-8 text-xs flex items-center gap-1 hover:bg-primary/10 hover:text-primary transition-colors"
-              >
-                <TrendingUp className="w-3 h-3" />
-                Up
-              </Button>
-              <Button
-                variant={
-                  selectedTrend === "sideways"
-                    ? "default"
-                    : "ghost"
-                }
-                size="sm"
-                onClick={() => setSelectedTrend("sideways")}
-                className="px-3 py-1 h-8 text-xs flex items-center gap-1 hover:bg-primary/10 hover:text-primary transition-colors"
-              >
-                <Minus className="w-3 h-3" />
-                Side
-              </Button>
-              <Button
-                variant={
-                  selectedTrend === "downtrend"
-                    ? "default"
-                    : "ghost"
-                }
-                size="sm"
-                onClick={() => setSelectedTrend("downtrend")}
-                className="px-3 py-1 h-8 text-xs flex items-center gap-1 hover:bg-primary/10 hover:text-primary transition-colors"
-              >
-                <TrendingDown className="w-3 h-3" />
-                Down
-              </Button>
+                {sectors.map((sector) => (
+                  <option key={sector} value={sector}>
+                    {sector}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
         </div>
@@ -636,22 +638,24 @@ export function MarketRotationTrendFilter() {
                     </Badge>
                   </div>
 
-                  {/* Search for this trend */}
-                  <div className="flex items-center gap-2 max-w-xs">
-                    <Search className="w-4 h-4 text-muted-foreground" />
-                    <input
-                      type="text"
-                      placeholder={`Search ${trendType} stocks...`}
-                      value={(searchQueries as any)[trendType]}
-                      onChange={(e) =>
-                        handleSearchChange(
-                          trendType,
-                          e.target.value,
-                        )
-                      }
-                      className="flex-1 px-3 py-1 text-xs bg-background border border-border rounded-md hover:border-primary/50 transition-colors"
-                    />
-                  </div>
+                   {/* Search for this trend */}
+                   <div className="flex items-center gap-2 max-w-sm">
+                     <div className="relative flex-1">
+                       <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                       <input
+                         type="text"
+                         placeholder={`Search ${trendType} stocks...`}
+                         value={(searchQueries as any)[trendType]}
+                         onChange={(e) =>
+                           handleSearchChange(
+                             trendType,
+                             e.target.value,
+                           )
+                         }
+                         className="w-full pl-10 pr-3 py-2 text-sm bg-background border border-border rounded-md hover:border-primary/50 transition-colors"
+                       />
+                     </div>
+                   </div>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -742,41 +746,39 @@ export function MarketRotationTrendFilter() {
                       )}{" "}
                       of {paginatedResult.totalItems} stocks
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          handlePrevPage(trendType)
-                        }
-                        disabled={
-                          paginatedResult.currentPage === 0
-                        }
-                        className="flex items-center gap-1 hover:bg-primary/10 hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <ChevronLeft className="w-3 h-3" />
-                        Previous
-                      </Button>
-                      <span className="text-sm px-3 py-1 bg-muted rounded">
-                        {paginatedResult.currentPage + 1} /{" "}
-                        {paginatedResult.totalPages}
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          handleNextPage(trendType)
-                        }
-                        disabled={
-                          paginatedResult.currentPage ===
-                          paginatedResult.totalPages - 1
-                        }
-                        className="flex items-center gap-1 hover:bg-primary/10 hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        Next
-                        <ChevronRight className="w-3 h-3" />
-                      </Button>
-                    </div>
+                     <div className="flex items-center gap-2">
+                       <Button
+                         variant="outline"
+                         size="sm"
+                         onClick={() =>
+                           handlePrevPage(trendType)
+                         }
+                         disabled={
+                           paginatedResult.currentPage === 0
+                         }
+                         className="w-8 h-8 p-0 hover:bg-primary/10 hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                       >
+                         <ChevronLeft className="w-3 h-3" />
+                       </Button>
+                       <span className="text-sm w-12 h-8 flex items-center justify-center border border-border rounded">
+                         {paginatedResult.currentPage + 1} /{" "}
+                         {paginatedResult.totalPages}
+                       </span>
+                       <Button
+                         variant="outline"
+                         size="sm"
+                         onClick={() =>
+                           handleNextPage(trendType)
+                         }
+                         disabled={
+                           paginatedResult.currentPage ===
+                           paginatedResult.totalPages - 1
+                         }
+                         className="w-8 h-8 p-0 hover:bg-primary/10 hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                       >
+                         <ChevronRight className="w-3 h-3" />
+                       </Button>
+                     </div>
                   </div>
                 )}
               </Card>

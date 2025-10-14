@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ComposedChart, Line } from 'recharts';
-import { X, Search, Plus } from 'lucide-react';
+import { X, Search, Plus, Minus } from 'lucide-react';
 
 // Type definition for trajectory data
 interface TrajectoryPoint {
@@ -24,7 +24,8 @@ const generateTrajectoryData = (
   baseRsMomentum: number,
   color: string,
   name: string,
-  seed: number = 0
+  seed: number = 0,
+  days: number = 5
 ): TrajectoryPoint[] => {
   const points: TrajectoryPoint[] = [];
   // Use seed for consistent data generation
@@ -33,10 +34,26 @@ const generateTrajectoryData = (
     return x - Math.floor(x);
   };
   
-  for (let i = 0; i < 6; i++) { // Reduced from 10 to 6 points for better performance
+  for (let i = 0; i < days; i++) {
     const seedValue = seed + i;
     const rsRatioVariation = (random(seedValue) - 0.5) * 6; // ±3 range (reduced)
     const rsMomentumVariation = (random(seedValue + 1000) - 0.5) * 6; // ±3 range (reduced)
+
+    // Calculate size: largest for latest point, smaller for older points
+    let size;
+    if (i === days - 1) {
+      // Latest point - largest
+      size = 20;
+    } else if (days === 1) {
+      // Single point
+      size = 20;
+    } else {
+      // Older points - gradually smaller
+      const progress = i / (days - 1);
+      size = 3 + progress * 17; // From 3 to 20
+    }
+    
+    console.log(`Point ${i + 1}/${days}: size = ${size}`);
 
     points.push({
       point: i + 1,
@@ -44,10 +61,10 @@ const generateTrajectoryData = (
       rsMomentum: baseRsMomentum + rsMomentumVariation + i * 0.08, // Slight trend
       color,
       name,
-      isLatest: i === 5, // Updated for 6 points
+      isLatest: i === days - 1, // Last point is the latest
       fill: color,
       stroke: color,
-      radius: i === 5 ? 12 : 1 // Reduced size
+      radius: size
     });
   }
   return points;
@@ -76,20 +93,23 @@ const stockData = [
 
 // Memoized trajectory data generation - only generate when needed
 const generateTrajectoryDataMemo = (() => {
-  const cache = new Map<string, TrajectoryPoint[]>();
+  const cache = new Map<string, { trajectories: TrajectoryPoint[][], allPoints: TrajectoryPoint[] }>();
   
-  return (data: any[], type: 'stock' | 'sector') => {
-    const cacheKey = `${type}-${data.length}`;
+  return (data: any[], type: 'stock' | 'sector', days: number) => {
+    const cacheKey = `${type}-${data.length}-${days}-v2`; // Added v2 to clear cache
     if (cache.has(cacheKey)) {
       return cache.get(cacheKey)!;
     }
     
-    const trajectoryData = data.map((item, index) => 
-      generateTrajectoryData(item.rsRatio, item.rsMomentum, item.color, item.name, index)
-    ).flat();
+    const trajectories = data.map((item, index) => 
+      generateTrajectoryData(item.rsRatio, item.rsMomentum, item.color, item.name, index, days)
+    );
     
-    cache.set(cacheKey, trajectoryData);
-    return trajectoryData;
+    const allPoints = trajectories.flat();
+    
+    const result = { trajectories, allPoints };
+    cache.set(cacheKey, result);
+    return result;
   };
 })();
 
@@ -171,13 +191,13 @@ const MarketRotationRRG = memo(function MarketRotationRRG() {
   const [viewMode, setViewMode] = useState<'sector' | 'stock'>('sector');
   const [selectedIndex, setSelectedIndex] = useState<string>('COMPOSITE');
   const [selectedItems, setSelectedItems] = useState<string[]>(['Technology', 'Healthcare', 'Finance']);
+  const [selectedDays, setSelectedDays] = useState<number>(5);
   const [searchQuery, setSearchQuery] = useState('');
   const [indexSearchQuery, setIndexSearchQuery] = useState('');
   const [screenerSearchQuery, setScreenerSearchQuery] = useState('');
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const [showIndexSearchDropdown, setShowIndexSearchDropdown] = useState(false);
   const [showScreenerSearchDropdown, setShowScreenerSearchDropdown] = useState(false);
-  const [screenerStocks, setScreenerStocks] = useState(screenerData);
   const searchRef = useRef<HTMLDivElement>(null);
   const indexSearchRef = useRef<HTMLDivElement>(null);
   const screenerSearchRef = useRef<HTMLDivElement>(null);
@@ -188,16 +208,38 @@ const MarketRotationRRG = memo(function MarketRotationRRG() {
     [viewMode]
   );
 
+  // Memoized screener data based on selectedDays
+  const memoizedScreenerData = useMemo(() => {
+    return screenerData.map(item => ({
+      ...item,
+      // Simulate different performance based on selectedDays
+      rsRatio: item.rsRatio + (selectedDays - 5) * 0.5,
+      rsMomentum: item.rsMomentum + (selectedDays - 5) * 0.3,
+      performance: item.performance + (selectedDays - 5) * 0.1
+    }));
+  }, [selectedDays]);
+
+  const [screenerStocks, setScreenerStocks] = useState(memoizedScreenerData);
+
   const currentOptions = useMemo(() => 
     viewMode === 'sector' ? sectorOptions : stockOptions,
     [viewMode]
   );
 
-  // Memoized trajectory data - only generate when selectedItems change
+  // Memoized trajectory data - only generate when selectedItems or selectedDays change
+  const trajectoryDataResult = useMemo(() => {
+    return generateTrajectoryDataMemo(currentData, viewMode, selectedDays);
+  }, [viewMode, currentData, selectedDays]);
+
   const filteredTrajectoryData = useMemo(() => {
-    const trajectoryData = generateTrajectoryDataMemo(currentData, viewMode);
-    return trajectoryData.filter(point => selectedItems.includes(point.name));
-  }, [selectedItems, viewMode, currentData]);
+    return trajectoryDataResult.allPoints.filter(point => selectedItems.includes(point.name));
+  }, [selectedItems, trajectoryDataResult]);
+
+  const filteredTrajectories = useMemo(() => {
+    return trajectoryDataResult.trajectories.filter(trajectory => 
+      trajectory.length > 0 && trajectory[0] && selectedItems.includes(trajectory[0].name)
+    );
+  }, [selectedItems, trajectoryDataResult]);
 
   // Lazy loading state for chart
   const [isChartLoaded, setIsChartLoaded] = useState(false);
@@ -208,7 +250,12 @@ const MarketRotationRRG = memo(function MarketRotationRRG() {
       setIsChartLoaded(true);
     }, 100);
     return () => clearTimeout(timer);
-  }, [selectedItems, viewMode]);
+  }, [selectedItems, viewMode, selectedDays]);
+
+  // Update screener stocks when selectedDays changes
+  useEffect(() => {
+    setScreenerStocks(memoizedScreenerData);
+  }, [memoizedScreenerData]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -268,6 +315,13 @@ const MarketRotationRRG = memo(function MarketRotationRRG() {
     } else {
       setSelectedItems(['BBRI', 'BBCA', 'BMRI']);
     }
+  }, []);
+
+  const handleDaysChange = useCallback((increment: boolean) => {
+    setSelectedDays(prev => {
+      const newValue = increment ? prev + 1 : prev - 1;
+      return Math.max(1, Math.min(14, newValue));
+    });
   }, []);
 
   // Memoized filter functions
@@ -330,153 +384,228 @@ const MarketRotationRRG = memo(function MarketRotationRRG() {
   }, []);
 
   return (
-    <div className="h-screen overflow-hidden">
-      <div className="h-full flex flex-col max-w-7xl mx-auto px-4 sm:px-6">
-        <div className="flex-1 min-h-0 overflow-y-auto space-y-6 py-4 sm:py-6">
-      {/* Controls */}
-      <div className="flex items-center gap-4">
-        <span className="text-sm font-medium">View Mode:</span>
-        <div className="flex gap-2">
-          <Button
-            variant={viewMode === 'sector' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => handleViewModeChange('sector')}
-          >
-            Sector
-          </Button>
-          <Button
-            variant={viewMode === 'stock' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => handleViewModeChange('stock')}
-          >
-            Stock
-          </Button>
+    <div className="space-y-6">
+        {/* Controls */}
+        <div className="space-y-4">
+          {/* Row 1: View Mode & Show Last */}
+          <div className="flex flex-col lg:flex-row gap-4 items-end">
+            {/* View Mode */}
+            <div>
+              <label className="block text-sm font-medium mb-2">View Mode:</label>
+              <div className="flex gap-2">
+                <Button
+                  variant={viewMode === 'sector' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => handleViewModeChange('sector')}
+                  className="h-8 px-3"
+                >
+                  Sector
+                </Button>
+                <Button
+                  variant={viewMode === 'stock' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => handleViewModeChange('stock')}
+                  className="h-8 px-3"
+                >
+                  Stock
+                </Button>
+              </div>
+            </div>
+            
+            {/* Show Last */}
+            <div>
+              <label className="block text-sm font-medium mb-2">Show Last:</label>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDaysChange(false)}
+                  disabled={selectedDays <= 1}
+                  className="h-8 w-8 p-0"
+                >
+                  <Minus className="w-4 h-4" />
+                </Button>
+                <div className="flex items-center justify-center min-w-[50px] h-8 px-3 border border-border rounded-md bg-background text-sm font-medium">
+                  {selectedDays}D
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDaysChange(true)}
+                  disabled={selectedDays >= 14}
+                  className="h-8 w-8 p-0"
+                >
+                  <Plus className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
         {/* RRG Chart */}
         <div className="xl:col-span-3">
-          <Card>
+          <Card className="h-full flex flex-col">
             <CardHeader>
-              <CardTitle>Relative Rotation Graph (RRG) vs {selectedIndex}</CardTitle>
+              <CardTitle>Relative Rotation Graph (RRG) vs {selectedIndex} - Last {selectedDays} Day{selectedDays > 1 ? 's' : ''}</CardTitle>
             </CardHeader>
-            <CardContent className="relative">
+            <CardContent className="flex-1">
               {!isChartLoaded ? (
-                <div className="flex items-center justify-center h-[600px]">
+                <div className="flex items-center justify-center h-full">
                   <div className="text-center">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
                     <p className="text-muted-foreground">Loading chart...</p>
                   </div>
                 </div>
               ) : (
-                <ResponsiveContainer width="100%" height={600}>
-                  <ComposedChart data={filteredTrajectoryData} margin={{ bottom: 50, left: 15 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--muted-foreground))" opacity={0.3} />
-                  <XAxis 
-                    type="number" 
-                    dataKey="rsRatio" 
-                    domain={[90, 110]}
-                    name="RS-Ratio"
-                    label={{ value: 'RS-Ratio', position: 'insideBottom', offset: -20 }}
-                    stroke="hsl(var(--foreground))"
-                    tick={{ fill: 'hsl(var(--foreground))' }}
-                  />
-                  <YAxis 
-                    type="number" 
-                    dataKey="rsMomentum" 
-                    domain={[90, 110]}
-                    name="RS-Momentum"
-                    label={{ value: 'RS-Momentum', angle: -90, position: 'insideLeft' }}
-                    stroke="hsl(var(--foreground))"
-                    tick={{ fill: 'hsl(var(--foreground))' }}
-                  />
-                  <ReferenceLine x={100} stroke="hsl(var(--foreground))" strokeDasharray="2 2" />
-                  <ReferenceLine y={100} stroke="hsl(var(--foreground))" strokeDasharray="2 2" />
-                  <Tooltip content={<CustomTooltip />} />
-                  
-                  {/* Optimized trajectory rendering - single Scatter with all data */}
-                  <Scatter 
-                    dataKey="rsMomentum" 
-                    fill="#8884d8"
-                    data={filteredTrajectoryData}
-                  >
-                    {filteredTrajectoryData.map((point, index) => (
+                <div className="h-full w-full relative">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={filteredTrajectoryData} margin={{ bottom: 20, left: 20, right: 20, top: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--muted-foreground))" opacity={0.3} />
+                      <XAxis 
+                        type="number" 
+                        dataKey="rsRatio" 
+                        domain={[90, 110]}
+                        name="RS-Ratio"
+                        stroke="hsl(var(--foreground))"
+                        tick={{ fill: 'hsl(var(--foreground))' }}
+                      />
+                      <YAxis 
+                        type="number" 
+                        dataKey="rsMomentum" 
+                        domain={[90, 110]}
+                        name="RS-Momentum"
+                        stroke="hsl(var(--foreground))"
+                        tick={{ fill: 'hsl(var(--foreground))' }}
+                      />
+                      <ReferenceLine x={100} stroke="hsl(var(--foreground))" strokeDasharray="2 2" />
+                      <ReferenceLine y={100} stroke="hsl(var(--foreground))" strokeDasharray="2 2" />
+                      <Tooltip content={<CustomTooltip />} />
+                      
+                      {/* Render only latest trajectory points */}
+                      {filteredTrajectoryData
+                        .filter(point => point.isLatest)
+                        .map((point, index) => (
+                          <Scatter 
+                            key={`${point.name}-${index}`} 
+                            dataKey="rsMomentum"
+                            fill={point.fill}
+                            stroke={point.stroke}
+                            fillOpacity={0.8}
+                            strokeOpacity={0.8}
+                            r={point.radius}
+                            data={[point]}
+                          />
+                        ))}
+                      
+                      {/* Trajectory lines for all selected items with gradient opacity and tapered ends */}
+                      {filteredTrajectories.map((trajectory) => {
+                        const itemName = trajectory[0]?.name;
+                        const itemOption = currentOptions.find(opt => opt.name === itemName);
+                        
+                        // Create gradient lines for each segment
+                        return trajectory.map((point, index) => {
+                          if (index === 0) return null; // Skip first point as it has no previous point to connect
+                          
+                          const previousPoint = trajectory[index - 1];
+                          if (!previousPoint) return null;
+                          const segmentData = [previousPoint, point];
+                          
+                          // Calculate opacity: newer segments are more opaque with smoother gradient
+                          const totalPoints = trajectory.length;
+                          const progress = index / (totalPoints - 1);
+                          const opacity = 0.1 + (progress * progress * 0.9); // Smoother curve: 0.1 to 1.0
+                          
+                          // Calculate stroke width: taper from thin to thick
+                          const strokeWidth = 0.5 + (progress * 2.5); // From 0.5 to 3.0
+                        
+                        return (
+                          <Line
+                               key={`line-${itemName}-${index}`}
+                               type="monotone"
+                            dataKey="rsMomentum"
+                               stroke={itemOption?.color || trajectory[0]?.stroke || '#6B7280'}
+                               strokeWidth={strokeWidth}
+                            dot={false}
+                               data={segmentData}
+                            connectNulls={false}
+                               strokeOpacity={opacity}
+                               strokeLinecap="round"
+                               strokeLinejoin="round"
+                          />
+                        );
+                        }).filter(Boolean);
+                      }).flat()}
+                      
+                      {/* Add benchmark point at center (100, 100) */}
                       <Scatter 
-                        key={`${point.name}-${index}`} 
-                        fill={point.fill}
-                        stroke={point.stroke}
-                        fillOpacity={0.8}
-                        strokeOpacity={0.8}
-                        r={point.radius}
+                        dataKey="rsMomentum" 
+                        fill="#000000"
+                        data={[{ rsRatio: 100, rsMomentum: 100 }]}
+                        r={8} 
                       />
-                    ))}
-                  </Scatter>
+                    </ComposedChart>
+                  </ResponsiveContainer>
                   
-                  {/* Simplified trajectory lines - only for selected items */}
-                  {selectedItems.slice(0, 3).map((itemName) => {
-                    const itemOption = currentOptions.find(opt => opt.name === itemName);
-                    const itemTrajectory = filteredTrajectoryData.filter(point => point.name === itemName);
+                  {/* Axis Labels - Floating Fixed */}
+                  <div className="absolute inset-0 pointer-events-none">
+                    {/* RS-Momentum Label - Left side */}
+                    <div
+                      className="absolute top-1/2 -left-8 text-sm text-muted-foreground font-bold whitespace-nowrap"
+                      style={{
+                        transform: 'translateY(-50%) rotate(-90deg)',
+                        transformOrigin: 'center',
+                        zIndex: 10
+                      }}
+                    >
+                      RS-Momentum
+                    </div>
                     
-                    return (
-                      <Line
-                        key={`line-${itemName}`}
-                        type="monotone"
-                        dataKey="rsMomentum"
-                        stroke={itemOption?.color || '#6B7280'}
-                        strokeWidth={1.5}
-                        dot={false}
-                        data={itemTrajectory}
-                        connectNulls={false}
-                        strokeOpacity={0.7}
-                      />
-                    );
-                  })}
-                  
-                  {/* Add benchmark point at center (100, 100) */}
-                  <Scatter 
-                    dataKey="rsMomentum" 
-                    fill="#000000"
-                    data={[{ rsRatio: 100, rsMomentum: 100 }]}
-                    r={8} 
-                  />
-                  </ComposedChart>
-                </ResponsiveContainer>
+                    {/* RS-Ratio Label - Below 100 */}
+                    <div
+                      className="absolute bottom-2 left-1/2 text-sm text-muted-foreground font-bold whitespace-nowrap text-center"
+                      style={{
+                        transform: 'translateX(-50%)',
+                        zIndex: 10
+                      }}
+                    >
+                      RS-Ratio
+                    </div>
+                    
+                    {/* Quadrant Labels positioned based on chart corners */}
+                    {/* Top Left - Improving */}
+                    <div className="absolute top-[8%] left-[15%]">
+                      <span className="text-blue-600 font-bold text-lg bg-background/80 px-3 py-2 rounded">Improving</span>
+                    </div>
+                    
+                    {/* Top Right - Leading */}
+                    <div className="absolute top-[8%] right-[10%]">
+                      <span className="text-green-600 font-bold text-lg bg-background/80 px-3 py-2 rounded">Leading</span>
+                    </div>
+                    
+                    {/* Bottom Left - Lagging */}
+                    <div className="absolute bottom-[25%] left-[15%]">
+                      <span className="text-red-600 font-bold text-lg bg-background/80 px-3 py-2 rounded">Lagging</span>
+                    </div>
+                    
+                    {/* Bottom Right - Weakening */}
+                    <div className="absolute bottom-[25%] right-[10%]">
+                      <span className="text-yellow-600 font-bold text-lg bg-background/80 px-3 py-2 rounded">Weakening</span>
+                    </div>
+                  </div>
+                </div>
               )}
-              
-              {/* Quadrant Labels positioned based on chart corners */}
-              <div className="absolute inset-0 pointer-events-none">
-                {/* Top Left - Improving */}
-                <div className="absolute top-[8%] left-[15%]">
-                  <span className="text-blue-600 font-bold text-lg bg-background/80 px-3 py-2 rounded">Improving</span>
-                </div>
-                
-                {/* Top Right - Leading */}
-                <div className="absolute top-[8%] right-[10%]">
-                  <span className="text-green-600 font-bold text-lg bg-background/80 px-3 py-2 rounded">Leading</span>
-                </div>
-                
-                {/* Bottom Left - Lagging */}
-                <div className="absolute bottom-[25%] left-[15%]">
-                  <span className="text-red-600 font-bold text-lg bg-background/80 px-3 py-2 rounded">Lagging</span>
-                </div>
-                
-                {/* Bottom Right - Weakening */}
-                <div className="absolute bottom-[25%] right-[10%]">
-                  <span className="text-yellow-600 font-bold text-lg bg-background/80 px-3 py-2 rounded">Weakening</span>
-                </div>
-              </div>
             </CardContent>
           </Card>
         </div>
 
         {/* Selection Panel */}
         <div className="xl:col-span-1">
-          <Card>
+          <Card className="h-full flex flex-col">
             <CardHeader>
               <CardTitle>{viewMode === 'sector' ? 'Sector' : 'Stock'} Selection</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="flex-1 space-y-4 overflow-y-auto">
               {/* Index Selection */}
               <div>
                 <h4 className="text-sm font-medium mb-2">Index Selection</h4>
@@ -677,7 +806,7 @@ const MarketRotationRRG = memo(function MarketRotationRRG() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle>Relative Momentum Screener</CardTitle>
+            <CardTitle>Relative Momentum Screener - Last {selectedDays} Day{selectedDays > 1 ? 's' : ''}</CardTitle>
             <div className="relative" ref={screenerSearchRef}>
               <div className="relative">
                 <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -774,8 +903,6 @@ const MarketRotationRRG = memo(function MarketRotationRRG() {
           </div>
         </CardContent>
       </Card>
-        </div>
-      </div>
     </div>
   );
 });

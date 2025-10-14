@@ -16,6 +16,12 @@ interface AxisProps {
   theme: 'light' | 'dark';
   onAxisDrag?: (type: 'x' | 'y', delta: number) => void;
   onAxisDoubleClick?: (type: 'x' | 'y') => void;
+  // Crosshair (optional) to render labels inside axis areas
+  crosshairX?: number;
+  crosshairY?: number;
+  crosshairPrice?: number;
+  crosshairTime?: string;
+  showCrosshair?: boolean;
 }
 
 export const Axis: React.FC<AxisProps> = ({
@@ -33,7 +39,12 @@ export const Axis: React.FC<AxisProps> = ({
   chartHeight,
   theme,
   onAxisDrag,
-  onAxisDoubleClick
+  onAxisDoubleClick,
+  crosshairX,
+  crosshairY,
+  crosshairPrice,
+  crosshairTime,
+  showCrosshair
 }) => {
   const isDark = theme === 'dark';
   const gridColor = isDark ? '#2a2a2a' : '#e0e0e0';
@@ -94,13 +105,14 @@ export const Axis: React.FC<AxisProps> = ({
           borderBottom: `1px solid ${isDark ? '#2B2B43' : '#E1E3E6'}`,
           borderLeft: `1px solid ${isDark ? '#2B2B43' : '#E1E3E6'}`,
           borderRight: `1px solid ${isDark ? '#2B2B43' : '#E1E3E6'}`,
-          borderBottomLeftRadius: '8px',  // Rounded corner bottom-left
-          borderBottomRightRadius: '8px', // Rounded corner bottom-right
+          borderBottomLeftRadius: '8px',
+          borderBottomRightRadius: '8px',
           zIndex: 10,
           bottom: 0,
           left: 0,
           right: 0,
-          height: '24px'
+          height: '24px',
+          pointerEvents: 'auto'
         }}
         onMouseDown={handleMouseDown}
         onDoubleClick={handleDoubleClick}
@@ -136,12 +148,64 @@ export const Axis: React.FC<AxisProps> = ({
                   fill={textColor}
                   className="select-none"
                 >
-                  {candle.timestamp.split(' ')[1] || candle.timestamp}
+                  {(() => {
+                    try {
+                      const date = new Date(candle.timestamp);
+                      const day = date.getDate().toString().padStart(2, '0');
+                      const month = date.toLocaleDateString('en-US', { month: 'short' });
+                      const year = date.getFullYear().toString().slice(-2);
+                      return `${day} ${month} '${year}`;
+                    } catch {
+                      return candle.timestamp.split(' ')[1] || candle.timestamp;
+                    }
+                  })()}
                 </text>
               </g>
             );
           })}
         </svg>
+        {/* Crosshair vertical line inside X-axis to visually connect */}
+        {showCrosshair && typeof crosshairX === 'number' && (
+          <div
+            className="absolute bottom-0 w-px"
+            style={{ left: crosshairX, height: 24, backgroundColor: '#9FA2AA', opacity: 0.75 }}
+          />
+        )}
+        {/* Crosshair time label inside X-axis */}
+        {showCrosshair && typeof crosshairX === 'number' && crosshairTime && (
+          <div
+            className="absolute transform -translate-x-1/2 text-xs font-medium"
+            style={{
+              left: crosshairX,
+              top: 0,
+              backgroundColor: '#131722',
+              color: '#FFFFFF',
+              lineHeight: 1.2,
+              fontWeight: 600,
+              padding: '0.28125rem 1.125rem',
+              borderTopLeftRadius: '0px',
+              borderTopRightRadius: '0px',
+              borderBottomLeftRadius: '3px',
+              borderBottomRightRadius: '3px'
+            }}
+          >
+            {(() => {
+              try {
+                const date = new Date(crosshairTime);
+                if (isNaN(date.getTime())) {
+                  throw new Error('Invalid date');
+                }
+                
+                const day = date.getDate().toString().padStart(2, '0');
+                const month = date.toLocaleDateString('en-US', { month: 'short' });
+                const year = date.getFullYear().toString().slice(-2);
+                return `${day} ${month} '${year}`;
+              } catch (error) {
+                return crosshairTime;
+              }
+            })()}
+          </div>
+        )}
       </div>
     );
   }
@@ -150,7 +214,7 @@ export const Axis: React.FC<AxisProps> = ({
     // Y-axis: lines for each price level
     const priceRange = maxPrice - minPrice;
     const visibleHeight = height * zoom * verticalScale;
-    const priceStep = priceRange / 20; // 20 price levels
+    const priceStep = priceRange / 20;
     const startPrice = Math.floor(minPrice / priceStep) * priceStep;
     const endPrice = Math.ceil(maxPrice / priceStep) * priceStep;
 
@@ -163,13 +227,14 @@ export const Axis: React.FC<AxisProps> = ({
           borderBottom: `1px solid ${isDark ? '#2B2B43' : '#E1E3E6'}`,
           borderLeft: `1px solid ${isDark ? '#2B2B43' : '#E1E3E6'}`,
           borderRight: `1px solid ${isDark ? '#2B2B43' : '#E1E3E6'}`,
-          borderTopRightRadius: '8px',    // Rounded corner top-right
-          borderBottomRightRadius: '8px', // Rounded corner bottom-right
+          borderTopRightRadius: '8px',
+          borderBottomRightRadius: '8px',
           zIndex: 10,
           top: 0,
           bottom: 0,
           right: 0,
-          width: '64px'
+          width: '64px',
+          pointerEvents: 'auto'
         }}
         onMouseDown={handleMouseDown}
         onDoubleClick={handleDoubleClick}
@@ -180,7 +245,14 @@ export const Axis: React.FC<AxisProps> = ({
             const price = startPrice + i * priceStep;
             if (price < minPrice || price > maxPrice) return null;
 
-            const y = height - ((price - minPrice) / priceRange) * visibleHeight + scrollY;
+            // True center-based scaling to match chart
+            const centerY = height / 2;
+            // Calculate position relative to center of price range
+            const midPrice = (maxPrice + minPrice) / 2;
+            const priceOffset = (price - midPrice) / priceRange;
+            // Scale from center: expand equally in both directions
+            const halfScaledRange = (height * verticalScale) / 2;
+            const y = centerY - priceOffset * halfScaledRange + scrollY;
             
             if (y < -50 || y > height + 50) return null;
 
@@ -195,23 +267,39 @@ export const Axis: React.FC<AxisProps> = ({
                   stroke={lineColor}
                   strokeWidth={0.5}
                 />
-                {/* Price label - Hidden */}
-                {/* <text
-                  x={58}
-                  y={y + 4}
-                  textAnchor="end"
-                  fontSize="12"
-                  fontFamily="'-apple-system', 'BlinkMacSystemFont', 'Trebuchet MS', 'Roboto', 'Ubuntu', sans-serif"
-                  fontWeight="400"
-                  fill={textColor}
-                  className="select-none"
-                >
-                  {price.toFixed(2)}
-                </text> */}
+                {/* Price label hidden intentionally (main label drawn by Crosshair) */}
               </g>
             );
           })}
         </svg>
+        {/* Crosshair horizontal line inside Y-axis to visually connect (ensure visible above grid) */}
+        {showCrosshair && typeof crosshairY === 'number' && (
+          <div
+            className="absolute left-0 right-0 h-px"
+            style={{ top: Math.min(Math.max(0, crosshairY), height - 1), backgroundColor: '#9FA2AA', opacity: 0.75 }}
+          />
+        )}
+        {/* Crosshair price label inside Y-axis */}
+        {showCrosshair && typeof crosshairY === 'number' && typeof crosshairPrice === 'number' && (
+          <div
+            className="absolute transform -translate-y-1/2 text-xs font-medium"
+            style={{
+              top: crosshairY,
+              left: 0,
+              backgroundColor: '#131722',
+              color: '#FFFFFF',
+              lineHeight: 1.2,
+              fontWeight: 600,
+              padding: '0.28125rem 1.125rem',
+              borderTopLeftRadius: '0px',
+              borderBottomLeftRadius: '0px',
+              borderTopRightRadius: '3px',
+              borderBottomRightRadius: '3px'
+            }}
+          >
+            {crosshairPrice.toFixed(0)}
+          </div>
+        )}
       </div>
     );
   }

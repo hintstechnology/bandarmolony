@@ -24,7 +24,7 @@ export function LandingPage({ onStartTrial, onSignIn, onRegister }: LandingPageP
       {/* Navbar */}
       <nav className="relative z-10 flex items-center justify-between px-6 py-4 md:px-12">
         <motion.div 
-          className="flex items-center gap-3"
+          className="flex items-center"
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.6 }}
@@ -32,7 +32,7 @@ export function LandingPage({ onStartTrial, onSignIn, onRegister }: LandingPageP
           <Logo 
             className="h-8"
             badgeClassName="w-10 h-8"
-            textClassName="text-foreground font-semibold text-lg tracking-wide"
+            textClassName="text-foreground font-semibold text-2xl tracking-wide"
             showText={true}
           />
         </motion.div>

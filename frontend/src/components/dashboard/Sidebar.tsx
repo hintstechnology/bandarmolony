@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Home,
   TrendingUp,
@@ -11,10 +11,8 @@ import {
   CreditCard,
   ChevronDown,
   ChevronRight,
-  ChevronLeft,
   LogOut,
   User,
-  Pin,
   Shield,
 } from "lucide-react";
 import { useProfile } from "../../contexts/ProfileContext";
@@ -107,14 +105,11 @@ export function Sidebar({
   currentRoute,
 }: SidebarProps) {
   const navigate = useNavigate();
-  const location = useLocation();
   const [isHovered, setIsHovered] = useState(false);
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
   const { profile } = useProfile();
   const { showToast } = useToast();
-  const [isPinned, setIsPinned] = useState(false);
-
-  const isExpanded = isOpen || isPinned || isHovered;
+  const isExpanded = isOpen || isHovered;
 
   const toggleExpanded = (title: string) => {
     setExpandedItems((prev) =>
@@ -122,15 +117,6 @@ export function Sidebar({
     );
   };
 
-  const handlePin = () => {
-    setIsPinned(true);
-    // Don't call onToggle here, let the parent handle the state
-  };
-
-  const handleUnpin = () => {
-    setIsPinned(false);
-    // Don't call onToggle here, let the parent handle the state
-  };
 
   const handleNavigation = async (route: string) => {
     if (route === 'logout') {
@@ -150,20 +136,24 @@ export function Sidebar({
     } else if (route === '/profile') {
       // Navigate directly to profile page
       navigate('/profile');
+      // Close sidebar only on mobile
       if (window.innerWidth < 1024) onToggle();
     } else if (route === 'dashboard') {
       // Navigate to dashboard
       navigate('/dashboard');
+      // Close sidebar only on mobile
       if (window.innerWidth < 1024) onToggle();
     } else {
       // Navigate to specific routes without /dashboard prefix
       navigate(`/${route}`);
+      // Close sidebar only on mobile
       if (window.innerWidth < 1024) onToggle();
     }
   };
 
   return (
     <>
+      {/* Overlay hanya untuk mobile ketika sidebar terbuka */}
       {isOpen && (
         <div
           className="fixed inset-0 z-40 lg:hidden bg-black/30 backdrop-blur-[2px]"
@@ -177,61 +167,28 @@ export function Sidebar({
           transform transition-all duration-300 ease-in-out h-screen
           ${isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
           ${isExpanded ? "w-64" : "w-16"}
-          lg:relative lg:transform-none overflow-hidden
+          overflow-hidden
         `}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >
         <div className="relative flex flex-col h-full">
           {/* Header */}
-          <div className="flex items-center justify-between p-3 border-b border-border h-16">
+          <div className={`flex items-center ${isExpanded ? "justify-start" : "justify-center"} p-3 border-b border-border h-14`}>
             {/* Logo kiri – left aligned */}
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center">
-                <span className="text-primary-foreground font-semibold leading-none text-sm">L</span>
-              </div>
+            <div className="flex items-center gap-0.5">
               {isExpanded && (
-                <span className="text-card-foreground font-semibold whitespace-nowrap">
-                  Logo
-                </span>
+                <span className="text-card-foreground font-semibold whitespace-nowrap">Bandarmolo</span>
               )}
+              <div className="h-8 w-8 flex items-center justify-center flex-shrink-0">
+                <img
+                  src="/logo.png"
+                  alt="Logo"
+                  className="h-8 w-8 select-none object-contain flex-shrink-0"
+                  draggable={false}
+                />
+              </div>
             </div>
-
-            {/* Panah pin/unpin */}
-            {!isOpen && !isPinned && isHovered ? (
-              // Show pin icon when hovered in shrink mode
-              <button
-                type="button"
-                onClick={handlePin}
-                aria-label="Pin sidebar"
-                title="Pin sidebar"
-                className="flex items-center justify-center w-8 h-8 rounded-full border border-border bg-background hover:bg-muted transition"
-              >
-                <Pin className="w-4 h-4" />
-              </button>
-            ) : isPinned ? (
-              // Show unpin button when pinned
-              <button
-                type="button"
-                onClick={handleUnpin}
-                aria-label="Unpin sidebar"
-                title="Unpin sidebar"
-                className="flex items-center justify-center w-8 h-8 rounded-full border border-border bg-background hover:bg-muted transition"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-            ) : (
-              // Show normal toggle
-              <button
-                type="button"
-                onClick={onToggle}
-                aria-label={isExpanded ? "Collapse sidebar" : "Expand sidebar"}
-                title={isExpanded ? "Collapse sidebar" : "Expand sidebar"}
-                className="flex items-center justify-center w-8 h-8 rounded-full border border-border bg-background hover:bg-muted transition"
-              >
-                {isExpanded ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-              </button>
-            )}
           </div>
 
           {/* Body */}
