@@ -10,10 +10,12 @@ import { BrokerInventory } from '../broker-activity/BrokerInventory';
 import { CollapsibleSection } from './CollapsibleSection';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
-import { TrendingUp, Calendar, BarChart3, Sparkles } from 'lucide-react';
+import { TrendingUp, Calendar, BarChart3, Sparkles, ChartLine, ChartCandlestick, ChartGantt } from 'lucide-react';
 
 export function Dashboard() {
   const [selectedStock, setSelectedStock] = useState('BBRI');
+  const [chartStyle, setChartStyle] = useState<'line' | 'candles' | 'footprint'>('candles');
+  const [timeframe, setTimeframe] = useState('1D');
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   const analysisSectionRef = useRef<HTMLDivElement>(null);
 
@@ -96,22 +98,60 @@ export function Dashboard() {
             <Watchlist 
               selectedStock={selectedStock}
               onStockSelect={handleStockSelect}
+              showFavoritesOnly={true}
             />
           </div>
         </div>
          <div className="xl:col-span-2 order-1 xl:order-2">
-           <div className="mb-2">
-             <h2 className="text-lg font-semibold text-foreground">
-               Price Action of {selectedStock}
-             </h2>
-             <p className="text-sm text-muted-foreground">
-               Real-time candlestick chart with technical indicators
-             </p>
-           </div>
-           <div className="h-[400px] md:h-[450px]">
-             <TechnicalAnalysisTradingView />
-           </div>
-         </div>
+          <div className="relative h-[400px] md:h-[620px]">
+            <div className="absolute top-2 left-2 z-10 flex items-center gap-2">
+              <div className="h-9 w-20 flex items-center justify-center px-3 rounded bg-background/70 backdrop-blur-sm border border-border text-card-foreground text-sm font-medium font-sans uppercase tracking-wide text-center whitespace-nowrap">
+                {selectedStock}
+              </div>
+              <div className="flex items-center gap-1 p-1 rounded border border-border bg-background/70 backdrop-blur-sm">
+                <button
+                  onClick={() => setChartStyle('line')}
+                  className={`p-1.5 rounded-md transition-colors ${chartStyle === 'line' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
+                  title="Line"
+                  aria-label="Line chart"
+                >
+                  <ChartLine className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setChartStyle('candles')}
+                  className={`p-1.5 rounded-md transition-colors ${chartStyle === 'candles' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
+                  title="Candles"
+                  aria-label="Candlestick chart"
+                >
+                  <ChartCandlestick className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setChartStyle('footprint')}
+                  className={`p-1.5 rounded-md transition-colors ${chartStyle === 'footprint' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
+                  title="Footprint"
+                  aria-label="Footprint chart"
+                >
+                  <ChartGantt className="w-4 h-4" />
+                </button>
+              </div>
+              {/* Timeframe dropdown */}
+              <div className="p-1 rounded border border-border bg-background/70 backdrop-blur-sm">
+                <select
+                  value={timeframe}
+                  onChange={(e) => setTimeframe(e.target.value)}
+                  className="px-2 py-1 text-xs rounded bg-background text-foreground focus:outline-none"
+                  title="Timeframe"
+                  aria-label="Timeframe"
+                >
+                  {['1D','3D','5D','1W','2W','3W','1M','3M','6M','1Y'].map(tf => (
+                    <option key={tf} value={tf}>{tf}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <TechnicalAnalysisTradingView selectedStock={selectedStock} hideControls={true} styleProp={chartStyle} timeframeProp={timeframe} />
+          </div>
+        </div>
       </div>
       
       {/* Analysis Sections */}

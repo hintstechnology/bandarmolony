@@ -13,7 +13,8 @@ export const Crosshair: React.FC<CrosshairProps> = ({ data, chartHeight }) => {
   const getThemeColors = () => {
     const isDark = document.documentElement.classList.contains('dark');
     return {
-      crosshairColor: isDark ? '#3b82f6' : '#2962FF',
+      // Crosshair color per request
+      crosshairColor: '#9FA2AA',
       tooltipBackground: isDark ? '#1E222D' : '#FFFFFF',
       tooltipBorder: isDark ? '#2A2E39' : '#E1E3E6',
       textColor: isDark ? '#f9fafb' : '#191919',
@@ -29,58 +30,13 @@ export const Crosshair: React.FC<CrosshairProps> = ({ data, chartHeight }) => {
 
   return (
     <div className="absolute inset-0 pointer-events-none">
-      {/* Horizontal Line */}
-      <div
-        className="absolute left-0 right-0 h-px z-50"
-        style={{ 
-          top: data.y,
-          backgroundColor: themeColors.crosshairColor
-        }}
-      />
+      {/* Horizontal & Vertical dashed crosshair (5px dash, 2px gap, 1px thick) */}
+      <svg className="absolute inset-0 z-50" width="100%" height="100%">
+        <line x1={0} y1={data.y} x2={'100%'} y2={data.y} stroke={themeColors.crosshairColor} strokeWidth={1} strokeDasharray="5 2" strokeOpacity={0.75} />
+        <line x1={data.x} y1={0} x2={data.x} y2={'100%'} stroke={themeColors.crosshairColor} strokeWidth={1} strokeDasharray="5 2" strokeOpacity={0.75} />
+      </svg>
       
-      {/* Vertical Line */}
-      <div
-        className="absolute top-0 w-px z-50"
-        style={{ 
-          left: data.x,
-          height: chartHeight,
-          backgroundColor: themeColors.crosshairColor
-        }}
-      />
-      
-      {/* Price Label - On Y-Axis */}
-      <div
-        className="absolute transform -translate-y-1/2"
-        style={{ 
-          top: data.y,
-          right: '0px', // On the Y-axis edge
-          zIndex: 9999999 // Higher than axis z-index
-        }}
-      >
-        <div className="px-2 py-1 rounded text-xs font-medium shadow-lg backdrop-blur-none" style={{
-          backgroundColor: themeColors.crosshairColor,
-          color: '#FFFFFF'
-        }}>
-          {data.price.toFixed(0)} {/* Price level from bid/ask volume (whole numbers) */}
-        </div>
-      </div>
-      
-      {/* Time Label - On X-Axis */}
-      <div
-        className="absolute transform -translate-x-1/2"
-        style={{ 
-          left: data.x,
-          bottom: '0px', // On the X-axis edge
-          zIndex: 9999999 // Higher than axis z-index
-        }}
-      >
-        <div className="px-2 py-1 rounded text-xs font-medium shadow-lg backdrop-blur-none" style={{
-          backgroundColor: themeColors.crosshairColor,
-          color: '#FFFFFF'
-        }}>
-          {data.time}
-        </div>
-      </div>
+      {/* Labels now rendered by Axis to ensure they are within axis layers */}
       
       {/* Tooltip */}
       <div
@@ -103,7 +59,23 @@ export const Crosshair: React.FC<CrosshairProps> = ({ data, chartHeight }) => {
             </div>
             <div className="flex justify-between gap-4">
               <span style={{ color: themeColors.mutedTextColor }}>Time:</span>
-              <span className="font-medium" style={{ color: themeColors.textColor }}>{data.time}</span>
+              <span className="font-medium" style={{ color: themeColors.textColor }}>
+                {(() => {
+                  try {
+                    const date = new Date(data.time);
+                    if (isNaN(date.getTime())) {
+                      throw new Error('Invalid date');
+                    }
+                    
+                    const day = date.getDate().toString().padStart(2, '0');
+                    const month = date.toLocaleDateString('en-US', { month: 'short' });
+                    const year = date.getFullYear().toString().slice(-2);
+                    return `${day} ${month} '${year}`;
+                  } catch (error) {
+                    return data.time;
+                  }
+                })()}
+              </span>
             </div>
             <div className="flex justify-between gap-4">
               <span style={{ color: themeColors.mutedTextColor }}>Bid Vol:</span>

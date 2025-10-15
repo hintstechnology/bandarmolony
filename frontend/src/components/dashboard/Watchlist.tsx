@@ -151,16 +151,18 @@ const allStocksData = [
 interface WatchlistProps {
   selectedStock: string;
   onStockSelect: (symbol: string) => void;
+  showFavoritesOnly?: boolean;
 }
 
-export function Watchlist({ selectedStock, onStockSelect }: WatchlistProps) {
+export function Watchlist({ selectedStock, onStockSelect, showFavoritesOnly: propShowFavoritesOnly }: WatchlistProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [favorites, setFavorites] = useState<string[]>(() => {
     // Load favorites from localStorage
     const saved = localStorage.getItem('watchlist-favorites');
     return saved ? JSON.parse(saved) : ['BBRI', 'BBCA', 'BMRI'];
   });
-  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(propShowFavoritesOnly || false);
+  const [showSearchDropdown, setShowSearchDropdown] = useState(false);
 
   // Save favorites to localStorage whenever it changes
   useEffect(() => {
@@ -176,10 +178,41 @@ export function Watchlist({ selectedStock, onStockSelect }: WatchlistProps) {
     );
   };
 
-  const filteredStocks = allStocksData.filter(stock => {
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setSearchQuery(value);
+    setShowSearchDropdown(value.length > 0);
+  };
+
+  const handleSearchFocus = () => {
+    if (searchQuery.length > 0) {
+      setShowSearchDropdown(true);
+    }
+  };
+
+  const handleSearchBlur = () => {
+    // Delay hiding dropdown to allow clicking on items
+    setTimeout(() => setShowSearchDropdown(false), 200);
+  };
+
+  const handleStockSelectFromSearch = (symbol: string) => {
+    onStockSelect(symbol);
+    setSearchQuery('');
+    setShowSearchDropdown(false);
+  };
+
+  // For search dropdown - show all stocks that match search
+  const searchResults = allStocksData.filter(stock => {
     const matchesSearch = stock.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          stock.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesFavorites = showFavoritesOnly ? favorites.includes(stock.symbol) : true;
+    return matchesSearch;
+  });
+
+  // For main watchlist - show only favorites when propShowFavoritesOnly is true, but hide when dropdown is open
+  const filteredStocks = showSearchDropdown ? [] : allStocksData.filter(stock => {
+    const matchesSearch = stock.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         stock.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesFavorites = (propShowFavoritesOnly || showFavoritesOnly) ? favorites.includes(stock.symbol) : true;
     return matchesSearch && matchesFavorites;
   });
 
@@ -198,15 +231,10 @@ export function Watchlist({ selectedStock, onStockSelect }: WatchlistProps) {
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center justify-between mb-3">
           <span>Watchlist</span>
-          <Button
-            variant={showFavoritesOnly ? "default" : "outline"}
-            size="sm"
-            onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
-            className="flex items-center gap-1"
-          >
-            <Star className={`w-4 h-4 ${showFavoritesOnly ? 'fill-current' : ''}`} />
-            {favorites.length}
-          </Button>
+          <div className="flex items-center gap-1 text-sm text-muted-foreground">
+            <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+            {favorites.length} favorites
+          </div>
         </CardTitle>
         
         {/* Search Bar */}
@@ -216,23 +244,88 @@ export function Watchlist({ selectedStock, onStockSelect }: WatchlistProps) {
             type="text"
             placeholder="Search stocks..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={handleSearchChange}
+            onFocus={handleSearchFocus}
+            onBlur={handleSearchBlur}
             className="w-full pl-10 pr-8 py-2 border border-border rounded-md bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
           />
           {searchQuery && (
             <button
-              onClick={() => setSearchQuery('')}
+              onClick={() => {
+                setSearchQuery('');
+                setShowSearchDropdown(false);
+              }}
               className="absolute right-2 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
             >
               <X className="w-4 h-4" />
             </button>
+          )}
+          
+          {/* Search Dropdown */}
+          {showSearchDropdown && searchResults.length > 0 && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-background border border-border rounded-md shadow-lg z-50 max-h-60 overflow-y-auto w-full">
+              {searchResults.map((stock) => (
+                <div 
+                  key={stock.symbol}
+                  className="flex items-center justify-between p-3 hover:bg-muted/50 cursor-pointer border-b border-border/50 last:border-b-0"
+                  onClick={() => handleStockSelectFromSearch(stock.symbol)}
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-medium text-card-foreground">
+                        {stock.symbol}
+                      </span>
+                      <Badge variant={stock.changePercent > 0 ? 'default' : 'destructive'} className="text-xs flex items-center gap-1">
+                        {stock.changePercent > 0 ? (
+                          <TrendingUp className="w-3 h-3" />
+                        ) : (
+                          <TrendingDown className="w-3 h-3" />
+                        )}
+                        {Math.abs(stock.changePercent)}%
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground truncate">{stock.name}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-right">
+                      <p className="font-medium text-card-foreground">
+                        {stock.price.toLocaleString()}
+                      </p>
+                      <p className={`text-sm ${stock.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {stock.change >= 0 ? '+' : ''}{stock.change}
+                      </p>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleFavorite(stock.symbol, e);
+                      }}
+                      className="hover:scale-110 transition-transform p-1"
+                    >
+                      <Star 
+                        className={`w-4 h-4 ${
+                          favorites.includes(stock.symbol) 
+                            ? 'fill-yellow-400 text-yellow-400' 
+                            : 'text-muted-foreground hover:text-yellow-400'
+                        }`} 
+                      />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </CardHeader>
       
       <CardContent className="flex-1 overflow-y-auto pb-4">
         <div className="space-y-2">
-          {sortedStocks.length === 0 ? (
+          {showSearchDropdown ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <p>Search results appear in dropdown above</p>
+              <p className="text-sm">Click on a stock to select it</p>
+            </div>
+          ) : sortedStocks.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <p>No stocks found</p>
               {searchQuery && (

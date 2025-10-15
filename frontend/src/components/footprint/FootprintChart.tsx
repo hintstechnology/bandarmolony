@@ -21,6 +21,15 @@ export interface CandleData {
   pocAsk: number; // Point of Control for Ask - price with highest ask volume
 }
 
+// External OHLC input (align with candlestick chart input)
+export interface OhlcInputCandle {
+  timestamp: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
 export interface CrosshairData {
   x: number;
   y: number;
@@ -32,82 +41,144 @@ export interface CrosshairData {
   visible: boolean;
 }
 
-// Generate dummy data for demonstration
+// Generate dummy OHLC data that mimics MOCK data used by other chart styles
 const generateDummyData = (): CandleData[] => {
   const data: CandleData[] = [];
-  const basePrice = 1230;
-  // Generate more data for better scrolling experience
-  const times = [];
+  // Create 15-minute timestamps (09:00 - 16:00)
+  const times: string[] = [];
   for (let hour = 9; hour <= 16; hour++) {
     for (let minute = 0; minute < 60; minute += 15) {
       times.push(`${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`);
     }
   }
-  
+
+  // Use identical MOCK price path formula as TechnicalAnalysisTradingView
+  // base = 4500 + sin(i*0.15)*60 + random*20
   for (let i = 0; i < times.length; i++) {
-    const open = basePrice + (Math.random() - 0.5) * 10 + i * 0.5;
-    const close = open + (Math.random() - 0.5) * 5;
-    const high = Math.max(open, close) + Math.random() * 3;
-    const low = Math.min(open, close) - Math.random() * 3;
-    
-    // Generate volume levels around OHLC range - optimized
+    const base = 4500 + Math.sin(i * 0.15) * 60 + Math.random() * 20;
+    const open = base + (Math.random() - 0.5) * 20;
+    const close = base + (Math.random() - 0.5) * 20;
+    const high = Math.max(open, close) + Math.random() * 25;
+    const low = Math.min(open, close) - Math.random() * 25;
+
+    // Build footprint volume levels around OHLC range
     const volumeLevels: VolumeLevel[] = [];
-    const priceStep = 0.5; // Larger step for better performance
-    const minPrice = low - 1.5;
-    const maxPrice = high + 1.5;
-    
+    const priceStep = 1; // 1 unit step for better performance with large price values
+    const minPrice = Math.min(open, close, low) - 5;
+    const maxPrice = Math.max(open, close, high) + 5;
+
     let maxBidVolume = 0;
     let maxAskVolume = 0;
     let pocBidPrice = 0;
     let pocAskPrice = 0;
-    
+
     for (let price = minPrice; price <= maxPrice; price += priceStep) {
-      const roundedPrice = Math.round(price * 100) / 100;
-      
-      // Higher volume around OHLC levels
-      let volumeMultiplier = 1;
-      if (Math.abs(price - open) < 0.5 || Math.abs(price - close) < 0.5 ||
-          Math.abs(price - high) < 0.3 || Math.abs(price - low) < 0.3) {
-        volumeMultiplier = 2.5;
-      }
-      
+      const roundedPrice = Math.round(price);
+
+      // Heavier volume near OHLC and mid-price
+      const mid = (open + close) / 2;
+      const dist = Math.min(
+        Math.abs(roundedPrice - open),
+        Math.abs(roundedPrice - close),
+        Math.abs(roundedPrice - high),
+        Math.abs(roundedPrice - low),
+        Math.abs(roundedPrice - mid)
+      );
+      const volumeMultiplier = dist < 5 ? 3 : dist < 10 ? 2 : 1;
+
       const bidVolume = Math.floor(Math.random() * 600 * volumeMultiplier) + 50;
       const askVolume = Math.floor(Math.random() * 600 * volumeMultiplier) + 50;
-      const totalVolume = bidVolume + askVolume;
-      
-      // Track POC for Bid (highest bid volume)
+
       if (bidVolume > maxBidVolume) {
         maxBidVolume = bidVolume;
         pocBidPrice = roundedPrice;
       }
-      
-      // Track POC for Ask (highest ask volume)
       if (askVolume > maxAskVolume) {
         maxAskVolume = askVolume;
         pocAskPrice = roundedPrice;
       }
-      
+
       volumeLevels.push({
         price: roundedPrice,
         bidVolume,
         askVolume,
-        totalVolume
+        totalVolume: bidVolume + askVolume,
       });
     }
-    
+
     data.push({
       timestamp: times[i] || '',
+      open: Math.round(open),
+      high: Math.round(high),
+      low: Math.round(low),
+      close: Math.round(close),
+      volumeLevels,
+      pocBid: pocBidPrice,
+      pocAsk: pocAskPrice,
+    });
+  }
+
+  return data;
+};
+
+// Generate CandleData (with mock volume levels) from external OHLC input
+const generateDataFromOHLC = (ohlc: OhlcInputCandle[]): CandleData[] => {
+  return ohlc.map((c) => {
+    const open = Math.round(c.open);
+    const close = Math.round(c.close);
+    const high = Math.round(c.high);
+    const low = Math.round(c.low);
+
+    const minPriceRaw = Math.min(open, close, low);
+    const maxPriceRaw = Math.max(open, close, high);
+
+    // Step every 2 price points
+    const step = 2;
+    const start = Math.floor(minPriceRaw / step) * step;
+    const end = Math.ceil(maxPriceRaw / step) * step;
+
+    const volumeLevels: VolumeLevel[] = [];
+    let maxBidVolume = 0;
+    let maxAskVolume = 0;
+    let pocBidPrice = start;
+    let pocAskPrice = start;
+
+    const mid = (open + close) / 2;
+    for (let price = start; price <= end; price += step) {
+      const dist = Math.abs(price - mid);
+      const volumeMultiplier = dist < 4 ? 3 : dist < 8 ? 2 : 1;
+
+      const bidVolume = Math.floor(Math.random() * 600 * volumeMultiplier) + 50;
+      const askVolume = Math.floor(Math.random() * 600 * volumeMultiplier) + 50;
+
+      if (bidVolume > maxBidVolume) {
+        maxBidVolume = bidVolume;
+        pocBidPrice = price;
+      }
+      if (askVolume > maxAskVolume) {
+        maxAskVolume = askVolume;
+        pocAskPrice = price;
+      }
+
+      volumeLevels.push({
+        price,
+        bidVolume,
+        askVolume,
+        totalVolume: bidVolume + askVolume,
+      });
+    }
+
+    return {
+      timestamp: c.timestamp,
       open,
       high,
       low,
       close,
       volumeLevels,
       pocBid: pocBidPrice,
-      pocAsk: pocAskPrice
-    });
-  }
-  
-  return data;
+      pocAsk: pocAskPrice,
+    };
+  });
 };
 
 interface FootprintChartProps {
@@ -116,6 +187,7 @@ interface FootprintChartProps {
   showDelta?: boolean;
   timeframe?: string;
   zoom?: number;
+  ohlc?: OhlcInputCandle[]; // External OHLC input to mirror candlestick chart
 }
 
 export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
@@ -123,14 +195,15 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
   showPOC: propShowPOC,
   showDelta: propShowDelta,
   // timeframe: propTimeframe,
-  zoom: propZoom
+  zoom: propZoom,
+  ohlc
 }) => {
-  const [data] = useState<CandleData[]>(() => generateDummyData() || []);
+  const [data, setData] = useState<CandleData[]>([]);
   const [crosshair, setCrosshair] = useState<CrosshairData>({
     x: 0, y: 0, price: 0, time: '', bidVol: 0, askVol: 0, delta: 0, visible: false
   });
   // Chart dimensions and layout - responsive
-  const CHART_HEIGHT = Math.max(400, (typeof window !== 'undefined' ? window.innerHeight : 800) - 250); // Responsive height
+  // Use measured container height instead of a fixed window-based constant
   // const PRICE_LEVEL_HEIGHT = 16;
 
   const [showCrosshair, setShowCrosshair] = useState(propShowCrosshair ?? true);
@@ -148,13 +221,22 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [dragMode, setDragMode] = useState<'none' | 'pan' | 'zoom'>('none');
-  const [verticalScale, setVerticalScale] = useState(1.6); // Default 160%
+  const [verticalScale, setVerticalScale] = useState(5); // Default scale to 5
   const [horizontalScale, setHorizontalScale] = useState(1.5); // Default 150%
   // const [containerHeight, setContainerHeight] = useState(400);
   // const [isDoubleClicking, setIsDoubleClicking] = useState(false);
   const [lastPinchDistance, setLastPinchDistance] = useState(0);
   // const [isPinching, setIsPinching] = useState(false);
   const [showPanIndicator, setShowPanIndicator] = useState(false);
+
+  // Build CandleData from external OHLC when provided; fallback to dummy
+  useEffect(() => {
+    if (ohlc && ohlc.length > 0) {
+      setData(generateDataFromOHLC(ohlc));
+    } else {
+      setData(generateDummyData());
+    }
+  }, [ohlc]);
 
   // Sync props with state
   useEffect(() => {
@@ -174,14 +256,17 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
   // Update chart dimensions
   useEffect(() => {
     const updateDimensions = () => {
-      const container = chartRef.current?.parentElement?.parentElement; // Get the main container
+      const container = chartRef.current?.parentElement; // Get the chart container directly
       if (container) {
         const containerWidth = container.clientWidth;
         const containerHeight = container.clientHeight;
         
         // Set chart dimensions to fill the container
         setChartWidth(containerWidth - 64); // Subtract Y-axis width
-        setChartHeight(containerHeight - 24); // Subtract X-axis height
+        const h = Math.max(200, containerHeight - 24);
+        setChartHeight(h); // Subtract X-axis height
+        // Center bars using chart container size / 2
+        setScrollY(Math.round(containerHeight / 2));
         
         // Update container height state
         // setContainerHeight(containerHeight);
@@ -248,6 +333,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
   const lastCandlePosition = Math.max(0, totalBars * CANDLE_WIDTH - screenWidth + rightMargin);
   
   const [scrollX, setScrollX] = useState(lastCandlePosition);
+  // Start with scrollY to center bars
   const [scrollY, setScrollY] = useState(0);
   
   // Calculate price range
@@ -336,12 +422,12 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
     setScrollY(prev => {
       const newScrollY = prev + deltaY;
       // Allow panning above highest bar by adding extra space (50% of chart height)
-      const extraSpace = CHART_HEIGHT * 0.5;
-      const maxScrollY = CHART_HEIGHT * zoom * verticalScale - CHART_HEIGHT + extraSpace;
+      const extraSpace = chartHeight * 0.6; // allow more upward shift
+      const maxScrollY = chartHeight * verticalScale - chartHeight + extraSpace;
       const minScrollY = -extraSpace; // Allow negative scroll to pan above
       return Math.max(minScrollY, Math.min(maxScrollY, newScrollY));
     });
-  }, [data.length, CANDLE_WIDTH, CHART_HEIGHT, zoom, verticalScale]);
+  }, [data.length, CANDLE_WIDTH, chartHeight, zoom, verticalScale]);
   
   const handleZoom = useCallback((delta: number) => {
     setZoom(prev => Math.max(0.5, Math.min(3, prev + delta)));
@@ -356,22 +442,54 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
   // }, []);
 
   const handleYAxisDrag = useCallback((deltaY: number) => {
-    const scaleDelta = deltaY * -0.001; // Less sensitive scaling
+    const scaleDelta = deltaY * -0.0008; // Less sensitive scaling for Y-axis drag
     setVerticalScale(prev => {
-      const newScale = Math.max(0.5, Math.min(3, prev + scaleDelta));
-      console.log('Vertical Scale (Drag):', { from: prev, to: newScale, percentage: Math.round(newScale * 100) + '%' });
+      const newScale = Math.max(0.3, Math.min(5, prev + scaleDelta));
+      console.log('Vertical Scale (Y-axis Drag):', { from: prev, to: newScale, percentage: Math.round(newScale * 100) + '%' });
       return newScale;
     });
   }, []);
 
   const handleXAxisDrag = useCallback((deltaX: number) => {
-    const scaleDelta = deltaX * 0.0003; // Fixed: drag left (negative deltaX) = zoom in, drag right (positive deltaX) = zoom out
+    const scaleDelta = deltaX * -0.0001; // Invert: drag left (negative deltaX) = zoom in, drag right (positive deltaX) = zoom out
+    
+    // Calculate anchor point - last visible candle position
+    const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
+    const visibleBars = Math.floor(screenWidth / CANDLE_WIDTH);
+    const lastVisibleIndex = Math.min(data.length - 1, Math.floor(scrollX / CANDLE_WIDTH) + visibleBars);
+    const anchorX = lastVisibleIndex * CANDLE_WIDTH;
+    
     setHorizontalScale(prev => {
       const newScale = Math.max(0.5, Math.min(3, prev + scaleDelta));
-      console.log('Horizontal Scale:', { from: prev, to: newScale, percentage: Math.round(newScale * 100) + '%', deltaX, scaleDelta });
+      
+      // Calculate new CANDLE_WIDTH with new scale
+      const newCandleWidth = 120 * newScale;
+      
+      // Calculate how much the anchor point moved due to scaling
+      const oldCandleWidth = 120 * prev;
+      const scaleRatio = newCandleWidth / oldCandleWidth;
+      const anchorOffset = anchorX * (scaleRatio - 1);
+      
+      // Adjust scroll to keep anchor point fixed
+      setScrollX(prevScroll => {
+        const newScrollX = prevScroll - anchorOffset;
+        const maxScrollX = Math.max(0, data.length * newCandleWidth - screenWidth);
+        return Math.max(0, Math.min(maxScrollX, newScrollX));
+      });
+      
+      console.log('Horizontal Scale:', { 
+        from: prev, 
+        to: newScale, 
+        percentage: Math.round(newScale * 100) + '%', 
+        deltaX, 
+        scaleDelta,
+        anchorIndex: lastVisibleIndex,
+        anchorOffset
+      });
+      
       return newScale;
     });
-  }, []);
+  }, [data.length, CANDLE_WIDTH, scrollX]);
 
   const handleAxisDrag = useCallback((type: 'x' | 'y', delta: number) => {
     if (type === 'x') {
@@ -383,13 +501,14 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
 
   const handleAxisDoubleClick = useCallback((type: 'x' | 'y') => {
     if (type === 'x') {
-      setHorizontalScale(1); // Reset horizontal scale to 1
-      console.log('Horizontal Scale Reset to 100%');
+      setHorizontalScale(1.5); // Reset horizontal scale to 1.5 (default)
+      console.log('Horizontal Scale Reset to 150%');
     } else if (type === 'y') {
-      setVerticalScale(1.1); // Reset vertical scale to 1.1x (default zoom)
-      console.log('Vertical Scale Reset to 110%');
+      setVerticalScale(5); // Reset vertical scale to 5 (default)
+      setScrollY(Math.round(chartHeight / 2)); // Reset to center position
+      console.log('Vertical Scale Reset to 500% and position reset');
     }
-  }, []);
+  }, [chartHeight]);
 
   // Calculate distance between two touch points
   const getPinchDistance = useCallback((touches: React.TouchList) => {
@@ -450,7 +569,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
     
     setIsDragging(true);
     setDragStart({ x, y });
-    setShowPanIndicator(true);
+    // setShowPanIndicator(true); // disabled
     setDragMode('pan');
     
     e.preventDefault();
@@ -495,8 +614,8 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
       setScrollY(prev => {
         const newScrollY = prev - deltaY;
         // Allow panning above highest bar by adding extra space (50% of chart height)
-        const extraSpace = CHART_HEIGHT * 0.5;
-        const maxScrollY = CHART_HEIGHT * zoom * verticalScale - rect.height + extraSpace;
+        const extraSpace = chartHeight * 0.6;
+        const maxScrollY = chartHeight * verticalScale - rect.height + extraSpace;
         const minScrollY = -extraSpace; // Allow negative scroll to pan above
         return Math.max(minScrollY, Math.min(maxScrollY, newScrollY));
       });
@@ -512,13 +631,13 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
       }
       setDragStart({ x, y });
     }
-  }, [isDragging, dragStart, dragMode, data.length, CANDLE_WIDTH, CHART_HEIGHT, zoom, verticalScale, handleYAxisDrag, handleXAxisDrag]);
+  }, [isDragging, dragStart, dragMode, data.length, CANDLE_WIDTH, chartHeight, zoom, verticalScale, handleYAxisDrag, handleXAxisDrag]);
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
     setDragMode('none');
-    // Hide pan indicator after a short delay
-    setTimeout(() => setShowPanIndicator(false), 1000);
+    // Hide pan indicator after a short delay (disabled)
+    // setTimeout(() => setShowPanIndicator(false), 1000);
   }, []);
   
   // Add global mouse event listeners
@@ -558,8 +677,8 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
         setScrollY(prev => {
           const newScrollY = prev - panAmount;
           // Allow panning above highest bar by adding extra space (50% of chart height)
-          const extraSpace = CHART_HEIGHT * 0.5;
-          const maxScrollY = CHART_HEIGHT * zoom * verticalScale - CHART_HEIGHT + extraSpace;
+          const extraSpace = chartHeight * 0.6;
+          const maxScrollY = chartHeight * verticalScale - chartHeight + extraSpace;
           const minScrollY = -extraSpace; // Allow negative scroll to pan above
           return Math.max(minScrollY, Math.min(maxScrollY, newScrollY));
         });
@@ -567,8 +686,8 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
         setScrollY(prev => {
           const newScrollY = prev + panAmount;
           // Allow panning above highest bar by adding extra space (50% of chart height)
-          const extraSpace = CHART_HEIGHT * 0.5;
-          const maxScrollY = CHART_HEIGHT * zoom * verticalScale - CHART_HEIGHT + extraSpace;
+          const extraSpace = chartHeight * 0.6;
+          const maxScrollY = chartHeight * verticalScale - chartHeight + extraSpace;
           const minScrollY = -extraSpace; // Allow negative scroll to pan above
           return Math.max(minScrollY, Math.min(maxScrollY, newScrollY));
         });
@@ -579,7 +698,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [data.length, CANDLE_WIDTH, CHART_HEIGHT, zoom, verticalScale]);
+  }, [data.length, CANDLE_WIDTH, chartHeight, zoom, verticalScale]);
 
   return (
     <div 
@@ -669,7 +788,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
                   data={candle}
                   index={index}
                   width={CANDLE_WIDTH}
-                  height={CHART_HEIGHT} // Use full height
+                  height={chartHeight} // Use measured height
                   minPrice={minPrice}
                   maxPrice={maxPrice}
                   showPOC={showPOC}
@@ -684,11 +803,11 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
           
           {/* Crosshair */}
           {showCrosshair && (
-            <Crosshair data={crosshair} chartHeight={CHART_HEIGHT} />
+            <Crosshair data={crosshair} chartHeight={chartHeight} />
           )}
           
           {/* Pan Indicator */}
-          {showPanIndicator && (
+          {false && showPanIndicator && (
             <div className="absolute top-4 left-4 bg-primary text-primary-foreground px-3 py-2 rounded-md text-sm font-medium shadow-lg">
               {dragMode === 'pan' ? 'Pan Mode - Drag to move' : 'Zoom Mode - Drag to scale'}
             </div>
@@ -697,8 +816,8 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
         
       </div>
       
-        {/* X-Axis - Moved inside main container */}
-        <Axis
+      {/* X-Axis - Moved inside main container */}
+      <Axis
           type="x"
           data={data}
           width={chartWidth}
@@ -710,10 +829,13 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
           minPrice={minPrice}
           maxPrice={maxPrice}
           candleWidth={CANDLE_WIDTH}
-          chartHeight={CHART_HEIGHT}
+          chartHeight={chartHeight}
           theme={theme}
           onAxisDrag={handleAxisDrag}
           onAxisDoubleClick={handleAxisDoubleClick}
+        crosshairX={crosshair.x}
+        crosshairTime={crosshair.time}
+        showCrosshair={crosshair.visible}
         />
       
       {/* Y-Axis - Moved inside main container */}
@@ -729,10 +851,13 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
         minPrice={minPrice}
         maxPrice={maxPrice}
         candleWidth={CANDLE_WIDTH}
-        chartHeight={CHART_HEIGHT}
+        chartHeight={chartHeight}
         theme={theme}
         onAxisDrag={handleAxisDrag}
         onAxisDoubleClick={handleAxisDoubleClick}
+        crosshairY={crosshair.y}
+        crosshairPrice={crosshair.price}
+        showCrosshair={crosshair.visible}
       />
       
     </div>

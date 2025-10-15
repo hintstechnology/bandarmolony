@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { Calendar, TrendingUp, TrendingDown, Users, Globe, Building2, Briefcase, ArrowUpDown, ChevronDown, X } from 'lucide-react';
+import { Calendar, TrendingUp, TrendingDown, Users, Globe, Building2, Briefcase, ArrowUpDown, ChevronDown, X, Search } from 'lucide-react';
 import { createChart, IChartApi, ISeriesApi, ColorType, LineStyle, CandlestickData, HistogramData, CandlestickSeries, HistogramSeries, CrosshairMode, PriceScaleMode } from 'lightweight-charts';
 import { useUserChartColors } from '../../hooks/useUserChartColors';
 
@@ -643,18 +643,19 @@ export function StoryForeignFlow() {
       {/* Controls */}
       <Card>
         <CardContent className="p-4">
-          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-              <div className="flex items-center gap-2">
-                <label className="font-medium">Stock:</label>
+          <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-end justify-between">
+            <div className="flex gap-4 items-end">
+              <div>
+                <label className="block text-sm font-medium mb-2">Stock:</label>
                 <div className="relative stock-dropdown-container">
+                  <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <input
                     type="text"
                     value={tickerInput}
                     onChange={(e) => handleStockInputChange(e.target.value)}
                     onFocus={() => setShowStockSuggestions(true)}
                     placeholder="Enter stock code..."
-                    className="px-3 py-1 border border-border rounded-md bg-background text-foreground w-40"
+                    className="pl-9 pr-3 py-1 h-10 border border-border rounded-md bg-background text-foreground w-64"
                   />
                   {showStockSuggestions && (
                     <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
@@ -694,28 +695,30 @@ export function StoryForeignFlow() {
               </div>
             </div>
             
-            <div className="flex items-center gap-2">
-              <label className="font-medium">Layout:</label>
-              <div className="flex gap-1">
+            <div>
+              <label className="block text-sm font-medium mb-2">Layout:</label>
+              <div className="flex gap-1 border border-border rounded-lg p-1 h-10">
                 <Button
-                  variant={layoutMode === 'combined' ? 'default' : 'outline'}
+                  variant={layoutMode === 'combined' ? 'default' : 'ghost'}
                   size="sm"
                   onClick={() => setLayoutMode('combined')}
+                  className="flex-1 h-8"
                 >
                   Combine
                 </Button>
                 <Button
-                  variant={layoutMode === 'split' ? 'default' : 'outline'}
+                  variant={layoutMode === 'split' ? 'default' : 'ghost'}
                   size="sm"
                   onClick={() => setLayoutMode('split')}
+                  className="flex-1 h-8"
                 >
                   Split
                 </Button>
               </div>
             </div>
           </div>
-          </CardContent>
-        </Card>
+        </CardContent>
+      </Card>
 
       {/* Main Chart Layout */}
       <div className="space-y-4">

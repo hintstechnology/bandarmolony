@@ -33,7 +33,17 @@ export class ErrorBoundary extends Component<Props, State> {
   };
 
   handleReload = () => {
-    window.location.reload();
+    try {
+      window.location.reload();
+    } catch (error) {
+      console.error('Error reloading page:', error);
+      // Fallback: try to navigate to home
+      try {
+        window.location.href = '/';
+      } catch (navError) {
+        console.error('Error navigating to home:', navError);
+      }
+    }
   };
 
   override render() {

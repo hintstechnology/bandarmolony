@@ -382,71 +382,79 @@ export function BrokerTransaction() {
           
           return (
             <div key={date} className="space-y-4">
-              {/* Buy Side for this date */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-green-600">BUY SIDE - {selectedBroker} ({formatDisplayDate(date)})</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b border-border bg-accent/30">
-                          <th className="text-left py-2 px-3 font-medium">Ticker</th>
-                          <th className="text-right py-2 px-3 font-medium">RSVal</th>
-                          <th className="text-right py-2 px-3 font-medium">HitLot</th>
-                          <th className="text-right py-2 px-3 font-medium">RSFreq</th>
-                          <th className="text-right py-2 px-3 font-medium">SAvg</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {buyData.map((row, idx) => (
-                          <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                            <td className="py-2 px-3 font-medium">{row.ticker}</td>
-                            <td className="text-right py-2 px-3 text-green-600">{formatValue(row.rsVal)}</td>
-                            <td className="text-right py-2 px-3">{formatValue(row.hitLot)}</td>
-                            <td className="text-right py-2 px-3">{formatValue(row.rsFreq)}</td>
-                            <td className="text-right py-2 px-3">{formatValue(row.sAvg)}</td>
+              {/* Date Header */}
+              <div className="text-center">
+                <h3 className="text-lg font-semibold text-foreground">{formatDisplayDate(date)}</h3>
+              </div>
+              
+              {/* Buy Side and Sell Side side by side */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* Buy Side for this date */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-green-600">BUY SIDE - {selectedBroker}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-border bg-accent/30">
+                            <th className="text-left py-2 px-3 font-medium">Ticker</th>
+                            <th className="text-right py-2 px-3 font-medium">RSVal</th>
+                            <th className="text-right py-2 px-3 font-medium">HitLot</th>
+                            <th className="text-right py-2 px-3 font-medium">RSFreq</th>
+                            <th className="text-right py-2 px-3 font-medium">SAvg</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
+                        </thead>
+                        <tbody>
+                          {buyData.map((row, idx) => (
+                            <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
+                              <td className="py-2 px-3 font-medium">{row.ticker}</td>
+                              <td className="text-right py-2 px-3 text-green-600">{formatValue(row.rsVal)}</td>
+                              <td className="text-right py-2 px-3">{formatValue(row.hitLot)}</td>
+                              <td className="text-right py-2 px-3">{formatValue(row.rsFreq)}</td>
+                              <td className="text-right py-2 px-3">{formatValue(row.sAvg)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
 
-              {/* Sell Side for this date */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-red-600">SELL SIDE - {selectedBroker} ({formatDisplayDate(date)})</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b border-border bg-accent/30">
-                          <th className="text-left py-2 px-3 font-medium">Ticker</th>
-                          <th className="text-right py-2 px-3 font-medium">RSVal</th>
-                          <th className="text-right py-2 px-3 font-medium">HitLot</th>
-                          <th className="text-right py-2 px-3 font-medium">RSFreq</th>
-                          <th className="text-right py-2 px-3 font-medium">SAvg</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sellData.map((row, idx) => (
-                          <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                            <td className="py-2 px-3 font-medium">{row.ticker}</td>
-                            <td className="text-right py-2 px-3 text-red-600">{formatValue(row.rsVal)}</td>
-                            <td className="text-right py-2 px-3 text-red-600">{formatValue(row.hitLot)}</td>
-                            <td className="text-right py-2 px-3 text-red-600">{formatValue(row.rsFreq)}</td>
-                            <td className="text-right py-2 px-3">{formatValue(row.sAvg)}</td>
+                {/* Sell Side for this date */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-red-600">SELL SIDE - {selectedBroker}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-border bg-accent/30">
+                            <th className="text-left py-2 px-3 font-medium">Ticker</th>
+                            <th className="text-right py-2 px-3 font-medium">RSVal</th>
+                            <th className="text-right py-2 px-3 font-medium">HitLot</th>
+                            <th className="text-right py-2 px-3 font-medium">RSFreq</th>
+                            <th className="text-right py-2 px-3 font-medium">SAvg</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
+                        </thead>
+                        <tbody>
+                          {sellData.map((row, idx) => (
+                            <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
+                              <td className="py-2 px-3 font-medium">{row.ticker}</td>
+                              <td className="text-right py-2 px-3 text-red-600">{formatValue(row.rsVal)}</td>
+                              <td className="text-right py-2 px-3 text-red-600">{formatValue(row.hitLot)}</td>
+                              <td className="text-right py-2 px-3 text-red-600">{formatValue(row.rsFreq)}</td>
+                              <td className="text-right py-2 px-3">{formatValue(row.sAvg)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
             </div>
           );
         })}
@@ -483,7 +491,7 @@ export function BrokerTransaction() {
                     }}
                     onFocus={() => setShowBrokerSuggestions(true)}
                     placeholder="Enter broker code..."
-                    className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
+                    className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
                   />
                   {!!brokerInput && (
                     <button
@@ -501,7 +509,7 @@ export function BrokerTransaction() {
                         .map(b => (
                           <button
                             key={b}
-                            className="w-full text-left px-3 py-2 hover:bg-accent"
+                            className="w-full text-left px-3 py-2 hover:bg-accent text-sm"
                             onClick={() => {
                               setSelectedBroker(b);
                               setBrokerInput(b);

@@ -31,10 +31,17 @@ export const CandlestickBar: React.FC<CandlestickBarProps> = memo(({
 }) => {
   const priceRange = maxPrice - minPrice;
   
-  // Calculate candlestick positions - use CHART_HEIGHT to match Y axis
-  const CHART_HEIGHT = 400; // Match the constant from FootprintChart
+  // Calculate candlestick positions using provided height to match Y axis
+  const CHART_HEIGHT = height;
   const getYPosition = (price: number) => {
-    return ((maxPrice - price) / priceRange) * CHART_HEIGHT * zoom * verticalScale;
+    // True center-based scaling: expand equally up and down from center
+    const centerY = CHART_HEIGHT / 2;
+    // Calculate position relative to center of price range
+    const midPrice = (maxPrice + minPrice) / 2;
+    const priceOffset = (price - midPrice) / priceRange;
+    // Scale from center: expand equally in both directions
+    const halfScaledRange = (CHART_HEIGHT * verticalScale) / 2;
+    return centerY - priceOffset * halfScaledRange;
   };
   
   // Calculate actual price range from volume levels
@@ -45,7 +52,14 @@ export const CandlestickBar: React.FC<CandlestickBarProps> = memo(({
   
   // Use volume-based positioning for candlestick - use CHART_HEIGHT to match Y axis
   const getVolumeBasedYPosition = (price: number) => {
-    return ((actualMaxPrice - price) / actualPriceRange) * CHART_HEIGHT * zoom * verticalScale;
+    // True center-based scaling for volume-based positioning
+    const centerY = CHART_HEIGHT / 2;
+    // Calculate position relative to center of actual price range
+    const midPrice = (actualMaxPrice + actualMinPrice) / 2;
+    const priceOffset = (price - midPrice) / actualPriceRange;
+    // Scale from center: expand equally in both directions
+    const halfScaledRange = (CHART_HEIGHT * verticalScale) / 2;
+    return centerY - priceOffset * halfScaledRange;
   };
   
   // Get volume bars height range - use CHART_HEIGHT to match Y axis
@@ -78,7 +92,7 @@ export const CandlestickBar: React.FC<CandlestickBarProps> = memo(({
         left: index * width,
         top: 0,
         width,
-        height: height * zoom
+        height: height
       }}
     >
       {/* Volume Bars */}

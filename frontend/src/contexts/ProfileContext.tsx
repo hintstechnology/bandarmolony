@@ -97,8 +97,8 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
   // Refresh profile when authentication state changes
   useEffect(() => {
     if (isAuthenticated && user) {
-      // Only refresh if we don't have profile data yet
-      if (!profile) {
+      // Only refresh if we don't have profile data yet and not currently loading
+      if (!profile && !isLoading) {
         refreshProfile();
       }
     } else {

@@ -984,10 +984,10 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
               <CardTitle>Broker Inventory Analysis Controls</CardTitle>
         </CardHeader>
         <CardContent>
-              <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 {/* Ticker Selection */}
-                <div className="flex items-center gap-2">
-                  <label className="text-sm font-medium">Tickers:</label>
+                <div className="flex-1 min-w-0">
+                  <label className="block text-sm font-medium mb-2">Ticker:</label>
                   <div className="relative ticker-dropdown">
                     <input
                       type="text"
@@ -995,20 +995,20 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                       value={tickerSearch || selectedTicker}
                       onChange={handleTickerSearchChange}
                       onFocus={() => setShowTickerSuggestions(true)}
-                      className="px-3 py-1.5 border border-border rounded-md bg-input text-foreground w-24"
+                      className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
                     />
                     
                     {!!tickerSearch && (
                       <button
-                        className="absolute right-1 top-1.5 text-muted-foreground"
+                        className="absolute right-2 top-2.5 text-muted-foreground"
                         onClick={() => { setTickerSearch(''); setShowTickerSuggestions(false); }}
                       >
-                        <X className="w-3 h-3" />
+                        <X className="w-4 h-4" />
                       </button>
                     )}
                     
                     {showTickerSuggestions && (
-                      <div className="absolute z-20 mt-1 w-32 max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
+                      <div className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
                         {tickerSearch.length === 0 ? (
                           // Show all tickers when empty
                           <div className="p-2">
@@ -1045,11 +1045,11 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                       </div>
                     )}
                   </div>
-          </div>
+                </div>
 
                 {/* Broker Selection */}
-                <div className="flex items-center gap-2">
-                  <label className="text-sm font-medium">Brokers:</label>
+                <div className="flex-1 min-w-0">
+                  <label className="block text-sm font-medium mb-2">Broker:</label>
                   <div className="relative broker-dropdown">
                     <input
                       type="text"
@@ -1057,38 +1057,38 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                       value={brokerSearch}
                       onChange={handleBrokerSearchChange}
                       onFocus={() => setShowBrokerSuggestions(true)}
-                      className="px-3 py-1.5 border border-border rounded-md bg-input text-foreground w-32"
+                      className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
                     />
                     
                     {!!brokerSearch && (
                       <button
-                        className="absolute right-1 top-1.5 text-muted-foreground"
+                        className="absolute right-2 top-2.5 text-muted-foreground"
                         onClick={() => { setBrokerSearch(''); setShowBrokerSuggestions(false); }}
                       >
-                        <X className="w-3 h-3" />
+                        <X className="w-4 h-4" />
                       </button>
                     )}
                     
                     {showBrokerSuggestions && (
-                      <div className="absolute z-20 mt-1 w-40 max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
+                      <div className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
                         {brokerSearch.length === 0 ? (
                           // Show all brokers when empty
                           <div className="p-2">
                             <div className="text-xs text-muted-foreground mb-2">All Brokers:</div>
                             {AVAILABLE_BROKERS.filter(broker => !selectedBrokers.includes(broker)).slice(0, 10).map((broker) => (
                               <div
-                  key={broker}
+                                key={broker}
                                 onClick={() => handleBrokerSelect(broker)}
                                 className="flex items-center space-x-2 p-2 hover:bg-muted rounded cursor-pointer"
                               >
-                      <div 
-                        className="w-3 h-3 rounded-full" 
+                                <div 
+                                  className="w-3 h-3 rounded-full" 
                                   style={{ backgroundColor: getBrokerColor(broker) }}
                                 />
                                 <span className="text-sm">{broker}</span>
-              </div>
+                              </div>
                             ))}
-              </div>
+                          </div>
                         ) : (
                           // Show filtered brokers when typing
                           <div className="p-2">
@@ -1098,64 +1098,68 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                                 onClick={() => handleBrokerSelect(broker)}
                                 className="flex items-center space-x-2 p-2 hover:bg-muted rounded cursor-pointer"
                               >
-                      <div 
-                        className="w-3 h-3 rounded-full" 
+                                <div 
+                                  className="w-3 h-3 rounded-full" 
                                   style={{ backgroundColor: getBrokerColor(broker) }}
                                 />
                                 <span className="text-sm">{broker}</span>
-              </div>
+                              </div>
                             ))}
                             {filteredBrokers.length === 0 && (
                               <div className="p-2 text-sm text-muted-foreground">
                                 No brokers found
-            </div>
+                              </div>
                             )}
-          </div>
+                          </div>
                         )}
                       </div>
                     )}
                   </div>
-          </div>
+                </div>
 
                 {/* Date Range */}
-                <div className="flex items-center gap-2">
-                  <label className="font-medium">Date Range:</label>
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="px-3 py-1 border border-border rounded-md bg-background text-foreground"
-                  />
-                  <span>to</span>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="px-3 py-1 border border-border rounded-md bg-background text-foreground"
-                  />
-              </div>
+                <div className="flex-1 min-w-0">
+                  <label className="block text-sm font-medium mb-2">Date Range:</label>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="flex-1 px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm min-w-0"
+                    />
+                    <span className="text-sm text-muted-foreground whitespace-nowrap">to</span>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="flex-1 px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm min-w-0"
+                    />
+                  </div>
+                </div>
 
                 {/* Split Visualization Toggle */}
-                <div className="flex items-center gap-2">
-                  <label className="font-medium">Visualization:</label>
+                <div className="flex-1 min-w-0">
+                  <label className="block text-sm font-medium mb-2">Visualization:</label>
                   <div className="flex gap-1">
                     <Button
                       variant={!splitVisualization ? "default" : "outline"}
                       onClick={() => setSplitVisualization(false)}
-                      className="px-3 py-1"
+                      size="sm"
+                      className="flex-1 px-3 py-2 text-sm min-w-0"
                     >
                       Combined
                     </Button>
                     <Button
                       variant={splitVisualization ? "default" : "outline"}
                       onClick={() => setSplitVisualization(true)}
-                      className="px-3 py-1"
+                      size="sm"
+                      className="flex-1 px-3 py-2 text-sm min-w-0"
                     >
                       Split
                     </Button>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
 
               {/* Selected Brokers Display */}
               {selectedBrokers.length > 0 && (

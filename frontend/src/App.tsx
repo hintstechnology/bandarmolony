@@ -16,7 +16,7 @@ import { PublicRoute } from "./components/dashboard/PublicRoute";
 import { Sidebar } from "./components/dashboard/Sidebar";
 import { ThemeToggle } from "./components/dashboard/ThemeToggle";
 import { Avatar, AvatarFallback, AvatarImage } from "./components/ui/avatar";
-import { User, Home, ChevronRight, ChevronDown } from "lucide-react";
+import { User, Home, ChevronRight, ChevronDown, TrendingUp, Activity, ArrowRightLeft, BookOpen, Star, BarChart3, CreditCard, Shield } from "lucide-react";
 // Import all dashboard components
 import { MarketRotationRRG } from "./components/market-rotation/MarketRotationRRG";
 import { MarketRotationRRC } from "./components/market-rotation/MarketRotationRRC";
@@ -45,7 +45,7 @@ import { SubscriptionPending } from "./components/subscription/SubscriptionPendi
 
 // Dashboard Layout Component
 function DashboardLayout() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const { profile, isLoading } = useNavigation();
   const location = useLocation();
   const navigate = useNavigate();
@@ -80,6 +80,68 @@ function DashboardLayout() {
   };
 
   const currentRoute = getCurrentRoute();
+
+  // Breadcrumb mapping based on sidebar menu structure
+  const breadcrumbMap: Record<string, { title: string; icon?: React.ComponentType<{ className?: string }>; children?: Record<string, string> }> = {
+    'dashboard': { title: 'Dashboard', icon: Home },
+    'market-rotation': {
+      title: 'Market Rotation',
+      icon: TrendingUp,
+      children: {
+        'rrg': 'Relative Rotation Graph',
+        'rrc': 'Relative Rotation Curve',
+        'seasonality': 'Seasonality',
+        'trend-filter': 'Trend Filter',
+      },
+    },
+    'broker-activity': {
+      title: 'Broker Activity',
+      icon: Activity,
+      children: {
+        'transaction': 'Broker Transaction',
+        'summary': 'Broker Summary',
+        'inventory': 'Broker Inventory',
+      },
+    },
+    'stock-transaction': {
+      title: 'Stock Transaction',
+      icon: ArrowRightLeft,
+      children: {
+        'done-summary': 'Done Summary',
+        'done-detail': 'Done Detail',
+      },
+    },
+    'story': {
+      title: 'Story',
+      icon: BookOpen,
+      children: {
+        'accumulation-distribution': 'Accumulation Distribution',
+        'market-participant': 'Market Participant',
+        'ownership': 'Ownership',
+        'foreign-flow': 'Foreign Flow',
+      },
+    },
+    'astrology': { title: 'Astrology', icon: Star, children: { 'lunar': 'Ba Zi & Shio' } },
+    'technical-analysis': { title: 'Technical Analysis', icon: BarChart3 },
+    'profile': { title: 'Profile' },
+    'subscription': { title: 'Subscription', icon: CreditCard },
+    'admin': { title: 'Admin', icon: Shield },
+  };
+
+  const getBreadcrumbParts = () => {
+    const path = location.pathname.replace(/^\/+/, '');
+    if (!path || path === 'dashboard') return [{ title: 'Dashboard', icon: Home }];
+    const segments = path.split('/');
+    const base = segments[0];
+    const entry = breadcrumbMap[base];
+    if (!entry) return [{ title: 'Dashboard', icon: Home }];
+    const parts: { title: string; icon?: React.ComponentType<{ className?: string }> }[] = [{ title: entry.title, icon: entry.icon }];
+    if (segments[1] && entry.children) {
+      const child = entry.children[segments[1]];
+      if (child) parts.push({ title: child });
+    }
+    return parts;
+  };
 
   // Handle profile click with debounce
   const handleProfileClick = () => {
@@ -172,7 +234,7 @@ function DashboardLayout() {
       />
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden ml-16">
         {/* Header */}
         <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card h-14">
           <div className="flex items-center gap-3">
@@ -189,21 +251,17 @@ function DashboardLayout() {
             
             {/* Breadcrumb Navigation */}
             <nav className="flex items-center space-x-2 text-sm">
-              <div className="flex items-center space-x-1">
-                <Home className="w-4 h-4 text-muted-foreground" />
-                <span className="text-muted-foreground">Dashboard</span>
-              </div>
-              {getCurrentRoute() !== 'dashboard' && (
-                <>
-                  <ChevronRight className="w-3 h-3 text-muted-foreground" />
-                  <span className="text-foreground font-medium">
-                    {getCurrentRoute()
-                      .split('/')
-                      .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-                      .join(' / ')}
-                  </span>
-                </>
-              )}
+              {getBreadcrumbParts().map((part, idx, arr) => (
+                <div key={idx} className="flex items-center space-x-2">
+                  {idx === 0 && part.icon ? (
+                    <part.icon className="w-4 h-4 text-muted-foreground" />
+                  ) : idx === 0 ? (
+                    <Home className="w-4 h-4 text-muted-foreground" />
+                  ) : null}
+                  <span className={`whitespace-nowrap ${idx === arr.length - 1 ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>{part.title}</span>
+                  {idx < arr.length - 1 && <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                </div>
+              ))}
             </nav>
           </div>
           

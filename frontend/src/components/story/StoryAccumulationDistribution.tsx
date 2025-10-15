@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
+import { Undo2, Search } from 'lucide-react';
 
 interface AccumulationData {
   symbol: string;
@@ -265,34 +266,35 @@ export function StoryAccumulationDistribution() {
     <div className="space-y-6">
       {/* Top Control Bar */}
       <Card className="p-4">
-        <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
-          <div className="flex flex-wrap gap-4 items-center">
-            <div className="flex items-center gap-2">
-              <label htmlFor="tickerFilter" className="text-sm font-medium">
+         <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-end justify-between">
+           <div className="flex gap-4 items-end">
+            <div>
+              <label htmlFor="tickerFilter" className="block text-sm font-medium mb-2">
                 Filter Ticker:
               </label>
-              <div className="relative" ref={dropdownRef}>
-                <input
-                  type="text"
-                  placeholder="Ticker code"
-                  value={tickerInput}
-                  onChange={(e) => {
-                    setTickerInput(e.target.value);
-                    if (e.target.value === '') {
-                      setTickerFilter('all');
-                      setShowDropdown(false);
-                    } else {
-                      setTickerFilter('custom');
-                      setShowDropdown(true);
-                    }
-                  }}
-                  onFocus={() => {
-                    if (tickerInput) {
-                      setShowDropdown(true);
-                    }
-                  }}
-                  className="px-3 py-1 border border-border rounded-md text-sm w-64 bg-background text-foreground placeholder:text-muted-foreground"
-                />
+               <div className="relative" ref={dropdownRef}>
+                 <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                 <input
+                   type="text"
+                   placeholder="Ticker code"
+                   value={tickerInput}
+                   onChange={(e) => {
+                     setTickerInput(e.target.value);
+                     if (e.target.value === '') {
+                       setTickerFilter('all');
+                       setShowDropdown(false);
+                     } else {
+                       setTickerFilter('custom');
+                       setShowDropdown(true);
+                     }
+                   }}
+                   onFocus={() => {
+                     if (tickerInput) {
+                       setShowDropdown(true);
+                     }
+                   }}
+                   className="pl-9 pr-3 py-1 h-10 border border-border rounded-md text-sm w-64 bg-background text-foreground placeholder:text-muted-foreground"
+                 />
                 {tickerInput && (
                   <button
                     onClick={() => {
@@ -331,48 +333,51 @@ export function StoryAccumulationDistribution() {
                   </div>
                 )}
               </div>
-              <div className="text-xs text-muted-foreground">
-                {tickerFilter === 'all' ? 'Showing all tickers' : `Filtered: ${filteredData.length} tickers`}
-              </div>
             </div>
             
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="normalize"
-                checked={normalize}
-                onChange={(e) => setNormalize(e.target.checked)}
-                className="rounded border-border"
-              />
-              <label htmlFor="normalize" className="text-sm font-medium">Normalize</label>
-            </div>
-            
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="movingAverage"
-                checked={movingAverage}
-                onChange={(e) => setMovingAverage(e.target.checked)}
-                className="rounded border-border"
-              />
-              <label htmlFor="movingAverage" className="text-sm font-medium">Moving Average</label>
-          </div>
-          
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="volumeChange"
-                checked={volumeChange}
-                onChange={(e) => setVolumeChange(e.target.checked)}
-                className="rounded border-border"
-              />
-              <label htmlFor="volumeChange" className="text-sm font-medium">Volume Change</label>
-          </div>
+             <div>
+               <label className="block text-sm font-medium mb-2">Options:</label>
+               <div className="flex items-center gap-4 border border-border rounded-lg px-2 py-1 h-10">
+                 <div className="flex items-center gap-2">
+                   <input
+                     type="checkbox"
+                     id="normalize"
+                     checked={normalize}
+                     onChange={(e) => setNormalize(e.target.checked)}
+                     className="w-4 h-4 text-primary bg-background border border-border rounded focus:ring-primary focus:ring-2 hover:border-primary/50 transition-colors"
+                   />
+                   <label htmlFor="normalize" className="text-sm font-medium">Normalize</label>
+                 </div>
+                 
+                 <div className="flex items-center gap-2">
+                   <input
+                     type="checkbox"
+                     id="movingAverage"
+                     checked={movingAverage}
+                     onChange={(e) => setMovingAverage(e.target.checked)}
+                     className="w-4 h-4 text-primary bg-background border border-border rounded focus:ring-primary focus:ring-2 hover:border-primary/50 transition-colors"
+                   />
+                   <label htmlFor="movingAverage" className="text-sm font-medium">Moving Average</label>
+                 </div>
+                 
+                 <div className="flex items-center gap-2">
+                   <input
+                     type="checkbox"
+                     id="volumeChange"
+                     checked={volumeChange}
+                     onChange={(e) => setVolumeChange(e.target.checked)}
+                     className="w-4 h-4 text-primary bg-background border border-border rounded focus:ring-primary focus:ring-2 hover:border-primary/50 transition-colors"
+                   />
+                   <label htmlFor="volumeChange" className="text-sm font-medium">Volume Change</label>
+                 </div>
+               </div>
+             </div>
         </div>
           
-          <Button onClick={resetSettings} variant="outline" size="sm">
-            Reset Settings
-          </Button>
+           <Button onClick={resetSettings} variant="outline" size="sm" className="flex items-center gap-2 h-10">
+             <Undo2 className="w-4 h-4 rotate-180" />
+             Reset Settings
+           </Button>
           </div>
         </Card>
 

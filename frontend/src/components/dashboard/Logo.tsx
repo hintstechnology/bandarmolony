@@ -26,18 +26,18 @@ const Logo: React.FC<LogoProps> = ({
   };
 
   return (
-    <div className={`flex items-center gap-3 ${className}`}>
+    <div className={`flex items-center ${className}`}>
       {/* Text "Bandarmolo" */}
       {showText && (
         <span className={`font-bold text-white ${textClassName}`}>Bandarmolo</span>
       )}
 
       {/* Logo Image (NY badge with chart) */}
-      <div className={`relative flex items-center justify-center bg-white rounded-lg shadow-md ${badgeClassName}`} style={{ aspectRatio: '1.2' }}>
+      <div className={`relative flex items-center justify-center ${badgeClassName}`} style={{ aspectRatio: '1.2' }}>
         <img
           src={getLogoUrl()}
           alt="Bandarmolony Logo"
-          className="w-full h-full object-contain p-2"
+          className="w-full h-full object-contain"
           style={{ 
             objectFit: 'contain',
             maxWidth: '100%',

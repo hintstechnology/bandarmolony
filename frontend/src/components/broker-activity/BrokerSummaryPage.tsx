@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { X, Plus, RotateCcw } from 'lucide-react';
+import { X, Plus, RotateCcw, Calendar } from 'lucide-react';
 import { getBrokerBackgroundClass, getBrokerTextClass, useDarkMode } from '../../utils/brokerColors';
 
 interface BrokerSummaryData {
@@ -193,73 +193,81 @@ export function BrokerSummaryPage() {
           
           return (
             <div key={date} className="space-y-4">
-              {/* Buy Side for this date */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-green-600">BUY SIDE - {selectedTicker} ({formatDisplayDate(date)})</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b border-border">
-                          <th className="text-left py-2 px-2 font-medium">Broker</th>
-                          <th className="text-right py-2 px-2 font-medium">NBLot</th>
-                          <th className="text-right py-2 px-2 font-medium">NBVal</th>
-                          <th className="text-right py-2 px-2 font-medium">BAvg</th>
-                          <th className="text-right py-2 px-2 font-medium">SL</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {buyData.map((row, idx) => (
-                          <tr key={idx} className={`border-b border-border/50 hover:bg-accent/50 ${getBrokerRowClass(row.broker, row)}`}>
-                            <td className="py-2 px-2 font-medium">{row.broker}</td>
-                            <td className="text-right py-2 px-2 text-green-600">{formatNumber(row.nblot)}</td>
-                            <td className="text-right py-2 px-2 text-green-600">{formatNumber(row.nbval)}</td>
-                            <td className="text-right py-2 px-2">{formatNumber(row.bavg)}</td>
-                            <td className="text-right py-2 px-2">{formatNumber(row.sl)}</td>
+              {/* Date Header */}
+              <div className="text-center">
+                <h3 className="text-lg font-semibold text-foreground">{formatDisplayDate(date)}</h3>
+              </div>
+              
+              {/* Buy Side and Sell Side side by side */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* Buy Side for this date */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-green-600">BUY SIDE - {selectedTicker}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-border">
+                            <th className="text-left py-2 px-2 font-medium">Broker</th>
+                            <th className="text-right py-2 px-2 font-medium">NBLot</th>
+                            <th className="text-right py-2 px-2 font-medium">NBVal</th>
+                            <th className="text-right py-2 px-2 font-medium">BAvg</th>
+                            <th className="text-right py-2 px-2 font-medium">SL</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
+                        </thead>
+                        <tbody>
+                          {buyData.map((row, idx) => (
+                            <tr key={idx} className={`border-b border-border/50 hover:bg-accent/50 ${getBrokerRowClass(row.broker, row)}`}>
+                              <td className="py-2 px-2 font-medium">{row.broker}</td>
+                              <td className="text-right py-2 px-2 text-green-600">{formatNumber(row.nblot)}</td>
+                              <td className="text-right py-2 px-2 text-green-600">{formatNumber(row.nbval)}</td>
+                              <td className="text-right py-2 px-2">{formatNumber(row.bavg)}</td>
+                              <td className="text-right py-2 px-2">{formatNumber(row.sl)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
 
-              {/* Sell Side for this date */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-red-600">SELL SIDE - {selectedTicker} ({formatDisplayDate(date)})</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b border-border">
-                          <th className="text-left py-2 px-2 font-medium">Broker</th>
-                          <th className="text-right py-2 px-2 font-medium">NSLot</th>
-                          <th className="text-right py-2 px-2 font-medium">NSVal</th>
-                          <th className="text-right py-2 px-2 font-medium">SAvg</th>
-                          <th className="text-right py-2 px-2 font-medium">Net</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sellData.map((row, idx) => (
-                          <tr key={idx} className={`border-b border-border/50 hover:bg-accent/50 ${getBrokerRowClass(row.broker, row)}`}>
-                            <td className="py-2 px-2 font-medium">{row.broker}</td>
-                            <td className="text-right py-2 px-2 text-red-600">{formatNumber(row.nslot)}</td>
-                            <td className="text-right py-2 px-2 text-red-600">{formatNumber(row.nsval)}</td>
-                            <td className="text-right py-2 px-2">{formatNumber(row.savg)}</td>
-                            <td className="text-right py-2 px-2 font-medium">
-                              {formatNumber(row.nblot + row.nslot)}
-                            </td>
+                {/* Sell Side for this date */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-red-600">SELL SIDE - {selectedTicker}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-border">
+                            <th className="text-left py-2 px-2 font-medium">Broker</th>
+                            <th className="text-right py-2 px-2 font-medium">NSLot</th>
+                            <th className="text-right py-2 px-2 font-medium">NSVal</th>
+                            <th className="text-right py-2 px-2 font-medium">SAvg</th>
+                            <th className="text-right py-2 px-2 font-medium">Net</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
+                        </thead>
+                        <tbody>
+                          {sellData.map((row, idx) => (
+                            <tr key={idx} className={`border-b border-border/50 hover:bg-accent/50 ${getBrokerRowClass(row.broker, row)}`}>
+                              <td className="py-2 px-2 font-medium">{row.broker}</td>
+                              <td className="text-right py-2 px-2 text-red-600">{formatNumber(row.nslot)}</td>
+                              <td className="text-right py-2 px-2 text-red-600">{formatNumber(row.nsval)}</td>
+                              <td className="text-right py-2 px-2">{formatNumber(row.savg)}</td>
+                              <td className="text-right py-2 px-2 font-medium">
+                                {formatNumber(row.nblot + row.nslot)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
             </div>
           );
         })}
@@ -269,141 +277,145 @@ export function BrokerSummaryPage() {
 
   return (
     <div className="space-y-6">
-      {/* Control Panel */}
+      {/* Top Controls */}
       <Card>
         <CardHeader>
-          <CardTitle>Broker Summary Analysis</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <Calendar className="w-5 h-5" />
+            Date Range Selection (Max 7 Days)
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Ticker Selection */}
-            <div className="flex-1">
-              <label className="block text-sm font-medium mb-2">Ticker:</label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={tickerInput}
-                  onChange={(e) => {
-                    const v = e.target.value.toUpperCase();
-                    setTickerInput(v);
-                    setShowTickerSuggestions(true);
-                    if (!v) setSelectedTicker('');
-                  }}
-                  onFocus={() => setShowTickerSuggestions(true)}
-                  placeholder="Enter ticker code..."
-                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
-                />
-                {!!tickerInput && (
-                  <button
-                    className="absolute right-2 top-2.5 text-muted-foreground"
-                    onClick={() => {
-                      setTickerInput('');
-                      setSelectedTicker('');
-                      setShowTickerSuggestions(false);
+          <div className="space-y-4">
+            {/* Row 1: Ticker, Date Range, Quick Select, Layout */}
+            <div className="flex flex-col lg:flex-row gap-4 items-end">
+              {/* Ticker Selection */}
+              <div className="flex-1">
+                <label className="block text-sm font-medium mb-2">Ticker:</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={tickerInput}
+                    onChange={(e) => {
+                      const v = e.target.value.toUpperCase();
+                      setTickerInput(v);
+                      setShowTickerSuggestions(true);
+                      if (!v) setSelectedTicker('');
                     }}
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-                {showTickerSuggestions && (
-                  <div className="absolute z-10 w-full mt-1 bg-popover border border-border rounded-md shadow-lg max-h-40 overflow-y-auto">
-                    {TICKERS
-                      .filter(t => t.toLowerCase().includes(tickerInput.toLowerCase()))
-                      .slice(0, 10)
-                      .map(t => (
-                        <button
-                          key={t}
-                          onClick={() => {
-                            setTickerInput(t);
-                            setSelectedTicker(t);
-                            setShowTickerSuggestions(false);
-                          }}
-                          className="w-full text-left px-3 py-2 hover:bg-accent text-sm"
-                        >
-                          {t}
-                        </button>
-                      ))}
-                    {TICKERS.filter(t => t.toLowerCase().includes(tickerInput.toLowerCase())).length === 0 && (
-                      <div className="px-3 py-2 text-sm text-muted-foreground">No results</div>
-                    )}
-                  </div>
-                )}
+                    onFocus={() => setShowTickerSuggestions(true)}
+                    placeholder="Enter ticker code..."
+                    className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                  />
+                  {!!tickerInput && (
+                    <button
+                      className="absolute right-2 top-2.5 text-muted-foreground"
+                      onClick={() => {
+                        setTickerInput('');
+                        setSelectedTicker('');
+                        setShowTickerSuggestions(false);
+                      }}
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                  {showTickerSuggestions && (
+                    <div className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
+                      {TICKERS
+                        .filter(t => t.toLowerCase().includes(tickerInput.toLowerCase()))
+                        .slice(0, 10)
+                        .map(t => (
+                          <button
+                            key={t}
+                            onClick={() => {
+                              setTickerInput(t);
+                              setSelectedTicker(t);
+                              setShowTickerSuggestions(false);
+                            }}
+                            className="w-full text-left px-3 py-2 hover:bg-accent text-sm"
+                          >
+                            {t}
+                          </button>
+                        ))}
+                      {TICKERS.filter(t => t.toLowerCase().includes(tickerInput.toLowerCase())).length === 0 && (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">No results</div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
 
-            {/* Date Range */}
-            <div className="flex-1">
-              <label className="block text-sm font-medium mb-2">Date Range:</label>
-              <div className="flex gap-2 items-center">
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="flex-1 px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
-                />
-                <span className="text-sm text-muted-foreground">to</span>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="flex-1 px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
-                />
-                <Button onClick={addDateRange} size="sm">
-                  <Plus className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-
-            {/* Quick Select */}
-            <div className="flex-1">
-              <label className="block text-sm font-medium mb-2">Quick Select:</label>
-              <div className="flex gap-2">
-                <select 
-                  className="flex-1 px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
-                  value={dateRangeMode}
-                  onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
-                >
-                  <option value="1day">1 Day</option>
-                  <option value="3days">3 Days</option>
-                  <option value="1week">1 Week</option>
-                  <option value="custom">Custom</option>
-                </select>
-                {dateRangeMode === 'custom' && (
-                  <Button onClick={clearAllDates} variant="outline" size="sm">
-                    <RotateCcw className="w-4 h-4 mr-1" />
-                    Clear
+              {/* Date Range */}
+              <div className="flex-1">
+                <label className="block text-sm font-medium mb-2">Date Range:</label>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                  />
+                  <span className="text-sm text-muted-foreground">to</span>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                  />
+                  <Button onClick={addDateRange} size="sm">
+                    <Plus className="w-4 h-4" />
                   </Button>
-                )}
+                </div>
+              </div>
+
+              {/* Quick Select */}
+              <div className="flex-1">
+                <label className="block text-sm font-medium mb-2">Quick Select:</label>
+                <div className="flex gap-2">
+                  <select 
+                    className="flex-1 px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                    value={dateRangeMode}
+                    onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
+                  >
+                    <option value="1day">1 Day</option>
+                    <option value="3days">3 Days</option>
+                    <option value="1week">1 Week</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                  {dateRangeMode === 'custom' && (
+                    <Button onClick={clearAllDates} variant="outline" size="sm">
+                      <RotateCcw className="w-4 h-4 mr-1" />
+                      Clear
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* Layout Mode Toggle */}
+              <div className="flex-1">
+                <label className="block text-sm font-medium mb-2">Layout:</label>
+                <div className="flex gap-1">
+                  <Button
+                    variant={layoutMode === 'horizontal' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setLayoutMode('horizontal')}
+                    className="flex-1"
+                  >
+                    Horizontal
+                  </Button>
+                  <Button
+                    variant={layoutMode === 'vertical' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setLayoutMode('vertical')}
+                    className="flex-1"
+                  >
+                    Vertical
+                  </Button>
+                </div>
               </div>
             </div>
 
-            {/* Layout Mode Toggle */}
-            <div className="flex-1">
-              <label className="block text-sm font-medium mb-2">Layout:</label>
-              <div className="flex gap-1">
-                <Button
-                  variant={layoutMode === 'horizontal' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setLayoutMode('horizontal')}
-                  className="flex-1"
-                >
-                  Horizontal
-                </Button>
-                <Button
-                  variant={layoutMode === 'vertical' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setLayoutMode('vertical')}
-                  className="flex-1"
-                >
-                  Vertical
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          {/* Selected Dates Display */}
-          {selectedDates.length > 0 && (
-            <div className="mt-4">
+            {/* Row 2: Selected Dates */}
+            <div>
               <label className="text-sm font-medium">Selected Dates:</label>
               <div className="flex flex-wrap gap-2 mt-2">
                 {selectedDates.map((date) => (
@@ -421,7 +433,7 @@ export function BrokerSummaryPage() {
                 ))}
               </div>
             </div>
-          )}
+          </div>
         </CardContent>
       </Card>
 

@@ -1090,15 +1090,15 @@ export function StockTransactionDoneSummary() {
 
             {/* Row 2: Selected Dates */}
             <div>
-              <label className="text-xs sm:text-sm font-medium">Selected Dates:</label>
-              <div className="flex flex-wrap gap-1 sm:gap-2 mt-1 sm:mt-2">
+              <label className="text-sm font-medium">Selected Dates:</label>
+              <div className="flex flex-wrap gap-2 mt-2">
                 {selectedDates.map((date) => (
-                  <Badge key={date} variant="secondary" className="px-2 sm:px-3 py-1 text-xs sm:text-sm">
+                  <Badge key={date} variant="secondary" className="px-3 py-1">
                     {formatDisplayDate(date)}
                     {selectedDates.length > 1 && (
                       <button
                         onClick={() => removeDate(date)}
-                        className="ml-1 sm:ml-2 hover:text-destructive"
+                        className="ml-2 hover:text-destructive"
                       >
                         <X className="w-3 h-3" />
                       </button>
