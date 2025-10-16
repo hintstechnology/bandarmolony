@@ -30,10 +30,17 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const refreshProfile = async () => {
+  const refreshProfile = async (force = false) => {
     if (!isAuthenticated || !user) {
       console.log('ProfileContext: No user, clearing profile');
       setProfile(null);
+      setIsLoading(false);
+      return;
+    }
+
+    // Skip if already loading and not forced
+    if (isLoading && !force) {
+      console.log('ProfileContext: Already loading, skipping refresh');
       return;
     }
 
@@ -96,15 +103,32 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
 
   // Refresh profile when authentication state changes
   useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+
     if (isAuthenticated && user) {
-      // Only refresh if we don't have profile data yet and not currently loading
-      if (!profile && !isLoading) {
-        refreshProfile();
+      // Only refresh if we don't have profile data yet
+      if (!profile) {
+        console.log('ProfileContext: No profile, fetching...');
+        refreshProfile(true); // Force refresh
+        
+        // Set a timeout to prevent infinite loading
+        timeoutId = setTimeout(() => {
+          if (isLoading && !profile) {
+            console.warn('ProfileContext: Refresh timeout, clearing loading state');
+            setIsLoading(false);
+          }
+        }, 10000); // 10 second timeout
       }
     } else {
       clearProfile();
     }
-  }, [isAuthenticated]); // Remove user dependency to prevent unnecessary refreshes
+
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [isAuthenticated, user?.id]); // Use user.id instead of user object to prevent unnecessary re-renders
 
   const value: ProfileContextType = {
     profile,

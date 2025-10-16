@@ -18,10 +18,11 @@ import { ThemeToggle } from "./components/dashboard/ThemeToggle";
 import { Avatar, AvatarFallback, AvatarImage } from "./components/ui/avatar";
 import { User, Home, ChevronRight, ChevronDown, TrendingUp, Activity, ArrowRightLeft, BookOpen, Star, BarChart3, CreditCard, Shield } from "lucide-react";
 // Import all dashboard components
-import { MarketRotationRRG } from "./components/market-rotation/MarketRotationRRG";
-import { MarketRotationRRC } from "./components/market-rotation/MarketRotationRRC";
+import MarketRotationRRG from "./components/market-rotation/MarketRotationRRG";
+import MarketRotationRRC from "./components/market-rotation/MarketRotationRRC";
 import { MarketRotationSeasonality } from "./components/market-rotation/MarketRotationSeasonality";
 import { MarketRotationTrendFilter } from "./components/market-rotation/MarketRotationTrendFilter";
+import SeasonalityAnalysis from "./components/SeasonalityAnalysis";
 import { BrokerTransaction } from "./components/broker-activity/BrokerTransaction";
 import { BrokerSummaryPage } from "./components/broker-activity/BrokerSummaryPage";
 import { BrokerInventoryPage } from "./components/broker-activity/BrokerInventoryPage";
@@ -62,8 +63,10 @@ function DashboardLayout() {
     );
   }
 
-  // If no profile after loading, show nothing (will redirect)
+  // If no profile after loading, redirect to auth
   if (!profile) {
+    console.log('DashboardLayout: No profile after loading, redirecting to auth');
+    navigate('/auth', { replace: true });
     return null;
   }
 
@@ -162,6 +165,8 @@ function DashboardLayout() {
         return <MarketRotationRRC />;
       case "market-rotation/seasonality":
         return <MarketRotationSeasonality />;
+      case "seasonality":
+        return <SeasonalityAnalysis />;
       case "market-rotation/trend-filter":
         return <MarketRotationTrendFilter />;
 

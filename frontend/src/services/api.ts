@@ -32,13 +32,68 @@ export interface AuthResponse {
   session?: any;
   error?: string;
   code?: string;
-  field?: string;
+  field?: string | undefined;
   message?: string;
 }
 
 const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
 
 export const api = {
+  // Market Rotation Outputs (Azure-backed)
+  async listMarketRotationOutputs(feature: 'rrc' | 'rrg' | 'seasonal' | 'trend'): Promise<{ success: boolean; data?: { prefix: string; files: string[] }; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/market-rotation/outputs/${feature}/list`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to list outputs');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to list outputs' };
+    }
+  },
+
+  async getMarketRotationOutputFile(feature: 'rrc' | 'rrg' | 'seasonal' | 'trend', path: string): Promise<string> {
+    const res = await fetch(`${API_URL}/api/market-rotation/outputs/${feature}/file?path=${encodeURIComponent(path)}`);
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(err || 'Failed to fetch output file');
+    }
+    return await res.text();
+  },
+
+  async backfillMarketRotationOutputs(feature: 'rrc' | 'rrg' | 'seasonal' | 'trend'): Promise<{ success: boolean; uploaded?: number; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/market-rotation/backfill/${feature}`, { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to backfill outputs');
+      return { success: true, uploaded: json?.data?.uploaded };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to backfill outputs' };
+    }
+  },
+  async listMarketRotationInputs(): Promise<{ success: boolean; data?: { index: string[]; stockSectors: string[]; holding: string[]; shareholders: string[] }; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/market-rotation/inputs`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to list inputs');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to list inputs' };
+    }
+  },
+
+  async preGenerateOutputs(feature: string): Promise<{ success: boolean; data?: { message: string; feature: string }; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/market-rotation/pre-generate/${feature}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to pre-generate outputs');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to pre-generate outputs' };
+    }
+  },
   async getProfile(): Promise<ProfileData> {
     console.log('🔍 API: Getting profile...');
     
@@ -424,7 +479,7 @@ export const api = {
           error: 'Cannot connect to server. Please make sure the backend is running.',
           code: 'CONNECTION_ERROR',
           field: 'general'
-        };
+        } as AuthResponse;
       }
       
       const authError = getAuthError(error);
@@ -433,7 +488,7 @@ export const api = {
         error: authError.message,
         code: authError.code,
         field: authError.field
-      };
+      } as AuthResponse;
     }
   },
 
@@ -490,7 +545,7 @@ export const api = {
     try {
       // Call backend logout route first
       try {
-        await this.request('/auth/logout', {
+        await fetch(`${API_URL}/api/auth/logout`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
@@ -735,7 +790,8 @@ export const api = {
         throw new Error(error.message || 'OTP verification failed');
       }
 
-      return { success: true, token: data.session?.access_token };
+      const tokenValue = (data.session?.access_token ?? undefined) as string | undefined;
+      return { success: true, token: tokenValue } as { success: boolean; error?: string; token?: string };
     } catch (error: any) {
       return { success: false, error: error.message || 'OTP verification failed' };
     }
@@ -1086,6 +1142,282 @@ export const api = {
         success: false, 
         error: error.message || 'Failed to change password'
       };
+    }
+  },
+
+  // RRC API methods
+  async listRRCInputs(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrc/inputs`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to list RRC inputs');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to list RRC inputs' };
+    }
+  },
+
+  async getRRCStatus(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrc/status`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get RRC status');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get RRC status' };
+    }
+  },
+
+  // Debug API methods
+  async triggerRRCUpdate(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrc/debug/trigger-update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to trigger RRC update');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to trigger RRC update' };
+    }
+  },
+
+  // Unified trigger with options
+  async triggerGeneration(feature: 'rrc' | 'rrg' | 'seasonal' | 'all' = 'all'): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/trigger/generate?feature=${feature}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to trigger generation');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to trigger generation' };
+    }
+  },
+
+  async getGenerationStatus(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/trigger/status`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get status');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get status' };
+    }
+  },
+
+  async stopRRCGeneration(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrc/debug/stop-generation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to stop RRC generation');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to stop RRC generation' };
+    }
+  },
+
+  async clearRRCCache(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrc/debug/clear-cache`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to clear RRC cache');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to clear RRC cache' };
+    }
+  },
+
+  // RRG API methods
+  async listRRGInputs(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrg/inputs`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to list RRG inputs');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to list RRG inputs' };
+    }
+  },
+
+  async getRRGData(type: 'stock' | 'sector' | 'index', items: string[], index: string = 'COMPOSITE'): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const params = new URLSearchParams();
+      params.append('type', type);
+      items.forEach(item => params.append('items', item));
+      params.append('index', index);
+      
+      const res = await fetch(`${API_URL}/api/rrg/data?${params}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get RRG data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get RRG data' };
+    }
+  },
+
+  async getRRGStatus(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrg/status`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get RRG status');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get RRG status' };
+    }
+  },
+
+  // Debug RRG API methods
+  async triggerRRGUpdate(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrg/debug/trigger-update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to trigger RRG update');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to trigger RRG update' };
+    }
+  },
+
+  async stopRRGGeneration(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrg/debug/stop-generation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to stop RRG generation');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to stop RRG generation' };
+    }
+  },
+
+  async clearRRGCache(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrg/debug/clear-cache`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to clear RRG cache');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to clear RRG cache' };
+    }
+  },
+
+  // Seasonality API
+  async getSeasonalityInputs(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/seasonality/inputs`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get seasonality inputs');
+      return { success: true, data: json };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get seasonality inputs' };
+    }
+  },
+
+  async getSeasonalityData(params: { type: string; items: string[]; startDate?: string; endDate?: string }): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const queryParams = new URLSearchParams();
+      queryParams.append('type', params.type);
+      params.items.forEach(item => queryParams.append('items', item));
+      if (params.startDate) queryParams.append('startDate', params.startDate);
+      if (params.endDate) queryParams.append('endDate', params.endDate);
+
+      const res = await fetch(`${API_URL}/api/seasonality/data?${queryParams.toString()}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get seasonality data');
+      return { success: true, data: json };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get seasonality data' };
+    }
+  },
+
+  async getSeasonalityStatus(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/seasonality/status`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get seasonality status');
+      return { success: true, data: json };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get seasonality status' };
+    }
+  },
+
+  async clearSeasonalityCache(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/seasonality/debug/clear-cache`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to clear seasonality cache');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to clear seasonality cache' };
+    }
+  },
+
+  async getRRCData(type: 'stock' | 'sector' | 'index', items: string[], index: string = 'COMPOSITE'): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const params = new URLSearchParams();
+      params.append('type', type);
+      items.forEach(item => params.append('items', item));
+      params.append('index', index);
+      
+      const res = await fetch(`${API_URL}/api/rrc/data?${params}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get RRC data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get RRC data' };
+    }
+  },
+
+  async preGenerateRRC(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrc/pre-generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to pre-generate RRC');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to pre-generate RRC' };
     }
   },
 

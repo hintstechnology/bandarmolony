@@ -12,15 +12,16 @@ const router = Router();
  * User akan otomatis dibuat oleh trigger saat signup.
  */
 router.get('/', requireSupabaseUser, async (req: any, res) => {
+  const startTime = Date.now();
   try {
     const userId = req.user.id as string;
     const userEmail = req.user.email as string;
     
     console.log(`📋 GET /api/me - User: ${userId}, Email: ${userEmail}`);
     console.log(`📋 GET /api/me - User data:`, req.user);
+    console.log(`📋 GET /api/me - Request headers:`, req.headers.authorization ? 'Bearer token present' : 'No token');
 
-
-    // Fetch user profile (should exist due to trigger)
+    // Fetch user profile (should exist due to trigger or fallback in middleware)
     const { data, error } = await supabaseAdmin
       .from('users')
       .select('id, email, full_name, avatar_url, role, is_active, email_verified, last_login_at, created_at, updated_at')
@@ -28,9 +29,11 @@ router.get('/', requireSupabaseUser, async (req: any, res) => {
       .single();
 
     if (error) {
+      console.error(`❌ GET /api/me - Database error:`, error);
       
       if (error.code === 'PGRST116') {
         // User not found - this shouldn't happen with trigger, but handle gracefully
+        console.error(`❌ GET /api/me - User not found in database: ${userId}`);
         return res.status(HTTP_STATUS.NOT_FOUND).json(createErrorResponse(
           'User profile not found. Please try logging out and logging in again.',
           ERROR_CODES.NOT_FOUND,
@@ -43,22 +46,32 @@ router.get('/', requireSupabaseUser, async (req: any, res) => {
     }
 
     if (!data) {
+      console.error(`❌ GET /api/me - No data returned for user: ${userId}`);
       throw new Error('No user data found');
     }
 
     console.log(`✅ GET /api/me - Profile found for user: ${userId}`);
 
-    // Update last_login_at
-    await supabaseAdmin
-      .from('users')
-      .update({ last_login_at: new Date().toISOString() })
-      .eq('id', userId);
+    // Update last_login_at in background (don't await)
+    (async () => {
+      try {
+        await supabaseAdmin
+          .from('users')
+          .update({ last_login_at: new Date().toISOString() })
+          .eq('id', userId);
+        console.log(`✅ GET /api/me - Updated last_login_at for: ${userId}`);
+      } catch (err) {
+        console.error(`⚠️ GET /api/me - Failed to update last_login_at:`, err);
+      }
+    })();
 
-    console.log(`📤 GET /api/me - Sending response for user: ${userId}`);
+    const duration = Date.now() - startTime;
+    console.log(`📤 GET /api/me - Sending response for user: ${userId} (${duration}ms)`);
     console.log(`📤 GET /api/me - Response data:`, data);
     return res.json(createSuccessResponse(data));
   } catch (err: any) {
-    console.error('GET /api/me error:', err);
+    const duration = Date.now() - startTime;
+    console.error(`❌ GET /api/me error (${duration}ms):`, err);
     return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Internal server error',
       ERROR_CODES.INTERNAL_SERVER_ERROR,

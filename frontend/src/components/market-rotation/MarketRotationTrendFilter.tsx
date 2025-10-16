@@ -1,21 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { api } from "../../services/api";
 import { Card } from "../ui/card";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
-// import {
-//   BarChart,
-//   Bar,
-//   XAxis,
-//   YAxis,
-//   CartesianGrid,
-//   Tooltip,
-//   ResponsiveContainer,
-//   LineChart,
-//   Line,
-//   PieChart,
-//   Pie,
-//   Cell,
-// } from "recharts";
 import {
   TrendingUp,
   TrendingDown,
@@ -23,334 +10,40 @@ import {
   Filter,
   Search,
   Calendar,
-  // ArrowUp,
-  // ArrowDown,
   BarChart3,
   Target,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
 
-const trendData = {
-  uptrend: [
-    {
-      symbol: "BBRI",
-      name: "Bank Rakyat Indonesia",
-      price: 4820,
-      change: 2.8,
-      sector: "Banking",
-    },
-    {
-      symbol: "BMRI",
-      name: "Bank Mandiri",
-      price: 8900,
-      change: 1.9,
-      sector: "Banking",
-    },
-    {
-      symbol: "TLKM",
-      name: "Telkom Indonesia",
-      price: 3250,
-      change: 3.2,
-      sector: "Infrastructure",
-    },
-    {
-      symbol: "ASII",
-      name: "Astra International",
-      price: 5575,
-      change: 1.5,
-      sector: "Consumer",
-    },
-    {
-      symbol: "UNVR",
-      name: "Unilever Indonesia",
-      price: 2690,
-      change: 2.1,
-      sector: "Consumer",
-    },
-    {
-      symbol: "ANTM",
-      name: "Aneka Tambang",
-      price: 1850,
-      change: 4.5,
-      sector: "Mining",
-    },
-    {
-      symbol: "INCO",
-      name: "Vale Indonesia",
-      price: 3890,
-      change: 3.8,
-      sector: "Mining",
-    },
-    {
-      symbol: "ITMG",
-      name: "Indo Tambangraya Megah",
-      price: 22500,
-      change: 2.9,
-      sector: "Mining",
-    },
-    {
-      symbol: "PTBA",
-      name: "Bukit Asam",
-      price: 4275,
-      change: 3.1,
-      sector: "Mining",
-    },
-    {
-      symbol: "INDF",
-      name: "Indofood Sukses Makmur",
-      price: 6800,
-      change: 2.4,
-      sector: "Consumer",
-    },
-    {
-      symbol: "EXCL",
-      name: "XL Axiata",
-      price: 2890,
-      change: 2.7,
-      sector: "Infrastructure",
-    },
-    {
-      symbol: "PGAS",
-      name: "Perusahaan Gas Negara",
-      price: 1675,
-      change: 3.3,
-      sector: "Infrastructure",
-    },
-    {
-      symbol: "JSMR",
-      name: "Jasa Marga",
-      price: 4150,
-      change: 2.2,
-      sector: "Infrastructure",
-    },
-    {
-      symbol: "WSKT",
-      name: "Waskita Karya",
-      price: 1025,
-      change: 4.1,
-      sector: "Infrastructure",
-    },
-    {
-      symbol: "WIKA",
-      name: "Wijaya Karya",
-      price: 1890,
-      change: 2.6,
-      sector: "Infrastructure",
-    },
-  ],
-  sideways: [
-    {
-      symbol: "GGRM",
-      name: "Gudang Garam",
-      price: 1875,
-      change: 0.2,
-      sector: "Consumer",
-    },
-    {
-      symbol: "ICBP",
-      name: "Indofood CBP",
-      price: 12175,
-      change: -0.1,
-      sector: "Consumer",
-    },
-    {
-      symbol: "INTP",
-      name: "Indocement",
-      price: 8650,
-      change: 0.3,
-      sector: "Infrastructure",
-    },
-    {
-      symbol: "KLBF",
-      name: "Kalbe Farma",
-      price: 1535,
-      change: -0.2,
-      sector: "Consumer",
-    },
-    {
-      symbol: "SMGR",
-      name: "Semen Indonesia",
-      price: 3980,
-      change: 0.1,
-      sector: "Infrastructure",
-    },
-    {
-      symbol: "MNCN",
-      name: "Media Nusantara Citra",
-      price: 1450,
-      change: 0.0,
-      sector: "Technology",
-    },
-    {
-      symbol: "TOWR",
-      name: "Sarana Menara Nusantara",
-      price: 1890,
-      change: -0.1,
-      sector: "Infrastructure",
-    },
-    {
-      symbol: "TINS",
-      name: "Timah",
-      price: 1275,
-      change: 0.2,
-      sector: "Mining",
-    },
-    {
-      symbol: "BYAN",
-      name: "Bumi Resources",
-      price: 325,
-      change: 0.1,
-      sector: "Mining",
-    },
-    {
-      symbol: "ADRO",
-      name: "Adaro Energy",
-      price: 3450,
-      change: -0.2,
-      sector: "Mining",
-    },
-    {
-      symbol: "HMSP",
-      name: "HM Sampoerna",
-      price: 1350,
-      change: 0.0,
-      sector: "Consumer",
-    },
-    {
-      symbol: "SIDO",
-      name: "Industri Jamu Dan Farmasi Sido Muncul",
-      price: 565,
-      change: 0.1,
-      sector: "Consumer",
-    },
-  ],
-  downtrend: [
-    {
-      symbol: "BBCA",
-      name: "Bank Central Asia",
-      price: 9825,
-      change: -1.8,
-      sector: "Banking",
-    },
-    {
-      symbol: "BBTN",
-      name: "Bank Tabungan Negara",
-      price: 1285,
-      change: -2.5,
-      sector: "Banking",
-    },
-    {
-      symbol: "BRIS",
-      name: "Bank Syariah Indonesia",
-      price: 2580,
-      change: -1.2,
-      sector: "Banking",
-    },
-    {
-      symbol: "GOTO",
-      name: "GoTo Gojek Tokopedia",
-      price: 68,
-      change: -3.1,
-      sector: "Technology",
-    },
-    {
-      symbol: "AMMN",
-      name: "Amman Mineral",
-      price: 8475,
-      change: -2.8,
-      sector: "Mining",
-    },
-    {
-      symbol: "EMTK",
-      name: "Elang Mahkota Teknologi",
-      price: 145,
-      change: -4.2,
-      sector: "Technology",
-    },
-    {
-      symbol: "FREN",
-      name: "Smartfren Telecom",
-      price: 285,
-      change: -3.5,
-      sector: "Infrastructure",
-    },
-    {
-      symbol: "ISAT",
-      name: "Indosat Ooredoo Hutchison",
-      price: 6750,
-      change: -2.1,
-      sector: "Infrastructure",
-    },
-    {
-      symbol: "LPKR",
-      name: "Lippo Karawaci",
-      price: 168,
-      change: -2.9,
-      sector: "Infrastructure",
-    },
-    {
-      symbol: "PWON",
-      name: "Pakuwon Jati",
-      price: 465,
-      change: -1.9,
-      sector: "Infrastructure",
-    },
-    {
-      symbol: "PNBN",
-      name: "Bank Pan Indonesia",
-      price: 1995,
-      change: -2.2,
-      sector: "Banking",
-    },
-    {
-      symbol: "MEGA",
-      name: "Bank Mega",
-      price: 2890,
-      change: -1.7,
-      sector: "Banking",
-    },
-  ],
-};
+interface TrendStock {
+  symbol: string;
+  name: string;
+  price: number;
+  change: number;
+  sector: string;
+  trend?: string;
+}
 
-const trendSummary = [
-  {
-    trend: "Uptrend",
-    count: 125,
-    percentage: 42.3,
-    color: "#10b981",
-  },
-  {
-    trend: "Sideways",
-    percentage: 35.2,
-    count: 104,
-    color: "#f59e0b",
-  },
-  {
-    trend: "Downtrend",
-    count: 66,
-    percentage: 22.5,
-    color: "#ef4444",
-  },
-];
+interface TrendData {
+  uptrend: TrendStock[];
+  sideways: TrendStock[];
+  downtrend: TrendStock[];
+}
+
+interface SummaryItem {
+  trend: string;
+  count: number;
+  percentage: number;
+  color: string;
+}
 
 const timeframes = ["3D", "5D", "2W", "1M"];
-const sectors = [
-  "All Sectors",
-  "Banking",
-  "Mining",
-  "Consumer",
-  "Infrastructure",
-  "Technology",
-];
 
 export function MarketRotationTrendFilter() {
-  const [selectedTimeframe, setSelectedTimeframe] =
-    useState("1M");
-  const [selectedSector, setSelectedSector] =
-    useState("All Sectors");
+  const [selectedTimeframe, setSelectedTimeframe] = useState("1M");
+  const [selectedSector, setSelectedSector] = useState("All Sectors");
   const [selectedTrend, setSelectedTrend] = useState("uptrend");
-  // const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState({
     uptrend: 0,
     sideways: 0,
@@ -361,38 +54,104 @@ export function MarketRotationTrendFilter() {
     sideways: "",
     downtrend: "",
   });
+  const [trendData, setTrendData] = useState<TrendData>({ uptrend: [], sideways: [], downtrend: [] });
+  const [trendSummary, setTrendSummary] = useState<SummaryItem[]>([]);
+  const [sectors, setSectors] = useState<string[]>(["All Sectors"]);
 
   const itemsPerPage = 5;
+
+  // Load trend data from Azure on mount and when timeframe changes
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      console.log('🔄 TREND: Loading trend data for timeframe:', selectedTimeframe);
+      
+      try {
+        // No need for manual backfill - files will be generated on-demand
+        console.log('✅ TREND: Inputs loaded, files will be generated on-demand when needed');
+        
+        // Load summary
+        console.log('🔄 TREND: Loading summary data...');
+        const summaryPath = 'trend_output/summary/trend-summary.csv';
+        const summaryCsv = await api.getMarketRotationOutputFile('trend', summaryPath);
+        console.log('📄 TREND: Got summary CSV, length:', summaryCsv.length);
+        
+        const summaryLines = summaryCsv.trim().split(/\r?\n/).slice(1);
+        const summaries: SummaryItem[] = [];
+        
+        for (const line of summaryLines) {
+          const [period, , upCnt, upPct, sideCnt, sidePct, downCnt, downPct] = line.split(',');
+          if (period?.toLowerCase() === selectedTimeframe.toLowerCase()) {
+            summaries.push(
+              { trend: 'Uptrend', count: Number.parseInt(upCnt || '0'), percentage: Number.parseFloat(upPct || '0'), color: '#10b981' },
+              { trend: 'Sideways', count: Number.parseInt(sideCnt || '0'), percentage: Number.parseFloat(sidePct || '0'), color: '#f59e0b' },
+              { trend: 'Downtrend', count: Number.parseInt(downCnt || '0'), percentage: Number.parseFloat(downPct || '0'), color: '#ef4444' }
+            );
+          }
+        }
+        
+        console.log('📊 TREND: Parsed summaries:', summaries);
+        if (mounted) setTrendSummary(summaries);
+
+        // Load period data
+        console.log('🔄 TREND: Loading period data...');
+        const periodPath = `trend_output/periods/o1-trend-${selectedTimeframe.toLowerCase()}.csv`;
+        const periodCsv = await api.getMarketRotationOutputFile('trend', periodPath);
+        console.log('📄 TREND: Got period CSV, length:', periodCsv.length);
+        
+        const periodLines = periodCsv.trim().split(/\r?\n/).slice(1);
+        const uptrend: TrendStock[] = [];
+        const sideways: TrendStock[] = [];
+        const downtrend: TrendStock[] = [];
+        const sectorsSet = new Set<string>();
+        
+        for (const line of periodLines) {
+          const [symbol, name, price, changePct, sector, trend] = line.split(',');
+          const stock: TrendStock = {
+            symbol: (symbol || '').trim(),
+            name: (name || '').trim(),
+            price: Number.parseFloat((price || '').trim()),
+            change: Number.parseFloat((changePct || '').trim()),
+            sector: (sector || '').trim(),
+            trend: (trend || '').trim(),
+          };
+          sectorsSet.add(stock.sector);
+          const trendLower = stock.trend?.toLowerCase() || '';
+          if (trendLower === 'uptrend') uptrend.push(stock);
+          else if (trendLower === 'sideways') sideways.push(stock);
+          else if (trendLower === 'downtrend') downtrend.push(stock);
+        }
+        
+        console.log('📊 TREND: Parsed trend data:', {
+          uptrend: uptrend.length,
+          sideways: sideways.length,
+          downtrend: downtrend.length,
+          sectors: sectorsSet.size
+        });
+        
+        if (mounted) {
+          setTrendData({ uptrend, sideways, downtrend });
+          setSectors(['All Sectors', ...Array.from(sectorsSet).sort()]);
+        }
+      } catch (error) {
+        console.error('❌ TREND: Error loading trend data:', error);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [selectedTimeframe]);
 
   const getTrendIcon = (trend: string) => {
     switch (trend) {
       case "uptrend":
-        return (
-          <TrendingUp className="w-4 h-4 text-green-500" />
-        );
+        return <TrendingUp className="w-4 h-4 text-green-500" />;
       case "sideways":
         return <Minus className="w-4 h-4 text-yellow-500" />;
       case "downtrend":
-        return (
-          <TrendingDown className="w-4 h-4 text-red-500" />
-        );
+        return <TrendingDown className="w-4 h-4 text-red-500" />;
       default:
         return null;
     }
   };
-
-  // const getTrendColor = (trend: string) => {
-  //   switch (trend) {
-  //     case "uptrend":
-  //       return "text-green-600 bg-green-50 dark:bg-green-900/20";
-  //     case "sideways":
-  //       return "text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20";
-  //     case "downtrend":
-  //       return "text-red-600 bg-red-50 dark:bg-red-900/20";
-  //     default:
-  //       return "";
-  //   }
-  // };
 
   const getFilteredData = () => {
     if (selectedTrend === "all") {
@@ -412,20 +171,18 @@ export function MarketRotationTrendFilter() {
   const getPaginatedData = (trendType: string) => {
     const data = (trendData as any)[trendType] || [];
     const query = (searchQueries as any)[trendType].toLowerCase();
+    const sectorFiltered = selectedSector === "All Sectors" ? data : data.filter((s: TrendStock) => s.sector === selectedSector);
     const filtered = query
-      ? data.filter(
-          (stock: any) =>
+      ? sectorFiltered.filter(
+          (stock: TrendStock) =>
             stock.symbol.toLowerCase().includes(query) ||
             stock.name.toLowerCase().includes(query),
         )
-      : data;
+      : sectorFiltered;
 
     const startIndex = (currentPage as any)[trendType] * itemsPerPage;
     return {
-      data: filtered.slice(
-        startIndex,
-        startIndex + itemsPerPage,
-      ),
+      data: filtered.slice(startIndex, startIndex + itemsPerPage),
       totalPages: Math.ceil(filtered.length / itemsPerPage),
       currentPage: (currentPage as any)[trendType],
       totalItems: filtered.length,
@@ -437,8 +194,7 @@ export function MarketRotationTrendFilter() {
       ...prev,
       [trendType]: Math.min(
         (prev as any)[trendType] + 1,
-        Math.ceil((trendData as any)[trendType].length / itemsPerPage) -
-          1,
+        Math.ceil(((trendData as any)[trendType] || []).length / itemsPerPage) - 1,
       ),
     }));
   };
@@ -450,10 +206,7 @@ export function MarketRotationTrendFilter() {
     }));
   };
 
-  const handleSearchChange = (
-    trendType: string,
-    value: string,
-  ) => {
+  const handleSearchChange = (trendType: string, value: string) => {
     setSearchQueries((prev) => ({
       ...prev,
       [trendType]: value,
@@ -466,14 +219,11 @@ export function MarketRotationTrendFilter() {
 
   return (
     <div className="space-y-6">
-      {/* Filter Controls */}
       <Card className="p-4">
         <div className="space-y-4">
           <div className="flex items-center gap-2">
             <Filter className="w-4 h-4 text-muted-foreground" />
-            <span className="text-sm font-medium">
-              Filters:
-            </span>
+            <span className="text-sm font-medium">Filters:</span>
           </div>
 
           <div className="flex flex-col lg:flex-row gap-4">
@@ -576,43 +326,27 @@ export function MarketRotationTrendFilter() {
         </div>
       </Card>
 
-      {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {trendSummary.map((item, index) => (
           <Card key={index} className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">
-                  {item.trend}
-                </p>
-                <p className="text-2xl font-semibold">
-                  {item.count}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {item.percentage}% of market
-                </p>
+                <p className="text-sm text-muted-foreground">{item.trend}</p>
+                <p className="text-2xl font-semibold">{item.count}</p>
+                <p className="text-sm text-muted-foreground">{item.percentage}% of market</p>
               </div>
               <div
                 className="w-12 h-12 rounded-lg flex items-center justify-center"
                 style={{ backgroundColor: `${item.color}20` }}
               >
                 {item.trend === "Uptrend" && (
-                  <TrendingUp
-                    className="w-6 h-6"
-                    style={{ color: item.color }}
-                  />
+                  <TrendingUp className="w-6 h-6" style={{ color: item.color }} />
                 )}
                 {item.trend === "Sideways" && (
-                  <Minus
-                    className="w-6 h-6"
-                    style={{ color: item.color }}
-                  />
+                  <Minus className="w-6 h-6" style={{ color: item.color }} />
                 )}
                 {item.trend === "Downtrend" && (
-                  <TrendingDown
-                    className="w-6 h-6"
-                    style={{ color: item.color }}
-                  />
+                  <TrendingDown className="w-6 h-6" style={{ color: item.color }} />
                 )}
               </div>
             </div>
@@ -620,7 +354,6 @@ export function MarketRotationTrendFilter() {
         ))}
       </div>
 
-      {/* Trend Categories */}
       <div className="space-y-6">
         {Object.entries(filteredData).map(
           ([trendType, _stocks]) => {
@@ -662,70 +395,47 @@ export function MarketRotationTrendFilter() {
                   <table className="w-full">
                     <thead>
                       <tr className="border-b border-border">
-                        <th className="text-left py-2 px-3 text-sm font-medium text-muted-foreground">
-                          Symbol
-                        </th>
-                        <th className="text-left py-2 px-3 text-sm font-medium text-muted-foreground">
-                          Name
-                        </th>
-                        <th className="text-right py-2 px-3 text-sm font-medium text-muted-foreground">
-                          Price
-                        </th>
-                        <th className="text-right py-2 px-3 text-sm font-medium text-muted-foreground">
-                          Change %
-                        </th>
-                        <th className="text-left py-2 px-3 text-sm font-medium text-muted-foreground">
-                          Sector
-                        </th>
+                        <th className="text-left py-2 px-3 text-sm font-medium text-muted-foreground">Symbol</th>
+                        <th className="text-left py-2 px-3 text-sm font-medium text-muted-foreground">Name</th>
+                        <th className="text-right py-2 px-3 text-sm font-medium text-muted-foreground">Price</th>
+                        <th className="text-right py-2 px-3 text-sm font-medium text-muted-foreground">Change %</th>
+                        <th className="text-left py-2 px-3 text-sm font-medium text-muted-foreground">Sector</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {paginatedResult.data.map(
-                        (stock: any, index: number) => (
-                          <tr
-                            key={index}
-                            className="border-b border-border/50 hover:bg-muted/50 transition-colors"
-                          >
-                            <td className="py-3 px-3">
-                              <span className="font-medium">
-                                {stock.symbol}
-                              </span>
-                            </td>
-                            <td className="py-3 px-3">
-                              <span className="text-sm text-muted-foreground">
-                                {stock.name}
-                              </span>
-                            </td>
-                            <td className="py-3 px-3 text-right">
-                              <span className="font-medium">
-                                {stock.price.toLocaleString()}
-                              </span>
-                            </td>
-                            <td className="py-3 px-3 text-right">
-                              <span
-                                className={`font-medium ${
-                                  stock.change > 0
-                                    ? "text-green-600"
-                                    : stock.change < 0
-                                      ? "text-red-600"
-                                      : "text-muted-foreground"
-                                }`}
-                              >
-                                {stock.change > 0 ? "+" : ""}
-                                {stock.change}%
-                              </span>
-                            </td>
-                            <td className="py-3 px-3">
-                              <Badge
-                                variant="outline"
-                                className="text-xs"
-                              >
-                                {stock.sector}
-                              </Badge>
-                            </td>
-                          </tr>
-                        ),
-                      )}
+                      {paginatedResult.data.map((stock: TrendStock, index: number) => (
+                        <tr
+                          key={index}
+                          className="border-b border-border/50 hover:bg-muted/50 transition-colors"
+                        >
+                          <td className="py-3 px-3">
+                            <span className="font-medium">{stock.symbol}</span>
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className="text-sm text-muted-foreground">{stock.name}</span>
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            <span className="font-medium">{stock.price.toLocaleString()}</span>
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            <span
+                              className={`font-medium ${
+                                stock.change > 0
+                                  ? "text-green-600"
+                                  : stock.change < 0
+                                    ? "text-red-600"
+                                    : "text-muted-foreground"
+                              }`}
+                            >
+                              {stock.change > 0 ? "+" : ""}
+                              {stock.change}%
+                            </span>
+                          </td>
+                          <td className="py-3 px-3">
+                            <Badge variant="outline" className="text-xs">{stock.sector}</Badge>
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
@@ -783,7 +493,7 @@ export function MarketRotationTrendFilter() {
                 )}
               </Card>
             );
-          },
+          }
         )}
       </div>
     </div>

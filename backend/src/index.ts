@@ -6,10 +6,18 @@ import demoRoutes from './routes/demo';
 import meRoutes from './routes/me';
 import authRoutes from './routes/auth';
 import adminRoutes from './routes/admin';
+import rrcRoutes from './routes/rrc';
+import rrgRoutes from './routes/rrg';
 import subscriptionRoutes from './routes/subscription';
+import triggerRoutes from './routes/trigger';
+import seasonalityRoutes from './routes/seasonality';
 import { requireSupabaseUser } from './middleware/requireSupabaseUser';
 import { securityHeaders, sanitizeInput } from './middleware/security';
 import { createErrorResponse, ERROR_CODES, HTTP_STATUS } from './utils/responseUtils';
+
+// Scheduler for daily updates
+import { startScheduler } from './services/scheduler';
+import { initializeAzureLogging } from './services/azureLoggingService';
 
 const app = express();
 
@@ -59,6 +67,10 @@ app.use('/api/auth', authRoutes);
 app.use('/api/me', meRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/subscription', subscriptionRoutes);
+app.use('/api/rrc', rrcRoutes);
+app.use('/api/rrg', rrgRoutes);
+app.use('/api/trigger', triggerRoutes);
+app.use('/api/seasonality', seasonalityRoutes);
 
 // contoh protected route pakai Supabase Auth token
 app.get('/me', requireSupabaseUser, (req: any, res) => {
@@ -87,9 +99,17 @@ app.use((_req, res) => {
 });
 
 const PORT = config.PORT;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Backend listening on port ${PORT}`);
   console.log(`Environment: ${config.NODE_ENV}`);
   console.log(`Frontend URL: ${config.FRONTEND_URL}`);
   console.log(`CORS Origin: ${config.CORS_ORIGIN}`);
+  
+  // Skip auto-generation on startup (already generated)
+  // Only start scheduler for daily updates at 19:00
+  console.log('📅 Starting scheduler for daily RRC & RRG updates...');
+  initializeAzureLogging().then(() => {
+    startScheduler();
+    console.log('✅ Scheduler started - daily updates at 19:00 WIB');
+  }).catch(console.error);
 });
