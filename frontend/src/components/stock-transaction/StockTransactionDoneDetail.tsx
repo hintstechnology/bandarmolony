@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { Calendar, Plus, X, Grid3X3, Clock, DollarSign, Users, ChevronDown, RotateCcw } from 'lucide-react';
+import { Calendar, Plus, X, Grid3X3, RotateCcw, Search } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 
 interface DoneDetailData {
@@ -42,7 +42,10 @@ const getLastThreeDays = (): string[] => {
 
     // Skip weekends (Saturday = 6, Sunday = 0)
     if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-      dates.push(currentDate.toISOString().split('T')[0]);
+      const dateString = currentDate.toISOString().split('T')[0];
+      if (dateString) {
+        dates.push(dateString);
+      }
     }
 
     // Go to previous day
@@ -51,7 +54,10 @@ const getLastThreeDays = (): string[] => {
     // Safety check to prevent infinite loop
     if (dates.length === 0 && currentDate.getTime() < today.getTime() - (30 * 24 * 60 * 60 * 1000)) {
       // If no trading days found in last 30 days, just use today
-      dates.push(today.toISOString().split('T')[0]);
+      const todayString = today.toISOString().split('T')[0];
+      if (todayString) {
+        dates.push(todayString);
+      }
       break;
     }
   }
@@ -61,6 +67,10 @@ const getLastThreeDays = (): string[] => {
 
 // Generate realistic done detail data based on CSV structure
 const generateDoneDetailData = (stock: string, date: string): DoneDetailData[] => {
+  if (!stock || !date) {
+    return [];
+  }
+  
   const brokers = ['RG', 'MG', 'BR', 'LG', 'CC', 'AT', 'SD', 'UU', 'TG', 'KK', 'XL', 'XC', 'PC', 'PD', 'DR'];
   const basePrice = stock === 'BBRI' ? 4150 : stock === 'BBCA' ? 2750 : stock === 'BMRI' ? 3200 :
     stock === 'YUPI' ? 1610 : stock === 'ZYRX' ? 148 : stock === 'ZONE' ? 755 : 1500;
@@ -95,8 +105,8 @@ const generateDoneDetailData = (stock: string, date: string): DoneDetailData[] =
     const volume = 100 + ((txSeed * 13) % 2000);
 
     // Brokers
-    const buyerBroker = brokers[(txSeed * 3) % brokers.length];
-    const sellerBroker = brokers[(txSeed * 5) % brokers.length];
+    const buyerBroker = brokers[(txSeed * 3) % brokers.length] || 'RG';
+    const sellerBroker = brokers[(txSeed * 5) % brokers.length] || 'RG';
 
     data.push({
       trxCode: i,  // Sequential number starting from 0
@@ -156,14 +166,16 @@ export function StockTransactionDoneDetail() {
   });
   const [selectedStock, setSelectedStock] = useState('BBRI');
   const [stockInput, setStockInput] = useState('BBRI');
+  
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
+  const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
   const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical'>('horizontal');
   const [filters, setFilters] = useState({
     timeSort: 'latest',
     broker: 'all',
     price: 'all'
   });
-  const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
+  const [, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Handle click outside to close dropdown
@@ -238,7 +250,7 @@ export function StockTransactionDoneDetail() {
 
       // Check if range is valid
       if (start > end) {
-        showToast({
+        showToast?.({
           type: 'warning',
           title: 'Tanggal Tidak Valid',
           message: 'Tanggal mulai harus sebelum tanggal akhir',
@@ -251,7 +263,7 @@ export function StockTransactionDoneDetail() {
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
       if (diffDays > 7) {
-        showToast({
+        showToast?.({
           type: 'warning',
           title: 'Rentang Tanggal Terlalu Panjang',
           message: 'Maksimal rentang tanggal adalah 7 hari',
@@ -265,7 +277,9 @@ export function StockTransactionDoneDetail() {
 
       while (currentDate <= end) {
         const dateString = currentDate.toISOString().split('T')[0];
-        dateArray.push(dateString);
+        if (dateString) {
+          dateArray.push(dateString);
+        }
         currentDate.setDate(currentDate.getDate() + 1);
       }
 
@@ -275,7 +289,7 @@ export function StockTransactionDoneDetail() {
 
       // Check if total dates would exceed 7
       if (sortedDates.length > 7) {
-        showToast({
+        showToast?.({
           type: 'warning',
           title: 'Terlalu Banyak Tanggal',
           message: 'Maksimal 7 tanggal yang bisa dipilih',
@@ -309,7 +323,10 @@ export function StockTransactionDoneDetail() {
 
       // Skip weekends (Saturday = 6, Sunday = 0)
       if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-        dates.push(currentDate.toISOString().split('T')[0]);
+        const dateString = currentDate.toISOString().split('T')[0];
+        if (dateString) {
+          dates.push(dateString);
+        }
       }
 
       // Go to previous day
@@ -317,7 +334,10 @@ export function StockTransactionDoneDetail() {
 
       // Safety check
       if (dates.length === 0 && currentDate.getTime() < today.getTime() - (30 * 24 * 60 * 60 * 1000)) {
-        dates.push(today.toISOString().split('T')[0]);
+        const todayString = today.toISOString().split('T')[0];
+        if (todayString) {
+          dates.push(todayString);
+        }
         break;
       }
     }
@@ -370,7 +390,7 @@ export function StockTransactionDoneDetail() {
   };
 
   // Render table like IPOT format - showing individual transactions
-  const renderTransactionTable = (data: DoneDetailData[], date: string) => {
+  const renderTransactionTable = (data: DoneDetailData[]) => {
         return (
           <div className="overflow-x-auto -mx-4 sm:mx-0">
             <div className="min-w-full px-4 sm:px-0">
@@ -437,7 +457,6 @@ export function StockTransactionDoneDetail() {
     Object.values(allTransactions).forEach(transactions => {
       transactions.forEach(tx => allTimes.add(tx.trxTime));
     });
-    const sortedTimes = Array.from(allTimes).sort((a, b) => a - b);
 
     // Calculate totals
     const totalTransactions = Object.values(allTransactions).flat().length;
@@ -450,18 +469,18 @@ export function StockTransactionDoneDetail() {
         return (
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
               <Grid3X3 className="w-5 h-5" />
               Transaction Details - ({selectedStock})
             </CardTitle>
 
             {/* Filter Section */}
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center w-full">
+              <div className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
                 <label className="text-xs font-medium text-muted-foreground">Sort Time:</label>
                 <select
-                  className="text-xs bg-background border border-border rounded px-2 py-1"
+                  className="text-xs bg-background border border-border rounded px-2 py-1 w-full sm:w-auto min-w-[160px]"
                   value={filters.timeSort}
                   onChange={(e) => setFilters(prev => ({ ...prev, timeSort: e.target.value }))}
                 >
@@ -470,10 +489,10 @@ export function StockTransactionDoneDetail() {
                 </select>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
                 <label className="text-xs font-medium text-muted-foreground">Broker:</label>
                 <select
-                  className="text-xs bg-background border border-border rounded px-2 py-1"
+                  className="text-xs bg-background border border-border rounded px-2 py-1 w-full sm:w-auto min-w-[160px]"
                   value={filters.broker}
                   onChange={(e) => setFilters(prev => ({ ...prev, broker: e.target.value }))}
                 >
@@ -484,10 +503,10 @@ export function StockTransactionDoneDetail() {
                 </select>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
                 <label className="text-xs font-medium text-muted-foreground">Price:</label>
                 <select
-                  className="text-xs bg-background border border-border rounded px-2 py-1"
+                  className="text-xs bg-background border border-border rounded px-2 py-1 w-full sm:w-auto min-w-[160px]"
                   value={filters.price}
                   onChange={(e) => setFilters(prev => ({ ...prev, price: e.target.value }))}
                 >
@@ -502,7 +521,7 @@ export function StockTransactionDoneDetail() {
                 variant="outline"
                 size="sm"
                 onClick={() => setFilters({ timeSort: 'latest', broker: 'all', price: 'all' })}
-                className="text-xs"
+                className="w-full sm:w-auto text-xs"
               >
                 <RotateCcw className="w-3 h-3 mr-1" />
                 Reset
@@ -541,14 +560,14 @@ export function StockTransactionDoneDetail() {
               <tbody>
                 {/* Get maximum number of transactions across all dates to create enough rows */}
                 {(() => {
-                  const maxTransactions = Math.max(...selectedDates.map(date => allTransactions[date].length));
+                  const maxTransactions = Math.max(...selectedDates.map(date => allTransactions[date]?.length || 0));
                   const rows: React.ReactElement[] = [];
 
                   for (let rowIdx = 0; rowIdx < maxTransactions; rowIdx++) {
                     rows.push(
                       <tr key={rowIdx} className="border-b border-border/50 hover:bg-accent/50">
                         {selectedDates.map(date => {
-                          const transaction = allTransactions[date][rowIdx] || null;
+                          const transaction = allTransactions[date]?.[rowIdx] || null;
                       return (
                             <React.Fragment key={date}>
                               <td className="py-1 px-1 font-medium border-l-2 border-border text-foreground text-xs">
@@ -606,13 +625,14 @@ export function StockTransactionDoneDetail() {
               </div>
               <div>
                 <span className="text-muted-foreground">Max Rows:</span>
-                <div className="font-medium">{Math.max(...selectedDates.map(date => allTransactions[date].length))}</div>
+                <div className="font-medium">{Math.max(...selectedDates.map(date => allTransactions[date]?.length || 0))}</div>
               </div>
             </div>
 
             <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
               {selectedDates.map(date => {
                 const dateTransactions = allTransactions[date];
+                if (!dateTransactions) return null;
                 const dateVolume = dateTransactions.reduce((sum, t) => sum + t.stkVolm, 0);
                 return (
                   <div key={date} className="p-2 bg-background rounded border">
@@ -634,83 +654,20 @@ export function StockTransactionDoneDetail() {
   const renderVerticalView = () => {
     return (
       <div className="space-y-6">
-        {/* Filter Section */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
-                <Grid3X3 className="w-5 h-5" />
-                Filters
-              </CardTitle>
-
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <label className="text-xs font-medium text-muted-foreground">Sort Time:</label>
-                  <select
-                    className="text-xs bg-background border border-border rounded px-2 py-1"
-                    value={filters.timeSort}
-                    onChange={(e) => setFilters(prev => ({ ...prev, timeSort: e.target.value }))}
-                  >
-                    <option value="latest">Latest</option>
-                    <option value="oldest">Oldest</option>
-                  </select>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <label className="text-xs font-medium text-muted-foreground">Broker:</label>
-                  <select
-                    className="text-xs bg-background border border-border rounded px-2 py-1"
-                    value={filters.broker}
-                    onChange={(e) => setFilters(prev => ({ ...prev, broker: e.target.value }))}
-                  >
-                    <option value="all">All</option>
-                    {brokerOptions.map(option => (
-                      <option key={option} value={option}>{option}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <label className="text-xs font-medium text-muted-foreground">Price:</label>
-                  <select
-                    className="text-xs bg-background border border-border rounded px-2 py-1"
-                    value={filters.price}
-                    onChange={(e) => setFilters(prev => ({ ...prev, price: e.target.value }))}
-                  >
-                    <option value="all">All</option>
-                    {priceOptions.map(option => (
-                      <option key={option} value={option}>{formatNumber(parseInt(option))}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setFilters({ timeSort: 'latest', broker: 'all', price: 'all' })}
-                  className="text-xs"
-                >
-                  <RotateCcw className="w-3 h-3 mr-1" />
-                  Reset
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-        </Card>
         {selectedDates.map((date) => {
           const rawData = generateDoneDetailData(selectedStock, date);
           const doneDetailData = filterData(rawData);
         
-        return (
+          return (
             <Card key={date}>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
+                <CardTitle className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
                   <Grid3X3 className="w-5 h-5" />
                   Done Detail - {selectedStock} ({formatDisplayDate(date)})
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {renderTransactionTable(doneDetailData, date)}
+                {renderTransactionTable(doneDetailData)}
 
                 {/* Summary */}
                 <div className="mt-4 pt-4 border-t border-border">
@@ -759,13 +716,13 @@ export function StockTransactionDoneDetail() {
                       </span>
                     </div>
                   </div>
-                            </div>
+                </div>
               </CardContent>
             </Card>
-                      );
-                    })}
-          </div>
-        );
+          );
+        })}
+      </div>
+    );
   };
 
 
@@ -782,136 +739,152 @@ export function StockTransactionDoneDetail() {
         <CardContent>
           <div className="space-y-3 sm:space-y-4">
             {/* Row 1: Stock, Date Range, Clear, Last 3 Days, Layout */}
-            <div className="flex flex-col xl:flex-row gap-3 sm:gap-4 items-start xl:items-end">
-              <div className="flex-1 w-full xl:w-auto">
-                <label className="block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Stock:</label>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 items-center lg:items-end">
+              <div className="flex-1 min-w-0 w-full">
+                <label className="block text-sm font-medium mb-2">Stock:</label>
                 <div className="relative" ref={dropdownRef}>
+                  <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                   <input
                     type="text"
                     value={stockInput}
-                    onChange={(e) => handleStockInputChange(e.target.value)}
-                    onFocus={() => setShowStockSuggestions(true)}
+                    onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
+                    onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
+                    onKeyDown={(e) => {
+                      const suggestions = (stockInput === '' ? AVAILABLE_STOCKS : filteredStocks).slice(0, 10);
+                      if (!suggestions.length) return;
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        setHighlightedStockIndex((prev) => (prev + 1) % suggestions.length);
+                      } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setHighlightedStockIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+                      } else if (e.key === 'Enter' && showStockSuggestions) {
+                        e.preventDefault();
+                        const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
+                        const choice = suggestions[idx];
+                        if (choice) handleStockSelect(choice);
+                      } else if (e.key === 'Escape') {
+                        setShowStockSuggestions(false);
+                        setHighlightedStockIndex(-1);
+                      }
+                    }}
                     placeholder="Enter stock code..."
-                    className="w-full px-2 sm:px-3 py-1 sm:py-2 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground"
+                    className="w-full pl-10 pr-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
                   />
                   {showStockSuggestions && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
-                      {stockInput === '' ? (
-                        <>
-                          <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
-                            All Stocks
-                          </div>
-                          {AVAILABLE_STOCKS.map(stock => (
-                            <div
-                              key={stock}
-                              onClick={() => handleStockSelect(stock)}
-                              className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
-                            >
-                              {stock}
-                            </div>
-                          ))}
-                        </>
-                      ) : filteredStocks.length > 0 ? (
-                        filteredStocks.map(stock => (
-                          <div
-                            key={stock}
-                            onClick={() => handleStockSelect(stock)}
-                            className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
-                          >
-                            {stock}
-                          </div>
-                        ))
-                      ) : (
-                        <div className="px-3 py-2 text-sm text-muted-foreground">
-                          No stocks found
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-background border border-border rounded-md shadow-lg z-50 max-h-60 overflow-y-auto">
+                      {filteredStocks.slice(0, 10).map((stock, index) => (
+                        <div
+                          key={stock}
+                          className={`px-3 py-2 text-sm cursor-pointer hover:bg-accent ${
+                            index === highlightedStockIndex ? 'bg-accent' : ''
+                          }`}
+                          onClick={() => handleStockSelect(stock)}
+                        >
+                          {stock}
                         </div>
-                      )}
+                      ))}
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="flex-1 w-full xl:w-auto">
-                <label className="block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Date Range:</label>
-                <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+              <div className="flex-1 min-w-0 w-full">
+                <label className="block text-sm font-medium mb-2">Date Range:</label>
+                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2 w-full">
                   <input
                     type="date"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full sm:flex-1 px-2 sm:px-3 py-1 sm:py-2 text-xs sm:text-sm border border-border rounded-md bg-input text-foreground"
+                    className="w-full px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
                   />
-                  <span className="text-xs sm:text-sm text-muted-foreground hidden sm:inline">to</span>
+                  <span className="text-sm text-muted-foreground text-center whitespace-nowrap px-2">to</span>
                   <input
                     type="date"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full sm:flex-1 px-2 sm:px-3 py-1 sm:py-2 text-xs sm:text-sm border border-border rounded-md bg-input text-foreground"
+                    className="w-full px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
                   />
-                  <Button onClick={addDateRange} size="sm" className="w-full sm:w-auto">
-                    <Plus className="w-3 h-3 sm:w-4 sm:h-4" />
-                    <span className="ml-1 text-xs sm:hidden">Add</span>
+                  <Button
+                    onClick={addDateRange}
+                    size="sm"
+                    className="text-xs h-8"
+                  >
+                    <Plus className="w-3 h-3 mr-1" />
+                    Add
                   </Button>
                 </div>
               </div>
 
-              <div className="flex-1 w-full xl:w-auto">
-                <label className="block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Quick Select:</label>
-                <div className="flex flex-col sm:flex-row gap-2">
-                <select 
-                    className="w-full xl:flex-1 px-2 sm:px-3 py-1 sm:py-2 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground"
-                    value={dateRangeMode}
-                    onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
+              <div className="flex-1 min-w-0 w-full">
+                <label className="block text-sm font-medium mb-2">Quick Select:</label>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={clearAllDates}
+                    className="text-xs h-8"
                   >
-                    <option value="1day">1 Day</option>
-                    <option value="3days">3 Days</option>
-                    <option value="1week">1 Week</option>
-                    <option value="custom">Custom</option>
-                </select>
-                  {dateRangeMode === 'custom' && (
-                    <Button onClick={clearAllDates} variant="outline" size="sm" className="w-full sm:w-auto">
-                      <RotateCcw className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
-                      <span className="text-xs sm:text-sm">Clear</span>
-                    </Button>
-                  )}
+                    <X className="w-3 h-3 mr-1" />
+                    Clear
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleDateRangeModeChange('1day')}
+                    className="text-xs h-8"
+                  >
+                    1 Day
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleDateRangeModeChange('3days')}
+                    className="text-xs h-8"
+                  >
+                    3 Days
+                  </Button>
+                </div>
               </div>
-            </div>
 
-              <div className="flex-1 w-full xl:w-auto">
-                <label className="block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Layout:</label>
-                <div className="flex gap-1">
-                <Button
+              <div className="flex-1 min-w-0 w-full">
+                <label className="block text-sm font-medium mb-2">Layout:</label>
+                <div className="flex gap-2">
+                  <Button
                     variant={layoutMode === 'horizontal' ? 'default' : 'outline'}
-                  size="sm"
+                    size="sm"
                     onClick={() => setLayoutMode('horizontal')}
-                    className="flex-1 text-xs sm:text-sm"
-                >
-                    <span className="hidden sm:inline">Horizontal</span>
-                    <span className="sm:hidden">H</span>
-                </Button>
-                <Button
-                    variant={layoutMode === 'vertical' ? 'default' : 'outline'}
-                  size="sm"
-                    onClick={() => setLayoutMode('vertical')}
-                    className="flex-1 text-xs sm:text-sm"
+                    className="text-xs h-8"
                   >
-                    <span className="hidden sm:inline">Vertical</span>
-                    <span className="sm:hidden">V</span>
-                </Button>
+                    Horizontal
+                  </Button>
+                  <Button
+                    variant={layoutMode === 'vertical' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setLayoutMode('vertical')}
+                    className="text-xs h-8"
+                  >
+                    Vertical
+                  </Button>
                 </div>
               </div>
             </div>
 
             {/* Row 2: Selected Dates */}
-            <div>
-              <label className="text-sm font-medium">Selected Dates:</label>
-              <div className="flex flex-wrap gap-2 mt-2">
+            <div className="space-y-2">
+              <label className="block text-sm font-medium">Selected Dates:</label>
+              <div className="flex flex-wrap gap-2">
                 {selectedDates.map((date) => (
-                  <Badge key={date} variant="secondary" className="px-3 py-1">
+                  <Badge
+                    key={date}
+                    variant="secondary"
+                    className="flex items-center gap-1 text-xs"
+                  >
                     {formatDisplayDate(date)}
                     {selectedDates.length > 1 && (
                       <button
                         onClick={() => removeDate(date)}
-                        className="ml-2 hover:text-destructive"
+                        className="ml-1 hover:text-destructive"
                       >
                         <X className="w-3 h-3" />
                       </button>
@@ -924,20 +897,17 @@ export function StockTransactionDoneDetail() {
         </CardContent>
       </Card>
 
-      {/* Main Data Display */}
-      {layoutMode === 'horizontal' ? renderHorizontalView() : renderVerticalView()}
-
       {/* Info Card */}
       <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-            <ChevronDown className="w-5 h-5" />
+        <CardHeader>
+          <CardTitle className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
+            <Grid3X3 className="w-5 h-5" />
             Done Detail Information & Column Legend
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
           <div className="space-y-4 text-sm text-muted-foreground">
-                    <div>
+            <div>
               <p className="font-medium text-foreground mb-2">Column Definitions:</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <ul className="space-y-2 ml-4">
@@ -952,8 +922,8 @@ export function StockTransactionDoneDetail() {
                   <li><span className="text-gray-600 font-medium">BT:</span> Buyer Type (I=Indonesia, A=Asing)</li>
                   <li><span className="text-gray-600 font-medium">ST:</span> Seller Type (I=Individual, F=Foreign, etc.)</li>
                 </ul>
-                    </div>
-                  </div>
+              </div>
+            </div>
 
             <div className="pt-2 border-t border-border">
               <p className="font-medium text-foreground mb-2">Layout Options:</p>
@@ -961,10 +931,13 @@ export function StockTransactionDoneDetail() {
                 <li><strong>Horizontal:</strong> Combined view showing all transactions across selected dates</li>
                 <li><strong>Vertical:</strong> Separate tables for each selected date</li>
               </ul>
-      </div>
+            </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* Main Content */}
+      {layoutMode === 'horizontal' ? renderHorizontalView() : renderVerticalView()}
     </div>
   );
 }

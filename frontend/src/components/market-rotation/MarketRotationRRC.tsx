@@ -565,53 +565,28 @@ export default function MarketRotationRRC() {
       {/* Controls */}
       <div className="space-y-4">
         {/* Row 1: View Mode and Date Range */}
-        <div className="flex flex-col sm:flex-row gap-4 items-end">
+        <div className="flex flex-wrap items-end gap-3">
           {/* View Mode */}
-          <div className="flex-shrink-0">
+          <div className="w-full sm:w-auto">
             <label className="block text-sm font-medium mb-2">View Mode:</label>
-        <div className="flex gap-2">
-          <Button
-            variant={viewMode === 'sector' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => handleViewModeChange('sector')}
-                className="h-8 px-3 hover:bg-primary/10 hover:text-primary transition-colors"
-          >
-            Sector
-          </Button>
-          <Button
-            variant={viewMode === 'stock' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => handleViewModeChange('stock')}
-                className="h-8 px-3 hover:bg-primary/10 hover:text-primary transition-colors"
-          >
-            Stock
-          </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant={viewMode === 'sector' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleViewModeChange('sector')}
+                className="h-9 px-4 hover:bg-primary/10 hover:text-primary transition-colors"
+              >
+                Sector
+              </Button>
+              <Button
+                variant={viewMode === 'stock' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleViewModeChange('stock')}
+                className="h-9 px-4 hover:bg-primary/10 hover:text-primary transition-colors"
+              >
+                Stock
+              </Button>
             </div>
-          </div>
-
-          {/* Start Date Selector */}
-          <div className="flex-shrink-0 relative z-50">
-            <label className="block text-sm font-medium mb-2">Start Date:</label>
-            <input
-              type="date"
-              value={formatDateForInput(startDate)}
-              onChange={(e) => handleStartDateChange(e.target.value)}
-              max={formatDateForInput(endDate)}
-              className="flex h-8 w-40 rounded-md border border-input bg-background px-3 py-1 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 relative z-50"
-            />
-          </div>
-
-          {/* End Date Selector */}
-          <div className="flex-shrink-0 relative z-50">
-            <label className="block text-sm font-medium mb-2">End Date:</label>
-            <input
-              type="date"
-              value={formatDateForInput(endDate)}
-              onChange={(e) => handleEndDateChange(e.target.value)}
-              min={formatDateForInput(startDate)}
-              max={formatDateForInput(new Date())}
-              className="flex h-8 w-40 rounded-md border border-input bg-background px-3 py-1 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 relative z-50"
-            />
           </div>
         </div>
       </div>
@@ -619,11 +594,11 @@ export default function MarketRotationRRC() {
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
         {/* RRC Chart */}
         <div className="xl:col-span-3">
-          <Card className="h-full flex flex-col">
+          <Card className="flex h-full flex-col">
             <CardHeader>
-              <div className="flex justify-between items-center">
-              <CardTitle>{viewMode === 'sector' ? 'Sector' : 'Stock'} Activity vs {selectedIndex}</CardTitle>
-                <div className="flex gap-1">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <CardTitle>{viewMode === 'sector' ? 'Sector' : 'Stock'} Activity vs {selectedIndex}</CardTitle>
+                <div className="flex flex-wrap items-center gap-2">
                   <Button
                     variant="outline"
                     size="sm"
@@ -666,12 +641,12 @@ export default function MarketRotationRRC() {
                 </div>
               </div>
               {debugMessage && (
-                <div className="mt-2 p-2 bg-muted rounded text-xs">
+                <div className="mt-2 rounded bg-muted p-2 text-xs">
                   {debugMessage}
                 </div>
               )}
             </CardHeader>
-            <CardContent className="flex-1">
+            <CardContent className="flex-1 min-h-[320px] md:min-h-[420px]">
               {isGenerating ? (
                 <div className="flex items-center justify-center h-96">
                   <div className="text-center">
@@ -736,8 +711,9 @@ export default function MarketRotationRRC() {
                   </div>
                 </div>
               ) : currentData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={currentData}>
+                <div className="h-full w-full min-h-[320px] md:min-h-[420px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={currentData}>
                   <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
                   <XAxis dataKey="date" className="text-muted-foreground" />
                   <YAxis className="text-muted-foreground" />
@@ -778,8 +754,9 @@ export default function MarketRotationRRC() {
                       />
                     );
                   })}
-                </LineChart>
-              </ResponsiveContainer>
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
               ) : (
                 <div className="flex items-center justify-center h-96">
                   <div className="flex items-center gap-2">
@@ -794,11 +771,36 @@ export default function MarketRotationRRC() {
 
         {/* Selector Panel */}
         <div className="xl:col-span-1">
-          <Card className="h-full flex flex-col">
+          <Card className="flex h-full flex-col">
             <CardHeader>
               <CardTitle>Selection Panel</CardTitle>
             </CardHeader>
             <CardContent className="flex-1 space-y-4">
+              {/* Date Range Selection */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-medium">Start Date</label>
+                  <input
+                    type="date"
+                    value={formatDateForInput(startDate)}
+                    onChange={(e) => handleStartDateChange(e.target.value)}
+                    max={formatDateForInput(endDate)}
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-medium">End Date</label>
+                  <input
+                    type="date"
+                    value={formatDateForInput(endDate)}
+                    onChange={(e) => handleEndDateChange(e.target.value)}
+                    min={formatDateForInput(startDate)}
+                    max={formatDateForInput(new Date())}
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                </div>
+              </div>
+
               {/* Index Selection */}
               <div>
                 <h4 className="text-sm font-medium mb-2">Index Selection</h4>
@@ -848,7 +850,7 @@ export default function MarketRotationRRC() {
                 
                 {/* Selected Index Display */}
                 <div className="mt-2">
-                  <div className="flex items-center justify-between p-2 bg-muted rounded-md">
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted p-2">
                     <div className="flex items-center gap-2">
                       <div 
                         className="w-3 h-3 rounded-full" 

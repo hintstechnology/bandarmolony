@@ -136,6 +136,7 @@ export function BrokerTransaction() {
   const [brokerInput, setBrokerInput] = useState('MG');
   const [selectedBroker, setSelectedBroker] = useState<string>('MG');
   const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
   const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical'>('horizontal');
   const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
 
@@ -266,12 +267,12 @@ export function BrokerTransaction() {
             <CardTitle className="text-green-600">BUY SIDE - {selectedBroker}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto rounded-md">
               <div className="inline-block min-w-full">
-                <table className="w-full text-xs border-collapse">
-                  <thead>
+                <table className="w-full min-w-[900px] text-xs border-collapse">
+                  <thead className="bg-background">
                     <tr className="border-b border-border">
-                      <th className="text-left py-2 px-2 font-medium bg-accent/50 sticky left-0 z-10">Ticker</th>
+                      <th className="text-left py-2 px-2 font-medium bg-accent sticky left-0 z-20">Ticker</th>
                       {selectedDates.map((date) => (
                         <th key={date} colSpan={4} className="text-center py-2 px-1 font-medium border-l border-border">
                           {formatDisplayDate(date)}
@@ -279,7 +280,7 @@ export function BrokerTransaction() {
                       ))}
                     </tr>
                     <tr className="border-b border-border bg-accent/30">
-                      <th className="text-left py-1 px-2 font-medium bg-accent/50 sticky left-0 z-10"></th>
+                      <th className="text-left py-1 px-2 font-medium bg-accent sticky left-0 z-20"></th>
                       {selectedDates.map((date) => (
                         <React.Fragment key={date}>
                           <th className="text-right py-1 px-1 font-medium text-[10px]">RSVal</th>
@@ -293,7 +294,7 @@ export function BrokerTransaction() {
                   <tbody>
                     {buyData.map((row, idx) => (
                       <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                        <td className="py-1.5 px-2 font-medium bg-background/80 sticky left-0 z-10 border-r border-border">{row.ticker}</td>
+                        <td className="py-1.5 px-2 font-medium bg-background sticky left-0 z-20 border-r border-border">{row.ticker}</td>
                         {selectedDates.map((date) => {
                           const dayData = generateIssuerBuyData(date, selectedBroker).find(d => d.ticker === row.ticker) || row;
                           return (
@@ -320,12 +321,12 @@ export function BrokerTransaction() {
             <CardTitle className="text-red-600">SELL SIDE - {selectedBroker}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto rounded-md">
               <div className="inline-block min-w-full">
-                <table className="w-full text-xs border-collapse">
-                  <thead>
+                <table className="w-full min-w-[900px] text-xs border-collapse">
+                  <thead className="bg-background">
                     <tr className="border-b border-border">
-                      <th className="text-left py-2 px-2 font-medium bg-accent/50 sticky left-0 z-10">Ticker</th>
+                      <th className="text-left py-2 px-2 font-medium bg-accent sticky left-0 z-20">Ticker</th>
                       {selectedDates.map((date) => (
                         <th key={date} colSpan={4} className="text-center py-2 px-1 font-medium border-l border-border">
                           {formatDisplayDate(date)}
@@ -333,7 +334,7 @@ export function BrokerTransaction() {
                       ))}
                     </tr>
                     <tr className="border-b border-border bg-accent/30">
-                      <th className="text-left py-1 px-2 font-medium bg-accent/50 sticky left-0 z-10"></th>
+                      <th className="text-left py-1 px-2 font-medium bg-accent sticky left-0 z-20"></th>
                       {selectedDates.map((date) => (
                         <React.Fragment key={date}>
                           <th className="text-right py-1 px-1 font-medium text-[10px]">RSVal</th>
@@ -347,7 +348,7 @@ export function BrokerTransaction() {
                   <tbody>
                     {sellData.map((row, idx) => (
                       <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                        <td className="py-1.5 px-2 font-medium bg-background/80 sticky left-0 z-10 border-r border-border">{row.ticker}</td>
+                        <td className="py-1.5 px-2 font-medium bg-background sticky left-0 z-20 border-r border-border">{row.ticker}</td>
                         {selectedDates.map((date) => {
                           const dayData = generateIssuerSellData(date, selectedBroker).find(d => d.ticker === row.ticker) || row;
                           return (
@@ -395,9 +396,9 @@ export function BrokerTransaction() {
                     <CardTitle className="text-green-600">BUY SIDE - {selectedBroker}</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead>
+                    <div className="overflow-x-auto rounded-md">
+                      <table className="w-full min-w-[560px] text-xs">
+                        <thead className="bg-background">
                           <tr className="border-b border-border bg-accent/30">
                             <th className="text-left py-2 px-3 font-medium">Ticker</th>
                             <th className="text-right py-2 px-3 font-medium">RSVal</th>
@@ -428,9 +429,9 @@ export function BrokerTransaction() {
                     <CardTitle className="text-red-600">SELL SIDE - {selectedBroker}</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead>
+                    <div className="overflow-x-auto rounded-md">
+                      <table className="w-full min-w-[560px] text-xs">
+                        <thead className="bg-background">
                           <tr className="border-b border-border bg-accent/30">
                             <th className="text-left py-2 px-3 font-medium">Ticker</th>
                             <th className="text-right py-2 px-3 font-medium">RSVal</th>
@@ -475,9 +476,9 @@ export function BrokerTransaction() {
         <CardContent>
           <div className="space-y-4">
             {/* Row 1: Broker, Date Range, Quick Select, Layout */}
-            <div className="flex flex-col lg:flex-row gap-4 items-end">
+            <div className="flex flex-col gap-4 md:grid md:grid-cols-2 lg:flex lg:flex-row items-center lg:items-end">
               {/* Broker Selection */}
-              <div className="flex-1">
+              <div className="flex-1 min-w-0 w-full">
                 <label className="block text-sm font-medium mb-2">Broker:</label>
                 <div className="relative">
                   <input
@@ -487,11 +488,46 @@ export function BrokerTransaction() {
                       const v = e.target.value.toUpperCase();
                       setBrokerInput(v);
                       setShowBrokerSuggestions(true);
+                      setHighlightedIndex(0);
                       if (!v) setSelectedBroker('');
                     }}
                     onFocus={() => setShowBrokerSuggestions(true)}
+                    onKeyDown={(e) => {
+                      const all = ['MG','CIMB','UOB','COIN','NH','TRIM','DEWA','BNCA','PNLF','VRNA','SD','LMGA','DEAL','ESA','SSA'];
+                      const suggestions = all.filter(b => b.toLowerCase().includes(brokerInput.toLowerCase())).slice(0, 10);
+                      if (e.key === 'ArrowDown' && suggestions.length) {
+                        e.preventDefault();
+                        setHighlightedIndex((prev) => {
+                          const next = prev + 1;
+                          return next >= suggestions.length ? 0 : next;
+                        });
+                      } else if (e.key === 'ArrowUp' && suggestions.length) {
+                        e.preventDefault();
+                        setHighlightedIndex((prev) => {
+                          const next = prev - 1;
+                          return next < 0 ? suggestions.length - 1 : next;
+                        });
+                      } else if (e.key === 'Enter' && showBrokerSuggestions) {
+                        e.preventDefault();
+                        const idx = highlightedIndex >= 0 ? highlightedIndex : 0;
+                        const choice = suggestions[idx];
+                        if (choice) {
+                          setSelectedBroker(choice);
+                          setBrokerInput(choice);
+                          setShowBrokerSuggestions(false);
+                          setHighlightedIndex(-1);
+                        }
+                      } else if (e.key === 'Escape') {
+                        setShowBrokerSuggestions(false);
+                        setHighlightedIndex(-1);
+                      }
+                    }}
                     placeholder="Enter broker code..."
                     className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                    role="combobox"
+                    aria-expanded={showBrokerSuggestions}
+                    aria-controls="broker-suggestions"
+                    aria-autocomplete="list"
                   />
                   {!!brokerInput && (
                     <button
@@ -502,61 +538,68 @@ export function BrokerTransaction() {
                     </button>
                   )}
                   {showBrokerSuggestions && (
-                    <div className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
-                      {['MG','CIMB','UOB','COIN','NH','TRIM','DEWA','BNCA','PNLF','VRNA','SD','LMGA','DEAL','ESA','SSA']
-                        .filter(b => b.toLowerCase().includes(brokerInput.toLowerCase()))
-                        .slice(0, 10)
-                        .map(b => (
-                          <button
-                            key={b}
-                            className="w-full text-left px-3 py-2 hover:bg-accent text-sm"
-                            onClick={() => {
-                              setSelectedBroker(b);
-                              setBrokerInput(b);
-                              setShowBrokerSuggestions(false);
-                            }}
-                          >
-                            {b}
-                          </button>
-                        ))}
-                      {['MG','CIMB','UOB','COIN','NH','TRIM','DEWA','BNCA','PNLF','VRNA','SD','LMGA','DEAL','ESA','SSA']
-                        .filter(b => b.toLowerCase().includes(brokerInput.toLowerCase())).length === 0 && (
-                        <div className="px-3 py-2 text-sm text-muted-foreground">No results</div>
-                      )}
-                    </div>
+                    (() => {
+                      const all = ['MG','CIMB','UOB','COIN','NH','TRIM','DEWA','BNCA','PNLF','VRNA','SD','LMGA','DEAL','ESA','SSA'];
+                      const suggestions = all.filter(b => b.toLowerCase().includes(brokerInput.toLowerCase())).slice(0, 10);
+                      return (
+                        <div id="broker-suggestions" role="listbox" className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
+                          {suggestions.map((b, idx) => (
+                            <button
+                              key={b}
+                              role="option"
+                              aria-selected={idx === highlightedIndex}
+                              className={`w-full text-left px-3 py-2 text-sm ${idx === highlightedIndex ? 'bg-accent' : 'hover:bg-accent'}`}
+                              onMouseEnter={() => setHighlightedIndex(idx)}
+                              onMouseDown={(e) => { e.preventDefault(); }}
+                              onClick={() => {
+                                setSelectedBroker(b);
+                                setBrokerInput(b);
+                                setShowBrokerSuggestions(false);
+                                setHighlightedIndex(-1);
+                              }}
+                            >
+                              {b}
+                            </button>
+                          ))}
+                          {suggestions.length === 0 && (
+                            <div className="px-3 py-2 text-sm text-muted-foreground">No results</div>
+                          )}
+                        </div>
+                      );
+                    })()
                   )}
                 </div>
               </div>
 
               {/* Date Range */}
-              <div className="flex-1">
+              <div className="flex-1 min-w-0 w-full md:col-span-2">
                 <label className="block text-sm font-medium mb-2">Date Range:</label>
-                <div className="flex gap-2 items-center">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2 w-full">
                   <input
                     type="date"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
-                    className="flex-1 px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                    className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
                   />
-                  <span className="text-sm text-muted-foreground">to</span>
+                  <span className="text-sm text-muted-foreground text-center whitespace-nowrap sm:px-2">to</span>
                   <input
                     type="date"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
-                    className="flex-1 px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                    className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
                   />
-                  <Button onClick={addDateRange} size="sm">
+                  <Button onClick={addDateRange} size="sm" className="w-auto justify-self-center">
                     <Plus className="w-4 h-4" />
                   </Button>
                 </div>
               </div>
 
               {/* Quick Select */}
-              <div className="flex-1">
+              <div className="flex-1 min-w-0 w-full">
                 <label className="block text-sm font-medium mb-2">Quick Select:</label>
                 <div className="flex gap-2">
                   <select 
-                    className="flex-1 px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                    className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
                     value={dateRangeMode}
                     onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
                   >
@@ -575,25 +618,27 @@ export function BrokerTransaction() {
               </div>
 
               {/* Layout Mode Toggle */}
-              <div className="flex-1">
+              <div className="flex-1 min-w-0 w-full lg:w-auto lg:flex-none">
                 <label className="block text-sm font-medium mb-2">Layout:</label>
-                <div className="flex gap-1">
-                  <Button
-                    variant={layoutMode === 'horizontal' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setLayoutMode('horizontal')}
-                    className="flex-1"
-                  >
-                    Horizontal
-                  </Button>
-                  <Button
-                    variant={layoutMode === 'vertical' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setLayoutMode('vertical')}
-                    className="flex-1"
-                  >
-                    Vertical
-                  </Button>
+                <div className="flex sm:inline-flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto w-full sm:w-auto lg:w-auto justify-center sm:justify-start">
+                  <div className="grid grid-cols-2 gap-1 w-full max-w-xs mx-auto sm:flex sm:items-center sm:gap-1 sm:max-w-none sm:mx-0">
+                    <Button
+                      variant={layoutMode === 'horizontal' ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => setLayoutMode('horizontal')}
+                      className="px-3 py-1 h-8 text-xs"
+                    >
+                      Horizontal
+                    </Button>
+                    <Button
+                      variant={layoutMode === 'vertical' ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => setLayoutMode('vertical')}
+                      className="px-3 py-1 h-8 text-xs"
+                    >
+                      Vertical
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>

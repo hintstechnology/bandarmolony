@@ -226,11 +226,12 @@ export function MarketRotationTrendFilter() {
             <span className="text-sm font-medium">Filters:</span>
           </div>
 
-          <div className="flex flex-col lg:flex-row gap-4">
+          <div className="flex flex-col gap-4 sm:grid sm:grid-cols-2 lg:flex lg:flex-row">
             {/* Timeframe Filter */}
-            <div>
+            <div className="min-w-0">
               <label className="block text-sm font-medium mb-2">Timeframe:</label>
-              <div className="flex items-center gap-1 border border-border rounded-lg p-1">
+              <div className="flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto">
+                <div className="flex items-center gap-1 min-w-max">
                 {timeframes.map((tf) => (
                   <Button
                     key={tf}
@@ -246,13 +247,15 @@ export function MarketRotationTrendFilter() {
                     {tf}
                   </Button>
                 ))}
+                </div>
               </div>
             </div>
 
             {/* Trend Filter */}
-            <div>
+            <div className="min-w-0">
               <label className="block text-sm font-medium mb-2">Trend:</label>
-              <div className="flex items-center gap-1 border border-border rounded-lg p-1">
+              <div className="flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto">
+                <div className="flex items-center gap-1 min-w-max">
                 <Button
                   variant={
                     selectedTrend === "all" ? "default" : "ghost"
@@ -302,18 +305,19 @@ export function MarketRotationTrendFilter() {
                   <TrendingDown className="w-3 h-3" />
                   Down
                 </Button>
+                </div>
               </div>
             </div>
 
             {/* Sector Filter */}
-            <div>
+            <div className="min-w-0">
               <label className="block text-sm font-medium mb-2">Sector:</label>
               <select
                 value={selectedSector}
                 onChange={(e) =>
                   setSelectedSector(e.target.value)
                 }
-                className="w-48 px-3 py-2 h-10 text-xs bg-background border border-border rounded-md hover:border-primary/50 transition-colors"
+                className="w-full sm:w-48 px-3 py-2 h-10 text-xs bg-background border border-border rounded-md hover:border-primary/50 transition-colors"
               >
                 {sectors.map((sector) => (
                   <option key={sector} value={sector}>
@@ -360,7 +364,7 @@ export function MarketRotationTrendFilter() {
             const paginatedResult = getPaginatedData(trendType);
             return (
               <Card key={trendType} className="p-6">
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
                   <div className="flex items-center gap-3">
                     {getTrendIcon(trendType)}
                     <h3 className="font-semibold capitalize">
@@ -372,7 +376,7 @@ export function MarketRotationTrendFilter() {
                   </div>
 
                    {/* Search for this trend */}
-                   <div className="flex items-center gap-2 max-w-sm">
+                   <div className="flex items-center gap-2 w-full sm:max-w-sm">
                      <div className="relative flex-1">
                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                        <input
@@ -391,15 +395,15 @@ export function MarketRotationTrendFilter() {
                    </div>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
+                <div className="overflow-x-auto rounded-md">
+                  <table className="w-full min-w-[640px]">
+                    <thead className="bg-background">
                       <tr className="border-b border-border">
-                        <th className="text-left py-2 px-3 text-sm font-medium text-muted-foreground">Symbol</th>
-                        <th className="text-left py-2 px-3 text-sm font-medium text-muted-foreground">Name</th>
-                        <th className="text-right py-2 px-3 text-sm font-medium text-muted-foreground">Price</th>
-                        <th className="text-right py-2 px-3 text-sm font-medium text-muted-foreground">Change %</th>
-                        <th className="text-left py-2 px-3 text-sm font-medium text-muted-foreground">Sector</th>
+                        <th className="sticky top-0 bg-background text-left py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Symbol</th>
+                        <th className="sticky top-0 bg-background text-left py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Name</th>
+                        <th className="sticky top-0 bg-background text-right py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Price</th>
+                        <th className="sticky top-0 bg-background text-right py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Change %</th>
+                        <th className="sticky top-0 bg-background text-left py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Sector</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -408,16 +412,16 @@ export function MarketRotationTrendFilter() {
                           key={index}
                           className="border-b border-border/50 hover:bg-muted/50 transition-colors"
                         >
-                          <td className="py-3 px-3">
+                          <td className="py-2 sm:py-3 px-3">
                             <span className="font-medium">{stock.symbol}</span>
                           </td>
-                          <td className="py-3 px-3">
-                            <span className="text-sm text-muted-foreground">{stock.name}</span>
+                          <td className="py-2 sm:py-3 px-3">
+                            <span className="text-xs sm:text-sm text-muted-foreground">{stock.name}</span>
                           </td>
-                          <td className="py-3 px-3 text-right">
+                          <td className="py-2 sm:py-3 px-3 text-right">
                             <span className="font-medium">{stock.price.toLocaleString()}</span>
                           </td>
-                          <td className="py-3 px-3 text-right">
+                          <td className="py-2 sm:py-3 px-3 text-right">
                             <span
                               className={`font-medium ${
                                 stock.change > 0
@@ -431,8 +435,8 @@ export function MarketRotationTrendFilter() {
                               {stock.change}%
                             </span>
                           </td>
-                          <td className="py-3 px-3">
-                            <Badge variant="outline" className="text-xs">{stock.sector}</Badge>
+                          <td className="py-2 sm:py-3 px-3">
+                            <Badge variant="outline" className="text-[10px] sm:text-xs">{stock.sector}</Badge>
                           </td>
                         </tr>
                       ))}
@@ -442,8 +446,8 @@ export function MarketRotationTrendFilter() {
 
                 {/* Pagination Controls */}
                 {paginatedResult.totalPages > 1 && (
-                  <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
-                    <div className="text-sm text-muted-foreground">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mt-4 pt-4 border-t border-border">
+                    <div className="text-xs sm:text-sm text-muted-foreground">
                       Showing{" "}
                       {paginatedResult.currentPage *
                         itemsPerPage +
@@ -456,7 +460,7 @@ export function MarketRotationTrendFilter() {
                       )}{" "}
                       of {paginatedResult.totalItems} stocks
                     </div>
-                     <div className="flex items-center gap-2">
+                     <div className="flex items-center gap-2 self-start sm:self-auto">
                        <Button
                          variant="outline"
                          size="sm"

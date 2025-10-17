@@ -8,10 +8,10 @@ interface LogoProps {
   badgeClassName?: string;
 }
 
-const Logo: React.FC<LogoProps> = ({ 
-  className = '', 
-  showText = true, 
-  textClassName = '',
+const Logo: React.FC<LogoProps> = ({
+  className = 'gap-2',
+  showText = true,
+  textClassName = 'text-white',
   iconClassName = '',
   badgeClassName = ''
 }) => {
@@ -29,15 +29,18 @@ const Logo: React.FC<LogoProps> = ({
     <div className={`flex items-center ${className}`}>
       {/* Text "Bandarmolo" */}
       {showText && (
-        <span className={`font-bold text-white ${textClassName}`}>Bandarmolo</span>
+        <span className={`font-bold ${textClassName}`}>Bandarmolo</span>
       )}
 
       {/* Logo Image (NY badge with chart) */}
-      <div className={`relative flex items-center justify-center ${badgeClassName}`} style={{ aspectRatio: '1.2' }}>
+      <div
+        className={`relative flex items-center justify-center ${badgeClassName}`}
+        style={{ aspectRatio: '1.2' }}
+      >
         <img
           src={getLogoUrl()}
           alt="Bandarmolony Logo"
-          className="w-full h-full object-contain"
+          className={`h-full w-full object-contain ${iconClassName}`}
           style={{ 
             objectFit: 'contain',
             maxWidth: '100%',

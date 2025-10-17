@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { Calendar, Plus, X, ChevronDown, RotateCcw, TrendingUp } from 'lucide-react';
+import { Calendar, Plus, X, ChevronDown, RotateCcw, TrendingUp, Search } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 
 interface PriceData {
@@ -368,6 +368,7 @@ export function StockTransactionDoneSummary() {
   const [viewMode, setViewMode] = useState<'summary' | 'broker'>('summary');
   const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical'>('horizontal');
   const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
+  const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
 
   const addDateRange = () => {
     if (startDate && endDate) {
@@ -940,86 +941,104 @@ export function StockTransactionDoneSummary() {
         <CardContent>
           <div className="space-y-3 sm:space-y-4">
             {/* Row 1: Stock, Date Range, Quick Select, View, Layout */}
-            <div className="flex flex-col xl:flex-row gap-3 sm:gap-4 items-start xl:items-end">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-center lg:items-end">
             {/* Stock Selection */}
-              <div className="flex-1 w-full xl:w-auto">
-                <label className="block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Stock:</label>
+              <div className="flex-1 min-w-0 w-full">
+                <label className="block text-sm font-medium mb-2">Stock:</label>
                 <div className="relative stock-dropdown-container">
+                  <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                   <input
                     type="text"
                     value={stockInput}
-                    onChange={(e) => handleStockInputChange(e.target.value)}
-                    onFocus={() => setShowStockSuggestions(true)}
+                    onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
+                    onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
+                    onKeyDown={(e) => {
+                      const suggestions = (stockInput === '' ? AVAILABLE_STOCKS : filteredStocks).slice(0, 10);
+                      if (!suggestions.length) return;
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        setHighlightedStockIndex((prev) => (prev + 1) % suggestions.length);
+                      } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setHighlightedStockIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+                      } else if (e.key === 'Enter' && showStockSuggestions) {
+                        e.preventDefault();
+                        const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
+                        const choice = suggestions[idx];
+                        if (choice) handleStockSelect(choice);
+                      } else if (e.key === 'Escape') {
+                        setShowStockSuggestions(false);
+                        setHighlightedStockIndex(-1);
+                      }
+                    }}
                     placeholder="Enter stock code..."
-                    className="w-full px-2 sm:px-3 py-1 sm:py-2 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground"
+                    className="w-full pl-10 pr-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
+                    role="combobox"
+                    aria-expanded={showStockSuggestions}
+                    aria-controls="stock-suggestions"
+                    aria-autocomplete="list"
                   />
                   {showStockSuggestions && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
-                      {stockInput === '' ? (
-                        <>
-                          <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
-                            All Stocks
-                          </div>
-                          {AVAILABLE_STOCKS.map(stock => (
+                    (() => {
+                      const suggestions = (stockInput === '' ? AVAILABLE_STOCKS : filteredStocks).slice(0, 10);
+                      return (
+                        <div id="stock-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                          {stockInput === '' && (
+                            <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">All Stocks</div>
+                          )}
+                          {suggestions.map((stock, idx) => (
                             <div
                               key={stock}
+                              role="option"
+                              aria-selected={idx === highlightedStockIndex}
+                              onMouseEnter={() => setHighlightedStockIndex(idx)}
+                              onMouseDown={(e) => e.preventDefault()}
                               onClick={() => handleStockSelect(stock)}
-                              className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
+                              className={`px-3 py-2 cursor-pointer text-sm ${idx === highlightedStockIndex ? 'bg-accent' : 'hover:bg-muted'}`}
                             >
                               {stock}
                             </div>
                           ))}
-                        </>
-                      ) : filteredStocks.length > 0 ? (
-                        filteredStocks.map(stock => (
-                          <div
-                            key={stock}
-                            onClick={() => handleStockSelect(stock)}
-                            className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
-                          >
-                            {stock}
-                          </div>
-                        ))
-                      ) : (
-                        <div className="px-3 py-2 text-sm text-muted-foreground">
-                          No stocks found
+                          {suggestions.length === 0 && (
+                            <div className="px-3 py-2 text-sm text-muted-foreground">No stocks found</div>
+                          )}
                         </div>
-                      )}
-                    </div>
+                      );
+                    })()
                   )}
                 </div>
               </div>
 
               {/* Date Range */}
-              <div className="flex-1 w-full xl:w-auto">
-                <label className="block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Date Range:</label>
-                <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+              <div className="flex-1 min-w-0 w-full md:col-span-2">
+                <label className="block text-sm font-medium mb-2">Date Range:</label>
+                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2 w-full">
                   <input
                     type="date"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full sm:flex-1 px-2 sm:px-3 py-1 sm:py-2 text-xs sm:text-sm border border-border rounded-md bg-input text-foreground"
+                    className="w-full px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
                   />
-                  <span className="text-xs sm:text-sm text-muted-foreground hidden sm:inline">to</span>
+                  <span className="text-sm text-muted-foreground text-center whitespace-nowrap px-2">to</span>
                   <input
                     type="date"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full sm:flex-1 px-2 sm:px-3 py-1 sm:py-2 text-xs sm:text-sm border border-border rounded-md bg-input text-foreground"
+                    className="w-full px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
                   />
-                  <Button onClick={addDateRange} size="sm" className="w-full sm:w-auto">
-                    <Plus className="w-3 h-3 sm:w-4 sm:h-4" />
-                    <span className="ml-1 text-xs sm:hidden">Add</span>
+                  <Button onClick={addDateRange} size="sm" className="w-auto justify-self-center">
+                    <Plus className="w-4 h-4" />
+                    <span className="ml-1">Add</span>
                   </Button>
                 </div>
               </div>
 
               {/* Quick Select */}
-              <div className="flex-1 w-full xl:w-auto">
-                <label className="block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Quick Select:</label>
+              <div className="flex-1 min-w-0 w-full">
+                <label className="block text-sm font-medium mb-2">Quick Select:</label>
                 <div className="flex flex-col sm:flex-row gap-2">
                 <select 
-                    className="w-full xl:flex-1 px-2 sm:px-3 py-1 sm:py-2 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground"
+                    className="w-full xl:flex-1 px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
                     value={dateRangeMode}
                     onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
                   >
@@ -1029,8 +1048,8 @@ export function StockTransactionDoneSummary() {
                     <option value="custom">Custom</option>
                 </select>
                   {dateRangeMode === 'custom' && (
-                    <Button onClick={clearAllDates} variant="outline" size="sm" className="w-full sm:w-auto">
-                      <RotateCcw className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
+                    <Button onClick={clearAllDates} variant="outline" size="sm" className="w-auto justify-self-center">
+                      <RotateCcw className="w-4 h-4 mr-1" />
                       <span className="text-xs sm:text-sm">Clear</span>
                     </Button>
                   )}
@@ -1038,52 +1057,52 @@ export function StockTransactionDoneSummary() {
               </div>
 
               {/* View Mode Toggle */}
-              <div className="flex-1 w-full xl:w-auto">
-                <label className="block text-xs sm:text-sm font-medium mb-1 sm:mb-2">View:</label>
-                <div className="flex gap-1">
-                  <Button
-                    variant={viewMode === 'summary' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setViewMode('summary')}
-                    className="flex-1 text-xs sm:text-sm"
-                  >
-                    <span className="hidden sm:inline">Summary</span>
-                    <span className="sm:hidden">Sum</span>
-                  </Button>
-                  <Button
-                    variant={viewMode === 'broker' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setViewMode('broker')}
-                    className="flex-1 text-xs sm:text-sm"
-                  >
-                    <span className="hidden sm:inline">Broker Breakdown</span>
-                    <span className="sm:hidden">Broker</span>
-                  </Button>
+              <div className="flex-1 min-w-0 w-full lg:w-auto lg:flex-none">
+                <label className="block text-sm font-medium mb-2">View:</label>
+                <div className="flex sm:inline-flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto w-full sm:w-auto lg:w-auto justify-center sm:justify-start">
+                  <div className="grid grid-cols-2 gap-1 w-full max-w-xs mx-auto sm:flex sm:items-center sm:gap-1 sm:max-w-none sm:mx-0">
+                    <Button
+                      variant={viewMode === 'summary' ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => setViewMode('summary')}
+                      className="px-3 py-1 h-8 text-xs"
+                    >
+                      Summary
+                    </Button>
+                    <Button
+                      variant={viewMode === 'broker' ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => setViewMode('broker')}
+                      className="px-3 py-1 h-8 text-xs"
+                    >
+                      Broker Breakdown
+                    </Button>
+                  </div>
                 </div>
               </div>
 
               {/* Layout Mode Toggle */}
-              <div className="flex-1 w-full xl:w-auto">
-                <label className="block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Layout:</label>
-                <div className="flex gap-1">
-                  <Button
-                    variant={layoutMode === 'horizontal' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setLayoutMode('horizontal')}
-                    className="flex-1 text-xs sm:text-sm"
-                  >
-                    <span className="hidden sm:inline">Horizontal</span>
-                    <span className="sm:hidden">H</span>
-                  </Button>
-                  <Button
-                    variant={layoutMode === 'vertical' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setLayoutMode('vertical')}
-                    className="flex-1 text-xs sm:text-sm"
-                  >
-                    <span className="hidden sm:inline">Vertical</span>
-                    <span className="sm:hidden">V</span>
-                  </Button>
+              <div className="flex-1 min-w-0 w-full lg:w-auto lg:flex-none">
+                <label className="block text-sm font-medium mb-2">Layout:</label>
+                <div className="flex sm:inline-flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto w-full sm:w-auto lg:w-auto justify-center sm:justify-start">
+                  <div className="grid grid-cols-2 gap-1 w-full max-w-xs mx-auto sm:flex sm:items-center sm:gap-1 sm:max-w-none sm:mx-0">
+                    <Button
+                      variant={layoutMode === 'horizontal' ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => setLayoutMode('horizontal')}
+                      className="px-3 py-1 h-8 text-xs"
+                    >
+                      Horizontal
+                    </Button>
+                    <Button
+                      variant={layoutMode === 'vertical' ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => setLayoutMode('vertical')}
+                      className="px-3 py-1 h-8 text-xs"
+                    >
+                      Vertical
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>

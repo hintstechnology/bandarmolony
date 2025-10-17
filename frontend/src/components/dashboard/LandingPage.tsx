@@ -1,7 +1,9 @@
 import React from "react";
-import { Button } from "../ui/button";
-import { MessageCircle, Send, Instagram } from "lucide-react";
+import { Helmet } from "react-helmet-async";
 import { motion } from "motion/react";
+import { Button } from "../ui/button";
+import { Navbar } from "../../components/Navbar";
+import { Footer } from "../../components/Footer";
 import Logo from "./Logo";
 
 interface LandingPageProps {
@@ -12,88 +14,80 @@ interface LandingPageProps {
 
 export function LandingPage({ onStartTrial, onSignIn, onRegister }: LandingPageProps) {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-muted/20 to-background relative overflow-hidden">
+    <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-background via-muted/20 to-background">
+      <Helmet>
+        <title>{`BandarmoloNY \u2014 Intelligent Market Analysis`}</title>
+        <meta
+          name="description"
+          content="Transform your trading strategy with intelligent market analysis and advanced trading insights."
+        />
+        <link rel="canonical" href="https://bandarmolony.com/" />
+        <meta
+          property="og:title"
+          content="BandarmoloNY \u2014 Intelligent Market Analysis"
+        />
+        <meta
+          property="og:description"
+          content="Transform your trading strategy with intelligent market analysis and advanced trading insights."
+        />
+        <meta property="og:url" content="https://bandarmolony.com/" />
+        <meta property="og:image" content="https://bandarmolony.com/og-image.jpg" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta
+          name="twitter:title"
+          content="BandarmoloNY \u2014 Intelligent Market Analysis"
+        />
+        <meta
+          name="twitter:description"
+          content="Transform your trading strategy with intelligent market analysis and advanced trading insights."
+        />
+        <meta name="twitter:image" content="https://bandarmolony.com/og-image.jpg" />
+      </Helmet>
+
       {/* Background decorative elements */}
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-foreground/5 rounded-full blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-foreground/5 rounded-full blur-3xl" />
-        <div className="absolute top-1/3 right-1/3 w-64 h-64 bg-foreground/3 rounded-full blur-3xl" />
+      <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
+        <div className="absolute -top-40 -right-40 h-80 w-80 rounded-full bg-foreground/5 blur-3xl" />
+        <div className="absolute -bottom-40 -left-40 h-80 w-80 rounded-full bg-foreground/5 blur-3xl" />
+        <div className="absolute top-1/3 right-1/3 h-64 w-64 rounded-full bg-foreground/3 blur-3xl" />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(0,0,0,0.1),transparent_50%)] dark:bg-[radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.1),transparent_50%)]" />
       </div>
 
-      {/* Navbar */}
-      <nav className="relative z-10 flex items-center justify-between px-6 py-4 md:px-12">
-        <motion.div 
-          className="flex items-center"
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.6 }}
-        >
-          <Logo 
-            className="h-8"
-            badgeClassName="w-10 h-8"
-            textClassName="text-foreground font-semibold text-2xl tracking-wide"
-            showText={true}
-          />
-        </motion.div>
-        
-        <motion.div 
-          className="flex items-center gap-3"
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.6, delay: 0.1 }}
-        >
-          <Button 
-            variant="ghost" 
-            onClick={onSignIn}
-            className="text-foreground hover:bg-foreground/10 border-foreground/30 border h-8 font-medium"
-          >
-            Sign In
-          </Button>
-          <Button 
-            onClick={onRegister}
-            className="bg-primary text-primary-foreground hover:bg-primary/90 border-0 shadow-xl h-8 font-semibold"
-          >
-            Register
-          </Button>
-        </motion.div>
-      </nav>
+      <Navbar onSignIn={onSignIn} onRegister={onRegister} />
 
-      {/* Main Content */}
-      <main className="relative z-10 flex flex-col items-center justify-center min-h-[calc(100vh-200px)] px-6 text-center">
+      <main className="relative z-10 flex min-h-[calc(100vh-200px)] flex-col items-center justify-center px-6 text-center">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.2 }}
           className="mb-8"
         >
-          <div className="flex items-center justify-center gap-6 mb-8">
-            <Logo 
+          <div className="mb-8 flex items-center justify-center gap-6">
+            <Logo
               className="h-20 md:h-24"
-              badgeClassName="w-24 h-20 md:w-28 md:h-24"
+              badgeClassName="h-20 w-24 md:h-24 md:w-28"
               textClassName="text-5xl md:text-7xl font-bold text-foreground tracking-tight drop-shadow-2xl"
               showText={true}
             />
           </div>
-          
-          <motion.p 
-            className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-8 leading-relaxed font-light tracking-wide"
+
+          <motion.p
+            className="mx-auto mb-8 max-w-2xl text-lg font-light leading-relaxed tracking-wide text-muted-foreground md:text-xl"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.8, delay: 0.5 }}
           >
-            Transform your investment strategy with intelligent market analysis and advanced trading insights.
+            Transform your trading strategy with intelligent market analysis and advanced trading insights.
           </motion.p>
-          
+
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.7 }}
           >
-            <Button 
-              size="lg" 
+            <Button
+              size="lg"
               onClick={onStartTrial}
-              className="bg-primary text-primary-foreground hover:bg-primary/90 border-0 px-10 py-7 text-lg font-semibold rounded-2xl shadow-2xl hover:shadow-primary/20 transition-all duration-300 transform hover:-translate-y-2 hover:scale-105"
+              className="transform rounded-2xl border-0 bg-primary px-10 py-7 text-lg font-semibold text-primary-foreground shadow-2xl transition-all duration-300 hover:-translate-y-2 hover:scale-105 hover:bg-primary/90 hover:shadow-primary/20"
             >
               Start Free Trial
             </Button>
@@ -101,54 +95,7 @@ export function LandingPage({ onStartTrial, onSignIn, onRegister }: LandingPageP
         </motion.div>
       </main>
 
-      {/* Footer */}
-      <footer className="relative z-10 flex flex-col md:flex-row items-center justify-between px-6 py-6 md:px-12">
-        {/* Social Media Icons - Center on mobile, center-bottom on desktop */}
-        <motion.div 
-          className="flex items-center gap-6 order-1 md:order-2 md:absolute md:left-1/2 md:transform md:-translate-x-1/2"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.9 }}
-        >
-          <a 
-            href="#" 
-            className="w-14 h-14 bg-gradient-to-r from-green-600 to-green-500 rounded-full flex items-center justify-center hover:scale-110 transition-all duration-300 shadow-2xl border border-foreground/10 backdrop-blur-sm"
-          >
-            <MessageCircle className="w-6 h-6 text-white" />
-          </a>
-          <a 
-            href="#" 
-            className="w-14 h-14 bg-gradient-to-r from-blue-600 to-blue-500 rounded-full flex items-center justify-center hover:scale-110 transition-all duration-300 shadow-2xl border border-foreground/10 backdrop-blur-sm"
-          >
-            <Send className="w-6 h-6 text-white" />
-          </a>
-          <a 
-            href="#" 
-            className="w-14 h-14 bg-gradient-to-r from-pink-600 to-purple-600 rounded-full flex items-center justify-center hover:scale-110 transition-all duration-300 shadow-2xl border border-foreground/10 backdrop-blur-sm"
-          >
-            <Instagram className="w-6 h-6 text-white" />
-          </a>
-        </motion.div>
-
-        {/* Copyright - Bottom on mobile, bottom-right on desktop */}
-        <motion.div 
-          className="text-sm text-muted-foreground order-2 md:order-3 md:fixed md:bottom-4 md:right-4 mt-4 md:mt-0"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.6, delay: 1.0 }}
-        >
-          <p className="text-center md:text-right font-light">
-            Made with <span className="text-red-500">❤︎</span> by{" "}
-            <span className="font-medium text-foreground">Hints Technology</span>
-            <br className="md:hidden" />
-            <span className="hidden md:inline"> © </span>
-            <span className="md:hidden">© </span>2025
-          </p>
-        </motion.div>
-
-        {/* Empty div for spacing on desktop */}
-        <div className="hidden md:block order-1" />
-      </footer>
+      <Footer />
     </div>
   );
 }

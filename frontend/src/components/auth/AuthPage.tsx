@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ArrowLeft } from 'lucide-react';
 import { LoginForm } from './LoginForm';
 import { SignUpForm } from './SignUpForm';
 import { ForgotPasswordForm } from './ForgotPasswordForm';
@@ -123,40 +124,55 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
     toast.success('Verification email sent successfully!');
   };
 
+  const handleBackToLanding = () => {
+    navigate('/');
+  };
+
 
   return (
-    <AuthLayout>
-      {isEmailVerificationSuccess ? (
-        <EmailVerificationSuccess
-          message="Password berhasil diubah! Anda akan diarahkan ke halaman profil untuk mengubah password."
-          redirectTo="/profile?tab=change-password"
-        />
-      ) : isEmailVerification ? (
-        <EmailVerificationForm
-          email={verificationEmail}
-          type={verificationType}
-          onBack={handleSwitchFromEmailVerification}
-          onVerified={handleEmailVerified}
-          onResendSuccess={handleResendSuccess}
-        />
-      ) : isForgotPassword ? (
-        <ForgotPasswordForm
-          onSwitchToLogin={handleSwitchFromForgotPassword}
-          onForgotPassword={handleForgotPassword}
-        />
-      ) : isLogin ? (
-        <LoginForm
-          onSwitchToSignUp={() => setIsLogin(false)}
-          onSwitchToForgotPassword={handleSwitchToForgotPassword}
-          onLogin={handleLogin}
-        />
-      ) : (
-        <SignUpForm
-          onSwitchToLogin={() => setIsLogin(true)}
-          onSwitchToEmailVerification={handleSwitchToEmailVerification}
-          onSignUp={handleSignUp}
-        />
-      )}
+    <AuthLayout onBackToLanding={handleBackToLanding}>
+      <div className="space-y-6">
+        <button
+          type="button"
+          onClick={handleBackToLanding}
+          className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors lg:hidden"
+        >
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Kembali ke landing page
+        </button>
+
+        {isEmailVerificationSuccess ? (
+          <EmailVerificationSuccess
+            message="Password berhasil diubah! Anda akan diarahkan ke halaman profil untuk mengubah password."
+            redirectTo="/profile?tab=change-password"
+          />
+        ) : isEmailVerification ? (
+          <EmailVerificationForm
+            email={verificationEmail}
+            type={verificationType}
+            onBack={handleSwitchFromEmailVerification}
+            onVerified={handleEmailVerified}
+            onResendSuccess={handleResendSuccess}
+          />
+        ) : isForgotPassword ? (
+          <ForgotPasswordForm
+            onSwitchToLogin={handleSwitchFromForgotPassword}
+            onForgotPassword={handleForgotPassword}
+          />
+        ) : isLogin ? (
+          <LoginForm
+            onSwitchToSignUp={() => setIsLogin(false)}
+            onSwitchToForgotPassword={handleSwitchToForgotPassword}
+            onLogin={handleLogin}
+          />
+        ) : (
+          <SignUpForm
+            onSwitchToLogin={() => setIsLogin(true)}
+            onSwitchToEmailVerification={handleSwitchToEmailVerification}
+            onSignUp={handleSignUp}
+          />
+        )}
+      </div>
     </AuthLayout>
   );
 }
