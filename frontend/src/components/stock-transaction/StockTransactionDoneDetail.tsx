@@ -788,7 +788,7 @@ export function StockTransactionDoneDetail() {
               <div className="flex-1 min-w-0 w-full">
                 <label className="block text-sm font-medium mb-2">Stock:</label>
                 <div className="relative" ref={dropdownRef}>
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+                  <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                   <input
                     type="text"
                     value={stockInput}
