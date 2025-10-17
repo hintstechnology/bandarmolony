@@ -459,11 +459,11 @@ export function StockTransactionDoneDetail() {
             </CardTitle>
 
             {/* Filter Section */}
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+              <div className="flex items-center gap-2 w-full sm:w-auto">
                 <label className="text-xs font-medium text-muted-foreground">Sort Time:</label>
                 <select
-                  className="text-xs bg-background border border-border rounded px-2 py-1"
+                  className="text-xs bg-background border border-border rounded px-2 py-1 w-full sm:w-auto min-w-[120px]"
                   value={filters.timeSort}
                   onChange={(e) => setFilters(prev => ({ ...prev, timeSort: e.target.value }))}
                 >
@@ -472,10 +472,10 @@ export function StockTransactionDoneDetail() {
                 </select>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 w-full sm:w-auto">
                 <label className="text-xs font-medium text-muted-foreground">Broker:</label>
                 <select
-                  className="text-xs bg-background border border-border rounded px-2 py-1"
+                  className="text-xs bg-background border border-border rounded px-2 py-1 w-full sm:w-auto min-w-[120px]"
                   value={filters.broker}
                   onChange={(e) => setFilters(prev => ({ ...prev, broker: e.target.value }))}
                 >
@@ -486,10 +486,10 @@ export function StockTransactionDoneDetail() {
                 </select>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 w-full sm:w-auto">
                 <label className="text-xs font-medium text-muted-foreground">Price:</label>
                 <select
-                  className="text-xs bg-background border border-border rounded px-2 py-1"
+                  className="text-xs bg-background border border-border rounded px-2 py-1 w-full sm:w-auto min-w-[120px]"
                   value={filters.price}
                   onChange={(e) => setFilters(prev => ({ ...prev, price: e.target.value }))}
                 >
@@ -504,7 +504,7 @@ export function StockTransactionDoneDetail() {
                 variant="outline"
                 size="sm"
                 onClick={() => setFilters({ timeSort: 'latest', broker: 'all', price: 'all' })}
-                className="text-xs"
+                className="text-xs self-start sm:self-auto"
               >
                 <RotateCcw className="w-3 h-3 mr-1" />
                 Reset
@@ -645,11 +645,11 @@ export function StockTransactionDoneDetail() {
                 Filters
               </CardTitle>
 
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                <div className="flex items-center gap-2 w-full sm:w-auto">
                   <label className="text-xs font-medium text-muted-foreground">Sort Time:</label>
                   <select
-                    className="text-xs bg-background border border-border rounded px-2 py-1"
+                    className="text-xs bg-background border border-border rounded px-2 py-1 w-full sm:w-auto min-w-[120px]"
                     value={filters.timeSort}
                     onChange={(e) => setFilters(prev => ({ ...prev, timeSort: e.target.value }))}
                   >
@@ -658,10 +658,10 @@ export function StockTransactionDoneDetail() {
                   </select>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 w-full sm:w-auto">
                   <label className="text-xs font-medium text-muted-foreground">Broker:</label>
                   <select
-                    className="text-xs bg-background border border-border rounded px-2 py-1"
+                    className="text-xs bg-background border border-border rounded px-2 py-1 w-full sm:w-auto min-w-[120px]"
                     value={filters.broker}
                     onChange={(e) => setFilters(prev => ({ ...prev, broker: e.target.value }))}
                   >
@@ -672,10 +672,10 @@ export function StockTransactionDoneDetail() {
                   </select>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 w-full sm:w-auto">
                   <label className="text-xs font-medium text-muted-foreground">Price:</label>
                   <select
-                    className="text-xs bg-background border border-border rounded px-2 py-1"
+                    className="text-xs bg-background border border-border rounded px-2 py-1 w-full sm:w-auto min-w-[120px]"
                     value={filters.price}
                     onChange={(e) => setFilters(prev => ({ ...prev, price: e.target.value }))}
                   >
@@ -690,7 +690,7 @@ export function StockTransactionDoneDetail() {
                   variant="outline"
                   size="sm"
                   onClick={() => setFilters({ timeSort: 'latest', broker: 'all', price: 'all' })}
-                  className="text-xs"
+                  className="text-xs self-start sm:self-auto"
                 >
                   <RotateCcw className="w-3 h-3 mr-1" />
                   Reset
@@ -990,5 +990,6 @@ export function StockTransactionDoneDetail() {
     </div>
   );
 }
+
 
 
