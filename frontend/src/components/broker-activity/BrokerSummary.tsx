@@ -1,4 +1,8 @@
 import { getBrokerBackgroundClass, getBrokerTextClass, useDarkMode } from '../../utils/brokerColors';
+import { useState, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Button } from '../ui/button';
+import { Calendar, RotateCcw } from 'lucide-react';
 
 interface BrokerSummaryData {
   broker: string;
@@ -79,12 +83,134 @@ const getBrokerRowClass = (broker: string, _data: BrokerSummaryData): string => 
 };
 
 export function BrokerSummary({ selectedStock = 'BBRI' }: BrokerSummaryProps) {
+  // Date range states (styling and basic functionality copied from BrokerTransaction)
+  const todayIso = new Date().toISOString().split('T')[0] ?? '';
+  const [startDate, setStartDate] = useState<string>(todayIso);
+  const [endDate, setEndDate] = useState<string>(todayIso);
+  const [dateRangeMode, setDateRangeMode] = useState<'1day'|'3days'|'1week'|'custom'>('1day');
+  const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical'>('horizontal');
+
+  // Get trading days (skip weekends)
+  const getTradingDays = (count: number): string[] => {
+    const dates: string[] = [];
+    const today = new Date();
+    let currentDate = new Date(today);
+    while (dates.length < count) {
+      const dow = currentDate.getDay();
+      if (dow !== 0 && dow !== 6) {
+        dates.push(currentDate.toISOString().split('T')[0]);
+      }
+      currentDate.setDate(currentDate.getDate() - 1);
+      if (dates.length === 0 && currentDate.getTime() < today.getTime() - (30 * 24 * 60 * 60 * 1000)) {
+        dates.push(today.toISOString().split('T')[0]);
+        break;
+      }
+    }
+    return dates.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+  };
+
+  const handleDateRangeModeChange = (mode: '1day'|'3days'|'1week'|'custom') => {
+    setDateRangeMode(mode);
+    if (mode === 'custom') return;
+    const count = mode === '1day' ? 1 : mode === '3days' ? 3 : 5;
+    const days = getTradingDays(count);
+    if (days.length) {
+      setStartDate(days[0]);
+      setEndDate(days[days.length - 1]);
+    }
+  };
+
+  // Re-generate data when selected stock changes; date range is for UI control only in this demo
   const brokerData = generateTodayBrokerSummaryData(selectedStock);
   
   return (
-    <div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+    <div className="space-y-6">
+      {/* Date Range Selection - styling copied from BrokerTransaction */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Calendar className="w-5 h-5" />
+            Date Range Selection
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col gap-4 md:grid md:grid-cols-2 lg:flex lg:flex-row items-center lg:items-end">
+            {/* Date Range */}
+            <div className="flex-1 min-w-0 w-full md:col-span-2">
+              <label className="block text-sm font-medium mb-2">Date Range:</label>
+              <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2 w-full">
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                />
+                <span className="text-sm text-muted-foreground text-center whitespace-nowrap sm:px-2">to</span>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                />
+                <Button size="sm" className="w-auto justify-self-center" onClick={() => { /* hook for future filtering */ }}>
+                  Apply
+                </Button>
+              </div>
+            </div>
+
+            {/* Quick Select */}
+            <div className="flex-1 min-w-0 w-full">
+              <label className="block text-sm font-medium mb-2">Quick Select:</label>
+              <div className="flex gap-2">
+                <select 
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                  value={dateRangeMode}
+                  onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
+                >
+                  <option value="1day">1 Day</option>
+                  <option value="3days">3 Days</option>
+                  <option value="1week">1 Week</option>
+                  <option value="custom">Custom</option>
+                </select>
+                {dateRangeMode === 'custom' && (
+                  <Button variant="outline" size="sm" onClick={() => { setStartDate(todayIso); setEndDate(todayIso); }}>
+                    <RotateCcw className="w-4 h-4 mr-1" />
+                    Clear
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Layout Switch (same styling as BrokerTransaction) */}
+            <div className="flex-1 min-w-0 w-full lg:w-auto lg:flex-none">
+              <label className="block text-sm font-medium mb-2">Layout:</label>
+              <div className="flex sm:inline-flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto w-full sm:w-auto lg:w-auto">
+                <div className="flex items-center gap-1 min-w-max">
+                  <Button
+                    variant={layoutMode === 'horizontal' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setLayoutMode('horizontal')}
+                    className="px-3 py-1 h-8 text-xs"
+                  >
+                    Horizontal
+                  </Button>
+                  <Button
+                    variant={layoutMode === 'vertical' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setLayoutMode('vertical')}
+                    className="px-3 py-1 h-8 text-xs"
+                  >
+                    Vertical
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+        <div className="overflow-x-auto rounded-md">
+          <table className="w-full min-w-[560px] text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/50">
                 <th className="text-left py-2 px-3 font-medium">Broker</th>

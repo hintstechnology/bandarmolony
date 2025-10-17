@@ -521,7 +521,7 @@ export default function MarketRotationRRG() {
   return (
     <div className="space-y-6">
       {/* Trigger Buttons - Compact */}
-      <div className="flex items-center justify-end gap-1">
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <Button variant="outline" size="sm" onClick={() => handleTriggerUpdate('rrc')} disabled={isGenerating} title="Trigger RRC Only">
           {isGenerating ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : '📊'} RRC
           </Button>
@@ -543,11 +543,11 @@ export default function MarketRotationRRG() {
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
         {/* RRG Chart */}
         <div className="xl:col-span-3">
-          <Card className="h-full flex flex-col">
+          <Card className="flex h-full flex-col">
             <CardHeader>
               <CardTitle>Relative Rotation Graph (RRG) vs {selectedIndex}</CardTitle>
             </CardHeader>
-            <CardContent className="flex-1">
+            <CardContent className="flex-1 min-h-[320px] md:min-h-[420px]">
               {isGenerating ? (
                 <div className="flex items-center justify-center h-96">
                   <div className="text-center">
@@ -589,7 +589,7 @@ export default function MarketRotationRRG() {
                   </div>
                 </div>
               ) : trajectoryData.length > 0 ? (
-                <div className="h-full w-full relative">
+                <div className="relative h-full w-full min-h-[320px] md:min-h-[420px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={filteredTrajectoryData} margin={{ bottom: 20, left: 20, right: 20, top: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--muted-foreground))" opacity={0.3} />
@@ -690,7 +690,7 @@ export default function MarketRotationRRG() {
               {/* View Mode Selection */}
               <div>
                 <label className="text-sm font-medium mb-2 block">View Mode</label>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button variant={viewMode === 'sector' ? 'default' : 'outline'} size="sm" onClick={() => handleViewModeChange('sector')}>Sector</Button>
                   <Button variant={viewMode === 'stock' ? 'default' : 'outline'} size="sm" onClick={() => handleViewModeChange('stock')}>Stock</Button>
                 </div>
@@ -847,7 +847,7 @@ export default function MarketRotationRRG() {
       {/* Dashboard Momentum Screener */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle>Relative Momentum Screener</CardTitle>
             <div className="relative" ref={screenerSearchRef}>
               <div className="relative">
@@ -861,7 +861,7 @@ export default function MarketRotationRRG() {
                     setShowScreenerSearchDropdown(true);
                   }}
                   onFocus={() => setShowScreenerSearchDropdown(true)}
-                  className="pl-8 pr-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors w-48"
+                  className="w-full pl-8 pr-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors sm:w-56"
                 />
               </div>
               
@@ -896,51 +896,89 @@ export default function MarketRotationRRG() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {/* Header */}
-            <div className="grid grid-cols-7 gap-2 text-xs font-medium text-muted-foreground border-b pb-2">
-              <div>Symbol</div>
-              <div>Sector</div>
-              <div>RS-Ratio</div>
-              <div>RS-Momentum</div>
-              <div>Performance</div>
-              <div>Trend</div>
-              <div>Action</div>
-            </div>
-            
-            {/* Data Rows */}
-            <div className="space-y-2 max-h-80 overflow-y-auto">
-              {screenerStocks.length === 0 ? (
-                <div className="text-center py-8 text-sm text-muted-foreground">
-                  No stocks in screener. Search and add stocks above.
+            {screenerStocks.length === 0 ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                No stocks in screener. Search and add stocks above.
+              </div>
+            ) : (
+              <>
+                {/* Desktop/Table view */}
+                <div className="hidden md:grid grid-cols-7 gap-2 text-xs font-medium text-muted-foreground border-b pb-2">
+                  <div>Symbol</div>
+                  <div>Sector</div>
+                  <div>RS-Ratio</div>
+                  <div>RS-Momentum</div>
+                  <div>Performance</div>
+                  <div>Trend</div>
+                  <div>Action</div>
                 </div>
-              ) : (
-                screenerStocks.map((item, index) => (
-                <div key={index} className="grid grid-cols-7 gap-2 text-xs items-center py-2 border-b border-border/50">
-                  <div className="font-medium text-card-foreground">{item.symbol}</div>
-                  <div className="text-muted-foreground">{item.sector}</div>
-                    <div className="text-card-foreground">{item.rsRatio.toFixed(1)}</div>
-                    <div className="text-card-foreground">{item.rsMomentum.toFixed(1)}</div>
-                  <div className={item.performance >= 0 ? 'text-green-600' : 'text-red-600'}>
-                    {item.performance >= 0 ? '+' : ''}{item.performance.toFixed(1)}%
-                  </div>
-                  <div>
-                    <Badge variant={getBadgeVariant(item.trend)} className="text-xs">
-                      {item.trend}
-                    </Badge>
-                  </div>
-                  <div>
-                    <button
-                      onClick={() => removeFromScreener(item.symbol)}
-                      className="h-6 w-6 p-0 flex items-center justify-center rounded-md transition-colors hover:bg-muted/50 hover:shadow-sm opacity-60 hover:opacity-100"
-                      title={`Remove ${item.symbol} from screener`}
-                    >
-                      <X className="w-3 h-3 text-muted-foreground hover:text-destructive" />
-                    </button>
+                <div className="hidden md:block max-h-80 overflow-y-auto pr-1">
+                  <div className="space-y-2">
+                    {screenerStocks.map((item, index) => (
+                      <div key={index} className="grid grid-cols-7 gap-2 items-center border-b border-border/50 py-2 text-xs">
+                        <div className="font-medium text-card-foreground">{item.symbol}</div>
+                        <div className="text-muted-foreground">{item.sector}</div>
+                        <div className="text-card-foreground">{item.rsRatio.toFixed(1)}</div>
+                        <div className="text-card-foreground">{item.rsMomentum.toFixed(1)}</div>
+                        <div className={item.performance >= 0 ? 'text-green-600' : 'text-red-600'}>
+                          {item.performance >= 0 ? '+' : ''}{item.performance.toFixed(1)}%
+                        </div>
+                        <div>
+                          <Badge variant={getBadgeVariant(item.trend)} className="text-xs">
+                            {item.trend}
+                          </Badge>
+                        </div>
+                        <div className="flex justify-end">
+                          <button
+                            onClick={() => removeFromScreener(item.symbol)}
+                            className="flex h-6 w-6 items-center justify-center rounded-md p-0 transition-colors hover:bg-muted/50 hover:shadow-sm opacity-60 hover:opacity-100"
+                            title={`Remove ${item.symbol} from screener`}
+                          >
+                            <X className="w-3 h-3 text-muted-foreground hover:text-destructive" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-                ))
-              )}
-            </div>
+
+                {/* Mobile stacked view */}
+                <div className="grid gap-3 md:hidden">
+                  {screenerStocks.map((item, index) => (
+                    <div key={index} className="rounded-lg border border-border bg-card p-4 shadow-sm">
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-semibold text-card-foreground">{item.symbol}</div>
+                        <Badge variant={getBadgeVariant(item.trend)} className="text-[10px] uppercase tracking-wide">
+                          {item.trend}
+                        </Badge>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-muted-foreground">
+                        <span>Sektor</span>
+                        <span className="text-right text-card-foreground">{item.sector}</span>
+                        <span>RS-Ratio</span>
+                        <span className="text-right text-card-foreground">{item.rsRatio.toFixed(1)}</span>
+                        <span>RS-Momentum</span>
+                        <span className="text-right text-card-foreground">{item.rsMomentum.toFixed(1)}</span>
+                        <span>Performance</span>
+                        <span className={`text-right ${item.performance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {item.performance >= 0 ? '+' : ''}{item.performance.toFixed(1)}%
+                        </span>
+                      </div>
+                      <div className="mt-3 flex justify-end">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-xs text-muted-foreground hover:text-destructive"
+                          onClick={() => removeFromScreener(item.symbol)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </CardContent>
       </Card>

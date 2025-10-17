@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { Calendar, Plus, X, Grid3X3, Clock, DollarSign, Users, ChevronDown, RotateCcw } from 'lucide-react';
+import { Calendar, Plus, X, Grid3X3, Clock, DollarSign, Users, ChevronDown, RotateCcw, Search } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 
 interface DoneDetailData {
@@ -156,7 +156,8 @@ export function StockTransactionDoneDetail() {
   });
   const [selectedStock, setSelectedStock] = useState('BBRI');
   const [stockInput, setStockInput] = useState('BBRI');
-  const [showStockSuggestions, setShowStockSuggestions] = useState(false);
+  
+  const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
   const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical'>('horizontal');
   const [filters, setFilters] = useState({
     timeSort: 'latest',
@@ -782,17 +783,18 @@ export function StockTransactionDoneDetail() {
         <CardContent>
           <div className="space-y-3 sm:space-y-4">
             {/* Row 1: Stock, Date Range, Clear, Last 3 Days, Layout */}
-            <div className="flex flex-col xl:flex-row gap-3 sm:gap-4 items-start xl:items-end">
-              <div className="flex-1 w-full xl:w-auto">
-                <label className="block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Stock:</label>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 items-center lg:items-end">
+              <div className="flex-1 min-w-0 w-full">
+                <label className="block text-sm font-medium mb-2">Stock:</label>
                 <div className="relative" ref={dropdownRef}>
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                   <input
                     type="text"
                     value={stockInput}
-                    onChange={(e) => handleStockInputChange(e.target.value)}
-                    onFocus={() => setShowStockSuggestions(true)}
+                    onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
+                    onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
                     placeholder="Enter stock code..."
-                    className="w-full px-2 sm:px-3 py-1 sm:py-2 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground"
+                    className="w-full pl-8 pr-3 py-2 text-sm border border-border rounded-md bg-input text-foreground" role="combobox" aria-expanded={showStockSuggestions} aria-controls="detail-stock-suggestions" aria-autocomplete="list"
                   />
                   {showStockSuggestions && (
                     <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
@@ -831,34 +833,34 @@ export function StockTransactionDoneDetail() {
                 </div>
               </div>
 
-              <div className="flex-1 w-full xl:w-auto">
-                <label className="block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Date Range:</label>
-                <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+              <div className="flex-1 min-w-0 w-full">
+                <label className="block text-sm font-medium mb-2">Date Range:</label>
+                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2 w-full">
                   <input
                     type="date"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full sm:flex-1 px-2 sm:px-3 py-1 sm:py-2 text-xs sm:text-sm border border-border rounded-md bg-input text-foreground"
+                    className="w-full pl-8 pr-3 py-2 text-sm border border-border rounded-md bg-input text-foreground" role="combobox" aria-expanded={showStockSuggestions} aria-controls="detail-stock-suggestions" aria-autocomplete="list"
                   />
-                  <span className="text-xs sm:text-sm text-muted-foreground hidden sm:inline">to</span>
+                  <span className="text-sm text-muted-foreground text-center whitespace-nowrap px-2">to</span>
                   <input
                     type="date"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full sm:flex-1 px-2 sm:px-3 py-1 sm:py-2 text-xs sm:text-sm border border-border rounded-md bg-input text-foreground"
+                    className="w-full pl-8 pr-3 py-2 text-sm border border-border rounded-md bg-input text-foreground" role="combobox" aria-expanded={showStockSuggestions} aria-controls="detail-stock-suggestions" aria-autocomplete="list"
                   />
-                  <Button onClick={addDateRange} size="sm" className="w-full sm:w-auto">
-                    <Plus className="w-3 h-3 sm:w-4 sm:h-4" />
-                    <span className="ml-1 text-xs sm:hidden">Add</span>
+                  <Button onClick={addDateRange} size="sm" className="w-auto justify-self-center">
+                    <Plus className="w-4 h-4" />
+                    <span className="ml-1">Add</span>
                   </Button>
                 </div>
               </div>
 
-              <div className="flex-1 w-full xl:w-auto">
-                <label className="block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Quick Select:</label>
+              <div className="flex-1 min-w-0 w-full">
+                <label className="block text-sm font-medium mb-2">Quick Select:</label>
                 <div className="flex flex-col sm:flex-row gap-2">
                 <select 
-                    className="w-full xl:flex-1 px-2 sm:px-3 py-1 sm:py-2 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground"
+                    className="w-full xl:flex-1 px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
                     value={dateRangeMode}
                     onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
                   >
@@ -868,35 +870,35 @@ export function StockTransactionDoneDetail() {
                     <option value="custom">Custom</option>
                 </select>
                   {dateRangeMode === 'custom' && (
-                    <Button onClick={clearAllDates} variant="outline" size="sm" className="w-full sm:w-auto">
+                    <Button onClick={clearAllDates} variant="outline" size="sm" className="w-auto">
                       <RotateCcw className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
-                      <span className="text-xs sm:text-sm">Clear</span>
+                      <span className="text-sm">Clear</span>
                     </Button>
                   )}
               </div>
             </div>
 
-              <div className="flex-1 w-full xl:w-auto">
-                <label className="block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Layout:</label>
-                <div className="flex gap-1">
-                <Button
-                    variant={layoutMode === 'horizontal' ? 'default' : 'outline'}
-                  size="sm"
-                    onClick={() => setLayoutMode('horizontal')}
-                    className="flex-1 text-xs sm:text-sm"
-                >
-                    <span className="hidden sm:inline">Horizontal</span>
-                    <span className="sm:hidden">H</span>
-                </Button>
-                <Button
-                    variant={layoutMode === 'vertical' ? 'default' : 'outline'}
-                  size="sm"
-                    onClick={() => setLayoutMode('vertical')}
-                    className="flex-1 text-xs sm:text-sm"
-                  >
-                    <span className="hidden sm:inline">Vertical</span>
-                    <span className="sm:hidden">V</span>
-                </Button>
+              <div className="flex-1 min-w-0 w-full lg:w-auto lg:flex-none">
+                <label className="block text-sm font-medium mb-2">Layout:</label>
+                <div className="flex sm:inline-flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto w-full sm:w-auto lg:w-auto justify-center sm:justify-start">
+                  <div className="grid grid-cols-2 gap-1 w-full max-w-xs mx-auto sm:flex sm:items-center sm:gap-1 sm:max-w-none sm:mx-0">
+                    <Button
+                      variant={layoutMode === 'horizontal' ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => setLayoutMode('horizontal')}
+                      className="px-3 py-1 h-8 text-xs"
+                    >
+                      Horizontal
+                    </Button>
+                    <Button
+                      variant={layoutMode === 'vertical' ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => setLayoutMode('vertical')}
+                      className="px-3 py-1 h-8 text-xs"
+                    >
+                      Vertical
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -968,3 +970,4 @@ export function StockTransactionDoneDetail() {
     </div>
   );
 }
+

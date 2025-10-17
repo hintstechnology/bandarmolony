@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Button } from '../ui/button';
+import { Calendar } from 'lucide-react';
 import { ChevronDown } from 'lucide-react';
 
 interface PriceData {
@@ -72,11 +74,75 @@ const findMaxValues = (data: PriceData[]) => {
 export function DoneSummary({ selectedStock = 'BBRI' }: DoneSummaryProps) {
   const priceData = generateTodayPriceData(selectedStock);
   const maxValues = findMaxValues(priceData);
+  const todayIso = new Date().toISOString().split('T')[0] ?? '';
+  const [startDate, setStartDate] = useState<string>(todayIso);
+  const [endDate, setEndDate] = useState<string>(todayIso);
+  const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical'>('horizontal');
   
   return (
-    <div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+    <div className="space-y-6">
+      {/* Date Range Selection (styling copied from BrokerInventoryPage) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Calendar className="w-5 h-5" />
+            Date Range Selection
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-center lg:items-end">
+            <div className="flex-1 min-w-0 w-full md:col-span-2">
+              <label className="block text-sm font-medium mb-2">Date Range:</label>
+              <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2 w-full">
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                />
+                <span className="text-sm text-muted-foreground text-center whitespace-nowrap px-2">to</span>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                />
+                <Button size="sm" className="w-auto justify-self-center" onClick={() => { /* hook for future filter */ }}>
+                  Apply
+                </Button>
+              </div>
+            </div>
+
+            {/* Layout Switch - match visualization switch style */}
+            <div className="flex-1 min-w-0 w-full lg:w-auto lg:flex-none">
+              <label className="block text-sm font-medium mb-2">Layout:</label>
+              <div className="flex sm:inline-flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto w-full sm:w-auto lg:w-auto justify-center sm:justify-start">
+                <div className="grid grid-cols-2 gap-1 w-full max-w-xs mx-auto sm:flex sm:items-center sm:gap-1 sm:max-w-none sm:mx-0">
+                  <Button
+                    variant={layoutMode === 'horizontal' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setLayoutMode('horizontal')}
+                    className="px-3 py-1 h-8 text-xs"
+                  >
+                    Horizontal
+                  </Button>
+                  <Button
+                    variant={layoutMode === 'vertical' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setLayoutMode('vertical')}
+                    className="px-3 py-1 h-8 text-xs"
+                  >
+                    Vertical
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+        <div className="overflow-x-auto rounded-md">
+          <table className="w-full min-w-[560px] text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/50">
                 <th className="text-left py-2 px-3 font-medium">Price</th>

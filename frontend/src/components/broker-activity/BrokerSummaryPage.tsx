@@ -106,6 +106,7 @@ export function BrokerSummaryPage() {
   const [tickerInput, setTickerInput] = useState('BBCA');
   const [selectedTicker, setSelectedTicker] = useState<string>('BBCA');
   const [showTickerSuggestions, setShowTickerSuggestions] = useState(false);
+  const [highlightedTickerIndex, setHighlightedTickerIndex] = useState<number>(-1);
   const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical'>('vertical');
   const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
 
@@ -206,9 +207,9 @@ export function BrokerSummaryPage() {
                     <CardTitle className="text-green-600">BUY SIDE - {selectedTicker}</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead>
+                    <div className="overflow-x-auto rounded-md">
+                      <table className="w-full min-w-[560px] text-xs">
+                        <thead className="bg-background">
                           <tr className="border-b border-border">
                             <th className="text-left py-2 px-2 font-medium">Broker</th>
                             <th className="text-right py-2 px-2 font-medium">NBLot</th>
@@ -239,9 +240,9 @@ export function BrokerSummaryPage() {
                     <CardTitle className="text-red-600">SELL SIDE - {selectedTicker}</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead>
+                    <div className="overflow-x-auto rounded-md">
+                      <table className="w-full min-w-[560px] text-xs">
+                        <thead className="bg-background">
                           <tr className="border-b border-border">
                             <th className="text-left py-2 px-2 font-medium">Broker</th>
                             <th className="text-right py-2 px-2 font-medium">NSLot</th>
@@ -288,9 +289,9 @@ export function BrokerSummaryPage() {
         <CardContent>
           <div className="space-y-4">
             {/* Row 1: Ticker, Date Range, Quick Select, Layout */}
-            <div className="flex flex-col lg:flex-row gap-4 items-end">
+            <div className="flex flex-col gap-4 md:grid md:grid-cols-2 lg:flex lg:flex-row items-center lg:items-end">
               {/* Ticker Selection */}
-              <div className="flex-1">
+              <div className="flex-1 min-w-0 w-full">
                 <label className="block text-sm font-medium mb-2">Ticker:</label>
                 <div className="relative">
                   <input
@@ -300,11 +301,48 @@ export function BrokerSummaryPage() {
                       const v = e.target.value.toUpperCase();
                       setTickerInput(v);
                       setShowTickerSuggestions(true);
+                      setHighlightedTickerIndex(0);
                       if (!v) setSelectedTicker('');
                     }}
                     onFocus={() => setShowTickerSuggestions(true)}
+                    onKeyDown={(e) => {
+                      const suggestions = TICKERS
+                        .filter(t => t.toLowerCase().includes(tickerInput.toLowerCase()))
+                        .slice(0, 10);
+                      if (!suggestions.length) return;
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        setHighlightedTickerIndex(prev => {
+                          const next = prev + 1;
+                          return next >= suggestions.length ? 0 : next;
+                        });
+                      } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setHighlightedTickerIndex(prev => {
+                          const next = prev - 1;
+                          return next < 0 ? suggestions.length - 1 : next;
+                        });
+                      } else if (e.key === 'Enter' && showTickerSuggestions) {
+                        e.preventDefault();
+                        const idx = highlightedTickerIndex >= 0 ? highlightedTickerIndex : 0;
+                        const choice = suggestions[idx];
+                        if (choice) {
+                          setTickerInput(choice);
+                          setSelectedTicker(choice);
+                          setShowTickerSuggestions(false);
+                          setHighlightedTickerIndex(-1);
+                        }
+                      } else if (e.key === 'Escape') {
+                        setShowTickerSuggestions(false);
+                        setHighlightedTickerIndex(-1);
+                      }
+                    }}
                     placeholder="Enter ticker code..."
                     className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                    role="combobox"
+                    aria-expanded={showTickerSuggestions}
+                    aria-controls="ticker-suggestions"
+                    aria-autocomplete="list"
                   />
                   {!!tickerInput && (
                     <button
@@ -319,60 +357,69 @@ export function BrokerSummaryPage() {
                     </button>
                   )}
                   {showTickerSuggestions && (
-                    <div className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
-                      {TICKERS
+                    (() => {
+                      const suggestions = TICKERS
                         .filter(t => t.toLowerCase().includes(tickerInput.toLowerCase()))
-                        .slice(0, 10)
-                        .map(t => (
-                          <button
-                            key={t}
-                            onClick={() => {
-                              setTickerInput(t);
-                              setSelectedTicker(t);
-                              setShowTickerSuggestions(false);
-                            }}
-                            className="w-full text-left px-3 py-2 hover:bg-accent text-sm"
-                          >
-                            {t}
-                          </button>
-                        ))}
-                      {TICKERS.filter(t => t.toLowerCase().includes(tickerInput.toLowerCase())).length === 0 && (
-                        <div className="px-3 py-2 text-sm text-muted-foreground">No results</div>
-                      )}
-                    </div>
+                        .slice(0, 10);
+                      return (
+                        <div id="ticker-suggestions" role="listbox" className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
+                          {suggestions.map((t, idx) => (
+                            <button
+                              key={t}
+                              role="option"
+                              aria-selected={idx === highlightedTickerIndex}
+                              className={`w-full text-left px-3 py-2 text-sm ${idx === highlightedTickerIndex ? 'bg-accent' : 'hover:bg-accent'}`}
+                              onMouseEnter={() => setHighlightedTickerIndex(idx)}
+                              onMouseDown={(e) => { e.preventDefault(); }}
+                              onClick={() => {
+                                setTickerInput(t);
+                                setSelectedTicker(t);
+                                setShowTickerSuggestions(false);
+                                setHighlightedTickerIndex(-1);
+                              }}
+                            >
+                              {t}
+                            </button>
+                          ))}
+                          {suggestions.length === 0 && (
+                            <div className="px-3 py-2 text-sm text-muted-foreground">No results</div>
+                          )}
+                        </div>
+                      );
+                    })()
                   )}
                 </div>
               </div>
 
               {/* Date Range */}
-              <div className="flex-1">
+              <div className="flex-1 min-w-0 w-full md:col-span-2">
                 <label className="block text-sm font-medium mb-2">Date Range:</label>
-                <div className="flex gap-2 items-center">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2 w-full">
                   <input
                     type="date"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
-                    className="flex-1 px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                    className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
                   />
-                  <span className="text-sm text-muted-foreground">to</span>
+                  <span className="text-sm text-muted-foreground text-center whitespace-nowrap sm:px-2">to</span>
                   <input
                     type="date"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
-                    className="flex-1 px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                    className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
                   />
-                  <Button onClick={addDateRange} size="sm">
+                  <Button onClick={addDateRange} size="sm" className="w-auto justify-self-center">
                     <Plus className="w-4 h-4" />
                   </Button>
                 </div>
               </div>
 
               {/* Quick Select */}
-              <div className="flex-1">
+              <div className="flex-1 min-w-0 w-full">
                 <label className="block text-sm font-medium mb-2">Quick Select:</label>
                 <div className="flex gap-2">
                   <select 
-                    className="flex-1 px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                    className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
                     value={dateRangeMode}
                     onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
                   >
@@ -391,25 +438,27 @@ export function BrokerSummaryPage() {
               </div>
 
               {/* Layout Mode Toggle */}
-              <div className="flex-1">
+              <div className="flex-1 min-w-0 w-full lg:w-auto lg:flex-none">
                 <label className="block text-sm font-medium mb-2">Layout:</label>
-                <div className="flex gap-1">
-                  <Button
-                    variant={layoutMode === 'horizontal' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setLayoutMode('horizontal')}
-                    className="flex-1"
-                  >
-                    Horizontal
-                  </Button>
-                  <Button
-                    variant={layoutMode === 'vertical' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setLayoutMode('vertical')}
-                    className="flex-1"
-                  >
-                    Vertical
-                  </Button>
+                <div className="flex sm:inline-flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto w-full sm:w-auto lg:w-auto justify-center sm:justify-start">
+                  <div className="grid grid-cols-2 gap-1 w-full max-w-xs mx-auto sm:flex sm:items-center sm:gap-1 sm:max-w-none sm:mx-0">
+                    <Button
+                      variant={layoutMode === 'horizontal' ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => setLayoutMode('horizontal')}
+                      className="px-3 py-1 h-8 text-xs"
+                    >
+                      Horizontal
+                    </Button>
+                    <Button
+                      variant={layoutMode === 'vertical' ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => setLayoutMode('vertical')}
+                      className="px-3 py-1 h-8 text-xs"
+                    >
+                      Vertical
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>

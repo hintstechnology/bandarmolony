@@ -891,6 +891,8 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
   const [tickerSearch, setTickerSearch] = useState('');
   const [showTickerSuggestions, setShowTickerSuggestions] = useState(false);
   const [splitVisualization, setSplitVisualization] = useState(false);
+  const [highlightedTickerIndex, setHighlightedTickerIndex] = useState<number>(-1);
+  const [highlightedBrokerIndex, setHighlightedBrokerIndex] = useState<number>(-1);
 
   // Broker search handlers
   const handleBrokerSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -975,7 +977,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
 
   return (
     <div className="min-h-screen">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
+      <div className="w-full px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6">
         <div className="space-y-6">
 
           {/* Controls */}
@@ -993,9 +995,43 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                       type="text"
                       placeholder="BBCA"
                       value={tickerSearch || selectedTicker}
-                      onChange={handleTickerSearchChange}
-                      onFocus={() => setShowTickerSuggestions(true)}
+                      onChange={(e) => { handleTickerSearchChange(e); setHighlightedTickerIndex(0); }}
+                      onFocus={() => { setShowTickerSuggestions(true); setHighlightedTickerIndex(0); }}
+                      onKeyDown={(e) => {
+                        const baseList = tickerSearch.length === 0 ? AVAILABLE_TICKERS : filteredTickers;
+                        const suggestions = baseList.slice(0, 10);
+                        if (!suggestions.length) return;
+                        if (e.key === 'ArrowDown') {
+                          e.preventDefault();
+                          setHighlightedTickerIndex(prev => {
+                            const next = prev + 1;
+                            return next >= suggestions.length ? 0 : next;
+                          });
+                        } else if (e.key === 'ArrowUp') {
+                          e.preventDefault();
+                          setHighlightedTickerIndex(prev => {
+                            const next = prev - 1;
+                            return next < 0 ? suggestions.length - 1 : next;
+                          });
+                        } else if (e.key === 'Enter' && showTickerSuggestions) {
+                          e.preventDefault();
+                          const idx = highlightedTickerIndex >= 0 ? highlightedTickerIndex : 0;
+                          const choice = suggestions[idx];
+                          if (choice) {
+                            handleTickerSelect(choice);
+                            setShowTickerSuggestions(false);
+                            setHighlightedTickerIndex(-1);
+                          }
+                        } else if (e.key === 'Escape') {
+                          setShowTickerSuggestions(false);
+                          setHighlightedTickerIndex(-1);
+                        }
+                      }}
                       className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                      role="combobox"
+                      aria-expanded={showTickerSuggestions}
+                      aria-controls="inv-ticker-suggestions"
+                      aria-autocomplete="list"
                     />
                     
                     {!!tickerSearch && (
@@ -1008,41 +1044,35 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                     )}
                     
                     {showTickerSuggestions && (
-                      <div className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
-                        {tickerSearch.length === 0 ? (
-                          // Show all tickers when empty
-                          <div className="p-2">
-                            <div className="text-xs text-muted-foreground mb-2">All Tickers:</div>
-                            {AVAILABLE_TICKERS.slice(0, 10).map((ticker) => (
-                              <div
-                                key={ticker}
-                                onClick={() => handleTickerSelect(ticker)}
-                                className="flex items-center space-x-2 p-2 hover:bg-muted rounded cursor-pointer"
-                              >
-                                <span className="text-sm">{ticker}</span>
-                              </div>
-                            ))}
+                      (() => {
+                        const baseList = tickerSearch.length === 0 ? AVAILABLE_TICKERS : filteredTickers;
+                        const suggestions = baseList.slice(0, 10);
+                        return (
+                          <div id="inv-ticker-suggestions" role="listbox" className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
+                            <div className="p-2">
+                              {tickerSearch.length === 0 && (
+                                <div className="text-xs text-muted-foreground mb-2">All Tickers:</div>
+                              )}
+                              {suggestions.map((ticker, idx) => (
+                                <div
+                                  key={ticker}
+                                  role="option"
+                                  aria-selected={idx === highlightedTickerIndex}
+                                  onMouseEnter={() => setHighlightedTickerIndex(idx)}
+                                  onMouseDown={(e) => { e.preventDefault(); }}
+                                  onClick={() => { handleTickerSelect(ticker); setShowTickerSuggestions(false); setHighlightedTickerIndex(-1); }}
+                                  className={`flex items-center space-x-2 p-2 rounded cursor-pointer ${idx === highlightedTickerIndex ? 'bg-accent' : 'hover:bg-muted'}`}
+                                >
+                                  <span className="text-sm">{ticker}</span>
+                                </div>
+                              ))}
+                              {suggestions.length === 0 && (
+                                <div className="p-2 text-sm text-muted-foreground">No tickers found</div>
+                              )}
+                            </div>
                           </div>
-                        ) : (
-                          // Show filtered tickers when typing
-                          <div className="p-2">
-                            {filteredTickers.slice(0, 10).map((ticker) => (
-                              <div
-                                key={ticker}
-                                onClick={() => handleTickerSelect(ticker)}
-                                className="flex items-center space-x-2 p-2 hover:bg-muted rounded cursor-pointer"
-                              >
-                                <span className="text-sm">{ticker}</span>
-                              </div>
-                            ))}
-                            {filteredTickers.length === 0 && (
-                              <div className="p-2 text-sm text-muted-foreground">
-                                No tickers found
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
+                        );
+                      })()
                     )}
                   </div>
                 </div>
@@ -1055,9 +1085,45 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                       type="text"
                       placeholder="Broker..."
                       value={brokerSearch}
-                      onChange={handleBrokerSearchChange}
-                      onFocus={() => setShowBrokerSuggestions(true)}
+                      onChange={(e) => { handleBrokerSearchChange(e); setHighlightedBrokerIndex(0); }}
+                      onFocus={() => { setShowBrokerSuggestions(true); setHighlightedBrokerIndex(0); }}
+                      onKeyDown={(e) => {
+                        const baseList = brokerSearch.length === 0
+                          ? AVAILABLE_BROKERS.filter(b => !selectedBrokers.includes(b))
+                          : filteredBrokers;
+                        const suggestions = baseList.slice(0, 10);
+                        if (!suggestions.length) return;
+                        if (e.key === 'ArrowDown') {
+                          e.preventDefault();
+                          setHighlightedBrokerIndex(prev => {
+                            const next = prev + 1;
+                            return next >= suggestions.length ? 0 : next;
+                          });
+                        } else if (e.key === 'ArrowUp') {
+                          e.preventDefault();
+                          setHighlightedBrokerIndex(prev => {
+                            const next = prev - 1;
+                            return next < 0 ? suggestions.length - 1 : next;
+                          });
+                        } else if (e.key === 'Enter' && showBrokerSuggestions) {
+                          e.preventDefault();
+                          const idx = highlightedBrokerIndex >= 0 ? highlightedBrokerIndex : 0;
+                          const choice = suggestions[idx];
+                          if (choice) {
+                            handleBrokerSelect(choice);
+                            setShowBrokerSuggestions(false);
+                            setHighlightedBrokerIndex(-1);
+                          }
+                        } else if (e.key === 'Escape') {
+                          setShowBrokerSuggestions(false);
+                          setHighlightedBrokerIndex(-1);
+                        }
+                      }}
                       className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                      role="combobox"
+                      aria-expanded={showBrokerSuggestions}
+                      aria-controls="inv-broker-suggestions"
+                      aria-autocomplete="list"
                     />
                     
                     {!!brokerSearch && (
@@ -1070,49 +1136,38 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                     )}
                     
                     {showBrokerSuggestions && (
-                      <div className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
-                        {brokerSearch.length === 0 ? (
-                          // Show all brokers when empty
-                          <div className="p-2">
-                            <div className="text-xs text-muted-foreground mb-2">All Brokers:</div>
-                            {AVAILABLE_BROKERS.filter(broker => !selectedBrokers.includes(broker)).slice(0, 10).map((broker) => (
-                              <div
-                                key={broker}
-                                onClick={() => handleBrokerSelect(broker)}
-                                className="flex items-center space-x-2 p-2 hover:bg-muted rounded cursor-pointer"
-                              >
-                                <div 
-                                  className="w-3 h-3 rounded-full" 
-                                  style={{ backgroundColor: getBrokerColor(broker) }}
-                                />
-                                <span className="text-sm">{broker}</span>
-                              </div>
-                            ))}
+                      (() => {
+                        const baseList = brokerSearch.length === 0
+                          ? AVAILABLE_BROKERS.filter(b => !selectedBrokers.includes(b))
+                          : filteredBrokers;
+                        const suggestions = baseList.slice(0, 10);
+                        return (
+                          <div id="inv-broker-suggestions" role="listbox" className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
+                            <div className="p-2">
+                              {brokerSearch.length === 0 && (
+                                <div className="text-xs text-muted-foreground mb-2">All Brokers:</div>
+                              )}
+                              {suggestions.map((broker, idx) => (
+                                <div
+                                  key={broker}
+                                  role="option"
+                                  aria-selected={idx === highlightedBrokerIndex}
+                                  onMouseEnter={() => setHighlightedBrokerIndex(idx)}
+                                  onMouseDown={(e) => { e.preventDefault(); }}
+                                  onClick={() => { handleBrokerSelect(broker); setShowBrokerSuggestions(false); setHighlightedBrokerIndex(-1); }}
+                                  className={`flex items-center space-x-2 p-2 rounded cursor-pointer ${idx === highlightedBrokerIndex ? 'bg-accent' : 'hover:bg-muted'}`}
+                                >
+                                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getBrokerColor(broker) }} />
+                                  <span className="text-sm">{broker}</span>
+                                </div>
+                              ))}
+                              {suggestions.length === 0 && (
+                                <div className="p-2 text-sm text-muted-foreground">No brokers found</div>
+                              )}
+                            </div>
                           </div>
-                        ) : (
-                          // Show filtered brokers when typing
-                          <div className="p-2">
-                            {filteredBrokers.slice(0, 10).map((broker) => (
-                              <div
-                                key={broker}
-                                onClick={() => handleBrokerSelect(broker)}
-                                className="flex items-center space-x-2 p-2 hover:bg-muted rounded cursor-pointer"
-                              >
-                                <div 
-                                  className="w-3 h-3 rounded-full" 
-                                  style={{ backgroundColor: getBrokerColor(broker) }}
-                                />
-                                <span className="text-sm">{broker}</span>
-                              </div>
-                            ))}
-                            {filteredBrokers.length === 0 && (
-                              <div className="p-2 text-sm text-muted-foreground">
-                                No brokers found
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
+                        );
+                      })()
                     )}
                   </div>
                 </div>
@@ -1138,25 +1193,27 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                 </div>
 
                 {/* Split Visualization Toggle */}
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 w-full lg:w-auto lg:flex-none">
                   <label className="block text-sm font-medium mb-2">Visualization:</label>
-                  <div className="flex gap-1">
-                    <Button
-                      variant={!splitVisualization ? "default" : "outline"}
-                      onClick={() => setSplitVisualization(false)}
-                      size="sm"
-                      className="flex-1 px-3 py-2 text-sm min-w-0"
-                    >
-                      Combined
-                    </Button>
-                    <Button
-                      variant={splitVisualization ? "default" : "outline"}
-                      onClick={() => setSplitVisualization(true)}
-                      size="sm"
-                      className="flex-1 px-3 py-2 text-sm min-w-0"
-                    >
-                      Split
-                    </Button>
+                  <div className="flex sm:inline-flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto w-full sm:w-auto lg:w-auto justify-center sm:justify-start">
+                    <div className="grid grid-cols-2 gap-1 w-full max-w-xs mx-auto sm:flex sm:items-center sm:gap-1 sm:max-w-none sm:mx-0">
+                      <Button
+                        variant={!splitVisualization ? "default" : "ghost"}
+                        onClick={() => setSplitVisualization(false)}
+                        size="sm"
+                        className="px-3 py-1 h-8 text-xs"
+                      >
+                        Combined
+                      </Button>
+                      <Button
+                        variant={splitVisualization ? "default" : "ghost"}
+                        onClick={() => setSplitVisualization(true)}
+                        size="sm"
+                        className="px-3 py-1 h-8 text-xs"
+                      >
+                        Split
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>

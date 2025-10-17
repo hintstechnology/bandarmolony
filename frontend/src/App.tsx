@@ -43,6 +43,10 @@ import { LandingPage } from "./components/dashboard/LandingPage";
 import { SubscriptionSuccess } from "./components/subscription/SubscriptionSuccess";
 import { SubscriptionError } from "./components/subscription/SubscriptionError";
 import { SubscriptionPending } from "./components/subscription/SubscriptionPending";
+import { FeaturesPage } from "./pages/FeaturesPage";
+import { ContactPage } from "./pages/ContactPage";
+import { TermsPage } from "./pages/TermsPage";
+import { PrivacyPage } from "./pages/PrivacyPage";
 
 // Dashboard Layout Component
 function DashboardLayout() {
@@ -239,7 +243,7 @@ function DashboardLayout() {
       />
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden ml-16">
+        <div className="flex-1 flex flex-col overflow-hidden ml-0 lg:ml-16">
         {/* Header */}
         <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card h-14">
           <div className="flex items-center gap-3">
@@ -353,6 +357,10 @@ export default function App() {
                 />
               } 
             />
+            <Route path="/features" element={<FeaturesPage />} />
+            <Route path="/contact" element={<ContactPage />} />
+            <Route path="/terms" element={<TermsPage />} />
+            <Route path="/privacy" element={<PrivacyPage />} />
             
             {/* Email verification handler */}
             <Route 
