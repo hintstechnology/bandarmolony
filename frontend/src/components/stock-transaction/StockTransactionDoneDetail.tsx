@@ -452,14 +452,14 @@ export function StockTransactionDoneDetail() {
         return (
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
               <Grid3X3 className="w-5 h-5" />
               Transaction Details - ({selectedStock})
             </CardTitle>
 
             {/* Filter Section */}
-            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center" w-full">
               <div className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
                 <label className="text-xs font-medium text-muted-foreground">Sort Time:</label>
                 <select
@@ -639,13 +639,13 @@ export function StockTransactionDoneDetail() {
         {/* Filter Section */}
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
                 <Grid3X3 className="w-5 h-5" />
                 Filters
               </CardTitle>
 
-              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center" w-full">
                 <div className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
                   <label className="text-xs font-medium text-muted-foreground">Sort Time:</label>
                   <select
@@ -990,6 +990,8 @@ export function StockTransactionDoneDetail() {
     </div>
   );
 }
+
+
 
 
 
