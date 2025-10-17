@@ -157,6 +157,7 @@ export function StockTransactionDoneDetail() {
   const [selectedStock, setSelectedStock] = useState('BBRI');
   const [stockInput, setStockInput] = useState('BBRI');
   
+  const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
   const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical'>('horizontal');
   const [filters, setFilters] = useState({
@@ -794,7 +795,7 @@ export function StockTransactionDoneDetail() {
                     onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
                     onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
                     placeholder="Enter stock code..."
-                    className="w-full pl-8 pr-3 py-2 text-sm border border-border rounded-md bg-input text-foreground" role="combobox" aria-expanded={showStockSuggestions} aria-controls="detail-stock-suggestions" aria-autocomplete="list"
+                    className="w-full px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
                   />
                   {showStockSuggestions && (
                     <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
@@ -840,14 +841,14 @@ export function StockTransactionDoneDetail() {
                     type="date"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full pl-8 pr-3 py-2 text-sm border border-border rounded-md bg-input text-foreground" role="combobox" aria-expanded={showStockSuggestions} aria-controls="detail-stock-suggestions" aria-autocomplete="list"
+                    className="w-full px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
                   />
                   <span className="text-sm text-muted-foreground text-center whitespace-nowrap px-2">to</span>
                   <input
                     type="date"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full pl-8 pr-3 py-2 text-sm border border-border rounded-md bg-input text-foreground" role="combobox" aria-expanded={showStockSuggestions} aria-controls="detail-stock-suggestions" aria-autocomplete="list"
+                    className="w-full px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
                   />
                   <Button onClick={addDateRange} size="sm" className="w-auto justify-self-center">
                     <Plus className="w-4 h-4" />
@@ -970,4 +971,5 @@ export function StockTransactionDoneDetail() {
     </div>
   );
 }
+
 
