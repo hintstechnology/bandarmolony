@@ -1010,7 +1010,7 @@ export function StockTransactionDoneSummary() {
               </div>
 
               {/* Date Range */}
-              <div className="flex-1 min-w-0 w-full">
+              <div className="flex-1 min-w-0 w-full md:col-span-2">
                 <label className="block text-sm font-medium mb-2">Date Range:</label>
                 <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2 w-full">
                   <input
