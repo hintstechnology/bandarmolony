@@ -167,6 +167,9 @@ export function MarketRotationSeasonality() {
   const [showAddStock, setShowAddStock] = useState(false);
   const [showAddIndex, setShowAddIndex] = useState(false);
   const [showAddSector, setShowAddSector] = useState(false);
+  const [highlightedIndexIdx, setHighlightedIndexIdx] = useState<number>(-1);
+  const [highlightedSectorIdx, setHighlightedSectorIdx] = useState<number>(-1);
+  const [highlightedStockIdx, setHighlightedStockIdx] = useState<number>(-1);
   const [searchQuery, setSearchQuery] = useState('');
   const [indexSearchQuery, setIndexSearchQuery] = useState('');
   const [sectorSearchQuery, setSectorSearchQuery] = useState('');
@@ -323,7 +326,7 @@ export function MarketRotationSeasonality() {
             {/* Add Index Section */}
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
               {/* Search Input */}
-              <div className="relative w-full sm:w-48">
+              <div className="relative w-full sm:w-48" role="combobox" aria-expanded={showAddIndex} aria-controls="add-index-list" aria-autocomplete="list">
                 <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 transform text-muted-foreground" />
                 <input
                   type="text"
@@ -334,12 +337,12 @@ export function MarketRotationSeasonality() {
                     setShowAddIndex(true);
                   }}
                   onFocus={() => setShowAddIndex(true)}
-                  className="h-9 w-full rounded-md border border-border bg-background pl-7 pr-3 text-xs transition-colors hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  onKeyDown={(e) => { const suggestions = (indexSearchQuery ? getFilteredIndices().map(i=>i.name) : indexOptions.filter(i=>!selectedIndices.includes(i.name)).map(i=>i.name)).slice(0,10); if (!suggestions.length) return; if (e.key === "ArrowDown") { e.preventDefault(); setHighlightedIndexIdx((prev) => (prev + 1) % suggestions.length); } else if (e.key === "ArrowUp") { e.preventDefault(); setHighlightedIndexIdx((prev) => (prev - 1 + suggestions.length) % suggestions.length); } else if (e.key === "Enter" && showAddIndex) { e.preventDefault(); const idx = highlightedIndexIdx >= 0 ? highlightedIndexIdx : 0; const choice = suggestions[idx]; if (choice) addIndex(choice); } else if (e.key === "Escape") { setShowAddIndex(false); setHighlightedIndexIdx(-1); } }} className="h-9 w-full rounded-md border border-border bg-background pl-7 pr-3 text-xs transition-colors hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
                 />
               </div>
 
               {/* Add Index Button */}
-              <div className="relative sm:w-auto" ref={indexDropdownRef}>
+              <div className="relative w-full sm:w-auto" ref={indexDropdownRef}>
                 <Button
                   variant="outline"
                   size="sm"
@@ -352,7 +355,7 @@ export function MarketRotationSeasonality() {
 
                 {/* Add Index Dropdown */}
                 {showAddIndex && (
-                  <div className="absolute right-0 top-full z-10 mt-2 max-h-48 w-52 overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
+                  <div id="add-index-list" role="listbox" className="absolute left-0 top-full z-10 mt-1 max-h-48 w-full sm:w-52 overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
                     {/* Show search results if there's a query, otherwise show all available */}
                     {indexSearchQuery ? (
                       <>
@@ -487,7 +490,7 @@ export function MarketRotationSeasonality() {
               </div>
 
               {/* Add Sector Button */}
-              <div className="relative sm:w-auto" ref={sectorDropdownRef}>
+              <div className="relative w-full sm:w-auto" ref={sectorDropdownRef}>
                 <Button
                   variant="outline"
                   size="sm"
@@ -500,7 +503,7 @@ export function MarketRotationSeasonality() {
 
                 {/* Add Sector Dropdown */}
                 {showAddSector && (
-                  <div className="absolute right-0 top-full z-10 mt-2 max-h-48 w-52 overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
+                  <div className="absolute left-0 top-full z-10 mt-1 max-h-48 w-full sm:w-52 overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
                     {/* Show search results if there's a query, otherwise show all available */}
                     {sectorSearchQuery ? (
                       <>
@@ -630,7 +633,7 @@ export function MarketRotationSeasonality() {
               </div>
 
               {/* Add Stock Button */}
-              <div className="relative sm:w-auto" ref={dropdownRef}>
+              <div className="relative w-full sm:w-auto" ref={dropdownRef}>
                 <Button
                   variant="outline"
                   size="sm"
@@ -643,7 +646,7 @@ export function MarketRotationSeasonality() {
 
                 {/* Add Stock Dropdown */}
                 {showAddStock && (
-                  <div className="absolute right-0 top-full z-10 mt-2 max-h-48 w-52 overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
+                  <div className="absolute left-0 top-full z-10 mt-1 max-h-48 w-full sm:w-52 overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
                     {/* Show search results if there's a query, otherwise show all available */}
                     {searchQuery ? (
                       <>
@@ -775,3 +778,9 @@ export function MarketRotationSeasonality() {
     </div>
   );
 }
+
+
+
+
+
+
