@@ -136,6 +136,65 @@
 
   input[type="date"] {
     @apply bg-input-background text-foreground;
+    position: relative;
+    z-index: 10;
+    cursor: pointer;
+  }
+
+  /* Make entire input clickable for date picker */
+  input[type="date"]::-webkit-datetime-edit {
+    cursor: pointer;
+    pointer-events: none;
+  }
+
+  input[type="date"]::-webkit-datetime-edit-fields-wrapper {
+    cursor: pointer;
+    pointer-events: none;
+  }
+
+  input[type="date"]::-webkit-datetime-edit-text {
+    cursor: pointer;
+    pointer-events: none;
+  }
+
+  input[type="date"]::-webkit-datetime-edit-month-field {
+    cursor: pointer;
+    pointer-events: none;
+  }
+
+  input[type="date"]::-webkit-datetime-edit-day-field {
+    cursor: pointer;
+    pointer-events: none;
+  }
+
+  input[type="date"]::-webkit-datetime-edit-year-field {
+    cursor: pointer;
+    pointer-events: none;
+  }
+
+  /* Ensure date picker popup appears above other elements */
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    cursor: pointer;
+    z-index: 20;
+  }
+
+  /* Fix for date picker popup positioning */
+  input[type="date"]:focus {
+    z-index: 1000;
+  }
+
+  /* Prevent text selection on date inputs */
+  input[type="date"] {
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
   }
 }
 

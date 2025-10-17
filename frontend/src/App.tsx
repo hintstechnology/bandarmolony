@@ -243,7 +243,7 @@ function DashboardLayout() {
       />
 
       {/* Main Content */}
-        <div className="flex-1 flex flex-col overflow-hidden ml-0 lg:ml-16">
+        <div className="flex-1 flex flex-col ml-0 lg:ml-16">
         {/* Header */}
         <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card h-14">
           <div className="flex items-center gap-3">
