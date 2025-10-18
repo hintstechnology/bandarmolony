@@ -4,7 +4,7 @@ All notable changes to branch `hilmy`.
 
 2025-10-18
 
-- Added: `frontend/src/components/astrology/BaZiCycleAnalysis.tsx`
+- Added: `frontend/src/components/astrology/BaZiCycleAnalysis.tsx` (not yet finished)
   - Yearly/Monthly/Daily tabs (shared) for Element and Shio performance
   - BaZi Month aggregation (fallback solar-term boundaries) for Monthly
   - Daily Open-Close (% Day) metric for Daily
