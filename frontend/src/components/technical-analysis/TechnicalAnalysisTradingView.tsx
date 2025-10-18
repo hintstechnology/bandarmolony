@@ -2283,7 +2283,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                   onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
                   onKeyDown={handleKeyDown}
                   placeholder="BBCA"
-                  className="w-full px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
+                  className="w-full px-3 py-2 text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                   role="combobox"
                   aria-expanded={showSuggestions}
                   aria-controls="ta-symbol-suggestions"
@@ -2339,7 +2339,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               <select
                 value={timeframe}
                 onChange={(e) => setTimeframe(e.target.value as Timeframe)}
-                className="w-full px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
+                className="w-full px-3 py-2 text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
               >
                 {availableTimeframes.map(tf => (
                   <option key={tf.value} value={tf.value}>
@@ -2355,7 +2355,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                 <select
                   value={style}
                   onChange={(e) => setStyle(e.target.value as ChartStyle)}
-                  className="w-full sm:w-auto px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
+                  className="w-full sm:w-auto px-3 py-2 text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                 >
                   <option value="line">Line</option>
                   <option value="candles">Candles</option>
@@ -3270,3 +3270,5 @@ function IndicatorEditor({
     </div>
   );
 }
+
+

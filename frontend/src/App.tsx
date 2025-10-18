@@ -17,7 +17,7 @@ import { Sidebar } from "./components/dashboard/Sidebar";
 import { ThemeToggle } from "./components/dashboard/ThemeToggle";
 import { Avatar, AvatarFallback, AvatarImage } from "./components/ui/avatar";
 import { User, Home, ChevronRight, ChevronDown, TrendingUp, Activity, ArrowRightLeft, BookOpen, Star, BarChart3, CreditCard, Shield } from "lucide-react";
-import { api } from "./services/api";
+ 
 // Import all dashboard components
 import MarketRotationRRG from "./components/market-rotation/MarketRotationRRG";
 import MarketRotationRRC from "./components/market-rotation/MarketRotationRRC";
@@ -153,16 +153,10 @@ function DashboardLayout() {
   };
 
   // Handle profile click with debounce
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const handleProfileClick = () => setProfileMenuOpen((o) => !o);
-  const goto = (path: string) => {
-    setProfileMenuOpen(false);
-    if (location.pathname !== path) navigate(path);
-  };
-  const handleLogout = async () => {
-    try { await api.logout(); } catch {}
-    setProfileMenuOpen(false);
-    navigate('/auth');
+  const handleProfileClick = () => {
+    if (location.pathname !== '/profile') {
+      navigate('/profile');
+    }
   };
 
   // Render main content based on route
@@ -284,6 +278,8 @@ function DashboardLayout() {
           </div>
           
           <div className="flex items-center gap-3">
+            {/* Theme Toggle */}
+            <ThemeToggle />
             {/* Profile Button */}
             <div className="relative">
             <button
@@ -309,15 +305,7 @@ function DashboardLayout() {
               {/* Hover indicator */}
               <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-0 h-0.5 bg-blue-500 group-hover:w-8 transition-all duration-200"></div>
             </button>
-            {profileMenuOpen && (
-              <div className="absolute right-0 mt-2 w-56 rounded-md border border-border bg-popover text-popover-foreground shadow-md z-50">
-                <button onClick={() => goto('/profile')} className="w-full text-left px-3 py-2 text-sm hover:bg-accent">Profile</button>
-                <button onClick={() => goto('/subscription')} className="w-full text-left px-3 py-2 text-sm hover:bg-accent">Subscription</button>
-                <div className="px-3 py-2"><ThemeToggle /></div>
-                <div className="h-px bg-border my-1" />
-                <button onClick={handleLogout} className="w-full text-left px-3 py-2 text-sm hover:bg-accent">Log out</button>
-              </div>
-            )}
+            
             </div>
           </div>
         </header>

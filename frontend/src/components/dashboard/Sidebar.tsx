@@ -87,6 +87,7 @@ const menuItems = [
 
 /** ===== BOTTOM MENU ===== */
 const bottomMenuItems = [
+  { title: "Subscription", icon: CreditCard, url: "#", route: "subscription" },
   { title: "Log out", icon: LogOut, url: "#", route: "logout" },
 ];
 
@@ -310,6 +311,22 @@ export function Sidebar({
 
             {/* Bottom */}
             <div className="border-t border-border pt-2 px-2 space-y-0.5">
+              {/* Profile Menu Item */}
+              <div
+                onClick={() => handleNavigation('/profile')}
+                className={`
+                  flex items-center gap-3 px-3 py-3 text-sm rounded-md transition-all duration-200 cursor-pointer min-h-12 group
+                  ${!isExpanded ? "justify-center" : ""}
+                  ${
+                    currentRoute === '/profile'
+                      ? "bg-accent text-accent-foreground shadow-sm"
+                      : "text-card-foreground hover:bg-accent hover:text-accent-foreground hover:shadow-sm active:bg-accent/80"
+                  }
+                `}
+              >
+                <User className="w-5 h-5 flex-shrink-0" />
+                {isExpanded && <span className="whitespace-nowrap text-sm">Profile</span>}
+              </div>
               {bottomMenuItems.map((item) => (
                 <div
                   key={item.title}
