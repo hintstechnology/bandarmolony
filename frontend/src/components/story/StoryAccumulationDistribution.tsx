@@ -155,6 +155,7 @@ export function StoryAccumulationDistribution() {
   const [tickerInput, setTickerInput] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
 
   // Click outside handler
   useEffect(() => {
@@ -190,6 +191,9 @@ export function StoryAccumulationDistribution() {
   
   // Get unique tickers for filter dropdown
   const allTickers = [...new Set(data.map(item => item.symbol))].sort();
+  const filteredTickers = (tickerInput
+    ? allTickers.filter(ticker => ticker.toLowerCase().includes(tickerInput.toLowerCase()))
+    : []).slice(0, 10);
   
   // Filter data based on ticker selection
   const filteredData = tickerFilter === 'all' 
@@ -266,35 +270,60 @@ export function StoryAccumulationDistribution() {
     <div className="space-y-6">
       {/* Top Control Bar */}
       <Card className="p-4">
-         <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-end justify-between">
-           <div className="flex gap-4 items-end">
+         <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-end justify-between">
+           <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-end w-full">
             <div>
               <label htmlFor="tickerFilter" className="block text-sm font-medium mb-2">
                 Filter Ticker:
               </label>
                <div className="relative" ref={dropdownRef}>
                  <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                 <input
-                   type="text"
-                   placeholder="Ticker code"
-                   value={tickerInput}
-                   onChange={(e) => {
-                     setTickerInput(e.target.value);
-                     if (e.target.value === '') {
-                       setTickerFilter('all');
-                       setShowDropdown(false);
-                     } else {
-                       setTickerFilter('custom');
-                       setShowDropdown(true);
-                     }
-                   }}
-                   onFocus={() => {
-                     if (tickerInput) {
-                       setShowDropdown(true);
-                     }
-                   }}
-                   className="pl-9 pr-3 py-1 h-10 border border-border rounded-md text-sm w-64 bg-background text-foreground placeholder:text-muted-foreground"
-                 />
+                  <input
+                    type="text"
+                    placeholder="Ticker code"
+                    value={tickerInput}
+                    onChange={(e) => {
+                      setTickerInput(e.target.value);
+                      if (e.target.value === '') {
+                        setTickerFilter('all');
+                        setShowDropdown(false);
+                        setHighlightedIndex(-1);
+                      } else {
+                        setTickerFilter('custom');
+                        setShowDropdown(true);
+                      }
+                    }}
+                    onFocus={() => {
+                      if (tickerInput) {
+                        setShowDropdown(true);
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (!filteredTickers.length) return;
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        setShowDropdown(true);
+                        setHighlightedIndex((prev) => (prev + 1) % filteredTickers.length);
+                      } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setShowDropdown(true);
+                        setHighlightedIndex((prev) => (prev <= 0 ? filteredTickers.length - 1 : prev - 1));
+                      } else if (e.key === 'Enter') {
+                        if (highlightedIndex >= 0) {
+                          e.preventDefault();
+                          const ticker = filteredTickers[highlightedIndex];
+                          setTickerInput(ticker);
+                          setTickerFilter('custom');
+                          setShowDropdown(false);
+                          setHighlightedIndex(-1);
+                        }
+                      } else if (e.key === 'Escape') {
+                        setShowDropdown(false);
+                        setHighlightedIndex(-1);
+                      }
+                    }}
+                    className="pl-9 pr-3 py-1 h-10 border border-border rounded-md text-sm w-full sm:w-64 bg-background text-foreground placeholder:text-muted-foreground"
+                  />
                 {tickerInput && (
                   <button
                     onClick={() => {
@@ -309,23 +338,23 @@ export function StoryAccumulationDistribution() {
                 )}
                 {showDropdown && tickerInput && (
                   <div className="absolute top-full left-0 right-0 bg-background border border-border rounded-md shadow-lg z-30 max-h-40 overflow-y-auto">
-                    {allTickers
-                      .filter(ticker => ticker.toLowerCase().includes(tickerInput.toLowerCase()))
-                      .slice(0, 10)
-                      .map(ticker => (
-                        <div
-                          key={ticker}
-                          className="px-3 py-1 hover:bg-muted cursor-pointer text-sm"
-                          onClick={() => {
-                            setTickerInput(ticker);
-                            setTickerFilter('custom');
-                            setShowDropdown(false);
-                          }}
-                        >
-                          {ticker}
-                        </div>
-                      ))}
-                    {allTickers.filter(ticker => ticker.toLowerCase().includes(tickerInput.toLowerCase())).length === 0 && (
+                    {filteredTickers.map((ticker, idx) => (
+                      <div
+                        key={ticker}
+                        className={`px-3 py-1 cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-muted' : 'hover:bg-muted'}`}
+                        onMouseEnter={() => setHighlightedIndex(idx)}
+                        onMouseLeave={() => setHighlightedIndex(-1)}
+                        onClick={() => {
+                          setTickerInput(ticker);
+                          setTickerFilter('custom');
+                          setShowDropdown(false);
+                          setHighlightedIndex(-1);
+                        }}
+                      >
+                        {ticker}
+                      </div>
+                    ))}
+                    {filteredTickers.length === 0 && (
                       <div className="px-3 py-1 text-sm text-muted-foreground">
                         No tickers found
                       </div>
@@ -335,9 +364,9 @@ export function StoryAccumulationDistribution() {
               </div>
             </div>
             
-             <div>
+             <div className="w-full sm:w-auto">
                <label className="block text-sm font-medium mb-2">Options:</label>
-               <div className="flex items-center gap-4 border border-border rounded-lg px-2 py-1 h-10">
+               <div className="flex flex-wrap items-center gap-3 border border-border rounded-lg px-2 py-2 min-h-[40px] w-full sm:w-auto">
                  <div className="flex items-center gap-2">
                    <input
                      type="checkbox"
@@ -369,12 +398,12 @@ export function StoryAccumulationDistribution() {
                      className="w-4 h-4 text-primary bg-background border border-border rounded focus:ring-primary focus:ring-2 hover:border-primary/50 transition-colors"
                    />
                    <label htmlFor="volumeChange" className="text-sm font-medium">Volume Change</label>
-                 </div>
-               </div>
-             </div>
+                </div>
+              </div>
+        </div>
         </div>
           
-           <Button onClick={resetSettings} variant="outline" size="sm" className="flex items-center gap-2 h-10">
+           <Button onClick={resetSettings} variant="outline" size="sm" className="flex items-center gap-2 h-10 w-full lg:w-auto">
              <Undo2 className="w-4 h-4 rotate-180" />
              Reset Settings
            </Button>
@@ -383,7 +412,7 @@ export function StoryAccumulationDistribution() {
 
       {/* Market Maker Analysis Summary Table */}
       <Card className="p-0 bg-card">
-        <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+        <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
           <div className="w-full">
             {/* Header */}
             <div className="bg-muted border-b border-border sticky top-0 z-20">

@@ -72,7 +72,10 @@ const menuItems = [
     icon: Star,
     url: "#",
     route: "astrology",
-    children: [{ title: "Ba Zi & Shio", url: "#", route: "astrology/lunar" }],
+    children: [
+      { title: "Ba Zi & Shio", url: "#", route: "astrology/lunar" },
+      { title: "BaZi Cycle Analysis", url: "#", route: "astrology/bazi-cycle" },
+    ],
   },
   {
     title: "Technical Analysis",
@@ -324,7 +327,6 @@ export function Sidebar({
                 <User className="w-5 h-5 flex-shrink-0" />
                 {isExpanded && <span className="whitespace-nowrap text-sm">Profile</span>}
               </div>
-
               {bottomMenuItems.map((item) => (
                 <div
                   key={item.title}

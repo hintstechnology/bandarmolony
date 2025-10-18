@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from '../ui/card';
+import { Settings as SettingsIcon, BarChart2, X } from 'lucide-react';
 // import { Button } from '../ui/button';
 import { FootprintChart } from '../footprint/FootprintChart';
 
@@ -118,11 +119,12 @@ type Timeframe = '1M' | '5M' | '15M' | '30M' | '1H' | '1D' | '1W' | '1MO' | '3M'
 type Indicator = {
   id: string;
   name: string;
-  type: 'sma' | 'ema' | 'rsi' | 'macd' | 'stochastic' | 'volume_histogram' | 'buy_sell_frequency';
+  type: 'ma' | 'sma' | 'ema' | 'rsi' | 'macd' | 'stochastic' | 'volume_histogram' | 'buy_sell_frequency';
   period: number;
   color: string;
   enabled: boolean;
   separateScale?: boolean; // For indicators that need separate scale like RSI
+  maMode?: 'simple' | 'exponential'; // for Moving Average (MA) indicator
 };
 
 type IndicatorData = {
@@ -1034,15 +1036,18 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   const priceRef = useRef<any | null>(null);
   const volRef = useRef<any | null>(null);
   const indicatorRefs = useRef<{ [key: string]: any }>({});
+  // Track any auxiliary series added for a single indicator (e.g., MACD signal, Stochastic %D)
+  const indicatorAuxRefs = useRef<{ [key: string]: any[] }>({});
   
   // Separate chart refs for indicators
   const indicatorChartRefs = useRef<{ [key: string]: IChartApi }>({});
   const indicatorContainerRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
   // Indicator management functions
-  const addIndicator = (type: Indicator['type'], color: string, separateScale: boolean = false) => {
+  const addIndicator = (type: Indicator['type'], color: string, separateScale: boolean = false, maMode: 'simple' | 'exponential' = 'simple') => {
     // Default periods for each indicator type
     const defaultPeriods = {
+      'ma': 20,
       'sma': 20,
       'ema': 12,
       'rsi': 14,
@@ -1053,15 +1058,17 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
     };
     
     const newIndicator: Indicator = {
-      id: `${type}_${Date.now()}`,
-      name: type === 'stochastic' ? '%K (Stochastic)' : 
+      id: `${type}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      name: type === 'ma' ? `MA (${maMode === 'exponential' ? 'Exponential' : 'Simple'})` :
+            type === 'stochastic' ? '%K (Stochastic)' : 
             type === 'buy_sell_frequency' ? 'Buy / Sell Frequency' : 
             `${type.toUpperCase()}`,
       type,
-      period: defaultPeriods[type],
+      period: (defaultPeriods as any)[type],
       color,
       enabled: true,
-      separateScale
+      separateScale,
+      maMode: type === 'ma' ? maMode : undefined
     };
     setIndicators(prev => [...prev, newIndicator]);
   };
@@ -1501,7 +1508,10 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       handleScroll: style === 'footprint' as ChartStyle ? false : true,
       handleScale: style === 'footprint' as ChartStyle ? false : true,
     });
-  }, [style, indicators]);
+          // Reset indicator refs when recreating chart to avoid stale series handles
+          indicatorRefs.current = {};
+          indicatorAuxRefs.current = {};
+        }, [style]);
 
   // Update chart data when data changes
   useEffect(() => {
@@ -1593,10 +1603,23 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       indicators.forEach(indicator => {
         // Remove existing series if indicator is disabled
         if (!indicator.enabled) {
-          if (indicatorRefs.current[indicator.id] && chartRef.current) {
-            chartRef.current.removeSeries(indicatorRefs.current[indicator.id]);
-            delete indicatorRefs.current[indicator.id];
+          if (chartRef.current) {
+            try {
+              if (indicatorRefs.current[indicator.id]) {
+                chartRef.current.removeSeries(indicatorRefs.current[indicator.id]);
+              }
+            } catch {}
           }
+          delete indicatorRefs.current[indicator.id];
+          // Remove any auxiliary series for this indicator
+          if (indicatorAuxRefs.current[indicator.id] && chartRef.current) {
+            try {
+              indicatorAuxRefs.current[indicator.id].forEach(s => {
+                try { chartRef.current!.removeSeries(s); } catch {}
+              });
+            } catch {}
+          }
+          delete indicatorAuxRefs.current[indicator.id];
           return;
         }
         
@@ -1606,6 +1629,13 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         let indicatorData: IndicatorData[] = [];
         
         switch (indicator.type) {
+          case 'ma':
+            if ((indicator.maMode || 'simple') === 'exponential') {
+              indicatorData = calculateEMA(filteredRows, indicator.period);
+            } else {
+              indicatorData = calculateSMA(filteredRows, indicator.period);
+            }
+            break;
           case 'sma':
             indicatorData = calculateSMA(filteredRows, indicator.period);
             break;
@@ -1634,9 +1664,19 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         }
         
         if (indicatorData.length > 0) {
-          // Remove existing series if it exists
-          if (indicatorRefs.current[indicator.id] && chartRef.current) {
-            chartRef.current.removeSeries(indicatorRefs.current[indicator.id]);
+          // Remove existing series (and any aux) if they exist
+          if (chartRef.current) {
+            try {
+              if (indicatorRefs.current[indicator.id]) {
+                chartRef.current.removeSeries(indicatorRefs.current[indicator.id]);
+              }
+            } catch {}
+            if (indicatorAuxRefs.current[indicator.id]) {
+              indicatorAuxRefs.current[indicator.id].forEach(s => {
+                try { chartRef.current!.removeSeries(s); } catch {}
+              });
+              indicatorAuxRefs.current[indicator.id] = [];
+            }
           }
           
           // Add to main chart
@@ -1681,6 +1721,9 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               time: d.time as any,
               value: d.value
             })));
+            // track aux
+            if (!indicatorAuxRefs.current[indicator.id]) indicatorAuxRefs.current[indicator.id] = [];
+            indicatorAuxRefs.current[indicator.id].push(dSeries);
           }
         }
         
@@ -1697,6 +1740,8 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               time: s.time as any,
               value: s.value
             })));
+            if (!indicatorAuxRefs.current[indicator.id]) indicatorAuxRefs.current[indicator.id] = [];
+            indicatorAuxRefs.current[indicator.id].push(signalSeries);
           }
         }
         
@@ -1713,6 +1758,8 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               time: s.time as any,
               value: s.value
             })));
+            if (!indicatorAuxRefs.current[indicator.id]) indicatorAuxRefs.current[indicator.id] = [];
+            indicatorAuxRefs.current[indicator.id].push(sellSeries);
           }
         }
           }
@@ -2217,12 +2264,13 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       `}</style>
       
       {!hideControls && (
-        <Card className="p-2 sm:p-3" ref={controlsContainerRef}>
+        <Card className="p-4" ref={controlsContainerRef}>
         <div className="flex flex-col xl:flex-row gap-3 sm:gap-4 items-start xl:items-center justify-between">
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-start sm:items-center w-full xl:w-auto">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 relative w-full sm:w-auto">
-              <label className="font-medium text-xs sm:text-sm whitespace-nowrap">Symbol:</label>
-              <div className="relative w-full sm:w-auto">
+            {/* Symbol/Ticker selector styled like BrokerInventoryPage */}
+            <div className="flex-1 min-w-0">
+              <label className="block text-sm font-medium mb-2">Symbol:</label>
+              <div className="relative ticker-dropdown">
                 <input
                   type="text"
                   value={searchQuery}
@@ -2232,42 +2280,66 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                     setSelectedIndex(-1);
                   }}
                   onFocus={() => setShowSuggestions(true)}
-                  onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                  onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Search symbol..."
-                  className="w-full sm:w-48 px-2 sm:px-3 py-1 text-xs sm:text-sm border border-border rounded-md font-mono bg-background text-foreground"
+                  placeholder="BBCA"
+                  className="w-full px-3 py-2 text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                  role="combobox"
+                  aria-expanded={showSuggestions}
+                  aria-controls="ta-symbol-suggestions"
+                  aria-autocomplete="list"
                 />
-                {showSuggestions && filteredSymbols.length > 0 && (
-                  <div className="absolute top-full left-0 right-0 bg-popover border border-border rounded-md shadow-lg z-10 max-h-48 overflow-y-auto">
-                    {filteredSymbols.map((s, index) => (
-                      <button
-                        key={s}
-                        onClick={() => {
-                          setSymbol(s ?? '');
-                          setSearchQuery(s ?? '');
-                          setShowSuggestions(false);
-                          setSelectedIndex(-1);
-                        }}
-                        className={`w-full px-3 py-2 text-left font-mono text-sm text-popover-foreground ${
-                          index === selectedIndex 
-                            ? 'bg-accent text-accent-foreground' 
-                            : 'hover:bg-accent'
-                        }`}
-                      >
-                        {s}
-                      </button>
-                    ))}
+                {!!searchQuery && (
+                  <button
+                    type="button"
+                    className="absolute right-2 top-2.5 text-muted-foreground hover:text-foreground"
+                    onClick={() => { setSearchQuery(''); setShowSuggestions(false); setSelectedIndex(-1); }}
+                    aria-label="Clear symbol"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+                {showSuggestions && (
+                  <div
+                    id="ta-symbol-suggestions"
+                    role="listbox"
+                    className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow"
+                  >
+                    <div className="p-2">
+                      {filteredSymbols.length > 0 ? (
+                        filteredSymbols.map((s, index) => (
+                          <div
+                            key={s}
+                            role="option"
+                            aria-selected={index === selectedIndex}
+                            onMouseEnter={() => setSelectedIndex(index)}
+                            onMouseDown={(e) => { e.preventDefault(); }}
+                            onClick={() => {
+                              setSymbol(s ?? '');
+                              setSearchQuery(s ?? '');
+                              setShowSuggestions(false);
+                              setSelectedIndex(-1);
+                            }}
+                            className={`flex items-center space-x-2 p-2 rounded cursor-pointer ${index === selectedIndex ? 'bg-accent' : 'hover:bg-muted'}`}
+                          >
+                            <span className="text-sm">{s}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="p-2 text-sm text-muted-foreground">No symbols found</div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
-              <span className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">Timeframe:</span>
+            <div className="flex-1 min-w-0">
+              <label className="block text-sm font-medium mb-2">Timeframe:</label>
               <select
                 value={timeframe}
                 onChange={(e) => setTimeframe(e.target.value as Timeframe)}
-                className="w-full sm:w-auto px-2 sm:px-3 py-1 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground"
+                className="w-full px-3 py-2 text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
               >
                 {availableTimeframes.map(tf => (
                   <option key={tf.value} value={tf.value}>
@@ -2277,45 +2349,61 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               </select>
             </div>
 
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
-              <span className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">Chart Style:</span>
-              <select
-                value={style}
-                onChange={(e) => setStyle(e.target.value as ChartStyle)}
-                className="w-full sm:w-auto px-2 sm:px-3 py-1 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground"
-              >
-                <option value="line">Line</option>
-                <option value="candles">Candles</option>
-                <option value="footprint">Footprint</option>
-              </select>
+            <div className="flex-1 min-w-0">
+              <label className="block text-sm font-medium mb-2">Chart Style:</label>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <select
+                  value={style}
+                  onChange={(e) => setStyle(e.target.value as ChartStyle)}
+                  className="w-full sm:w-auto px-3 py-2 text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                >
+                  <option value="line">Line</option>
+                  <option value="candles">Candles</option>
+                  <option value="footprint">Footprint</option>
+                </select>
               <button
                 onClick={() => setShowSettings(true)}
-                className="w-full sm:w-auto px-2 sm:px-3 py-1 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground hover:bg-accent"
+                className="hidden w-full sm:w-auto px-2 sm:px-3 py-1 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground hover:bg-accent"
               >
                 ⚙️ Settings
               </button>
+             <button
+               onClick={() => setShowSettings(true)}
+               className="w-full sm:w-auto px-2 sm:px-3 py-1 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground hover:bg-accent inline-flex items-center gap-2"
+             >
+               <SettingsIcon className="w-4 h-4" />
+               <span>Settings</span>
+             </button>
               <button
                 onClick={() => setShowIndicatorSettings(true)}
-                className="w-full sm:w-auto px-2 sm:px-3 py-1 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground hover:bg-accent"
+                className="hidden w-full sm:w-auto px-2 sm:px-3 py-1 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground hover:bg-accent"
               >
                 📊 Indicators
               </button>
+             <button
+               onClick={() => setShowIndicatorSettings(true)}
+               className="w-full sm:w-auto px-2 sm:px-3 py-1 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground hover:bg-accent inline-flex items-center gap-2"
+             >
+               <BarChart2 className="w-4 h-4" />
+               <span>Indicators</span>
+             </button>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-4 w-full xl:w-auto justify-center xl:justify-end">
-            <div className="text-center xl:text-right">
-              <div className="font-mono text-sm sm:text-lg font-medium">{latest ? latest.close.toLocaleString() : '-'}</div>
-              <div className={`text-xs sm:text-sm font-medium ${chg >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {chg >= 0 ? '+' : ''}{chg.toFixed(0)} ({chgPct.toFixed(2)}%)
-              </div>
-            </div>
-          </div>
+          {/* Right-side space previously used for price is removed; price moved onto chart overlay */}
+        </div>
         </div>
         </Card>
       )}
 
       <Card className="flex-1 p-0 relative" style={{ padding: 0, margin: 0, height: chartViewportHeight }}>
+        {/* Price overlay (top-left) for better focus on mobile/desktop */}
+        <div className="absolute top-2 left-2 z-10 bg-background/80 backdrop-blur-sm border border-border rounded px-2 py-1">
+          <div className="font-mono text-xs sm:text-sm font-medium">{latest ? latest.close.toLocaleString() : '-'}</div>
+          <div className={`text-xs sm:text-sm font-medium ${chg >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            {chg >= 0 ? '+' : ''}{chg.toFixed(0)} ({chgPct.toFixed(2)}%)
+          </div>
+        </div>
         <ChartErrorBoundary>
           {style === 'footprint' ? (
             <div className="w-full h-full" style={{ height: '100%', padding: 0, margin: 0 }}>
@@ -2648,16 +2736,10 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                 <h4 className="text-xs font-medium text-muted-foreground">Add New Indicator</h4>
                 <div className="max-h-48 overflow-y-auto space-y-2">
                   <button
-                    onClick={() => addIndicator('sma', '#ff6b6b', false)}
+                    onClick={() => addIndicator('ma', '#45b7d1', false, 'simple')}
                     className="w-full px-3 py-2 text-xs border border-border rounded hover:bg-accent text-left"
                   >
-                    SMA
-                  </button>
-                  <button
-                    onClick={() => addIndicator('ema', '#45b7d1', false)}
-                    className="w-full px-3 py-2 text-xs border border-border rounded hover:bg-accent text-left"
-                  >
-                    EMA
+                    Moving Average (MA)
                   </button>
                   <button
                     onClick={() => addIndicator('rsi', '#6c5ce7', true)}
@@ -2913,7 +2995,7 @@ function IndicatorEditor({
 
   const renderIndicatorSettings = () => {
     switch (editedIndicator.type) {
-      case 'sma':
+      case 'ma':
         return (
           <div className="space-y-4">
             <div>
@@ -2921,40 +3003,27 @@ function IndicatorEditor({
               <input
                 type="number"
                 value={editedIndicator.period}
-                onChange={(e) => setEditedIndicator(prev => ({ ...prev, period: parseInt(e.target.value) || 20 }))}
+                onChange={(e) => setEditedIndicator(prev => ({ ...prev, period: parseInt(e.target.value) || (prev.period || 20) }))}
                 className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
                 min="1"
                 max="200"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">Color</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={editedIndicator.color}
-                  onChange={(e) => setEditedIndicator(prev => ({ ...prev, color: e.target.value }))}
-                  className="w-8 h-8 border border-border rounded cursor-pointer"
-                />
-                <span className="text-sm text-muted-foreground">{editedIndicator.color}</span>
-              </div>
-            </div>
-          </div>
-        );
-
-      case 'ema':
-        return (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Period</label>
-              <input
-                type="number"
-                value={editedIndicator.period}
-                onChange={(e) => setEditedIndicator(prev => ({ ...prev, period: parseInt(e.target.value) || 12 }))}
+              <label className="block text-sm font-medium mb-2">Mode</label>
+              <select
+                value={editedIndicator.maMode || 'simple'}
+                onChange={(e) => setEditedIndicator(prev => ({ 
+                  ...prev, 
+                  type: 'ma',
+                  maMode: (e.target.value as 'simple' | 'exponential'),
+                  name: `MA (${e.target.value === 'exponential' ? 'Exponential' : 'Simple'})`
+                }))}
                 className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
-                min="1"
-                max="200"
-              />
+              >
+                <option value="simple">Simple</option>
+                <option value="exponential">Exponential</option>
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium mb-2">Color</label>
@@ -3201,4 +3270,5 @@ function IndicatorEditor({
     </div>
   );
 }
+
 
