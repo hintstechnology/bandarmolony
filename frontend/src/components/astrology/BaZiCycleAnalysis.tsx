@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Calendar, Clock, LineChart, Play, RefreshCw, Settings2, Sparkles, Spline, Search } from "lucide-react";
+import { Calendar, Clock, LineChart, Play, Settings2, Sparkles, Spline, Search } from "lucide-react";
 
 const Card = ({ className = "", children }: any) => (
   <div className={`rounded-2xl shadow-sm border border-border bg-card ${className}`}>{children}</div>
@@ -12,7 +12,7 @@ const CardContent = ({ className = "", children }: any) => (
   <div className={`p-5 ${className}`}>{children}</div>
 );
 const Button = ({ className = "", children, ...props }: any) => (
-  <button className={`px-4 py-2 rounded-xl shadow-sm border border-border bg-background text-foreground hover:bg-accent transition disabled:opacity-50 disabled:cursor-not-allowed ${className}`} {...props}>{children}</button>
+  <button className={`px-4 py-2 rounded-xl shadow-sm border border-border bg-background text-foreground hover:bg-accent active:scale-95 transition disabled:opacity-50 disabled:cursor-not-allowed ${className}`} {...props}>{children}</button>
 );
 const Input = ({ className = "", ...props }: any) => (
   <input className={`w-full px-3 py-2 rounded-xl border border-border bg-input text-foreground focus:outline-none focus:ring-2 focus:ring-accent ${className}`} {...props}/>
@@ -78,6 +78,13 @@ interface Row {
 }
 
 type Timeframe = 'yearly' | 'monthly' | 'daily';
+
+// Simple list of common tickers for suggestions
+const AVAILABLE_TICKERS: string[] = [
+  'BTCUSD','ETHUSD','AAPL','MSFT','GOOGL','AMZN','NVDA','META','TSLA','NFLX',
+  'BBCA','BBRI','BMRI','BBNI','TLKM','ASII','GOTO','ANTM','MDKA','ADRO',
+  'UNVR','ICBP','INDF','PGAS','MEDC','CPIN','JPFA','INCO','TPIA','TKIM'
+];
 
 function parseCsvSmart(text: string): Row[] {
   const firstLine = text.split(/\r?\n/)[0] || "";
@@ -585,7 +592,7 @@ function DateInfoCard() {
         </div>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center text-center">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center text-center">
           <div className="space-y-1">
             <div className="text-2xl font-bold">{weekday}</div>
             <div className="text-xl text-foreground">{day} {month} {year}</div>
@@ -597,9 +604,70 @@ function DateInfoCard() {
             <div className="text-sm text-muted-foreground">Element: <span className="font-medium">{Y.element}</span> · Yin–Yang: <span className="font-medium">{Y.yinyang}</span></div>
           </div>
           <div className="space-y-1">
-            <div className="text-sm text-muted-foreground">Bulan / Hari</div>
+            <div className="text-sm text-muted-foreground">Monthly (Pilar Bulan)</div>
             <div className="text-sm"><b>Month:</b> {M.pillarCN} ({M.shio}) — <b>{M.element}</b> · {M.yinyang}</div>
             <div className="text-sm"><b>Day:</b> {D.pillarCN} ({D.shio}) — <b>{D.element}</b> · {D.yinyang}</div>
+          </div>
+          <div className="space-y-1">
+            <div className="text-sm text-muted-foreground">Daily (Pilar Hari)</div>
+            <div className="text-sm"><b>Day:</b> {D.pillarCN} ({D.shio})</div>
+            <div className="text-sm">Element: <b>{D.element}</b> · {D.yinyang}</div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// New, styled 4-section card matching yearly layout
+function DateInfoCardNew() {
+  const today = new Date();
+  const weekdayNames = ["Minggu","Senin","Selasa","Rabu","Kamis","Jumat","Sabtu"];
+  const monthNames = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+  const weekday = weekdayNames[today.getDay()];
+  const day = today.getDate();
+  const month = monthNames[today.getMonth()];
+  const year = today.getFullYear();
+  const time = today.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+  const Y = yearPillarExact(today, TZ_DEFAULT);
+  const M = monthPillarExact(today, Y.stemCN);
+  const D = dayPillarExact(today, TZ_DEFAULT);
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Clock className="w-5 h-5 text-muted-foreground" />
+          <h3 className="text-lg font-semibold">Hari Ini</h3>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center text-center">
+          {/* Waktu Sekarang */}
+          <div className="space-y-1">
+            <div className="text-xs text-muted-foreground">Waktu Sekarang</div>
+            <div className="text-2xl font-bold">{weekday}</div>
+            <div className="text-xl text-foreground">{day} {month} {year}</div>
+            <Badge intent="blue">{time}</Badge>
+          </div>
+          {/* Yearly */}
+          <div className="space-y-1">
+            <div className="text-sm text-muted-foreground">Pilar Tahun</div>
+            <div className="text-lg font-semibold">{Y.pillarCN} <span className="text-muted-foreground">({Y.shio})</span></div>
+            <div className="text-sm text-muted-foreground">Element: <span className="font-medium">{Y.element}</span> · Yin/Yang: <span className="font-medium">{Y.yinyang}</span></div>
+          </div>
+          {/* Monthly */}
+          <div className="space-y-1">
+            <div className="text-sm text-muted-foreground">Pilar Bulan</div>
+            <div className="text-lg font-semibold">{M.pillarCN} <span className="text-muted-foreground">({M.shio})</span></div>
+            <div className="text-sm text-muted-foreground">Element: <span className="font-medium">{M.element}</span> · Yin/Yang: <span className="font-medium">{M.yinyang}</span></div>
+          </div>
+          {/* Daily */}
+          <div className="space-y-1">
+            <div className="text-sm text-muted-foreground">Pilar Hari</div>
+            <div className="text-lg font-semibold">{D.pillarCN} <span className="text-muted-foreground">({D.shio})</span></div>
+            <div className="text-sm text-muted-foreground">Element: <span className="font-medium">{D.element}</span> · Yin/Yang: <span className="font-medium">{D.yinyang}</span></div>
           </div>
         </div>
       </CardContent>
@@ -612,31 +680,32 @@ function YearBranchCard({ data }: any) {
   return (
     <Card>
       <CardHeader>
-        <SectionTitle icon={LineChart} title="Performa per Shio (Year Branch)" subtitle="Avg daily return, Probability Up/Down, Avg Open→Close % (per Ba Zi Year), #Years, ATR/Close" />
+        <SectionTitle icon={LineChart} title="Performa per Shio (Year Branch)" subtitle="Avg daily return, Probability Up/Down, Avg Open→Close % (per Ba Zi Year), Cycle Count, ATR/Close" />
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-1 md:grid-cols-8 gap-2 text-sm font-medium mb-2">
+        <div className="grid grid-cols-1 md:grid-cols-7 gap-2 text-sm font-medium mb-2">
           <div>Shio</div>
           <div>Days</div>
-          <div>Avg Daily Ret</div>
+          
           <div>Prob Up</div>
-          <div>Prob Down</div>
+                      <div>Prob Down</div>
+                      <div>Prob Flat</div>
           <div>Avg Open→Close % (Year)</div>
-          <div>#Years</div>
-          <div>Avg ATR/Close</div>
+          <div>Cycle Count</div>
+          
         </div>
         <div className="divide-y">
           {data.map((r:any, i:number)=> (
-            <div key={i} className="grid grid-cols-1 md:grid-cols-8 gap-2 py-2 text-sm">
+            <div key={i} className="grid grid-cols-1 md:grid-cols-7 gap-2 py-2 text-sm">
               <div><Badge intent="gray">{r.shio}</Badge></div>
               <div>{r.days}</div>
-              <div>{(r.avg_daily_ret*100).toFixed(3)}%</div>
+              
               <div>{(r.prob_up*100).toFixed(1)}%</div>
-              {/* tampilkan Down / Flat di kolom yang sama (tanpa ubah layout) */}
-              <div>{(r.prob_down*100).toFixed(1)}% / {(r.prob_flat*100).toFixed(1)}%</div>
+              
+              <div>{(r.prob_down*100).toFixed(1)}%</div>
               <div>{Number.isFinite(r.avg_year_oc) ? (r.avg_year_oc*100).toFixed(2) + '%' : '—'}</div>
               <div>{r.n_years ?? 0}</div>
-              <div>{(r.avg_atr_frac*100).toFixed(2)}%</div>
+              <div>{(r.prob_flat*100).toFixed(1)}%</div>
             </div>
           ))}
         </div>
@@ -675,6 +744,12 @@ export default function BaZiCycleAnalyzer() {
   const fileDropdownWrapRef = useRef<HTMLDivElement>(null);
   const tickerDropdownWrapRef = useRef<HTMLDivElement>(null);
 
+  const filteredTickers = useMemo(() => {
+    const q = (params.ticker || '').toLowerCase().trim();
+    if (!q) return AVAILABLE_TICKERS;
+    return AVAILABLE_TICKERS.filter(t => t.toLowerCase().includes(q));
+  }, [params.ticker]);
+
   const canRun = useMemo(() => {
     const { ticker, startDate, endDate } = params;
     return ticker.trim().length > 0 && startDate <= endDate && rows.length > 0;
@@ -687,6 +762,11 @@ export default function BaZiCycleAnalyzer() {
     const parsed = parseCsvSmart(text);
     if (!parsed.length) { setErr("CSV kosong atau tidak terbaca"); setRows([]); return; }
     setRows(parsed);
+    // Set ticker field to filename (without extension) for visibility
+    try {
+      const base = (f.name || '').replace(/\.[^./\\]+$/,'');
+      if (base) setParams(p=>({ ...p, ticker: base }));
+    } catch {}
     try {
       const dates = parsed.map(r=>r.date).filter((d:any)=> d instanceof Date && !isNaN(+d));
       if (dates.length) {
@@ -781,13 +861,7 @@ export default function BaZiCycleAnalyzer() {
     }
   };
 
-  const anchorLabel = useMemo(() => {
-    switch (params.anchorMethod) {
-      case "jiazi1984": return "Default";
-      case "custom": return "Custom";
-      default: return "Default";
-    }
-  }, [params.anchorMethod]);
+  // anchor label removed from UI
 
   const elemData = useMemo(() => {
     if (!result) return [] as any[];
@@ -826,7 +900,7 @@ export default function BaZiCycleAnalyzer() {
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
               <div className="md:col-span-4">
                 <label className="text-sm font-medium">Ticker Code</label>
-                <div className="relative mt-1">
+                <div ref={tickerDropdownWrapRef} className="relative mt-1">
                   <div className="pointer-events-none absolute inset-y-0 left-0 pl-3 flex items-center">
                     <Search className="w-4 h-4 text-muted-foreground"/>
                   </div>
@@ -834,9 +908,103 @@ export default function BaZiCycleAnalyzer() {
                     type="text"
                     placeholder="BTCUSD / IDX:BBCA / AAPL"
                     value={params.ticker}
-                    onChange={(e)=>{ setParams(p=>({...p,ticker:e.target.value})); }}
-                    className="w-full pl-9 pr-3 py-2 rounded-xl border border-border bg-input text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                    onChange={(e)=>{ setParams(p=>({...p,ticker:e.target.value})); setTickerDropdownOpen(true); setTickerActiveIndex(0); }}
+                    onFocus={()=>{ setTickerDropdownOpen(true); setTickerActiveIndex(0); }}
+                    onKeyDown={(e)=>{
+                      if (!tickerDropdownOpen) return;
+                      const suggestions = (params.ticker.trim() ? filteredTickers : AVAILABLE_TICKERS).slice(0,10);
+                      const total = suggestions.length + 1; // +1 for Browse CSV option
+                      if (total === 0) return;
+                      if (e.key === 'ArrowDown'){
+                        e.preventDefault();
+                        setTickerActiveIndex(prev => {
+                          const next = prev + 1;
+                          return next >= total ? 0 : next;
+                        });
+                      } else if (e.key === 'ArrowUp'){
+                        e.preventDefault();
+                        setTickerActiveIndex(prev => {
+                          const next = prev - 1;
+                          return next < 0 ? total - 1 : next;
+                        });
+                      } else if (e.key === 'Enter'){
+                        e.preventDefault();
+                        const idx = tickerActiveIndex >= 0 ? tickerActiveIndex : 0;
+                        if (idx === suggestions.length){
+                          // Browse CSV selected
+                          setTickerDropdownOpen(false);
+                          setTickerActiveIndex(-1);
+                          fileInputRef.current?.click();
+                          return;
+                        }
+                        const choice = suggestions[idx];
+                        if (choice){
+                          setParams(p=>({...p,ticker: choice}));
+                          setTickerDropdownOpen(false);
+                          setTickerActiveIndex(-1);
+                        }
+                      } else if (e.key === 'Escape'){
+                        setTickerDropdownOpen(false);
+                        setTickerActiveIndex(-1);
+                      }
+                    }}
+                    className="w-full pl-9 pr-9 py-2 rounded-xl border border-border bg-input text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                    role="combobox"
+                    aria-expanded={tickerDropdownOpen}
+                    aria-controls="bazi-ticker-suggestions"
+                    aria-autocomplete="list"
                   />
+                  <button
+                    type="button"
+                    aria-label="Toggle ticker suggestions"
+                    className="absolute inset-y-0 right-0 pr-2 flex items-center text-muted-foreground hover:text-foreground"
+                    onClick={()=>{ setTickerDropdownOpen(o=>!o); if (!tickerDropdownOpen) setTickerActiveIndex(0); }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                      <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                  {tickerDropdownOpen && (
+                    (()=>{
+                      const suggestions = (params.ticker.trim() ? filteredTickers : AVAILABLE_TICKERS).slice(0,10);
+                      return (
+                        <div id="bazi-ticker-suggestions" role="listbox" className="absolute left-0 right-0 z-50 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
+                          <div className="p-1">
+                            {suggestions.map((tkr, idx) => (
+                              <div
+                                key={tkr}
+                                role="option"
+                                aria-selected={idx === tickerActiveIndex}
+                                onMouseEnter={()=> setTickerActiveIndex(idx)}
+                                onMouseDown={(e)=> e.preventDefault()}
+                                onClick={()=>{ setParams(p=>({...p,ticker:tkr})); setTickerDropdownOpen(false); setTickerActiveIndex(-1); }}
+                                className={`px-3 py-2 rounded cursor-pointer ${idx===tickerActiveIndex ? 'bg-accent' : 'hover:bg-muted'}`}
+                              >
+                                <span className="text-sm">{tkr}</span>
+                              </div>
+                            ))}
+                            {/* Browse CSV action */}
+                            <div className="my-1 h-px bg-border" />
+                            <div
+                              key="browse-csv"
+                              role="option"
+                              aria-selected={tickerActiveIndex === suggestions.length}
+                              onMouseEnter={()=> setTickerActiveIndex(suggestions.length)}
+                              onMouseDown={(e)=> e.preventDefault()}
+                              onClick={()=>{ setTickerDropdownOpen(false); setTickerActiveIndex(-1); fileInputRef.current?.click(); }}
+                              className={`px-3 py-2 rounded cursor-pointer flex items-center justify-between ${tickerActiveIndex===suggestions.length ? 'bg-accent' : 'hover:bg-muted'}`}
+                            >
+                              <span className="text-sm font-medium">Browse CSV…</span>
+                              <span className="text-xs text-muted-foreground">Upload file</span>
+                            </div>
+                            {suggestions.length===0 && (
+                              <div className="px-3 py-2 text-sm text-muted-foreground">No matches</div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()
+                  )}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">Kamu juga bisa drag & drop CSV ke area ini.</p>
                 {/* Hidden file input to support Browse CSV */}
@@ -864,13 +1032,27 @@ export default function BaZiCycleAnalyzer() {
                 <Input type="date" value={params.endDate} onChange={(e:any)=>setParams(p=>({...p,endDate:e.target.value}))} className="mt-1"/>
               </div>
 
-              <div className="md:col-span-12 flex items-center justify-between pt-2">
-                <div className="text-sm text-muted-foreground">Anchor: <Badge intent="amber">{anchorLabel}</Badge></div>
+              <div className="md:col-span-12 flex items-center justify-end pt-2">
                 <div className="flex gap-2">
-                  <Button onClick={()=>{setParams(p=>({...p,ticker:"",anchorMethod:"jiazi1984",anchorDate:undefined})); setRows([]); setResult(null);}}><RefreshCw className="w-4 h-4 mr-2 inline"/>Reset</Button>
-                  <Button className="bg-black text-white hover:shadow-md" onClick={onRun} disabled={!canRun || loading}>
-                    {loading ? (<><Spline className="w-4 h-4 mr-2 inline animate-spin"/>Running</>) : (<><Play className="w-4 h-4 mr-2 inline"/>Run Analysis</>)}
-                  </Button>
+                  <motion.button
+                    whileHover={{ scale: loading ? 1 : 1.02 }}
+                    whileTap={{ scale: loading ? 1 : 0.98 }}
+                    className={`px-4 py-2 rounded-xl shadow-sm border border-border bg-black text-white hover:shadow-md active:scale-95 transition disabled:opacity-50 disabled:cursor-not-allowed ${loading ? 'animate-pulse' : ''}`}
+                    onClick={onRun}
+                    disabled={!canRun || loading}
+                  >
+                    {loading ? (
+                      <>
+                        <Spline className="w-4 h-4 mr-2 inline animate-spin"/>
+                        Running
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-4 h-4 mr-2 inline"/>
+                        Run Analysis
+                      </>
+                    )}
+                  </motion.button>
                 </div>
               </div>
               {err && <div className="md:col-span-12 text-sm text-red-600">{err}</div>}
@@ -879,12 +1061,27 @@ export default function BaZiCycleAnalyzer() {
           </CardContent>
         </Card>
 
-        {result && (
+                {loading && !result && (
+          <div className="w-full">
+            <Card>
+              <CardHeader>
+                <SectionTitle icon={Spline} title="Menjalankan analisis..." subtitle="Menghitung statistik per Element &amp; Shio" />
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3 animate-pulse">
+                  <div className="h-4 bg-muted rounded"></div>
+                  <div className="h-4 bg-muted rounded w-5/6"></div>
+                  <div className="h-4 bg-muted rounded w-2/3"></div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}{result && (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05, duration: 0.4 }}>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <Card className="lg:col-span-1">
                 <CardHeader>
-                  <SectionTitle icon={Sparkles} title="Ringkasan Data" subtitle={anchorLabel} />
+                  <SectionTitle icon={Sparkles} title="Ringkasan Data" />
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3 text-sm">
@@ -897,76 +1094,82 @@ export default function BaZiCycleAnalyzer() {
               </Card>
 
               <div className="lg:col-span-2">
-                <DateInfoCard />
+                <DateInfoCardNew />
               </div>
 
               <Card className="lg:col-span-3">
-                <CardHeader>
-                  <SectionTitle icon={Calendar} title="Performa per Element (Year Pillar)" subtitle="Avg daily return, Probability Up/Down, Avg Open→Close % (per Ba Zi Year), #Years, ATR/Close" />
+                <CardHeader className="flex items-center justify-between">
+                  <SectionTitle icon={Calendar} title="Performa per Element (Year Pillar)" subtitle="Avg daily return, Probability Up/Down, Avg Open→Close % (per Ba Zi Year), Cycle Count, ATR/Close" />
+                  <div className="mt-2 md:mt-0"><TimeframeTabs value={timeframe} onChange={setTimeframe} /></div>
                 </CardHeader>
                 <CardContent>
-                  <div className="mb-3"><TimeframeTabs value={timeframe} onChange={setTimeframe} /></div>
                   {timeframe==='yearly' && (<>
-                  <div className={"grid grid-cols-1 " + (timeframe==='daily' ? 'md:grid-cols-6' : 'md:grid-cols-8') + " gap-2 text-sm font-medium mb-2 justify-items-start"}>
+                  <div className="grid grid-cols-1 md:grid-cols-7 gap-2 text-sm font-medium mb-2 justify-items-start">
                     <div>Element</div>
                     <div>Days</div>
-                    <div>Avg Daily Ret</div>
+                    
                     <div>Prob Up</div>
                     <div>Prob Down</div>
-                    <div>Avg Open→Close % (Year)</div>
-                    <div>#Years</div>
-                    <div>Avg ATR/Close</div>
+                    <div>Prob Flat</div>
+                    <div>Avg Open-Close % (Year)</div>
+                    <div>Cycle Count</div>
                   </div>
                   <div className="divide-y">
                     {elemData.map((r:any, i:number)=> (
-                      <div key={i} className="grid grid-cols-1 md:grid-cols-8 gap-2 py-2 text-sm">
+                      <div key={i} className="grid grid-cols-1 md:grid-cols-7 gap-2 py-2 text-sm">
                         <div><Badge intent="violet">{r.element}</Badge></div>
                         <div>{r.days}</div>
-                        <div>{(r.avg_daily_ret*100).toFixed(3)}%</div>
+                        
                         <div>{(r.prob_up*100).toFixed(1)}%</div>
-                        {/* Down / Flat di kolom yang sama */}
-                        <div>{(r.prob_down*100).toFixed(1)}% / {(r.prob_flat*100).toFixed(1)}%</div>
+                        <div>{(r.prob_down*100).toFixed(1)}%</div>
                         <div>{Number.isFinite(r.avg_year_oc) ? (r.avg_year_oc*100).toFixed(2) + '%' : '—'}</div>
                         <div>{r.n_years ?? 0}</div>
-                        <div>{(r.avg_atr_frac*100).toFixed(2)}%</div>
+                        <div>{(r.prob_flat*100).toFixed(1)}%</div>
                       </div>
                     ))}
                   </div>
                   </>) }
                   {timeframe!=='yearly' && (
                     <>
-                      <div className={"grid grid-cols-1 " + (timeframe==='daily' ? 'md:grid-cols-7' : 'md:grid-cols-8') + " gap-2 text-sm font-medium mb-2 justify-items-start"}>
+                      <div className={"grid grid-cols-1 " + (timeframe==='daily' ? 'md:grid-cols-7' : 'md:grid-cols-7') + " gap-2 text-sm font-medium mb-2 justify-items-start"}>
                         <div>Element</div>
                         <div>Days</div>
-                        <div>Avg Daily Ret</div>
                         <div>Prob Up</div>
                         <div>Prob Down</div>
+                        <div>Prob Flat</div>
                         {timeframe!=='daily' && (
                           <>
                             <div>{timeframe==='yearly' ? 'Avg Open-Close % (Year)' : 'Avg Open-Close % (BaZi Month)'}</div>
-                            <div>{timeframe==='yearly' ? '#Years' : '#Months'}</div>
+                            <div>Cycle Count</div>
                           </>
                         )}
-                        {timeframe==='daily' && (<div>Avg Open-Close % (Day)</div>)}
-                        <div>Avg ATR/Close</div>
+                        {timeframe==='daily' && (
+                          <>
+                            <div>Avg Open-Close % (Day)</div>
+                            <div>Cycle Count</div>
+                          </>
+                        )}
                       </div>
                       <div className="divide-y">
                         {elemData.map((r:any, i:number)=> (
-                          <div key={i} className={"grid grid-cols-1 " + (timeframe==='daily' ? 'md:grid-cols-7' : 'md:grid-cols-8') + " gap-2 py-2 text-sm"}>
+                          <div key={i} className={"grid grid-cols-1 " + (timeframe==='daily' ? 'md:grid-cols-7' : 'md:grid-cols-7') + " gap-2 py-2 text-sm"}>
                             <div><Badge intent="violet">{r.element}</Badge></div>
                             <div>{r.days}</div>
-                            <div>{(r.avg_daily_ret*100).toFixed(3)}%</div>
                             <div>{(r.prob_up*100).toFixed(1)}%</div>
-                            {/* Down / Flat di kolom yang sama */}
-                            <div>{(r.prob_down*100).toFixed(1)}% / {(r.prob_flat*100).toFixed(1)}%</div>
+                            <div>{(r.prob_down*100).toFixed(1)}%</div>
+                            <div>{(r.prob_flat*100).toFixed(1)}%</div>
                             {timeframe!=='daily' && (
                               <>
                                 <div>{Number.isFinite(r.avg_year_oc) ? (r.avg_year_oc*100).toFixed(2) + '%' : '-'}</div>
                                 <div>{r.n_years ?? 0}</div>
                               </>
                             )}
-                            {timeframe==='daily' && (<div>{Number.isFinite(r.avg_year_oc) ? (r.avg_year_oc*100).toFixed(2) + '%' : '-'}</div>)}
-                            <div>{(r.avg_atr_frac*100).toFixed(2)}%</div>
+                            {timeframe==='daily' && (
+                              <>
+                                <div>{Number.isFinite(r.avg_year_oc) ? (r.avg_year_oc*100).toFixed(2) + '%' : '-'}</div>
+                                <div>{r.n_years ?? 0}</div>
+                              </>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -977,50 +1180,56 @@ export default function BaZiCycleAnalyzer() {
 
               <div className="lg:col-span-3">
                 <Card>
-                  <CardHeader>
+                  <CardHeader className="flex items-center justify-between">
                     <SectionTitle icon={LineChart} title={
                       timeframe==='yearly' ? 'Performa per Shio (Year Branch)' : (timeframe==='monthly' ? 'Performa per Shio (BaZi Month)' : 'Performa per Shio (Daily)')
                     } subtitle={
                       timeframe==='daily'
                         ? 'Avg daily return, Probability Up/Down, ATR/Close'
                         : (timeframe==='yearly'
-                            ? 'Avg daily return, Probability Up/Down, Avg Open→Close % (per Ba Zi Year), #Years, ATR/Close'
-                            : 'Avg daily return, Probability Up/Down, Avg Open→Close % (per BaZi Month), #Months, ATR/Close')
+                            ? 'Avg daily return, Probability Up/Down, Avg Open→Close % (per Ba Zi Year), Cycle Count, ATR/Close'
+                            : 'Avg daily return, Probability Up/Down, Avg Open→Close % (per BaZi Month), Cycle Count, ATR/Close')
                     } />
+                    <div className="mt-2 md:mt-0"><TimeframeTabs value={timeframe} onChange={setTimeframe} /></div>
                   </CardHeader>
                   <CardContent>
-                    <div className={"grid grid-cols-1 " + (timeframe==='daily' ? 'md:grid-cols-7' : 'md:grid-cols-8') + " gap-2 text-sm font-medium mb-2 justify-items-start"}>
+                    <div className={"grid grid-cols-1 " + (timeframe==='daily' ? 'md:grid-cols-7' : 'md:grid-cols-7') + " gap-2 text-sm font-medium mb-2 justify-items-start"}>
                       <div>Shio</div>
                       <div>Days</div>
-                      <div>Avg Daily Ret</div>
+                      
                       <div>Prob Up</div>
                       <div>Prob Down</div>
+                      <div>Prob Flat</div>
                       {timeframe!=='daily' && (
                         <>
                           <div>{timeframe==='yearly' ? 'Avg Open→Close % (Year)' : 'Avg Open→Close % (BaZi Month)'}</div>
-                          <div>{timeframe==='yearly' ? '#Years' : '#Months'}</div>
+                          <div>Cycle Count</div>
                         </>
                       )}
-                      {timeframe==='daily' && (<div>Avg Open-Close % (Day)</div>)}
-                      <div>Avg ATR/Close</div>
+                      {timeframe==='daily' && (<>\n                          <div>Avg Open-Close % (Day)</div>\n                          <div>Cycle Count</div>\n                        </>)}
+                      
                     </div>
                     <div className="divide-y">
                       {shioData.map((r:any, i:number)=> (
-                        <div key={i} className={"grid grid-cols-1 " + (timeframe==='daily' ? 'md:grid-cols-7' : 'md:grid-cols-8') + " gap-2 py-2 text-sm"}>
+                        <div key={i} className={"grid grid-cols-1 " + (timeframe==='daily' ? 'md:grid-cols-7' : 'md:grid-cols-7') + " gap-2 py-2 text-sm"}>
                           <div><Badge intent="gray">{r.shio}</Badge></div>
                           <div>{r.days}</div>
-                          <div>{(r.avg_daily_ret*100).toFixed(3)}%</div>
+                          
                           <div>{(r.prob_up*100).toFixed(1)}%</div>
-                          {/* Down / Flat di kolom yang sama */}
-                          <div>{(r.prob_down*100).toFixed(1)}% / {(r.prob_flat*100).toFixed(1)}%</div>
+                          <div>{(r.prob_down*100).toFixed(1)}%</div>
+                          <div>{(r.prob_flat*100).toFixed(1)}%</div>
                           {timeframe!=='daily' && (
                             <>
                               <div>{Number.isFinite(r.avg_year_oc) ? (r.avg_year_oc*100).toFixed(2) + '%' : '—'}</div>
                               <div>{r.n_years ?? 0}</div>
                             </>
                           )}
-                          {timeframe==='daily' && (<div>{Number.isFinite(r.avg_year_oc) ? (r.avg_year_oc*100).toFixed(2) + '%' : '-'}</div>)}
-                          <div>{(r.avg_atr_frac*100).toFixed(2)}%</div>
+                          {timeframe==='daily' && (
+                            <>
+                              <div>{Number.isFinite(r.avg_year_oc) ? (r.avg_year_oc*100).toFixed(2) + '%' : '-'}</div>
+                              <div>{r.n_years ?? 0}</div>
+                            </>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1082,3 +1291,24 @@ function runUnitTests() {
   }
 }
 if (typeof window !== "undefined") runUnitTests();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
