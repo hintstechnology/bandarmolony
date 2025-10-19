@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Calendar, Clock, LineChart, Play, RefreshCw, Settings2, Sparkles, Spline } from "lucide-react";
+import { Calendar, Clock, LineChart, Play, RefreshCw, Settings2, Sparkles, Spline, Search } from "lucide-react";
 
 const Card = ({ className = "", children }: any) => (
   <div className={`rounded-2xl shadow-sm border border-border bg-card ${className}`}>{children}</div>
@@ -573,6 +573,12 @@ export default function BaZiCycleAnalyzer() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [timeframe, setTimeframe] = useState<Timeframe>('yearly');
+  const [recentFiles, setRecentFiles] = useState<any[]>([]);
+  const [fileSearch, setFileSearch] = useState<string>("");
+  const [fileDropdownOpen, setFileDropdownOpen] = useState<boolean>(false);
+  const [fileActiveIndex, setFileActiveIndex] = useState<number>(-1);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileSearchRef = useRef<HTMLInputElement>(null);
 
   const canRun = useMemo(() => {
     const { ticker, startDate, endDate } = params;
@@ -586,6 +592,14 @@ export default function BaZiCycleAnalyzer() {
     const parsed = parseCsvSmart(text);
     if (!parsed.length) { setErr("CSV kosong atau tidak terbaca"); setRows([]); return; }
     setRows(parsed);
+    try {
+      const meta = { name: f.name || 'uploaded.csv', rows: parsed };
+      setRecentFiles(prev => {
+        const next = [meta, ...prev.filter(x=>x.name!==meta.name)].slice(0, 10);
+        try { localStorage.setItem('baziRecentFiles', JSON.stringify(next)); } catch {}
+        return next;
+      });
+    } catch {}
   };
 
   const loadDemo = () => {
@@ -598,6 +612,16 @@ export default function BaZiCycleAnalyzer() {
     setRows(parseCsvSmart(demo));
     setErr(null);
   };
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('baziRecentFiles');
+      if (raw) {
+        const arr = JSON.parse(raw);
+        setRecentFiles(Array.isArray(arr) ? arr : []);
+      }
+    } catch {}
+  }, []);
 
   const onRun = async () => {
     setLoading(true);
@@ -701,7 +725,59 @@ export default function BaZiCycleAnalyzer() {
               <div className="md:col-span-12">
                 <label className="text-sm font-medium">Upload CSV (OHLC Daily)</label>
                 <div className="mt-1 flex items-center gap-3 flex-wrap">
-                  <input type="file" accept=".csv" onChange={(e)=> onUpload(e.target.files?.[0] || null)} />
+                  <div className="relative">
+                    <div className="pointer-events-none absolute inset-y-0 left-0 pl-3 flex items-center">
+                      <Search className="w-4 h-4 text-muted-foreground"/>
+                    </div>
+                    <input
+                      ref={fileSearchRef}
+                      type="text"
+                      value={fileSearch}
+                      onChange={(e)=>{ setFileSearch(e.target.value); setFileDropdownOpen(true); setFileActiveIndex(-1); }}
+                      onFocus={()=>{ setFileDropdownOpen(true); }}
+                      onKeyDown={(e)=>{
+                        const items = recentFiles.filter(x=>!fileSearch || x.name.toLowerCase().includes(fileSearch.toLowerCase()));
+                        if (e.key === 'ArrowDown') { e.preventDefault(); setFileActiveIndex(i=> Math.min(items.length-1, i+1)); }
+                        else if (e.key === 'ArrowUp') { e.preventDefault(); setFileActiveIndex(i=> Math.max(0, (i<0?0:i-1))); }
+                        else if (e.key === 'Enter') {
+                          if (fileActiveIndex >= 0 && items[fileActiveIndex]) {
+                            const pick = items[fileActiveIndex];
+                            try {
+                              const revived = (pick.rows||[]).map((r:any)=> ({...r, date: new Date(r.date)}));
+                              setRows(revived);
+                              setErr(null);
+                              setResult(null);
+                              setFileDropdownOpen(false);
+                            } catch {}
+                          }
+                        } else if (e.key === 'Escape') { setFileDropdownOpen(false); }
+                      }}
+                      placeholder="Cari file upload..."
+                      className="w-72 pl-9 pr-3 py-2 rounded-xl border border-border bg-input text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                    />
+                    {fileDropdownOpen && (
+                      <div className="absolute z-10 mt-1 w-full rounded-xl border border-border bg-popover shadow-sm max-h-56 overflow-auto">
+                        {recentFiles.filter(x=>!fileSearch || x.name.toLowerCase().includes(fileSearch.toLowerCase())).length === 0 && (
+                          <div className="px-3 py-2 text-sm text-muted-foreground">Tidak ada file tersimpan. Gunakan Browse untuk upload.</div>
+                        )}
+                        {recentFiles.filter(x=>!fileSearch || x.name.toLowerCase().includes(fileSearch.toLowerCase())).map((it:any, idx:number)=> (
+                          <div
+                            key={it.name+idx}
+                            role="option"
+                            aria-selected={fileActiveIndex===idx}
+                            onMouseDown={(e)=>{ e.preventDefault(); /* keep focus */ }}
+                            onClick={()=>{
+                              try{ const revived=(it.rows||[]).map((r:any)=>({...r, date:new Date(r.date)})); setRows(revived); setErr(null); setResult(null);}catch{}
+                              setFileDropdownOpen(false);
+                            }}
+                            className={`px-3 py-2 text-sm cursor-pointer ${fileActiveIndex===idx? 'bg-accent text-accent-foreground' : ''}`}
+                          >{it.name}</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <input ref={fileInputRef} className="hidden" type="file" accept=".csv" onChange={(e)=> onUpload(e.target.files?.[0] || null)} />
+                  <Button onClick={()=> fileInputRef.current?.click() }>Browse</Button>
                   <Button onClick={loadDemo}><RefreshCw className="w-4 h-4 mr-2 inline"/>Load Demo (BTC snippet)</Button>
                   <Badge intent={rows.length? "green":"amber"}>{rows.length? `${rows.length} rows loaded` : "No data"}</Badge>
                 </div>
