@@ -57,7 +57,7 @@ function TimeframeTabs({ value, onChange }: { value: Timeframe; onChange: (v: Ti
 
 interface RunParams {
   ticker: string;
-  anchorMethod: "personal" | "market" | "jiazi1984" | "custom";
+  anchorMethod: "jiazi1984" | "custom";
   anchorDate?: string;
   startDate: string;
   endDate: string;
@@ -69,6 +69,12 @@ interface Row {
   ret?: number; atr14?: number; atr14_frac?: number;
   pillar_year?: string; element?: string; yinyang?: string; shio?: string;
   stem?: string; branch?: string; stemCN?: string; branchCN?: string;
+
+  // tambahan info (tidak dipakai layout, tapi dipakai agregasi BaZi)
+  year_solar?: number;
+  year_element?: string; year_yinyang?: "Yin"|"Yang"; year_shio?: string; year_pillarCN?: string;
+  month_element?: string; month_yinyang?: "Yin"|"Yang"; month_shio?: string; month_pillarCN?: string; month_index?: number;
+  day_element?: string; day_yinyang?: "Yin"|"Yang"; day_shio?: string; day_pillarCN?: string;
 }
 
 type Timeframe = 'yearly' | 'monthly' | 'daily';
@@ -125,11 +131,8 @@ function parseCsvSmart(text: string): Row[] {
   return rows.sort((a,b)=>+a.date-+b.date);
 }
 
-const LNY: Record<number, string> = {
-  2020: "2020-01-25", 2021: "2021-02-12", 2022: "2022-02-01", 2023: "2023-01-22",
-  2024: "2024-02-10", 2025: "2025-01-29", 2026: "2026-02-17", 2027: "2027-02-06",
-  2028: "2028-01-26", 2029: "2029-02-13", 2030: "2030-02-03",
-};
+// ========= ASTRONOMY & BAZI (OFFLINE, NO API) =========
+const TZ_DEFAULT = "Asia/Jakarta" as const;
 const stems = ["Jia","Yi","Bing","Ding","Wu","Ji","Geng","Xin","Ren","Gui"] as const;
 const stemsCN = ["甲","乙","丙","丁","戊","己","庚","辛","壬","癸"] as const;
 const stemElem = ["Wood","Wood","Fire","Fire","Earth","Earth","Metal","Metal","Water","Water"] as const;
@@ -139,48 +142,175 @@ const branchesCN = ["子","丑","寅","卯","辰","巳","午","未","申","酉",
 const shio = ["Rat","Ox","Tiger","Rabbit","Dragon","Snake","Horse","Goat","Monkey","Rooster","Dog","Pig"] as const;
 const ELEMENTS = ["Wood","Fire","Earth","Metal","Water"] as const;
 
+// Mapping unsur & yin-yang utk stem CN
+const STEM_ELEMENT: Record<string, { element: string; yy: "Yin"|"Yang" }> = {
+  "甲":{element:"Wood",yy:"Yang"},"乙":{element:"Wood",yy:"Yin"},
+  "丙":{element:"Fire",yy:"Yang"},"丁":{element:"Fire",yy:"Yin"},
+  "戊":{element:"Earth",yy:"Yang"},"己":{element:"Earth",yy:"Yin"},
+  "庚":{element:"Metal",yy:"Yang"},"辛":{element:"Metal",yy:"Yin"},
+  "壬":{element:"Water",yy:"Yang"},"癸":{element:"Water",yy:"Yin"},
+};
+const BRANCH_META_FULL: Record<string,{ shio:string; element:string; yy:"Yin"|"Yang"}> = {
+  "子":{shio:"Rat",   element:"Water",yy:"Yang"},
+  "丑":{shio:"Ox",    element:"Earth",yy:"Yin"},
+  "寅":{shio:"Tiger", element:"Wood", yy:"Yang"},
+  "卯":{shio:"Rabbit",element:"Wood", yy:"Yin"},
+  "辰":{shio:"Dragon",element:"Earth",yy:"Yang"},
+  "巳":{shio:"Snake", element:"Fire", yy:"Yin"},
+  "午":{shio:"Horse", element:"Fire", yy:"Yang"},
+  "未":{shio:"Goat",  element:"Earth",yy:"Yin"},
+  "申":{shio:"Monkey",element:"Metal",yy:"Yang"},
+  "酉":{shio:"Rooster",element:"Metal",yy:"Yin"},
+  "戌":{shio:"Dog",   element:"Earth",yy:"Yang"},
+  "亥":{shio:"Pig",   element:"Water",yy:"Yin"},
+};
+
+// Urutan branch bulan mulai Li Chun (寅)
+const MONTH_BRANCHES_CN = ["寅","卯","辰","巳","午","未","申","酉","戌","亥","子","丑"] as const;
+const MONTH_STEM_MAP: Record<string, readonly string[]> = {
+  "甲":["丙","丁","戊","己","庚","辛","壬","癸","甲","乙","丙","丁"],
+  "乙":["丁","戊","己","庚","辛","壬","癸","甲","乙","丙","丁","戊"],
+  "丙":["戊","己","庚","辛","壬","癸","甲","乙","丙","丁","戊","己"],
+  "丁":["己","庚","辛","壬","癸","甲","乙","丙","丁","戊","己","庚"],
+  "戊":["庚","辛","壬","癸","甲","乙","丙","丁","戊","己","庚","辛"],
+  "己":["辛","壬","癸","甲","乙","丙","丁","戊","己","庚","辛","壬"],
+  "庚":["壬","癸","甲","乙","丙","丁","戊","己","庚","辛","壬","癸"],
+  "辛":["癸","甲","乙","丙","丁","戊","己","庚","辛","壬","癸","甲"],
+  "壬":["甲","乙","丙","丁","戊","己","庚","辛","壬","癸","甲","乙"],
+  "癸":["乙","丙","丁","戊","己","庚","辛","壬","癸","甲","乙","丙"],
+};
+
+// 60-hari pasangan stem-branch (Jia-Zi)
+const JIA_ZI = [
+  "甲子","乙丑","丙寅","丁卯","戊辰","己巳","庚午","辛未","壬申","癸酉",
+  "甲戌","乙亥","丙子","丁丑","戊寅","己卯","庚辰","辛巳","壬午","癸未",
+  "甲申","乙酉","丙戌","丁亥","戊子","己丑","庚寅","辛卯","壬辰","癸巳",
+  "甲午","乙未","丙申","丁酉","戊戌","己亥","庚子","辛丑","壬寅","癸卯",
+  "甲辰","乙巳","丙午","丁未","戊申","己酉","庚戌","辛亥","壬子","癸丑",
+  "甲寅","乙卯","丙辰","丁巳","戊午","己未","庚申","辛酉","壬戌","癸亥",
+] as const;
+
+const normalize360 = (x:number)=> ((x%360)+360)%360;
+function toJulianDayUTC(dt: Date): number {
+  const y = dt.getUTCFullYear(); let m = dt.getUTCMonth()+1;
+  const D = dt.getUTCDate() + (dt.getUTCHours() + (dt.getUTCMinutes() + dt.getUTCSeconds()/60)/60)/24;
+  let Y = y; if (m<=2){ Y=y-1; m+=12; }
+  const A = Math.floor(Y/100); const B = 2 - A + Math.floor(A/4);
+  return Math.floor(365.25*(Y+4716)) + Math.floor(30.6001*(m+1)) + D + B - 1524.5;
+}
+const julianCenturiesTT = (JD:number)=> (JD - 2451545.0)/36525.0;
+function solarAppLongitudeDeg(dtUTC: Date): number {
+  const JD = toJulianDayUTC(dtUTC); const T  = julianCenturiesTT(JD);
+  const L0 = normalize360(280.46646 + 36000.76983*T + 0.0003032*T*T);
+  const M  = normalize360(357.52911 + 35999.05029*T - 0.0001537*T*T);
+  const C  = (1.914602 - 0.004817*T - 0.000014*T*T)*Math.sin(M*Math.PI/180)
+           + (0.019993 - 0.000101*T)*Math.sin(2*M*Math.PI/180)
+           + 0.000289*Math.sin(3*M*Math.PI/180);
+  const trueLong = L0 + C;
+  const omega = normalize360(125.04 - 1934.136*T);
+  const lam = trueLong - 0.00569 - 0.00478*Math.sin(omega*Math.PI/180);
+  return normalize360(lam);
+}
+function findTimeWhenSolarLongitude(targetDeg:number, startUTC:Date, endUTC:Date): Date {
+  let a = startUTC, b = endUTC;
+  const angDiff = (cur:number, tgt:number)=>{ let x=normalize360(cur-tgt); if(x>180) x-=360; return x; };
+  let fa = angDiff(solarAppLongitudeDeg(a), targetDeg);
+  let fb = angDiff(solarAppLongitudeDeg(b), targetDeg);
+  if (fa*fb>0){ const mid=new Date((a.getTime()+b.getTime())/2); const fm=angDiff(solarAppLongitudeDeg(mid), targetDeg); if(fa*fm<=0){ b=mid; fb=fm; } else { a=mid; fa=fm; } }
+  for(let i=0;i<64;i++){ const m=new Date((a.getTime()+b.getTime())/2); const fm=angDiff(solarAppLongitudeDeg(m), targetDeg);
+    if (Math.abs(b.getTime()-a.getTime())<=500) return m;
+    if (fa*fm<=0){ b=m; fb=fm; } else { a=m; fa=fm; } }
+  return new Date((a.getTime()+b.getTime())/2);
+}
+function liChunLocal(year:number, tz:string=TZ_DEFAULT): Date {
+  const start = new Date(Date.UTC(year, 0, 31, 0, 0, 0));
+  const end   = new Date(Date.UTC(year, 1, 6, 0, 0, 0));
+  const hitUTC = findTimeWhenSolarLongitude(315, start, end);
+  return new Date(hitUTC.toLocaleString("en-US",{ timeZone: tz }));
+}
+function monthIndexFromLongitude(lam:number): number {
+  const d = normalize360(lam - 315); return Math.floor(d/30) % 12; // 0..11, 0=寅
+}
+const JIAZI_ANCHOR_UTC = new Date(Date.UTC(1900,0,31,0,0,0)); // 甲子
+
+// ——— Pillar exact (Year/Month/Day) ———
+function yearPillarExact(localDate: Date, tz:string=TZ_DEFAULT){
+  const lc = liChunLocal(localDate.getFullYear(), tz);
+  const solarYear = (localDate.getTime()>=lc.getTime()) ? localDate.getFullYear() : localDate.getFullYear()-1;
+  const n = solarYear - 1984; // 1984 = 甲子
+  const stemCN = stemsCN[((n%10)+10)%10]; const branchCN = branchesCN[((n%12)+12)%12];
+  const se = STEM_ELEMENT[stemCN]; const bm = BRANCH_META_FULL[branchCN];
+  return { solarYear, pillarCN: stemCN+branchCN, stemCN, branchCN, element: se.element, yinyang: se.yy, shio: bm.shio };
+}
+function monthPillarExact(localDate: Date, yearStemCN:string){
+  const lam = solarAppLongitudeDeg(new Date(localDate.toLocaleString("en-US",{ timeZone: "UTC" })));
+  const idx = monthIndexFromLongitude(lam); // 0..11
+  const branchCN = MONTH_BRANCHES_CN[idx]; const stemCN = MONTH_STEM_MAP[yearStemCN][idx];
+  const se = STEM_ELEMENT[stemCN]; const bm = BRANCH_META_FULL[branchCN];
+  return { monthIndex: idx+1, pillarCN: stemCN+branchCN, stemCN, branchCN, element: se.element, yinyang: se.yy, shio: bm.shio };
+}
+function dayPillarExact(localDate: Date, tz:string=TZ_DEFAULT){
+  const dayStartLocal = new Date(new Date(localDate).setHours(0,0,0,0));
+  const dayStartUTC = new Date(dayStartLocal.toLocaleString("en-US",{ timeZone: "UTC" }));
+  const JD = toJulianDayUTC(dayStartUTC); const JD0 = toJulianDayUTC(JIAZI_ANCHOR_UTC);
+  const delta = Math.round(JD - JD0); const idx = ((delta%60)+60)%60;
+  const pair = JIA_ZI[idx]; const stem = pair[0], branch = pair[1];
+  const se = STEM_ELEMENT[stem]; const bm = BRANCH_META_FULL[branch];
+  return { pillarCN: pair, stemCN: stem, branchCN: branch, element: se.element, yinyang: se.yy, shio: bm.shio };
+}
+
+// ——— Compatibility wrappers (menjaga pemanggil lama) ———
 function sexagenaryFromDate(d: Date){
-  const y = d.getFullYear();
-  const boundary = (y in LNY)
-    ? new Date(LNY[y] + "T00:00:00Z")
-    : new Date(Date.UTC(y, 1, 4));
-  const baziYear = (d.getTime() < boundary.getTime()) ? y - 1 : y;
-  const idx = ((baziYear - 1984) % 60 + 60) % 60;
-  const stem_idx = idx % 10;
-  const branch_idx = idx % 12;
-  return { idx, stem_idx, branch_idx, baziYear };
+  // Boundary tahun pakai Li Chun (bukan Imlek)
+  const y = yearPillarExact(d, TZ_DEFAULT);
+  const n = y.solarYear - 1984;
+  const idx = ((n%60)+60)%60;
+  const stem_idx = ((n%10)+10)%10;
+  const branch_idx = ((n%12)+12)%12;
+  return { idx, stem_idx, branch_idx, baziYear: y.solarYear };
 }
-
-// Approximate BaZi month index (0..11) with 0 = Tiger month, using fallback
-// solar-term boundaries around the 4th–8th of each Gregorian month.
 function getBaziMonthIndex(d: Date): number {
-  const starts = [6,4,6,5,6,6,7,8,8,8,7,7]; // Jan..Dec threshold day-of-month when month flips
-  const order = [1,2,3,4,5,6,7,8,9,10,11,0]; // Feb..Dec, Jan
-  const m = d.getMonth();
-  const day = d.getDate();
-  const p = order.indexOf(m);
-  const threshold = starts[m] ?? 4;
-  const idx = day >= threshold ? p : (p + 11) % 12;
-  return idx; // 0=Tiger, 1=Rabbit, ..., 11=Ox
+  // Astronomical: dari λ☉, 0=Tiger(寅)
+  const lam = solarAppLongitudeDeg(new Date(d.toLocaleString("en-US",{ timeZone: "UTC" })));
+  return monthIndexFromLongitude(lam);
 }
-
 function getBaziMonthKey(d: Date): string {
   const { baziYear } = sexagenaryFromDate(d);
-  const mi = getBaziMonthIndex(d);
-  return `${baziYear}-${mi}`;
+  const mi = getBaziMonthIndex(d); // 0..11
+  return `${baziYear}-${mi+1}`;    // tampilkan 1..12
 }
 
+// ========= ENRICH (tidak mengubah bentuk data UI) =========
 function enrich(rows: Row[]) {
   const out = rows.map(r => {
-    const { stem_idx, branch_idx } = sexagenaryFromDate(r.date);
+    const y = yearPillarExact(r.date, TZ_DEFAULT);
+    const m = monthPillarExact(r.date, y.stemCN);
+    const di = dayPillarExact(r.date, TZ_DEFAULT);
+
+    // legacy fields: tetap isi dari Year pillar
+    const n = y.solarYear - 1984;
+    const stem_idx = ((n%10)+10)%10;
+    const branch_idx = ((n%12)+12)%12;
     const stem = stems[stem_idx];
     const branch = branches[branch_idx];
     const pillar_year = `${stem} ${branch}`;
     const element = stemElem[stem_idx];
     const yinyang = stemYY[stem_idx];
     const sh = shio[branch_idx];
-    return { ...r, pillar_year, element, yinyang, shio: sh, stem, branch, stemCN: stemsCN[stem_idx], branchCN: branchesCN[branch_idx] };
+
+    return {
+      ...r,
+      pillar_year, element, yinyang, shio: sh, stem, branch,
+      stemCN: y.stemCN, branchCN: y.branchCN,
+
+      // detail for BaZi aggregations (dipakai fungsi agregasi)
+      year_solar: y.solarYear, year_element: y.element, year_yinyang: y.yinyang, year_shio: y.shio, year_pillarCN: y.pillarCN,
+      month_element: m.element, month_yinyang: m.yinyang, month_shio: m.shio, month_pillarCN: m.pillarCN, month_index: m.monthIndex,
+      day_element: di.element, day_yinyang: di.yinyang, day_shio: di.shio, day_pillarCN: di.pillarCN,
+    };
   });
+
+  // ret & ATR14 sama seperti sebelumnya
   for (let i=1;i<out.length;i++){
     const prev = out[i-1].close ?? NaN; const cur = out[i].close ?? NaN;
     (out as any)[i].ret = (isFinite(prev) && isFinite(cur) && prev !== 0) ? (cur - prev)/prev : NaN;
@@ -206,270 +336,232 @@ function enrich(rows: Row[]) {
   return out;
 }
 
+// ========= HELPERS: Probability Up/Down/Flat =========
+function upDownFlat(arr: any[]){
+  let up=0, down=0, flat=0, total=0;
+  for (const a of arr){
+    if (Number.isFinite(a.open) && Number.isFinite(a.close)){
+      total++;
+      if (a.close > a.open) up++;
+      else if (a.close < a.open) down++;
+      else flat++;
+    }
+  }
+  return { up, down, flat, total };
+}
+
+// ========= AGGREGATIONS (Year/Month/Day) =========
+// YEARLY (BaZi year via Li Chun)
 function aggregateByElement(rows: any[]) {
   const groups: Record<string, any[]> = {};
-  rows.forEach(r => { if(!groups[r.element]) groups[r.element]=[]; groups[r.element].push(r); });
+  rows.forEach(r => { const key = r.year_element ?? r.element; (groups[key] ||= []).push(r); });
   const core = Object.entries(groups).map(([element, arr])=>{
-    const days = arr.length;
-    let upCount = 0, downCount = 0, totalCount = 0;
-    for (const a of arr) {
-      if (Number.isFinite(a.open) && Number.isFinite(a.close)) {
-        totalCount++;
-        if (a.close > a.open) upCount++;
-        else if (a.close < a.open) downCount++;
-      }
-    }
-    const rets = arr.map(a=>a.ret).filter((x:any)=>Number.isFinite(x));
-    const atrs = arr.map(a=>a.atr14_frac).filter((x:any)=>Number.isFinite(x));
+    const { up, down, flat, total } = upDownFlat(arr);
+    const rets = arr.map(a=>a.ret).filter((x:any)=>Number.isFinite(x)) as number[];
+    const atrs = arr.map(a=>a.atr14_frac).filter((x:any)=>Number.isFinite(x)) as number[];
+
+    // open->close per BaZi Year (year_solar)
     const perYear: Record<number, { openStart?: number; closeEnd?: number }> = {};
-    for (const r of arr) {
-      const { baziYear } = sexagenaryFromDate(r.date);
-      if (!perYear[baziYear]) perYear[baziYear] = {};
-      if (perYear[baziYear].openStart == null) {
-        const o = Number.isFinite(r.open) ? r.open : (Number.isFinite(r.close) ? r.close : undefined);
-        if (o != null) perYear[baziYear].openStart = o as number;
+    for (const r of arr){
+      const yid = r.year_solar as number;
+      if (!perYear[yid]) perYear[yid] = {};
+      if (perYear[yid].openStart == null){
+        const o = Number.isFinite(r.open) ? r.open : (Number.isFinite(r.close)? r.close : undefined);
+        if (o != null) perYear[yid].openStart = o as number;
       }
-      if (Number.isFinite(r.close)) perYear[baziYear].closeEnd = r.close as number;
+      if (Number.isFinite(r.close)) perYear[yid].closeEnd = r.close as number;
     }
-    const yearRets: number[] = Object.values(perYear)
-      .map(v => (Number.isFinite(v.openStart) && Number.isFinite(v.closeEnd) && (v.openStart as number) !== 0)
-        ? ((v.closeEnd as number) - (v.openStart as number)) / (v.openStart as number)
-        : NaN)
-      .filter(x => Number.isFinite(x)) as number[];
-    const avg_year_oc = yearRets.length ? yearRets.reduce((a,b)=>a+b,0)/yearRets.length : 0;
-    const n_years = yearRets.length;
+    const yearRets = Object.values(perYear)
+      .map(v => (Number.isFinite(v.openStart)&&Number.isFinite(v.closeEnd)&& (v.openStart as number)!==0)
+        ? ((v.closeEnd as number)-(v.openStart as number))/(v.openStart as number) : NaN)
+      .filter(x=>Number.isFinite(x)) as number[];
 
     return {
       element,
-      days,
-      avg_daily_ret: rets.length? rets.reduce((a:number,b:number)=>a+b,0)/rets.length : 0,
-      prob_up: totalCount? upCount/totalCount : 0,
-      prob_down: totalCount? downCount/totalCount : 0,
-      avg_year_oc,
-      n_years,
-      avg_atr_frac: atrs.length? atrs.reduce((a:number,b:number)=>a+b,0)/atrs.length : 0,
+      days: arr.length,
+      avg_daily_ret: rets.length? rets.reduce((a,b)=>a+b,0)/rets.length : 0,
+      prob_up: total? up/total : 0,
+      prob_down: total? down/total : 0,
+      prob_flat: total? flat/total : 0,
+      avg_year_oc: yearRets.length? yearRets.reduce((a,b)=>a+b,0)/yearRets.length : 0,
+      n_years: yearRets.length,
+      avg_atr_frac: atrs.length? atrs.reduce((a,b)=>a+b,0)/atrs.length : 0,
     };
   });
   const have = new Set(core.map(r=>r.element));
   (ELEMENTS as readonly string[]).forEach(el => {
-    if (!have.has(el)) core.push({ element: el, days: 0, avg_daily_ret: 0, prob_up: 0, prob_down: 0, avg_year_oc: 0, n_years: 0, avg_atr_frac: 0 });
+    if (!have.has(el)) core.push({ element: el, days: 0, avg_daily_ret: 0, prob_up: 0, prob_down: 0, prob_flat: 0, avg_year_oc: 0, n_years: 0, avg_atr_frac: 0 });
   });
   return core.sort((a,b)=> b.avg_year_oc - a.avg_year_oc);
 }
-
 function aggregateByShio(rows: any[]) {
   const groups: Record<string, any[]> = {};
-  rows.forEach(r => { if(!groups[r.shio]) groups[r.shio]=[]; groups[r.shio].push(r); });
+  rows.forEach(r => { const key = r.year_shio ?? r.shio; (groups[key] ||= []).push(r); });
   return Object.entries(groups).map(([shio, arr])=>{
-    const days = arr.length;
-    let upCount = 0, downCount = 0, totalCount = 0;
-    for (const a of arr) {
-      if (Number.isFinite(a.open) && Number.isFinite(a.close)) {
-        totalCount++;
-        if (a.close > a.open) upCount++;
-        else if (a.close < a.open) downCount++;
-      }
-    }
-    const rets = arr.map(a=>a.ret).filter((x:any)=>Number.isFinite(x));
-    const atrs = arr.map(a=>a.atr14_frac).filter((x:any)=>Number.isFinite(x));
+    const { up, down, flat, total } = upDownFlat(arr);
+    const rets = arr.map(a=>a.ret).filter((x:any)=>Number.isFinite(x)) as number[];
+    const atrs = arr.map(a=>a.atr14_frac).filter((x:any)=>Number.isFinite(x)) as number[];
+
     const perYear: Record<number, { openStart?: number; closeEnd?: number }> = {};
-    for (const r of arr) {
-      const { baziYear } = sexagenaryFromDate(r.date);
-      if (!perYear[baziYear]) perYear[baziYear] = {};
-      if (perYear[baziYear].openStart == null) {
-        const o = Number.isFinite(r.open) ? r.open : (Number.isFinite(r.close) ? r.close : undefined);
-        if (o != null) perYear[baziYear].openStart = o as number;
+    for (const r of arr){
+      const yid = r.year_solar as number;
+      if (!perYear[yid]) perYear[yid] = {};
+      if (perYear[yid].openStart == null){
+        const o = Number.isFinite(r.open) ? r.open : (Number.isFinite(r.close)? r.close : undefined);
+        if (o != null) perYear[yid].openStart = o as number;
       }
-      if (Number.isFinite(r.close)) perYear[baziYear].closeEnd = r.close as number;
+      if (Number.isFinite(r.close)) perYear[yid].closeEnd = r.close as number;
     }
-    const yearRets: number[] = Object.values(perYear)
-      .map(v => (Number.isFinite(v.openStart) && Number.isFinite(v.closeEnd) && (v.openStart as number) !== 0)
-        ? ((v.closeEnd as number) - (v.openStart as number)) / (v.openStart as number)
-        : NaN)
-      .filter(x => Number.isFinite(x)) as number[];
-    const avg_year_oc = yearRets.length ? yearRets.reduce((a,b)=>a+b,0)/yearRets.length : 0;
-    const n_years = yearRets.length;
+    const yearRets = Object.values(perYear)
+      .map(v => (Number.isFinite(v.openStart)&&Number.isFinite(v.closeEnd)&& (v.openStart as number)!==0)
+        ? ((v.closeEnd as number)-(v.openStart as number))/(v.openStart as number) : NaN)
+      .filter(x=>Number.isFinite(x)) as number[];
 
     return {
       shio,
-      days,
-      avg_daily_ret: rets.length? rets.reduce((a:number,b:number)=>a+b,0)/rets.length : 0,
-      prob_up: totalCount? upCount/totalCount : 0,
-      prob_down: totalCount? downCount/totalCount : 0,
-      avg_year_oc,
-      n_years,
-      avg_atr_frac: atrs.length? atrs.reduce((a:number,b:number)=>a+b,0)/atrs.length : 0,
+      days: arr.length,
+      avg_daily_ret: rets.length? rets.reduce((a,b)=>a+b,0)/rets.length : 0,
+      prob_up: total? up/total : 0,
+      prob_down: total? down/total : 0,
+      prob_flat: total? flat/total : 0,
+      avg_year_oc: yearRets.length? yearRets.reduce((a,b)=>a+b,0)/yearRets.length : 0,
+      n_years: yearRets.length,
+      avg_atr_frac: atrs.length? atrs.reduce((a,b)=>a+b,0)/atrs.length : 0,
     };
   }).sort((a,b)=> b.avg_year_oc - a.avg_year_oc);
 }
 
-// Monthly aggregation (Gregorian months)
+// MONTHLY (BaZi month via solar longitude)
 function aggregateByElementMonthly(rows: any[]) {
   const groups: Record<string, any[]> = {};
-  rows.forEach(r => { if(!groups[r.element]) groups[r.element]=[]; groups[r.element].push(r); });
+  rows.forEach(r => { const key = r.month_element ?? r.element; (groups[key] ||= []).push(r); });
   const core = Object.entries(groups).map(([element, arr])=>{
-    const days = arr.length;
-    let upCount = 0, downCount = 0, totalCount = 0;
-    for (const a of arr) {
-      if (Number.isFinite(a.open) && Number.isFinite(a.close)) {
-        totalCount++;
-        if (a.close > a.open) upCount++;
-        else if (a.close < a.open) downCount++;
-      }
-    }
-    const rets = arr.map(a=>a.ret).filter((x:any)=>Number.isFinite(x));
-    const atrs = arr.map(a=>a.atr14_frac).filter((x:any)=>Number.isFinite(x));
+    const { up, down, flat, total } = upDownFlat(arr);
+    const rets = arr.map(a=>a.ret).filter((x:any)=>Number.isFinite(x)) as number[];
+    const atrs = arr.map(a=>a.atr14_frac).filter((x:any)=>Number.isFinite(x)) as number[];
+
     const perMonth: Record<string, { openStart?: number; closeEnd?: number }> = {};
-    for (const r of arr) {
-      const key = getBaziMonthKey(r.date);
+    for (const r of arr){
+      const key = `${r.year_solar}-${r.month_index}`;
       if (!perMonth[key]) perMonth[key] = {};
-      if (perMonth[key].openStart == null) {
-        const o = Number.isFinite(r.open) ? r.open : (Number.isFinite(r.close) ? r.close : undefined);
+      if (perMonth[key].openStart == null){
+        const o = Number.isFinite(r.open) ? r.open : (Number.isFinite(r.close)? r.close : undefined);
         if (o != null) perMonth[key].openStart = o as number;
       }
       if (Number.isFinite(r.close)) perMonth[key].closeEnd = r.close as number;
     }
-    const monthRets: number[] = Object.values(perMonth)
-      .map(v => (Number.isFinite(v.openStart) && Number.isFinite(v.closeEnd) && (v.openStart as number) !== 0)
-        ? ((v.closeEnd as number) - (v.openStart as number)) / (v.openStart as number)
-        : NaN)
-      .filter(x => Number.isFinite(x)) as number[];
-    const avg_year_oc = monthRets.length ? monthRets.reduce((a,b)=>a+b,0)/monthRets.length : 0;
-    const n_years = monthRets.length;
+    const monthRets = Object.values(perMonth)
+      .map(v => (Number.isFinite(v.openStart)&&Number.isFinite(v.closeEnd)&& (v.openStart as number)!==0)
+        ? ((v.closeEnd as number)-(v.openStart as number))/(v.openStart as number) : NaN)
+      .filter(x=>Number.isFinite(x)) as number[];
 
     return {
       element,
-      days,
-      avg_daily_ret: rets.length? rets.reduce((a:number,b:number)=>a+b,0)/rets.length : 0,
-      prob_up: totalCount? upCount/totalCount : 0,
-      prob_down: totalCount? downCount/totalCount : 0,
-      avg_year_oc,
-      n_years,
-      avg_atr_frac: atrs.length? atrs.reduce((a:number,b:number)=>a+b,0)/atrs.length : 0,
+      days: arr.length,
+      avg_daily_ret: rets.length? rets.reduce((a,b)=>a+b,0)/rets.length : 0,
+      prob_up: total? up/total : 0,
+      prob_down: total? down/total : 0,
+      prob_flat: total? flat/total : 0,
+      avg_year_oc: monthRets.length? monthRets.reduce((a,b)=>a+b,0)/monthRets.length : 0,
+      n_years: monthRets.length,
+      avg_atr_frac: atrs.length? atrs.reduce((a,b)=>a+b,0)/atrs.length : 0,
     };
   });
   const have = new Set(core.map(r=>r.element));
   (ELEMENTS as readonly string[]).forEach(el => {
-    if (!have.has(el)) core.push({ element: el, days: 0, avg_daily_ret: 0, prob_up: 0, prob_down: 0, avg_year_oc: 0, n_years: 0, avg_atr_frac: 0 });
+    if (!have.has(el)) core.push({ element: el, days: 0, avg_daily_ret: 0, prob_up: 0, prob_down: 0, prob_flat: 0, avg_year_oc: 0, n_years: 0, avg_atr_frac: 0 });
   });
   return core.sort((a,b)=> b.avg_year_oc - a.avg_year_oc);
 }
-
 function aggregateByShioMonthly(rows: any[]) {
   const groups: Record<string, any[]> = {};
-  rows.forEach(r => { if(!groups[r.shio]) groups[r.shio]=[]; groups[r.shio].push(r); });
+  rows.forEach(r => { const key = r.month_shio ?? r.shio; (groups[key] ||= []).push(r); });
   return Object.entries(groups).map(([shio, arr])=>{
-    const days = arr.length;
-    let upCount = 0, downCount = 0, totalCount = 0;
-    for (const a of arr) {
-      if (Number.isFinite(a.open) && Number.isFinite(a.close)) {
-        totalCount++;
-        if (a.close > a.open) upCount++;
-        else if (a.close < a.open) downCount++;
-      }
-    }
-    const rets = arr.map(a=>a.ret).filter((x:any)=>Number.isFinite(x));
-    const atrs = arr.map(a=>a.atr14_frac).filter((x:any)=>Number.isFinite(x));
+    const { up, down, flat, total } = upDownFlat(arr);
+    const rets = arr.map(a=>a.ret).filter((x:any)=>Number.isFinite(x)) as number[];
+    const atrs = arr.map(a=>a.atr14_frac).filter((x:any)=>Number.isFinite(x)) as number[];
+
     const perMonth: Record<string, { openStart?: number; closeEnd?: number }> = {};
-    for (const r of arr) {
-      const key = getBaziMonthKey(r.date);
+    for (const r of arr){
+      const key = `${r.year_solar}-${r.month_index}`;
       if (!perMonth[key]) perMonth[key] = {};
-      if (perMonth[key].openStart == null) {
-        const o = Number.isFinite(r.open) ? r.open : (Number.isFinite(r.close) ? r.close : undefined);
+      if (perMonth[key].openStart == null){
+        const o = Number.isFinite(r.open) ? r.open : (Number.isFinite(r.close)? r.close : undefined);
         if (o != null) perMonth[key].openStart = o as number;
       }
       if (Number.isFinite(r.close)) perMonth[key].closeEnd = r.close as number;
     }
-    const monthRets: number[] = Object.values(perMonth)
-      .map(v => (Number.isFinite(v.openStart) && Number.isFinite(v.closeEnd) && (v.openStart as number) !== 0)
-        ? ((v.closeEnd as number) - (v.openStart as number)) / (v.openStart as number)
-        : NaN)
-      .filter(x => Number.isFinite(x)) as number[];
-    const avg_year_oc = monthRets.length ? monthRets.reduce((a,b)=>a+b,0)/monthRets.length : 0;
-    const n_years = monthRets.length;
+    const monthRets = Object.values(perMonth)
+      .map(v => (Number.isFinite(v.openStart)&&Number.isFinite(v.closeEnd)&& (v.openStart as number)!==0)
+        ? ((v.closeEnd as number)-(v.openStart as number))/(v.openStart as number) : NaN)
+      .filter(x=>Number.isFinite(x)) as number[];
 
     return {
       shio,
-      days,
-      avg_daily_ret: rets.length? rets.reduce((a:number,b:number)=>a+b,0)/rets.length : 0,
-      prob_up: totalCount? upCount/totalCount : 0,
-      prob_down: totalCount? downCount/totalCount : 0,
-      avg_year_oc,
-      n_years,
-      avg_atr_frac: atrs.length? atrs.reduce((a:number,b:number)=>a+b,0)/atrs.length : 0,
+      days: arr.length,
+      avg_daily_ret: rets.length? rets.reduce((a,b)=>a+b,0)/rets.length : 0,
+      prob_up: total? up/total : 0,
+      prob_down: total? down/total : 0,
+      prob_flat: total? flat/total : 0,
+      avg_year_oc: monthRets.length? monthRets.reduce((a,b)=>a+b,0)/monthRets.length : 0,
+      n_years: monthRets.length,
+      avg_atr_frac: atrs.length? atrs.reduce((a,b)=>a+b,0)/atrs.length : 0,
     };
   }).sort((a,b)=> b.avg_year_oc - a.avg_year_oc);
 }
 
-// Daily aggregation (with per-day Open→Close average)
+// DAILY (per civil day)
 function aggregateByElementDaily(rows: any[]) {
   const groups: Record<string, any[]> = {};
-  rows.forEach(r => { if(!groups[r.element]) groups[r.element]=[]; groups[r.element].push(r); });
+  rows.forEach(r => { const key = r.day_element ?? r.element; (groups[key] ||= []).push(r); });
   const core = Object.entries(groups).map(([element, arr])=>{
-    const days = arr.length;
-    let upCount = 0, downCount = 0, totalCount = 0;
-    for (const a of arr) {
-      if (Number.isFinite(a.open) && Number.isFinite(a.close)) {
-        totalCount++;
-        if (a.close > a.open) upCount++;
-        else if (a.close < a.open) downCount++;
-      }
-    }
-    const rets = arr.map(a=>a.ret).filter((x:any)=>Number.isFinite(x));
-    const atrs = arr.map(a=>a.atr14_frac).filter((x:any)=>Number.isFinite(x));
-    const ocs = arr
-      .map(a => (Number.isFinite(a.open) && Number.isFinite(a.close) && a.open !== 0) ? ((a.close as number) - (a.open as number)) / (a.open as number) : NaN)
-      .filter((x:any)=>Number.isFinite(x));
-    const avg_day_oc = ocs.length ? (ocs as number[]).reduce((a:number,b:number)=>a+b,0)/ocs.length : NaN;
+    const { up, down, flat, total } = upDownFlat(arr);
+    const rets = arr.map(a=>a.ret).filter((x:any)=>Number.isFinite(x)) as number[];
+    const atrs = arr.map(a=>a.atr14_frac).filter((x:any)=>Number.isFinite(x)) as number[];
+    const ocs = arr.map(a => (Number.isFinite(a.open)&&Number.isFinite(a.close)&&a.open!==0)
+      ? ((a.close as number)-(a.open as number))/(a.open as number) : NaN).filter((x:any)=>Number.isFinite(x)) as number[];
+    const avg_day_oc = ocs.length ? ocs.reduce((a,b)=>a+b,0)/ocs.length : 0;
     return {
-      element,
-      days,
-      avg_daily_ret: rets.length? rets.reduce((a:number,b:number)=>a+b,0)/rets.length : 0,
-      prob_up: totalCount? upCount/totalCount : 0,
-      prob_down: totalCount? downCount/totalCount : 0,
+      element, days: arr.length,
+      avg_daily_ret: rets.length? rets.reduce((a,b)=>a+b,0)/rets.length : 0,
+      prob_up: total? up/total : 0,
+      prob_down: total? down/total : 0,
+      prob_flat: total? flat/total : 0,
       avg_year_oc: avg_day_oc,
-      n_years: 0,
-      avg_atr_frac: atrs.length? atrs.reduce((a:number,b:number)=>a+b,0)/atrs.length : 0,
+      n_years: ocs.length,
+      avg_atr_frac: atrs.length? atrs.reduce((a,b)=>a+b,0)/atrs.length : 0,
     };
   });
   const have = new Set(core.map(r=>r.element));
   (ELEMENTS as readonly string[]).forEach(el => {
-    if (!have.has(el)) core.push({ element: el, days: 0, avg_daily_ret: 0, prob_up: 0, prob_down: 0, avg_year_oc: NaN, n_years: 0, avg_atr_frac: 0 });
+    if (!have.has(el)) core.push({ element: el, days: 0, avg_daily_ret: 0, prob_up: 0, prob_down: 0, prob_flat: 0, avg_year_oc: 0, n_years: 0, avg_atr_frac: 0 });
   });
   return core.sort((a,b)=> b.avg_daily_ret - a.avg_daily_ret);
 }
-
 function aggregateByShioDaily(rows: any[]) {
   const groups: Record<string, any[]> = {};
-  rows.forEach(r => { if(!groups[r.shio]) groups[r.shio]=[]; groups[r.shio].push(r); });
+  rows.forEach(r => { const key = r.day_shio ?? r.shio; (groups[key] ||= []).push(r); });
   return Object.entries(groups).map(([shio, arr])=>{
-    const days = arr.length;
-    let upCount = 0, downCount = 0, totalCount = 0;
-    for (const a of arr) {
-      if (Number.isFinite(a.open) && Number.isFinite(a.close)) {
-        totalCount++;
-        if (a.close > a.open) upCount++;
-        else if (a.close < a.open) downCount++;
-      }
-    }
-    const rets = arr.map(a=>a.ret).filter((x:any)=>Number.isFinite(x));
-    const atrs = arr.map(a=>a.atr14_frac).filter((x:any)=>Number.isFinite(x));
-    const ocs = arr
-      .map(a => (Number.isFinite(a.open) && Number.isFinite(a.close) && a.open !== 0) ? ((a.close as number) - (a.open as number)) / (a.open as number) : NaN)
-      .filter((x:any)=>Number.isFinite(x));
-    const avg_day_oc = ocs.length ? (ocs as number[]).reduce((a:number,b:number)=>a+b,0)/ocs.length : NaN;
+    const { up, down, flat, total } = upDownFlat(arr);
+    const rets = arr.map(a=>a.ret).filter((x:any)=>Number.isFinite(x)) as number[];
+    const atrs = arr.map(a=>a.atr14_frac).filter((x:any)=>Number.isFinite(x)) as number[];
+    const ocs = arr.map(a => (Number.isFinite(a.open)&&Number.isFinite(a.close)&&a.open!==0)
+      ? ((a.close as number)-(a.open as number))/(a.open as number) : NaN).filter((x:any)=>Number.isFinite(x)) as number[];
+    const avg_day_oc = ocs.length ? ocs.reduce((a,b)=>a+b,0)/ocs.length : 0;
     return {
-      shio,
-      days,
-      avg_daily_ret: rets.length? rets.reduce((a:number,b:number)=>a+b,0)/rets.length : 0,
-      prob_up: totalCount? upCount/totalCount : 0,
-      prob_down: totalCount? downCount/totalCount : 0,
+      shio, days: arr.length,
+      avg_daily_ret: rets.length? rets.reduce((a,b)=>a+b,0)/rets.length : 0,
+      prob_up: total? up/total : 0,
+      prob_down: total? down/total : 0,
+      prob_flat: total? flat/total : 0,
       avg_year_oc: avg_day_oc,
-      n_years: 0,
-      avg_atr_frac: atrs.length? atrs.reduce((a:number,b:number)=>a+b,0)/atrs.length : 0,
+      n_years: ocs.length,
+      avg_atr_frac: atrs.length? atrs.reduce((a,b)=>a+b,0)/atrs.length : 0,
     };
   }).sort((a,b)=> b.avg_daily_ret - a.avg_daily_ret);
 }
+
+// ========= UI (LAYOUT TIDAK DIUBAH, hanya isi sel untuk tampilkan Flat) =========
 function DateInfoCard() {
   const today = new Date();
   const weekdayNames = ["Minggu","Senin","Selasa","Rabu","Kamis","Jumat","Sabtu"];
@@ -480,13 +572,9 @@ function DateInfoCard() {
   const year = today.getFullYear();
   const time = today.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-  const { stem_idx, branch_idx } = sexagenaryFromDate(today);
-  const stem = stems[stem_idx];
-  const branch = branches[branch_idx];
-  const pillar = `${stem} ${branch}`;
-  const pillarCN = `${stemsCN[stem_idx]}${branchesCN[branch_idx]}`;
-  const element = stemElem[stem_idx];
-  const zodiac = shio[branch_idx];
+  const Y = yearPillarExact(today, TZ_DEFAULT);
+  const M = monthPillarExact(today, Y.stemCN);
+  const D = dayPillarExact(today, TZ_DEFAULT);
 
   return (
     <Card>
@@ -505,12 +593,13 @@ function DateInfoCard() {
           </div>
           <div className="space-y-1">
             <div className="text-sm text-muted-foreground">Pilar Tahun</div>
-            <div className="text-lg font-semibold">{pillar} <span className="text-muted-foreground">({pillarCN})</span></div>
-            <div className="text-sm text-muted-foreground">Element: <span className="font-medium">{element}</span></div>
+            <div className="text-lg font-semibold">{Y.pillarCN} <span className="text-muted-foreground">({Y.shio})</span></div>
+            <div className="text-sm text-muted-foreground">Element: <span className="font-medium">{Y.element}</span> · Yin–Yang: <span className="font-medium">{Y.yinyang}</span></div>
           </div>
           <div className="space-y-1">
-            <div className="text-sm text-muted-foreground">Branch / Shio</div>
-            <div className="text-lg font-semibold">{branch} · {zodiac} <span className="text-muted-foreground">({branchesCN[branch_idx]})</span></div>
+            <div className="text-sm text-muted-foreground">Bulan / Hari</div>
+            <div className="text-sm"><b>Month:</b> {M.pillarCN} ({M.shio}) — <b>{M.element}</b> · {M.yinyang}</div>
+            <div className="text-sm"><b>Day:</b> {D.pillarCN} ({D.shio}) — <b>{D.element}</b> · {D.yinyang}</div>
           </div>
         </div>
       </CardContent>
@@ -543,7 +632,8 @@ function YearBranchCard({ data }: any) {
               <div>{r.days}</div>
               <div>{(r.avg_daily_ret*100).toFixed(3)}%</div>
               <div>{(r.prob_up*100).toFixed(1)}%</div>
-              <div>{(r.prob_down*100).toFixed(1)}%</div>
+              {/* tampilkan Down / Flat di kolom yang sama (tanpa ubah layout) */}
+              <div>{(r.prob_down*100).toFixed(1)}% / {(r.prob_flat*100).toFixed(1)}%</div>
               <div>{Number.isFinite(r.avg_year_oc) ? (r.avg_year_oc*100).toFixed(2) + '%' : '—'}</div>
               <div>{r.n_years ?? 0}</div>
               <div>{(r.avg_atr_frac*100).toFixed(2)}%</div>
@@ -577,8 +667,13 @@ export default function BaZiCycleAnalyzer() {
   const [fileSearch, setFileSearch] = useState<string>("");
   const [fileDropdownOpen, setFileDropdownOpen] = useState<boolean>(false);
   const [fileActiveIndex, setFileActiveIndex] = useState<number>(-1);
+  const [tickerDropdownOpen, setTickerDropdownOpen] = useState<boolean>(false);
+  const [tickerActiveIndex, setTickerActiveIndex] = useState<number>(-1);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileSearchRef = useRef<HTMLInputElement>(null);
+  const tickerInputRef = useRef<HTMLInputElement>(null);
+  const fileDropdownWrapRef = useRef<HTMLDivElement>(null);
+  const tickerDropdownWrapRef = useRef<HTMLDivElement>(null);
 
   const canRun = useMemo(() => {
     const { ticker, startDate, endDate } = params;
@@ -593,6 +688,13 @@ export default function BaZiCycleAnalyzer() {
     if (!parsed.length) { setErr("CSV kosong atau tidak terbaca"); setRows([]); return; }
     setRows(parsed);
     try {
+      const dates = parsed.map(r=>r.date).filter((d:any)=> d instanceof Date && !isNaN(+d));
+      if (dates.length) {
+        const minISO = new Date(Math.min.apply(null, dates as any)).toISOString().slice(0,10);
+        setParams(p=>({...p, startDate: minISO }));
+      }
+    } catch {}
+    try {
       const meta = { name: f.name || 'uploaded.csv', rows: parsed };
       setRecentFiles(prev => {
         const next = [meta, ...prev.filter(x=>x.name!==meta.name)].slice(0, 10);
@@ -603,13 +705,21 @@ export default function BaZiCycleAnalyzer() {
   };
 
   const loadDemo = () => {
-    const demo = `date,open,high,low,close,volume\n`
-      + `2024-01-01,42000,42500,41800,42400,1000\n`
-      + `2024-01-02,42400,43000,42000,42800,1200\n`
-      + `2024-01-03,42800,43500,42500,43250,1100\n`
-      + `2024-01-04,43250,43800,43000,43500,1300\n`
-      + `2024-01-05,43500,44000,43200,43850,1250`;
-    setRows(parseCsvSmart(demo));
+    const demo = `date,open,high,low,close,volume
+2024-01-01,42000,42500,41800,42400,1000
+2024-01-02,42400,43000,42000,42800,1200
+2024-01-03,42800,43500,42500,43250,1100
+2024-01-04,43250,43800,43000,43500,1300
+2024-01-05,43500,44000,43200,43850,1250`;
+    const parsed = parseCsvSmart(demo);
+    setRows(parsed);
+    try {
+      const dates = parsed.map(r=>r.date).filter((d:any)=> d instanceof Date && !isNaN(+d));
+      if (dates.length) {
+        const minISO = new Date(Math.min.apply(null, dates as any)).toISOString().slice(0,10);
+        setParams(p=>({...p, startDate: minISO }));
+      }
+    } catch {}
     setErr(null);
   };
 
@@ -622,6 +732,29 @@ export default function BaZiCycleAnalyzer() {
       }
     } catch {}
   }, []);
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleDocumentMouseDown = (e: MouseEvent) => {
+      const t = e.target as Node | null;
+      if (fileDropdownOpen) {
+        const wrap = fileDropdownWrapRef.current;
+        if (wrap && t && !wrap.contains(t)) {
+          setFileDropdownOpen(false);
+        }
+      }
+      if (tickerDropdownOpen) {
+        const wrap = tickerDropdownWrapRef.current;
+        if (wrap && t && !wrap.contains(t)) {
+          setTickerDropdownOpen(false);
+        }
+      }
+    };
+    document.addEventListener('mousedown', handleDocumentMouseDown);
+    return () => {
+      document.removeEventListener('mousedown', handleDocumentMouseDown);
+    };
+  }, [fileDropdownOpen, tickerDropdownOpen]);
 
   const onRun = async () => {
     setLoading(true);
@@ -650,11 +783,9 @@ export default function BaZiCycleAnalyzer() {
 
   const anchorLabel = useMemo(() => {
     switch (params.anchorMethod) {
-      case "personal": return "Personal (Tanggal lahir)";
-      case "market": return "Market (IPO/Listing)";
-      case "jiazi1984": return "Jia Zi 1984 (Imlek)";
+      case "jiazi1984": return "Default";
       case "custom": return "Custom";
-      default: return "";
+      default: return "Default";
     }
   }, [params.anchorMethod]);
 
@@ -683,7 +814,7 @@ export default function BaZiCycleAnalyzer() {
               <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Ba Zi Cycle Analyzer</h1>
               <p className="text-muted-foreground mt-2">Upload <strong>CSV OHLC</strong>, isi <strong>ticker</strong>, pilih <strong>anchor</strong>, lalu jalankan analisis.</p>
             </div>
-            <Badge intent="blue">v0.7.0</Badge>
+            <Badge intent="blue">v0.8.0</Badge>
           </div>
         </motion.div>
 
@@ -695,15 +826,26 @@ export default function BaZiCycleAnalyzer() {
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
               <div className="md:col-span-4">
                 <label className="text-sm font-medium">Ticker Code</label>
-                <Input placeholder="BTCUSD / IDX:BBCA / AAPL" value={params.ticker} onChange={(e:any)=>setParams(p=>({...p,ticker:e.target.value}))} className="mt-1"/>
-                <p className="text-xs text-muted-foreground mt-1">Dukung prefiks bursa (IDX:, NASDAQ:, NYSE:).</p>
+                <div className="relative mt-1">
+                  <div className="pointer-events-none absolute inset-y-0 left-0 pl-3 flex items-center">
+                    <Search className="w-4 h-4 text-muted-foreground"/>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="BTCUSD / IDX:BBCA / AAPL"
+                    value={params.ticker}
+                    onChange={(e)=>{ setParams(p=>({...p,ticker:e.target.value})); }}
+                    className="w-full pl-9 pr-3 py-2 rounded-xl border border-border bg-input text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">Kamu juga bisa drag & drop CSV ke area ini.</p>
+                {/* Hidden file input to support Browse CSV */}
+                <input ref={fileInputRef} className="hidden" type="file" accept=".csv" onChange={(e)=> onUpload(e.target.files?.[0] || null)} />
               </div>
               <div className="md:col-span-3">
                 <label className="text-sm font-medium">Anchor Method</label>
                 <Select value={params.anchorMethod} onChange={(e:any)=>setParams(p=>({...p,anchorMethod:e.target.value}))} className="mt-1">
-                  <option value="jiazi1984">Jia Zi 1984 (Imlek)</option>
-                  <option value="market">Market (IPO/Listing)</option>
-                  <option value="personal">Personal (Tanggal Lahir)</option>
+                  <option value="jiazi1984">Default</option>
                   <option value="custom">Custom</option>
                 </Select>
               </div>
@@ -720,68 +862,6 @@ export default function BaZiCycleAnalyzer() {
               <div className="md:col-span-2">
                 <label className="text-sm font-medium">End Date</label>
                 <Input type="date" value={params.endDate} onChange={(e:any)=>setParams(p=>({...p,endDate:e.target.value}))} className="mt-1"/>
-              </div>
-
-              <div className="md:col-span-12">
-                <label className="text-sm font-medium">Upload CSV (OHLC Daily)</label>
-                <div className="mt-1 flex items-center gap-3 flex-wrap">
-                  <div className="relative">
-                    <div className="pointer-events-none absolute inset-y-0 left-0 pl-3 flex items-center">
-                      <Search className="w-4 h-4 text-muted-foreground"/>
-                    </div>
-                    <input
-                      ref={fileSearchRef}
-                      type="text"
-                      value={fileSearch}
-                      onChange={(e)=>{ setFileSearch(e.target.value); setFileDropdownOpen(true); setFileActiveIndex(-1); }}
-                      onFocus={()=>{ setFileDropdownOpen(true); }}
-                      onKeyDown={(e)=>{
-                        const items = recentFiles.filter(x=>!fileSearch || x.name.toLowerCase().includes(fileSearch.toLowerCase()));
-                        if (e.key === 'ArrowDown') { e.preventDefault(); setFileActiveIndex(i=> Math.min(items.length-1, i+1)); }
-                        else if (e.key === 'ArrowUp') { e.preventDefault(); setFileActiveIndex(i=> Math.max(0, (i<0?0:i-1))); }
-                        else if (e.key === 'Enter') {
-                          if (fileActiveIndex >= 0 && items[fileActiveIndex]) {
-                            const pick = items[fileActiveIndex];
-                            try {
-                              const revived = (pick.rows||[]).map((r:any)=> ({...r, date: new Date(r.date)}));
-                              setRows(revived);
-                              setErr(null);
-                              setResult(null);
-                              setFileDropdownOpen(false);
-                            } catch {}
-                          }
-                        } else if (e.key === 'Escape') { setFileDropdownOpen(false); }
-                      }}
-                      placeholder="Cari file upload..."
-                      className="w-72 pl-9 pr-3 py-2 rounded-xl border border-border bg-input text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
-                    />
-                    {fileDropdownOpen && (
-                      <div className="absolute z-10 mt-1 w-full rounded-xl border border-border bg-popover shadow-sm max-h-56 overflow-auto">
-                        {recentFiles.filter(x=>!fileSearch || x.name.toLowerCase().includes(fileSearch.toLowerCase())).length === 0 && (
-                          <div className="px-3 py-2 text-sm text-muted-foreground">Tidak ada file tersimpan. Gunakan Browse untuk upload.</div>
-                        )}
-                        {recentFiles.filter(x=>!fileSearch || x.name.toLowerCase().includes(fileSearch.toLowerCase())).map((it:any, idx:number)=> (
-                          <div
-                            key={it.name+idx}
-                            role="option"
-                            aria-selected={fileActiveIndex===idx}
-                            onMouseDown={(e)=>{ e.preventDefault(); /* keep focus */ }}
-                            onClick={()=>{
-                              try{ const revived=(it.rows||[]).map((r:any)=>({...r, date:new Date(r.date)})); setRows(revived); setErr(null); setResult(null);}catch{}
-                              setFileDropdownOpen(false);
-                            }}
-                            className={`px-3 py-2 text-sm cursor-pointer ${fileActiveIndex===idx? 'bg-accent text-accent-foreground' : ''}`}
-                          >{it.name}</div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <input ref={fileInputRef} className="hidden" type="file" accept=".csv" onChange={(e)=> onUpload(e.target.files?.[0] || null)} />
-                  <Button onClick={()=> fileInputRef.current?.click() }>Browse</Button>
-                  <Button onClick={loadDemo}><RefreshCw className="w-4 h-4 mr-2 inline"/>Load Demo (BTC snippet)</Button>
-                  <Badge intent={rows.length? "green":"amber"}>{rows.length? `${rows.length} rows loaded` : "No data"}</Badge>
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">Parser auto: delimiter ",/;/tab" & format angka Eropa/US.</p>
               </div>
 
               <div className="md:col-span-12 flex items-center justify-between pt-2">
@@ -811,44 +891,8 @@ export default function BaZiCycleAnalyzer() {
                     <div className="flex items-center justify-between"><span className="text-muted-foreground">Ticker</span><Badge intent="blue">{params.ticker.toUpperCase()}</Badge></div>
                     <div className="flex items-center justify-between"><span className="text-muted-foreground">Rows</span><span className="font-medium">{result.enriched.length}</span></div>
                     <div className="flex items-center justify-between"><span className="text-muted-foreground">Date Range</span><span className="font-medium">{params.startDate} → {params.endDate}</span></div>
-                    <div className="text-xs text-muted-foreground">Tahun Ba Zi pakai batas Imlek; tanggal sebelum Imlek masuk ke tahun sebelumnya.</div>
+                    <div className="text-xs text-muted-foreground">Tahun Ba Zi pakai batas <b>Li Chun (λ☉=315°)</b>; tanggal sebelum Li Chun masuk ke tahun sebelumnya.</div>
                   </div>
-                  {false && (
-                    <>
-                      <div className={"grid grid-cols-1 " + (timeframe==='daily' ? 'md:grid-cols-6' : 'md:grid-cols-8') + " gap-2 text-sm font-medium mb-2 justify-items-start"}>
-                        <div>Element</div>
-                        <div>Days</div>
-                        <div>Avg Daily Ret</div>
-                        <div>Prob Up</div>
-                        <div>Prob Down</div>
-                        {timeframe!=='daily' && (
-                          <>
-                            <div>{timeframe==='yearly' ? 'Avg Open→Close % (Year)' : 'Avg Open→Close % (BaZi Month)'}</div>
-                            <div>{timeframe==='yearly' ? '#Years' : '#Months'}</div>
-                          </>
-                        )}
-                        <div>Avg ATR/Close</div>
-                      </div>
-                      <div className="divide-y">
-                        {elemData.map((r:any, i:number)=> (
-                          <div key={i} className={"grid grid-cols-1 " + (timeframe==='daily' ? 'md:grid-cols-6' : 'md:grid-cols-8') + " gap-2 py-2 text-sm"}>
-                            <div><Badge intent="violet">{r.element}</Badge></div>
-                            <div>{r.days}</div>
-                            <div>{(r.avg_daily_ret*100).toFixed(3)}%</div>
-                            <div>{(r.prob_up*100).toFixed(1)}%</div>
-                            <div>{(r.prob_down*100).toFixed(1)}%</div>
-                            {timeframe!=='daily' && (
-                              <>
-                                <div>{Number.isFinite(r.avg_year_oc) ? (r.avg_year_oc*100).toFixed(2) + '%' : '—'}</div>
-                                <div>{r.n_years ?? 0}</div>
-                              </>
-                            )}
-                            <div>{(r.avg_atr_frac*100).toFixed(2)}%</div>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
                 </CardContent>
               </Card>
 
@@ -880,7 +924,8 @@ export default function BaZiCycleAnalyzer() {
                         <div>{r.days}</div>
                         <div>{(r.avg_daily_ret*100).toFixed(3)}%</div>
                         <div>{(r.prob_up*100).toFixed(1)}%</div>
-                        <div>{(r.prob_down*100).toFixed(1)}%</div>
+                        {/* Down / Flat di kolom yang sama */}
+                        <div>{(r.prob_down*100).toFixed(1)}% / {(r.prob_flat*100).toFixed(1)}%</div>
                         <div>{Number.isFinite(r.avg_year_oc) ? (r.avg_year_oc*100).toFixed(2) + '%' : '—'}</div>
                         <div>{r.n_years ?? 0}</div>
                         <div>{(r.avg_atr_frac*100).toFixed(2)}%</div>
@@ -912,7 +957,8 @@ export default function BaZiCycleAnalyzer() {
                             <div>{r.days}</div>
                             <div>{(r.avg_daily_ret*100).toFixed(3)}%</div>
                             <div>{(r.prob_up*100).toFixed(1)}%</div>
-                            <div>{(r.prob_down*100).toFixed(1)}%</div>
+                            {/* Down / Flat di kolom yang sama */}
+                            <div>{(r.prob_down*100).toFixed(1)}% / {(r.prob_flat*100).toFixed(1)}%</div>
                             {timeframe!=='daily' && (
                               <>
                                 <div>{Number.isFinite(r.avg_year_oc) ? (r.avg_year_oc*100).toFixed(2) + '%' : '-'}</div>
@@ -965,7 +1011,8 @@ export default function BaZiCycleAnalyzer() {
                           <div>{r.days}</div>
                           <div>{(r.avg_daily_ret*100).toFixed(3)}%</div>
                           <div>{(r.prob_up*100).toFixed(1)}%</div>
-                          <div>{(r.prob_down*100).toFixed(1)}%</div>
+                          {/* Down / Flat di kolom yang sama */}
+                          <div>{(r.prob_down*100).toFixed(1)}% / {(r.prob_flat*100).toFixed(1)}%</div>
                           {timeframe!=='daily' && (
                             <>
                               <div>{Number.isFinite(r.avg_year_oc) ? (r.avg_year_oc*100).toFixed(2) + '%' : '—'}</div>
@@ -1003,6 +1050,7 @@ export default function BaZiCycleAnalyzer() {
   );
 }
 
+// ——— Simple tests (optional, no UI impact) ———
 function runUnitTests() {
   try {
     const csv1 = `date,open,close\n2020-01-01,1,2\n2020-01-02,2,3`;
@@ -1013,9 +1061,10 @@ function runUnitTests() {
     const e = parseCsvSmart(euro);
     console.assert(Math.abs((e[1].close as number) - 44100) < 1e-6, "EU decimal parsed");
 
-    const pre = sexagenaryFromDate(new Date("2024-02-09T00:00:00Z"));
-    const post = sexagenaryFromDate(new Date("2024-02-10T00:00:00Z"));
-    console.assert(pre.idx !== post.idx, "Ba Zi year flips on LNY");
+    // Year boundary must flip around early Feb (Li Chun), not Lunar New Year now
+    const pre = sexagenaryFromDate(new Date("2024-02-03T00:00:00+07:00"));
+    const post = sexagenaryFromDate(new Date("2024-02-05T00:00:00+07:00"));
+    console.assert(pre.baziYear !== post.baziYear, "BaZi year flips on Li Chun boundary");
 
     const mini = parseCsvSmart(`date,open,close\n2024-01-01,1,2\n2024-01-02,2,1`);
     const enr = enrich(mini);
@@ -1023,19 +1072,13 @@ function runUnitTests() {
     const count5 = agg.filter(x=> (ELEMENTS as readonly string[]).includes(x.element as string)).length;
     console.assert(count5 === 5, "Always show 5 elements (padded)");
 
-    const twoYears = parseCsvSmart(`date,open,close\n2023-01-21,100,100\n2023-12-31,100,120\n2024-02-11,120,120\n2024-12-31,120,132`);
+    const twoYears = parseCsvSmart(`date,open,close\n2023-02-03,100,100\n2023-12-31,100,120\n2024-02-05,120,120\n2024-12-31,120,132`);
     const enr2 = enrich(twoYears);
     const bySh = aggregateByShio(enr2 as any);
     const anySh = bySh[0];
-    console.assert((anySh.n_years as number) >= 1, "Yearly OC should count at least one year");
-
-    const a2031 = sexagenaryFromDate(new Date("2031-02-03T00:00:00Z"));
-    const b2031 = sexagenaryFromDate(new Date("2031-02-04T00:00:00Z"));
-    console.assert(a2031.baziYear !== b2031.baziYear, "Fallback Feb 4 boundary should flip BaZi year on 2031-02-04");
+    console.assert((anySh.n_years as number) >= 1, "Yearly OC should count at least one BaZi year");
   } catch (err) {
     console.warn("Unit tests warning:", err);
   }
 }
 if (typeof window !== "undefined") runUnitTests();
-
-
