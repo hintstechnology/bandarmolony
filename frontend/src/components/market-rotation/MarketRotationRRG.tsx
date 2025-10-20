@@ -64,6 +64,9 @@ export default function MarketRotationRRG() {
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const [showIndexSearchDropdown, setShowIndexSearchDropdown] = useState(false);
   const [showScreenerSearchDropdown, setShowScreenerSearchDropdown] = useState(false);
+  const [searchDropdownIndex, setSearchDropdownIndex] = useState(-1);
+  const [indexSearchDropdownIndex, setIndexSearchDropdownIndex] = useState(-1);
+  const [screenerSearchDropdownIndex, setScreenerSearchDropdownIndex] = useState(-1);
   
   // Calculate default start date (10 days ago)
   const getDefaultStartDate = () => {
@@ -482,6 +485,124 @@ export default function MarketRotationRRG() {
     );
   }, [screenerSearchQuery, screenerStocks, stockOptions]);
 
+  // Keyboard navigation handlers
+  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
+    const filteredOptions = viewMode === 'sector' ? filteredSectorOptions : filteredStockOptions;
+    const availableOptions = filteredOptions.filter(option => !selectedItems.includes(option.name));
+    
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setSearchDropdownIndex(prev => 
+          prev < availableOptions.length - 1 ? prev + 1 : 0
+        );
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setSearchDropdownIndex(prev => 
+          prev > 0 ? prev - 1 : availableOptions.length - 1
+        );
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (searchDropdownIndex >= 0 && availableOptions[searchDropdownIndex]) {
+          const selectedOption = availableOptions[searchDropdownIndex];
+          if (!selectedItems.includes(selectedOption.name)) {
+            if (selectedItems.length >= 15) {
+              showToast({
+                type: 'error',
+                title: 'Selection Limit',
+                message: 'Maksimal 15 items yang bisa dipilih'
+              });
+              return;
+            }
+            setSelectedItems(prev => [...prev, selectedOption.name]);
+          }
+          setSearchQuery('');
+          setShowSearchDropdown(false);
+          setSearchDropdownIndex(-1);
+        }
+        break;
+      case 'Escape':
+        setShowSearchDropdown(false);
+        setSearchDropdownIndex(-1);
+        break;
+    }
+  };
+
+  const handleIndexSearchKeyDown = (e: React.KeyboardEvent) => {
+    const availableOptions = filteredIndexOptions.filter(option => !selectedIndexes.includes(option.name));
+    
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setIndexSearchDropdownIndex(prev => 
+          prev < availableOptions.length - 1 ? prev + 1 : 0
+        );
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setIndexSearchDropdownIndex(prev => 
+          prev > 0 ? prev - 1 : availableOptions.length - 1
+        );
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (indexSearchDropdownIndex >= 0 && availableOptions[indexSearchDropdownIndex]) {
+          const selectedOption = availableOptions[indexSearchDropdownIndex];
+          if (!selectedIndexes.includes(selectedOption.name)) {
+            if (selectedIndexes.length >= 5) {
+              showToast({
+                type: 'error',
+                title: 'Selection Limit',
+                message: 'Maksimal 5 indexes yang bisa dipilih'
+              });
+              return;
+            }
+            setSelectedIndexes(prev => [...prev, selectedOption.name]);
+            setSelectedIndex(selectedOption.name);
+          }
+          setIndexSearchQuery('');
+          setShowIndexSearchDropdown(false);
+          setIndexSearchDropdownIndex(-1);
+        }
+        break;
+      case 'Escape':
+        setShowIndexSearchDropdown(false);
+        setIndexSearchDropdownIndex(-1);
+        break;
+    }
+  };
+
+  const handleScreenerSearchKeyDown = (e: React.KeyboardEvent) => {
+    const availableOptions = getFilteredScreenerOptions;
+    
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setScreenerSearchDropdownIndex(prev => 
+          prev < availableOptions.length - 1 ? prev + 1 : 0
+        );
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setScreenerSearchDropdownIndex(prev => 
+          prev > 0 ? prev - 1 : availableOptions.length - 1
+        );
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (screenerSearchDropdownIndex >= 0 && availableOptions[screenerSearchDropdownIndex]) {
+          addToScreener(availableOptions[screenerSearchDropdownIndex].name);
+        }
+        break;
+      case 'Escape':
+        setShowScreenerSearchDropdown(false);
+        setScreenerSearchDropdownIndex(-1);
+        break;
+    }
+  };
+
 
 
 
@@ -544,6 +665,7 @@ export default function MarketRotationRRG() {
     }
     setScreenerSearchQuery('');
     setShowScreenerSearchDropdown(false);
+    setScreenerSearchDropdownIndex(-1);
   }, [screenerStocks, stockOptions]);
 
   const removeFromScreener = useCallback((symbol: string) => {
@@ -594,7 +716,7 @@ export default function MarketRotationRRG() {
       <div className="mb-6">
         <Card>
           <CardContent className="p-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {/* View Mode Toggle */}
               <div className="flex flex-col gap-2">
                 <label className="text-sm font-medium">View Mode</label>
@@ -723,9 +845,9 @@ export default function MarketRotationRRG() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 sm:gap-6 overflow-x-auto">
         {/* RRG Chart */}
-        <div className="xl:col-span-3">
+        <div className="lg:col-span-3">
           <Card className="flex h-full flex-col">
             <CardHeader>
               <CardTitle>Relative Rotation Graph (RRG) vs {selectedIndex}</CardTitle>
@@ -864,7 +986,7 @@ export default function MarketRotationRRG() {
         </div>
 
         {/* Selection Panel - SAMA DENGAN RRC */}
-        <div className="xl:col-span-1">
+        <div className="lg:col-span-1">
           <Card className="h-full flex flex-col">
             <CardHeader>
               <CardTitle>Selection Panel</CardTitle>
@@ -886,15 +1008,17 @@ export default function MarketRotationRRG() {
                       onChange={(e) => {
                         setIndexSearchQuery(e.target.value);
                         setShowIndexSearchDropdown(true);
+                        setIndexSearchDropdownIndex(-1);
                       }}
                       onFocus={() => setShowIndexSearchDropdown(true)}
+                      onKeyDown={handleIndexSearchKeyDown}
                       className="w-full pl-7 pr-3 py-2 text-xs bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors"
                     />
                   </div>
                   
                   {/* Combined Index Search and Select Dropdown */}
                   {showIndexSearchDropdown && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-10 max-h-60 overflow-y-auto">
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-50 max-h-60 overflow-y-auto">
                       {indexOptions.length === 0 ? (
                         <div className="p-3 text-sm text-muted-foreground">Loading indexes...</div>
                       ) : (
@@ -902,7 +1026,7 @@ export default function MarketRotationRRG() {
                           {/* Show filtered results if searching, otherwise show all available */}
                           {(indexSearchQuery ? filteredIndexOptions : indexOptions.filter(option => !selectedIndexes.includes(option.name)))
                             .slice(0, 10)
-                            .map((option) => (
+                            .map((option, index) => (
                         <button
                           key={option.name}
                               onClick={() => {
@@ -920,8 +1044,11 @@ export default function MarketRotationRRG() {
                                 }
                                 setIndexSearchQuery('');
                                 setShowIndexSearchDropdown(false);
+                                setIndexSearchDropdownIndex(-1);
                               }}
-                              className="flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors"
+                              className={`flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors ${
+                                index === indexSearchDropdownIndex ? 'bg-accent' : ''
+                              }`}
                         >
                           <div className="flex items-center gap-2">
                             <div 
@@ -1103,15 +1230,17 @@ export default function MarketRotationRRG() {
                         onChange={(e) => {
                           setSearchQuery(e.target.value);
                           setShowSearchDropdown(true);
+                          setSearchDropdownIndex(-1);
                         }}
                         onFocus={() => setShowSearchDropdown(true)}
+                        onKeyDown={handleSearchKeyDown}
                         className="w-full pl-7 pr-3 py-2 text-xs bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors"
                       />
                     </div>
                     
                   {/* Combined Search and Select Dropdown */}
                   {showSearchDropdown && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-10 max-h-60 overflow-y-auto">
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-50 max-h-60 overflow-y-auto">
                       {currentOptions.length === 0 ? (
                         <div className="p-3 text-sm text-muted-foreground">Loading options...</div>
                       ) : (
@@ -1119,7 +1248,7 @@ export default function MarketRotationRRG() {
                           {/* Show filtered results if searching, otherwise show all available */}
                           {(searchQuery ? (viewMode === 'sector' ? filteredSectorOptions : filteredStockOptions) : currentOptions.filter(option => !selectedItems.includes(option.name)))
                             .slice(0, viewMode === 'stock' ? 15 : undefined)
-                            .map((option) => (
+                            .map((option, index) => (
                           <button
                             key={option.name}
                               onClick={() => {
@@ -1136,8 +1265,11 @@ export default function MarketRotationRRG() {
                                 }
                                 setSearchQuery('');
                                 setShowSearchDropdown(false);
+                                setSearchDropdownIndex(-1);
                               }}
-                              className="flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors"
+                              className={`flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors ${
+                                index === searchDropdownIndex ? 'bg-accent' : ''
+                              }`}
                           >
                             <div className="flex items-center gap-2">
                               <div 
@@ -1209,20 +1341,24 @@ export default function MarketRotationRRG() {
                   onChange={(e) => {
                     setScreenerSearchQuery(e.target.value);
                     setShowScreenerSearchDropdown(true);
+                    setScreenerSearchDropdownIndex(-1);
                   }}
                   onFocus={() => setShowScreenerSearchDropdown(true)}
+                  onKeyDown={handleScreenerSearchKeyDown}
                   className="w-full pl-8 pr-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors sm:w-56"
                 />
               </div>
               
               {/* Screener Search Dropdown */}
               {showScreenerSearchDropdown && screenerSearchQuery && (
-                <div className="absolute top-full right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-10 max-h-48 overflow-y-auto min-w-48">
-                  {getFilteredScreenerOptions.map((option: any) => (
+                <div className="absolute top-full right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto min-w-48">
+                  {getFilteredScreenerOptions.map((option: any, index) => (
                     <button
                       key={option.name}
                       onClick={() => addToScreener(option.name)}
-                      className="flex items-center justify-between w-full p-2 text-left hover:bg-accent transition-colors"
+                      className={`flex items-center justify-between w-full p-2 text-left hover:bg-accent transition-colors ${
+                        index === screenerSearchDropdownIndex ? 'bg-accent' : ''
+                      }`}
                     >
                       <div className="flex items-center gap-2">
                         <div className="w-3 h-3 rounded-full" style={{ backgroundColor: option.color }}></div>
@@ -1340,3 +1476,4 @@ export default function MarketRotationRRG() {
     </div>
   );
 }
+

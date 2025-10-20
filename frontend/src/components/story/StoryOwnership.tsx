@@ -528,7 +528,7 @@ export function StoryOwnership() {
                 <CardTitle>Top Shareholders</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="overflow-y-auto max-h-80">
+                <div className="overflow-x-auto overflow-y-auto max-h-80">
                   <table className="w-full text-sm">
                      <thead className="sticky top-0 bg-muted/50">
                        <tr className="border-b border-border">

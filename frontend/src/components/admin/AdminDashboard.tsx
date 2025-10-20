@@ -274,7 +274,7 @@ export function AdminDashboard() {
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Status Overview */}
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
             <div className="flex items-center justify-between p-4 border rounded-lg">
               <div className="flex items-center gap-3">
                 {getStatusIcon(rrcStatus?.isGenerating || false)}
@@ -429,7 +429,7 @@ export function AdminDashboard() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {/* Stock Data */}
             <div className="p-4 border rounded-lg">
               <h3 className="font-semibold mb-2">Stock Data</h3>

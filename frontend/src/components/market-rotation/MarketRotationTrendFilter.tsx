@@ -67,16 +67,7 @@ export function MarketRotationTrendFilter() {
         if (response.success && response.data) {
           console.log('✅ TREND: Data loaded:', response.data);
           
-          // Parse summary data
-          const summary = response.data.summary;
-          if (summary) {
-            const summaries: SummaryItem[] = [
-              { trend: 'Uptrend', count: summary.TrendCounts.Uptrend, percentage: summary.TrendPercentages.Uptrend, color: '#10b981' },
-              { trend: 'Sideways', count: summary.TrendCounts.Sideways, percentage: summary.TrendPercentages.Sideways, color: '#f59e0b' },
-              { trend: 'Downtrend', count: summary.TrendCounts.Downtrend, percentage: summary.TrendPercentages.Downtrend, color: '#ef4444' }
-            ];
-            if (mounted) setTrendSummary(summaries);
-          }
+          // Parse summary data - will be calculated from actual loaded data
 
           // Parse stocks data
           const stocks = response.data.stocks || [];
@@ -97,10 +88,25 @@ export function MarketRotationTrendFilter() {
             };
             sectorsSet.add(trendStock.Sector);
             
-            const trendLower = trendStock.Trend?.toLowerCase() || '';
-            if (trendLower === 'uptrend') uptrend.push(trendStock);
-            else if (trendLower === 'sideways') sideways.push(trendStock);
-            else if (trendLower === 'downtrend') downtrend.push(trendStock);
+            const trendLower = trendStock.Trend?.toLowerCase().trim() || '';
+            const changePct = trendStock.ChangePct;
+            
+            // Debug logging for each stock
+            console.log(`🔍 Stock Debug: ${trendStock.Symbol} - trend="${trendLower}", changePct=${changePct}%`);
+            
+            // Derive trend from changePct (sum over period) to guard against bad backend labels
+            const derivedLower = changePct > 1 ? 'uptrend' : changePct < -1 ? 'downtrend' : 'sideways';
+            if (trendLower !== derivedLower) {
+              console.warn(`⚠️ Reclassifying trend: ${trendStock.Symbol} - received="${trendLower}" -> derived="${derivedLower}" (changePct=${changePct}%)`);
+            }
+            // Use derived trend for categorization
+            if (derivedLower === 'uptrend') {
+              uptrend.push({ ...trendStock, Trend: 'Uptrend' });
+            } else if (derivedLower === 'sideways') {
+              sideways.push({ ...trendStock, Trend: 'Sideways' });
+            } else if (derivedLower === 'downtrend') {
+              downtrend.push({ ...trendStock, Trend: 'Downtrend' });
+            }
           });
           
           console.log('📊 TREND: Parsed trend data:', {
@@ -110,8 +116,37 @@ export function MarketRotationTrendFilter() {
             sectors: sectorsSet.size
           });
           
+          // Calculate summary from actual loaded data
+          const totalStocks = uptrend.length + sideways.length + downtrend.length;
+          const summaries: SummaryItem[] = [
+            { 
+              trend: 'Uptrend', 
+              count: uptrend.length, 
+              percentage: totalStocks > 0 ? parseFloat(((uptrend.length / totalStocks) * 100).toFixed(1)) : 0, 
+              color: '#10b981' 
+            },
+            { 
+              trend: 'Sideways', 
+              count: sideways.length, 
+              percentage: totalStocks > 0 ? parseFloat(((sideways.length / totalStocks) * 100).toFixed(1)) : 0, 
+              color: '#f59e0b' 
+            },
+            { 
+              trend: 'Downtrend', 
+              count: downtrend.length, 
+              percentage: totalStocks > 0 ? parseFloat(((downtrend.length / totalStocks) * 100).toFixed(1)) : 0, 
+              color: '#ef4444' 
+            }
+          ];
+          
+          console.log('📊 TREND: Calculated summary from loaded data:', {
+            totalStocks,
+            summaries: summaries.map(s => `${s.trend}: ${s.count} (${s.percentage}%)`)
+          });
+          
           if (mounted) {
             setTrendData({ uptrend, sideways, downtrend });
+            setTrendSummary(summaries);
             setSectors(['All Sectors', ...Array.from(sectorsSet).sort()]);
           }
         } else {
@@ -177,6 +212,36 @@ export function MarketRotationTrendFilter() {
       currentPage: (currentPage as any)[trendType],
       totalItems: filtered.length,
     };
+  };
+
+  // Calculate filtered summary for display
+  const getFilteredSummary = () => {
+    const uptrendData = getPaginatedData('uptrend');
+    const sidewaysData = getPaginatedData('sideways');
+    const downtrendData = getPaginatedData('downtrend');
+    
+    const totalFiltered = uptrendData.totalItems + sidewaysData.totalItems + downtrendData.totalItems;
+    
+    return [
+      { 
+        trend: 'Uptrend', 
+        count: uptrendData.totalItems, 
+        percentage: totalFiltered > 0 ? parseFloat(((uptrendData.totalItems / totalFiltered) * 100).toFixed(1)) : 0, 
+        color: '#10b981' 
+      },
+      { 
+        trend: 'Sideways', 
+        count: sidewaysData.totalItems, 
+        percentage: totalFiltered > 0 ? parseFloat(((sidewaysData.totalItems / totalFiltered) * 100).toFixed(1)) : 0, 
+        color: '#f59e0b' 
+      },
+      { 
+        trend: 'Downtrend', 
+        count: downtrendData.totalItems, 
+        percentage: totalFiltered > 0 ? parseFloat(((downtrendData.totalItems / totalFiltered) * 100).toFixed(1)) : 0, 
+        color: '#ef4444' 
+      }
+    ];
   };
 
   const handleNextPage = (trendType: string) => {
@@ -342,14 +407,16 @@ export function MarketRotationTrendFilter() {
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {trendSummary.map((item, index) => (
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {getFilteredSummary().map((item, index) => (
           <Card key={index} className="p-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">{item.trend}</p>
                 <p className="text-2xl font-semibold">{item.count}</p>
-                <p className="text-sm text-muted-foreground">{item.percentage}% of market</p>
+                <p className="text-sm text-muted-foreground">
+                  {item.percentage}% {selectedSector !== "All Sectors" ? `of ${selectedSector}` : "of market"}
+                </p>
               </div>
               <div
                 className="w-12 h-12 rounded-lg flex items-center justify-center"
@@ -379,9 +446,16 @@ export function MarketRotationTrendFilter() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
                   <div className="flex items-center gap-3">
                     {getTrendIcon(trendType)}
-                    <h3 className="font-semibold capitalize">
-                      {trendType} Stocks
-                    </h3>
+                    <div>
+                      <h3 className="font-semibold capitalize">
+                        {trendType} Stocks
+                      </h3>
+                      <p className="text-xs text-muted-foreground">
+                        {trendType === 'uptrend' && 'Sum open-to-close > +1%'}
+                        {trendType === 'sideways' && 'Sum open-to-close between -1% to +1%'}
+                        {trendType === 'downtrend' && 'Sum open-to-close < -1%'}
+                      </p>
+                    </div>
                     <Badge variant="secondary">
                       {paginatedResult.totalItems} stocks
                     </Badge>
@@ -415,7 +489,7 @@ export function MarketRotationTrendFilter() {
                           <th className="sticky top-0 bg-background text-left py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Symbol</th>
                           <th className="sticky top-0 bg-background text-left py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Name</th>
                           <th className="sticky top-0 bg-background text-right py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Price</th>
-                          <th className="sticky top-0 bg-background text-right py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Change %</th>
+                          <th className="sticky top-0 bg-background text-right py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Sum Open-Close %</th>
                           <th className="sticky top-0 bg-background text-left py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Sector</th>
                         </tr>
                       </thead>

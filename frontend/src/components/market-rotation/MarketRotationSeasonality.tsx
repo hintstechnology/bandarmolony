@@ -83,6 +83,11 @@ export function MarketRotationSeasonality() {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const indexDropdownRef = useRef<HTMLDivElement>(null);
   const sectorDropdownRef = useRef<HTMLDivElement>(null);
+  
+  // Keyboard navigation state
+  const [stockDropdownIndex, setStockDropdownIndex] = useState(-1);
+  const [indexDropdownIndex, setIndexDropdownIndex] = useState(-1);
+  const [sectorDropdownIndex, setSectorDropdownIndex] = useState(-1);
 
   // API data states
   const [indexData, setIndexData] = useState<ApiSeasonalityData[]>([]);
@@ -189,6 +194,7 @@ export function MarketRotationSeasonality() {
     }
     setShowAddIndex(false);
     setIndexSearchQuery('');
+    setIndexDropdownIndex(-1);
   };
 
   const getFilteredIndices = () => {
@@ -213,6 +219,7 @@ export function MarketRotationSeasonality() {
     }
     setShowAddSector(false);
     setSectorSearchQuery('');
+    setSectorDropdownIndex(-1);
   };
 
   const getFilteredSectors = () => {
@@ -233,6 +240,7 @@ export function MarketRotationSeasonality() {
     }
     setShowAddStock(false);
     setSearchQuery('');
+    setStockDropdownIndex(-1);
   };
 
   const getFilteredStocks = () => {
@@ -245,6 +253,94 @@ export function MarketRotationSeasonality() {
 
   const removeStock = (stock: string) => {
     setSelectedStocks(selectedStocks.filter(s => s !== stock));
+  };
+
+  // Keyboard navigation handlers
+  const handleStockKeyDown = (e: React.KeyboardEvent) => {
+    const availableStocks = getFilteredStocks();
+    
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setStockDropdownIndex(prev => 
+          prev < availableStocks.length - 1 ? prev + 1 : 0
+        );
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setStockDropdownIndex(prev => 
+          prev > 0 ? prev - 1 : availableStocks.length - 1
+        );
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (stockDropdownIndex >= 0 && availableStocks[stockDropdownIndex]) {
+          addStock(availableStocks[stockDropdownIndex]);
+        }
+        break;
+      case 'Escape':
+        setShowAddStock(false);
+        setStockDropdownIndex(-1);
+        break;
+    }
+  };
+
+  const handleIndexKeyDown = (e: React.KeyboardEvent) => {
+    const availableIndices = getFilteredIndices();
+    
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setIndexDropdownIndex(prev => 
+          prev < availableIndices.length - 1 ? prev + 1 : 0
+        );
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setIndexDropdownIndex(prev => 
+          prev > 0 ? prev - 1 : availableIndices.length - 1
+        );
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (indexDropdownIndex >= 0 && availableIndices[indexDropdownIndex]) {
+          addIndex(availableIndices[indexDropdownIndex]);
+        }
+        break;
+      case 'Escape':
+        setShowAddIndex(false);
+        setIndexDropdownIndex(-1);
+        break;
+    }
+  };
+
+  const handleSectorKeyDown = (e: React.KeyboardEvent) => {
+    const availableSectors = getFilteredSectors();
+    
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setSectorDropdownIndex(prev => 
+          prev < availableSectors.length - 1 ? prev + 1 : 0
+        );
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setSectorDropdownIndex(prev => 
+          prev > 0 ? prev - 1 : availableSectors.length - 1
+        );
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (sectorDropdownIndex >= 0 && availableSectors[sectorDropdownIndex]) {
+          addSector(availableSectors[sectorDropdownIndex]);
+        }
+        break;
+      case 'Escape':
+        setShowAddSector(false);
+        setSectorDropdownIndex(-1);
+        break;
+    }
   };
 
   // Convert API data to frontend format
@@ -431,8 +527,10 @@ export function MarketRotationSeasonality() {
                     onChange={(e) => {
                       setIndexSearchQuery(e.target.value);
                       setShowAddIndex(true);
+                      setIndexDropdownIndex(-1);
                     }}
                     onFocus={() => setShowAddIndex(true)}
+                    onKeyDown={handleIndexKeyDown}
                     className="h-9 w-full rounded-md border border-border bg-background pl-7 pr-3 text-xs transition-colors hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
                   />
                 </div>
@@ -442,11 +540,13 @@ export function MarketRotationSeasonality() {
                 <div className="absolute left-0 top-full z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
                   {indexSearchQuery ? (
                     <>
-                      {getFilteredIndices().slice(0, 8).map(index => (
+                      {getFilteredIndices().slice(0, 8).map((index, idx) => (
                         <button
                           key={index}
                           onClick={() => addIndex(index)}
-                          className="flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted"
+                          className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
+                            idx === indexDropdownIndex ? 'bg-accent' : ''
+                          }`}
                         >
                           <span className="font-medium">{index}</span>
                           <Plus className="h-3 w-3 text-muted-foreground" />
@@ -471,11 +571,13 @@ export function MarketRotationSeasonality() {
                       {getAvailableIndices()
                         .filter(index => !selectedIndices.includes(index))
                         .slice(0, 8)
-                        .map(index => (
+                        .map((index, idx) => (
                           <button
                             key={index}
                             onClick={() => addIndex(index)}
-                            className="flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted"
+                            className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
+                              idx === indexDropdownIndex ? 'bg-accent' : ''
+                            }`}
                           >
                             <span className="font-medium">{index}</span>
                             <Plus className="h-3 w-3 text-muted-foreground" />
@@ -603,8 +705,10 @@ export function MarketRotationSeasonality() {
                     onChange={(e) => {
                       setSectorSearchQuery(e.target.value);
                       setShowAddSector(true);
+                      setSectorDropdownIndex(-1);
                     }}
                     onFocus={() => setShowAddSector(true)}
+                    onKeyDown={handleSectorKeyDown}
                     className="h-9 w-full rounded-md border border-border bg-background pl-7 pr-3 text-xs transition-colors hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
                   />
                 </div>
@@ -614,11 +718,13 @@ export function MarketRotationSeasonality() {
                 <div className="absolute left-0 top-full z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
                   {sectorSearchQuery ? (
                     <>
-                      {getFilteredSectors().slice(0, 8).map(sector => (
+                      {getFilteredSectors().slice(0, 8).map((sector, idx) => (
                         <button
                           key={sector}
                           onClick={() => addSector(sector)}
-                          className="flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted"
+                          className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
+                            idx === sectorDropdownIndex ? 'bg-accent' : ''
+                          }`}
                         >
                           <span className="font-medium">{sector}</span>
                           <Plus className="h-3 w-3 text-muted-foreground" />
@@ -643,11 +749,13 @@ export function MarketRotationSeasonality() {
                       {getAvailableSectors()
                         .filter(sector => !selectedSectors.includes(sector))
                         .slice(0, 8)
-                        .map(sector => (
+                        .map((sector, idx) => (
                           <button
                             key={sector}
                             onClick={() => addSector(sector)}
-                            className="flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted"
+                            className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
+                              idx === sectorDropdownIndex ? 'bg-accent' : ''
+                            }`}
                           >
                             <span className="font-medium">{sector}</span>
                             <Plus className="h-3 w-3 text-muted-foreground" />
@@ -770,8 +878,10 @@ export function MarketRotationSeasonality() {
                     onChange={(e) => {
                       setSearchQuery(e.target.value);
                       setShowAddStock(true);
+                      setStockDropdownIndex(-1);
                     }}
                     onFocus={() => setShowAddStock(true)}
+                    onKeyDown={handleStockKeyDown}
                     className="h-9 w-full rounded-md border border-border bg-background pl-7 pr-3 text-xs transition-colors hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
                   />
                 </div>
@@ -781,11 +891,13 @@ export function MarketRotationSeasonality() {
                 <div className="absolute left-0 top-full z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
                   {searchQuery ? (
                     <>
-                      {getFilteredStocks().slice(0, 8).map(stock => (
+                      {getFilteredStocks().slice(0, 8).map((stock, idx) => (
                         <button
                           key={stock}
                           onClick={() => addStock(stock)}
-                          className="flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted"
+                          className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
+                            idx === stockDropdownIndex ? 'bg-accent' : ''
+                          }`}
                         >
                           <span className="font-medium">{stock}</span>
                           <Plus className="h-3 w-3 text-muted-foreground" />
@@ -811,11 +923,13 @@ export function MarketRotationSeasonality() {
                         const availableStocks = getAvailableStocks().filter(stock => !selectedStocks.includes(stock));
                         return (
                           <>
-                            {availableStocks.slice(0, 8).map(stock => (
+                            {availableStocks.slice(0, 8).map((stock, idx) => (
                               <button
                                 key={stock}
                                 onClick={() => addStock(stock)}
-                                className="flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted"
+                                className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-muted ${
+                                  idx === stockDropdownIndex ? 'bg-accent' : ''
+                                }`}
                               >
                                 <span className="font-medium">{stock}</span>
                                 <Plus className="h-3 w-3 text-muted-foreground" />

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { Calendar, Plus, X, Grid3X3, Clock, DollarSign, Users, ChevronDown, RotateCcw, Search } from 'lucide-react';
+import { Calendar, Plus, X, Grid3X3, ChevronDown, RotateCcw, Search } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 
 interface DoneDetailData {
@@ -42,7 +42,10 @@ const getLastThreeDays = (): string[] => {
 
     // Skip weekends (Saturday = 6, Sunday = 0)
     if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-      dates.push(currentDate.toISOString().split('T')[0]);
+      const dateString = currentDate.toISOString().split('T')[0];
+      if (dateString) {
+        dates.push(dateString);
+      }
     }
 
     // Go to previous day
@@ -50,8 +53,10 @@ const getLastThreeDays = (): string[] => {
 
     // Safety check to prevent infinite loop
     if (dates.length === 0 && currentDate.getTime() < today.getTime() - (30 * 24 * 60 * 60 * 1000)) {
-      // If no trading days found in last 30 days, just use today
-      dates.push(today.toISOString().split('T')[0]);
+      const todayString = today.toISOString().split('T')[0];
+      if (todayString) {
+        dates.push(todayString);
+      }
       break;
     }
   }
@@ -61,6 +66,7 @@ const getLastThreeDays = (): string[] => {
 
 // Generate realistic done detail data based on CSV structure
 const generateDoneDetailData = (stock: string, date: string): DoneDetailData[] => {
+  if (!stock || !date) return [];
   const brokers = ['RG', 'MG', 'BR', 'LG', 'CC', 'AT', 'SD', 'UU', 'TG', 'KK', 'XL', 'XC', 'PC', 'PD', 'DR'];
   const basePrice = stock === 'BBRI' ? 4150 : stock === 'BBCA' ? 2750 : stock === 'BMRI' ? 3200 :
     stock === 'YUPI' ? 1610 : stock === 'ZYRX' ? 148 : stock === 'ZONE' ? 755 : 1500;
@@ -95,8 +101,8 @@ const generateDoneDetailData = (stock: string, date: string): DoneDetailData[] =
     const volume = 100 + ((txSeed * 13) % 2000);
 
     // Brokers
-    const buyerBroker = brokers[(txSeed * 3) % brokers.length];
-    const sellerBroker = brokers[(txSeed * 5) % brokers.length];
+    const buyerBroker = brokers[(txSeed * 3) % brokers.length] || 'RG';
+    const sellerBroker = brokers[(txSeed * 5) % brokers.length] || 'RG';
 
     data.push({
       trxCode: i,  // Sequential number starting from 0
@@ -268,7 +274,9 @@ export function StockTransactionDoneDetail() {
 
       while (currentDate <= end) {
         const dateString = currentDate.toISOString().split('T')[0];
-        dateArray.push(dateString);
+        if (dateString) {
+          dateArray.push(dateString);
+        }
         currentDate.setDate(currentDate.getDate() + 1);
       }
 
@@ -312,7 +320,10 @@ export function StockTransactionDoneDetail() {
 
       // Skip weekends (Saturday = 6, Sunday = 0)
       if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-        dates.push(currentDate.toISOString().split('T')[0]);
+        const dateString = currentDate.toISOString().split('T')[0];
+        if (dateString) {
+          dates.push(dateString);
+        }
       }
 
       // Go to previous day
@@ -320,7 +331,10 @@ export function StockTransactionDoneDetail() {
 
       // Safety check
       if (dates.length === 0 && currentDate.getTime() < today.getTime() - (30 * 24 * 60 * 60 * 1000)) {
-        dates.push(today.toISOString().split('T')[0]);
+        const todayString = today.toISOString().split('T')[0];
+        if (todayString) {
+          dates.push(todayString);
+        }
         break;
       }
     }
@@ -373,7 +387,7 @@ export function StockTransactionDoneDetail() {
   };
 
   // Render table like IPOT format - showing individual transactions
-  const renderTransactionTable = (data: DoneDetailData[], date: string) => {
+  const renderTransactionTable = (data: DoneDetailData[]) => {
         return (
           <div className="overflow-x-auto -mx-4 sm:mx-0">
             <div className="min-w-full px-4 sm:px-0">
@@ -440,7 +454,7 @@ export function StockTransactionDoneDetail() {
     Object.values(allTransactions).forEach(transactions => {
       transactions.forEach(tx => allTimes.add(tx.trxTime));
     });
-    const sortedTimes = Array.from(allTimes).sort((a, b) => a - b);
+    // const sortedTimes = Array.from(allTimes).sort((a, b) => a - b);
 
     // Calculate totals
     const totalTransactions = Object.values(allTransactions).flat().length;
@@ -544,14 +558,14 @@ export function StockTransactionDoneDetail() {
               <tbody>
                 {/* Get maximum number of transactions across all dates to create enough rows */}
                 {(() => {
-                  const maxTransactions = Math.max(...selectedDates.map(date => allTransactions[date].length));
+                  const maxTransactions = Math.max(...selectedDates.map(date => allTransactions[date]?.length || 0));
                   const rows: React.ReactElement[] = [];
 
                   for (let rowIdx = 0; rowIdx < maxTransactions; rowIdx++) {
                     rows.push(
                       <tr key={rowIdx} className="border-b border-border/50 hover:bg-accent/50">
                         {selectedDates.map(date => {
-                          const transaction = allTransactions[date][rowIdx] || null;
+                          const transaction = allTransactions[date]?.[rowIdx] || null;
                       return (
                             <React.Fragment key={date}>
                               <td className="py-1 px-1 font-medium border-l-2 border-border text-foreground text-xs">
@@ -609,13 +623,14 @@ export function StockTransactionDoneDetail() {
               </div>
               <div>
                 <span className="text-muted-foreground">Max Rows:</span>
-                <div className="font-medium">{Math.max(...selectedDates.map(date => allTransactions[date].length))}</div>
+                <div className="font-medium">{Math.max(...selectedDates.map(date => allTransactions[date]?.length || 0))}</div>
               </div>
             </div>
 
             <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
               {selectedDates.map(date => {
                 const dateTransactions = allTransactions[date];
+                if (!dateTransactions) return null;
                 const dateVolume = dateTransactions.reduce((sum, t) => sum + t.stkVolm, 0);
                 return (
                   <div key={date} className="p-2 bg-background rounded border">
@@ -713,7 +728,7 @@ export function StockTransactionDoneDetail() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {renderTransactionTable(doneDetailData, date)}
+                {renderTransactionTable(doneDetailData)}
 
                 {/* Summary */}
                 <div className="mt-4 pt-4 border-t border-border">
@@ -773,7 +788,7 @@ export function StockTransactionDoneDetail() {
 
 
   return (
-    <div className="min-h-screen space-y-4 sm:space-y-6 p-2 sm:p-4 lg:p-6">
+    <div className="min-h-screen space-y-4 sm:space-y-6 p-2 sm:p-4 lg:p-6 overflow-x-hidden">
       {/* Top Controls */}
       <Card>
         <CardHeader>
