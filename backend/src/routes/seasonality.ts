@@ -10,7 +10,7 @@ import {
   generateIndexSeasonalityOnly,
   generateSectorSeasonalityOnly,
   generateStockSeasonalityOnly
-} from '../services/seasonalityAutoGenerate';
+} from '../services/seasonalityDataScheduler';
 import { downloadText } from '../utils/azureBlob';
 
 const router = express.Router();

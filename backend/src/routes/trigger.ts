@@ -2,19 +2,19 @@
 // Manual trigger endpoints for data update services
 
 import express from 'express';
-import { updateStockData } from '../services/stockDataUpdateService';
-import { updateIndexData } from '../services/indexDataUpdateService';
-import { updateShareholdersData } from '../services/shareholdersDataUpdateService';
-import { updateHoldingData } from '../services/holdingDataUpdateService';
-import { updateDoneSummaryData } from '../services/doneSummaryDataUpdateService';
+import { updateStockData } from '../services/stockDataScheduler';
+import { updateIndexData } from '../services/indexDataScheduler';
+import { updateShareholdersData } from '../services/shareholdersDataScheduler';
+import { updateHoldingData } from '../services/holdingDataScheduler';
+import { updateDoneSummaryData } from '../services/doneSummaryDataScheduler';
 import { SchedulerLogService } from '../services/schedulerLogService';
 import { AzureLogger } from '../services/azureLoggingService';
-import AccumulationAutoGenerateService from '../services/accumulationAutoGenerate';
-import BidAskAutoGenerateService from '../services/bidAskAutoGenerate';
-import BrokerDataAutoGenerateService from '../services/brokerDataAutoGenerate';
-import BrokerInventoryAutoGenerateService from '../services/brokerInventoryAutoGenerate';
-import ForeignFlowAutoGenerateService from '../services/foreignFlowAutoGenerate';
-import MoneyFlowAutoGenerateService from '../services/moneyFlowAutoGenerate';
+import AccumulationDataScheduler from '../services/accumulationDataScheduler';
+import BidAskDataScheduler from '../services/bidAskDataScheduler';
+import BrokerDataScheduler from '../services/brokerDataScheduler';
+import BrokerInventoryDataScheduler from '../services/brokerInventoryDataScheduler';
+import ForeignFlowDataScheduler from '../services/foreignFlowDataScheduler';
+import MoneyFlowDataScheduler from '../services/moneyFlowDataScheduler';
 
 const router = express.Router();
 
@@ -316,7 +316,7 @@ router.post('/accumulation', async (_req, res) => {
     }
 
     // Run calculation in background
-    const accumulationService = new AccumulationAutoGenerateService();
+    const accumulationService = new AccumulationDataScheduler();
     accumulationService.generateAccumulationData(dateSuffix).then(async (result) => {
       await AzureLogger.logInfo('accumulation_distribution', `Manual accumulation calculation completed: ${result.message}`);
       if (logEntry.id) {
@@ -376,7 +376,7 @@ router.post('/bidask', async (_req, res) => {
     }
 
     // Run calculation in background
-    const bidAskService = new BidAskAutoGenerateService();
+    const bidAskService = new BidAskDataScheduler();
     bidAskService.generateBidAskData(dateSuffix).then(async (result) => {
       await AzureLogger.logInfo('bidask_footprint', `Manual bid/ask calculation completed: ${result.message}`);
       if (logEntry.id) {
@@ -436,7 +436,7 @@ router.post('/broker-data', async (_req, res) => {
     }
 
     // Run calculation in background
-    const brokerDataService = new BrokerDataAutoGenerateService();
+    const brokerDataService = new BrokerDataScheduler();
     brokerDataService.generateBrokerData(dateSuffix).then(async (result) => {
       await AzureLogger.logInfo('broker_data', `Manual broker data calculation completed: ${result.message}`);
       if (logEntry.id) {
@@ -496,7 +496,7 @@ router.post('/broker-inventory', async (_req, res) => {
     }
 
     // Run calculation in background
-    const brokerInventoryService = new BrokerInventoryAutoGenerateService();
+    const brokerInventoryService = new BrokerInventoryDataScheduler();
     brokerInventoryService.generateBrokerInventoryData(dateSuffix).then(async (result) => {
       await AzureLogger.logInfo('broker_inventory', `Manual broker inventory calculation completed: ${result.message}`);
       if (logEntry.id) {
@@ -556,7 +556,7 @@ router.post('/foreign-flow', async (_req, res) => {
     }
 
     // Run calculation in background
-    const foreignFlowService = new ForeignFlowAutoGenerateService();
+    const foreignFlowService = new ForeignFlowDataScheduler();
     foreignFlowService.generateForeignFlowData(dateSuffix).then(async (result) => {
       await AzureLogger.logInfo('foreign_flow', `Manual foreign flow calculation completed: ${result.message}`);
       if (logEntry.id) {
@@ -616,7 +616,7 @@ router.post('/money-flow', async (_req, res) => {
     }
 
     // Run calculation in background
-    const moneyFlowService = new MoneyFlowAutoGenerateService();
+    const moneyFlowService = new MoneyFlowDataScheduler();
     moneyFlowService.generateMoneyFlowData(dateSuffix).then(async (result) => {
       await AzureLogger.logInfo('money_flow', `Manual money flow calculation completed: ${result.message}`);
       if (logEntry.id) {

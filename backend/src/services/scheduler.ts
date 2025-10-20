@@ -28,21 +28,21 @@ import { initializeAzureLogging } from './azureLoggingService';
 // All scheduler times are configured here for easy maintenance
 const SCHEDULER_CONFIG = {
   // Data Update Times
-  STOCK_UPDATE_TIME: '05:58',
-  INDEX_UPDATE_TIME: '05:58', 
-  DONE_SUMMARY_UPDATE_TIME: '05:58',
+  STOCK_UPDATE_TIME: '18:10',
+  INDEX_UPDATE_TIME: '18:10', 
+  DONE_SUMMARY_UPDATE_TIME: '18:10',
   SHAREHOLDERS_UPDATE_TIME: '00:00', // Monthly (last day)
   HOLDING_UPDATE_TIME: '00:00', // Monthly (last day)
   
   // Calculation Times
-  RRC_UPDATE_TIME: '18:30',
-  RRG_UPDATE_TIME: '18:30',
-  SEASONAL_UPDATE_TIME: '18:30',
-  TREND_FILTER_UPDATE_TIME: '00:10',
+  RRC_UPDATE_TIME: '18:35',
+  RRG_UPDATE_TIME: '18:35',
+  SEASONAL_UPDATE_TIME: '18:35',
+  TREND_FILTER_UPDATE_TIME: '18:35',
   
   // Phase-based Calculation Times
-  PHASE1_UPDATE_TIME: '12:49', // Broker Data, Bid/Ask, Money Flow, Foreign Flow
-  PHASE2_UPDATE_TIME: '12:44', // Broker Inventory, Accumulation Distribution
+  PHASE1_UPDATE_TIME: '18:35', // Broker Data, Bid/Ask, Money Flow, Foreign Flow
+  PHASE2_UPDATE_TIME: '18:35', // Broker Inventory, Accumulation Distribution
   
   // Timezone
   TIMEZONE: 'Asia/Jakarta'
