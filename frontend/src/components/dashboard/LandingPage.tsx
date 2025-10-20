@@ -2,7 +2,10 @@ import React from "react";
 import { Helmet } from "react-helmet-async";
 import { motion } from "motion/react";
 import { Button } from "../ui/button";
+// JS components, add TS ignore to satisfy type checker
+// @ts-ignore
 import { Navbar } from "../../components/Navbar";
+// @ts-ignore
 import { Footer } from "../../components/Footer";
 import Logo from "./Logo";
 

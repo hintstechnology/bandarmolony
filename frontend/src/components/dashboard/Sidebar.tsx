@@ -18,6 +18,7 @@ import {
 import { useProfile } from "../../contexts/ProfileContext";
 import { useToast } from "../../contexts/ToastContext";
 import { api } from "../../services/api";
+import logoUrl from "../../../logo.png";
 
 /** ===== MENU ===== */
 const menuItems = [
@@ -185,7 +186,7 @@ export function Sidebar({
               )}
               <div className="h-8 w-8 flex items-center justify-center flex-shrink-0">
                 <img
-                  src="/logo.png"
+                  src={logoUrl}
                   alt="Logo"
                   className="h-8 w-8 select-none object-contain flex-shrink-0"
                   draggable={false}
