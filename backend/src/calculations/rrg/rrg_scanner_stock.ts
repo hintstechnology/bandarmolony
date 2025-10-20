@@ -1,8 +1,8 @@
-// rrc_scanner_stock.ts
+// rrg_scanner_stock.ts
 // ------------------------------------------------------------
 // Relative Rotation Graph (RRG) Scanner for individual stocks
 // Membaca data RRG dari file output dan membuat scanner tabel
-// Output: CSV file dengan nama "o3-rrg.csv" di folder rrg_output
+// Output: CSV file dengan nama "o3-rrg.csv" di folder rrg_output/scanner
 // ------------------------------------------------------------
 
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
@@ -21,8 +21,88 @@ interface ScannerResult {
   trend: string;
 }
 
-// Cache for stock-to-sector mapping (will be populated dynamically from Azure)
-const SECTOR_CACHE: { [key: string]: string } = {};
+
+// Sector mapping cache (same as stockDataUpdateService.ts)
+const SECTOR_MAPPING: { [key: string]: string[] } = {
+  'Basic Materials': [],
+  'Consumer Cyclicals': [],
+  'Consumer Non-Cyclicals': [],
+  'Energy': [],
+  'Financials': [],
+  'Healthcare': [],
+  'Industrials': [],
+  'Infrastructures': [],
+  'Properties & Real Estate': [],
+  'Technology': [],
+  'Transportation & Logistic': []
+};
+
+/**
+ * Build sector mapping from Azure Storage (same as stockDataUpdateService.ts)
+ */
+async function buildSectorMappingFromAzure(): Promise<void> {
+  console.log('🔍 Building sector mapping from Azure Storage...');
+  
+  try {
+    const stockBlobs = await listPaths({ prefix: 'stock/' });
+    
+    Object.keys(SECTOR_MAPPING).forEach(sector => {
+      SECTOR_MAPPING[sector] = [];
+    });
+    
+    for (const blobName of stockBlobs) {
+      const pathParts = blobName.replace('stock/', '').split('/');
+      if (pathParts.length === 2 && pathParts[0] && pathParts[1]) {
+        const sector = pathParts[0];
+        const emiten = pathParts[1].replace('.csv', '');
+        
+        if (SECTOR_MAPPING[sector]) {
+          SECTOR_MAPPING[sector].push(emiten);
+        }
+      }
+    }
+    
+    console.log('📊 Sector mapping built successfully');
+  } catch (error) {
+    console.warn('⚠️ Could not build sector mapping from Azure, using default');
+  }
+}
+
+/**
+ * Get sector for emiten using mapping (same as stockDataUpdateService.ts)
+ */
+function getSectorForEmiten(emiten: string): string {
+  // Check if emiten already exists in mapping
+  for (const [sector, emitens] of Object.entries(SECTOR_MAPPING)) {
+    if (emitens.includes(emiten)) {
+      return sector;
+    }
+  }
+  
+  // If not found, distribute based on hash
+  const sectors = Object.keys(SECTOR_MAPPING);
+  if (sectors.length === 0) {
+    return 'Financials'; // Default fallback
+  }
+  
+  const hash = emiten.split('').reduce((a, b) => {
+    a = ((a << 5) - a) + b.charCodeAt(0);
+    return a & a;
+  }, 0);
+  const sectorIndex = Math.abs(hash) % sectors.length;
+  const selectedSector = sectors[sectorIndex];
+  
+  if (!selectedSector) {
+    return 'Financials'; // Default fallback
+  }
+  
+  if (!SECTOR_MAPPING[selectedSector]) {
+    SECTOR_MAPPING[selectedSector] = [];
+  }
+  SECTOR_MAPPING[selectedSector].push(emiten);
+  
+  return selectedSector;
+}
 
 /**
  * Parse CSV line with proper quote handling
@@ -61,68 +141,61 @@ function parseCsvLine(line: string): string[] {
 }
 
 /**
- * Read stock price data from CSV
+ * Read stock price data from CSV using proper sector mapping
  */
 async function readStockData(stockCode: string): Promise<StockData | null> {
-  // Try to find stock CSV in different sector folders
-  const stockDir = "stock";
-  const sectorFolders = [
-    "Basic Materials", "Consumer Cyclicals", "Consumer Non-Cyclicals",
-    "Energy", "Financials", "Healthcare", "Industrials", 
-    "Infrastructures", "Properties & Real Estate", "Technology",
-    "Transportation & Logistic"
-  ];
+  // Get sector for this stock using mapping
+  const sector = getSectorForEmiten(stockCode);
+  const stockPath = `stock/${sector}/${stockCode}.csv`;
   
-  for (const sectorFolder of sectorFolders) {
-    const stockPath = `${stockDir}/${sectorFolder}/${stockCode}.csv`;
-    
-    try {
-      if (await exists(stockPath)) {
-        const raw = await downloadText(stockPath);
-        const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
-        
-        if (lines.length === 0) continue;
-        
-        // Parse header
-        const header = parseCsvLine(lines[0] || '');
-        const lower = header.map((c) => c.replace(/^\uFEFF/, "").trim().toLowerCase());
-        
-        // Look for date and close columns
-        let dateIdx = lower.indexOf("date");
-        if (dateIdx < 0) dateIdx = lower.indexOf("time");
-        const closeIdx = lower.indexOf("close");
-        
-        if (dateIdx < 0 || closeIdx < 0) continue;
-        
-        const dates: string[] = [];
-        const close: number[] = [];
-        
-        for (let i = 1; i < lines.length; i++) {
-          const cols = parseCsvLine(lines[i] || '');
-          if (cols.length <= Math.max(dateIdx, closeIdx)) continue;
-          
-          const rawDate = cols[dateIdx]?.trim();
-          const rawClose = cols[closeIdx]?.trim();
-          
-          if (!rawDate || !rawClose) continue;
-          
-          const normalized = rawClose.replace(/,/g, "");
-          const num = Number.parseFloat(normalized);
-          
-          if (Number.isFinite(num)) {
-            dates.push(rawDate);
-            close.push(num);
-          }
-        }
-        
-        return { dates, close };
-      }
-    } catch (error) {
-      continue;
+  try {
+    if (!(await exists(stockPath))) {
+      console.log(`⚠️ No stock data for ${stockCode} in sector ${sector}`);
+      return null;
     }
+    
+    const raw = await downloadText(stockPath);
+    const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    
+    if (lines.length === 0) return null;
+    
+    // Parse header
+    const header = parseCsvLine(lines[0] || '');
+    const lower = header.map((c) => c.replace(/^\uFEFF/, "").trim().toLowerCase());
+    
+    // Look for date and close columns
+    let dateIdx = lower.indexOf("date");
+    if (dateIdx < 0) dateIdx = lower.indexOf("time");
+    const closeIdx = lower.indexOf("close");
+    
+    if (dateIdx < 0 || closeIdx < 0) return null;
+    
+    const dates: string[] = [];
+    const close: number[] = [];
+    
+    for (let i = 1; i < lines.length; i++) {
+      const cols = parseCsvLine(lines[i] || '');
+      if (cols.length <= Math.max(dateIdx, closeIdx)) continue;
+      
+      const rawDate = cols[dateIdx]?.trim();
+      const rawClose = cols[closeIdx]?.trim();
+      
+      if (!rawDate || !rawClose) continue;
+      
+      const normalized = rawClose.replace(/,/g, "");
+      const num = Number.parseFloat(normalized);
+      
+      if (Number.isFinite(num)) {
+        dates.push(rawDate);
+        close.push(num);
+      }
+    }
+    
+    return { dates, close };
+  } catch (error) {
+    console.log(`⚠️ Error reading stock data for ${stockCode}: ${error}`);
+    return null;
   }
-  
-  return null;
 }
 
 /**
@@ -207,101 +280,139 @@ function determineTrend(rsRatio: number, rsMomentum: number, performance: number
   return "NEUTRAL";
 }
 
-/**
- * Get sector for stock code (with caching)
- */
-async function getSector(stockCode: string): Promise<string> {
-  // Check cache first
-  if (SECTOR_CACHE[stockCode]) {
-    return SECTOR_CACHE[stockCode];
-  }
-  
-  // Try to find from folder structure
-  const stockDir = "stock";
-  const sectorFolders = [
-    "Basic Materials", "Consumer Cyclicals", "Consumer Non-Cyclicals",
-    "Energy", "Financials", "Healthcare", "Industrials", 
-    "Infrastructures", "Properties & Real Estate", "Technology",
-    "Transportation & Logistic"
-  ];
-  
-  for (const sectorFolder of sectorFolders) {
-    const stockPath = `${stockDir}/${sectorFolder}/${stockCode}.csv`;
-    if (await exists(stockPath)) {
-      // Simplify sector names for display
-      let sectorName = sectorFolder;
-      if (sectorFolder.includes("Consumer Cyclicals")) sectorName = "Consumer Cyclicals";
-      else if (sectorFolder.includes("Consumer Non-Cyclicals")) sectorName = "Consumer Non-Cyclicals";
-      else if (sectorFolder.includes("Properties")) sectorName = "Properties";
-      else if (sectorFolder.includes("Transportation")) sectorName = "Transportation";
-      else if (sectorFolder.includes("Basic")) sectorName = "Basic Materials";
-      
-      // Cache the result
-      SECTOR_CACHE[stockCode] = sectorName;
-      return sectorName;
-    }
-  }
-  
-  // Cache "Unknown" too to avoid repeated lookups
-  SECTOR_CACHE[stockCode] = "Unknown";
-  return "Unknown";
-}
 
 /**
- * Scan all available stocks and generate scanner data
+ * Scan all available stocks and generate scanner data using CSV input
  */
 async function scanAllStocks(): Promise<ScannerResult[]> {
   const results: ScannerResult[] = [];
   
-  // Get all o1-rrg-*.csv files from rrg_output/stock
-  const rrgOutputDir = "rrg_output/stock";
+  // Build sector mapping first
+  await buildSectorMappingFromAzure();
   
-  const files = await listPaths({ prefix: rrgOutputDir });
-  const rrgFiles = files.filter(f => f.includes("o1-rrg-") && f.endsWith(".csv"));
-  
-  if (rrgFiles.length === 0) {
-    console.log(`⚠️ No RRG stock files found in ${rrgOutputDir} - generate RRG data first`);
-    return results; // Return empty, scanner will be skipped
+  // Get list of stocks from CSV input (same as stockDataUpdateService.ts)
+  let stockList: string[] = [];
+  try {
+    const emitensCsvData = await downloadText('csv_input/emiten_list.csv');
+    stockList = emitensCsvData.split('\n')
+      .map(line => line.trim())
+      .filter(line => line && line.length > 0);
+    console.log(`📊 Found ${stockList.length} stocks from CSV input`);
+  } catch (error) {
+    console.log(`⚠️ Could not read CSV input, trying to get from RRG files`);
+    
+    // Fallback: Get all o1-rrg-*.csv files from rrg_output/stock
+    const rrgOutputDir = "rrg_output/stock";
+    const files = await listPaths({ prefix: rrgOutputDir });
+    const rrgFiles = files.filter(f => f.includes("o1-rrg-") && f.endsWith(".csv"));
+    
+    if (rrgFiles.length === 0) {
+      console.log(`⚠️ No RRG stock files found in ${rrgOutputDir} - generate RRG data first`);
+      return results;
+    }
+    
+    stockList = rrgFiles.map(file => file.replace("o1-rrg-", "").replace(".csv", ""));
+    console.log(`📊 Found ${stockList.length} stocks from RRG files`);
   }
   
-  console.log(`📊 Found ${rrgFiles.length} RRG stock files`);
+  let processedCount = 0;
+  let successCount = 0;
+  let skippedCount = 0;
+  let errorCount = 0;
   
-  for (const file of rrgFiles) {
-    // Extract stock code from filename: o1-rrg-BBCA.csv -> BBCA
-    const stockCode = file.replace("o1-rrg-", "").replace(".csv", "");
+  // Process stocks in batches for better performance
+  const BATCH_SIZE = 50; // Process 50 stocks at a time (increased for speed)
+  console.log(`📦 Processing stocks in batches of ${BATCH_SIZE}...`);
+  
+  for (let i = 0; i < stockList.length; i += BATCH_SIZE) {
+    const batch = stockList.slice(i, i + BATCH_SIZE);
+    console.log(`📦 Processing stock batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(stockList.length / BATCH_SIZE)}: ${batch.slice(0, 5).join(', ')}${batch.length > 5 ? `... (+${batch.length - 5} more)` : ''}`);
     
-    try {
-      // Read RRG data
-      const rrgData = await readRRGData(stockCode);
-      if (!rrgData) continue;
+    // Process batch in parallel
+    const batchResults = await Promise.allSettled(batch.map(async (stockCode) => {
+      processedCount++;
       
-      // Read stock price data
-      const stockData = await readStockData(stockCode);
-      if (!stockData) continue;
-      
-      // Calculate performance
-      const performance = calculatePerformance(stockData);
-      
-      // Get sector
-      const sector = await getSector(stockCode);
-      
-      // Determine trend
-      const trend = determineTrend(rrgData.rs_ratio, rrgData.rs_momentum, performance);
-      
-      results.push({
-        symbol: stockCode,
-        sector: sector,
-        rs_ratio: Number(rrgData.rs_ratio.toFixed(1)),
-        rs_momentum: Number(rrgData.rs_momentum.toFixed(1)),
-        performance: Number(performance.toFixed(1)),
-        trend: trend
-      });
-      
-    } catch (error) {
-      console.log(`⚠️  Error processing ${stockCode}: ${error}`);
-      continue;
+      try {
+        // Read RRG data
+        const rrgData = await readRRGData(stockCode);
+        if (!rrgData) {
+          console.log(`⚠️ No RRG data for rrg_output/stock/o1-rrg-${stockCode}`);
+          return { status: 'skipped', stockCode, reason: 'No RRG data' };
+        }
+        
+        // Read stock price data using proper sector mapping
+        const stockData = await readStockData(stockCode);
+        if (!stockData) {
+          console.log(`⚠️ No stock price data for ${stockCode}`);
+          return { status: 'skipped', stockCode, reason: 'No stock data' };
+        }
+        
+        // Calculate performance
+        const performance = calculatePerformance(stockData);
+        
+        // Get sector using mapping
+        const sector = getSectorForEmiten(stockCode);
+        
+        // Determine trend
+        const trend = determineTrend(rrgData.rs_ratio, rrgData.rs_momentum, performance);
+        
+        const result = {
+          symbol: stockCode,
+          sector: sector,
+          rs_ratio: Number(rrgData.rs_ratio.toFixed(1)),
+          rs_momentum: Number(rrgData.rs_momentum.toFixed(1)),
+          performance: Number(performance.toFixed(1)),
+          trend: trend
+        };
+        
+        console.log(`✅ Processed ${stockCode} (${sector}): RS-Ratio=${result.rs_ratio}, RS-Momentum=${result.rs_momentum}, Trend=${trend}`);
+        
+        return { status: 'success', stockCode, result };
+        
+      } catch (error) {
+        console.log(`⚠️ Error processing ${stockCode}: ${error}`);
+        return { status: 'error', stockCode, error: error instanceof Error ? error.message : String(error) };
+      }
+    }));
+    
+    // Process batch results
+    for (const batchResult of batchResults) {
+      if (batchResult.status === 'fulfilled') {
+        const { status, result } = batchResult.value;
+        
+        if (status === 'success' && result) {
+          results.push(result);
+          successCount++;
+        } else if (status === 'skipped') {
+          skippedCount++;
+        } else if (status === 'error') {
+          errorCount++;
+        }
+      } else {
+        errorCount++;
+      }
+    }
+    
+    // Log batch progress
+    const batchSuccess = batchResults.filter(r => r.status === 'fulfilled' && r.value.status === 'success').length;
+    const batchSkipped = batchResults.filter(r => r.status === 'fulfilled' && r.value.status === 'skipped').length;
+    const batchErrors = batchResults.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && r.value.status === 'error')).length;
+    
+    console.log(`📦 Batch ${Math.floor(i / BATCH_SIZE) + 1} complete: ✅ ${batchSuccess} success, ⏭️ ${batchSkipped} skipped, ❌ ${batchErrors} errors`);
+    
+    // Small delay to give event loop breathing room
+    if (i + BATCH_SIZE < stockList.length) {
+      await new Promise(resolve => setTimeout(resolve, 10));
     }
   }
+  
+  // Final summary
+  console.log(`\n📊 Processing Summary:`);
+  console.log(`   Total processed: ${processedCount}`);
+  console.log(`   Success: ${successCount}`);
+  console.log(`   Skipped: ${skippedCount}`);
+  console.log(`   Errors: ${errorCount}`);
+  console.log(`   Results generated: ${results.length}`);
   
   // Sort by RS-Ratio descending
   results.sort((a, b) => b.rs_ratio - a.rs_ratio);
@@ -339,12 +450,16 @@ async function main(): Promise<void> {
     const csvOutput = resultsToCsv(results);
     
     // Write to Azure
-    const outputPath = "rrg_output/o3-rrg.csv";
-    await uploadText(outputPath, csvOutput);
-    
-    console.log(`✅ RRG Stock Scanner completed`);
-    console.log(`📊 Processed ${results.length} stocks`);
-    console.log(`📁 Output saved to: ${outputPath}`);
+    const outputPath = "rrg_output/scanner/o3-rrg.csv";
+    try {
+      await uploadText(outputPath, csvOutput, 'text/csv');
+      console.log(`✅ RRG Stock Scanner completed`);
+      console.log(`📊 Processed ${results.length} stocks`);
+      console.log(`📁 Output saved to: ${outputPath}`);
+    } catch (error) {
+      console.error(`❌ Error uploading to Azure: ${error}`);
+      throw error;
+    }
     
     // Show summary by trend
     const trendCounts = results.reduce((acc, r) => {
@@ -365,7 +480,61 @@ async function main(): Promise<void> {
 
 // Export function for backend use
 export async function generateRrgStockScanner(): Promise<ScannerResult[]> {
-  return await scanAllStocks();
+  try {
+    console.log("🚀 Starting RRG Stock Scanner...");
+    const startTime = Date.now();
+    
+    // Scan all stocks
+    console.log("📊 Building sector mapping and loading stock list...");
+    const results = await scanAllStocks();
+    
+    if (results.length === 0) {
+      console.log("❌ No valid stock data found");
+      return results;
+    }
+    
+    console.log(`\n📊 Converting ${results.length} results to CSV format...`);
+    // Convert to CSV
+    const csvOutput = resultsToCsv(results);
+    
+    console.log("📤 Uploading to Azure Storage...");
+    // Write to Azure
+    const outputPath = "rrg_output/scanner/o3-rrg.csv";
+    try {
+      await uploadText(outputPath, csvOutput, 'text/csv');
+      const endTime = Date.now();
+      const duration = ((endTime - startTime) / 1000).toFixed(1);
+      
+      console.log(`✅ RRG Stock Scanner completed in ${duration}s`);
+      console.log(`📊 Processed ${results.length} stocks`);
+      console.log(`📁 Output saved to: ${outputPath}`);
+    } catch (error) {
+      console.error(`❌ Error uploading to Azure: ${error}`);
+      throw error;
+    }
+    
+    // Show summary by trend
+    const trendCounts = results.reduce((acc, r) => {
+      acc[r.trend] = (acc[r.trend] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    
+    console.log("\n📈 Trend Distribution:");
+    Object.entries(trendCounts).forEach(([trend, count]) => {
+      console.log(`   ${trend}: ${count} stocks`);
+    });
+    
+    // Show top performers
+    console.log("\n🏆 Top 5 Stocks by RS-Ratio:");
+    results.slice(0, 5).forEach((result, index) => {
+      console.log(`   ${index + 1}. ${result.symbol} (${result.sector}): ${result.rs_ratio} (${result.trend})`);
+    });
+    
+    return results;
+  } catch (error) {
+    console.error(`❌ Error in generateRrgStockScanner: ${error}`);
+    throw error;
+  }
 }
 
 // Execute if run directly

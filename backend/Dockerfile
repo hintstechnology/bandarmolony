@@ -21,6 +21,10 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=8080
 
+# Set timezone to Asia/Jakarta
+RUN apk add --no-cache tzdata
+ENV TZ=Asia/Jakarta
+
 # user non-root
 RUN addgroup -S nodejs && adduser -S nodejs -G nodejs -u 1001
 

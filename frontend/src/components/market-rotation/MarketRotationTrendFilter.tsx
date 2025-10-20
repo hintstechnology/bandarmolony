@@ -1,28 +1,18 @@
-import { useState, useEffect } from "react";
-import { api } from "../../services/api";
-import { Card } from "../ui/card";
-import { Button } from "../ui/button";
-import { Badge } from "../ui/badge";
-import {
-  TrendingUp,
-  TrendingDown,
-  Minus,
-  Filter,
-  Search,
-  Calendar,
-  BarChart3,
-  Target,
-  ChevronLeft,
-  ChevronRight,
-} from "lucide-react";
+import { useState, useEffect } from 'react';
+import { Card } from '../ui/card';
+import { Button } from '../ui/button';
+import { Badge } from '../ui/badge';
+import { TrendingUp, TrendingDown, Minus, Filter, Search, ChevronLeft, ChevronRight, Loader2, RefreshCw } from 'lucide-react';
+import { api } from '../../services/api';
 
 interface TrendStock {
-  symbol: string;
-  name: string;
-  price: number;
-  change: number;
-  sector: string;
-  trend?: string;
+  Symbol: string;
+  Name: string;
+  Price: number;
+  ChangePct: number;
+  Sector: string;
+  Trend: string;
+  Period: string;
 }
 
 interface TrendData {
@@ -38,10 +28,10 @@ interface SummaryItem {
   color: string;
 }
 
-const timeframes = ["3D", "5D", "2W", "1M"];
+const timeframes = ['3D', '5D', '2W', '1M'];
 
 export function MarketRotationTrendFilter() {
-  const [selectedTimeframe, setSelectedTimeframe] = useState("1M");
+  const [selectedTimeframe, setSelectedTimeframe] = useState("5D");
   const [selectedSector, setSelectedSector] = useState("All Sectors");
   const [selectedTrend, setSelectedTrend] = useState("uptrend");
   const [currentPage, setCurrentPage] = useState({
@@ -57,88 +47,88 @@ export function MarketRotationTrendFilter() {
   const [trendData, setTrendData] = useState<TrendData>({ uptrend: [], sideways: [], downtrend: [] });
   const [trendSummary, setTrendSummary] = useState<SummaryItem[]>([]);
   const [sectors, setSectors] = useState<string[]>(["All Sectors"]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const itemsPerPage = 5;
+  const itemsPerPage = 15;
 
-  // Load trend data from Azure on mount and when timeframe changes
+  // Load trend data from API
   useEffect(() => {
     let mounted = true;
     (async () => {
       console.log('🔄 TREND: Loading trend data for timeframe:', selectedTimeframe);
       
       try {
-        // No need for manual backfill - files will be generated on-demand
-        console.log('✅ TREND: Inputs loaded, files will be generated on-demand when needed');
+        setLoading(true);
+        setError(null);
         
-        // Load summary
-        console.log('🔄 TREND: Loading summary data...');
-        const summaryPath = 'trend_output/summary/trend-summary.csv';
-        const summaryCsv = await api.getMarketRotationOutputFile('trend', summaryPath);
-        console.log('📄 TREND: Got summary CSV, length:', summaryCsv.length);
+        const response = await api.getTrendFilterData(selectedTimeframe);
         
-        const summaryLines = summaryCsv.trim().split(/\r?\n/).slice(1);
-        const summaries: SummaryItem[] = [];
-        
-        for (const line of summaryLines) {
-          const [period, , upCnt, upPct, sideCnt, sidePct, downCnt, downPct] = line.split(',');
-          if (period?.toLowerCase() === selectedTimeframe.toLowerCase()) {
-            summaries.push(
-              { trend: 'Uptrend', count: Number.parseInt(upCnt || '0'), percentage: Number.parseFloat(upPct || '0'), color: '#10b981' },
-              { trend: 'Sideways', count: Number.parseInt(sideCnt || '0'), percentage: Number.parseFloat(sidePct || '0'), color: '#f59e0b' },
-              { trend: 'Downtrend', count: Number.parseInt(downCnt || '0'), percentage: Number.parseFloat(downPct || '0'), color: '#ef4444' }
-            );
+        if (response.success && response.data) {
+          console.log('✅ TREND: Data loaded:', response.data);
+          
+          // Parse summary data
+          const summary = response.data.summary;
+          if (summary) {
+            const summaries: SummaryItem[] = [
+              { trend: 'Uptrend', count: summary.TrendCounts.Uptrend, percentage: summary.TrendPercentages.Uptrend, color: '#10b981' },
+              { trend: 'Sideways', count: summary.TrendCounts.Sideways, percentage: summary.TrendPercentages.Sideways, color: '#f59e0b' },
+              { trend: 'Downtrend', count: summary.TrendCounts.Downtrend, percentage: summary.TrendPercentages.Downtrend, color: '#ef4444' }
+            ];
+            if (mounted) setTrendSummary(summaries);
           }
-        }
-        
-        console.log('📊 TREND: Parsed summaries:', summaries);
-        if (mounted) setTrendSummary(summaries);
 
-        // Load period data
-        console.log('🔄 TREND: Loading period data...');
-        const periodPath = `trend_output/periods/o1-trend-${selectedTimeframe.toLowerCase()}.csv`;
-        const periodCsv = await api.getMarketRotationOutputFile('trend', periodPath);
-        console.log('📄 TREND: Got period CSV, length:', periodCsv.length);
-        
-        const periodLines = periodCsv.trim().split(/\r?\n/).slice(1);
-        const uptrend: TrendStock[] = [];
-        const sideways: TrendStock[] = [];
-        const downtrend: TrendStock[] = [];
-        const sectorsSet = new Set<string>();
-        
-        for (const line of periodLines) {
-          const [symbol, name, price, changePct, sector, trend] = line.split(',');
-          const stock: TrendStock = {
-            symbol: (symbol || '').trim(),
-            name: (name || '').trim(),
-            price: Number.parseFloat((price || '').trim()),
-            change: Number.parseFloat((changePct || '').trim()),
-            sector: (sector || '').trim(),
-            trend: (trend || '').trim(),
-          };
-          sectorsSet.add(stock.sector);
-          const trendLower = stock.trend?.toLowerCase() || '';
-          if (trendLower === 'uptrend') uptrend.push(stock);
-          else if (trendLower === 'sideways') sideways.push(stock);
-          else if (trendLower === 'downtrend') downtrend.push(stock);
+          // Parse stocks data
+          const stocks = response.data.stocks || [];
+          const uptrend: TrendStock[] = [];
+          const sideways: TrendStock[] = [];
+          const downtrend: TrendStock[] = [];
+          const sectorsSet = new Set<string>();
+          
+          stocks.forEach((stock: any) => {
+            const trendStock: TrendStock = {
+              Symbol: stock.Symbol || '',
+              Name: stock.Name || '',
+              Price: stock.Price || 0,
+              ChangePct: stock.ChangePct || 0,
+              Sector: stock.Sector || '',
+              Trend: stock.Trend || '',
+              Period: stock.Period || selectedTimeframe
+            };
+            sectorsSet.add(trendStock.Sector);
+            
+            const trendLower = trendStock.Trend?.toLowerCase() || '';
+            if (trendLower === 'uptrend') uptrend.push(trendStock);
+            else if (trendLower === 'sideways') sideways.push(trendStock);
+            else if (trendLower === 'downtrend') downtrend.push(trendStock);
+          });
+          
+          console.log('📊 TREND: Parsed trend data:', {
+            uptrend: uptrend.length,
+            sideways: sideways.length,
+            downtrend: downtrend.length,
+            sectors: sectorsSet.size
+          });
+          
+          if (mounted) {
+            setTrendData({ uptrend, sideways, downtrend });
+            setSectors(['All Sectors', ...Array.from(sectorsSet).sort()]);
+          }
+        } else {
+          throw new Error(response.error || 'Failed to load trend data');
         }
-        
-        console.log('📊 TREND: Parsed trend data:', {
-          uptrend: uptrend.length,
-          sideways: sideways.length,
-          downtrend: downtrend.length,
-          sectors: sectorsSet.size
-        });
-        
+      } catch (err) {
+        console.error('❌ TREND: Error loading trend data:', err);
         if (mounted) {
-          setTrendData({ uptrend, sideways, downtrend });
-          setSectors(['All Sectors', ...Array.from(sectorsSet).sort()]);
+          setError(`Failed to load trend data: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
-      } catch (error) {
-        console.error('❌ TREND: Error loading trend data:', error);
+      } finally {
+        if (mounted) setLoading(false);
       }
     })();
     return () => { mounted = false; };
   }, [selectedTimeframe]);
+
 
   const getTrendIcon = (trend: string) => {
     switch (trend) {
@@ -171,12 +161,12 @@ export function MarketRotationTrendFilter() {
   const getPaginatedData = (trendType: string) => {
     const data = (trendData as any)[trendType] || [];
     const query = (searchQueries as any)[trendType].toLowerCase();
-    const sectorFiltered = selectedSector === "All Sectors" ? data : data.filter((s: TrendStock) => s.sector === selectedSector);
+    const sectorFiltered = selectedSector === "All Sectors" ? data : data.filter((s: TrendStock) => s.Sector === selectedSector);
     const filtered = query
       ? sectorFiltered.filter(
           (stock: TrendStock) =>
-            stock.symbol.toLowerCase().includes(query) ||
-            stock.name.toLowerCase().includes(query),
+            stock.Symbol.toLowerCase().includes(query) ||
+            stock.Name.toLowerCase().includes(query),
         )
       : sectorFiltered;
 
@@ -217,6 +207,32 @@ export function MarketRotationTrendFilter() {
     }));
   };
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <Loader2 className="w-6 h-6 animate-spin mr-2" />
+        <span>Loading trend data...</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-8 text-red-500">
+        <p>{error}</p>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={() => window.location.reload()}
+          className="mt-2"
+        >
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <Card className="p-4">
@@ -226,12 +242,11 @@ export function MarketRotationTrendFilter() {
             <span className="text-sm font-medium">Filters:</span>
           </div>
 
-          <div className="flex flex-col gap-4 sm:grid sm:grid-cols-2 lg:flex lg:flex-row">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {/* Timeframe Filter */}
-            <div className="min-w-0">
+            <div className="w-full">
               <label className="block text-sm font-medium mb-2">Timeframe:</label>
-              <div className="flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto">
-                <div className="flex items-center gap-1 min-w-max">
+              <div className="grid grid-cols-4 gap-1 border border-border rounded-lg p-1">
                 {timeframes.map((tf) => (
                   <Button
                     key={tf}
@@ -242,27 +257,25 @@ export function MarketRotationTrendFilter() {
                     }
                     size="sm"
                     onClick={() => setSelectedTimeframe(tf)}
-                    className="px-3 py-1 h-8 text-xs hover:bg-primary/10 hover:text-primary transition-colors"
+                    className="px-2 py-1 h-8 text-xs hover:bg-primary/10 hover:text-primary transition-colors"
                   >
                     {tf}
                   </Button>
                 ))}
-                </div>
               </div>
             </div>
 
             {/* Trend Filter */}
-            <div className="min-w-0">
+            <div className="w-full">
               <label className="block text-sm font-medium mb-2">Trend:</label>
-              <div className="flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto">
-                <div className="flex items-center gap-1 min-w-max">
+              <div className="grid grid-cols-4 gap-1 border border-border rounded-lg p-1">
                 <Button
                   variant={
                     selectedTrend === "all" ? "default" : "ghost"
                   }
                   size="sm"
                   onClick={() => setSelectedTrend("all")}
-                  className="px-3 py-1 h-8 text-xs hover:bg-primary/10 hover:text-primary transition-colors"
+                  className="px-2 py-1 h-8 text-xs hover:bg-primary/10 hover:text-primary transition-colors"
                 >
                   All
                 </Button>
@@ -274,7 +287,7 @@ export function MarketRotationTrendFilter() {
                   }
                   size="sm"
                   onClick={() => setSelectedTrend("uptrend")}
-                  className="px-3 py-1 h-8 text-xs flex items-center gap-1 hover:bg-primary/10 hover:text-primary transition-colors"
+                  className="px-2 py-1 h-8 text-xs flex items-center justify-center gap-1 hover:bg-primary/10 hover:text-primary transition-colors"
                 >
                   <TrendingUp className="w-3 h-3" />
                   Up
@@ -287,7 +300,7 @@ export function MarketRotationTrendFilter() {
                   }
                   size="sm"
                   onClick={() => setSelectedTrend("sideways")}
-                  className="px-3 py-1 h-8 text-xs flex items-center gap-1 hover:bg-primary/10 hover:text-primary transition-colors"
+                  className="px-2 py-1 h-8 text-xs flex items-center justify-center gap-1 hover:bg-primary/10 hover:text-primary transition-colors"
                 >
                   <Minus className="w-3 h-3" />
                   Side
@@ -300,24 +313,23 @@ export function MarketRotationTrendFilter() {
                   }
                   size="sm"
                   onClick={() => setSelectedTrend("downtrend")}
-                  className="px-3 py-1 h-8 text-xs flex items-center gap-1 hover:bg-primary/10 hover:text-primary transition-colors"
+                  className="px-2 py-1 h-8 text-xs flex items-center justify-center gap-1 hover:bg-primary/10 hover:text-primary transition-colors"
                 >
                   <TrendingDown className="w-3 h-3" />
                   Down
                 </Button>
-                </div>
               </div>
             </div>
 
             {/* Sector Filter */}
-            <div className="min-w-0">
+            <div className="w-full">
               <label className="block text-sm font-medium mb-2">Sector:</label>
               <select
                 value={selectedSector}
                 onChange={(e) =>
                   setSelectedSector(e.target.value)
                 }
-                className="w-full sm:w-48 px-3 py-2 h-10 text-xs bg-background border border-border rounded-md hover:border-primary/50 transition-colors"
+                className="w-full px-3 py-2 h-10 text-xs bg-background border border-border rounded-md hover:border-primary/50 transition-colors"
               >
                 {sectors.map((sector) => (
                   <option key={sector} value={sector}>
@@ -395,53 +407,55 @@ export function MarketRotationTrendFilter() {
                    </div>
                 </div>
 
-                <div className="overflow-x-auto rounded-md">
-                  <table className="w-full min-w-[640px]">
-                    <thead className="bg-background">
-                      <tr className="border-b border-border">
-                        <th className="sticky top-0 bg-background text-left py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Symbol</th>
-                        <th className="sticky top-0 bg-background text-left py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Name</th>
-                        <th className="sticky top-0 bg-background text-right py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Price</th>
-                        <th className="sticky top-0 bg-background text-right py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Change %</th>
-                        <th className="sticky top-0 bg-background text-left py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Sector</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {paginatedResult.data.map((stock: TrendStock, index: number) => (
-                        <tr
-                          key={index}
-                          className="border-b border-border/50 hover:bg-muted/50 transition-colors"
-                        >
-                          <td className="py-2 sm:py-3 px-3">
-                            <span className="font-medium">{stock.symbol}</span>
-                          </td>
-                          <td className="py-2 sm:py-3 px-3">
-                            <span className="text-xs sm:text-sm text-muted-foreground">{stock.name}</span>
-                          </td>
-                          <td className="py-2 sm:py-3 px-3 text-right">
-                            <span className="font-medium">{stock.price.toLocaleString()}</span>
-                          </td>
-                          <td className="py-2 sm:py-3 px-3 text-right">
-                            <span
-                              className={`font-medium ${
-                                stock.change > 0
-                                  ? "text-green-600"
-                                  : stock.change < 0
-                                    ? "text-red-600"
-                                    : "text-muted-foreground"
-                              }`}
-                            >
-                              {stock.change > 0 ? "+" : ""}
-                              {stock.change}%
-                            </span>
-                          </td>
-                          <td className="py-2 sm:py-3 px-3">
-                            <Badge variant="outline" className="text-[10px] sm:text-xs">{stock.sector}</Badge>
-                          </td>
+                <div className="-mx-4 overflow-x-auto sm:mx-0">
+                  <div className="min-w-[640px] px-4 sm:min-w-[800px] sm:px-0 mx-auto w-full">
+                    <table className="w-full">
+                      <thead className="bg-background">
+                        <tr className="border-b border-border">
+                          <th className="sticky top-0 bg-background text-left py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Symbol</th>
+                          <th className="sticky top-0 bg-background text-left py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Name</th>
+                          <th className="sticky top-0 bg-background text-right py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Price</th>
+                          <th className="sticky top-0 bg-background text-right py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Change %</th>
+                          <th className="sticky top-0 bg-background text-left py-2 px-3 text-xs sm:text-sm font-medium text-muted-foreground">Sector</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {paginatedResult.data.map((stock: TrendStock, index: number) => (
+                          <tr
+                            key={index}
+                            className="border-b border-border/50 hover:bg-muted/50 transition-colors"
+                          >
+                            <td className="py-2 sm:py-3 px-3">
+                              <span className="font-medium">{stock.Symbol}</span>
+                            </td>
+                            <td className="py-2 sm:py-3 px-3">
+                              <span className="text-xs sm:text-sm text-muted-foreground">{stock.Name}</span>
+                            </td>
+                            <td className="py-2 sm:py-3 px-3 text-right">
+                              <span className="font-medium">{stock.Price.toLocaleString()}</span>
+                            </td>
+                            <td className="py-2 sm:py-3 px-3 text-right">
+                              <span
+                                className={`font-medium ${
+                                  stock.ChangePct > 0
+                                    ? "text-green-600"
+                                    : stock.ChangePct < 0
+                                      ? "text-red-600"
+                                      : "text-muted-foreground"
+                                }`}
+                              >
+                                {stock.ChangePct > 0 ? "+" : ""}
+                                {stock.ChangePct}%
+                              </span>
+                            </td>
+                            <td className="py-2 sm:py-3 px-3">
+                              <Badge variant="outline" className="text-[10px] sm:text-xs">{stock.Sector}</Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
 
                 {/* Pagination Controls */}

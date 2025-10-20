@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { X, Search, Plus, Loader2 } from 'lucide-react';
+import { X, Search, Plus, Loader2, Play, RotateCcw, Calendar } from 'lucide-react';
 import { api } from '@/services/api';
 import { useToast } from '../../contexts/ToastContext';
 
@@ -22,10 +22,26 @@ const getDateFromInput = (dateString: string) => {
   return new Date(dateString + 'T00:00:00');
 };
 
+// Helper function to format date for display
+const formatDateForDisplay = (dateString: string) => {
+  const date = new Date(dateString);
+  return date.toLocaleDateString('en-US', { 
+    month: 'short', 
+    day: 'numeric' 
+  });
+};
+
+// Helper function to check if date range is more than 1 month
+const isMoreThanOneMonth = (startDate: Date, endDate: Date) => {
+  const daysDiff = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+  return daysDiff > 30;
+};
+
 export default function MarketRotationRRC() {
   const { showToast } = useToast();
   const [viewMode, setViewMode] = useState<'sector' | 'stock'>('sector');
   const [selectedIndex, setSelectedIndex] = useState<string>('COMPOSITE');
+  const [selectedIndexes, setSelectedIndexes] = useState<string[]>(['COMPOSITE']);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   
   // Debug logging
@@ -54,9 +70,10 @@ export default function MarketRotationRRC() {
   const [error, setError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState<any>(null);
-  const [debugMessage, setDebugMessage] = useState<string>('');
   const searchRef = useRef<HTMLDivElement>(null);
   const indexSearchRef = useRef<HTMLDivElement>(null);
+  const startDateRef = useRef<HTMLInputElement>(null);
+  const endDateRef = useRef<HTMLInputElement>(null);
   const isInitialMount = useRef(true);
   const isLoadingRef = useRef(false);
 
@@ -368,78 +385,10 @@ export default function MarketRotationRRC() {
     return chartData;
   };
 
-  // Debug functions
-  const handleTriggerUpdate = async (feature: 'rrc' | 'rrg' | 'all' = 'rrc') => {
-    console.log('🔧 handleTriggerUpdate called with feature:', feature);
-    try {
-      const featureText = feature === 'all' ? 'RRC & RRG' : feature.toUpperCase();
-      setDebugMessage(`Triggering ${featureText} update...`);
-      
-      console.log('📡 Calling api.triggerGeneration...');
-      const result = await api.triggerGeneration(feature);
-      console.log('📡 API Response:', result);
-      
-      if (result.success) {
-        setDebugMessage(`✅ ${result.data?.message || `${featureText} update triggered successfully`}`);
-        // Refresh status after a short delay
-        setTimeout(() => {
-          loadChartData();
-        }, 1000);
-      } else {
-        setDebugMessage(`❌ ${result.error || `Failed to trigger ${featureText} update`}`);
-      }
-    } catch (error) {
-      console.error('❌ Error in handleTriggerUpdate:', error);
-      setDebugMessage(`❌ Error: ${error}`);
-    }
-  };
-
-  const handleStopGeneration = async () => {
-    try {
-      setDebugMessage('Stopping generation...');
-      const result = await api.stopRRCGeneration();
-      
-      if (result.success) {
-        setDebugMessage(`✅ ${result.data?.message || 'Stop requested'}`);
-      } else {
-        setDebugMessage(`❌ ${result.error || 'Failed to stop generation'}`);
-      }
-    } catch (error) {
-      setDebugMessage(`❌ Error: ${error}`);
-    }
-  };
 
   const currentData = chartData;
   const currentOptions = viewMode === 'sector' ? sectorOptions : stockOptions;
 
-  const toggleItem = (itemName: string) => {
-    setSelectedItems(prev => {
-      if (prev.includes(itemName)) {
-        // Removing item - check if we'll have at least 1 item
-        const newItems = prev.filter(item => item !== itemName);
-        if (newItems.length === 0) {
-          showToast({
-            type: 'error',
-            title: 'Selection Error',
-            message: 'Minimal 1 item harus dipilih'
-          });
-          return prev; // Don't remove if it would leave 0 items
-        }
-        return newItems;
-      } else {
-        // Adding item - check if we'll exceed 15 items
-        if (prev.length >= 15) {
-          showToast({
-            type: 'error',
-            title: 'Selection Limit',
-            message: 'Maksimal 15 items yang bisa dipilih'
-          });
-          return prev; // Don't add if it would exceed 15 items
-        }
-        return [...prev, itemName];
-      }
-    });
-  };
 
   const removeItem = (itemName: string) => {
     // Prevent removing all items - keep at least one
@@ -478,6 +427,66 @@ export default function MarketRotationRRC() {
     }
   };
 
+  const handleGenerateData = () => {
+    if (selectedIndex && selectedItems.length > 0) {
+      loadChartData();
+    }
+  };
+
+  const handleReset = () => {
+    // Reset to default dates (10 days back)
+    const today = new Date();
+    const tenDaysAgo = new Date(today);
+    tenDaysAgo.setDate(today.getDate() - 10);
+    
+    setStartDate(tenDaysAgo);
+    setEndDate(today);
+    
+    // Reset selections to default based on view mode
+    if (viewMode === 'sector' && sectorOptions.length > 0) {
+      // Default sectors: Technology, Healthcare, Financials
+      const defaultSectors = ['Technology', 'Healthcare', 'Financials'];
+      const availableDefaults = defaultSectors.filter(sector => 
+        sectorOptions.some(opt => opt.name === sector)
+      );
+      setSelectedItems(availableDefaults.length > 0 ? availableDefaults : [sectorOptions[0]?.name || 'Technology']);
+    } else if (viewMode === 'stock' && stockOptions.length > 0) {
+      // Default stocks: BBCA, BBRI, BMRI
+      const defaultStocks = ['BBCA', 'BBRI', 'BMRI'];
+      const availableDefaults = defaultStocks.filter(stock => 
+        stockOptions.some(opt => opt.name === stock)
+      );
+      setSelectedItems(availableDefaults.length > 0 ? availableDefaults : [stockOptions[0]?.name || 'BBCA']);
+    } else {
+      setSelectedItems([]);
+    }
+    
+    // Reset search states
+    setSearchQuery('');
+    setIndexSearchQuery('');
+    setShowSearchDropdown(false);
+    setShowIndexSearchDropdown(false);
+    
+    // Clear chart data
+    setChartData([]);
+    
+    console.log('🔄 Reset to defaults:', {
+      startDate: tenDaysAgo,
+      endDate: today,
+      selectedItems: viewMode === 'sector' ? [sectorOptions[0]?.name || 'Technology'] : ['BBCA', 'BBRI', 'BMRI']
+    });
+  };
+
+  const hasValidSelection = () => {
+    return selectedIndex && selectedItems.length > 0;
+  };
+
+  const triggerDatePicker = (inputRef: React.RefObject<HTMLInputElement>) => {
+    if (inputRef.current) {
+      inputRef.current.showPicker();
+    }
+  };
+
   const getFilteredOptions = () => {
     if (viewMode === 'sector') return currentOptions;
     
@@ -493,38 +502,28 @@ export default function MarketRotationRRC() {
     );
   };
 
-  const addFromSearch = (itemName: string) => {
-    if (!selectedItems.includes(itemName)) {
-      if (selectedItems.length >= 15) {
-        showToast({
-          type: 'error',
-          title: 'Selection Limit',
-          message: 'Maksimal 15 items yang bisa dipilih'
-        });
-        return;
-      }
-      setSelectedItems(prev => [...prev, itemName]);
-    }
-    setSearchQuery('');
-    setShowSearchDropdown(false);
-  };
 
-  const selectIndex = (indexName: string) => {
-    setSelectedIndex(indexName);
-    setIndexSearchQuery('');
-    setShowIndexSearchDropdown(false);
-  };
 
   const handleStartDateChange = (dateString: string) => {
     const newDate = getDateFromInput(dateString);
+    
+    // Validate start date is not after end date
+    if (newDate > endDate) {
+      showToast({
+        type: 'error',
+        title: 'Start date cannot be after end date',
+        message: 'Please select a valid start date'
+      });
+      return;
+    }
     
     // Check if range exceeds 1 year
     const daysDiff = Math.ceil((endDate.getTime() - newDate.getTime()) / (1000 * 60 * 60 * 24));
     if (daysDiff > 365) {
       showToast({
         type: 'error',
-        title: 'Date Range Error',
-        message: 'Date range cannot exceed 1 year'
+        title: 'Date range cannot exceed 1 year',
+        message: 'Please select a date range within 1 year'
       });
       return;
     }
@@ -536,13 +535,23 @@ export default function MarketRotationRRC() {
   const handleEndDateChange = (dateString: string) => {
     const newDate = getDateFromInput(dateString);
     
+    // Validate end date is not before start date
+    if (newDate < startDate) {
+      showToast({
+        type: 'error',
+        title: 'End date cannot be before start date',
+        message: 'Please select a valid end date'
+      });
+      return;
+    }
+    
     // Check if range exceeds 1 year
     const daysDiff = Math.ceil((newDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
     if (daysDiff > 365) {
       showToast({
         type: 'error',
-        title: 'Date Range Error',
-        message: 'Date range cannot exceed 1 year'
+        title: 'Date range cannot exceed 1 year',
+        message: 'Please select a date range within 1 year'
       });
       return;
     }
@@ -562,33 +571,137 @@ export default function MarketRotationRRC() {
 
   return (
     <div className="space-y-6">
-      {/* Controls */}
-      <div className="space-y-4">
-        {/* Row 1: View Mode and Date Range */}
-        <div className="flex flex-wrap items-end gap-3">
-          {/* View Mode */}
-          <div className="w-full sm:w-auto">
-            <label className="block text-sm font-medium mb-2">View Mode:</label>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant={viewMode === 'sector' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleViewModeChange('sector')}
-                className="h-9 px-4 hover:bg-primary/10 hover:text-primary transition-colors"
-              >
-                Sector
-              </Button>
-              <Button
-                variant={viewMode === 'stock' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleViewModeChange('stock')}
-                className="h-9 px-4 hover:bg-primary/10 hover:text-primary transition-colors"
-              >
-                Stock
-              </Button>
-            </div>
-          </div>
+      {/* Control Panel */}
+      <div className="mb-6">
+        <Card>
+          <CardContent className="p-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+              {/* View Mode Toggle */}
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium">View Mode</label>
+                <div className="flex rounded-lg border border-input">
+                  <button
+            onClick={() => handleViewModeChange('sector')}
+                    className={`flex-1 px-3 py-2 text-sm font-medium transition-colors rounded-l-lg ${
+                      viewMode === 'sector'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-background text-foreground hover:bg-accent'
+                    }`}
+          >
+            Sector
+                  </button>
+                  <button
+            onClick={() => handleViewModeChange('stock')}
+                    className={`flex-1 px-3 py-2 text-sm font-medium transition-colors rounded-r-lg ${
+                      viewMode === 'stock'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-background text-foreground hover:bg-accent'
+                    }`}
+          >
+            Stock
+                  </button>
+                </div>
+              </div>
+
+              {/* Start Date */}
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium">Start Date</label>
+                <div 
+                  className="relative h-10 w-full rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                  onClick={() => triggerDatePicker(startDateRef)}
+                >
+                  <input
+                    ref={startDateRef}
+                    type="date"
+                    value={formatDateForInput(startDate)}
+                    onChange={(e) => handleStartDateChange(e.target.value)}
+                    onKeyDown={(e) => e.preventDefault()}
+                    onPaste={(e) => e.preventDefault()}
+                    onInput={(e) => e.preventDefault()}
+                    max={formatDateForInput(endDate)}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    style={{ caretColor: 'transparent' }}
+                  />
+                  <div className="flex items-center justify-between h-full px-3 py-2">
+                    <span className="text-sm text-foreground">
+                      {startDate.toLocaleDateString('en-GB', { 
+                        day: '2-digit', 
+                        month: '2-digit', 
+                        year: 'numeric' 
+                      })}
+                    </span>
+                    <Calendar className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                </div>
+              </div>
+
+              {/* End Date */}
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium">End Date</label>
+                <div 
+                  className="relative h-10 w-full rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                  onClick={() => triggerDatePicker(endDateRef)}
+                >
+                  <input
+                    ref={endDateRef}
+                    type="date"
+                    value={formatDateForInput(endDate)}
+                    onChange={(e) => handleEndDateChange(e.target.value)}
+                    onKeyDown={(e) => e.preventDefault()}
+                    onPaste={(e) => e.preventDefault()}
+                    onInput={(e) => e.preventDefault()}
+                    min={formatDateForInput(startDate)}
+                    max={formatDateForInput(new Date())}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    style={{ caretColor: 'transparent' }}
+                  />
+                  <div className="flex items-center justify-between h-full px-3 py-2">
+                    <span className="text-sm text-foreground">
+                      {endDate.toLocaleDateString('en-GB', { 
+                        day: '2-digit', 
+                        month: '2-digit', 
+                        year: 'numeric' 
+                      })}
+                    </span>
+                    <Calendar className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium">Action</label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleGenerateData}
+                    disabled={isGenerating || !hasValidSelection()}
+                    className="flex-1 h-10 px-3 py-2 text-sm font-medium rounded-md border border-input bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {isGenerating ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-4 h-4" />
+                        Go
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={handleReset}
+                    disabled={isGenerating}
+                    className="flex-1 h-10 px-3 py-2 text-sm font-medium rounded-md border border-input bg-background text-foreground hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    Reset
+                  </button>
+                </div>
+              </div>
         </div>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
@@ -596,55 +709,7 @@ export default function MarketRotationRRC() {
         <div className="xl:col-span-3">
           <Card className="flex h-full flex-col">
             <CardHeader>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <CardTitle>{viewMode === 'sector' ? 'Sector' : 'Stock'} Activity vs {selectedIndex}</CardTitle>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleTriggerUpdate('rrc')}
-                    disabled={isGenerating}
-                    className="text-xs"
-                    title="Trigger RRC Only"
-                  >
-                    📊 RRC
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleTriggerUpdate('rrg')}
-                    disabled={isGenerating}
-                    className="text-xs"
-                    title="Trigger RRG Only"
-                  >
-                    📈 RRG
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleTriggerUpdate('all')}
-                    disabled={isGenerating}
-                    className="text-xs"
-                    title="Trigger Both RRC & RRG"
-                  >
-                    🚀 Both
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleStopGeneration}
-                    disabled={!isGenerating}
-                    className="text-xs"
-                  >
-                    ⏹️ Stop
-                  </Button>
-                </div>
-              </div>
-              {debugMessage && (
-                <div className="mt-2 rounded bg-muted p-2 text-xs">
-                  {debugMessage}
-                </div>
-              )}
+              <CardTitle>{viewMode === 'sector' ? 'Sector' : 'Stock'} Activity vs {selectedIndex}</CardTitle>
             </CardHeader>
             <CardContent className="flex-1 min-h-[320px] md:min-h-[420px]">
               {isGenerating ? (
@@ -713,9 +778,28 @@ export default function MarketRotationRRC() {
               ) : currentData.length > 0 ? (
                 <div className="h-full w-full min-h-[320px] md:min-h-[420px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={currentData}>
+                <LineChart 
+                  data={currentData}
+                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                >
                   <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                  <XAxis dataKey="date" className="text-muted-foreground" />
+                  <XAxis 
+                    dataKey="date" 
+                    className="text-muted-foreground"
+                    tickFormatter={(value) => {
+                      if (isMoreThanOneMonth(startDate, endDate)) {
+                        // For more than 1 month, show month format
+                        const date = new Date(value);
+                        return date.toLocaleDateString('en-US', { 
+                          month: 'short', 
+                          year: '2-digit' 
+                        });
+                      } else {
+                        // For less than 1 month, show day format
+                        return formatDateForDisplay(value);
+                      }
+                    }}
+                  />
                   <YAxis className="text-muted-foreground" />
                   <Tooltip 
                     contentStyle={{ 
@@ -723,6 +807,9 @@ export default function MarketRotationRRC() {
                       border: '1px solid hsl(var(--border))',
                       borderRadius: '6px'
                     }}
+                    allowEscapeViewBox={{ x: false, y: false }}
+                    isAnimationActive={false}
+                    cursor={{ stroke: 'hsl(var(--primary))', strokeWidth: 1 }}
                   />
                   <Legend />
                   
@@ -735,7 +822,8 @@ export default function MarketRotationRRC() {
                     strokeDasharray="5 5"
                     name={`${selectedIndex} (Locked)`}
                     connectNulls={true}
-                    dot={{ r: 3 }}
+                    dot={{ r: 4, fill: indexOptions.find(opt => opt.name === selectedIndex)?.color || '#000000', strokeWidth: 2, stroke: '#fff' }}
+                    activeDot={{ r: 6, stroke: '#fff', strokeWidth: 2 }}
                   />
                   
                   {/* Dynamic lines based on selection */}
@@ -750,12 +838,13 @@ export default function MarketRotationRRC() {
                         strokeWidth={2}
                         name={item}
                         connectNulls={true}
-                        dot={{ r: 3 }}
+                        dot={{ r: 4, fill: option?.color || '#6B7280', strokeWidth: 2, stroke: '#fff' }}
+                        activeDot={{ r: 6, stroke: '#fff', strokeWidth: 2 }}
                       />
                     );
                   })}
-                    </LineChart>
-                  </ResponsiveContainer>
+                </LineChart>
+              </ResponsiveContainer>
                 </div>
               ) : (
                 <div className="flex items-center justify-center h-96">
@@ -775,41 +864,19 @@ export default function MarketRotationRRC() {
             <CardHeader>
               <CardTitle>Selection Panel</CardTitle>
             </CardHeader>
-            <CardContent className="flex-1 space-y-4">
-              {/* Date Range Selection */}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="flex flex-col gap-2">
-                  <label className="text-sm font-medium">Start Date</label>
-                  <input
-                    type="date"
-                    value={formatDateForInput(startDate)}
-                    onChange={(e) => handleStartDateChange(e.target.value)}
-                    max={formatDateForInput(endDate)}
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <label className="text-sm font-medium">End Date</label>
-                  <input
-                    type="date"
-                    value={formatDateForInput(endDate)}
-                    onChange={(e) => handleEndDateChange(e.target.value)}
-                    min={formatDateForInput(startDate)}
-                    max={formatDateForInput(new Date())}
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  />
-                </div>
-              </div>
+            <CardContent className="flex-1 space-y-4 overflow-visible">
 
-              {/* Index Selection */}
+              {/* Index Search and Select Combined */}
               <div>
-                <h4 className="text-sm font-medium mb-2">Index Selection</h4>
+                <h4 className="text-sm font-medium mb-2">
+                  Available Indexes: {indexOptions.length}
+                </h4>
                 <div className="relative" ref={indexSearchRef}>
                   <div className="relative">
                     <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-muted-foreground" />
                     <input
                       type="text"
-                      placeholder="Search index..."
+                      placeholder="Search and select indexes..."
                       value={indexSearchQuery}
                       onChange={(e) => {
                         setIndexSearchQuery(e.target.value);
@@ -820,48 +887,152 @@ export default function MarketRotationRRC() {
                     />
                   </div>
                   
-                  {/* Index Search Dropdown */}
-                  {showIndexSearchDropdown && indexSearchQuery && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-10 max-h-48 overflow-y-auto">
-                      {getFilteredIndexOptions().map((option) => (
-                        <button
-                          key={option.name}
-                          onClick={() => selectIndex(option.name)}
-                          className="flex items-center justify-between w-full p-2 text-left hover:bg-accent transition-colors"
-                        >
-                          <div className="flex items-center gap-2">
-                            <div 
-                              className="w-3 h-3 rounded-full" 
-                              style={{ backgroundColor: option.color }}
-                            ></div>
-                            <span className="text-sm">{option.name}</span>
-                          </div>
-                          <Plus className="w-3 h-3 text-muted-foreground" />
-                        </button>
-                      ))}
-                      {getFilteredIndexOptions().length === 0 && (
-                        <div className="p-2 text-sm text-muted-foreground">
-                          No index found
-                        </div>
+                  {/* Combined Index Search and Select Dropdown */}
+                  {showIndexSearchDropdown && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-10 max-h-60 overflow-y-auto">
+                      {indexOptions.length === 0 ? (
+                        <div className="p-3 text-sm text-muted-foreground">Loading indexes...</div>
+                      ) : (
+                        <>
+                          {/* Show filtered results if searching, otherwise show all available */}
+                          {(indexSearchQuery ? getFilteredIndexOptions() : indexOptions.filter(option => !selectedIndexes.includes(option.name)))
+                            .slice(0, 10)
+                            .map((option) => (
+                            <button
+                              key={option.name}
+                              onClick={() => {
+                                if (!selectedIndexes.includes(option.name)) {
+                                  if (selectedIndexes.length >= 5) {
+                                    showToast({
+                                      type: 'error',
+                                      title: 'Selection Limit',
+                                      message: 'Maksimal 5 indexes yang bisa dipilih'
+                                    });
+                                    return;
+                                  }
+                                  setSelectedIndexes(prev => [...prev, option.name]);
+                                  setSelectedIndex(option.name); // Set as primary index
+                                }
+                                setIndexSearchQuery('');
+                                setShowIndexSearchDropdown(false);
+                              }}
+                              className="flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors"
+                            >
+                              <div className="flex items-center gap-2">
+                                <div 
+                                  className="w-3 h-3 rounded-full" 
+                                  style={{ backgroundColor: option.color }}
+                                ></div>
+                                <span className="text-sm">{option.name}</span>
+                              </div>
+                              {!selectedIndexes.includes(option.name) && (
+                                <Plus className="w-3 h-3 text-muted-foreground" />
+                              )}
+                            </button>
+                          ))}
+                          
+                          {/* Show "more available" message */}
+                          {!indexSearchQuery && indexOptions.filter(option => !selectedIndexes.includes(option.name)).length > 10 && (
+                            <div className="text-xs text-muted-foreground px-3 py-2 border-t border-border">
+                              +{indexOptions.filter(option => !selectedIndexes.includes(option.name)).length - 10} more indexes available (use search to find specific indexes)
+                            </div>
+                          )}
+                          
+                          {/* Show "no results" message */}
+                          {indexSearchQuery && getFilteredIndexOptions().length === 0 && (
+                            <div className="p-2 text-sm text-muted-foreground">
+                              {indexOptions.filter(s => !selectedIndexes.includes(s.name)).length === 0 
+                                ? 'All indexes already selected' 
+                                : `No indexes found matching "${indexSearchQuery}"`
+                              }
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   )}
                 </div>
-                
-                {/* Selected Index Display */}
-                <div className="mt-2">
-                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted p-2">
-                    <div className="flex items-center gap-2">
-                      <div 
-                        className="w-3 h-3 rounded-full" 
-                        style={{ backgroundColor: indexOptions.find(opt => opt.name === selectedIndex)?.color || '#000000' }}
-                      ></div>
-                      <span className="text-sm font-medium">{selectedIndex}</span>
-                    </div>
-                    <Badge variant="secondary" className="text-xs">Locked</Badge>
-                  </div>
-                </div>
               </div>
+
+              {/* Selected Indexes */}
+              {selectedIndexes.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-sm font-medium">Selected Indexes ({selectedIndexes.length})</h4>
+                    {selectedIndexes.length === 1 && (
+                      <Badge variant="outline" className="text-xs">Min. required</Badge>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    {selectedIndexes.map((index) => {
+                      const option = indexOptions.find(opt => opt.name === index);
+                      return (
+                        <div key={index} className="flex items-center justify-between p-2 bg-accent rounded-md">
+                          <div className="flex items-center gap-2">
+                            <div 
+                              className="w-3 h-3 rounded-full" 
+                              style={{ backgroundColor: option?.color || '#000000' }}
+                            ></div>
+                            <span className="text-sm">{index}</span>
+                            {index === selectedIndex && (
+                              <Badge variant="secondary" className="text-xs">Primary</Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {index !== selectedIndex && (
+                              <button
+                                onClick={() => setSelectedIndex(index)}
+                                className="px-2 py-1 text-xs bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors"
+                                title="Set as primary index"
+                              >
+                                Set Primary
+                              </button>
+                            )}
+                            <button
+                              onClick={() => {
+                                if (selectedIndexes.length === 1) {
+                                  showToast({
+                                    type: 'error',
+                                    title: 'Selection Error',
+                                    message: 'Minimal 1 index harus dipilih'
+                                  });
+                                  return;
+                                }
+                                setSelectedIndexes(prev => prev.filter(item => item !== index));
+                                if (index === selectedIndex) {
+                                  // If removing primary index, set another as primary
+                                  const remaining = selectedIndexes.filter(item => item !== index);
+                                  if (remaining.length > 0 && remaining[0]) {
+                                    setSelectedIndex(remaining[0]);
+                                  }
+                                }
+                              }}
+                              disabled={selectedIndexes.length === 1}
+                              className={`h-6 w-6 p-0 flex items-center justify-center rounded-md transition-colors ${
+                                selectedIndexes.length === 1 
+                                  ? 'cursor-not-allowed opacity-30' 
+                                  : 'hover:bg-muted/50 hover:shadow-sm opacity-60 hover:opacity-100'
+                              }`}
+                              title={selectedIndexes.length === 1 ? 'Cannot remove last index' : `Remove ${index} from selection`}
+                            >
+                              <X className={`w-3 h-3 transition-colors ${
+                                selectedIndexes.length === 1 
+                                  ? 'text-muted-foreground/50' 
+                                  : 'text-muted-foreground hover:text-destructive'
+                              }`} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {selectedIndexes.length === 1 && (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      At least one index must be selected for comparison
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Selected Items */}
               {selectedItems.length > 0 && (
@@ -912,16 +1083,17 @@ export default function MarketRotationRRC() {
                 </div>
               )}
 
-              {/* Search (for stocks only) */}
-              {viewMode === 'stock' && (
+              {/* Search and Select Combined */}
                 <div>
-                  <h4 className="text-sm font-medium mb-2">Add Stock</h4>
+                <h4 className="text-sm font-medium mb-2">
+                  Available {viewMode === 'sector' ? 'Sectors' : 'Stocks'}: {currentOptions.length}
+                </h4>
                   <div className="relative" ref={searchRef}>
                     <div className="relative">
                       <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-muted-foreground" />
                       <input
                         type="text"
-                        placeholder="Search stocks..."
+                      placeholder={`Search and select ${viewMode === 'sector' ? 'sectors' : 'stocks'}...`}
                         value={searchQuery}
                         onChange={(e) => {
                           setSearchQuery(e.target.value);
@@ -932,14 +1104,35 @@ export default function MarketRotationRRC() {
                       />
                     </div>
                     
-                    {/* Search Dropdown */}
-                    {showSearchDropdown && searchQuery && (
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-10 max-h-48 overflow-y-auto">
-                        {getFilteredOptions().map((option) => (
+                  {/* Combined Search and Select Dropdown */}
+                  {showSearchDropdown && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-10 max-h-60 overflow-y-auto">
+                      {currentOptions.length === 0 ? (
+                        <div className="p-3 text-sm text-muted-foreground">Loading options...</div>
+                      ) : (
+                        <>
+                          {/* Show filtered results if searching, otherwise show all available */}
+                          {(searchQuery ? getFilteredOptions() : currentOptions.filter(option => !selectedItems.includes(option.name)))
+                            .slice(0, viewMode === 'stock' ? 15 : undefined)
+                            .map((option) => (
                           <button
                             key={option.name}
-                            onClick={() => addFromSearch(option.name)}
-                            className="flex items-center justify-between w-full p-2 text-left hover:bg-accent transition-colors"
+                              onClick={() => {
+                                if (!selectedItems.includes(option.name)) {
+                                  if (selectedItems.length >= 15) {
+                                    showToast({
+                                      type: 'error',
+                                      title: 'Selection Limit',
+                                      message: 'Maksimal 15 items yang bisa dipilih'
+                                    });
+                                    return;
+                                  }
+                                  setSelectedItems(prev => [...prev, option.name]);
+                                }
+                                setSearchQuery('');
+                                setShowSearchDropdown(false);
+                              }}
+                              className="flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors"
                           >
                             <div className="flex items-center gap-2">
                               <div 
@@ -948,70 +1141,33 @@ export default function MarketRotationRRC() {
                               ></div>
                               <span className="text-sm">{option.name}</span>
                             </div>
+                              {!selectedItems.includes(option.name) && (
                             <Plus className="w-3 h-3 text-muted-foreground" />
+                              )}
                           </button>
                         ))}
-                        {getFilteredOptions().length === 0 && (
+                          
+                          {/* Show "more available" message */}
+                          {!searchQuery && viewMode === 'stock' && currentOptions.filter(option => !selectedItems.includes(option.name)).length > 15 && (
+                            <div className="text-xs text-muted-foreground px-3 py-2 border-t border-border">
+                              +{currentOptions.filter(option => !selectedItems.includes(option.name)).length - 15} more {viewMode === 'stock' ? 'stocks' : 'sectors'} available (use search to find specific items)
+                            </div>
+                          )}
+                          
+                          {/* Show "no results" message */}
+                          {searchQuery && getFilteredOptions().length === 0 && (
                           <div className="p-2 text-sm text-muted-foreground">
-                            {currentOptions.filter(s => !selectedItems.includes(s.name)).length === 0 
-                              ? `All ${viewMode === 'stock' ? 'stocks' : 'sectors'} already selected` 
-                              : `No ${viewMode === 'stock' ? 'stocks' : 'sectors'} found`
+                              {currentOptions.filter(s => !selectedItems.includes(s.name)).length === 0 
+                                ? `All ${viewMode === 'stock' ? 'stocks' : 'sectors'} already selected` 
+                                : `No ${viewMode === 'stock' ? 'stocks' : 'sectors'} found matching "${searchQuery}"`
                             }
                           </div>
                         )}
-                      </div>
-                    )}
-                  </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
-              )}
-
-              {/* Available Options - Dropdown */}
-              <div className="relative">
-                <h4 className="text-sm font-medium mb-2">Available {viewMode === 'sector' ? 'Sectors' : 'Stocks'}</h4>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowSearchDropdown(!showSearchDropdown)}
-                  className="w-full justify-between"
-                >
-                  <span>Select {viewMode === 'sector' ? 'Sector' : 'Stock'} to Add</span>
-                  <Plus className="h-4 w-4" />
-                </Button>
-                
-                {showSearchDropdown && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-card border rounded-md shadow-lg z-50 max-h-60 overflow-y-auto">
-                    {currentOptions.length === 0 ? (
-                      <div className="p-3 text-sm text-muted-foreground">Loading options...</div>
-                    ) : (
-                      <>
-                        {currentOptions
-                          .filter(option => !selectedItems.includes(option.name))
-                          .slice(0, viewMode === 'stock' ? 10 : undefined)
-                          .map((option) => (
-                          <button
-                            key={option.name}
-                            onClick={() => {
-                              toggleItem(option.name);
-                              setShowSearchDropdown(false);
-                            }}
-                            className="flex items-center gap-2 w-full px-3 py-2 text-left hover:bg-accent transition-colors"
-                          >
-                            <div 
-                              className="w-3 h-3 rounded-full" 
-                              style={{ backgroundColor: option.color }}
-                            ></div>
-                            <span className="text-sm">{option.name}</span>
-                          </button>
-                        ))}
-                        {viewMode === 'stock' && currentOptions.filter(option => !selectedItems.includes(option.name)).length > 10 && (
-                          <div className="text-xs text-muted-foreground px-3 py-2 border-t border-border">
-                            +{currentOptions.filter(option => !selectedItems.includes(option.name)).length - 10} more stocks (use search above)
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                )}
               </div>
             </CardContent>
           </Card>

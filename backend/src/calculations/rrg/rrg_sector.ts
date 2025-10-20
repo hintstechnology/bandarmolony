@@ -142,7 +142,7 @@ async function fileExists(p: string): Promise<boolean> {
 }
 
 async function getSectorStockCodes(sector: string, stockDir: string): Promise<string[]> {
-  // Map sector names to folder names
+  // Map sector names to folder names (with typo normalization)
   const sectorFolderMap: { [key: string]: string } = {
     'financials': 'Financials',
     'technology': 'Technology', 
@@ -152,10 +152,14 @@ async function getSectorStockCodes(sector: string, stockDir: string): Promise<st
     'infrastructures': 'Infrastructures',
     'properties': 'Properties & Real Estate',
     'properties & real estate': 'Properties & Real Estate',
+    'properties & reaal estate': 'Properties & Real Estate', // Fix typo
     'transportation': 'Transportation & Logistic',
     'transportation & logistic': 'Transportation & Logistic',
+    'transportation && logistic': 'Transportation & Logistic', // Fix typo
     'consumer cyclicals': 'Consumer Cyclicals',
+    'consumer cyclicaals': 'Consumer Cyclicals', // Fix typo
     'consumer non-cyclicals': 'Consumer Non-Cyclicals',
+    'consumer non-cycclicals': 'Consumer Non-Cyclicals', // Fix typo
     'basic materials': 'Basic Materials'
   };
   
@@ -199,14 +203,9 @@ async function findStockCsv(stockCode: string, sectorFolder: string): Promise<st
     const upper = stockCode.toUpperCase();
     const stockPath = `${sectorFolder}/${upper}.csv`;
     
-    console.log(`🔍 Looking for stock CSV: ${stockPath}`);
-    
     if (await exists(stockPath)) {
-      console.log(`✅ Found stock CSV: ${stockPath}`);
       return stockPath;
     }
-    
-    console.log(`⚠️ Stock CSV not found: ${stockPath}`);
     return null;
   } catch (error) {
     console.error(`❌ Error finding stock CSV for ${stockCode}:`, error);
@@ -283,27 +282,61 @@ async function calculateSectorAverage(sectorCodes: string[], sectorFolder: strin
   const stockDataList: StockData[] = [];
   
   console.log(`📊 Calculating sector average from ${sectorCodes.length} stocks in ${sectorFolder}`);
-  console.log(`📊 First 5 stocks to process: ${sectorCodes.slice(0, 5).join(', ')}`);
   
-  // Read data for each stock in the sector
+  // Read data for each stock in the sector using batch processing
   let foundCount = 0;
   let validCount = 0;
   
-  for (const code of sectorCodes) {
-    const stockPath = await findStockCsv(code, sectorFolder);
-    if (stockPath) {
-      foundCount++;
-      try {
-        const stockData = await readCsvData(stockPath);
-        if (stockData.close.length >= 50) { // Minimum data requirement
-          stockDataList.push(stockData);
-          validCount++;
-        } else {
-          console.log(`⚠️ ${code}: Insufficient data (${stockData.close.length} points, need >= 50)`);
+  // Process stocks in batches for better performance
+  const BATCH_SIZE = 20; // Process 20 stocks at a time
+  console.log(`📦 Processing ${sectorCodes.length} stocks in batches of ${BATCH_SIZE}...`);
+  
+  for (let i = 0; i < sectorCodes.length; i += BATCH_SIZE) {
+    const batch = sectorCodes.slice(i, i + BATCH_SIZE);
+    console.log(`📦 Processing stock batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(sectorCodes.length / BATCH_SIZE)} (${batch.length} stocks)`);
+    
+    // Process batch in parallel
+    const batchResults = await Promise.allSettled(batch.map(async (code) => {
+      const stockPath = await findStockCsv(code, sectorFolder);
+      if (stockPath) {
+        try {
+          const stockData = await readCsvData(stockPath);
+          if (stockData.close.length >= 50) { // Minimum data requirement
+            return { success: true, data: stockData, code };
+          } else {
+            return { success: false, reason: 'insufficient_data', code, length: stockData.close.length };
+          }
+        } catch (error) {
+          return { success: false, reason: 'error', code, error };
         }
-      } catch (error) {
-        console.error(`❌ ${code}: Error reading CSV:`, error);
       }
+      return { success: false, reason: 'not_found', code };
+    }));
+    
+    // Process batch results
+    for (const result of batchResults) {
+      if (result.status === 'fulfilled') {
+        const { success, data, code, reason, error } = result.value;
+        if (success && data) {
+          stockDataList.push(data);
+          validCount++;
+          foundCount++;
+        } else if (reason === 'not_found') {
+          // File not found - don't count as found
+        } else {
+          foundCount++;
+          if (reason === 'insufficient_data') {
+            // Silent skip for insufficient data
+          } else if (reason === 'error') {
+            console.error(`❌ ${code}: Error reading CSV:`, error);
+          }
+        }
+      }
+    }
+    
+    // Small delay between batches
+    if (i + BATCH_SIZE < sectorCodes.length) {
+      await new Promise(resolve => setTimeout(resolve, 5));
     }
   }
   
@@ -431,7 +464,7 @@ async function generateRRGSectorData(sector: string, stockDir: string, indexDir:
       throw new Error(`Data index terlalu sedikit (minimum 50 data points)`);
     }
     
-    // Get sector folder path
+    // Get sector folder path (with typo normalization)
     const sectorFolderMap: { [key: string]: string } = {
       'financials': 'Financials',
       'technology': 'Technology', 
@@ -441,10 +474,14 @@ async function generateRRGSectorData(sector: string, stockDir: string, indexDir:
       'infrastructures': 'Infrastructures',
       'properties': 'Properties & Real Estate',
       'properties & real estate': 'Properties & Real Estate',
+      'properties & reaal estate': 'Properties & Real Estate', // Fix typo
       'transportation': 'Transportation & Logistic',
       'transportation & logistic': 'Transportation & Logistic',
+      'transportation && logistic': 'Transportation & Logistic', // Fix typo
       'consumer cyclicals': 'Consumer Cyclicals',
+      'consumer cyclicaals': 'Consumer Cyclicals', // Fix typo
       'consumer non-cyclicals': 'Consumer Non-Cyclicals',
+      'consumer non-cycclicals': 'Consumer Non-Cyclicals', // Fix typo
       'basic materials': 'Basic Materials'
     };
     
@@ -470,34 +507,25 @@ async function generateRRGSectorData(sector: string, stockDir: string, indexDir:
       throw new Error(`Data sector yang ter-align terlalu sedikit (minimum 10 data points)`);
     }
     
-    // Calculate RS Ratio and RS Momentum (PROPER RRG CALCULATION)
-    // Step 1: Calculate Raw RS (Relative Strength)
-    const rawRS = sectorData.close.map((price, i) => {
+    // Calculate RS Ratio and RS Momentum
+    // Gunakan RS Ratio langsung untuk semua data (tanpa moving average)
+    const rsRatio = sectorData.close.map((price, i) => {
       const indexPrice = indexData.close[i];
-      if (!indexPrice || indexPrice === 0) return 0;
-      return price / indexPrice;
+      if (!indexPrice || indexPrice === 0) return NaN;
+      return (price / indexPrice) * 100;
     });
     
-    // Step 2: Calculate average RS
-    const validRS = rawRS.filter(val => val !== 0 && !isNaN(val));
-    const avgRS = validRS.reduce((sum, val) => sum + val, 0) / validRS.length;
-    
-    // Step 3: Calculate RS-Ratio (normalized to 100)
-    const rsRatio = rawRS.map(rs => {
-      if (rs === 0 || isNaN(rs) || avgRS === 0) return 100;
-      return (rs / avgRS) * 100;
-    });
-    
-    // Step 4: Calculate RS-Momentum (rate of change of RS-Ratio)
+    // Untuk RS Momentum: gunakan periode sangat pendek untuk data terbaru
     const rsMomentum: NumericArray = [];
     for (let i = 0; i < rsRatio.length; i++) {
       const currentRatio = rsRatio[i];
       const pastRatio = rsRatio[i - 1];
       
-      if (i >= 1 && currentRatio !== undefined && pastRatio !== undefined && !isNaN(currentRatio) && !isNaN(pastRatio) && pastRatio !== 0) {
+      if (i >= 1 && currentRatio !== undefined && pastRatio !== undefined && !isNaN(currentRatio) && !isNaN(pastRatio)) {
+        // Gunakan periode 1 hari untuk semua data
         rsMomentum.push((currentRatio / pastRatio) * 100);
       } else {
-        rsMomentum.push(100); // Default to 100 (no change)
+        rsMomentum.push(NaN);
       }
     }
     
@@ -508,7 +536,7 @@ async function generateRRGSectorData(sector: string, stockDir: string, indexDir:
       const currentMomentum = rsMomentum[i];
       const currentDate = sectorData.dates[i];
       
-      if (currentRatio !== undefined && currentMomentum !== undefined && currentDate &&
+      if (currentRatio !== undefined && currentMomentum !== undefined && currentDate && 
           !isNaN(currentRatio) && !isNaN(currentMomentum)) {
         validPoints.push({
           date: currentDate,
@@ -719,11 +747,25 @@ export async function listAvailableSectors(): Promise<string[]> {
     const files = await listPaths({ prefix: stockDir });
     const sectors = new Set<string>();
     
+    // Sector name normalization map to fix typos in Azure folder names
+    const sectorNormalizationMap: { [key: string]: string } = {
+      'Properties & Reaal Estate': 'Properties & Real Estate',
+      'Properties & Real Estate': 'Properties & Real Estate',
+      'Transportation && Logistic': 'Transportation & Logistic',
+      'Transportation & Logistic': 'Transportation & Logistic',
+      'Consumer Cyclicaals': 'Consumer Cyclicals',
+      'Consumer Cyclicals': 'Consumer Cyclicals',
+      'Consumer Non-Cycclicals': 'Consumer Non-Cyclicals',
+      'Consumer Non-Cyclicals': 'Consumer Non-Cyclicals'
+    };
+    
     for (const file of files) {
       const parts = file.split('/');
       if (parts.length >= 2) {
-        const sector = parts[1];
+        let sector = parts[1];
         if (sector && sector !== '' && !sector.includes('.')) { // Exclude files, only folders
+          // Normalize sector name to fix typos
+          sector = sectorNormalizationMap[sector] || sector;
           sectors.add(sector);
         }
       }

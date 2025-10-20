@@ -11,6 +11,14 @@ import rrgRoutes from './routes/rrg';
 import subscriptionRoutes from './routes/subscription';
 import triggerRoutes from './routes/trigger';
 import seasonalityRoutes from './routes/seasonality';
+import trendFilterRoutes from './routes/trendFilter';
+import accumulationRoutes from './routes/accumulation';
+import bidAskRoutes from './routes/bidask';
+import brokerRoutes from './routes/broker';
+import brokerInventoryRoutes from './routes/broker_inventory';
+import foreignRoutes from './routes/foreign';
+import moneyFlowRoutes from './routes/moneyflow';
+import stockRoutes from './routes/stock';
 import { requireSupabaseUser } from './middleware/requireSupabaseUser';
 import { securityHeaders, sanitizeInput } from './middleware/security';
 import { createErrorResponse, ERROR_CODES, HTTP_STATUS } from './utils/responseUtils';
@@ -71,6 +79,14 @@ app.use('/api/rrc', rrcRoutes);
 app.use('/api/rrg', rrgRoutes);
 app.use('/api/trigger', triggerRoutes);
 app.use('/api/seasonality', seasonalityRoutes);
+app.use('/api/trend-filter', trendFilterRoutes);
+app.use('/api/accumulation', accumulationRoutes);
+app.use('/api/bidask', bidAskRoutes);
+app.use('/api/broker', brokerRoutes);
+app.use('/api/broker-inventory', brokerInventoryRoutes);
+app.use('/api/foreign', foreignRoutes);
+app.use('/api/moneyflow', moneyFlowRoutes);
+app.use('/api/stock', stockRoutes);
 
 // contoh protected route pakai Supabase Auth token
 app.get('/me', requireSupabaseUser, (req: any, res) => {
@@ -106,10 +122,15 @@ app.listen(PORT, async () => {
   console.log(`CORS Origin: ${config.CORS_ORIGIN}`);
   
   // Skip auto-generation on startup (already generated)
-  // Only start scheduler for daily updates at 19:00
+  // Only start scheduler for daily updates
+  const stockUpdateTime = process.env['SCHEDULER_STOCK_UPDATE_TIME'] || '18:20';
+  const rrcUpdateTime = process.env['SCHEDULER_RRC_UPDATE_TIME'] || '18:40';
+  const rrgUpdateTime = process.env['SCHEDULER_RRG_UPDATE_TIME'] || '18:40';
+  const timezone = process.env['SCHEDULER_TIMEZONE'] || 'Asia/Jakarta';
+  
   console.log('📅 Starting scheduler for daily RRC & RRG updates...');
   initializeAzureLogging().then(() => {
     startScheduler();
-    console.log('✅ Scheduler started - daily updates at 19:00 WIB');
+    console.log(`✅ Scheduler started - daily updates at ${stockUpdateTime} (data), ${rrcUpdateTime} (RRC), ${rrgUpdateTime} (RRG) ${timezone}`);
   }).catch(console.error);
 });

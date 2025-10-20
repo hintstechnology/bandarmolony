@@ -217,7 +217,9 @@ async function listAvailableIndexes(indexDir: string): Promise<string[]> {
     
     for (const item of items) {
       if (item.toLowerCase().endsWith('.csv')) {
-        indexes.push(item.replace('.csv', ''));
+        // Remove both 'index/' prefix and '.csv' suffix
+        const cleanName = item.replace(/^index\//, '').replace('.csv', '');
+        indexes.push(cleanName);
       }
     }
     
@@ -321,34 +323,25 @@ async function generateRRGData(emitter: string, stockDir: string, indexDir: stri
       throw new Error(`Data yang ter-align terlalu sedikit (minimum 10 data points)`);
     }
     
-    // Calculate RS Ratio and RS Momentum (PROPER RRG CALCULATION)
-    // Step 1: Calculate Raw RS (Relative Strength)
-    const rawRS = alignedStock.map((price, i) => {
+    // Calculate RS Ratio and RS Momentum
+    // Gunakan RS Ratio langsung untuk semua data (tanpa moving average)
+    const rsRatio = alignedStock.map((price, i) => {
       const indexPrice = alignedIndex[i];
-      if (!indexPrice || indexPrice === 0) return 0;
-      return price / indexPrice;
+      if (!indexPrice || indexPrice === 0) return NaN;
+      return (price / indexPrice) * 100;
     });
     
-    // Step 2: Calculate average RS
-    const validRS = rawRS.filter(val => val !== 0 && !isNaN(val));
-    const avgRS = validRS.reduce((sum, val) => sum + val, 0) / validRS.length;
-    
-    // Step 3: Calculate RS-Ratio (normalized to 100)
-    const rsRatio = rawRS.map(rs => {
-      if (rs === 0 || isNaN(rs) || avgRS === 0) return 100;
-      return (rs / avgRS) * 100;
-    });
-    
-    // Step 4: Calculate RS-Momentum (rate of change of RS-Ratio)
+    // Untuk RS Momentum: gunakan periode sangat pendek untuk data terbaru
     const rsMomentum: NumericArray = [];
     for (let i = 0; i < rsRatio.length; i++) {
       const currentRatio = rsRatio[i];
       const pastRatio = rsRatio[i - 1];
       
-      if (i >= 1 && currentRatio !== undefined && pastRatio !== undefined && !isNaN(currentRatio) && !isNaN(pastRatio) && pastRatio !== 0) {
+      if (i >= 1 && currentRatio !== undefined && pastRatio !== undefined && !isNaN(currentRatio) && !isNaN(pastRatio)) {
+        // Gunakan periode 1 hari untuk semua data
         rsMomentum.push((currentRatio / pastRatio) * 100);
       } else {
-        rsMomentum.push(100); // Default to 100 (no change)
+        rsMomentum.push(NaN);
       }
     }
     
@@ -530,7 +523,7 @@ export async function calculateRrgStock(stockCode: string, indexName: string = '
   const lookbackPoints = 1000; // Calculate all available data (up to 1000 points)
   
   try {
-    console.log(`📈 Calculating RRG for stock: ${stockCode} vs ${indexName}`);
+    // Silent processing for better performance
     
     const result = await generateRRGData(stockCode, stockDir, indexDir, lookbackPoints, indexName);
     

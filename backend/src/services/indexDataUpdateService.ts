@@ -1,189 +1,223 @@
 // indexDataUpdateService.ts
-// Service for daily index data updates from TICMI API
+// Index data update service with parallel processing
 
-import axios, { AxiosInstance } from 'axios';
-import { BlobServiceClient, StorageSharedKeyCredential } from '@azure/storage-blob';
+import { 
+  OptimizedAzureStorageService, 
+  OptimizedHttpClient, 
+  ParallelProcessor, 
+  CacheService,
+  getTodayDate,
+  removeDuplicates,
+  convertToCsv,
+  parseCsvString,
+  BATCH_SIZE,
+  MAX_CONCURRENT_REQUESTS
+} from './dataUpdateService';
 import { SchedulerLogService } from './schedulerLogService';
 import { AzureLogger } from './azureLoggingService';
 
-// Azure Storage Service
-class AzureStorageService {
-  private containerClient: any;
-  
-  constructor() {
-    const connectionString = process.env['AZURE_STORAGE_CONNECTION_STRING'];
-    const containerName = process.env['AZURE_STORAGE_CONTAINER_NAME'] || 'stock-trading-data';
-    
-    if (!connectionString) {
-      throw new Error('AZURE_STORAGE_CONNECTION_STRING is required');
-    }
-    
-    const connectionStringParts = connectionString.split(';');
-    const accountNamePart = connectionStringParts.find(part => part.startsWith('AccountName='));
-    const accountKeyPart = connectionStringParts.find(part => part.startsWith('AccountKey='));
-    const endpointSuffixPart = connectionStringParts.find(part => part.startsWith('EndpointSuffix='));
-    
-    if (!accountNamePart || !accountKeyPart || !endpointSuffixPart) {
-      throw new Error('Invalid connection string format - missing required parts');
-    }
-    
-    const accountName = accountNamePart.split('=')[1];
-    const accountKey = accountKeyPart.split('=')[1];
-    const endpointSuffix = endpointSuffixPart.split('=')[1];
-    
-    if (!accountName || !accountKey || !endpointSuffix) {
-      throw new Error('Invalid connection string format - empty values');
-    }
-    
-    const accountUrl = `https://${accountName}.blob.${endpointSuffix}`;
-    const credential = new StorageSharedKeyCredential(accountName, accountKey);
-    
-    this.containerClient = new BlobServiceClient(accountUrl, credential)
-      .getContainerClient(containerName);
-  }
-  
-  async ensureContainerExists(): Promise<void> {
-    await this.containerClient.createIfNotExists();
-  }
-  
-  async uploadCsvData(blobName: string, csvData: string): Promise<void> {
-    const blobClient = this.containerClient.getBlockBlobClient(blobName);
-    await blobClient.upload(csvData, Buffer.byteLength(csvData), {
-      blobHTTPHeaders: { blobContentType: 'text/csv' }
-    });
-  }
-  
-  async downloadCsvData(blobName: string): Promise<string> {
-    const blobClient = this.containerClient.getBlockBlobClient(blobName);
-    const downloadResponse = await blobClient.download();
-    return await this.streamToString(downloadResponse.readableStreamBody!);
-  }
-  
-  async blobExists(blobName: string): Promise<boolean> {
-    const blobClient = this.containerClient.getBlockBlobClient(blobName);
-    return await blobClient.exists();
-  }
-  
-  async listBlobs(prefix: string): Promise<string[]> {
-    const blobs: string[] = [];
-    for await (const blob of this.containerClient.listBlobsFlat({ prefix })) {
-      blobs.push(blob.name);
-    }
-    return blobs;
-  }
-  
-  private async streamToString(readableStream: NodeJS.ReadableStream): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const chunks: Buffer[] = [];
-      readableStream.on('data', (data: Buffer) => chunks.push(data));
-      readableStream.on('end', () => resolve(Buffer.concat(chunks).toString()));
-      readableStream.on('error', reject);
-    });
-  }
+// Timezone helper function
+function getJakartaTime(): string {
+  const now = new Date();
+  const jakartaTime = new Date(now.getTime() + (7 * 60 * 60 * 1000)); // UTC + 7
+  return jakartaTime.toISOString();
 }
 
-// Helper functions
-function getTodayDate(): string {
-  const today = new Date();
-  const datePart = today.toISOString().split('T')[0];
-  if (!datePart) {
-    throw new Error('Failed to get today date');
-  }
-  return datePart;
-}
+// Process single index with optimized error handling
+async function processIndex(
+  indexCode: string,
+  index: number,
+  total: number,
+  httpClient: OptimizedHttpClient,
+  azureStorage: OptimizedAzureStorageService,
+  todayDate: string,
+  baseUrl: string,
+  cache: CacheService,
+  logId: string | null
+): Promise<{ success: boolean; skipped: boolean; error?: string }> {
+  try {
+    // Check cache first
+    const cacheKey = `index_${indexCode}_${todayDate}`;
+    const cachedData = cache.get(cacheKey);
+    if (cachedData) {
+      await AzureLogger.logItemProcess('index', 'SUCCESS', indexCode, 'Data loaded from cache');
+      return { success: true, skipped: false };
+    }
+    
+    // Progress logging
+    if ((index + 1) % 50 === 0 || index === 0) {
+      await AzureLogger.logProgress('index', index + 1, total, `Processing ${indexCode}`);
+      if (logId) {
+        await SchedulerLogService.updateLog(logId, {
+          progress_percentage: Math.round(((index + 1) / total) * 100),
+          current_processing: `Processing index ${index + 1}/${total}`
+        });
+      }
+    }
+    
+    const azureBlobName = `index/${indexCode}.csv`;
+    
+    // Check if data already exists for today
+    let existingData: any[] = [];
+    if (await azureStorage.blobExists(azureBlobName)) {
+      const existingCsvData = await azureStorage.downloadCsvData(azureBlobName);
+      existingData = await parseCsvString(existingCsvData);
+    }
+    
+    // Check if any data exists for the past week
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const weekAgoDate = weekAgo.toISOString().split('T')[0];
+    
+    if (!weekAgoDate) {
+      await AzureLogger.logItemProcess('index', 'ERROR', indexCode, 'Failed to calculate week ago date');
+      return { success: false, skipped: false, error: 'Failed to calculate week ago date' };
+    }
+    
+    // Check if ALL days in the past week have data
+    const weekAgoDateObj = new Date(weekAgoDate);
+    const todayDateObj = new Date(todayDate);
+    
+    // Generate all dates in the range
+    const requiredDates: string[] = [];
+    for (let d = new Date(weekAgoDateObj); d <= todayDateObj; d.setDate(d.getDate() + 1)) {
+      const isoString = d.toISOString();
+      if (isoString) {
+        const datePart = isoString.split('T')[0];
+        if (datePart) {
+          requiredDates.push(datePart);
+        }
+      }
+    }
+    
+    // Check if we have data for all required dates
+    const existingDates = new Set(
+      existingData
+        .map(row => {
+          const rowDate = row.date || row.tanggal || row.Date || '';
+          if (!rowDate) return '';
+          
+          // Try different date formats
+          let rowDateObj: Date;
+          if (rowDate.includes('/')) {
+            const parts = rowDate.split('/');
+            if (parts.length === 3) {
+              rowDateObj = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+            } else {
+              rowDateObj = new Date(rowDate);
+            }
+          } else if (rowDate.includes('-')) {
+            rowDateObj = new Date(rowDate);
+          } else {
+            rowDateObj = new Date(rowDate);
+          }
+          
+          return isNaN(rowDateObj.getTime()) ? '' : rowDateObj.toISOString().split('T')[0];
+        })
+        .filter(date => date)
+    );
+    
+    // Check if all required dates exist
+    const weekDataExists = requiredDates.every(date => existingDates.has(date));
+    
+    if (weekDataExists) {
+      await AzureLogger.logItemProcess('index', 'SKIP', indexCode, 'Data already exists for the past week');
+      return { success: true, skipped: true };
+    }
+    
+    // Fetch data from API for the past week
+    const params = {
+      indexCode: indexCode,
+      startDate: weekAgoDate,
+      endDate: todayDate,
+      granularity: "daily",
+    };
 
-function removeDuplicates(data: any[]): any[] {
-  if (data.length === 0) return data;
-  
-  const firstRow = data[0];
-  let dateColumn: string | null = null;
-  
-  if ('Date' in firstRow) dateColumn = 'Date';
-  else if ('date' in firstRow) dateColumn = 'date';
-  else if ('timestamp' in firstRow) dateColumn = 'timestamp';
-  
-  if (dateColumn) {
-    const seen = new Set();
-    return data.filter(row => {
-      const key = row[dateColumn!];
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  } else {
-    const seen = new Set();
-    return data.filter(row => {
-      const key = JSON.stringify(row);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }
-}
-
-function convertToCsv(data: any[]): string {
-  if (data.length === 0) return '';
-  
-  const headers = Object.keys(data[0]);
-  const csvRows = [headers.join(',')];
-  
-  for (const row of data) {
-    const values = headers.map(header => {
-      const value = row[header];
-      return typeof value === 'string' && value.includes(',') ? `"${value}"` : value;
-    });
-    csvRows.push(values.join(','));
-  }
-  
-  return csvRows.join('\n');
-}
-
-async function parseCsvString(csvString: string): Promise<any[]> {
-  const data: any[] = [];
-  const lines = csvString.split('\n');
-  
-  if (lines.length < 2 || !lines[0]) return [];
-  
-  const headers = lines[0].split(',');
-  
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i];
-    if (line && line.trim()) {
-      const values = line.split(',');
-      const row: any = {};
+    const response = await httpClient.get(baseUrl, params);
+    
+    if (!response.data || response.data === null) {
+      const placeholderData = [{
+        date: todayDate,
+        indexCode: indexCode,
+        status: 'EMPTY',
+        note: 'Data kosong dari TICMI API'
+      }];
       
-      headers.forEach((header, index) => {
-        const value = values[index];
-        row[header.trim()] = value ? value.trim() : '';
+      const combinedData = [...placeholderData, ...existingData];
+      combinedData.sort((a, b) => {
+        const dateA = a.date || a.tanggal || a.Date || '';
+        const dateB = b.date || b.tanggal || b.Date || '';
+        return new Date(dateB).getTime() - new Date(dateA).getTime();
       });
       
-      data.push(row);
+      const deduplicatedData = removeDuplicates(combinedData);
+      const csvData = convertToCsv(deduplicatedData);
+      
+      await azureStorage.uploadCsvData(azureBlobName, csvData);
+      
+      // Cache the result
+      cache.set(cacheKey, { processed: true });
+      
+      return { success: true, skipped: false };
     }
+
+    const payload = response.data;
+    const data = payload.data || payload;
+
+    let normalizedData: any[] = [];
+    if (Array.isArray(data)) {
+      normalizedData = data;
+    } else if (typeof data === 'object' && data !== null) {
+      normalizedData = [data];
+    } else {
+      return { success: true, skipped: true };
+    }
+    
+    const combinedData = [...normalizedData, ...existingData];
+    combinedData.sort((a, b) => {
+      const dateA = a.date || a.tanggal || a.Date || '';
+      const dateB = b.date || b.tanggal || b.Date || '';
+      return dateB.localeCompare(dateA);
+    });
+    
+    const deduplicatedData = removeDuplicates(combinedData);
+    const csvData = convertToCsv(deduplicatedData);
+    
+    await azureStorage.uploadCsvData(azureBlobName, csvData);
+    
+    // Cache the result
+    cache.set(cacheKey, { processed: true });
+    
+    await AzureLogger.logItemProcess('index', 'SUCCESS', indexCode, 'Data updated successfully');
+    return { success: true, skipped: false };
+
+  } catch (error: any) {
+    await AzureLogger.logItemProcess('index', 'ERROR', indexCode, error.message);
+    return { success: false, skipped: false, error: error.message };
   }
-  
-  return data;
 }
 
 // Main update function
 export async function updateIndexData(): Promise<void> {
   const SCHEDULER_TYPE = 'index';
   
-  // Check if today is weekend
-  const today = new Date();
-  const dayOfWeek = today.getDay();
-  
-  if (dayOfWeek === 0 || dayOfWeek === 6) {
-    await AzureLogger.logWeekendSkip(SCHEDULER_TYPE);
-    return;
-  }
+  // Weekend skip temporarily disabled for testing
+  // const today = new Date();
+  // const dayOfWeek = today.getDay();
+  // 
+  // if (dayOfWeek === 0 || dayOfWeek === 6) {
+  //   await AzureLogger.logWeekendSkip(SCHEDULER_TYPE);
+  //   return;
+  // }
   
   const logEntry = await SchedulerLogService.createLog({
-    feature_name: 'rrg', // Using existing feature type
+    feature_name: 'index',
     trigger_type: 'scheduled',
     triggered_by: 'system',
     status: 'running',
     force_override: false,
-    environment: process.env['NODE_ENV'] || 'development'
+    environment: process.env['NODE_ENV'] || 'development',
+    started_at: getJakartaTime()
   });
 
   if (!logEntry) {
@@ -194,141 +228,63 @@ export async function updateIndexData(): Promise<void> {
   const logId = logEntry.id!;
   
   try {
-    await AzureLogger.logSchedulerStart(SCHEDULER_TYPE, 'Daily index data update');
+    await AzureLogger.logSchedulerStart(SCHEDULER_TYPE, 'Optimized daily index data update');
     
-    const azureStorage = new AzureStorageService();
+    const azureStorage = new OptimizedAzureStorageService();
     await azureStorage.ensureContainerExists();
     await AzureLogger.logInfo(SCHEDULER_TYPE, 'Azure Storage initialized');
 
-    // Get list of indexes from Azure (existing indexes)
-    const indexBlobs = await azureStorage.listBlobs('index/');
-    const indexes = indexBlobs.map(blobName => 
-      blobName.replace('index/', '').replace('.csv', '')
-    );
+    // Get list of indexes from CSV input
+    const indexesCsvData = await azureStorage.downloadCsvData('csv_input/index_list.csv');
+    const indexList = indexesCsvData.split('\n')
+      .map(line => line.trim().replace(/"/g, ''))
+      .filter(line => line && line.length > 0);
 
-    await AzureLogger.logInfo(SCHEDULER_TYPE, `Found ${indexes.length} indexes to update`);
+    await AzureLogger.logInfo(SCHEDULER_TYPE, `Found ${indexList.length} indexes to update`);
 
     const jwtToken = process.env['TICMI_JWT_TOKEN'] || '';
-    const axiosInstance: AxiosInstance = axios.create({
-      timeout: 30000,
-      headers: {
-        "Accept": "application/json",
-        "Authorization": `Bearer ${jwtToken}`,
-        "x-Auth-key": jwtToken,
-        "Connection": "keep-alive",
-      }
-    });
+    const baseUrl = `${process.env['TICMI_API_BASE_URL'] || ''}/dp/ix/`;
+    const httpClient = new OptimizedHttpClient(baseUrl, jwtToken);
+    const cache = new CacheService();
 
     const todayDate = getTodayDate();
-    const baseUrl = `${process.env['TICMI_API_BASE_URL'] || ''}${process.env['TICMI_INDEX_ENDPOINT'] || ''}`;
 
-    let successCount = 0;
-    let skipCount = 0;
-    let errorCount = 0;
+    console.log(`🚀 Starting optimized parallel processing for ${indexList.length} indexes...`);
+    const startTime = Date.now();
 
-    for (let i = 0; i < indexes.length; i++) {
-      const indexCode = indexes[i];
-      if (!indexCode) continue;
-      
-      try {
-        if ((i + 1) % 50 === 0 || i === 0) {
-          await AzureLogger.logProgress(SCHEDULER_TYPE, i + 1, indexes.length, `Processing ${indexCode}`);
-          if (logId) {
-            await SchedulerLogService.updateLog(logId, {
-              progress_percentage: Math.round(((i + 1) / indexes.length) * 100),
-              current_processing: `Processing index ${i + 1}/${indexes.length}`
-            });
-          }
-        }
-        
-        const azureBlobName = `index/${indexCode}.csv`;
-        
-        let existingData: any[] = [];
-        if (await azureStorage.blobExists(azureBlobName)) {
-          const existingCsvData = await azureStorage.downloadCsvData(azureBlobName);
-          existingData = await parseCsvString(existingCsvData);
-        }
-        
-        const todayDataExists = existingData.some(row => 
-          row.date === todayDate || row.tanggal === todayDate || row.Date === todayDate
+    // Process indexes in parallel batches
+    const results = await ParallelProcessor.processInBatches(
+      indexList,
+      async (indexCode: string, index: number) => {
+        return processIndex(
+          indexCode,
+          index,
+          indexList.length,
+          httpClient,
+          azureStorage,
+          todayDate,
+          baseUrl,
+          cache,
+          logId
         );
-        
-        if (todayDataExists) {
-          await AzureLogger.logItemProcess(SCHEDULER_TYPE, 'SKIP', indexCode, 'Data already exists for today');
-          skipCount++;
-          continue;
-        }
-        
-        const params = {
-          indexCode: indexCode,
-          startDate: todayDate,
-          endDate: todayDate,
-          granularity: "daily",
-        };
+      },
+      BATCH_SIZE,
+      MAX_CONCURRENT_REQUESTS
+    );
 
-        const response = await axiosInstance.get(baseUrl, { params });
-        
-        if (!response.data || response.data === null) {
-          const placeholderData = [{
-            date: todayDate,
-            indexCode: indexCode,
-            status: 'EMPTY',
-            note: 'Data kosong dari TICMI API'
-          }];
-          
-          const combinedData = [...placeholderData, ...existingData];
-          combinedData.sort((a, b) => {
-            const dateA = a.date || a.tanggal || a.Date || '';
-            const dateB = b.date || b.tanggal || b.Date || '';
-            return new Date(dateB).getTime() - new Date(dateA).getTime();
-          });
-          
-          const deduplicatedData = removeDuplicates(combinedData);
-          const csvData = convertToCsv(deduplicatedData);
-          
-          await azureStorage.uploadCsvData(azureBlobName, csvData);
-          successCount++;
-          continue;
-        }
+    const endTime = Date.now();
+    const processingTime = (endTime - startTime) / 1000;
 
-        const payload = response.data;
-        const data = payload.data || payload;
-
-        let normalizedData: any[] = [];
-        if (Array.isArray(data)) {
-          normalizedData = data;
-        } else if (typeof data === 'object' && data !== null) {
-          normalizedData = [data];
-        } else {
-          skipCount++;
-          continue;
-        }
-        
-        const combinedData = [...normalizedData, ...existingData];
-        combinedData.sort((a, b) => {
-          const dateA = a.date || a.tanggal || a.Date || '';
-          const dateB = b.date || b.tanggal || b.Date || '';
-          return dateB.localeCompare(dateA);
-        });
-        
-        const deduplicatedData = removeDuplicates(combinedData);
-        const csvData = convertToCsv(deduplicatedData);
-        
-        await azureStorage.uploadCsvData(azureBlobName, csvData);
-        await AzureLogger.logItemProcess(SCHEDULER_TYPE, 'SUCCESS', indexCode, 'Data updated successfully');
-        successCount++;
-
-      } catch (error: any) {
-        errorCount++;
-        await AzureLogger.logItemProcess(SCHEDULER_TYPE, 'ERROR', indexCode, error.message);
-      }
-    }
+    // Calculate statistics
+    const successCount = results.filter(r => r.success && !r.skipped).length;
+    const skipCount = results.filter(r => r.success && r.skipped).length;
+    const errorCount = results.filter(r => !r.success).length;
 
     await AzureLogger.logSchedulerEnd(SCHEDULER_TYPE, {
       success: successCount,
       skipped: skipCount,
       failed: errorCount,
-      total: indexes.length
+      total: indexList.length
     });
 
     if (logId) {
@@ -341,6 +297,9 @@ export async function updateIndexData(): Promise<void> {
       });
     }
 
+    console.log(`✅ Index data update completed in ${processingTime}s`);
+    console.log(`📊 Success: ${successCount}, Skipped: ${skipCount}, Failed: ${errorCount}`);
+
   } catch (error: any) {
     await AzureLogger.logSchedulerError(SCHEDULER_TYPE, error.message);
     if (logId) {
@@ -351,4 +310,3 @@ export async function updateIndexData(): Promise<void> {
     }
   }
 }
-

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -6,8 +6,6 @@ import { Badge } from "../ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { 
   Search, 
-  Filter, 
-  MoreHorizontal, 
   UserCheck, 
   UserX, 
   Mail, 
@@ -33,15 +31,6 @@ interface User {
   updated_at: string;
 }
 
-interface UserListResponse {
-  users: User[];
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
-  };
-}
 
 export function UserManagement() {
   const { showToast } = useToast();
@@ -56,7 +45,7 @@ export function UserManagement() {
   const [isInitialized, setIsInitialized] = useState(false);
   const [pagination, setPagination] = useState({
     page: 1,
-    limit: 10,
+    limit: 5,
     total: 0,
     totalPages: 0
   });
@@ -129,7 +118,7 @@ export function UserManagement() {
 
       const params = new URLSearchParams({
         page: currentPage.toString(),
-        limit: '10'
+        limit: '5'
       });
 
       if (search) params.append('search', search);
@@ -295,7 +284,7 @@ export function UserManagement() {
         </div>
 
         {/* Users List */}
-        <div className="space-y-4">
+        <div className="space-y-4 min-h-[500px]">
           {users.map((user) => (
             <div key={user.id} className="flex items-center space-x-4 p-4 border rounded-lg hover:bg-muted/50 transition-colors">
               <Avatar className="h-10 w-10">
@@ -380,9 +369,22 @@ export function UserManagement() {
                 <ChevronLeft className="h-4 w-4" />
                 Previous
               </Button>
-              <span className="text-sm">
-                Page {pagination.page} of {pagination.totalPages}
-              </span>
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
+                  const page = i + 1;
+                  return (
+                    <Button
+                      key={page}
+                      variant={currentPage === page ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setCurrentPage(page)}
+                      className="w-8 h-8 p-0"
+                    >
+                      {page}
+                    </Button>
+                  );
+                })}
+              </div>
               <Button
                 variant="outline"
                 size="sm"

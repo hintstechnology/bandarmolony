@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
+import React, { useState } from "react";
+import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { ThemeProvider } from "./components/dashboard/ThemeProvider";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ProfileProvider } from "./contexts/ProfileContext";
@@ -91,7 +91,7 @@ function DashboardLayout() {
   const currentRoute = getCurrentRoute();
 
   // Breadcrumb mapping based on sidebar menu structure
-  const breadcrumbMap: Record<string, { title: string; icon?: React.ComponentType<{ className?: string }>; children?: Record<string, string> }> = {
+  const breadcrumbMap: Record<string, { title: string; icon?: React.ComponentType<any>; children?: Record<string, string> }> = {
     'dashboard': { title: 'Dashboard', icon: Home },
     'market-rotation': {
       title: 'Market Rotation',
@@ -142,9 +142,10 @@ function DashboardLayout() {
     if (!path || path === 'dashboard') return [{ title: 'Dashboard', icon: Home }];
     const segments = path.split('/');
     const base = segments[0];
+    if (!base) return [{ title: 'Dashboard', icon: Home }];
     const entry = breadcrumbMap[base];
     if (!entry) return [{ title: 'Dashboard', icon: Home }];
-    const parts: { title: string; icon?: React.ComponentType<{ className?: string }> }[] = [{ title: entry.title, icon: entry.icon }];
+    const parts: { title: string; icon?: React.ComponentType<any> }[] = [{ title: entry.title, ...(entry.icon && { icon: entry.icon }) }];
     if (segments[1] && entry.children) {
       const child = entry.children[segments[1]];
       if (child) parts.push({ title: child });

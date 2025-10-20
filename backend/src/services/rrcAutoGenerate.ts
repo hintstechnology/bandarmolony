@@ -144,7 +144,7 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
     let filesCreated = 0, filesUpdated = 0, filesSkipped = 0, filesFailed = 0;
 
     // Process sectors in BATCHES (parallel) for better performance
-    const BATCH_SIZE = 5; // Process 5 sectors at a time
+    const BATCH_SIZE = 10; // Process 10 sectors at a time (increased for speed)
     console.log(`📦 Processing sectors in batches of ${BATCH_SIZE}...`);
     
     for (let i = 0; i < sectors.length; i += BATCH_SIZE) {
@@ -215,7 +215,7 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
       
       // Small delay to give event loop breathing room (keep server responsive)
       if (i + BATCH_SIZE < sectors.length) {
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 25));
       }
     }
 
@@ -278,12 +278,12 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
       
       // Small delay to give event loop breathing room
       if (i + BATCH_SIZE < indexes.length) {
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 25));
       }
     }
 
     // Process ALL individual stocks from each sector in BATCHES (parallel)
-    const STOCK_BATCH_SIZE = 10; // Process 10 stocks at a time (stocks are numerous)
+    const STOCK_BATCH_SIZE = 25; // Process 25 stocks at a time (increased for speed)
     console.log(`📦 Processing stocks in batches of ${STOCK_BATCH_SIZE}...`);
     
     for (const sector of sectors) {
@@ -349,12 +349,12 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
           
           // Small delay to give event loop breathing room (CRITICAL for server responsiveness)
           if (i + STOCK_BATCH_SIZE < stocks.length) {
-            await new Promise(resolve => setTimeout(resolve, 50)); // 50ms delay for stocks (more frequent)
+            await new Promise(resolve => setTimeout(resolve, 10)); // 10ms delay for stocks (reduced for speed)
           }
         }
         
         // Delay between sectors untuk kasih breathing room lebih
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise(resolve => setTimeout(resolve, 50));
         
       } catch (error) {
         console.error(`❌ Error getting stocks from sector ${sector}:`, error);

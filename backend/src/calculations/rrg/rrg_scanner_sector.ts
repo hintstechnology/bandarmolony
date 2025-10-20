@@ -2,7 +2,7 @@
 // ------------------------------------------------------------
 // Relative Rotation Graph (RRG) Scanner for sectors
 // Membaca data RRG dari file output sector dan membuat scanner tabel
-// Output: CSV file dengan nama "o4-rrg.csv" di folder rrg_output
+// Output: CSV file dengan nama "o4-rrg.csv" di folder rrg_output/scanner
 // ------------------------------------------------------------
 
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
@@ -157,8 +157,27 @@ function determineSectorTrend(rsRatio: number, rsMomentum: number, _performance:
   return "NEUTRAL";
 }
 
+
 /**
- * Convert sector filename to display name
+ * Get available RRG sector files directly from rrg_output/sector/
+ */
+async function getAvailableRRGSectorFiles(): Promise<string[]> {
+  try {
+    const files = await listPaths({ prefix: 'rrg_output/sector/' });
+    const sectorFiles = files
+      .filter(f => f.startsWith('rrg_output/sector/o2-rrg-') && f.endsWith('.csv'))
+      .map(f => f.replace('rrg_output/sector/', ''));
+    
+    console.log(`📊 Found ${sectorFiles.length} RRG sector files: ${sectorFiles.join(', ')}`);
+    return sectorFiles;
+  } catch (err) {
+    console.error(`Error getting RRG sector files: ${err}`);
+    return [];
+  }
+}
+
+/**
+ * Convert sector filename to display name (same as original file)
  */
 function getSectorDisplayName(filename: string): string {
   // Extract sector name from o2-rrg-SECTOR_NAME.csv
@@ -166,46 +185,47 @@ function getSectorDisplayName(filename: string): string {
   
   // Convert to proper display format
   const sectorMap: { [key: string]: string } = {
-    "BASIC MATERIALS": "Basic Materials",
-    "CONSUMER CYCLICALS": "Consumer Cyclicals", 
-    "CONSUMER NON-CYCLICALS": "Consumer Non-Cyclicals",
+    "BASICMATERIALS": "Basic Materials",
+    "CONSUMERCYCLICALS": "Consumer Cyclicals", 
+    "CONSUMERNONCYCLICALS": "Consumer Non-Cyclicals",
     "ENERGY": "Energy",
     "FINANCIALS": "Financials",
     "HEALTHCARE": "Healthcare",
     "INDUSTRIALS": "Industrials",
     "INFRASTRUCTURES": "Infrastructures",
-    "PROPERTIES": "Properties",
+    "PROPERTIESREALESTATE": "Properties & Real Estate",
     "TECHNOLOGY": "Technology",
-    "TRANSPORTATION": "Transportation"
+    "TRANSPORTATIONLOGISTIC": "Transportation & Logistic"
   };
   
   return sectorMap[sectorName] || sectorName;
 }
 
 /**
- * Scan all available sectors and generate scanner data
+ * Scan all available sectors and generate scanner data (following original approach)
  */
 async function scanAllSectors(): Promise<SectorScannerResult[]> {
   const results: SectorScannerResult[] = [];
   
-  // Get all o2-rrg-*.csv files from rrg_output/sector
-  const rrgOutputDir = "rrg_output/sector";
-  
-  const files = await listPaths({ prefix: rrgOutputDir });
-  const sectorFiles = files.filter(f => f.includes("o2-rrg-") && f.endsWith(".csv"));
+  // Get available RRG sector files directly from rrg_output/sector/
+  const sectorFiles = await getAvailableRRGSectorFiles();
   
   if (sectorFiles.length === 0) {
-    console.log(`⚠️ No RRG sector files found in ${rrgOutputDir} - generate RRG data first`);
-    return results; // Return empty, scanner will be skipped
+    console.log(`❌ No RRG sector files found in rrg_output/sector/`);
+    return results;
   }
   
-  console.log(`📊 Found ${sectorFiles.length} RRG sector files`);
+  console.log(`📊 Processing ${sectorFiles.length} RRG sector files...`);
   
+  // Process each sector file (following original approach)
   for (const file of sectorFiles) {
     try {
       // Read sector RRG data
       const rrgData = await readSectorRRGData(file);
-      if (!rrgData) continue;
+      if (!rrgData) {
+        console.log(`⚠️ Could not read RRG data from ${file}`);
+        continue;
+      }
       
       // Get sector display name
       const sectorDisplayName = getSectorDisplayName(file);
@@ -224,8 +244,10 @@ async function scanAllSectors(): Promise<SectorScannerResult[]> {
         trend: trend
       });
       
+      console.log(`✅ Processed sector: ${sectorDisplayName} (RS-Ratio: ${rrgData.rs_ratio.toFixed(1)}, RS-Momentum: ${rrgData.rs_momentum.toFixed(1)}, Trend: ${trend})`);
+      
     } catch (error) {
-      console.log(`⚠️  Error processing ${file}: ${error}`);
+      console.log(`⚠️ Error processing ${file}: ${error}`);
       continue;
     }
   }
@@ -266,12 +288,16 @@ async function main(): Promise<void> {
     const csvOutput = resultsToCsv(results);
     
     // Write to Azure
-    const outputPath = "rrg_output/o4-rrg.csv";
-    await uploadText(outputPath, csvOutput);
-    
-    console.log(`✅ RRG Sector Scanner completed`);
-    console.log(`📊 Processed ${results.length} sectors`);
-    console.log(`📁 Output saved to: ${outputPath}`);
+    const outputPath = "rrg_output/scanner/o4-rrg.csv";
+    try {
+      await uploadText(outputPath, csvOutput, 'text/csv');
+      console.log(`✅ RRG Sector Scanner completed`);
+      console.log(`📊 Processed ${results.length} sectors`);
+      console.log(`📁 Output saved to: ${outputPath}`);
+    } catch (error) {
+      console.error(`❌ Error uploading to Azure: ${error}`);
+      throw error;
+    }
     
     // Show summary by trend
     const trendCounts = results.reduce((acc, r) => {
@@ -298,7 +324,54 @@ async function main(): Promise<void> {
 
 // Export function for backend use
 export async function generateRrgSectorScanner(): Promise<SectorScannerResult[]> {
-  return await scanAllSectors();
+  try {
+    console.log("🚀 Starting RRG Sector Scanner...");
+    
+    // Scan all sectors
+    const results = await scanAllSectors();
+    
+    if (results.length === 0) {
+      console.log("❌ No valid sector data found");
+      return results;
+    }
+    
+    // Convert to CSV
+    const csvOutput = resultsToCsv(results);
+    
+    // Write to Azure
+    const outputPath = "rrg_output/scanner/o4-rrg.csv";
+    try {
+      await uploadText(outputPath, csvOutput, 'text/csv');
+      console.log(`✅ RRG Sector Scanner completed`);
+      console.log(`📊 Processed ${results.length} sectors`);
+      console.log(`📁 Output saved to: ${outputPath}`);
+    } catch (error) {
+      console.error(`❌ Error uploading to Azure: ${error}`);
+      throw error;
+    }
+    
+    // Show summary by trend
+    const trendCounts = results.reduce((acc, r) => {
+      acc[r.trend] = (acc[r.trend] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    
+    console.log("\n📈 Trend Distribution:");
+    Object.entries(trendCounts).forEach(([trend, count]) => {
+      console.log(`   ${trend}: ${count} sectors`);
+    });
+    
+    // Show top performing sectors
+    console.log("\n🏆 Top 3 Sectors by RS-Ratio:");
+    results.slice(0, 3).forEach((result, index) => {
+      console.log(`   ${index + 1}. ${result.sector}: ${result.rs_ratio} (${result.trend})`);
+    });
+    
+    return results;
+  } catch (error) {
+    console.error(`❌ Error in generateRrgSectorScanner: ${error}`);
+    throw error;
+  }
 }
 
 // Execute if run directly
