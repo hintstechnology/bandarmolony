@@ -568,6 +568,7 @@ export function StoryForeignFlow() {
   const [selectedTicker, setSelectedTicker] = useState('BBCA');
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [layoutMode, setLayoutMode] = useState<'split' | 'combined'>('combined');
+  const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
 
   const stocks = ['BBCA', 'BBRI', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM', 'ICBP', 'INDF', 'KLBF', 'ADRO', 'ANTM', 'ITMG', 'PTBA', 'SMGR', 'INTP', 'WIKA', 'WSKT', 'PGAS'];
 
@@ -643,8 +644,8 @@ export function StoryForeignFlow() {
       {/* Controls */}
       <Card>
         <CardContent className="p-4">
-          <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-end justify-between">
-            <div className="flex gap-4 items-end">
+          <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-end justify-between">
+            <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-end w-full">
               <div>
                 <label className="block text-sm font-medium mb-2">Stock:</label>
                 <div className="relative stock-dropdown-container">
@@ -654,40 +655,47 @@ export function StoryForeignFlow() {
                     value={tickerInput}
                     onChange={(e) => handleStockInputChange(e.target.value)}
                     onFocus={() => setShowStockSuggestions(true)}
+                    onKeyDown={(e) => {
+                      if (!showStockSuggestions) setShowStockSuggestions(true);
+                      if (e.key === 'ArrowDown' && filteredStocks.length) {
+                        e.preventDefault();
+                        setHighlightedIndex((prev) => (prev + 1) % filteredStocks.length);
+                      } else if (e.key === 'ArrowUp' && filteredStocks.length) {
+                        e.preventDefault();
+                        setHighlightedIndex((prev) => (prev <= 0 ? filteredStocks.length - 1 : prev - 1));
+                      } else if (e.key === 'Enter') {
+                        if (highlightedIndex >= 0 && filteredStocks[highlightedIndex]) {
+                          handleStockSelect(filteredStocks[highlightedIndex]);
+                          setHighlightedIndex(-1);
+                        }
+                      } else if (e.key === 'Escape') {
+                        setShowStockSuggestions(false);
+                        setHighlightedIndex(-1);
+                      }
+                    }}
                     placeholder="Enter stock code..."
-                    className="pl-9 pr-3 py-1 h-10 border border-border rounded-md bg-background text-foreground w-64"
+                    className="pl-9 pr-3 py-1 h-10 border border-border rounded-md bg-background text-foreground w-full sm:w-64"
                   />
                   {showStockSuggestions && (
                     <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
-                      {tickerInput === '' ? (
-                        <>
-                          <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
-                            All Stocks
-                          </div>
-                          {stocks.map(stock => (
-                            <div
-                              key={stock}
-                              onClick={() => handleStockSelect(stock)}
-                              className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
-                            >
-                              {stock}
-                            </div>
-                          ))}
-                        </>
-                      ) : filteredStocks.length > 0 ? (
-                        filteredStocks.map(stock => (
-                          <div
-                            key={stock}
-                            onClick={() => handleStockSelect(stock)}
-                            className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
-                          >
-                            {stock}
-                          </div>
-                        ))
-                      ) : (
-                        <div className="px-3 py-2 text-sm text-muted-foreground">
-                          No stocks found
+                      {tickerInput === '' && (
+                        <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
+                          All Stocks
                         </div>
+                      )}
+                      {(filteredStocks.length ? filteredStocks : stocks).map((stock, idx) => (
+                        <div
+                          key={`${stock}-${idx}`}
+                          onClick={() => handleStockSelect(stock)}
+                          onMouseEnter={() => setHighlightedIndex(idx)}
+                          onMouseLeave={() => setHighlightedIndex(-1)}
+                          className={`px-3 py-2 cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-muted' : 'hover:bg-muted'}`}
+                        >
+                          {stock}
+                        </div>
+                      ))}
+                      {filteredStocks.length === 0 && tickerInput !== '' && (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">No stocks found</div>
                       )}
                     </div>
                   )}
@@ -695,9 +703,9 @@ export function StoryForeignFlow() {
               </div>
             </div>
             
-            <div>
+            <div className="w-full sm:w-auto">
               <label className="block text-sm font-medium mb-2">Layout:</label>
-              <div className="flex gap-1 border border-border rounded-lg p-1 h-10">
+              <div className="flex gap-1 border border-border rounded-lg p-1 h-10 w-full sm:w-auto">
                 <Button
                   variant={layoutMode === 'combined' ? 'default' : 'ghost'}
                   size="sm"

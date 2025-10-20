@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
-import { Search, Plus } from 'lucide-react';
+import { Search, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 // @ts-ignore
 import { getImageUrl } from '../../utils/imageMapping';
 import { api } from '../../services/api';
@@ -405,6 +405,9 @@ export function AstrologyLunarCalendar() {
   const [monthZodiacFilter, setMonthZodiacFilter] = useState('all');
   const [dayElementFilter, setDayElementFilter] = useState('all');
   const [dayZodiacFilter, setDayZodiacFilter] = useState('all');
+  // Pagination for rising stocks list
+  const [pageSize, setPageSize] = useState<number>(10);
+  const [page, setPage] = useState<number>(1);
   
   const [astrologyData, setAstrologyData] = useState<AstrologyData[]>([]);
   const [availableStocks, setAvailableStocks] = useState<string[]>([]);
@@ -623,8 +626,8 @@ export function AstrologyLunarCalendar() {
   }
 
   return (
-    <div className="h-screen overflow-hidden">
-      <div className="h-full flex flex-col max-w-7xl mx-auto px-4 sm:px-6">
+    <div className="h-screen overflow-hidden w-full">
+      <div className="h-full flex flex-col w-full px-4 sm:px-6">
         <div className="flex-1 min-h-0 overflow-y-auto space-y-6 py-4 sm:py-6">
       {/* Header Controls */}
       <Card>
@@ -1183,3 +1186,6 @@ export function AstrologyLunarCalendar() {
     </div>
   );
 }
+
+
+

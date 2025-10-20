@@ -16,7 +16,8 @@ import { PublicRoute } from "./components/dashboard/PublicRoute";
 import { Sidebar } from "./components/dashboard/Sidebar";
 import { ThemeToggle } from "./components/dashboard/ThemeToggle";
 import { Avatar, AvatarFallback, AvatarImage } from "./components/ui/avatar";
-import { User, Home, ChevronRight, TrendingUp, Activity, ArrowRightLeft, BookOpen, Star, BarChart3, CreditCard, Shield } from "lucide-react";
+import { User, Home, ChevronRight, ChevronDown, TrendingUp, Activity, ArrowRightLeft, BookOpen, Star, BarChart3, CreditCard, Shield } from "lucide-react";
+ 
 // Import all dashboard components
 import MarketRotationRRG from "./components/market-rotation/MarketRotationRRG";
 import MarketRotationRRC from "./components/market-rotation/MarketRotationRRC";
@@ -33,6 +34,8 @@ import { StoryMarketParticipant } from "./components/story/StoryMarketParticipan
 import { StoryOwnership } from "./components/story/StoryOwnership";
 import { StoryForeignFlow } from "./components/story/StoryForeignFlow";
 import { AstrologyLunarCalendar } from "./components/astrology/AstrologyLunarCalendar";
+import BaZiCycleAnalyzer from "./components/astrology/BaZiCycleAnalysis";
+import { TechnicalAnalysis } from "./components/technical-analysis/TechnicalAnalysis";
 import { TechnicalAnalysisTradingView } from "./components/technical-analysis/TechnicalAnalysisTradingView";
 import { ProfilePage } from "./components/profile/ProfilePage";
 import { SubscriptionPage } from "./components/subscription/SubscriptionPage";
@@ -127,7 +130,7 @@ function DashboardLayout() {
         'foreign-flow': 'Foreign Flow',
       },
     },
-    'astrology': { title: 'Astrology', icon: Star, children: { 'lunar': 'Ba Zi & Shio' } },
+    'astrology': { title: 'Astrology', icon: Star, children: { 'lunar': 'Ba Zi & Shio', 'bazi-cycle': 'Ba Zi Cycle Analysis' } },
     'technical-analysis': { title: 'Technical Analysis', icon: BarChart3 },
     'profile': { title: 'Profile' },
     'subscription': { title: 'Subscription', icon: CreditCard },
@@ -152,7 +155,6 @@ function DashboardLayout() {
 
   // Handle profile click with debounce
   const handleProfileClick = () => {
-    // Prevent rapid navigation
     if (location.pathname !== '/profile') {
       navigate('/profile');
     }
@@ -205,6 +207,8 @@ function DashboardLayout() {
       case "astrology":
       case "astrology/lunar":
         return <AstrologyLunarCalendar />;
+      case "astrology/bazi-cycle":
+        return <BaZiCycleAnalyzer />;
 
       // Technical Analysis
       case "technical-analysis":
@@ -277,8 +281,8 @@ function DashboardLayout() {
           <div className="flex items-center gap-3">
             {/* Theme Toggle */}
             <ThemeToggle />
-            
             {/* Profile Button */}
+            <div className="relative">
             <button
               onClick={handleProfileClick}
               className="flex items-center gap-2 hover:bg-accent hover:text-accent-foreground active:bg-accent/80 rounded-lg px-3 py-1.5 transition-all duration-200 group relative"
@@ -302,6 +306,8 @@ function DashboardLayout() {
               {/* Hover indicator */}
               <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-0 h-0.5 bg-blue-500 group-hover:w-8 transition-all duration-200"></div>
             </button>
+            
+            </div>
           </div>
         </header>
 
@@ -491,3 +497,4 @@ export default function App() {
     </ThemeProvider>
   );
 }
+
