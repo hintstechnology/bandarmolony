@@ -1,6 +1,6 @@
 import TrendFilterCalculator from '../calculations/trend/trend_filter';
 
-export class TrendFilterAutoGenerateService {
+export class TrendFilterDataScheduler {
   private trendFilterCalculator: TrendFilterCalculator;
   private isGenerating: boolean = false;
   private lastGenerated: Date | null = null;
@@ -156,4 +156,4 @@ export class TrendFilterAutoGenerateService {
   }
 }
 
-export default TrendFilterAutoGenerateService;
+export default TrendFilterDataScheduler;

@@ -1,6 +1,6 @@
 import BidAskCalculator from '../calculations/bidask/bid_ask';
 
-export class BidAskAutoGenerateService {
+export class BidAskDataScheduler {
   private calculator: BidAskCalculator;
 
   constructor() {
@@ -52,5 +52,5 @@ export class BidAskAutoGenerateService {
   }
 }
 
-export default BidAskAutoGenerateService;
+export default BidAskDataScheduler;
 

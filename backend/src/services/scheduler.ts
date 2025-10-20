@@ -2,36 +2,62 @@
 // Scheduled tasks for data updates and calculations
 
 import cron from 'node-cron';
-import { forceRegenerate, getGenerationStatus } from './rrcAutoGenerate';
-import { forceRegenerate as forceRegenerateRRG, getGenerationStatus as getGenerationStatusRRG } from './rrgAutoGenerate';
-import { forceRegenerate as forceRegenerateSeasonal, getGenerationStatus as getGenerationStatusSeasonal } from './seasonalityAutoGenerate';
-import TrendFilterAutoGenerateService from './trendFilterAutoGenerate';
+import { forceRegenerate, getGenerationStatus } from './rrcDataScheduler';
+import { forceRegenerate as forceRegenerateRRG, getGenerationStatus as getGenerationStatusRRG } from './rrgDataScheduler';
+import { forceRegenerate as forceRegenerateSeasonal, getGenerationStatus as getGenerationStatusSeasonal } from './seasonalityDataScheduler';
+import TrendFilterDataScheduler from './trendFilterDataScheduler';
 import { generateRrgStockScanner } from '../calculations/rrg/rrg_scanner_stock';
 import { generateRrgSectorScanner } from '../calculations/rrg/rrg_scanner_sector';
-import AccumulationAutoGenerateService from './accumulationAutoGenerate';
-import BidAskAutoGenerateService from './bidAskAutoGenerate';
-import BrokerDataAutoGenerateService from './brokerDataAutoGenerate';
-import BrokerInventoryAutoGenerateService from './brokerInventoryAutoGenerate';
-import ForeignFlowAutoGenerateService from './foreignFlowAutoGenerate';
-import MoneyFlowAutoGenerateService from './moneyFlowAutoGenerate';
+import AccumulationDataScheduler from './accumulationDataScheduler';
+import BidAskDataScheduler from './bidAskDataScheduler';
+import BrokerDataScheduler from './brokerDataScheduler';
+import BrokerInventoryDataScheduler from './brokerInventoryDataScheduler';
+import ForeignFlowDataScheduler from './foreignFlowDataScheduler';
+import MoneyFlowDataScheduler from './moneyFlowDataScheduler';
 import { SchedulerLogService, SchedulerLog } from './schedulerLogService';
-import { updateDoneSummaryData } from './doneSummaryDataUpdateService';
-import { updateStockData } from './stockDataUpdateService';
-import { updateIndexData } from './indexDataUpdateService';
-import { updateShareholdersData } from './shareholdersDataUpdateService';
-import { updateHoldingData } from './holdingDataUpdateService';
+import { updateDoneSummaryData } from './doneSummaryDataScheduler';
+import { updateStockData } from './stockDataScheduler';
+import { updateIndexData } from './indexDataScheduler';
+import { updateShareholdersData } from './shareholdersDataScheduler';
+import { updateHoldingData } from './holdingDataScheduler';
 import { initializeAzureLogging } from './azureLoggingService';
 
-// Get schedule times from environment or use defaults
-const STOCK_UPDATE_TIME = process.env['SCHEDULER_STOCK_UPDATE_TIME'] || '18:20';
-const INDEX_UPDATE_TIME = process.env['SCHEDULER_INDEX_UPDATE_TIME'] || '18:20';
-const DONE_SUMMARY_UPDATE_TIME = process.env['SCHEDULER_DONE_SUMMARY_UPDATE_TIME'] || '18:20';
-const RRC_UPDATE_TIME = process.env['SCHEDULER_RRC_UPDATE_TIME'] || '18:40';
-const RRG_UPDATE_TIME = process.env['SCHEDULER_RRG_UPDATE_TIME'] || '18:40';
-const SEASONAL_UPDATE_TIME = process.env['SCHEDULER_SEASONAL_UPDATE_TIME'] || '18:40';
-const TREND_FILTER_UPDATE_TIME = process.env['SCHEDULER_TREND_FILTER_UPDATE_TIME'] || '18:50';
-const PHASE1_UPDATE_TIME = process.env['SCHEDULER_PHASE1_UPDATE_TIME'] || '19:00';
-const TIMEZONE = process.env['SCHEDULER_TIMEZONE'] || 'Asia/Jakarta';
+// ======================
+// SCHEDULER CONFIGURATION
+// ======================
+// All scheduler times are configured here for easy maintenance
+const SCHEDULER_CONFIG = {
+  // Data Update Times
+  STOCK_UPDATE_TIME: '05:58',
+  INDEX_UPDATE_TIME: '05:58', 
+  DONE_SUMMARY_UPDATE_TIME: '05:58',
+  SHAREHOLDERS_UPDATE_TIME: '00:00', // Monthly (last day)
+  HOLDING_UPDATE_TIME: '00:00', // Monthly (last day)
+  
+  // Calculation Times
+  RRC_UPDATE_TIME: '18:30',
+  RRG_UPDATE_TIME: '18:30',
+  SEASONAL_UPDATE_TIME: '18:30',
+  TREND_FILTER_UPDATE_TIME: '00:10',
+  
+  // Phase-based Calculation Times
+  PHASE1_UPDATE_TIME: '12:49', // Broker Data, Bid/Ask, Money Flow, Foreign Flow
+  PHASE2_UPDATE_TIME: '12:44', // Broker Inventory, Accumulation Distribution
+  
+  // Timezone
+  TIMEZONE: 'Asia/Jakarta'
+};
+
+// Extract times for backward compatibility
+const STOCK_UPDATE_TIME = SCHEDULER_CONFIG.STOCK_UPDATE_TIME;
+const INDEX_UPDATE_TIME = SCHEDULER_CONFIG.INDEX_UPDATE_TIME;
+const DONE_SUMMARY_UPDATE_TIME = SCHEDULER_CONFIG.DONE_SUMMARY_UPDATE_TIME;
+const RRC_UPDATE_TIME = SCHEDULER_CONFIG.RRC_UPDATE_TIME;
+const RRG_UPDATE_TIME = SCHEDULER_CONFIG.RRG_UPDATE_TIME;
+const SEASONAL_UPDATE_TIME = SCHEDULER_CONFIG.SEASONAL_UPDATE_TIME;
+const TREND_FILTER_UPDATE_TIME = SCHEDULER_CONFIG.TREND_FILTER_UPDATE_TIME;
+const PHASE1_UPDATE_TIME = SCHEDULER_CONFIG.PHASE1_UPDATE_TIME;
+const TIMEZONE = SCHEDULER_CONFIG.TIMEZONE;
 
 // Convert time to cron format (HH:MM -> MM HH * * *)
 function timeToCron(time: string): string {
@@ -39,11 +65,12 @@ function timeToCron(time: string): string {
   return `${minutes} ${hours} * * *`;
 }
 
+// Generate cron schedules from configuration
 const STOCK_UPDATE_SCHEDULE = timeToCron(STOCK_UPDATE_TIME);
 const INDEX_UPDATE_SCHEDULE = timeToCron(INDEX_UPDATE_TIME);
 const DONE_SUMMARY_UPDATE_SCHEDULE = timeToCron(DONE_SUMMARY_UPDATE_TIME);
-const SHAREHOLDERS_UPDATE_SCHEDULE = '0 0 * * *'; // Daily at 00:00, will check if last day of month
-const HOLDING_UPDATE_SCHEDULE = '0 0 * * *'; // Daily at 00:00, will check if last day of month
+const SHAREHOLDERS_UPDATE_SCHEDULE = timeToCron(SCHEDULER_CONFIG.SHAREHOLDERS_UPDATE_TIME);
+const HOLDING_UPDATE_SCHEDULE = timeToCron(SCHEDULER_CONFIG.HOLDING_UPDATE_TIME);
 const RRC_UPDATE_SCHEDULE = timeToCron(RRC_UPDATE_TIME);
 const RRG_UPDATE_SCHEDULE = timeToCron(RRG_UPDATE_TIME);
 const SEASONAL_UPDATE_SCHEDULE = timeToCron(SEASONAL_UPDATE_TIME);
@@ -52,13 +79,13 @@ const PHASE1_UPDATE_SCHEDULE = timeToCron(PHASE1_UPDATE_TIME);
 
 let schedulerRunning = false;
 let scheduledTasks: any[] = [];
-const trendFilterService = new TrendFilterAutoGenerateService();
-const accumulationService = new AccumulationAutoGenerateService();
-const bidAskService = new BidAskAutoGenerateService();
-const brokerDataService = new BrokerDataAutoGenerateService();
-const brokerInventoryService = new BrokerInventoryAutoGenerateService();
-const foreignFlowService = new ForeignFlowAutoGenerateService();
-const moneyFlowService = new MoneyFlowAutoGenerateService();
+const trendFilterService = new TrendFilterDataScheduler();
+const accumulationService = new AccumulationDataScheduler();
+const bidAskService = new BidAskDataScheduler();
+const brokerDataService = new BrokerDataScheduler();
+const brokerInventoryService = new BrokerInventoryDataScheduler();
+const foreignFlowService = new ForeignFlowDataScheduler();
+const moneyFlowService = new MoneyFlowDataScheduler();
 
 /**
  * Start the scheduler
@@ -354,8 +381,8 @@ export function startScheduler(): void {
   console.log(`  📊 Stock Data Update: ${STOCK_UPDATE_TIME} daily`);
   console.log(`  📈 Index Data Update: ${INDEX_UPDATE_TIME} daily`);
   console.log(`  📋 Done Summary Data Update: ${DONE_SUMMARY_UPDATE_TIME} daily`);
-  console.log(`  👥 Shareholders Data Update: Monthly (last day at 00:00)`);
-  console.log(`  💼 Holding Data Update: Monthly (last day at 00:00)`);
+  console.log(`  👥 Shareholders Data Update: Monthly (last day at ${SCHEDULER_CONFIG.SHAREHOLDERS_UPDATE_TIME})`);
+  console.log(`  💼 Holding Data Update: Monthly (last day at ${SCHEDULER_CONFIG.HOLDING_UPDATE_TIME})`);
   console.log(`  🔄 RRC Calculation: ${RRC_UPDATE_TIME} daily`);
   console.log(`  🔄 RRG Calculation + Scanners: ${RRG_UPDATE_TIME} daily`);
   console.log(`  🔄 Seasonality Calculation: ${SEASONAL_UPDATE_TIME} daily`);

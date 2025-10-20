@@ -1,6 +1,6 @@
 import MoneyFlowCalculator from '../calculations/moneyflow/money_flow';
 
-export class MoneyFlowAutoGenerateService {
+export class MoneyFlowDataScheduler {
   private calculator: MoneyFlowCalculator;
 
   constructor() {
@@ -52,5 +52,5 @@ export class MoneyFlowAutoGenerateService {
   }
 }
 
-export default MoneyFlowAutoGenerateService;
+export default MoneyFlowDataScheduler;
 

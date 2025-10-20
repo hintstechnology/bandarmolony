@@ -1,6 +1,6 @@
 import AccumulationDistributionCalculator from '../calculations/accumulation/accumulation_distribution';
 
-export class AccumulationAutoGenerateService {
+export class AccumulationDataScheduler {
   private calculator: AccumulationDistributionCalculator;
 
   constructor() {
@@ -52,5 +52,5 @@ export class AccumulationAutoGenerateService {
   }
 }
 
-export default AccumulationAutoGenerateService;
+export default AccumulationDataScheduler;
 

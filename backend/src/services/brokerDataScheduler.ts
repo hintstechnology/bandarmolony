@@ -1,6 +1,6 @@
 import BrokerDataCalculator from '../calculations/broker/broker_data';
 
-export class BrokerDataAutoGenerateService {
+export class BrokerDataScheduler {
   private calculator: BrokerDataCalculator;
 
   constructor() {
@@ -52,5 +52,5 @@ export class BrokerDataAutoGenerateService {
   }
 }
 
-export default BrokerDataAutoGenerateService;
+export default BrokerDataScheduler;
 
