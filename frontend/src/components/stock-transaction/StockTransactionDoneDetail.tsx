@@ -773,7 +773,7 @@ export function StockTransactionDoneDetail() {
 
 
   return (
-    <div className="min-h-screen space-y-4 sm:space-y-6 p-2 sm:p-4 lg:p-6">
+    <div className="min-h-screen space-y-4 sm:space-y-6 p-2 sm:p-4 lg:p-6 overflow-x-hidden">
       {/* Top Controls */}
       <Card>
         <CardHeader>

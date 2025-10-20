@@ -976,7 +976,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
 
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen overflow-x-hidden">
       <div className="w-full px-3 sm:px-4 md:px-6 lg:px-8 py-4 sm:py-6">
         <div className="space-y-6">
 
@@ -986,7 +986,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
               <CardTitle>Broker Inventory Analysis Controls</CardTitle>
         </CardHeader>
         <CardContent>
-               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 {/* Ticker Selection */}
                 <div className="flex-1 min-w-0">
                   <label className="block text-sm font-medium mb-2">Ticker:</label>

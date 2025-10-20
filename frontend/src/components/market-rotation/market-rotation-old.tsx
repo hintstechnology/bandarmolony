@@ -331,7 +331,7 @@ export function MarketRotationTrendFilter() {
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {trendSummary.map((item, index) => (
           <Card key={index} className="p-4">
             <div className="flex items-center justify-between">

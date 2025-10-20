@@ -578,7 +578,7 @@ export function SubscriptionPage() {
   };
 
   return (
-    <div className="min-h-screen space-y-4 sm:space-y-6 p-2 sm:p-4 lg:p-6">
+    <div className="min-h-screen space-y-4 sm:space-y-6 p-2 sm:p-4 lg:p-6 overflow-x-hidden">
       {/* Pending Transaction Section */}
       {pendingTransactions.length > 0 && (
         <Card id="pending-transactions" className="border-orange-500 bg-orange-500/10">

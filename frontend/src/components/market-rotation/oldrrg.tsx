@@ -442,7 +442,7 @@ const MarketRotationRRG = memo(function MarketRotationRRG() {
           </div>
         </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 overflow-x-auto">
         {/* RRG Chart */}
         <div className="xl:col-span-3">
           <Card className="h-full flex flex-col">

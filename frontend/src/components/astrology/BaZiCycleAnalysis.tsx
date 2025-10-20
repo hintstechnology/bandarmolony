@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Calendar, Clock, LineChart, Settings2, Sparkles, Search, Plus } from "lucide-react";
+import { Calendar, LineChart, Sparkles, Search, Plus, Filter } from "lucide-react";
 import { api } from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
 
@@ -27,7 +27,9 @@ const Badge = ({ children, intent = "gray" }: any) => {
 
 const SectionTitle = ({ icon: Icon, title, subtitle }: any) => (
   <div className="flex items-center gap-3">
-    <div className="p-2 rounded-xl bg-muted"><Icon className="w-5 h-5" /></div>
+    {Icon ? (
+      <div className="p-2 rounded-xl bg-muted"><Icon className="w-5 h-5" /></div>
+    ) : null}
     <div>
       <h3 className="text-lg font-semibold">{title}</h3>
       {subtitle && <p className="text-sm text-muted-foreground">{subtitle}</p>}
@@ -590,13 +592,10 @@ function DateInfoCardNew() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center gap-2">
-          <Clock className="w-5 h-5 text-muted-foreground" />
-          <h3 className="text-lg font-semibold">Hari Ini</h3>
-        </div>
+        <h3 className="text-lg font-semibold">Hari Ini</h3>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center text-center">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-center text-center">
           {/* Waktu Sekarang */}
           <div className="space-y-1">
             <div className="text-xs text-muted-foreground">Waktu Sekarang</div>
@@ -608,19 +607,19 @@ function DateInfoCardNew() {
           <div className="space-y-1">
             <div className="text-sm text-muted-foreground">Pilar Tahun</div>
             <div className="text-lg font-semibold">{Y.pillarCN} <span className="text-muted-foreground">({Y.shio})</span></div>
-            <div className="text-sm text-muted-foreground">Element: <span className="font-medium">{Y.element}</span> · Yin/Yang: <span className="font-medium">{Y.yinyang}</span></div>
+            <div className="text-sm text-muted-foreground">{Y.element} - {Y.yinyang}</div>
           </div>
           {/* Monthly */}
           <div className="space-y-1">
             <div className="text-sm text-muted-foreground">Pilar Bulan</div>
             <div className="text-lg font-semibold">{M.pillarCN} <span className="text-muted-foreground">({M.shio})</span></div>
-            <div className="text-sm text-muted-foreground">Element: <span className="font-medium">{M.element}</span> · Yin/Yang: <span className="font-medium">{M.yinyang}</span></div>
+            <div className="text-sm text-muted-foreground">{M.element} - {M.yinyang}</div>
           </div>
           {/* Daily */}
           <div className="space-y-1">
             <div className="text-sm text-muted-foreground">Pilar Hari</div>
             <div className="text-lg font-semibold">{D.pillarCN} <span className="text-muted-foreground">({D.shio})</span></div>
-            <div className="text-sm text-muted-foreground">Element: <span className="font-medium">{D.element}</span> · Yin/Yang: <span className="font-medium">{D.yinyang}</span></div>
+            <div className="text-sm text-muted-foreground">{D.element} - {D.yinyang}</div>
           </div>
         </div>
       </CardContent>
@@ -648,6 +647,8 @@ export default function BaZiCycleAnalyzer() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [timeframe, setTimeframe] = useState<Timeframe>('yearly');
+  const [elemSort, setElemSort] = useState<{ key: string | null; mode: 'default' | 'desc' | 'asc' }>({ key: null, mode: 'default' });
+  const [shioSort, setShioSort] = useState<{ key: string | null; mode: 'default' | 'desc' | 'asc' }>({ key: null, mode: 'default' });
   const [tickerDropdownOpen, setTickerDropdownOpen] = useState<boolean>(false);
   const [tickerActiveIndex, setTickerActiveIndex] = useState<number>(-1);
   const [availableStocks, setAvailableStocks] = useState<string[]>([]);
@@ -729,6 +730,14 @@ export default function BaZiCycleAnalyzer() {
           }));
           
           setRows(convertedRows);
+          // Set default start date to oldest available date from loaded data
+          try {
+            const dates = convertedRows.map(r=>r.date).filter((d:any)=> d instanceof Date && !isNaN(+d));
+            if (dates.length) {
+              const minISO = new Date(Math.min.apply(null, dates as any)).toISOString().slice(0,10);
+              setParams(p=> ({ ...p, startDate: minISO }));
+            }
+          } catch {}
         } else {
           setErr('Failed to load stock data');
           setRows([]);
@@ -890,6 +899,27 @@ export default function BaZiCycleAnalyzer() {
     return (result as any).byElem || [];
   }, [result, timeframe]);
 
+  const sortedElemData = useMemo(() => {
+    if (!elemData || !elemData.length || elemSort.mode === 'default' || !elemSort.key) return elemData;
+    const key = elemSort.key as keyof any;
+    const data = [...elemData];
+    data.sort((a:any, b:any) => {
+      const va = a[key] ?? 0; const vb = b[key] ?? 0;
+      const diff = (Number(va) as number) - (Number(vb) as number);
+      return elemSort.mode === 'asc' ? diff : -diff;
+    });
+    return data;
+  }, [elemData, elemSort]);
+
+  const cycleElemSort = (key: string) => {
+    setElemSort(prev => {
+      const nextMode = (prev.key !== key)
+        ? 'desc'
+        : prev.mode === 'default' ? 'desc' : prev.mode === 'desc' ? 'asc' : 'default';
+      return { key, mode: nextMode };
+    });
+  };
+
   const shioData = useMemo(() => {
     if (!result) return [] as any[];
     if ('byShYear' in result) {
@@ -898,10 +928,31 @@ export default function BaZiCycleAnalyzer() {
     return (result as any).bySh || [];
   }, [result, timeframe]);
 
+  const sortedShioData = useMemo(() => {
+    if (!shioData || !shioData.length || shioSort.mode === 'default' || !shioSort.key) return shioData;
+    const key = shioSort.key as keyof any;
+    const data = [...shioData];
+    data.sort((a:any, b:any) => {
+      const va = a[key] ?? 0; const vb = b[key] ?? 0;
+      const diff = (Number(va) as number) - (Number(vb) as number);
+      return shioSort.mode === 'asc' ? diff : -diff;
+    });
+    return data;
+  }, [shioData, shioSort]);
+
+  const cycleShioSort = (key: string) => {
+    setShioSort(prev => {
+      const nextMode = (prev.key !== key)
+        ? 'desc'
+        : prev.mode === 'default' ? 'desc' : prev.mode === 'desc' ? 'asc' : 'default';
+      return { key, mode: nextMode };
+    });
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background via-muted/20 to-background p-4 sm:p-6 md:p-10">
+    <div className="min-h-screen bg-gradient-to-b from-background via-muted/20 to-background p-4 sm:p-6 md:p-10 overflow-x-hidden">
       <div className="w-full space-y-8">
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
+        {/* <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
           <div className="flex items-start justify-between gap-6">
             <div>
               <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Ba Zi Cycle Analyzer</h1>
@@ -909,15 +960,32 @@ export default function BaZiCycleAnalyzer() {
             </div>
             <Badge intent="blue">v0.8.0</Badge>
           </div>
-        </motion.div>
+        </motion.div> */}
 
         <Card>
           <CardHeader>
-            <SectionTitle icon={Settings2} title="Pengaturan Analisis" subtitle="Isi parameter & upload data sebelum running" />
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <SectionTitle title="Pengaturan Analisis" subtitle="Isi parameter & upload data sebelum running" />
+              <button
+                type="button"
+                onClick={runAnalysis}
+                disabled={loading || rows.length === 0}
+                className={`inline-flex items-center gap-2 px-3 py-2 text-sm rounded-md border ${
+                  loading || rows.length === 0
+                    ? 'bg-muted text-muted-foreground border-border cursor-not-allowed opacity-60'
+                    : 'bg-primary text-primary-foreground border-primary hover:opacity-90'
+                }`}
+                aria-disabled={loading || rows.length === 0}
+                title={rows.length === 0 ? 'Load data dulu sebelum menjalankan analisis' : 'Jalankan analisis'}
+              >
+                <Sparkles className="w-4 h-4" />
+                {loading ? 'Running…' : 'Run Analysis'}
+              </button>
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-              <div className="md:col-span-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-4">
+              <div className="sm:col-span-2 lg:col-span-4">
                 <label className="text-sm font-medium">Stock:</label>
                 <div ref={tickerDropdownWrapRef} className="relative mt-1">
                   <div className="relative">
@@ -1013,7 +1081,7 @@ export default function BaZiCycleAnalyzer() {
                   </div>
                   
                   {/* Stock Search and Select Dropdown */}
-                  {tickerDropdownOpen && (
+                    {tickerDropdownOpen && (
                     <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-10 max-h-60 overflow-y-auto">
                       {availableStocks.length === 0 ? (
                         <div className="p-3 text-sm text-muted-foreground">Loading stocks...</div>
@@ -1022,16 +1090,21 @@ export default function BaZiCycleAnalyzer() {
                           {/* Show filtered results */}
                           {filteredTickers
                             .slice(0, 15)
-                            .map((stock) => (
+                            .map((stock, idx) => (
                               <button
                                 key={stock}
+                                role="option"
+                                aria-selected={tickerActiveIndex === idx}
+                                onMouseEnter={() => setTickerActiveIndex(idx)}
+                                onMouseDown={(e) => e.preventDefault()}
                                 onClick={() => {
                                   setParams(p => ({ ...p, ticker: stock }));
                                   setTickerSearchQuery('');
                                   setTickerDropdownOpen(false);
+                                  setTickerActiveIndex(-1);
                                 }}
-                                className={`flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors ${
-                                  params.ticker === stock ? 'bg-accent' : ''
+                                className={`flex items-center justify-between w-full px-3 py-2 text-left transition-colors ${
+                                  tickerActiveIndex === idx ? 'bg-accent' : 'hover:bg-accent'
                                 }`}
                               >
                                 <span className="text-sm">{stock}</span>
@@ -1081,11 +1154,11 @@ export default function BaZiCycleAnalyzer() {
                     </div>
                   )}
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">Kamu juga bisa drag & drop CSV ke area ini.</p>
+                {/* <p className="text-xs text-muted-foreground mt-1">Kamu juga bisa drag & drop CSV ke area ini.</p> */}
                 {/* Hidden file input to support Browse CSV */}
                 <input ref={fileInputRef} className="hidden" type="file" accept=".csv" onChange={(e) => onUpload(e.target.files?.[0] || null)} />
               </div>
-              <div className="md:col-span-3">
+              <div className="sm:col-span-1 lg:col-span-3">
                 <label className="text-sm font-medium">Anchor Method</label>
                 <select 
                   value={params.anchorMethod} 
@@ -1097,7 +1170,7 @@ export default function BaZiCycleAnalyzer() {
                 </select>
               </div>
               {params.anchorMethod==="custom" && (
-                <div className="md:col-span-2">
+                <div className="sm:col-span-1 lg:col-span-2">
                   <label className="text-sm font-medium">Anchor Date (Custom)</label>
                   <div 
                     className="relative h-10 w-full rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors mt-1"
@@ -1127,7 +1200,7 @@ export default function BaZiCycleAnalyzer() {
                   </div>
                 </div>
               )}
-              <div className="md:col-span-2">
+              <div className="sm:col-span-1 lg:col-span-2">
                 <label className="text-sm font-medium">Start Date</label>
                 <div 
                   className="relative h-10 w-full rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors mt-1"
@@ -1157,7 +1230,7 @@ export default function BaZiCycleAnalyzer() {
                   </div>
                 </div>
               </div>
-              <div className="md:col-span-2">
+              <div className="sm:col-span-1 lg:col-span-2">
                 <label className="text-sm font-medium">End Date</label>
                 <div 
                   className="relative h-10 w-full rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors mt-1"
@@ -1189,11 +1262,11 @@ export default function BaZiCycleAnalyzer() {
                 </div>
               </div>
 
-              <div className="md:col-span-12 pt-2">
+              {/* <div className="md:col-span-12 pt-2">
                 <div className="text-xs text-muted-foreground">
                   Analysis runs automatically when you select a stock or upload CSV data.
                 </div>
-              </div>
+              </div> */}
               {err && <div className="md:col-span-12 text-sm text-destructive">{err}</div>}
               {!err && !rows.length && params.ticker && params.ticker !== 'DEMO' && (<div className="md:col-span-12 text-xs text-muted-foreground">Tips: pilih stock dari dropdown atau klik <em>Browse CSV</em> untuk upload file CSV.</div>)}
               
@@ -1214,10 +1287,10 @@ export default function BaZiCycleAnalyzer() {
 
         {result && (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05, duration: 0.4 }}>
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <Card className="lg:col-span-1">
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 sm:gap-6 overflow-x-auto">
+              <Card className="xl:col-span-1">
                 <CardHeader>
-                  <SectionTitle icon={Sparkles} title="Ringkasan Data" />
+                  <SectionTitle title="Ringkasan Data" />
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3 text-sm">
@@ -1229,71 +1302,73 @@ export default function BaZiCycleAnalyzer() {
                       </Badge>
                     </div>
                     <div className="flex items-center justify-between"><span className="text-muted-foreground">Rows</span><span className="font-medium">{result.enriched.length}</span></div>
-                    <div className="flex items-center justify-between"><span className="text-muted-foreground">Date Range</span><span className="font-medium">{params.startDate} → {params.endDate}</span></div>
-                    <div className="text-xs text-muted-foreground">Tahun Ba Zi pakai batas <b>Li Chun (λ☉=315°)</b>; tanggal sebelum Li Chun masuk ke tahun sebelumnya.</div>
+                    <div className="flex items-center justify-between"><span className="text-muted-foreground">Date Range</span><span className="font-medium text-xs sm:text-sm">{params.startDate} → {params.endDate}</span></div>
+                    {/* <div className="text-xs text-muted-foreground">Tahun Ba Zi pakai batas <b>Li Chun (λ☉=315°)</b>; tanggal sebelum Li Chun masuk ke tahun sebelumnya.</div> */}
                   </div>
                 </CardContent>
               </Card>
 
-              <div className="lg:col-span-2">
+              <div className="xl:col-span-2">
                 <DateInfoCardNew />
               </div>
 
-              <Card className="lg:col-span-3">
-                <CardHeader className="flex items-center justify-between">
-                  <SectionTitle icon={Calendar} title="Performa per Element (Year Pillar)" subtitle="Avg daily return, Probability Up/Down, Avg Open→Close % (per Ba Zi Year), Cycle Count, ATR/Close" />
-                  <div className="mt-2 md:mt-0"><TimeframeTabs value={timeframe} onChange={setTimeframe} /></div>
+              <Card className="xl:col-span-3">
+                <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <SectionTitle title="Performa per Element (Year Pillar)" subtitle="Avg daily return, Probability Up/Down, Avg Open→Close % (per Ba Zi Year), Cycle Count, ATR/Close" />
+                  <div className="mt-0"><TimeframeTabs value={timeframe} onChange={setTimeframe} /></div>
                 </CardHeader>
                 <CardContent>
                   {timeframe==='yearly' && (<>
-                  <div className="grid grid-cols-1 md:grid-cols-7 gap-2 text-sm font-medium mb-2 justify-items-start">
-                    <div>Element</div>
-                    <div>Days</div>
-                    
-                    <div>Prob Up</div>
-                    <div>Prob Down</div>
-                    <div>Prob Flat</div>
-                    <div>Avg Open-Close % (Year)</div>
-                    <div>Cycle Count</div>
+                  <div className="w-full overflow-x-auto">
+                  <div className="min-w-[720px] grid grid-cols-1 md:grid-cols-7 gap-2 text-sm font-medium mb-2 justify-items-start">
+                    <button className="text-left" onClick={()=>cycleElemSort('element')}>Element <Filter className="inline w-3 h-3 ml-1" /></button>
+                    <button className="text-left" onClick={()=>cycleElemSort('days')}>Days <Filter className="inline w-3 h-3 ml-1" /></button>
+                    <button className="text-left" onClick={()=>cycleElemSort('prob_up')}>Prob Up <Filter className="inline w-3 h-3 ml-1" /></button>
+                    <button className="text-left" onClick={()=>cycleElemSort('prob_down')}>Prob Down <Filter className="inline w-3 h-3 ml-1" /></button>
+                    <button className="text-left" onClick={()=>cycleElemSort('prob_flat')}>Prob Flat <Filter className="inline w-3 h-3 ml-1" /></button>
+                    <button className="text-left" onClick={()=>cycleElemSort('avg_year_oc')}>Avg Open-Close % (Year) <Filter className="inline w-3 h-3 ml-1" /></button>
+                    <button className="text-left" onClick={()=>cycleElemSort('n_years')}>Cycle Count <Filter className="inline w-3 h-3 ml-1" /></button>
                   </div>
-                  <div className="divide-y">
-                    {elemData.map((r:any, i:number)=> (
+                  <div className="divide-y min-w-[720px]">
+                    {sortedElemData.map((r:any, i:number)=> (
                       <div key={i} className="grid grid-cols-1 md:grid-cols-7 gap-2 py-2 text-sm">
                         <div><Badge intent="violet">{r.element}</Badge></div>
                         <div>{r.days}</div>
                         
                         <div>{(r.prob_up*100).toFixed(1)}%</div>
                         <div>{(r.prob_down*100).toFixed(1)}%</div>
+                        <div>{(r.prob_flat*100).toFixed(1)}%</div>
                         <div>{Number.isFinite(r.avg_year_oc) ? (r.avg_year_oc*100).toFixed(2) + '%' : '—'}</div>
                         <div>{r.n_years ?? 0}</div>
-                        <div>{(r.prob_flat*100).toFixed(1)}%</div>
                       </div>
                     ))}
+                  </div>
                   </div>
                   </>) }
                   {timeframe!=='yearly' && (
                     <>
-                      <div className={"grid grid-cols-1 " + (timeframe==='daily' ? 'md:grid-cols-7' : 'md:grid-cols-7') + " gap-2 text-sm font-medium mb-2 justify-items-start"}>
-                        <div>Element</div>
-                        <div>Days</div>
-                        <div>Prob Up</div>
-                        <div>Prob Down</div>
-                        <div>Prob Flat</div>
+                      <div className="w-full overflow-x-auto">
+                      <div className={"min-w-[720px] grid grid-cols-1 " + (timeframe==='daily' ? 'md:grid-cols-7' : 'md:grid-cols-7') + " gap-2 text-sm font-medium mb-2 justify-items-start"}>
+                        <button className="text-left" onClick={()=>cycleElemSort('element')}>Element <Filter className="inline w-3 h-3 ml-1" /></button>
+                        <button className="text-left" onClick={()=>cycleElemSort('days')}>Days <Filter className="inline w-3 h-3 ml-1" /></button>
+                        <button className="text-left" onClick={()=>cycleElemSort('prob_up')}>Prob Up <Filter className="inline w-3 h-3 ml-1" /></button>
+                        <button className="text-left" onClick={()=>cycleElemSort('prob_down')}>Prob Down <Filter className="inline w-3 h-3 ml-1" /></button>
+                        <button className="text-left" onClick={()=>cycleElemSort('prob_flat')}>Prob Flat <Filter className="inline w-3 h-3 ml-1" /></button>
                         {timeframe!=='daily' && (
                           <>
-                            <div>{timeframe==='monthly' ? 'Avg Open-Close % (BaZi Month)' : 'Avg Open-Close % (Year)'}</div>
-                            <div>Cycle Count</div>
+                            <button className="text-left" onClick={()=>cycleElemSort('avg_year_oc')}>{timeframe==='monthly' ? 'Avg Open-Close % (BaZi Month)' : 'Avg Open-Close % (Year)'} <Filter className="inline w-3 h-3 ml-1" /></button>
+                            <button className="text-left" onClick={()=>cycleElemSort('n_years')}>Cycle Count <Filter className="inline w-3 h-3 ml-1" /></button>
                           </>
                         )}
                         {timeframe==='daily' && (
                           <>
-                            <div>Avg Open-Close % (Day)</div>
-                            <div>Cycle Count</div>
+                            <button className="text-left" onClick={()=>cycleElemSort('avg_year_oc')}>Avg Open-Close % (Day) <Filter className="inline w-3 h-3 ml-1" /></button>
+                            <button className="text-left" onClick={()=>cycleElemSort('n_years')}>Cycle Count <Filter className="inline w-3 h-3 ml-1" /></button>
                           </>
                         )}
                       </div>
-                      <div className="divide-y">
-                        {elemData.map((r:any, i:number)=> (
+                      <div className="divide-y min-w-[720px]">
+                        {sortedElemData.map((r:any, i:number)=> (
                           <div key={i} className={"grid grid-cols-1 " + (timeframe==='daily' ? 'md:grid-cols-7' : 'md:grid-cols-7') + " gap-2 py-2 text-sm"}>
                             <div><Badge intent="violet">{r.element}</Badge></div>
                             <div>{r.days}</div>
@@ -1315,15 +1390,16 @@ export default function BaZiCycleAnalyzer() {
                           </div>
                         ))}
                       </div>
+                      </div>
                     </>
                   )}
                 </CardContent>
               </Card>
 
-              <div className="lg:col-span-3">
+              <div className="xl:col-span-3">
                 <Card>
-                  <CardHeader className="flex items-center justify-between">
-                    <SectionTitle icon={LineChart} title={
+                  <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <SectionTitle title={
                       timeframe==='yearly' ? 'Performa per Shio (Year Branch)' : (timeframe==='monthly' ? 'Performa per Shio (BaZi Month)' : 'Performa per Shio (Daily)')
                     } subtitle={
                       timeframe==='daily'
@@ -1332,32 +1408,29 @@ export default function BaZiCycleAnalyzer() {
                             ? 'Avg daily return, Probability Up/Down, Avg Open→Close % (per Ba Zi Year), Cycle Count, ATR/Close'
                             : 'Avg daily return, Probability Up/Down, Avg Open→Close % (per BaZi Month), Cycle Count, ATR/Close')
                     } />
-                    <div className="mt-2 md:mt-0"><TimeframeTabs value={timeframe} onChange={setTimeframe} /></div>
+                    <div className="mt-0"><TimeframeTabs value={timeframe} onChange={setTimeframe} /></div>
                   </CardHeader>
                   <CardContent>
-                    <div className={"grid grid-cols-1 " + (timeframe==='daily' ? 'md:grid-cols-7' : 'md:grid-cols-7') + " gap-2 text-sm font-medium mb-2 justify-items-start"}>
-                      <div>Shio</div>
-                      <div>Days</div>
-                      
-                      <div>Prob Up</div>
-                      <div>Prob Down</div>
-                      <div>Prob Flat</div>
+                    <div className="w-full overflow-x-auto">
+                    <div className={"min-w-[720px] grid grid-cols-1 " + (timeframe==='daily' ? 'md:grid-cols-7' : 'md:grid-cols-7') + " gap-2 text-sm font-medium mb-2 justify-items-start"}>
+                      <button className="text-left" onClick={()=>cycleShioSort('shio')}>Shio <Filter className="inline w-3 h-3 ml-1" /></button>
+                      <button className="text-left" onClick={()=>cycleShioSort('days')}>Days <Filter className="inline w-3 h-3 ml-1" /></button>
+                      <button className="text-left" onClick={()=>cycleShioSort('prob_up')}>Prob Up <Filter className="inline w-3 h-3 ml-1" /></button>
+                      <button className="text-left" onClick={()=>cycleShioSort('prob_down')}>Prob Down <Filter className="inline w-3 h-3 ml-1" /></button>
+                      <button className="text-left" onClick={()=>cycleShioSort('prob_flat')}>Prob Flat <Filter className="inline w-3 h-3 ml-1" /></button>
                       {timeframe!=='daily' && (
                         <>
-                          <div>{timeframe==='monthly' ? 'Avg Open→Close % (BaZi Month)' : 'Avg Open→Close % (Year)'}</div>
-                          <div>Cycle Count</div>
+                          <button className="text-left" onClick={()=>cycleShioSort('avg_year_oc')}>{timeframe==='monthly' ? 'Avg Open→Close % (BaZi Month)' : 'Avg Open→Close % (Year)'} <Filter className="inline w-3 h-3 ml-1" /></button>
+                          <button className="text-left" onClick={()=>cycleShioSort('n_years')}>Cycle Count <Filter className="inline w-3 h-3 ml-1" /></button>
                         </>
                       )}
-                      {timeframe==='daily' && (
-                        <>
-                          <div>Avg Open-Close % (Day)</div>
-                          <div>Cycle Count</div>
-                        </>
-                      )}
-                      
+                      {timeframe==='daily' && (<>
+                          <button className="text-left" onClick={()=>cycleShioSort('avg_year_oc')}>Avg Open-Close % (Day) <Filter className="inline w-3 h-3 ml-1" /></button>
+                          <button className="text-left" onClick={()=>cycleShioSort('n_years')}>Cycle Count <Filter className="inline w-3 h-3 ml-1" /></button>
+                        </>)}
                     </div>
-                    <div className="divide-y">
-                      {shioData.map((r:any, i:number)=> (
+                    <div className="divide-y min-w-[720px]">
+                      {sortedShioData.map((r:any, i:number)=> (
                         <div key={i} className={"grid grid-cols-1 " + (timeframe==='daily' ? 'md:grid-cols-7' : 'md:grid-cols-7') + " gap-2 py-2 text-sm"}>
                           <div><Badge intent="gray">{r.shio}</Badge></div>
                           <div>{r.days}</div>
@@ -1371,14 +1444,13 @@ export default function BaZiCycleAnalyzer() {
                               <div>{r.n_years ?? 0}</div>
                             </>
                           )}
-                          {timeframe==='daily' && (
-                            <>
+                          {timeframe==='daily' && (<>
                               <div>{Number.isFinite(r.avg_year_oc) ? (r.avg_year_oc*100).toFixed(2) + '%' : '-'}</div>
                               <div>{r.n_years ?? 0}</div>
-                            </>
-                          )}
+                            </>)}
                         </div>
                       ))}
+                    </div>
                     </div>
                   </CardContent>
                 </Card>

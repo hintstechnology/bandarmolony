@@ -34,9 +34,7 @@ export function minmaxScale(values: NumericArray): NumericArray {
   }
   const range = vMax - vMin;
   return values.map((v) => (v - vMin) / range);
-}
-
-export interface TransformResult {
+}\n\n/**\n * Cumulative log-return per timepoint: ln(Pt) - ln(P0)\n */\nexport function cumulativeLogReturn(values: NumericArray, epsilon: number = 1e-12): NumericArray {\n  if (values.length === 0) return [];\n  const logVals = values.map(v => Math.log(Math.max(v, epsilon)));\n  const base = logVals[0];\n  return logVals.map(v => v - base);\n}\n\nexport interface TransformResult {
   emitter: string;
   count: number;
   method: "log+minmax";
@@ -63,14 +61,7 @@ export function resultToCsv(result: TransformResult): string {
  * Lakukan log transform lalu min–max scaling, kembalikan object hasil transformasi.
  */
 export function transformSeries(emitter: string, values: NumericArray, dates: string[]): TransformResult {
-  const logValues = safeLog(values);
-  let logMin = Number.POSITIVE_INFINITY;
-  let logMax = Number.NEGATIVE_INFINITY;
-  for (const v of logValues) {
-    if (v < logMin) logMin = v;
-    if (v > logMax) logMax = v;
-  }
-  const scaled = minmaxScale(logValues);
+  const cumLog = cumulativeLogReturn(values);\n  let logMin = Number.POSITIVE_INFINITY;\n  let logMax = Number.NEGATIVE_INFINITY;\n  for (const v of cumLog) {\n    if (v < logMin) logMin = v;\n    if (v > logMax) logMax = v;\n  }\n  const scaled = minmaxScale(cumLog);
   return {
     emitter,
     count: values.length,
@@ -409,5 +400,6 @@ if (require.main === module) {
     process.exit(1);
   });
 }
+
 
 

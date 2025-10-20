@@ -73,8 +73,8 @@ const menuItems = [
     url: "#",
     route: "astrology",
     children: [
-      { title: "Ba Zi & Shio", url: "#", route: "astrology/lunar" },
-      { title: "BaZi Cycle Analysis", url: "#", route: "astrology/bazi-cycle" },
+      { title: "Input Data", url: "#", route: "astrology/lunar" },
+      { title: "Bazimology", url: "#", route: "astrology/bazi-cycle" },
     ],
   },
   {
