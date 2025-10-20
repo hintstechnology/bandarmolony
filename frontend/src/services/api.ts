@@ -51,6 +51,48 @@ export const api = {
     }
   },
 
+  // Seasonal Analysis
+  async getSeasonalityData(type: 'index' | 'sector' | 'stock', startDate?: string, endDate?: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const params = new URLSearchParams();
+      if (startDate) params.append('startDate', startDate);
+      if (endDate) params.append('endDate', endDate);
+      
+      const res = await fetch(`${API_URL}/api/seasonality/data/${type}?${params}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get seasonality data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get seasonality data' };
+    }
+  },
+
+  async getSeasonalityStatus(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/seasonality/status`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get seasonality status');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get seasonality status' };
+    }
+  },
+
+  async generateSeasonality(triggerType: 'manual' | 'scheduled' = 'manual'): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/seasonality/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ triggerType })
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to generate seasonality');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to generate seasonality' };
+    }
+  },
+
   async getMarketRotationOutputFile(feature: 'rrc' | 'rrg' | 'seasonal' | 'trend', path: string): Promise<string> {
     const res = await fetch(`${API_URL}/api/market-rotation/outputs/${feature}/file?path=${encodeURIComponent(path)}`);
     if (!res.ok) {
@@ -1258,12 +1300,14 @@ export const api = {
     }
   },
 
-  async getRRGData(type: 'stock' | 'sector' | 'index', items: string[], index: string = 'COMPOSITE'): Promise<{ success: boolean; data?: any; error?: string }> {
+  async getRRGData(type: 'stock' | 'sector' | 'index', items: string[], index: string = 'COMPOSITE', startDate?: string, endDate?: string): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       const params = new URLSearchParams();
       params.append('type', type);
       items.forEach(item => params.append('items', item));
       params.append('index', index);
+      if (startDate) params.append('startDate', startDate);
+      if (endDate) params.append('endDate', endDate);
       
       const res = await fetch(`${API_URL}/api/rrg/data?${params}`, {
         method: 'GET',
@@ -1334,6 +1378,21 @@ export const api = {
     }
   },
 
+  // RRG Scanner API
+  async getRRGScannerData(type: 'stock' | 'sector'): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrg/scanner/${type}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get RRG scanner data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get RRG scanner data' };
+    }
+  },
+
   // Seasonality API
   async getSeasonalityInputs(): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
@@ -1343,34 +1402,6 @@ export const api = {
       return { success: true, data: json };
     } catch (err: any) {
       return { success: false, error: err.message || 'Failed to get seasonality inputs' };
-    }
-  },
-
-  async getSeasonalityData(params: { type: string; items: string[]; startDate?: string; endDate?: string }): Promise<{ success: boolean; data?: any; error?: string }> {
-    try {
-      const queryParams = new URLSearchParams();
-      queryParams.append('type', params.type);
-      params.items.forEach(item => queryParams.append('items', item));
-      if (params.startDate) queryParams.append('startDate', params.startDate);
-      if (params.endDate) queryParams.append('endDate', params.endDate);
-
-      const res = await fetch(`${API_URL}/api/seasonality/data?${queryParams.toString()}`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to get seasonality data');
-      return { success: true, data: json };
-    } catch (err: any) {
-      return { success: false, error: err.message || 'Failed to get seasonality data' };
-    }
-  },
-
-  async getSeasonalityStatus(): Promise<{ success: boolean; data?: any; error?: string }> {
-    try {
-      const res = await fetch(`${API_URL}/api/seasonality/status`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to get seasonality status');
-      return { success: true, data: json };
-    } catch (err: any) {
-      return { success: false, error: err.message || 'Failed to get seasonality status' };
     }
   },
 
@@ -1418,6 +1449,111 @@ export const api = {
       return { success: true, data: json.data };
     } catch (err: any) {
       return { success: false, error: err.message || 'Failed to pre-generate RRC' };
+    }
+  },
+
+  // Trend Filter API
+  async getTrendFilterStatus(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/trend-filter/status`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get trend filter status');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get trend filter status' };
+    }
+  },
+
+  async generateTrendFilter(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/trend-filter/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to generate trend filter');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to generate trend filter' };
+    }
+  },
+
+  async getTrendFilterData(period?: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const url = period 
+        ? `${API_URL}/api/trend-filter/data/${period}`
+        : `${API_URL}/api/trend-filter/data`;
+      const res = await fetch(url);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get trend filter data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get trend filter data' };
+    }
+  },
+
+  async getTrendFilterPeriods(): Promise<{ success: boolean; data?: string[]; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/trend-filter/periods`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get trend filter periods');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get trend filter periods' };
+    }
+  },
+
+  // Stock Data API
+  async getStockList(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/stock/list`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get stock list');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get stock list' };
+    }
+  },
+
+  async getStockData(stockCode: string, startDate?: string, endDate?: string, limit?: number): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const params = new URLSearchParams();
+      if (startDate) params.append('startDate', startDate);
+      if (endDate) params.append('endDate', endDate);
+      if (limit) params.append('limit', limit.toString());
+      
+      const res = await fetch(`${API_URL}/api/stock/data/${stockCode}?${params}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get stock data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get stock data' };
+    }
+  },
+
+  async getMultipleStocksData(stockCodes: string[], startDate?: string, endDate?: string, limit?: number): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const params = new URLSearchParams();
+      stockCodes.forEach(code => params.append('stocks', code));
+      if (startDate) params.append('startDate', startDate);
+      if (endDate) params.append('endDate', endDate);
+      if (limit) params.append('limit', limit.toString());
+      
+      const res = await fetch(`${API_URL}/api/stock/data?${params}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get stocks data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get stocks data' };
     }
   },
 

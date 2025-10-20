@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { Badge } from "../ui/badge";
-import { UserPlus, Mail, MailCheck, Calendar, Shield } from "lucide-react";
+import { Button } from "../ui/button";
+import { UserPlus, Mail, MailCheck, Calendar, Shield, ChevronLeft, ChevronRight } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { useTabFocus } from "../../hooks/useTabFocus";
 
@@ -22,6 +23,13 @@ export function RecentUsers() {
   const [error, setError] = useState<string | null>(null);
   const [lastFetchTime, setLastFetchTime] = useState<number>(0);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: 5,
+    total: 0,
+    totalPages: 0
+  });
 
   useEffect(() => {
     // Only fetch on mount or if data is stale (older than 3 minutes)
@@ -31,7 +39,7 @@ export function RecentUsers() {
     } else {
       setLoading(false);
     }
-  }, [isInitialized, lastFetchTime]);
+  }, [isInitialized, lastFetchTime, currentPage]);
 
   // Listen for auth changes to reset cache only on sign in/out
   useEffect(() => {
@@ -74,8 +82,13 @@ export function RecentUsers() {
         throw new Error('No active session');
       }
 
+      const params = new URLSearchParams({
+        page: currentPage.toString(),
+        limit: '5'
+      });
+
       const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
-      const response = await fetch(`${API_URL}/api/admin/recent-users?limit=5`, {
+      const response = await fetch(`${API_URL}/api/admin/recent-users?${params}`, {
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
           'Content-Type': 'application/json'
@@ -88,10 +101,16 @@ export function RecentUsers() {
 
       const result = await response.json();
       if (result.ok) {
-        setRecentUsers(result.data);
+        setRecentUsers(result.data?.users || []);
+        setPagination(result.data?.pagination || {
+          page: 1,
+          limit: 5,
+          total: 0,
+          totalPages: 0
+        });
         setLastFetchTime(Date.now());
         setIsInitialized(true);
-        console.log('RecentUsers: Data fetched successfully, users:', result.data.length);
+        console.log('RecentUsers: Data fetched successfully, users:', result.data?.users?.length || 0);
       } else {
         throw new Error(result.error || 'Failed to fetch recent users');
       }
@@ -182,7 +201,7 @@ export function RecentUsers() {
         <CardDescription>Latest users who joined the platform</CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="space-y-4">
+        <div className="space-y-4 min-h-[500px]">
           {recentUsers.length === 0 ? (
             <div className="text-center text-muted-foreground py-8">
               <UserPlus className="h-8 w-8 mx-auto mb-2 opacity-50" />
@@ -223,6 +242,51 @@ export function RecentUsers() {
             ))
           )}
         </div>
+
+        {/* Pagination */}
+        {pagination.totalPages > 1 && (
+          <div className="flex items-center justify-between mt-6">
+            <p className="text-sm text-muted-foreground">
+              Showing {((pagination.page - 1) * pagination.limit) + 1} to {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total} users
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Previous
+              </Button>
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
+                  const page = i + 1;
+                  return (
+                    <Button
+                      key={page}
+                      variant={currentPage === page ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setCurrentPage(page)}
+                      className="w-8 h-8 p-0"
+                    >
+                      {page}
+                    </Button>
+                  );
+                })}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(prev => Math.min(pagination.totalPages, prev + 1))}
+                disabled={currentPage === pagination.totalPages}
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

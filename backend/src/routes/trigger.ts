@@ -1,183 +1,714 @@
 // trigger.ts
-// Unified trigger endpoint for manual data generation
+// Manual trigger endpoints for data update services
 
-import { Router } from 'express';
-import { createErrorResponse, createSuccessResponse, HTTP_STATUS } from '../utils/responseUtils';
-import { forceRegenerate as forceRegenerateRRC, getGenerationStatus as getRRCStatus } from '../services/rrcAutoGenerate';
-import { forceRegenerate as forceRegenerateRRG, getGenerationStatus as getRRGStatus } from '../services/rrgAutoGenerate';
-import { forceRegenerate as forceRegenerateSeasonal, getGenerationStatus as getSeasonalStatus } from '../services/seasonalityAutoGenerate';
+import express from 'express';
+import { updateStockData } from '../services/stockDataUpdateService';
+import { updateIndexData } from '../services/indexDataUpdateService';
+import { updateShareholdersData } from '../services/shareholdersDataUpdateService';
+import { updateHoldingData } from '../services/holdingDataUpdateService';
+import { updateDoneSummaryData } from '../services/doneSummaryDataUpdateService';
+import { SchedulerLogService } from '../services/schedulerLogService';
+import { AzureLogger } from '../services/azureLoggingService';
+import AccumulationAutoGenerateService from '../services/accumulationAutoGenerate';
+import BidAskAutoGenerateService from '../services/bidAskAutoGenerate';
+import BrokerDataAutoGenerateService from '../services/brokerDataAutoGenerate';
+import BrokerInventoryAutoGenerateService from '../services/brokerInventoryAutoGenerate';
+import ForeignFlowAutoGenerateService from '../services/foreignFlowAutoGenerate';
+import MoneyFlowAutoGenerateService from '../services/moneyFlowAutoGenerate';
 
-const router = Router();
+const router = express.Router();
 
-/**
- * Manual trigger for data generation
- * Query params:
- *   - feature: 'rrc' | 'rrg' | 'all' (default: 'all')
- */
-router.post('/generate', async (req, res) => {
+// Manual trigger for stock data update
+router.post('/stock', async (_req, res) => {
   try {
-    const { feature = 'all' } = req.query;
+    console.log('🔄 Manual trigger: Stock data update');
     
-    console.log(`🔄 Manual trigger requested for: ${feature}`);
-    
-    // Validate feature parameter
-    if (!['rrc', 'rrg', 'seasonal', 'all'].includes(feature as string)) {
-      return res.status(HTTP_STATUS.BAD_REQUEST).json(
-        createErrorResponse('Invalid feature parameter. Use: rrc, rrg, seasonal, or all')
-      );
+    // Create log entry
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'stock',
+      trigger_type: 'manual',
+      triggered_by: 'admin',
+      status: 'running',
+      force_override: true,
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
     }
-    
-    const results: any = {
-      rrc: null,
-      rrg: null,
-      seasonal: null
-    };
-    
-    // Trigger RRC
-    if (feature === 'rrc' || feature === 'all') {
-      const rrcStatus = getRRCStatus();
-      
-      if (rrcStatus.isGenerating) {
-        results.rrc = {
-          status: 'skipped',
-          message: 'RRC generation already in progress',
-          progress: rrcStatus.progress
-        };
-      } else {
-        console.log('🚀 Starting RRC generation...');
-        
-        // Start generation in background (non-blocking)
-        forceRegenerateRRC().then(() => {
-          console.log('✅ RRC generation completed in background');
-        }).catch((error) => {
-          console.error('❌ RRC generation failed:', error);
+
+    // Run update in background
+    updateStockData().then(async () => {
+      await AzureLogger.logInfo('stock', 'Manual stock data update completed');
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'completed',
+          progress_percentage: 100
         });
-        
-        results.rrc = {
-          status: 'started',
-          message: 'RRC generation started in background',
-          note: 'Check /api/rrc/status for progress'
-        };
       }
-    }
-    
-    // Trigger RRG
-    if (feature === 'rrg' || feature === 'all') {
-      const rrgStatus = getRRGStatus();
-      
-      if (rrgStatus.isGenerating) {
-        results.rrg = {
-          status: 'skipped',
-          message: 'RRG generation already in progress',
-          progress: rrgStatus.progress
-        };
-      } else {
-        console.log('🚀 Starting RRG generation...');
-        
-        // Start generation in background (non-blocking)
-        forceRegenerateRRG().then(() => {
-          console.log('✅ RRG generation completed in background');
-        }).catch((error) => {
-          console.error('❌ RRG generation failed:', error);
+    }).catch(async (error) => {
+      await AzureLogger.logSchedulerError('stock', error.message);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
         });
-        
-        results.rrg = {
-          status: 'started',
-          message: 'RRG generation started in background',
-          note: 'Check /api/rrg/status for progress'
-        };
       }
-    }
-    
-    // Trigger Seasonality
-    if (feature === 'seasonal' || feature === 'all') {
-      const seasonalStatus = getSeasonalStatus();
-      
-      if (seasonalStatus.isGenerating) {
-        results.seasonal = {
-          status: 'skipped',
-          message: 'Seasonality generation already in progress',
-          progress: seasonalStatus.progress
-        };
-      } else {
-        console.log('🚀 Starting Seasonality generation...');
-        
-        // Start generation in background (non-blocking)
-        forceRegenerateSeasonal('manual').then(() => {
-          console.log('✅ Seasonality generation completed in background');
-        }).catch((error) => {
-          console.error('❌ Seasonality generation failed:', error);
-        });
-        
-        results.seasonal = {
-          status: 'started',
-          message: 'Seasonality generation started in background',
-          note: 'Check /api/seasonality/status for progress'
-        };
-      }
-    }
-    
-    return res.json(createSuccessResponse({
-      message: `Manual generation triggered for: ${feature}`,
-      feature: feature,
-      results: results,
-      monitoring: {
-        rrc_status: feature === 'rrc' || feature === 'all' ? '/api/rrc/status' : null,
-        rrg_status: feature === 'rrg' || feature === 'all' ? '/api/rrg/status' : null,
-        seasonal_status: feature === 'seasonal' || feature === 'all' ? '/api/seasonality/status' : null
-      }
-    }));
-    
+    });
+
+    return res.json({ 
+      success: true, 
+      message: 'Stock data update triggered successfully',
+      logId: logEntry.id
+    });
+
   } catch (error: any) {
-    console.error('❌ Error triggering manual generation:', error);
-    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(
-      createErrorResponse(error?.message || 'Failed to trigger generation')
-    );
+    console.error('❌ Manual trigger error (stock):', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
   }
 });
 
-/**
- * Get combined status for RRC and RRG
- */
-router.get('/status', async (_req, res) => {
+// Manual trigger for index data update
+router.post('/index', async (_req, res) => {
   try {
-    const rrcStatus = getRRCStatus();
-    const rrgStatus = getRRGStatus();
-    const seasonalStatus = getSeasonalStatus();
+    console.log('🔄 Manual trigger: Index data update');
     
-    return res.json(createSuccessResponse({
-      rrc: {
-        isGenerating: rrcStatus.isGenerating,
-        lastGeneration: rrcStatus.lastGenerationTime,
-        progress: rrcStatus.progress
-      },
-      rrg: {
-        isGenerating: rrgStatus.isGenerating,
-        lastGeneration: rrgStatus.lastGenerationTime,
-        progress: rrgStatus.progress
-      },
-      seasonal: {
-        isGenerating: seasonalStatus.isGenerating,
-        lastGeneration: seasonalStatus.lastGenerationTime,
-        progress: seasonalStatus.progress
-      },
-      overall: {
-        anyGenerating: rrcStatus.isGenerating || rrgStatus.isGenerating || seasonalStatus.isGenerating,
-        totalProgress: {
-          rrc: rrcStatus.progress,
-          rrg: rrgStatus.progress,
-          seasonal: seasonalStatus.progress
-        }
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'index',
+      trigger_type: 'manual',
+      triggered_by: 'admin',
+      status: 'running',
+      force_override: true,
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    updateIndexData().then(async () => {
+      await AzureLogger.logInfo('index', 'Manual index data update completed');
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'completed',
+          progress_percentage: 100
+        });
       }
-    }));
-    
+    }).catch(async (error) => {
+      await AzureLogger.logSchedulerError('index', error.message);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
+        });
+      }
+    });
+
+    return res.json({ 
+      success: true, 
+      message: 'Index data update triggered successfully',
+      logId: logEntry.id
+    });
+
   } catch (error: any) {
-    console.error('❌ Error getting generation status:', error);
-    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(
-      createErrorResponse(error?.message || 'Failed to get status')
-    );
+    console.error('❌ Manual trigger error (index):', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+});
+
+// Manual trigger for shareholders data update
+router.post('/shareholders', async (_req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Shareholders data update');
+    
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'shareholders',
+      trigger_type: 'manual',
+      triggered_by: 'admin',
+      status: 'running',
+      force_override: true,
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    updateShareholdersData().then(async () => {
+      await AzureLogger.logInfo('shareholders', 'Manual shareholders data update completed');
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'completed',
+          progress_percentage: 100
+        });
+      }
+    }).catch(async (error) => {
+      await AzureLogger.logSchedulerError('shareholders', error.message);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
+        });
+      }
+    });
+
+    return res.json({ 
+      success: true, 
+      message: 'Shareholders data update triggered successfully',
+      logId: logEntry.id
+    });
+
+  } catch (error: any) {
+    console.error('❌ Manual trigger error (shareholders):', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+});
+
+// Manual trigger for holding data update
+router.post('/holding', async (_req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Holding data update');
+    
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'holding',
+      trigger_type: 'manual',
+      triggered_by: 'admin',
+      status: 'running',
+      force_override: true,
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    updateHoldingData().then(async () => {
+      await AzureLogger.logInfo('holding', 'Manual holding data update completed');
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'completed',
+          progress_percentage: 100
+        });
+      }
+    }).catch(async (error) => {
+      await AzureLogger.logSchedulerError('holding', error.message);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
+        });
+      }
+    });
+
+    return res.json({ 
+      success: true, 
+      message: 'Holding data update triggered successfully',
+      logId: logEntry.id
+    });
+
+  } catch (error: any) {
+    console.error('❌ Manual trigger error (holding):', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+});
+
+// Manual trigger for done summary data update
+router.post('/done-summary', async (_req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Done summary data update');
+    
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'done-summary',
+      trigger_type: 'manual',
+      triggered_by: 'admin',
+      status: 'running',
+      force_override: true,
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    updateDoneSummaryData().then(async () => {
+      await AzureLogger.logInfo('done-summary', 'Manual done summary data update completed');
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'completed',
+          progress_percentage: 100
+        });
+      }
+    }).catch(async (error) => {
+      await AzureLogger.logSchedulerError('done-summary', error.message);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
+        });
+      }
+    });
+
+    return res.json({ 
+      success: true, 
+      message: 'Done summary data update triggered successfully',
+      logId: logEntry.id
+    });
+
+  } catch (error: any) {
+    console.error('❌ Manual trigger error (done-summary):', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+});
+
+// Manual trigger for Accumulation Distribution calculation
+router.post('/accumulation', async (_req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Accumulation Distribution calculation');
+    
+    const today = new Date();
+    const dateSuffix = today.toISOString().slice(2, 10).replace(/-/g, '');
+    
+    // Create log entry
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'accumulation_distribution',
+      trigger_type: 'manual',
+      triggered_by: 'admin',
+      status: 'running',
+      force_override: true,
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    // Run calculation in background
+    const accumulationService = new AccumulationAutoGenerateService();
+    accumulationService.generateAccumulationData(dateSuffix).then(async (result) => {
+      await AzureLogger.logInfo('accumulation_distribution', `Manual accumulation calculation completed: ${result.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: result.success ? 'completed' : 'failed',
+          progress_percentage: 100,
+          ...(result.success ? {} : { error_message: result.message })
+        });
+      }
+    }).catch(async (error) => {
+      await AzureLogger.logSchedulerError('accumulation_distribution', error.message);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
+        });
+      }
+    });
+
+    return res.json({ 
+      success: true, 
+      message: 'Accumulation Distribution calculation triggered',
+      log_id: logEntry.id
+    });
+  } catch (error) {
+    console.error('❌ Error triggering accumulation calculation:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error instanceof Error ? error.message : 'Unknown error' 
+    });
+  }
+});
+
+// Manual trigger for Bid/Ask Footprint calculation
+router.post('/bidask', async (_req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Bid/Ask Footprint calculation');
+    
+    const today = new Date();
+    const dateSuffix = today.toISOString().slice(2, 10).replace(/-/g, '');
+    
+    // Create log entry
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'bidask_footprint',
+      trigger_type: 'manual',
+      triggered_by: 'admin',
+      status: 'running',
+      force_override: true,
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    // Run calculation in background
+    const bidAskService = new BidAskAutoGenerateService();
+    bidAskService.generateBidAskData(dateSuffix).then(async (result) => {
+      await AzureLogger.logInfo('bidask_footprint', `Manual bid/ask calculation completed: ${result.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: result.success ? 'completed' : 'failed',
+          progress_percentage: 100,
+          ...(result.success ? {} : { error_message: result.message })
+        });
+      }
+    }).catch(async (error) => {
+      await AzureLogger.logSchedulerError('bidask_footprint', error.message);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
+        });
+      }
+    });
+
+    return res.json({ 
+      success: true, 
+      message: 'Bid/Ask Footprint calculation triggered',
+      log_id: logEntry.id
+    });
+  } catch (error) {
+    console.error('❌ Error triggering bid/ask calculation:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error instanceof Error ? error.message : 'Unknown error' 
+    });
+  }
+});
+
+// Manual trigger for Broker Data calculation
+router.post('/broker-data', async (_req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Broker Data calculation');
+    
+    const today = new Date();
+    const dateSuffix = today.toISOString().slice(2, 10).replace(/-/g, '');
+    
+    // Create log entry
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'broker_data',
+      trigger_type: 'manual',
+      triggered_by: 'admin',
+      status: 'running',
+      force_override: true,
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    // Run calculation in background
+    const brokerDataService = new BrokerDataAutoGenerateService();
+    brokerDataService.generateBrokerData(dateSuffix).then(async (result) => {
+      await AzureLogger.logInfo('broker_data', `Manual broker data calculation completed: ${result.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: result.success ? 'completed' : 'failed',
+          progress_percentage: 100,
+          ...(result.success ? {} : { error_message: result.message })
+        });
+      }
+    }).catch(async (error) => {
+      await AzureLogger.logSchedulerError('broker_data', error.message);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
+        });
+      }
+    });
+
+    return res.json({ 
+      success: true, 
+      message: 'Broker Data calculation triggered',
+      log_id: logEntry.id
+    });
+  } catch (error) {
+    console.error('❌ Error triggering broker data calculation:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error instanceof Error ? error.message : 'Unknown error' 
+    });
+  }
+});
+
+// Manual trigger for Broker Inventory calculation
+router.post('/broker-inventory', async (_req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Broker Inventory calculation');
+    
+    const today = new Date();
+    const dateSuffix = today.toISOString().slice(2, 10).replace(/-/g, '');
+    
+    // Create log entry
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'broker_inventory',
+      trigger_type: 'manual',
+      triggered_by: 'admin',
+      status: 'running',
+      force_override: true,
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    // Run calculation in background
+    const brokerInventoryService = new BrokerInventoryAutoGenerateService();
+    brokerInventoryService.generateBrokerInventoryData(dateSuffix).then(async (result) => {
+      await AzureLogger.logInfo('broker_inventory', `Manual broker inventory calculation completed: ${result.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: result.success ? 'completed' : 'failed',
+          progress_percentage: 100,
+          ...(result.success ? {} : { error_message: result.message })
+        });
+      }
+    }).catch(async (error) => {
+      await AzureLogger.logSchedulerError('broker_inventory', error.message);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
+        });
+      }
+    });
+
+    return res.json({ 
+      success: true, 
+      message: 'Broker Inventory calculation triggered',
+      log_id: logEntry.id
+    });
+  } catch (error) {
+    console.error('❌ Error triggering broker inventory calculation:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error instanceof Error ? error.message : 'Unknown error' 
+    });
+  }
+});
+
+// Manual trigger for Foreign Flow calculation
+router.post('/foreign-flow', async (_req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Foreign Flow calculation');
+    
+    const today = new Date();
+    const dateSuffix = today.toISOString().slice(2, 10).replace(/-/g, '');
+    
+    // Create log entry
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'foreign_flow',
+      trigger_type: 'manual',
+      triggered_by: 'admin',
+      status: 'running',
+      force_override: true,
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    // Run calculation in background
+    const foreignFlowService = new ForeignFlowAutoGenerateService();
+    foreignFlowService.generateForeignFlowData(dateSuffix).then(async (result) => {
+      await AzureLogger.logInfo('foreign_flow', `Manual foreign flow calculation completed: ${result.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: result.success ? 'completed' : 'failed',
+          progress_percentage: 100,
+          ...(result.success ? {} : { error_message: result.message })
+        });
+      }
+    }).catch(async (error) => {
+      await AzureLogger.logSchedulerError('foreign_flow', error.message);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
+        });
+      }
+    });
+
+    return res.json({ 
+      success: true, 
+      message: 'Foreign Flow calculation triggered',
+      log_id: logEntry.id
+    });
+  } catch (error) {
+    console.error('❌ Error triggering foreign flow calculation:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error instanceof Error ? error.message : 'Unknown error' 
+    });
+  }
+});
+
+// Manual trigger for Money Flow calculation
+router.post('/money-flow', async (_req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Money Flow calculation');
+    
+    const today = new Date();
+    const dateSuffix = today.toISOString().slice(2, 10).replace(/-/g, '');
+    
+    // Create log entry
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'money_flow',
+      trigger_type: 'manual',
+      triggered_by: 'admin',
+      status: 'running',
+      force_override: true,
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    // Run calculation in background
+    const moneyFlowService = new MoneyFlowAutoGenerateService();
+    moneyFlowService.generateMoneyFlowData(dateSuffix).then(async (result) => {
+      await AzureLogger.logInfo('money_flow', `Manual money flow calculation completed: ${result.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: result.success ? 'completed' : 'failed',
+          progress_percentage: 100,
+          ...(result.success ? {} : { error_message: result.message })
+        });
+      }
+    }).catch(async (error) => {
+      await AzureLogger.logSchedulerError('money_flow', error.message);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
+        });
+      }
+    });
+
+    return res.json({ 
+      success: true, 
+      message: 'Money Flow calculation triggered',
+      log_id: logEntry.id
+    });
+  } catch (error) {
+    console.error('❌ Error triggering money flow calculation:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error instanceof Error ? error.message : 'Unknown error' 
+    });
+  }
+});
+
+// Get scheduler logs
+router.get('/logs', async (req, res) => {
+  try {
+    const { limit = 50, offset = 0, status, feature_name } = req.query;
+    
+    const logs = await SchedulerLogService.getLogs({
+      limit: parseInt(limit as string),
+      offset: parseInt(offset as string),
+      status: status as string,
+      feature_name: feature_name as string
+    });
+    
+    // Get total count for pagination
+    const totalCount = await SchedulerLogService.getLogsCount({
+      status: status as string,
+      feature_name: feature_name as string
+    });
+    
+    return res.json({ 
+      success: true, 
+      data: logs,
+      total: totalCount
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error fetching scheduler logs:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+});
+
+// Get scheduler log by ID
+router.get('/logs/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const log = await SchedulerLogService.getLogById(parseInt(id));
+    
+    if (!log) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Log not found' 
+      });
+    }
+
+    return res.json({ 
+      success: true, 
+      data: log 
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error fetching scheduler log:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
   }
 });
 
 export default router;
-

@@ -40,11 +40,6 @@ export const config = {
   // External Services
   AZURE_STORAGE_CONNECTION_STRING: process.env['AZURE_STORAGE_CONNECTION_STRING'] || '',
   AZURE_STORAGE_CONTAINER_NAME: process.env['AZURE_STORAGE_CONTAINER_NAME'] || '',
-  TICMI_API_KEY: process.env['TICMI_API_KEY'] || '',
-  TICMI_API_URL: process.env['TICMI_API_URL'] || '',
-  
-  // Logging
-  LOG_LEVEL: process.env['LOG_LEVEL'] || '',
 };
 
 export default config;

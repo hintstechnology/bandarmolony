@@ -3,11 +3,20 @@
 
 import { supabaseAdmin } from '../supabaseClient';
 
+// Timezone helper functions
+function getJakartaTime(): string {
+  const now = new Date();
+  const jakartaTime = new Date(now.getTime() + (7 * 60 * 60 * 1000)); // UTC + 7
+  return jakartaTime.toISOString();
+}
+
+// Removed unused function
+
 export interface SchedulerLog {
   id?: string;
   created_at?: string;
   updated_at?: string;
-  feature_name: 'rrc' | 'rrg' | 'seasonal' | 'trend';
+  feature_name: string;
   trigger_type: 'startup' | 'scheduled' | 'manual' | 'debug';
   triggered_by?: string;
   status: 'running' | 'completed' | 'failed' | 'cancelled';
@@ -46,11 +55,12 @@ export class SchedulerLogService {
    */
   static async createLog(logData: Partial<SchedulerLog>): Promise<SchedulerLog | null> {
     try {
+      const jakartaTime = getJakartaTime();
       const { data, error } = await supabaseAdmin
         .from('scheduler_logs')
         .insert([{
           ...logData,
-          started_at: new Date().toISOString(),
+          started_at: jakartaTime,
           environment: process.env['NODE_ENV'] || 'development'
         }])
         .select()
@@ -74,9 +84,24 @@ export class SchedulerLogService {
    */
   static async updateLog(logId: string, updates: Partial<SchedulerLog>): Promise<boolean> {
     try {
+      // Add Jakarta timezone for completed_at if status is completed or failed
+      const updateData = { ...updates };
+      if (updates.status === 'completed' || updates.status === 'failed') {
+        updateData.completed_at = getJakartaTime();
+        if (updates.status === 'completed' || updates.status === 'failed') {
+          // Calculate duration if both started_at and completed_at exist
+          const log = await this.getLogById(parseInt(logId));
+          if (log?.started_at) {
+            const startTime = new Date(log.started_at);
+            const endTime = new Date(updateData.completed_at as string);
+            updateData.duration_seconds = Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
+          }
+        }
+      }
+
       const { error } = await supabaseAdmin
         .from('scheduler_logs')
-        .update(updates)
+        .update(updateData)
         .eq('id', logId);
 
       if (error) {
@@ -255,6 +280,105 @@ export class SchedulerLogService {
     } catch (error) {
       console.error('❌ Error marking log as failed:', error);
       return false;
+    }
+  }
+
+  /**
+   * Get scheduler logs with filtering and pagination
+   */
+  static async getLogs(options: {
+    limit?: number;
+    offset?: number;
+    status?: string;
+    feature_name?: string;
+  } = {}): Promise<any[]> {
+    try {
+      const { limit = 50, offset = 0, status, feature_name } = options;
+      
+      let query = supabaseAdmin
+        .from('scheduler_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limit - 1);
+
+      if (status) {
+        query = query.eq('status', status);
+      }
+
+      if (feature_name) {
+        query = query.eq('feature_name', feature_name);
+      }
+
+      const { data, error } = await query;
+      
+      if (error) {
+        console.error('❌ Error fetching scheduler logs:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('❌ Error fetching scheduler logs:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get total count of scheduler logs with filtering
+   */
+  static async getLogsCount(options: {
+    status?: string;
+    feature_name?: string;
+  } = {}): Promise<number> {
+    try {
+      const { status, feature_name } = options;
+      
+      let query = supabaseAdmin
+        .from('scheduler_logs')
+        .select('*', { count: 'exact', head: true });
+
+      if (status) {
+        query = query.eq('status', status);
+      }
+
+      if (feature_name) {
+        query = query.eq('feature_name', feature_name);
+      }
+
+      const { count, error } = await query;
+      
+      if (error) {
+        console.error('❌ Error counting scheduler logs:', error);
+        return 0;
+      }
+
+      return count || 0;
+    } catch (error) {
+      console.error('❌ Error counting scheduler logs:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Get scheduler log by ID
+   */
+  static async getLogById(id: number): Promise<any | null> {
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('scheduler_logs')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (error) {
+        console.error('❌ Error fetching scheduler log:', error);
+        return null;
+      }
+
+      return data;
+    } catch (error) {
+      console.error('❌ Error fetching scheduler log:', error);
+      return null;
     }
   }
 }

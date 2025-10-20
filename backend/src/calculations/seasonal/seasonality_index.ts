@@ -1,6 +1,10 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import { listPaths, downloadText } from '../../utils/azureBlob';
+// seasonality_index.ts
+// ------------------------------------------------------------
+// Seasonal analysis for market indexes
+// Output: CSV file dengan nama "o1-seasonal-indexes.csv" di folder seasonal_output
+// ------------------------------------------------------------
+
+import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
 
 interface StockData {
   time: string;
@@ -39,67 +43,60 @@ interface SeasonalityResults {
   indexes: IndexSeasonalityData[];
 }
 
-// Removed unused fileExists function
-
-async function listAvailableIndexes(indexDir: string = 'index'): Promise<string[]> {
-  try {
-    // Try Azure first
-    const azureFiles = await listPaths({ prefix: `${indexDir}/` });
-    const indexes = azureFiles
-      .filter(file => file.toLowerCase().endsWith('.csv'))
-      .map(file => file.split('/').pop()?.replace('.csv', '') || '')
-      .filter(name => name !== '');
-    
-    if (indexes.length > 0) {
-      return indexes.sort();
-    }
-    
-    // Fallback to local filesystem
-    const items = await fs.promises.readdir(indexDir);
-    const localIndexes: string[] = [];
-    
-    for (const item of items) {
-      if (item.toLowerCase().endsWith('.csv')) {
-        localIndexes.push(item.replace('.csv', ''));
+/**
+ * Parse CSV line with proper quote handling
+ */
+function parseCsvLine(line: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        current += ch;
+      }
+    } else {
+      if (ch === ',') {
+        result.push(current);
+        current = "";
+      } else if (ch === '"') {
+        inQuotes = true;
+      } else {
+        current += ch;
       }
     }
-    
-    return localIndexes.sort();
-  } catch (err) {
-    throw new Error(`Tidak bisa baca folder index: ${err}`);
   }
+  result.push(current);
+  return result.map((s) => s.trim());
 }
 
-async function loadIndexData(indexName: string = 'COMPOSITE', indexDir: string = 'index'): Promise<StockData[]> {
-  const indexPath = `${indexDir}/${indexName}.csv`;
+/**
+ * Load index data from Azure
+ */
+async function loadIndexData(indexName: string = 'COMPOSITE'): Promise<StockData[]> {
+  const indexPath = `index/${indexName}.csv`;
   
-  try {
-    // Try Azure first
-    const csvContent = await downloadText(indexPath);
-    return parseCsvContent(csvContent);
-  } catch (error) {
-    // Fallback to local filesystem
-    const localPath = path.join('./', indexDir, `${indexName}.csv`);
-    
-    if (!fs.existsSync(localPath)) {
-      throw new Error(`Index file not found: ${indexPath} or ${localPath}`);
-    }
-    
-    const csvContent = fs.readFileSync(localPath, 'utf-8');
-    return parseCsvContent(csvContent);
+  if (!(await exists(indexPath))) {
+    throw new Error(`Index file not found: ${indexPath}`);
   }
-}
-
-function parseCsvContent(csvContent: string): StockData[] {
+  
+  const csvContent = await downloadText(indexPath);
   const lines = csvContent.trim().split('\n');
-  if (lines.length === 0) return [];
-  
-  const headers = lines[0]?.split(',') || [];
+  const headers = parseCsvLine(lines[0] || '');
   
   const data: StockData[] = [];
   
   for (let i = 1; i < lines.length; i++) {
-    const values = lines[i]?.split(',') || [];
+    const values = parseCsvLine(lines[i] || '');
     const row: any = {};
     
     headers.forEach((header, index) => {
@@ -107,17 +104,20 @@ function parseCsvContent(csvContent: string): StockData[] {
     });
     
     data.push({
-      time: row.Date || row.time || '',
-      open: parseFloat(row.Open || row.open || '0'),
-      high: parseFloat(row.High || row.high || '0'),
-      low: parseFloat(row.Low || row.low || '0'),
-      close: parseFloat(row.Close || row.close || '0')
+      time: row.Date || row.time,
+      open: parseFloat(row.Open || row.open),
+      high: parseFloat(row.High || row.high),
+      low: parseFloat(row.Low || row.low),
+      close: parseFloat(row.Close || row.close)
     });
   }
   
   return data.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 }
 
+/**
+ * Calculate volatility from monthly returns
+ */
 function calculateVolatility(monthlyReturns: MonthlyReturns): number {
   const returns = Object.values(monthlyReturns);
   if (returns.length === 0) return 0;
@@ -128,6 +128,9 @@ function calculateVolatility(monthlyReturns: MonthlyReturns): number {
   return parseFloat(Math.sqrt(variance).toFixed(2));
 }
 
+/**
+ * Calculate monthly returns from stock data
+ */
 function calculateMonthlyReturns(data: StockData[]): MonthlyReturns {
   const monthlyReturns: { [month: number]: number[] } = {};
   
@@ -147,7 +150,7 @@ function calculateMonthlyReturns(data: StockData[]): MonthlyReturns {
       const date = new Date(data[i]?.time || '');
       const month = date.getMonth() + 1; // getMonth() returns 0-11, we want 1-12
       
-      if (month >= 1 && month <= 12 && monthlyReturns[month]) {
+      if (monthlyReturns[month]) {
         monthlyReturns[month].push(dailyReturn);
       }
     }
@@ -177,7 +180,10 @@ function calculateMonthlyReturns(data: StockData[]): MonthlyReturns {
   return avgMonthlyReturns;
 }
 
-async function generateIndexSeasonalityData(data: StockData[], ticker: string = 'IHSG'): Promise<IndexSeasonalityData> {
+/**
+ * Generate seasonality data for a single index
+ */
+function generateIndexSeasonalityData(data: StockData[], ticker: string = 'IHSG'): IndexSeasonalityData {
   const monthlyReturns = calculateMonthlyReturns(data);
   const volatility = calculateVolatility(monthlyReturns);
   
@@ -192,47 +198,64 @@ async function generateIndexSeasonalityData(data: StockData[], ticker: string = 
   const returns = Object.values(monthlyReturns);
   const months = Object.keys(monthlyReturns);
   
-  if (returns && returns.length > 0) {
-    const validReturns = returns.filter(r => r !== undefined && !isNaN(r));
-    if (validReturns.length > 0) {
-      const maxReturn = Math.max(...validReturns);
-      const minReturn = Math.min(...validReturns);
-      
-      const bestMonthIndex = validReturns.indexOf(maxReturn);
-      const worstMonthIndex = validReturns.indexOf(minReturn);
-      
-      if (bestMonthIndex >= 0 && months[bestMonthIndex]) {
-        seasonalityData.best_month = {
-          month: months[bestMonthIndex],
-          return: maxReturn
-        };
-      }
-      
-      if (worstMonthIndex >= 0 && months[worstMonthIndex]) {
-        seasonalityData.worst_month = {
-          month: months[worstMonthIndex],
-          return: minReturn
-        };
-      }
+  if (returns.length > 0 && months.length > 0) {
+    const maxReturn = Math.max(...returns);
+    const minReturn = Math.min(...returns);
+    
+    const bestMonthIndex = returns.indexOf(maxReturn);
+    const worstMonthIndex = returns.indexOf(minReturn);
+    
+    if (bestMonthIndex >= 0 && bestMonthIndex < months.length) {
+      seasonalityData.best_month = {
+        month: months[bestMonthIndex] || '',
+        return: maxReturn
+      };
+    }
+    
+    if (worstMonthIndex >= 0 && worstMonthIndex < months.length) {
+      seasonalityData.worst_month = {
+        month: months[worstMonthIndex] || '',
+        return: minReturn
+      };
     }
   }
   
   return seasonalityData;
 }
 
-async function generateAllIndexesSeasonality(indexDir: string = 'index'): Promise<SeasonalityResults> {
-  const allIndexes = await listAvailableIndexes(indexDir);
+/**
+ * Get available indexes from Azure
+ */
+async function getAvailableIndexes(): Promise<string[]> {
+  try {
+    const files = await listPaths({ prefix: 'index/' });
+    const indexes = files
+      .filter(f => f.startsWith('index/') && f.endsWith('.csv'))
+      .map(f => f.replace('index/', '').replace('.csv', ''));
+    
+    return indexes.sort();
+  } catch (err) {
+    console.error(`Error getting indexes: ${err}`);
+    return [];
+  }
+}
+
+/**
+ * Generate seasonality data for all indexes
+ */
+export async function generateAllIndexesSeasonality(): Promise<SeasonalityResults> {
+  const allIndexes = await getAvailableIndexes();
   const indexesData: IndexSeasonalityData[] = [];
   
   console.log(`📊 Processing ${allIndexes.length} indexes...`);
   
-  for (let index = 0; index < allIndexes.length; index++) {
-    const ticker = allIndexes[index];
+  for (let i = 0; i < allIndexes.length; i++) {
+    const ticker = allIndexes[i];
     try {
-      console.log(`Processing ${index + 1}/${allIndexes.length}: ${ticker}`);
+      console.log(`Processing ${i + 1}/${allIndexes.length}: ${ticker}`);
       
-      const data = await loadIndexData(ticker, indexDir);
-      const seasonalityData = await generateIndexSeasonalityData(data, ticker);
+      const data = await loadIndexData(ticker);
+      const seasonalityData = generateIndexSeasonalityData(data, ticker);
       indexesData.push(seasonalityData);
     } catch (error) {
       console.warn(`⚠️ Warning: Could not process index ${ticker}: ${error}`);
@@ -250,15 +273,10 @@ async function generateAllIndexesSeasonality(indexDir: string = 'index'): Promis
   };
 }
 
-function saveToCSV(results: SeasonalityResults, outputDir: string): void {
-  // Create output directory if it doesn't exist
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
-  }
-  
-  const filename = 'o1-seasonal-indexes.csv';
-  const filepath = path.join(outputDir, filename);
-  
+/**
+ * Save results to CSV and upload to Azure
+ */
+export async function saveIndexSeasonalityToCSV(results: SeasonalityResults): Promise<void> {
   // Create CSV content
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -284,121 +302,34 @@ function saveToCSV(results: SeasonalityResults, outputDir: string): void {
     csvContent += `${index.volatility}\n`;
   });
   
-  fs.writeFileSync(filepath, csvContent);
-  console.log(`✅ Index seasonality data saved to: ${filepath}`);
-}
-
-function printSummary(results: SeasonalityResults): void {
-  console.log('\n' + '='.repeat(50));
-  console.log('INDEX SEASONALITY ANALYSIS SUMMARY');
-  console.log('='.repeat(50));
-  
-  console.log(`\n📊 TOTAL INDEXES ANALYZED: ${results.indexes.length}`);
-  
-  // Top performing indexes by best month return
-  const topIndexes = results.indexes
-    .filter(index => index.best_month?.return)
-    .sort((a, b) => (b.best_month?.return || 0) - (a.best_month?.return || 0))
-    .slice(0, 5);
-  
-  console.log('\n🏆 TOP 5 BEST PERFORMING INDEXES:');
-  topIndexes.forEach((index, i) => {
-    console.log(`   ${i + 1}. ${index.ticker}: ${index.best_month?.return?.toFixed(2)}% in ${index.best_month?.month}`);
-  });
-  
-  // Most volatile indexes
-  const volatileIndexes = results.indexes
-    .sort((a, b) => b.volatility - a.volatility)
-    .slice(0, 3);
-  
-  console.log('\n📊 MOST VOLATILE INDEXES:');
-  volatileIndexes.forEach((index, i) => {
-    console.log(`   ${i + 1}. ${index.ticker}: ${index.volatility}% volatility`);
-  });
-  
-  console.log(`\n💾 Analysis completed at: ${results.metadata.generated_at}`);
-  console.log('='.repeat(50));
-}
-
-// -------------------------- CLI --------------------------
-// Usage examples:
-//   npx ts-node seasonality_index.ts
-//   npx ts-node seasonality_index.ts --index-dir ./index --output-dir ./seasonal_output
-//   npx ts-node seasonality_index.ts --list-indexes
-// Output: CSV file dengan nama "o1-seasonal-indexes.csv" di folder seasonal_output
-
-function printUsageAndExit(message?: string): never {
-  if (message) {
-    console.error(message);
+  // Upload to Azure
+  const outputPath = "seasonal_output/o1-seasonal-indexes.csv";
+  try {
+    await uploadText(outputPath, csvContent, 'text/csv');
+    console.log(`✅ Index seasonality data saved to: ${outputPath}`);
+  } catch (error) {
+    console.error(`❌ Error uploading to Azure: ${error}`);
+    throw error;
   }
-  console.error(
-    "\nUsage:\n  ts-node seasonality_index.ts [--index-dir <DIR>] [--output-dir <DIR>]\n  ts-node seasonality_index.ts --list-indexes [--index-dir <DIR>]\n\nKeterangan:\n  - --index-dir: Folder yang berisi file index CSV (default: ./index)\n  - --output-dir: Folder output untuk file hasil (default: ./seasonal_output)\n  - --list-indexes: Tampilkan daftar index yang tersedia\n"
-  );
-  process.exit(1);
 }
 
-function parseArgs(argv: string[]): { indexDir?: string; outputDir?: string; listIndexes?: boolean } {
-  const out: { indexDir?: string; outputDir?: string; listIndexes?: boolean } = {};
-  for (let i = 2; i < argv.length; i++) {
-    const token = argv[i];
-    if (token === '--index-dir') {
-      const next = argv[i + 1];
-      if (!next || next.startsWith('-')) printUsageAndExit('Missing value for --index-dir');
-      out.indexDir = next;
-      i++;
-    } else if (token === '--output-dir') {
-      const next = argv[i + 1];
-      if (!next || next.startsWith('-')) printUsageAndExit('Missing value for --output-dir');
-      out.outputDir = next;
-      i++;
-    } else if (token === '--list-indexes') {
-      out.listIndexes = true;
-    }
-  }
-  return out;
-}
-
-async function main(): Promise<void> {
-  const { indexDir = './index', outputDir = './seasonal_output', listIndexes } = parseArgs(process.argv);
-  
-  // List available indexes if requested
-  if (listIndexes) {
-    try {
-      const indexes = await listAvailableIndexes(indexDir);
-      console.log(`\nIndex yang tersedia di ${indexDir}:`);
-      indexes.forEach((idx, i) => {
-        console.log(`  ${i + 1}. ${idx}`);
-      });
-      console.log(`\nTotal: ${indexes.length} index`);
-    } catch (err) {
-      console.error(`Error: ${err}`);
-      process.exit(1);
-    }
-    return;
-  }
-  
+/**
+ * Main function to generate and save index seasonality
+ */
+export async function generateIndexSeasonality(): Promise<SeasonalityResults> {
   try {
     console.log('🔄 Starting index seasonality analysis...');
     
-    const results = await generateAllIndexesSeasonality(indexDir);
+    const results = await generateAllIndexesSeasonality();
     
     console.log('💾 Saving to CSV...');
-    saveToCSV(results, outputDir);
+    await saveIndexSeasonalityToCSV(results);
     
-    printSummary(results);
+    console.log(`✅ Index seasonality analysis completed - ${results.indexes.length} indexes processed`);
     
+    return results;
   } catch (error) {
-    console.error('❌ Error:', error);
-    process.exit(1);
+    console.error('❌ Error in generateIndexSeasonality:', error);
+    throw error;
   }
 }
-
-// Run the main function
-if (require.main === module) {
-  main().catch((err) => {
-    console.error(err?.stack || String(err));
-    process.exit(1);
-  });
-}
-
-export { loadIndexData, calculateMonthlyReturns, generateIndexSeasonalityData, generateAllIndexesSeasonality, saveToCSV, listAvailableIndexes };

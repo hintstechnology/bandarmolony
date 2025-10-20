@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { ProfileData, api } from '../services/api';
 import { getAvatarUrl } from '../utils/avatar';
 import { useAuth } from './AuthContext';
@@ -89,9 +89,9 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
         ...profile,
         ...updates,
         // Update legacy fields for backward compatibility
-        name: updates.full_name || profile.full_name || profile.name,
-        avatar: avatarUrl || undefined,
-        avatarUrl: avatarUrlField || undefined,
+        name: updates.full_name || profile.full_name || profile.name || '',
+        ...(avatarUrl && { avatar: avatarUrl }),
+        ...(avatarUrlField && { avatarUrl: avatarUrlField }),
       });
     }
   };

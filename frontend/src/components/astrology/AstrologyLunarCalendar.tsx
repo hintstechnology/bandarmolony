@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
+import { Search, Plus } from 'lucide-react';
 // @ts-ignore
 import { getImageUrl } from '../../utils/imageMapping';
+import { api } from '../../services/api';
 
 // Image paths for zodiac and element images from Supabase Storage
 const waterElementImg = getImageUrl('chart-7.png');
@@ -257,89 +259,134 @@ interface AstrologyData {
   stock: string;
 }
 
-// Mock data untuk astrology calendar
-const generateAstrologyData = (): AstrologyData[] => {
+// Type definition for stock OHLC data from Azure
+interface StockOHLCData {
+  Date: string;
+  Open: number;
+  High: number;
+  Low: number;
+  Close: number;
+  Volume: number;
+  Value?: number;
+  Frequency?: number;
+  ChangePercent?: number;
+}
+
+// Function to generate astrology data from Azure stock data with caching
+const generateAstrologyDataFromAzure = async (
+  stocks: string[], 
+  days: number = 30, 
+  cache: Map<string, AstrologyData[]>,
+  setCache: React.Dispatch<React.SetStateAction<Map<string, AstrologyData[]>>>
+): Promise<AstrologyData[]> => {
   const data: AstrologyData[] = [];
   const currentDate = new Date();
-  const stocks = ['BBRI', 'BBCA', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM'];
   
-  for (let i = 0; i < 30; i++) {
-    const date = new Date(currentDate);
-    date.setDate(currentDate.getDate() - i);
+  try {
+    // Check cache first
+    const cacheKey = `${stocks.sort().join(',')}_${days}`;
+    if (cache.has(cacheKey)) {
+      console.log('📊 Using cached astrology data for:', stocks);
+      return cache.get(cacheKey) || [];
+    }
     
-    // Get previous day for price comparison
-    const prevDate = new Date(date);
-    prevDate.setDate(date.getDate() - 1);
+    // Get stock data for all selected stocks in parallel
+    const stockDataPromises = stocks.map(async (stock) => {
+      const endDate = currentDate.toISOString().split('T')[0];
+      const startDate = new Date(currentDate);
+      startDate.setDate(currentDate.getDate() - days);
+      const startDateStr = startDate.toISOString().split('T')[0];
+      
+      const result = await api.getStockData(stock, startDateStr, endDate, days);
+      return { stock, data: result.success ? result.data?.data || [] : [] };
+    });
     
-    // Get detailed Heavenly Stems
-    const yearHeavenlyStem = getHeavenlyStemByDate(date, 'yearly');
-    const yearElement = getElementByDate(date, 'yearly');
-    const yearZodiac = getZodiacByDate(date, 'yearly');
-    const monthHeavenlyStem = getHeavenlyStemByDate(date, 'monthly');
-    const monthElement = getElementByDate(date, 'monthly');
-    const monthZodiac = getZodiacByDate(date, 'monthly');
-    const dayHeavenlyStem = getHeavenlyStemByDate(date, 'daily');
-    const dayElement = getElementByDate(date, 'daily');
-    const dayZodiac = getZodiacByDate(date, 'daily');
+    const stockDataResults = await Promise.all(stockDataPromises);
     
-    // Generate data for each stock on this date
-    stocks.forEach((stock, stockIndex) => {
-      // Mock stock data with some variation per stock
-      const basePrice = 4500 + Math.random() * 500 + (stockIndex * 100);
-      const high = basePrice + Math.random() * 100;
-      const low = basePrice - Math.random() * 100;
-      const close = low + Math.random() * (high - low);
-      const open = low + Math.random() * (high - low);
-      const volume = Math.floor(Math.random() * 50000000) + 10000000;
+    // Process each stock's data
+    stockDataResults.forEach(({ stock, data: stockData }) => {
+      if (stockData.length === 0) return;
       
-      // Previous day close price
-      const prevClose = basePrice * (0.90 + Math.random() * 0.20); // Random previous close
+      // Sort by date (oldest first)
+      const sortedData = stockData.sort((a: StockOHLCData, b: StockOHLCData) => 
+        a.Date.localeCompare(b.Date)
+      );
       
-      // Calculate % kenaikan (close today vs close yesterday)
-      const priceChange = ((close - prevClose) / prevClose) * 100;
-      
-      // Calculate % spike (close yesterday vs high today)
-      const spikeChange = ((high - prevClose) / prevClose) * 100;
-      
-      // Calculate AVG = (% change + % spike) / 2
-      const avgChange = (priceChange + spikeChange) / 2;
-      
-      // Formula analysis: avg > 5%
-      const isRising = avgChange > 5;
-      
-      data.push({
-        id: `${i + 1}-${stock}`,
-        date: date.toISOString().split('T')[0] || '',
-        dateFormatted: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-        yearHeavenlyStem,
-        yearElement,
-        yearZodiac,
-        monthHeavenlyStem,
-        monthElement,
-        monthZodiac,
-        dayHeavenlyStem,
-        dayElement,
-        dayZodiac,
-        yearEarth: date.getFullYear(),
-        monthEarth: date.getMonth() + 1,
-        dayEarth: date.getDate(),
-        open: Math.round(open),
-        high: Math.round(high),
-        low: Math.round(low),
-        close: Math.round(close),
-        prevClose: Math.round(prevClose),
-        volume,
-        priceChange: Math.round(priceChange * 100) / 100,
-        spikeChange: Math.round(spikeChange * 100) / 100,
-        avgChange: Math.round(avgChange * 100) / 100,
-        isRising,
-        element: dayElement,
-        stock: stock // Add stock identifier
+      // Process each day's data
+      sortedData.forEach((dayData: StockOHLCData, index: number) => {
+        const date = new Date(dayData.Date);
+        
+        // Get detailed Heavenly Stems
+        const yearHeavenlyStem = getHeavenlyStemByDate(date, 'yearly');
+        const yearElement = getElementByDate(date, 'yearly');
+        const yearZodiac = getZodiacByDate(date, 'yearly');
+        const monthHeavenlyStem = getHeavenlyStemByDate(date, 'monthly');
+        const monthElement = getElementByDate(date, 'monthly');
+        const monthZodiac = getZodiacByDate(date, 'monthly');
+        const dayHeavenlyStem = getHeavenlyStemByDate(date, 'daily');
+        const dayElement = getElementByDate(date, 'daily');
+        const dayZodiac = getZodiacByDate(date, 'daily');
+        
+        // Get previous day close price
+        const prevClose = index > 0 ? sortedData[index - 1].Close : dayData.Close;
+        
+        // Calculate % kenaikan (close today vs close yesterday)
+        const priceChange = ((dayData.Close - prevClose) / prevClose) * 100;
+        
+        // Calculate % spike (close yesterday vs high today)
+        const spikeChange = ((dayData.High - prevClose) / prevClose) * 100;
+        
+        // Calculate AVG = (% change + % spike) / 2
+        const avgChange = (priceChange + spikeChange) / 2;
+        
+        // Formula analysis: avg > 5%
+        const isRising = avgChange > 5;
+        
+        data.push({
+          id: `${dayData.Date}-${stock}`,
+          date: dayData.Date,
+          dateFormatted: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+          yearHeavenlyStem,
+          yearElement,
+          yearZodiac,
+          monthHeavenlyStem,
+          monthElement,
+          monthZodiac,
+          dayHeavenlyStem,
+          dayElement,
+          dayZodiac,
+          yearEarth: date.getFullYear(),
+          monthEarth: date.getMonth() + 1,
+          dayEarth: date.getDate(),
+          open: Math.round(dayData.Open),
+          high: Math.round(dayData.High),
+          low: Math.round(dayData.Low),
+          close: Math.round(dayData.Close),
+          prevClose: Math.round(prevClose),
+          volume: dayData.Volume,
+          priceChange: Math.round(priceChange * 100) / 100,
+          spikeChange: Math.round(spikeChange * 100) / 100,
+          avgChange: Math.round(avgChange * 100) / 100,
+          isRising,
+          element: dayElement,
+          stock: stock
+        });
       });
     });
+    
+    // Sort by date (newest first)
+    const sortedData = data.sort((a, b) => b.date.localeCompare(a.date));
+    
+    // Cache the result
+    setCache(prev => new Map(prev).set(cacheKey, sortedData));
+    console.log('📊 Cached astrology data for:', stocks);
+    
+    return sortedData;
+    
+  } catch (error) {
+    console.error('Error generating astrology data from Azure:', error);
+    return [];
   }
-  
-  return data.reverse();
 };
 
 export function AstrologyLunarCalendar() {
@@ -348,6 +395,8 @@ export function AstrologyLunarCalendar() {
   const [showPivot, setShowPivot] = useState(false);
   const [priceFilter, setPriceFilter] = useState('all'); // all, 5%, 10%
   const [spikeFilter, setSpikeFilter] = useState('all'); // all, 5%, 10%
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   
   // Individual column filters
   const [yearElementFilter, setYearElementFilter] = useState('all');
@@ -357,11 +406,89 @@ export function AstrologyLunarCalendar() {
   const [dayElementFilter, setDayElementFilter] = useState('all');
   const [dayZodiacFilter, setDayZodiacFilter] = useState('all');
   
-  const astrologyData = generateAstrologyData();
-  const stocks = ['ALL', 'BBRI', 'BBCA', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM'];
+  const [astrologyData, setAstrologyData] = useState<AstrologyData[]>([]);
+  const [availableStocks, setAvailableStocks] = useState<string[]>([]);
+  
+  // Search and dropdown states
+  const [stockSearchQuery, setStockSearchQuery] = useState('');
+  const [showStockDropdown, setShowStockDropdown] = useState(false);
+  const [stockLoading, setStockLoading] = useState(false);
+  
+  // Cache for stock data
+  const [stockDataCache, setStockDataCache] = useState<Map<string, AstrologyData[]>>(new Map());
+  const stockSearchRef = useRef<HTMLDivElement>(null);
+  
+  // Load available stocks from Azure
+  useEffect(() => {
+    const loadStocks = async () => {
+      try {
+        setLoading(true);
+        const result = await api.getStockList();
+        if (result.success && result.data?.stocks) {
+          const stockList = result.data.stocks;
+          setAvailableStocks(stockList);
+        } else {
+          setError('Failed to load stock list');
+        }
+      } catch (err) {
+        console.error('Error loading stocks:', err);
+        setError('Failed to load stock list');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadStocks();
+  }, []);
+  
+  // Load astrology data when stocks change with caching
+  useEffect(() => {
+    const loadAstrologyData = async () => {
+      if (availableStocks.length === 0) return;
+      
+      try {
+        setLoading(true);
+        setStockLoading(true);
+        setError(null);
+        
+        const stocksToLoad = selectedStock === 'ALL' ? availableStocks.slice(0, 8) : [selectedStock];
+        const data = await generateAstrologyDataFromAzure(stocksToLoad, 30, stockDataCache, setStockDataCache);
+        setAstrologyData(data);
+      } catch (err) {
+        console.error('Error loading astrology data:', err);
+        setError('Failed to load astrology data');
+      } finally {
+        setLoading(false);
+        setStockLoading(false);
+      }
+    };
+    
+    loadAstrologyData();
+  }, [selectedStock, availableStocks, stockDataCache]);
+  
+  // Handle click outside dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (stockSearchRef.current && !stockSearchRef.current.contains(event.target as Node)) {
+        setShowStockDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
   
   // When ALL is selected, show combined data from all stocks
   // When specific stock is selected, show data for that stock only
+  
+  // Filter options for stock dropdown
+  const getFilteredStockOptions = () => {
+    return availableStocks.filter(stock => 
+      stock.toLowerCase().includes(stockSearchQuery.toLowerCase())
+    );
+  };
   
   // Get unique values for filters
   const uniqueYearElements = [...new Set(astrologyData.map(item => item.yearElement))];
@@ -452,6 +579,49 @@ export function AstrologyLunarCalendar() {
     return acc;
   }, {} as Record<string, typeof astrologyData>);
 
+  // Show loading state
+  if (loading && astrologyData.length === 0) {
+    return (
+      <div className="h-screen overflow-hidden">
+        <div className="h-full flex flex-col max-w-7xl mx-auto px-4 sm:px-6">
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-6 py-4 sm:py-6">
+            <Card>
+              <div className="p-8 text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+                <h3 className="text-lg font-medium mb-2">Loading Astrology Data...</h3>
+              </div>
+            </Card>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state
+  if (error) {
+    return (
+      <div className="h-screen overflow-hidden">
+        <div className="h-full flex flex-col max-w-7xl mx-auto px-4 sm:px-6">
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-6 py-4 sm:py-6">
+            <Card>
+              <div className="p-8 text-center">
+                <div className="text-red-500 text-6xl mb-4">⚠️</div>
+                <h3 className="text-lg font-medium mb-2 text-red-600">Error Loading Data</h3>
+                <p className="text-muted-foreground mb-4">{error}</p>
+                <Button 
+                  onClick={() => window.location.reload()} 
+                  variant="outline"
+                >
+                  Retry
+                </Button>
+              </div>
+            </Card>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen overflow-hidden">
       <div className="h-full flex flex-col max-w-7xl mx-auto px-4 sm:px-6">
@@ -461,48 +631,130 @@ export function AstrologyLunarCalendar() {
         <div className="p-4">
           <div className="flex flex-col gap-4">
             {/* First Row - Basic Filters */}
-            <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
-              <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-                <div className="flex items-center gap-2">
-                  <label className="font-medium">Stock:</label>
-                  <select
-                    value={selectedStock}
-                    onChange={(e) => setSelectedStock(e.target.value)}
-                    className="px-3 py-1 border border-border rounded-md bg-background text-foreground"
-                  >
-                    {stocks.map(stock => (
-                      <option key={stock} value={stock}>{stock}</option>
-                    ))}
-                  </select>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-center">
+              {/* Stock Selection */}
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium">Stock:</label>
+                <div className="relative" ref={stockSearchRef}>
+                  <div className="relative">
+                    <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                    <input
+                      type="text"
+                      placeholder="Search and select stock..."
+                      value={stockSearchQuery}
+                      onChange={(e) => {
+                        setStockSearchQuery(e.target.value);
+                        setShowStockDropdown(true);
+                      }}
+                      onFocus={() => setShowStockDropdown(true)}
+                      className="w-full pl-7 pr-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors"
+                    />
+                  </div>
+                  
+                  {/* Stock Search and Select Dropdown */}
+                  {showStockDropdown && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-10 max-h-60 overflow-y-auto">
+                      {availableStocks.length === 0 ? (
+                        <div className="p-3 text-sm text-muted-foreground">Loading stocks...</div>
+                      ) : (
+                        <>
+                          {/* Show ALL option first */}
+                          <button
+                            onClick={() => {
+                              setSelectedStock('ALL');
+                              setStockSearchQuery('');
+                              setShowStockDropdown(false);
+                            }}
+                            className={`flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors ${
+                              selectedStock === 'ALL' ? 'bg-accent' : ''
+                            }`}
+                          >
+                            <span className="text-sm font-medium">ALL (All Stocks)</span>
+                            <div className="flex items-center gap-2">
+                              {selectedStock === 'ALL' && (
+                                <div className="w-2 h-2 bg-primary rounded-full"></div>
+                              )}
+                              <Plus className="w-3 h-3 text-muted-foreground" />
+                            </div>
+                          </button>
+                          
+                          {/* Show filtered results */}
+                          {getFilteredStockOptions()
+                            .slice(0, 15)
+                            .map((stock) => (
+                              <button
+                                key={stock}
+                                onClick={() => {
+                                  setSelectedStock(stock);
+                                  setStockSearchQuery('');
+                                  setShowStockDropdown(false);
+                                }}
+                                className={`flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors ${
+                                  selectedStock === stock ? 'bg-accent' : ''
+                                }`}
+                              >
+                                <span className="text-sm">{stock}</span>
+                                <div className="flex items-center gap-2">
+                                  {selectedStock === stock && (
+                                    <div className="w-2 h-2 bg-primary rounded-full"></div>
+                                  )}
+                                  <Plus className="w-3 h-3 text-muted-foreground" />
+                                </div>
+                              </button>
+                            ))}
+                          
+                          {/* Show "more available" message */}
+                          {!stockSearchQuery && getFilteredStockOptions().length > 15 && (
+                            <div className="text-xs text-muted-foreground px-3 py-2 border-t border-border">
+                              +{getFilteredStockOptions().length - 15} more stocks available (use search to find specific stocks)
+                            </div>
+                          )}
+                          
+                          {/* Show "no results" message */}
+                          {stockSearchQuery && getFilteredStockOptions().length === 0 && (
+                            <div className="p-2 text-sm text-muted-foreground">
+                              No stocks found matching "{stockSearchQuery}"
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
+              </div>
 
-                <div className="flex items-center gap-2">
-                  <label className="font-medium">Price Change:</label>
-                  <select
-                    value={priceFilter}
-                    onChange={(e) => setPriceFilter(e.target.value)}
-                    className="px-3 py-1 border border-border rounded-md bg-background text-foreground"
-                  >
-                    <option value="all">All</option>
-                    <option value="5%">Above 5%</option>
-                    <option value="10%">Above 10%</option>
-                  </select>
-                </div>
+              {/* Price Change Filter */}
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium">Price Change:</label>
+                <select
+                  value={priceFilter}
+                  onChange={(e) => setPriceFilter(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                >
+                  <option value="all">All</option>
+                  <option value="5%">Above 5%</option>
+                  <option value="10%">Above 10%</option>
+                </select>
+              </div>
 
-                <div className="flex items-center gap-2">
-                  <label className="font-medium">Spike:</label>
-                  <select
-                    value={spikeFilter}
-                    onChange={(e) => setSpikeFilter(e.target.value)}
-                    className="px-3 py-1 border border-border rounded-md bg-background text-foreground"
-                  >
-                    <option value="all">All</option>
-                    <option value="5%">Above 5%</option>
-                    <option value="10%">Above 10%</option>
-                  </select>
-                </div>
+              {/* Spike Filter */}
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium">Spike:</label>
+                <select
+                  value={spikeFilter}
+                  onChange={(e) => setSpikeFilter(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                >
+                  <option value="all">All</option>
+                  <option value="5%">Above 5%</option>
+                  <option value="10%">Above 10%</option>
+                </select>
+              </div>
 
-                <div className="flex items-center gap-2">
+              {/* Show Pivot Analysis */}
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium">Show Pivot Analysis:</label>
+                <div className="flex items-center gap-2 h-10">
                   <input
                     type="checkbox"
                     id="showPivot"
@@ -510,12 +762,11 @@ export function AstrologyLunarCalendar() {
                     onChange={(e) => setShowPivot(e.target.checked)}
                     className="rounded border-border"
                   />
-                  <label htmlFor="showPivot" className="font-medium">Show Pivot Analysis</label>
+                  <label htmlFor="showPivot" className="text-sm">Enable</label>
+                  {stockLoading && (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+                  )}
                 </div>
-              </div>
-              
-              <div className="text-sm text-muted-foreground">
-                🌙 Lunar Calendar Analysis - {selectedStock === 'ALL' ? 'All Stocks' : selectedStock}
               </div>
             </div>
 
@@ -614,12 +865,27 @@ export function AstrologyLunarCalendar() {
         <div className="p-4">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-medium">Input Data Astrology</h3>
-            <div className="text-sm text-muted-foreground">
-              Total Records: {filteredData.length}
+            <div className="text-sm text-muted-foreground flex items-center gap-2">
+              {stockLoading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+                  <span>Loading data...</span>
+                </>
+              ) : (
+                `Total Records: ${filteredData.length}`
+              )}
             </div>
           </div>
           
-          <div className="overflow-x-auto">
+          {stockLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                <p className="text-sm text-muted-foreground">Loading astrology data...</p>
+              </div>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/50">
@@ -678,7 +944,8 @@ export function AstrologyLunarCalendar() {
               ))}
             </tbody>
           </table>
-          </div>
+            </div>
+          )}
         </div>
       </Card>
 

@@ -1,291 +1,208 @@
 // seasonalityAutoGenerate.ts
-// Service for auto-generating seasonality data (index, sector, stock)
+// ------------------------------------------------------------
+// Auto-generation service for seasonal analysis
+// Manages seasonal calculations for indexes, sectors, and stocks
+// ------------------------------------------------------------
 
-import { 
-  generateAllIndexesSeasonality
-} from '../calculations/seasonal/seasonality_index_azure';
-import { 
-  generateAllSectorsSeasonality
-} from '../calculations/seasonal/seasonality_sector_azure';
-import { 
-  generateAllStocksSeasonality
-} from '../calculations/seasonal/seasonality_stock_azure';
-import { SchedulerLogService, SchedulerLog } from './schedulerLogService';
-import { AzureLogger } from './azureLoggingService';
-import { uploadText } from '../utils/azureBlob';
+import { generateIndexSeasonality } from '../calculations/seasonal/seasonality_index';
+import { generateSectorSeasonality } from '../calculations/seasonal/seasonality_sector';
+import { generateStockSeasonality } from '../calculations/seasonal/seasonality_stock';
 
-// Global state for tracking generation status
 let isGenerating = false;
-let lastGenerationTime: Date | null = null;
-let generationProgress = {
-  total: 0,
-  completed: 0,
-  current: '',
-  errors: 0
+let generationStatus = {
+  indexes: { status: 'idle', progress: 0, total: 0, current: '' },
+  sectors: { status: 'idle', progress: 0, total: 0, current: '' },
+  stocks: { status: 'idle', progress: 0, total: 0, current: '' }
 };
 
-/**
- * Get current generation status
- */
 export function getGenerationStatus() {
   return {
     isGenerating,
-    lastGenerationTime,
-    progress: generationProgress
+    indexes: generationStatus.indexes,
+    sectors: generationStatus.sectors,
+    stocks: generationStatus.stocks
   };
 }
 
 /**
- * Pre-generate all possible Seasonality outputs with optional force override
+ * Generate all seasonal analysis (indexes, sectors, stocks)
  */
-export async function preGenerateAllSeasonality(forceOverride: boolean = false, triggerType: 'startup' | 'scheduled' | 'manual' | 'debug' = 'startup'): Promise<void> {
-  const SCHEDULER_TYPE = 'seasonal';
-  
+export async function forceRegenerate(triggerType: 'startup' | 'scheduled' | 'manual' | 'debug' = 'manual'): Promise<void> {
   if (isGenerating) {
-    await AzureLogger.logWarning(SCHEDULER_TYPE, 'Generation already in progress, skipping');
+    console.log('⚠️ Seasonal generation already in progress');
     return;
   }
 
   isGenerating = true;
-  generationProgress = {
-    total: 0,
-    completed: 0,
-    current: '',
-    errors: 0
-  };
+  console.log(`🔄 Starting seasonal analysis generation (${triggerType})...`);
 
-  await AzureLogger.logSchedulerStart(SCHEDULER_TYPE, `Seasonality auto-generation ${forceOverride ? '(FORCE OVERRIDE MODE)' : '(SKIP EXISTING FILES)'}`);
-  const startTime = new Date();
+  try {
+    // Reset status
+    generationStatus = {
+      indexes: { status: 'idle', progress: 0, total: 0, current: '' },
+      sectors: { status: 'idle', progress: 0, total: 0, current: '' },
+      stocks: { status: 'idle', progress: 0, total: 0, current: '' }
+    };
 
-  // Create database log entry
-  const logData: Partial<SchedulerLog> = {
-    feature_name: 'seasonal',
-    trigger_type: triggerType,
-    triggered_by: triggerType === 'manual' ? 'user' : 'system',
-    status: 'running',
-    force_override: forceOverride,
-    environment: process.env['NODE_ENV'] || 'development'
-  };
+    // 1. Generate Index Seasonality
+    console.log('📊 Starting Index Seasonality Analysis...');
+    generationStatus.indexes = { status: 'running', progress: 0, total: 0, current: 'Initializing...' };
+    
+    const indexResults = await generateIndexSeasonality();
+    generationStatus.indexes = { 
+      status: 'completed', 
+      progress: 100, 
+      total: indexResults.indexes.length, 
+      current: 'Completed' 
+    };
+    console.log(`✅ Index Seasonality completed - ${indexResults.indexes.length} indexes processed`);
 
-  const logEntry = await SchedulerLogService.createLog(logData);
-  if (!logEntry) {
-    await AzureLogger.logSchedulerError(SCHEDULER_TYPE, 'Failed to create database log entry');
+    // 2. Generate Sector Seasonality
+    console.log('📊 Starting Sector Seasonality Analysis...');
+    generationStatus.sectors = { status: 'running', progress: 0, total: 0, current: 'Initializing...' };
+    
+    const sectorResults = await generateSectorSeasonality();
+    generationStatus.sectors = { 
+      status: 'completed', 
+      progress: 100, 
+      total: sectorResults.sectors.length, 
+      current: 'Completed' 
+    };
+    console.log(`✅ Sector Seasonality completed - ${sectorResults.sectors.length} sectors processed`);
+
+    // 3. Generate Stock Seasonality
+    console.log('📊 Starting Stock Seasonality Analysis...');
+    generationStatus.stocks = { status: 'running', progress: 0, total: 0, current: 'Initializing...' };
+    
+    const stockResults = await generateStockSeasonality();
+    generationStatus.stocks = { 
+      status: 'completed', 
+      progress: 100, 
+      total: stockResults.stocks.length, 
+      current: 'Completed' 
+    };
+    console.log(`✅ Stock Seasonality completed - ${stockResults.stocks.length} stocks processed`);
+
+    console.log('✅ All seasonal analysis completed successfully');
+    
+  } catch (error) {
+    console.error('❌ Error during seasonal generation:', error);
+    
+    // Update status to show error
+    if (generationStatus.indexes.status === 'running') {
+      generationStatus.indexes = { status: 'error', progress: 0, total: 0, current: 'Error occurred' };
+    }
+    if (generationStatus.sectors.status === 'running') {
+      generationStatus.sectors = { status: 'error', progress: 0, total: 0, current: 'Error occurred' };
+    }
+    if (generationStatus.stocks.status === 'running') {
+      generationStatus.stocks = { status: 'error', progress: 0, total: 0, current: 'Error occurred' };
+    }
+    
+    throw error;
+  } finally {
     isGenerating = false;
+  }
+}
+
+/**
+ * Generate only index seasonality
+ */
+export async function generateIndexSeasonalityOnly(): Promise<void> {
+  if (isGenerating) {
+    console.log('⚠️ Seasonal generation already in progress');
     return;
   }
 
-  const currentLogId = logEntry.id!;
-  let filesCreated = 0;
-  let filesSkipped = 0;
-  let filesFailed = 0;
+  isGenerating = true;
+  console.log('🔄 Starting Index Seasonality Analysis...');
 
   try {
-    // Process Indexes
-    await AzureLogger.logInfo(SCHEDULER_TYPE, 'Starting index seasonality analysis...');
-    generationProgress.current = 'Processing indexes';
+    generationStatus.indexes = { status: 'running', progress: 0, total: 0, current: 'Initializing...' };
     
-    try {
-      const indexResults = await generateAllIndexesSeasonality();
-      const indexCsv = await convertResultsToCSV(indexResults, 'index');
-      
-      if (indexCsv && indexCsv.length > 0) {
-        await uploadText('seasonal_output/o1-seasonal-indexes.csv', indexCsv);
-        await AzureLogger.logItemProcess(SCHEDULER_TYPE, 'SUCCESS', 'indexes', `Generated ${indexResults.indexes.length} indexes`);
-        filesCreated++;
-      } else {
-        await AzureLogger.logItemProcess(SCHEDULER_TYPE, 'SKIP', 'indexes', 'No data generated');
-        filesSkipped++;
-      }
-    } catch (error) {
-      await AzureLogger.logItemProcess(SCHEDULER_TYPE, 'ERROR', 'indexes', error instanceof Error ? error.message : 'Unknown error');
-      filesFailed++;
-    }
-
-    // Process Sectors
-    await AzureLogger.logInfo(SCHEDULER_TYPE, 'Starting sector seasonality analysis...');
-    generationProgress.current = 'Processing sectors';
+    const results = await generateIndexSeasonality();
+    generationStatus.indexes = { 
+      status: 'completed', 
+      progress: 100, 
+      total: results.indexes.length, 
+      current: 'Completed' 
+    };
     
-    try {
-      const sectorResults = await generateAllSectorsSeasonality();
-      const sectorCsv = await convertResultsToCSV(sectorResults, 'sector');
-      
-      if (sectorCsv && sectorCsv.length > 0) {
-        await uploadText('seasonal_output/o3-seasonal-sectors.csv', sectorCsv);
-        await AzureLogger.logItemProcess(SCHEDULER_TYPE, 'SUCCESS', 'sectors', `Generated ${sectorResults.sectors.length} sectors`);
-        filesCreated++;
-      } else {
-        await AzureLogger.logItemProcess(SCHEDULER_TYPE, 'SKIP', 'sectors', 'No data generated');
-        filesSkipped++;
-      }
-    } catch (error) {
-      await AzureLogger.logItemProcess(SCHEDULER_TYPE, 'ERROR', 'sectors', error instanceof Error ? error.message : 'Unknown error');
-      filesFailed++;
-    }
-
-    // Process Stocks
-    await AzureLogger.logInfo(SCHEDULER_TYPE, 'Starting stock seasonality analysis...');
-    generationProgress.current = 'Processing stocks';
+    console.log(`✅ Index Seasonality completed - ${results.indexes.length} indexes processed`);
     
-    try {
-      const stockResults = await generateAllStocksSeasonality();
-      const stockCsv = await convertResultsToCSV(stockResults, 'stock');
-      
-      if (stockCsv && stockCsv.length > 0) {
-        await uploadText('seasonal_output/o2-seasonal-stocks.csv', stockCsv);
-        await AzureLogger.logItemProcess(SCHEDULER_TYPE, 'SUCCESS', 'stocks', `Generated ${stockResults.stocks.length} stocks`);
-        filesCreated++;
-      } else {
-        await AzureLogger.logItemProcess(SCHEDULER_TYPE, 'SKIP', 'stocks', 'No data generated');
-        filesSkipped++;
-      }
-    } catch (error) {
-      await AzureLogger.logItemProcess(SCHEDULER_TYPE, 'ERROR', 'stocks', error instanceof Error ? error.message : 'Unknown error');
-      filesFailed++;
-    }
-
-    const endTime = new Date();
-    const duration = Math.round((endTime.getTime() - startTime.getTime()) / 1000);
-    
-    await AzureLogger.logSchedulerEnd(SCHEDULER_TYPE, {
-      success: filesCreated,
-      skipped: filesSkipped,
-      failed: filesFailed,
-      total: 3 // index, sector, stock
-    });
-    
-    await AzureLogger.logInfo(SCHEDULER_TYPE, `Duration: ${duration}s`);
-    
-    lastGenerationTime = endTime;
-
-    // Mark as completed in database
-    if (currentLogId) {
-      await SchedulerLogService.markCompleted(currentLogId, {
-        total_files_processed: filesCreated,
-        files_created: filesCreated,
-        files_updated: 0,
-        files_skipped: filesSkipped,
-        files_failed: filesFailed,
-        stock_processed: 0,
-        stock_success: 0,
-        stock_failed: 0,
-        sector_processed: 0,
-        sector_success: 0,
-        sector_failed: 0,
-        index_processed: 0,
-        index_success: 0,
-        index_failed: 0
-      });
-    }
-
   } catch (error) {
-    await AzureLogger.logSchedulerError(SCHEDULER_TYPE, error instanceof Error ? error.message : 'Unknown error');
-    
-    // Mark as failed in database
-    if (currentLogId) {
-      await SchedulerLogService.markFailed(currentLogId, error instanceof Error ? error.message : 'Unknown error', error);
-    }
+    console.error('❌ Error during index seasonality generation:', error);
+    generationStatus.indexes = { status: 'error', progress: 0, total: 0, current: 'Error occurred' };
+    throw error;
   } finally {
     isGenerating = false;
-    generationProgress.current = '';
-    generationProgress.completed = 0;
   }
 }
 
 /**
- * Convert seasonality results to CSV format
+ * Generate only sector seasonality
  */
-async function convertResultsToCSV(results: any, type: 'index' | 'sector' | 'stock'): Promise<string> {
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  
-  let csvContent = '';
-  
-  if (type === 'index') {
-    csvContent = 'Ticker,Name,';
-    csvContent += months.join(',') + ',';
-    csvContent += 'BestMonth,BestReturn,WorstMonth,WorstReturn,Volatility\n';
-    
-    results.indexes.forEach((index: any) => {
-      csvContent += `${index.ticker},"${index.name}",`;
-      
-      // Add monthly returns
-      months.forEach(month => {
-        const returnValue = index.monthly_returns[month] || 0;
-        csvContent += `${returnValue},`;
-      });
-      
-      // Add best/worst months and volatility
-      csvContent += `${index.best_month?.month || ''},`;
-      csvContent += `${index.best_month?.return || 0},`;
-      csvContent += `${index.worst_month?.month || ''},`;
-      csvContent += `${index.worst_month?.return || 0},`;
-      csvContent += `${index.volatility}\n`;
-    });
-    
-  } else if (type === 'sector') {
-    csvContent = 'Sector,StockCount,';
-    csvContent += months.join(',') + ',';
-    csvContent += 'BestMonth,BestReturn,WorstMonth,WorstReturn,Volatility\n';
-    
-    results.sectors.forEach((sector: any) => {
-      csvContent += `${sector.sector},${sector.stock_count},`;
-      
-      // Add monthly returns
-      months.forEach(month => {
-        const returnValue = sector.monthly_returns[month] || 0;
-        csvContent += `${returnValue},`;
-      });
-      
-      // Add best/worst months and volatility
-      csvContent += `${sector.best_month?.month || ''},`;
-      csvContent += `${sector.best_month?.return || 0},`;
-      csvContent += `${sector.worst_month?.month || ''},`;
-      csvContent += `${sector.worst_month?.return || 0},`;
-      csvContent += `${sector.volatility}\n`;
-    });
-    
-  } else if (type === 'stock') {
-    csvContent = 'Ticker,Sector,';
-    csvContent += months.join(',') + ',';
-    csvContent += 'BestMonth,BestReturn,WorstMonth,WorstReturn,Volatility\n';
-    
-    results.stocks.forEach((stock: any) => {
-      csvContent += `${stock.ticker},${stock.sector},`;
-      
-      // Add monthly returns
-      months.forEach(month => {
-        const returnValue = stock.monthly_returns[month] || 0;
-        csvContent += `${returnValue},`;
-      });
-      
-      // Add best/worst months and volatility
-      csvContent += `${stock.best_month?.month || ''},`;
-      csvContent += `${stock.best_month?.return || 0},`;
-      csvContent += `${stock.worst_month?.month || ''},`;
-      csvContent += `${stock.worst_month?.return || 0},`;
-      csvContent += `${stock.volatility}\n`;
-    });
+export async function generateSectorSeasonalityOnly(): Promise<void> {
+  if (isGenerating) {
+    console.log('⚠️ Seasonal generation already in progress');
+    return;
   }
-  
-  return csvContent;
+
+  isGenerating = true;
+  console.log('🔄 Starting Sector Seasonality Analysis...');
+
+  try {
+    generationStatus.sectors = { status: 'running', progress: 0, total: 0, current: 'Initializing...' };
+    
+    const results = await generateSectorSeasonality();
+    generationStatus.sectors = { 
+      status: 'completed', 
+      progress: 100, 
+      total: results.sectors.length, 
+      current: 'Completed' 
+    };
+    
+    console.log(`✅ Sector Seasonality completed - ${results.sectors.length} sectors processed`);
+    
+  } catch (error) {
+    console.error('❌ Error during sector seasonality generation:', error);
+    generationStatus.sectors = { status: 'error', progress: 0, total: 0, current: 'Error occurred' };
+    throw error;
+  } finally {
+    isGenerating = false;
+  }
 }
 
 /**
- * Force regeneration (for scheduled updates) - Override all files
+ * Generate only stock seasonality
  */
-export async function forceRegenerate(triggerType: 'manual' | 'scheduled' = 'manual'): Promise<void> {
-  await preGenerateAllSeasonality(true, triggerType);
-}
+export async function generateStockSeasonalityOnly(): Promise<void> {
+  if (isGenerating) {
+    console.log('⚠️ Seasonal generation already in progress');
+    return;
+  }
 
-/**
- * Check if generation is needed (for scheduled updates)
- */
-export function shouldRegenerate(): boolean {
-  if (!lastGenerationTime) return true;
-  
-  const now = new Date();
-  const hoursSinceLastGeneration = (now.getTime() - lastGenerationTime.getTime()) / (1000 * 60 * 60);
-  
-  // Regenerate if more than 24 hours have passed
-  return hoursSinceLastGeneration > 24;
+  isGenerating = true;
+  console.log('🔄 Starting Stock Seasonality Analysis...');
+
+  try {
+    generationStatus.stocks = { status: 'running', progress: 0, total: 0, current: 'Initializing...' };
+    
+    const results = await generateStockSeasonality();
+    generationStatus.stocks = { 
+      status: 'completed', 
+      progress: 100, 
+      total: results.stocks.length, 
+      current: 'Completed' 
+    };
+    
+    console.log(`✅ Stock Seasonality completed - ${results.stocks.length} stocks processed`);
+    
+  } catch (error) {
+    console.error('❌ Error during stock seasonality generation:', error);
+    generationStatus.stocks = { status: 'error', progress: 0, total: 0, current: 'Error occurred' };
+    throw error;
+  } finally {
+    isGenerating = false;
+  }
 }

@@ -1,6 +1,10 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import { listPaths, downloadText } from '../../utils/azureBlob';
+// seasonality_sector.ts
+// ------------------------------------------------------------
+// Seasonal analysis for market sectors
+// Output: CSV file dengan nama "o3-seasonal-sectors.csv" di folder seasonal_output
+// ------------------------------------------------------------
+
+import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
 
 interface StockData {
   Date: string;
@@ -44,61 +48,90 @@ interface SeasonalityResults {
   sectors: SectorSeasonalityData[];
 }
 
+/**
+ * Parse CSV line with proper quote handling
+ */
+function parseCsvLine(line: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        current += ch;
+      }
+    } else {
+      if (ch === ',') {
+        result.push(current);
+        current = "";
+      } else if (ch === '"') {
+        inQuotes = true;
+      } else {
+        current += ch;
+      }
+    }
+  }
+  result.push(current);
+  return result.map((s) => s.trim());
+}
+
+/**
+ * Load stock data from Azure
+ */
 async function loadStockData(sector: string, ticker: string): Promise<StockData[]> {
   const stockPath = `stock/${sector}/${ticker}.csv`;
   
+  if (!(await exists(stockPath))) {
+    return [];
+  }
+  
   try {
-    // Try Azure first
     const csvContent = await downloadText(stockPath);
-    return parseCsvContent(csvContent);
+    const lines = csvContent.trim().split('\n');
+    const headers = parseCsvLine(lines[0] || '');
+    
+    const data: StockData[] = [];
+    
+    for (let i = 1; i < lines.length; i++) {
+      const values = parseCsvLine(lines[i] || '');
+      const row: any = {};
+      
+      headers.forEach((header, index) => {
+        row[header.trim()] = values[index]?.trim();
+      });
+      
+      data.push({
+        Date: row.Date,
+        Open: parseFloat(row.Open),
+        High: parseFloat(row.High),
+        Low: parseFloat(row.Low),
+        Close: parseFloat(row.Close),
+        Volume: parseInt(row.Volume),
+        Value: parseInt(row.Value),
+        Frequency: parseInt(row.Frequency),
+        ChangePercent: parseFloat(row.ChangePercent)
+      });
+    }
+    
+    return data.sort((a, b) => new Date(a.Date).getTime() - new Date(b.Date).getTime());
   } catch (error) {
-    // Fallback to local filesystem
-    const localPath = path.join(__dirname, 'stock', sector, `${ticker}.csv`);
-    
-    if (!fs.existsSync(localPath)) {
-      return [];
-    }
-    
-    try {
-      const csvContent = fs.readFileSync(localPath, 'utf-8');
-      return parseCsvContent(csvContent);
-    } catch (localError) {
-      console.warn(`⚠️ Warning: Could not load data for ${ticker}: ${localError}`);
-      return [];
-    }
+    console.warn(`⚠️ Warning: Could not load data for ${ticker}: ${error}`);
+    return [];
   }
 }
 
-function parseCsvContent(csvContent: string): StockData[] {
-  const lines = csvContent.trim().split('\n');
-  const headers = lines[0].split(',');
-  
-  const data: StockData[] = [];
-  
-  for (let i = 1; i < lines.length; i++) {
-    const values = lines[i].split(',');
-    const row: any = {};
-    
-    headers.forEach((header, index) => {
-      row[header.trim()] = values[index]?.trim();
-    });
-    
-    data.push({
-      Date: row.Date,
-      Open: parseFloat(row.Open),
-      High: parseFloat(row.High),
-      Low: parseFloat(row.Low),
-      Close: parseFloat(row.Close),
-      Volume: parseInt(row.Volume),
-      Value: parseInt(row.Value),
-      Frequency: parseInt(row.Frequency),
-      ChangePercent: parseFloat(row.ChangePercent)
-    });
-  }
-  
-  return data.sort((a, b) => new Date(a.Date).getTime() - new Date(b.Date).getTime());
-}
-
+/**
+ * Calculate sector returns (equal weight average)
+ */
 async function calculateSectorReturns(sector: string, tickers: string[]): Promise<MonthlyReturns> {
   const sectorMonthlyReturns: { [month: number]: number[] } = {};
   
@@ -163,16 +196,20 @@ async function calculateSectorReturns(sector: string, tickers: string[]): Promis
     const currentDate = sectorDates[i];
     const previousDate = sectorDates[i - 1];
     
-    const currentPrice = sectorPrices[currentDate];
-    const previousPrice = sectorPrices[previousDate];
-    
-    if (currentPrice && previousPrice && previousPrice !== 0) {
-      const dailyReturn = (currentPrice - previousPrice) / previousPrice;
+    if (currentDate && previousDate) {
+      const currentPrice = sectorPrices[currentDate];
+      const previousPrice = sectorPrices[previousDate];
       
-      const date = new Date(currentDate);
-      const month = date.getMonth() + 1; // getMonth() returns 0-11, we want 1-12
-      
-      sectorMonthlyReturns[month].push(dailyReturn);
+      if (currentPrice && previousPrice && previousPrice !== 0) {
+        const dailyReturn = (currentPrice - previousPrice) / previousPrice;
+        
+        const date = new Date(currentDate);
+        const month = date.getMonth() + 1; // getMonth() returns 0-11, we want 1-12
+        
+        if (sectorMonthlyReturns[month]) {
+          sectorMonthlyReturns[month].push(dailyReturn);
+        }
+      }
     }
   }
   
@@ -183,17 +220,26 @@ async function calculateSectorReturns(sector: string, tickers: string[]): Promis
   
   for (let i = 1; i <= 12; i++) {
     const returns = sectorMonthlyReturns[i];
-    if (returns.length > 0) {
+    if (returns && returns.length > 0) {
       const avgReturn = returns.reduce((sum, ret) => sum + ret, 0) / returns.length;
-      avgMonthlyReturns[monthNames[i - 1]] = parseFloat((avgReturn * 100).toFixed(2));
+      const monthName = monthNames[i - 1];
+      if (monthName) {
+        avgMonthlyReturns[monthName] = parseFloat((avgReturn * 100).toFixed(2));
+      }
     } else {
-      avgMonthlyReturns[monthNames[i - 1]] = 0.0;
+      const monthName = monthNames[i - 1];
+      if (monthName) {
+        avgMonthlyReturns[monthName] = 0.0;
+      }
     }
   }
   
   return avgMonthlyReturns;
 }
 
+/**
+ * Calculate volatility from monthly returns
+ */
 function calculateVolatility(monthlyReturns: MonthlyReturns): number {
   const returns = Object.values(monthlyReturns);
   if (returns.length === 0) return 0;
@@ -204,25 +250,29 @@ function calculateVolatility(monthlyReturns: MonthlyReturns): number {
   return parseFloat(Math.sqrt(variance).toFixed(2));
 }
 
-function getSectorComposition(sector: string): string[] {
-  const sectorPath = path.join(__dirname, 'stock', sector);
-  
-  if (!fs.existsSync(sectorPath)) {
-    return [];
-  }
-  
+/**
+ * Get sector composition from Azure
+ */
+async function getSectorComposition(sector: string): Promise<string[]> {
   try {
-    const files = fs.readdirSync(sectorPath).filter(file => file.endsWith('.csv'));
-    return files.map(file => file.replace('.csv', ''));
+    const files = await listPaths({ prefix: `stock/${sector}/` });
+    const tickers = files
+      .filter(f => f.startsWith(`stock/${sector}/`) && f.endsWith('.csv'))
+      .map(f => f.replace(`stock/${sector}/`, '').replace('.csv', ''));
+    
+    return tickers;
   } catch (error) {
     console.warn(`⚠️ Warning: Could not read sector ${sector}: ${error}`);
     return [];
   }
 }
 
-function generateSectorSeasonalityData(sector: string): SectorSeasonalityData {
-  const composition = getSectorComposition(sector);
-  const monthlyReturns = calculateSectorReturns(sector, composition);
+/**
+ * Generate seasonality data for a single sector
+ */
+async function generateSectorSeasonalityData(sector: string): Promise<SectorSeasonalityData> {
+  const composition = await getSectorComposition(sector);
+  const monthlyReturns = await calculateSectorReturns(sector, composition);
   const volatility = calculateVolatility(monthlyReturns);
   
   const seasonalityData: SectorSeasonalityData = {
@@ -237,55 +287,77 @@ function generateSectorSeasonalityData(sector: string): SectorSeasonalityData {
   const returns = Object.values(monthlyReturns);
   const months = Object.keys(monthlyReturns);
   
-  if (returns.length > 0) {
+  if (returns.length > 0 && months.length > 0) {
     const maxReturn = Math.max(...returns);
     const minReturn = Math.min(...returns);
     
     const bestMonthIndex = returns.indexOf(maxReturn);
     const worstMonthIndex = returns.indexOf(minReturn);
     
-    seasonalityData.best_month = {
-      month: months[bestMonthIndex],
-      return: maxReturn
-    };
+    if (bestMonthIndex >= 0 && bestMonthIndex < months.length) {
+      seasonalityData.best_month = {
+        month: months[bestMonthIndex] || '',
+        return: maxReturn
+      };
+    }
     
-    seasonalityData.worst_month = {
-      month: months[worstMonthIndex],
-      return: minReturn
-    };
+    if (worstMonthIndex >= 0 && worstMonthIndex < months.length) {
+      seasonalityData.worst_month = {
+        month: months[worstMonthIndex] || '',
+        return: minReturn
+      };
+    }
   }
   
   return seasonalityData;
 }
 
-function getAllSectors(): string[] {
-  const stockDir = path.join(__dirname, 'stock');
-  
+/**
+ * Get all sectors from Azure
+ */
+async function getAllSectors(): Promise<string[]> {
   try {
-    return fs.readdirSync(stockDir).filter(item => {
-      return fs.statSync(path.join(stockDir, item)).isDirectory();
-    });
+    const files = await listPaths({ prefix: 'stock/' });
+    const sectors = new Set<string>();
+    
+    for (const file of files) {
+      const parts = file.split('/');
+      if (parts.length >= 2) {
+        const sector = parts[1];
+        if (sector && sector !== '' && !sector.includes('.')) { // Exclude files, only folders
+          sectors.add(sector);
+        }
+      }
+    }
+    
+    return Array.from(sectors).sort();
   } catch (error) {
     console.error(`❌ Error reading sectors: ${error}`);
     return [];
   }
 }
 
-function generateAllSectorsSeasonality(): SeasonalityResults {
-  const allSectors = getAllSectors();
+/**
+ * Generate seasonality data for all sectors
+ */
+export async function generateAllSectorsSeasonality(): Promise<SeasonalityResults> {
+  const allSectors = await getAllSectors();
   const sectorsData: SectorSeasonalityData[] = [];
   
   console.log(`📊 Processing ${allSectors.length} sectors...`);
   
-  allSectors.forEach((sector, index) => {
-    try {
-      console.log(`Processing ${index + 1}/${allSectors.length}: ${sector}`);
-      const seasonalityData = generateSectorSeasonalityData(sector);
-      sectorsData.push(seasonalityData);
-    } catch (error) {
-      console.warn(`⚠️ Warning: Could not process sector ${sector}: ${error}`);
+  for (let i = 0; i < allSectors.length; i++) {
+    const sector = allSectors[i];
+    if (sector) {
+      try {
+        console.log(`Processing ${i + 1}/${allSectors.length}: ${sector}`);
+        const seasonalityData = await generateSectorSeasonalityData(sector);
+        sectorsData.push(seasonalityData);
+      } catch (error) {
+        console.warn(`⚠️ Warning: Could not process sector ${sector}: ${error}`);
+      }
     }
-  });
+  }
   
   return {
     metadata: {
@@ -298,15 +370,10 @@ function generateAllSectorsSeasonality(): SeasonalityResults {
   };
 }
 
-function saveToCSV(results: SeasonalityResults, outputDir: string): void {
-  // Create output directory if it doesn't exist
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
-  }
-  
-  const filename = 'o3-seasonal-sectors.csv';
-  const filepath = path.join(outputDir, filename);
-  
+/**
+ * Save results to CSV and upload to Azure
+ */
+export async function saveSectorSeasonalityToCSV(results: SeasonalityResults): Promise<void> {
   // Create CSV content
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -332,67 +399,34 @@ function saveToCSV(results: SeasonalityResults, outputDir: string): void {
     csvContent += `${sector.volatility}\n`;
   });
   
-  fs.writeFileSync(filepath, csvContent);
-  console.log(`✅ Sector seasonality data saved to: ${filepath}`);
-}
-
-function printSummary(results: SeasonalityResults): void {
-  console.log('\n' + '='.repeat(50));
-  console.log('SECTOR SEASONALITY ANALYSIS SUMMARY');
-  console.log('='.repeat(50));
-  
-  console.log(`\n📊 TOTAL SECTORS ANALYZED: ${results.sectors.length}`);
-  
-  console.log('\n📈 SECTOR COMPOSITION:');
-  results.sectors.forEach(sector => {
-    console.log(`   ${sector.sector}: ${sector.stock_count} stocks`);
-  });
-  
-  // Top performing sectors by best month return
-  const topSectors = results.sectors
-    .filter(sector => sector.best_month?.return)
-    .sort((a, b) => (b.best_month?.return || 0) - (a.best_month?.return || 0))
-    .slice(0, 5);
-  
-  console.log('\n🏆 TOP 5 BEST PERFORMING SECTORS:');
-  topSectors.forEach((sector, index) => {
-    console.log(`   ${index + 1}. ${sector.sector}: ${sector.best_month?.return?.toFixed(2)}% in ${sector.best_month?.month}`);
-  });
-  
-  // Most volatile sectors
-  const volatileSectors = results.sectors
-    .sort((a, b) => b.volatility - a.volatility)
-    .slice(0, 3);
-  
-  console.log('\n📊 MOST VOLATILE SECTORS:');
-  volatileSectors.forEach((sector, index) => {
-    console.log(`   ${index + 1}. ${sector.sector}: ${sector.volatility}% volatility`);
-  });
-  
-  console.log(`\n💾 Analysis completed at: ${results.metadata.generated_at}`);
-  console.log('='.repeat(50));
-}
-
-function main(): void {
+  // Upload to Azure
+  const outputPath = "seasonal_output/o3-seasonal-sectors.csv";
   try {
-    console.log('🔄 Starting sector seasonality analysis...');
-    
-    const results = generateAllSectorsSeasonality();
-    
-    console.log('💾 Saving to CSV...');
-    const outputDir = path.join(__dirname, 'seasonal_output');
-    saveToCSV(results, outputDir);
-    
-    printSummary(results);
-    
+    await uploadText(outputPath, csvContent, 'text/csv');
+    console.log(`✅ Sector seasonality data saved to: ${outputPath}`);
   } catch (error) {
-    console.error('❌ Error:', error);
+    console.error(`❌ Error uploading to Azure: ${error}`);
+    throw error;
   }
 }
 
-// Run the main function
-if (require.main === module) {
-  main();
+/**
+ * Main function to generate and save sector seasonality
+ */
+export async function generateSectorSeasonality(): Promise<SeasonalityResults> {
+  try {
+    console.log('🔄 Starting sector seasonality analysis...');
+    
+    const results = await generateAllSectorsSeasonality();
+    
+    console.log('💾 Saving to CSV...');
+    await saveSectorSeasonalityToCSV(results);
+    
+    console.log(`✅ Sector seasonality analysis completed - ${results.sectors.length} sectors processed`);
+    
+    return results;
+  } catch (error) {
+    console.error('❌ Error in generateSectorSeasonality:', error);
+    throw error;
+  }
 }
-
-export { loadStockData, calculateSectorReturns, generateSectorSeasonalityData, generateAllSectorsSeasonality, saveToCSV };

@@ -19,7 +19,7 @@ export function LandingPage({ onStartTrial, onSignIn, onRegister }: LandingPageP
         <title>{`BandarmoloNY \u2014 Intelligent Market Analysis`}</title>
         <meta
           name="description"
-          content="Transform your trading strategy with intelligent market analysis and advanced trading insights."
+          content="Transform your trading strategy with intelligent market analysis and real-time insights."
         />
         <link rel="canonical" href="https://bandarmolony.com/" />
         <meta

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
+import React, { useState } from "react";
+import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { ThemeProvider } from "./components/dashboard/ThemeProvider";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ProfileProvider } from "./contexts/ProfileContext";
@@ -16,7 +16,7 @@ import { PublicRoute } from "./components/dashboard/PublicRoute";
 import { Sidebar } from "./components/dashboard/Sidebar";
 import { ThemeToggle } from "./components/dashboard/ThemeToggle";
 import { Avatar, AvatarFallback, AvatarImage } from "./components/ui/avatar";
-import { User, Home, ChevronRight, ChevronDown, TrendingUp, Activity, ArrowRightLeft, BookOpen, Star, BarChart3, CreditCard, Shield } from "lucide-react";
+import { User, Home, ChevronRight, TrendingUp, Activity, ArrowRightLeft, BookOpen, Star, BarChart3, CreditCard, Shield } from "lucide-react";
 // Import all dashboard components
 import MarketRotationRRG from "./components/market-rotation/MarketRotationRRG";
 import MarketRotationRRC from "./components/market-rotation/MarketRotationRRC";
@@ -33,7 +33,6 @@ import { StoryMarketParticipant } from "./components/story/StoryMarketParticipan
 import { StoryOwnership } from "./components/story/StoryOwnership";
 import { StoryForeignFlow } from "./components/story/StoryForeignFlow";
 import { AstrologyLunarCalendar } from "./components/astrology/AstrologyLunarCalendar";
-import { TechnicalAnalysis } from "./components/technical-analysis/TechnicalAnalysis";
 import { TechnicalAnalysisTradingView } from "./components/technical-analysis/TechnicalAnalysisTradingView";
 import { ProfilePage } from "./components/profile/ProfilePage";
 import { SubscriptionPage } from "./components/subscription/SubscriptionPage";
@@ -89,7 +88,7 @@ function DashboardLayout() {
   const currentRoute = getCurrentRoute();
 
   // Breadcrumb mapping based on sidebar menu structure
-  const breadcrumbMap: Record<string, { title: string; icon?: React.ComponentType<{ className?: string }>; children?: Record<string, string> }> = {
+  const breadcrumbMap: Record<string, { title: string; icon?: React.ComponentType<any>; children?: Record<string, string> }> = {
     'dashboard': { title: 'Dashboard', icon: Home },
     'market-rotation': {
       title: 'Market Rotation',
@@ -140,9 +139,10 @@ function DashboardLayout() {
     if (!path || path === 'dashboard') return [{ title: 'Dashboard', icon: Home }];
     const segments = path.split('/');
     const base = segments[0];
+    if (!base) return [{ title: 'Dashboard', icon: Home }];
     const entry = breadcrumbMap[base];
     if (!entry) return [{ title: 'Dashboard', icon: Home }];
-    const parts: { title: string; icon?: React.ComponentType<{ className?: string }> }[] = [{ title: entry.title, icon: entry.icon }];
+    const parts: { title: string; icon?: React.ComponentType<any> }[] = [{ title: entry.title, ...(entry.icon && { icon: entry.icon }) }];
     if (segments[1] && entry.children) {
       const child = entry.children[segments[1]];
       if (child) parts.push({ title: child });
@@ -243,7 +243,7 @@ function DashboardLayout() {
       />
 
       {/* Main Content */}
-        <div className="flex-1 flex flex-col ml-0 lg:ml-16">
+        <div className="flex-1 flex flex-col overflow-hidden ml-0 lg:ml-16">
         {/* Header */}
         <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card h-14">
           <div className="flex items-center gap-3">
