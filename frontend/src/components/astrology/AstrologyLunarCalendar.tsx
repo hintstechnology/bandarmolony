@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
-import { Search, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Plus } from 'lucide-react';
 // @ts-ignore
 import { getImageUrl } from '../../utils/imageMapping';
 import { api } from '../../services/api';
@@ -405,9 +405,6 @@ export function AstrologyLunarCalendar() {
   const [monthZodiacFilter, setMonthZodiacFilter] = useState('all');
   const [dayElementFilter, setDayElementFilter] = useState('all');
   const [dayZodiacFilter, setDayZodiacFilter] = useState('all');
-  // Pagination for rising stocks list
-  const [pageSize, setPageSize] = useState<number>(10);
-  const [page, setPage] = useState<number>(1);
   
   const [astrologyData, setAstrologyData] = useState<AstrologyData[]>([]);
   const [availableStocks, setAvailableStocks] = useState<string[]>([]);
@@ -643,15 +640,30 @@ export function AstrologyLunarCalendar() {
                     <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-muted-foreground" />
                     <input
                       type="text"
-                      placeholder="Search and select stock..."
+                      placeholder={selectedStock === 'ALL' ? 'ALL (All Stocks)' : selectedStock}
                       value={stockSearchQuery}
                       onChange={(e) => {
                         setStockSearchQuery(e.target.value);
                         setShowStockDropdown(true);
                       }}
                       onFocus={() => setShowStockDropdown(true)}
-                      className="w-full pl-7 pr-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors"
+                      className="w-full pl-7 pr-9 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors"
                     />
+                    {selectedStock && selectedStock !== 'ALL' && (
+                      <button
+                        type="button"
+                        aria-label="Clear selection"
+                        className="absolute inset-y-0 right-6 pr-2 flex items-center text-muted-foreground hover:text-foreground"
+                        onClick={() => {
+                          setSelectedStock('ALL');
+                          setStockSearchQuery('');
+                        }}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    )}
                   </div>
                   
                   {/* Stock Search and Select Dropdown */}

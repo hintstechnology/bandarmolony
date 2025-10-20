@@ -1,6 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Calendar, Clock, LineChart, Play, Settings2, Sparkles, Spline, Search } from "lucide-react";
+import { Calendar, Clock, LineChart, Settings2, Sparkles, Search, Plus } from "lucide-react";
+import { api } from '../../services/api';
+import { useToast } from '../../contexts/ToastContext';
 
 const Card = ({ className = "", children }: any) => (
   <div className={`rounded-2xl shadow-sm border border-border bg-card ${className}`}>{children}</div>
@@ -11,15 +13,6 @@ const CardHeader = ({ className = "", children }: any) => (
 const CardContent = ({ className = "", children }: any) => (
   <div className={`p-5 ${className}`}>{children}</div>
 );
-const Button = ({ className = "", children, ...props }: any) => (
-  <button className={`px-4 py-2 rounded-xl shadow-sm border border-border bg-background text-foreground hover:bg-accent active:scale-95 transition disabled:opacity-50 disabled:cursor-not-allowed ${className}`} {...props}>{children}</button>
-);
-const Input = ({ className = "", ...props }: any) => (
-  <input className={`w-full px-3 py-2 rounded-xl border border-border bg-input text-foreground focus:outline-none focus:ring-2 focus:ring-accent ${className}`} {...props}/>
-);
-const Select = ({ className = "", children, ...props }: any) => (
-  <select className={`w-full px-3 py-2 rounded-xl border border-border bg-input text-foreground focus:outline-none focus:ring-2 focus:ring-accent ${className}`} {...props}>{children}</select>
-);
 const Badge = ({ children, intent = "gray" }: any) => {
   const color: Record<string, string> = {
     gray: "bg-muted text-muted-foreground",
@@ -29,7 +22,7 @@ const Badge = ({ children, intent = "gray" }: any) => {
     violet: "bg-violet-100 text-violet-800",
     red: "bg-red-100 text-red-700",
   };
-  return <span className={`px-2 py-1 rounded-lg text-xs font-medium ${color[intent] || color.gray}`}>{children}</span>;
+  return <span className={`px-2 py-1 rounded-lg text-xs font-medium ${color[intent] || color['gray']}`}>{children}</span>;
 };
 
 const SectionTitle = ({ icon: Icon, title, subtitle }: any) => (
@@ -79,12 +72,31 @@ interface Row {
 
 type Timeframe = 'yearly' | 'monthly' | 'daily';
 
-// Simple list of common tickers for suggestions
-const AVAILABLE_TICKERS: string[] = [
-  'BTCUSD','ETHUSD','AAPL','MSFT','GOOGL','AMZN','NVDA','META','TSLA','NFLX',
-  'BBCA','BBRI','BMRI','BBNI','TLKM','ASII','GOTO','ANTM','MDKA','ADRO',
-  'UNVR','ICBP','INDF','PGAS','MEDC','CPIN','JPFA','INCO','TPIA','TKIM'
-];
+
+// Helper function to get date from input
+const getDateFromInput = (dateString: string) => {
+  return new Date(dateString + 'T00:00:00');
+};
+
+// Helper function to trigger date picker
+const triggerDatePicker = (inputRef: React.RefObject<HTMLInputElement>) => {
+  if (inputRef.current) {
+    inputRef.current.showPicker();
+  }
+};
+
+// Type definition for stock OHLC data from Azure
+interface StockOHLCData {
+  Date: string;
+  Open: number;
+  High: number;
+  Low: number;
+  Close: number;
+  Volume: number;
+  Value?: number;
+  Frequency?: number;
+  ChangePercent?: number;
+}
 
 function parseCsvSmart(text: string): Row[] {
   const firstLine = text.split(/\r?\n/)[0] || "";
@@ -97,7 +109,7 @@ function parseCsvSmart(text: string): Row[] {
 
   const lines = text.split(/\r?\n+/).filter(Boolean);
   if (!lines.length) return [];
-  const headers = lines[0].split(delim).map(h => h.replace(/^\s*\"|\"\s*$/g, "").trim().toLowerCase());
+  const headers = lines[0]?.split(delim).map(h => h.replace(/^\s*\"|\"\s*$/g, "").trim().toLowerCase()) || [];
 
   const num = (raw?: string): number => {
     if (raw == null) return NaN;
@@ -124,15 +136,15 @@ function parseCsvSmart(text: string): Row[] {
 
   const rows: Row[] = [];
   for (let k = 1; k < lines.length; k++) {
-    const parts = lines[k].split(delim).map(p=>p.replace(/^\s*\"|\"\s*$/g, ""));
-    if (!parts[iDate]) continue;
-    const d = new Date(parts[iDate]); if (isNaN(+d)) continue;
+    const parts = lines[k]?.split(delim).map(p=>p.replace(/^\s*\"|\"\s*$/g, "")) || [];
+    if (!parts[iDate] || iDate >= parts.length) continue;
+    const d = new Date(parts[iDate] || ''); if (isNaN(+d)) continue;
     const r: Row = { date: d };
-    if (iOpen !== -1) r.open = num(parts[iOpen]);
-    if (iHigh !== -1) r.high = num(parts[iHigh]);
-    if (iLow  !== -1) r.low  = num(parts[iLow]);
-    if (iClose!== -1) r.close= num(parts[iClose]);
-    if (iVol  !== -1) r.volume= num(parts[iVol]);
+    if (iOpen !== -1 && parts[iOpen] !== undefined) r.open = num(parts[iOpen]);
+    if (iHigh !== -1 && parts[iHigh] !== undefined) r.high = num(parts[iHigh]);
+    if (iLow  !== -1 && parts[iLow] !== undefined) r.low  = num(parts[iLow]);
+    if (iClose!== -1 && parts[iClose] !== undefined) r.close= num(parts[iClose]);
+    if (iVol  !== -1 && parts[iVol] !== undefined) r.volume= num(parts[iVol]);
     rows.push(r);
   }
   return rows.sort((a,b)=>+a.date-+b.date);
@@ -246,24 +258,24 @@ function yearPillarExact(localDate: Date, tz:string=TZ_DEFAULT){
   const solarYear = (localDate.getTime()>=lc.getTime()) ? localDate.getFullYear() : localDate.getFullYear()-1;
   const n = solarYear - 1984; // 1984 = 甲子
   const stemCN = stemsCN[((n%10)+10)%10]; const branchCN = branchesCN[((n%12)+12)%12];
-  const se = STEM_ELEMENT[stemCN]; const bm = BRANCH_META_FULL[branchCN];
-  return { solarYear, pillarCN: stemCN+branchCN, stemCN, branchCN, element: se.element, yinyang: se.yy, shio: bm.shio };
+  const se = STEM_ELEMENT[stemCN || '甲']; const bm = BRANCH_META_FULL[branchCN || '子'];
+  return { solarYear, pillarCN: (stemCN || '甲')+(branchCN || '子'), stemCN: stemCN || '甲', branchCN: branchCN || '子', element: se?.element || 'Wood', yinyang: se?.yy || 'Yang', shio: bm?.shio || 'Tiger' };
 }
 function monthPillarExact(localDate: Date, yearStemCN:string){
   const lam = solarAppLongitudeDeg(new Date(localDate.toLocaleString("en-US",{ timeZone: "UTC" })));
   const idx = monthIndexFromLongitude(lam); // 0..11
-  const branchCN = MONTH_BRANCHES_CN[idx]; const stemCN = MONTH_STEM_MAP[yearStemCN][idx];
-  const se = STEM_ELEMENT[stemCN]; const bm = BRANCH_META_FULL[branchCN];
-  return { monthIndex: idx+1, pillarCN: stemCN+branchCN, stemCN, branchCN, element: se.element, yinyang: se.yy, shio: bm.shio };
+  const branchCN = MONTH_BRANCHES_CN[idx]; const stemCN = MONTH_STEM_MAP[yearStemCN]?.[idx];
+  const se = STEM_ELEMENT[stemCN || '甲']; const bm = BRANCH_META_FULL[branchCN || '子'];
+  return { monthIndex: idx+1, pillarCN: (stemCN || '甲')+(branchCN || '子'), stemCN: stemCN || '甲', branchCN: branchCN || '子', element: se?.element || 'Wood', yinyang: se?.yy || 'Yang', shio: bm?.shio || 'Tiger' };
 }
-function dayPillarExact(localDate: Date, tz:string=TZ_DEFAULT){
+function dayPillarExact(localDate: Date, _tz:string=TZ_DEFAULT){
   const dayStartLocal = new Date(new Date(localDate).setHours(0,0,0,0));
   const dayStartUTC = new Date(dayStartLocal.toLocaleString("en-US",{ timeZone: "UTC" }));
   const JD = toJulianDayUTC(dayStartUTC); const JD0 = toJulianDayUTC(JIAZI_ANCHOR_UTC);
   const delta = Math.round(JD - JD0); const idx = ((delta%60)+60)%60;
-  const pair = JIA_ZI[idx]; const stem = pair[0], branch = pair[1];
+  const pair = JIA_ZI[idx]; const stem = pair?.[0] || '甲', branch = pair?.[1] || '子';
   const se = STEM_ELEMENT[stem]; const bm = BRANCH_META_FULL[branch];
-  return { pillarCN: pair, stemCN: stem, branchCN: branch, element: se.element, yinyang: se.yy, shio: bm.shio };
+  return { pillarCN: pair || '甲子', stemCN: stem, branchCN: branch, element: se?.element || 'Wood', yinyang: se?.yy || 'Yang', shio: bm?.shio || 'Tiger' };
 }
 
 // ——— Compatibility wrappers (menjaga pemanggil lama) ———
@@ -276,22 +288,12 @@ function sexagenaryFromDate(d: Date){
   const branch_idx = ((n%12)+12)%12;
   return { idx, stem_idx, branch_idx, baziYear: y.solarYear };
 }
-function getBaziMonthIndex(d: Date): number {
-  // Astronomical: dari λ☉, 0=Tiger(寅)
-  const lam = solarAppLongitudeDeg(new Date(d.toLocaleString("en-US",{ timeZone: "UTC" })));
-  return monthIndexFromLongitude(lam);
-}
-function getBaziMonthKey(d: Date): string {
-  const { baziYear } = sexagenaryFromDate(d);
-  const mi = getBaziMonthIndex(d); // 0..11
-  return `${baziYear}-${mi+1}`;    // tampilkan 1..12
-}
 
 // ========= ENRICH (tidak mengubah bentuk data UI) =========
 function enrich(rows: Row[]) {
   const out = rows.map(r => {
     const y = yearPillarExact(r.date, TZ_DEFAULT);
-    const m = monthPillarExact(r.date, y.stemCN);
+    const m = monthPillarExact(r.date, y.stemCN || '甲');
     const di = dayPillarExact(r.date, TZ_DEFAULT);
 
     // legacy fields: tetap isi dari Year pillar
@@ -319,11 +321,11 @@ function enrich(rows: Row[]) {
 
   // ret & ATR14 sama seperti sebelumnya
   for (let i=1;i<out.length;i++){
-    const prev = out[i-1].close ?? NaN; const cur = out[i].close ?? NaN;
+    const prev = out[i-1]?.close ?? NaN; const cur = out[i]?.close ?? NaN;
     (out as any)[i].ret = (isFinite(prev) && isFinite(cur) && prev !== 0) ? (cur - prev)/prev : NaN;
   }
   const tr: number[] = out.map((row, i)=>{
-    const h = row.high ?? NaN, l = row.low ?? NaN, cPrev = (i>0 ? out[i-1].close : NaN) as number;
+    const h = row.high ?? NaN, l = row.low ?? NaN, cPrev = (i>0 ? out[i-1]?.close : NaN) as number;
     const a = (isFinite(h)&&isFinite(l)) ? (h - l) : NaN;
     const b = (isFinite(h)&&isFinite(cPrev)) ? Math.abs(h - cPrev) : NaN;
     const c = (isFinite(l)&&isFinite(cPrev)) ? Math.abs(l - cPrev) : NaN;
@@ -332,12 +334,12 @@ function enrich(rows: Row[]) {
   const atr14: (number|undefined)[] = [];
   for (let i=0;i<out.length;i++){
     if (i<13){ atr14.push(undefined); continue; }
-    let s = 0, n=0; for (let k=i-13;k<=i;k++){ if (isFinite(tr[k])){ s+=tr[k]; n++; } }
+    let s = 0, n=0; for (let k=i-13;k<=i;k++){ if (isFinite(tr[k] || 0)){ s+=(tr[k] || 0); n++; } }
     atr14.push(n? s/n : undefined);
   }
   for (let i=0;i<out.length;i++){
     (out as any)[i].atr14 = atr14[i];
-    const c = out[i].close ?? NaN;
+    const c = out[i]?.close ?? NaN;
     (out as any)[i].atr14_frac = (isFinite(atr14[i] as number) && isFinite(c) && c !== 0) ? (atr14[i] as number)/c : undefined;
   }
   return out;
@@ -569,55 +571,6 @@ function aggregateByShioDaily(rows: any[]) {
 }
 
 // ========= UI (LAYOUT TIDAK DIUBAH, hanya isi sel untuk tampilkan Flat) =========
-function DateInfoCard() {
-  const today = new Date();
-  const weekdayNames = ["Minggu","Senin","Selasa","Rabu","Kamis","Jumat","Sabtu"];
-  const monthNames = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
-  const weekday = weekdayNames[today.getDay()];
-  const day = today.getDate();
-  const month = monthNames[today.getMonth()];
-  const year = today.getFullYear();
-  const time = today.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-  const Y = yearPillarExact(today, TZ_DEFAULT);
-  const M = monthPillarExact(today, Y.stemCN);
-  const D = dayPillarExact(today, TZ_DEFAULT);
-
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <Clock className="w-5 h-5 text-muted-foreground" />
-          <h3 className="text-lg font-semibold">Hari Ini</h3>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center text-center">
-          <div className="space-y-1">
-            <div className="text-2xl font-bold">{weekday}</div>
-            <div className="text-xl text-foreground">{day} {month} {year}</div>
-            <Badge intent="blue">Waktu Lokal: {time}</Badge>
-          </div>
-          <div className="space-y-1">
-            <div className="text-sm text-muted-foreground">Pilar Tahun</div>
-            <div className="text-lg font-semibold">{Y.pillarCN} <span className="text-muted-foreground">({Y.shio})</span></div>
-            <div className="text-sm text-muted-foreground">Element: <span className="font-medium">{Y.element}</span> · Yin–Yang: <span className="font-medium">{Y.yinyang}</span></div>
-          </div>
-          <div className="space-y-1">
-            <div className="text-sm text-muted-foreground">Monthly (Pilar Bulan)</div>
-            <div className="text-sm"><b>Month:</b> {M.pillarCN} ({M.shio}) — <b>{M.element}</b> · {M.yinyang}</div>
-            <div className="text-sm"><b>Day:</b> {D.pillarCN} ({D.shio}) — <b>{D.element}</b> · {D.yinyang}</div>
-          </div>
-          <div className="space-y-1">
-            <div className="text-sm text-muted-foreground">Daily (Pilar Hari)</div>
-            <div className="text-sm"><b>Day:</b> {D.pillarCN} ({D.shio})</div>
-            <div className="text-sm">Element: <b>{D.element}</b> · {D.yinyang}</div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
 
 // New, styled 4-section card matching yearly layout
 function DateInfoCardNew() {
@@ -631,7 +584,7 @@ function DateInfoCardNew() {
   const time = today.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
   const Y = yearPillarExact(today, TZ_DEFAULT);
-  const M = monthPillarExact(today, Y.stemCN);
+  const M = monthPillarExact(today, Y.stemCN || '甲');
   const D = dayPillarExact(today, TZ_DEFAULT);
 
   return (
@@ -675,53 +628,16 @@ function DateInfoCardNew() {
   );
 }
 
-function YearBranchCard({ data }: any) {
-  if (!data) return null;
-  return (
-    <Card>
-      <CardHeader>
-        <SectionTitle icon={LineChart} title="Performa per Shio (Year Branch)" subtitle="Avg daily return, Probability Up/Down, Avg Open→Close % (per Ba Zi Year), Cycle Count, ATR/Close" />
-      </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-1 md:grid-cols-7 gap-2 text-sm font-medium mb-2">
-          <div>Shio</div>
-          <div>Days</div>
-          
-          <div>Prob Up</div>
-                      <div>Prob Down</div>
-                      <div>Prob Flat</div>
-          <div>Avg Open→Close % (Year)</div>
-          <div>Cycle Count</div>
-          
-        </div>
-        <div className="divide-y">
-          {data.map((r:any, i:number)=> (
-            <div key={i} className="grid grid-cols-1 md:grid-cols-7 gap-2 py-2 text-sm">
-              <div><Badge intent="gray">{r.shio}</Badge></div>
-              <div>{r.days}</div>
-              
-              <div>{(r.prob_up*100).toFixed(1)}%</div>
-              
-              <div>{(r.prob_down*100).toFixed(1)}%</div>
-              <div>{Number.isFinite(r.avg_year_oc) ? (r.avg_year_oc*100).toFixed(2) + '%' : '—'}</div>
-              <div>{r.n_years ?? 0}</div>
-              <div>{(r.prob_flat*100).toFixed(1)}%</div>
-            </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
 
 export default function BaZiCycleAnalyzer() {
+  const { showToast } = useToast();
   const today = new Date();
   const yyyy = today.getFullYear();
   const endISO = today.toISOString().slice(0, 10);
   const startISO = new Date(yyyy - 3, today.getMonth(), today.getDate()).toISOString().slice(0, 10);
 
   const [params, setParams] = useState<RunParams>({
-    ticker: "BTCUSD",
+    ticker: "",
     anchorMethod: "jiazi1984",
     startDate: startISO,
     endDate: endISO,
@@ -732,28 +648,116 @@ export default function BaZiCycleAnalyzer() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [timeframe, setTimeframe] = useState<Timeframe>('yearly');
-  const [recentFiles, setRecentFiles] = useState<any[]>([]);
-  const [fileSearch, setFileSearch] = useState<string>("");
-  const [fileDropdownOpen, setFileDropdownOpen] = useState<boolean>(false);
-  const [fileActiveIndex, setFileActiveIndex] = useState<number>(-1);
   const [tickerDropdownOpen, setTickerDropdownOpen] = useState<boolean>(false);
   const [tickerActiveIndex, setTickerActiveIndex] = useState<number>(-1);
+  const [availableStocks, setAvailableStocks] = useState<string[]>([]);
+  const [tickerSearchQuery, setTickerSearchQuery] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const fileSearchRef = useRef<HTMLInputElement>(null);
-  const tickerInputRef = useRef<HTMLInputElement>(null);
-  const fileDropdownWrapRef = useRef<HTMLDivElement>(null);
   const tickerDropdownWrapRef = useRef<HTMLDivElement>(null);
+  const startDateRef = useRef<HTMLInputElement>(null);
+  const endDateRef = useRef<HTMLInputElement>(null);
+  const anchorDateRef = useRef<HTMLInputElement>(null);
 
   const filteredTickers = useMemo(() => {
-    const q = (params.ticker || '').toLowerCase().trim();
-    if (!q) return AVAILABLE_TICKERS;
-    return AVAILABLE_TICKERS.filter(t => t.toLowerCase().includes(q));
-  }, [params.ticker]);
+    const q = (tickerSearchQuery || '').toLowerCase().trim();
+    if (!q) return availableStocks;
+    return availableStocks.filter(t => t.toLowerCase().includes(q));
+  }, [tickerSearchQuery, availableStocks]);
 
-  const canRun = useMemo(() => {
-    const { ticker, startDate, endDate } = params;
-    return ticker.trim().length > 0 && startDate <= endDate && rows.length > 0;
-  }, [params, rows]);
+
+  // Load available stocks from Azure
+  useEffect(() => {
+    const loadStocks = async () => {
+      try {
+        const result = await api.getStockList();
+        if (result.success && result.data?.stocks) {
+          const stockList = result.data.stocks;
+          setAvailableStocks(stockList);
+        }
+      } catch (err) {
+        console.error('Error loading stocks:', err);
+      }
+    };
+    
+    loadStocks();
+  }, []);
+
+  // Load stock data from Azure when ticker is selected
+  useEffect(() => {
+    const loadStockData = async () => {
+      if (!params.ticker || availableStocks.length === 0) {
+        setRows([]);
+        setResult(null);
+        return;
+      }
+
+      // Skip loading if it's demo data (already loaded)
+      if (params.ticker === 'DEMO') {
+        return;
+      }
+
+      // Use the selected ticker directly
+      const selectedTicker = params.ticker;
+      if (!selectedTicker) {
+        setRows([]);
+        setResult(null);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setErr(null);
+        
+        const endDate = params.endDate;
+        const startDate = params.startDate;
+        
+        const result = await api.getStockData(selectedTicker, startDate, endDate, 1000);
+        if (result.success && result.data?.data) {
+          const stockData = result.data.data;
+          
+          // Convert Azure stock data to Row format
+          const convertedRows: Row[] = stockData.map((dayData: StockOHLCData) => ({
+            date: new Date(dayData.Date),
+            open: dayData.Open,
+            high: dayData.High,
+            low: dayData.Low,
+            close: dayData.Close,
+            volume: dayData.Volume,
+            value: dayData.Value,
+            frequency: dayData.Frequency,
+            changePercent: dayData.ChangePercent
+          }));
+          
+          setRows(convertedRows);
+        } else {
+          setErr('Failed to load stock data');
+          setRows([]);
+        }
+      } catch (error) {
+        console.error('Error loading stock data:', error);
+        setErr('Failed to load stock data');
+        setRows([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadStockData();
+  }, [params.ticker, params.startDate, params.endDate, availableStocks]);
+
+  // Handle click outside dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (tickerDropdownWrapRef.current && !tickerDropdownWrapRef.current.contains(event.target as Node)) {
+        setTickerDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   const onUpload = async (f: File | null) => {
     setErr(null);
@@ -774,69 +778,11 @@ export default function BaZiCycleAnalyzer() {
         setParams(p=>({...p, startDate: minISO }));
       }
     } catch {}
-    try {
-      const meta = { name: f.name || 'uploaded.csv', rows: parsed };
-      setRecentFiles(prev => {
-        const next = [meta, ...prev.filter(x=>x.name!==meta.name)].slice(0, 10);
-        try { localStorage.setItem('baziRecentFiles', JSON.stringify(next)); } catch {}
-        return next;
-      });
-    } catch {}
   };
 
-  const loadDemo = () => {
-    const demo = `date,open,high,low,close,volume
-2024-01-01,42000,42500,41800,42400,1000
-2024-01-02,42400,43000,42000,42800,1200
-2024-01-03,42800,43500,42500,43250,1100
-2024-01-04,43250,43800,43000,43500,1300
-2024-01-05,43500,44000,43200,43850,1250`;
-    const parsed = parseCsvSmart(demo);
-    setRows(parsed);
-    try {
-      const dates = parsed.map(r=>r.date).filter((d:any)=> d instanceof Date && !isNaN(+d));
-      if (dates.length) {
-        const minISO = new Date(Math.min.apply(null, dates as any)).toISOString().slice(0,10);
-        setParams(p=>({...p, startDate: minISO }));
-      }
-    } catch {}
-    setErr(null);
-  };
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('baziRecentFiles');
-      if (raw) {
-        const arr = JSON.parse(raw);
-        setRecentFiles(Array.isArray(arr) ? arr : []);
-      }
-    } catch {}
-  }, []);
-
-  // Close dropdowns when clicking outside
-  useEffect(() => {
-    const handleDocumentMouseDown = (e: MouseEvent) => {
-      const t = e.target as Node | null;
-      if (fileDropdownOpen) {
-        const wrap = fileDropdownWrapRef.current;
-        if (wrap && t && !wrap.contains(t)) {
-          setFileDropdownOpen(false);
-        }
-      }
-      if (tickerDropdownOpen) {
-        const wrap = tickerDropdownWrapRef.current;
-        if (wrap && t && !wrap.contains(t)) {
-          setTickerDropdownOpen(false);
-        }
-      }
-    };
-    document.addEventListener('mousedown', handleDocumentMouseDown);
-    return () => {
-      document.removeEventListener('mousedown', handleDocumentMouseDown);
-    };
-  }, [fileDropdownOpen, tickerDropdownOpen]);
-
-  const onRun = async () => {
+  const runAnalysis = async () => {
+    if (!rows.length) return;
+    
     setLoading(true);
     setErr(null);
     try{
@@ -844,7 +790,18 @@ export default function BaZiCycleAnalyzer() {
       const end = new Date(params.endDate + "T23:59:59Z");
       const subset = rows.filter(r => r.date >= start && r.date <= end);
       if (!subset.length) throw new Error("Tidak ada data pada rentang tanggal");
-      const enriched = enrich(subset);
+      
+      // Apply anchor method if custom is selected
+      let enriched;
+      if (params.anchorMethod === "custom" && params.anchorDate) {
+        // For custom anchor, we would need to modify the BaZi calculation
+        // For now, we'll use the default calculation but this could be extended
+        console.log("Custom anchor date selected:", params.anchorDate);
+        enriched = enrich(subset);
+      } else {
+        enriched = enrich(subset);
+      }
+      
       const byElemYear = aggregateByElement(enriched as any);
       const byElemMonth = aggregateByElementMonthly(enriched as any);
       const byElemDay = aggregateByElementDaily(enriched as any);
@@ -853,12 +810,74 @@ export default function BaZiCycleAnalyzer() {
       const byShDay = aggregateByShioDaily(enriched as any);
       const presentCount = byElemYear.filter((x:any) => x.days > 0).length;
       setResult({ enriched, byElemYear, byElemMonth, byElemDay, byShYear, byShMonth, byShDay, presentCount });
+      
+      showToast({
+        type: 'success',
+        title: 'Analysis Complete',
+        message: `Ba Zi analysis completed for ${subset.length} data points`
+      });
     }catch(e:any){
-      setErr(e?.message || "Gagal menjalankan analisis");
+      const errorMessage = e?.message || "Gagal menjalankan analisis";
+      setErr(errorMessage);
       setResult(null);
+      showToast({
+        type: 'error',
+        title: 'Analysis Error',
+        message: errorMessage
+      });
     }finally{
       setLoading(false);
     }
+  };
+
+  // Auto-run analysis when parameters change
+  useEffect(() => {
+    if (rows.length > 0 && params.ticker) {
+      console.log('🔄 Auto-running analysis due to parameter change:', {
+        ticker: params.ticker,
+        startDate: params.startDate,
+        endDate: params.endDate,
+        anchorMethod: params.anchorMethod,
+        anchorDate: params.anchorDate
+      });
+      runAnalysis();
+    }
+  }, [rows, params.startDate, params.endDate, params.ticker, params.anchorMethod, params.anchorDate]);
+
+  // Handle start date change
+  const handleStartDateChange = (dateString: string) => {
+    const newDate = getDateFromInput(dateString);
+    
+    // Validate start date is not after end date
+    if (newDate > new Date(params.endDate + "T00:00:00")) {
+      showToast({
+        type: 'error',
+        title: 'Invalid Date Range',
+        message: 'Start date cannot be after end date'
+      });
+      return;
+    }
+    
+    setParams(p => ({ ...p, startDate: dateString }));
+    setErr(null);
+  };
+
+  // Handle end date change
+  const handleEndDateChange = (dateString: string) => {
+    const newDate = getDateFromInput(dateString);
+    
+    // Validate end date is not before start date
+    if (newDate < new Date(params.startDate + "T00:00:00")) {
+      showToast({
+        type: 'error',
+        title: 'Invalid Date Range',
+        message: 'End date cannot be before start date'
+      });
+      return;
+    }
+    
+    setParams(p => ({ ...p, endDate: dateString }));
+    setErr(null);
   };
 
   // anchor label removed from UI
@@ -899,184 +918,301 @@ export default function BaZiCycleAnalyzer() {
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
               <div className="md:col-span-4">
-                <label className="text-sm font-medium">Ticker Code</label>
+                <label className="text-sm font-medium">Stock:</label>
                 <div ref={tickerDropdownWrapRef} className="relative mt-1">
-                  <div className="pointer-events-none absolute inset-y-0 left-0 pl-3 flex items-center">
-                    <Search className="w-4 h-4 text-muted-foreground"/>
+                  <div className="relative">
+                    <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                    <input
+                      type="text"
+                      placeholder={params.ticker === 'DEMO' ? 'DEMO' : params.ticker || 'Search and select stock...'}
+                      value={tickerSearchQuery}
+                      onChange={(e) => {
+                        setTickerSearchQuery(e.target.value);
+                        setTickerDropdownOpen(true);
+                        setTickerActiveIndex(0);
+                      }}
+                      onFocus={() => {
+                        setTickerDropdownOpen(true);
+                        setTickerActiveIndex(0);
+                      }}
+                      onKeyDown={(e) => {
+                        if (!tickerDropdownOpen) return;
+                        const suggestions = filteredTickers.slice(0, 15);
+                        const total = suggestions.length + 1; // +1 for Browse CSV option
+                        if (total === 0) return;
+                        if (e.key === 'ArrowDown') {
+                          e.preventDefault();
+                          setTickerActiveIndex(prev => {
+                            const next = prev + 1;
+                            return next >= total ? 0 : next;
+                          });
+                        } else if (e.key === 'ArrowUp') {
+                          e.preventDefault();
+                          setTickerActiveIndex(prev => {
+                            const next = prev - 1;
+                            return next < 0 ? total - 1 : next;
+                          });
+                        } else if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const idx = tickerActiveIndex >= 0 ? tickerActiveIndex : 0;
+                          if (idx === suggestions.length) {
+                            // Browse CSV selected
+                            setTickerDropdownOpen(false);
+                            setTickerActiveIndex(-1);
+                            fileInputRef.current?.click();
+                            return;
+                          }
+                          const choice = suggestions[idx];
+                          if (choice) {
+                            setParams(p => ({ ...p, ticker: choice }));
+                            setTickerSearchQuery('');
+                            setTickerDropdownOpen(false);
+                            setTickerActiveIndex(-1);
+                          }
+                        } else if (e.key === 'Escape') {
+                          setTickerDropdownOpen(false);
+                          setTickerActiveIndex(-1);
+                        }
+                      }}
+                      className="w-full pl-7 pr-9 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors"
+                      role="combobox"
+                      aria-expanded={tickerDropdownOpen}
+                      aria-controls="bazi-ticker-suggestions"
+                      aria-autocomplete="list"
+                    />
+                    {params.ticker && params.ticker !== 'DEMO' && params.ticker !== '' && (
+                      <button
+                        type="button"
+                        aria-label="Clear selection"
+                        className="absolute inset-y-0 right-8 pr-2 flex items-center text-muted-foreground hover:text-foreground"
+                        onClick={() => {
+                          setParams(p => ({ ...p, ticker: '' }));
+                          setTickerSearchQuery('');
+                          setRows([]);
+                          setResult(null);
+                        }}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      aria-label="Toggle ticker suggestions"
+                      className="absolute inset-y-0 right-0 pr-2 flex items-center text-muted-foreground hover:text-foreground"
+                      onClick={() => {
+                        setTickerDropdownOpen(o => !o);
+                        if (!tickerDropdownOpen) setTickerActiveIndex(0);
+                      }}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                        <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+                      </svg>
+                    </button>
                   </div>
-                  <input
-                    type="text"
-                    placeholder="BTCUSD / IDX:BBCA / AAPL"
-                    value={params.ticker}
-                    onChange={(e)=>{ setParams(p=>({...p,ticker:e.target.value})); setTickerDropdownOpen(true); setTickerActiveIndex(0); }}
-                    onFocus={()=>{ setTickerDropdownOpen(true); setTickerActiveIndex(0); }}
-                    onKeyDown={(e)=>{
-                      if (!tickerDropdownOpen) return;
-                      const suggestions = (params.ticker.trim() ? filteredTickers : AVAILABLE_TICKERS).slice(0,10);
-                      const total = suggestions.length + 1; // +1 for Browse CSV option
-                      if (total === 0) return;
-                      if (e.key === 'ArrowDown'){
-                        e.preventDefault();
-                        setTickerActiveIndex(prev => {
-                          const next = prev + 1;
-                          return next >= total ? 0 : next;
-                        });
-                      } else if (e.key === 'ArrowUp'){
-                        e.preventDefault();
-                        setTickerActiveIndex(prev => {
-                          const next = prev - 1;
-                          return next < 0 ? total - 1 : next;
-                        });
-                      } else if (e.key === 'Enter'){
-                        e.preventDefault();
-                        const idx = tickerActiveIndex >= 0 ? tickerActiveIndex : 0;
-                        if (idx === suggestions.length){
-                          // Browse CSV selected
-                          setTickerDropdownOpen(false);
-                          setTickerActiveIndex(-1);
-                          fileInputRef.current?.click();
-                          return;
-                        }
-                        const choice = suggestions[idx];
-                        if (choice){
-                          setParams(p=>({...p,ticker: choice}));
-                          setTickerDropdownOpen(false);
-                          setTickerActiveIndex(-1);
-                        }
-                      } else if (e.key === 'Escape'){
-                        setTickerDropdownOpen(false);
-                        setTickerActiveIndex(-1);
-                      }
-                    }}
-                    className="w-full pl-9 pr-9 py-2 rounded-xl border border-border bg-input text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
-                    role="combobox"
-                    aria-expanded={tickerDropdownOpen}
-                    aria-controls="bazi-ticker-suggestions"
-                    aria-autocomplete="list"
-                  />
-                  <button
-                    type="button"
-                    aria-label="Toggle ticker suggestions"
-                    className="absolute inset-y-0 right-0 pr-2 flex items-center text-muted-foreground hover:text-foreground"
-                    onClick={()=>{ setTickerDropdownOpen(o=>!o); if (!tickerDropdownOpen) setTickerActiveIndex(0); }}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                      <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
-                    </svg>
-                  </button>
+                  
+                  {/* Stock Search and Select Dropdown */}
                   {tickerDropdownOpen && (
-                    (()=>{
-                      const suggestions = (params.ticker.trim() ? filteredTickers : AVAILABLE_TICKERS).slice(0,10);
-                      return (
-                        <div id="bazi-ticker-suggestions" role="listbox" className="absolute left-0 right-0 z-50 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
-                          <div className="p-1">
-                            {suggestions.map((tkr, idx) => (
-                              <div
-                                key={tkr}
-                                role="option"
-                                aria-selected={idx === tickerActiveIndex}
-                                onMouseEnter={()=> setTickerActiveIndex(idx)}
-                                onMouseDown={(e)=> e.preventDefault()}
-                                onClick={()=>{ setParams(p=>({...p,ticker:tkr})); setTickerDropdownOpen(false); setTickerActiveIndex(-1); }}
-                                className={`px-3 py-2 rounded cursor-pointer ${idx===tickerActiveIndex ? 'bg-accent' : 'hover:bg-muted'}`}
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-10 max-h-60 overflow-y-auto">
+                      {availableStocks.length === 0 ? (
+                        <div className="p-3 text-sm text-muted-foreground">Loading stocks...</div>
+                      ) : (
+                        <>
+                          {/* Show filtered results */}
+                          {filteredTickers
+                            .slice(0, 15)
+                            .map((stock) => (
+                              <button
+                                key={stock}
+                                onClick={() => {
+                                  setParams(p => ({ ...p, ticker: stock }));
+                                  setTickerSearchQuery('');
+                                  setTickerDropdownOpen(false);
+                                }}
+                                className={`flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors ${
+                                  params.ticker === stock ? 'bg-accent' : ''
+                                }`}
                               >
-                                <span className="text-sm">{tkr}</span>
-                              </div>
+                                <span className="text-sm">{stock}</span>
+                                <div className="flex items-center gap-2">
+                                  {params.ticker === stock && (
+                                    <div className="w-2 h-2 bg-primary rounded-full"></div>
+                                  )}
+                                  <Plus className="w-3 h-3 text-muted-foreground" />
+                                </div>
+                              </button>
                             ))}
-                            {/* Browse CSV action */}
-                            <div className="my-1 h-px bg-border" />
-                            <div
-                              key="browse-csv"
-                              role="option"
-                              aria-selected={tickerActiveIndex === suggestions.length}
-                              onMouseEnter={()=> setTickerActiveIndex(suggestions.length)}
-                              onMouseDown={(e)=> e.preventDefault()}
-                              onClick={()=>{ setTickerDropdownOpen(false); setTickerActiveIndex(-1); fileInputRef.current?.click(); }}
-                              className={`px-3 py-2 rounded cursor-pointer flex items-center justify-between ${tickerActiveIndex===suggestions.length ? 'bg-accent' : 'hover:bg-muted'}`}
-                            >
-                              <span className="text-sm font-medium">Browse CSV…</span>
-                              <span className="text-xs text-muted-foreground">Upload file</span>
+                          
+                          {/* Show "more available" message */}
+                          {!tickerSearchQuery && filteredTickers.length > 15 && (
+                            <div className="text-xs text-muted-foreground px-3 py-2 border-t border-border">
+                              +{filteredTickers.length - 15} more stocks available (use search to find specific stocks)
                             </div>
-                            {suggestions.length===0 && (
-                              <div className="px-3 py-2 text-sm text-muted-foreground">No matches</div>
-                            )}
+                          )}
+                          
+                          {/* Show "no results" message */}
+                          {tickerSearchQuery && filteredTickers.length === 0 && (
+                            <div className="p-2 text-sm text-muted-foreground">
+                              No stocks found matching "{tickerSearchQuery}"
+                            </div>
+                          )}
+                          
+                          {/* Browse CSV action */}
+                          <div className="my-1 h-px bg-border" />
+                          <div
+                            key="browse-csv"
+                            role="option"
+                            aria-selected={tickerActiveIndex === filteredTickers.length}
+                            onMouseEnter={() => setTickerActiveIndex(filteredTickers.length)}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setTickerDropdownOpen(false);
+                              setTickerActiveIndex(-1);
+                              fileInputRef.current?.click();
+                            }}
+                            className={`px-3 py-2 rounded cursor-pointer flex items-center justify-between ${tickerActiveIndex === filteredTickers.length ? 'bg-accent' : 'hover:bg-muted'}`}
+                          >
+                            <span className="text-sm font-medium">Browse CSV…</span>
+                            <span className="text-xs text-muted-foreground">Upload file</span>
                           </div>
-                        </div>
-                      );
-                    })()
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">Kamu juga bisa drag & drop CSV ke area ini.</p>
                 {/* Hidden file input to support Browse CSV */}
-                <input ref={fileInputRef} className="hidden" type="file" accept=".csv" onChange={(e)=> onUpload(e.target.files?.[0] || null)} />
+                <input ref={fileInputRef} className="hidden" type="file" accept=".csv" onChange={(e) => onUpload(e.target.files?.[0] || null)} />
               </div>
               <div className="md:col-span-3">
                 <label className="text-sm font-medium">Anchor Method</label>
-                <Select value={params.anchorMethod} onChange={(e:any)=>setParams(p=>({...p,anchorMethod:e.target.value}))} className="mt-1">
+                <select 
+                  value={params.anchorMethod} 
+                  onChange={(e:any)=>setParams(p=>({...p,anchorMethod:e.target.value}))} 
+                  className="w-full px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors mt-1"
+                >
                   <option value="jiazi1984">Default</option>
                   <option value="custom">Custom</option>
-                </Select>
+                </select>
               </div>
               {params.anchorMethod==="custom" && (
                 <div className="md:col-span-2">
                   <label className="text-sm font-medium">Anchor Date (Custom)</label>
-                  <Input type="date" value={params.anchorDate||""} onChange={(e:any)=>setParams(p=>({...p,anchorDate:e.target.value}))} className="mt-1"/>
+                  <div 
+                    className="relative h-10 w-full rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors mt-1"
+                    onClick={() => triggerDatePicker(anchorDateRef)}
+                  >
+                    <input
+                      ref={anchorDateRef}
+                      type="date"
+                      value={params.anchorDate||""}
+                      onChange={(e:any)=>setParams(p=>({...p,anchorDate:e.target.value}))}
+                      onKeyDown={(e) => e.preventDefault()}
+                      onPaste={(e) => e.preventDefault()}
+                      onInput={(e) => e.preventDefault()}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      style={{ caretColor: 'transparent' }}
+                    />
+                    <div className="flex items-center justify-between h-full px-3 py-2">
+                      <span className="text-sm text-foreground">
+                        {params.anchorDate ? new Date(params.anchorDate + "T00:00:00").toLocaleDateString('en-GB', { 
+                          day: '2-digit', 
+                          month: '2-digit', 
+                          year: 'numeric' 
+                        }) : 'Select anchor date'}
+                      </span>
+                      <Calendar className="w-4 h-4 text-muted-foreground" />
+                    </div>
+                  </div>
                 </div>
               )}
               <div className="md:col-span-2">
                 <label className="text-sm font-medium">Start Date</label>
-                <Input type="date" value={params.startDate} onChange={(e:any)=>setParams(p=>({...p,startDate:e.target.value}))} className="mt-1"/>
+                <div 
+                  className="relative h-10 w-full rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors mt-1"
+                  onClick={() => triggerDatePicker(startDateRef)}
+                >
+                  <input
+                    ref={startDateRef}
+                    type="date"
+                    value={params.startDate}
+                    onChange={(e) => handleStartDateChange(e.target.value)}
+                    onKeyDown={(e) => e.preventDefault()}
+                    onPaste={(e) => e.preventDefault()}
+                    onInput={(e) => e.preventDefault()}
+                    max={params.endDate}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    style={{ caretColor: 'transparent' }}
+                  />
+                  <div className="flex items-center justify-between h-full px-3 py-2">
+                    <span className="text-sm text-foreground">
+                      {new Date(params.startDate + "T00:00:00").toLocaleDateString('en-GB', { 
+                        day: '2-digit', 
+                        month: '2-digit', 
+                        year: 'numeric' 
+                      })}
+                    </span>
+                    <Calendar className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                </div>
               </div>
               <div className="md:col-span-2">
                 <label className="text-sm font-medium">End Date</label>
-                <Input type="date" value={params.endDate} onChange={(e:any)=>setParams(p=>({...p,endDate:e.target.value}))} className="mt-1"/>
-              </div>
-
-              <div className="md:col-span-12 flex items-center justify-end pt-2">
-                <div className="flex gap-2">
-                  <motion.button
-                    whileHover={{ scale: loading ? 1 : 1.02 }}
-                    whileTap={{ scale: loading ? 1 : 0.98 }}
-                    className={`px-4 py-2 rounded-xl shadow-sm border border-border bg-black text-white hover:shadow-md active:scale-95 transition disabled:opacity-50 disabled:cursor-not-allowed ${loading ? 'animate-pulse' : ''}`}
-                    onClick={onRun}
-                    disabled={!canRun || loading}
-                  >
-                    {loading ? (
-                      <>
-                        <Spline className="w-4 h-4 mr-2 inline animate-spin"/>
-                        Running
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-4 h-4 mr-2 inline"/>
-                        Run Analysis
-                      </>
-                    )}
-                  </motion.button>
+                <div 
+                  className="relative h-10 w-full rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors mt-1"
+                  onClick={() => triggerDatePicker(endDateRef)}
+                >
+                  <input
+                    ref={endDateRef}
+                    type="date"
+                    value={params.endDate}
+                    onChange={(e) => handleEndDateChange(e.target.value)}
+                    onKeyDown={(e) => e.preventDefault()}
+                    onPaste={(e) => e.preventDefault()}
+                    onInput={(e) => e.preventDefault()}
+                    min={params.startDate}
+                    max={new Date().toISOString().split('T')[0]}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    style={{ caretColor: 'transparent' }}
+                  />
+                  <div className="flex items-center justify-between h-full px-3 py-2">
+                    <span className="text-sm text-foreground">
+                      {new Date(params.endDate + "T00:00:00").toLocaleDateString('en-GB', { 
+                        day: '2-digit', 
+                        month: '2-digit', 
+                        year: 'numeric' 
+                      })}
+                    </span>
+                    <Calendar className="w-4 h-4 text-muted-foreground" />
+                  </div>
                 </div>
               </div>
-              {err && <div className="md:col-span-12 text-sm text-red-600">{err}</div>}
-              {!err && !rows.length && (<div className="md:col-span-12 text-xs text-muted-foreground">Tips: klik <em>Load Demo</em> untuk mencoba analisis tanpa upload.</div>)}
+
+              <div className="md:col-span-12 pt-2">
+                <div className="text-xs text-muted-foreground">
+                  Analysis runs automatically when you select a stock or upload CSV data.
+                </div>
+              </div>
+              {err && <div className="md:col-span-12 text-sm text-destructive">{err}</div>}
+              {!err && !rows.length && params.ticker && params.ticker !== 'DEMO' && (<div className="md:col-span-12 text-xs text-muted-foreground">Tips: pilih stock dari dropdown atau klik <em>Browse CSV</em> untuk upload file CSV.</div>)}
+              
+              {/* Loading indicator */}
+              {loading && (
+                <div className="md:col-span-12 pt-4">
+                  <div className="flex items-center gap-3 p-4 bg-muted/50 rounded-lg border border-border">
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary"></div>
+                    <div className="text-sm text-muted-foreground">
+                      {rows.length > 0 ? 'Menjalankan analisis Ba Zi...' : 'Memuat data...'}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
 
-                {loading && !result && (
-          <div className="w-full">
-            <Card>
-              <CardHeader>
-                <SectionTitle icon={Spline} title="Menjalankan analisis..." subtitle="Menghitung statistik per Element &amp; Shio" />
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3 animate-pulse">
-                  <div className="h-4 bg-muted rounded"></div>
-                  <div className="h-4 bg-muted rounded w-5/6"></div>
-                  <div className="h-4 bg-muted rounded w-2/3"></div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}{result && (
+        {result && (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05, duration: 0.4 }}>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <Card className="lg:col-span-1">
@@ -1085,7 +1221,13 @@ export default function BaZiCycleAnalyzer() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3 text-sm">
-                    <div className="flex items-center justify-between"><span className="text-muted-foreground">Ticker</span><Badge intent="blue">{params.ticker.toUpperCase()}</Badge></div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Ticker</span>
+                      <Badge intent="blue">
+                        {params.ticker === 'DEMO' ? 'DEMO' : 
+                         params.ticker ? params.ticker.toUpperCase() : 'No Selection'}
+                      </Badge>
+                    </div>
                     <div className="flex items-center justify-between"><span className="text-muted-foreground">Rows</span><span className="font-medium">{result.enriched.length}</span></div>
                     <div className="flex items-center justify-between"><span className="text-muted-foreground">Date Range</span><span className="font-medium">{params.startDate} → {params.endDate}</span></div>
                     <div className="text-xs text-muted-foreground">Tahun Ba Zi pakai batas <b>Li Chun (λ☉=315°)</b>; tanggal sebelum Li Chun masuk ke tahun sebelumnya.</div>
@@ -1139,7 +1281,7 @@ export default function BaZiCycleAnalyzer() {
                         <div>Prob Flat</div>
                         {timeframe!=='daily' && (
                           <>
-                            <div>{timeframe==='yearly' ? 'Avg Open-Close % (Year)' : 'Avg Open-Close % (BaZi Month)'}</div>
+                            <div>{timeframe==='monthly' ? 'Avg Open-Close % (BaZi Month)' : 'Avg Open-Close % (Year)'}</div>
                             <div>Cycle Count</div>
                           </>
                         )}
@@ -1202,11 +1344,16 @@ export default function BaZiCycleAnalyzer() {
                       <div>Prob Flat</div>
                       {timeframe!=='daily' && (
                         <>
-                          <div>{timeframe==='yearly' ? 'Avg Open→Close % (Year)' : 'Avg Open→Close % (BaZi Month)'}</div>
+                          <div>{timeframe==='monthly' ? 'Avg Open→Close % (BaZi Month)' : 'Avg Open→Close % (Year)'}</div>
                           <div>Cycle Count</div>
                         </>
                       )}
-                      {timeframe==='daily' && (<>\n                          <div>Avg Open-Close % (Day)</div>\n                          <div>Cycle Count</div>\n                        </>)}
+                      {timeframe==='daily' && (
+                        <>
+                          <div>Avg Open-Close % (Day)</div>
+                          <div>Cycle Count</div>
+                        </>
+                      )}
                       
                     </div>
                     <div className="divide-y">
@@ -1240,15 +1387,15 @@ export default function BaZiCycleAnalyzer() {
           </motion.div>
         )}
 
-        {!result && (
+        {!result && !loading && (
           <Card>
             <CardContent>
               <div className="flex flex-col gap-3 p-2 text-sm text-muted-foreground">
                 <div className="flex items-center gap-2"><LineChart className="w-5 h-5 text-muted-foreground"/>Langkah cepat</div>
                 <ol className="list-decimal pl-5 space-y-1">
-                  <li>Upload CSV OHLC harian.</li>
-                  <li>Isi Ticker + pilih Anchor Method + set Date Range.</li>
-                  <li>Klik <em>Run Analysis</em> untuk melihat ringkasan Element & Shio.</li>
+                  <li>Pilih stock dari dropdown atau upload CSV OHLC harian.</li>
+                  <li>Pilih Anchor Method + set Date Range.</li>
+                  <li>Analisis akan berjalan otomatis setelah data dimuat.</li>
                 </ol>
               </div>
             </CardContent>
@@ -1268,12 +1415,12 @@ function runUnitTests() {
 
     const euro = `date;open;close\n2024-01-01;43.850,00;44.000,00\n2024-01-02;44.000,00;44.100,00`;
     const e = parseCsvSmart(euro);
-    console.assert(Math.abs((e[1].close as number) - 44100) < 1e-6, "EU decimal parsed");
+    console.assert(Math.abs((e[1]?.close as number) - 44100) < 1e-6, "EU decimal parsed");
 
     // Year boundary must flip around early Feb (Li Chun), not Lunar New Year now
     const pre = sexagenaryFromDate(new Date("2024-02-03T00:00:00+07:00"));
     const post = sexagenaryFromDate(new Date("2024-02-05T00:00:00+07:00"));
-    console.assert(pre.baziYear !== post.baziYear, "BaZi year flips on Li Chun boundary");
+    console.assert(pre?.baziYear !== post?.baziYear, "BaZi year flips on Li Chun boundary");
 
     const mini = parseCsvSmart(`date,open,close\n2024-01-01,1,2\n2024-01-02,2,1`);
     const enr = enrich(mini);
@@ -1285,7 +1432,7 @@ function runUnitTests() {
     const enr2 = enrich(twoYears);
     const bySh = aggregateByShio(enr2 as any);
     const anySh = bySh[0];
-    console.assert((anySh.n_years as number) >= 1, "Yearly OC should count at least one BaZi year");
+    console.assert((anySh?.n_years as number) >= 1, "Yearly OC should count at least one BaZi year");
   } catch (err) {
     console.warn("Unit tests warning:", err);
   }
