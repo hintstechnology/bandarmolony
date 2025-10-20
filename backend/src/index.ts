@@ -123,14 +123,9 @@ app.listen(PORT, async () => {
   
   // Skip auto-generation on startup (already generated)
   // Only start scheduler for daily updates
-  const stockUpdateTime = process.env['SCHEDULER_STOCK_UPDATE_TIME'] || '18:20';
-  const rrcUpdateTime = process.env['SCHEDULER_RRC_UPDATE_TIME'] || '18:40';
-  const rrgUpdateTime = process.env['SCHEDULER_RRG_UPDATE_TIME'] || '18:40';
-  const timezone = process.env['SCHEDULER_TIMEZONE'] || 'Asia/Jakarta';
-  
-  console.log('📅 Starting scheduler for daily RRC & RRG updates...');
+  console.log('📅 Starting scheduler for daily updates...');
   initializeAzureLogging().then(() => {
     startScheduler();
-    console.log(`✅ Scheduler started - daily updates at ${stockUpdateTime} (data), ${rrcUpdateTime} (RRC), ${rrgUpdateTime} (RRG) ${timezone}`);
+    console.log(`✅ Scheduler started successfully`);
   }).catch(console.error);
 });

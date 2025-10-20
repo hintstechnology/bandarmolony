@@ -1,6 +1,6 @@
 import ForeignFlowCalculator from '../calculations/foreign/foreign_flow';
 
-export class ForeignFlowAutoGenerateService {
+export class ForeignFlowDataScheduler {
   private calculator: ForeignFlowCalculator;
 
   constructor() {
@@ -52,5 +52,5 @@ export class ForeignFlowAutoGenerateService {
   }
 }
 
-export default ForeignFlowAutoGenerateService;
+export default ForeignFlowDataScheduler;
 

@@ -1,6 +1,6 @@
 import { BrokerInventoryCalculator } from '../calculations/broker/broker_inventory';
 
-export class BrokerInventoryAutoGenerateService {
+export class BrokerInventoryDataScheduler {
   private calculator: BrokerInventoryCalculator;
 
   constructor() {
@@ -54,5 +54,5 @@ export class BrokerInventoryAutoGenerateService {
   }
 }
 
-export default BrokerInventoryAutoGenerateService;
+export default BrokerInventoryDataScheduler;
 
