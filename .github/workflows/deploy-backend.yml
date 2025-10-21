@@ -103,7 +103,8 @@ jobs:
             BATCH_SIZE=${{ secrets.BATCH_SIZE }} \
             EMITEN_CSV_PATH=${{ secrets.EMITEN_CSV_PATH }} \
             INDEX_CSV_PATH=${{ secrets.INDEX_CSV_PATH }} \
-            LOG_LEVEL=${{ secrets.LOG_LEVEL }}
+            LOG_LEVEL=${{ secrets.LOG_LEVEL }} \
+            NODE_OPTIONS="--max-old-space-size=8192 --expose-gc"
 
     - name: Show deployed image
       run: |
