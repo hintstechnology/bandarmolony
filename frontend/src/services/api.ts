@@ -1557,4 +1557,19 @@ export const api = {
     }
   },
 
+  // Footprint Data API
+  async getFootprintData(stockCode: string, date: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/stock/footprint/${stockCode}?date=${date}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get footprint data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get footprint data' };
+    }
+  },
+
 };

@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from '../ui/card';
-import { Settings as SettingsIcon, BarChart2, X } from 'lucide-react';
+import { Settings as SettingsIcon, BarChart2, Search, Plus, X } from 'lucide-react';
 // import { Button } from '../ui/button';
 import { FootprintChart } from '../footprint/FootprintChart';
+import { api } from '../../services/api';
 
 // Error Boundary Component
 class ChartErrorBoundary extends React.Component<
@@ -69,37 +70,12 @@ declare global {
 }
 
 /* ============================================================================
-   1) AUTO DISCOVER CSV DI src/data/*.csv
-   - Taruh file: src/data/BBRI.csv, src/data/BBCA.csv, dst.
-   - Dropdown terisi otomatis dari nama file.
+   1) LOAD AVAILABLE STOCKS FROM AZURE API
+   - Get list of available stocks from backend API
+   - Replace static CSV file discovery with dynamic API calls
 ============================================================================ */
-const csvFiles = import.meta.glob('../data/IDX_DLY_*.csv', { query: '?url', import: 'default', eager: true }) as Record<string, string>;
-const AVAILABLE_SYMBOLS = Object.keys(csvFiles)
-  .map((p) => p.split('/').pop()!)
-  .map((f) => f.replace(/\.csv$/i, ''))
-  .map((f) => {
-    // Extract ticker code from various filename patterns
-    // Examples: "IDX_DLY_BBRI, 1D.csv" -> "BBRI", "BBCA.csv" -> "BBCA"
-    const patterns = [
-      /^IDX_DLY_(.+?),\s*\d+D$/,  // IDX_DLY_BBRI, 1D -> BBRI
-      /^IDX_DLY_(.+?),\s*\d+D\s*\(\d+\)$/,  // IDX_DLY_BBRI, 1D (1) -> BBRI
-      /^(.+?),\s*\d+D$/,  // BBRI, 1D -> BBRI
-      /^(.+?),\s*\d+D\s*\(\d+\)$/,  // BBRI, 1D (1) -> BBRI
-      /^IDX_DLY_(.+?)_\d+D$/,  // IDX_DLY_BBRI_1D -> BBRI (fallback)
-      /^IDX_DLY_(.+?)_\d+D\s*\(\d+\)$/,  // IDX_DLY_BBRI_1D (1) -> BBRI (fallback)
-      /^(.+?)_\d+D$/,  // BBRI_1D -> BBRI (fallback)
-      /^(.+?)_\d+D\s*\(\d+\)$/,  // BBRI_1D (1) -> BBRI (fallback)
-    ];
-    
-    for (const pattern of patterns) {
-      const match = f.match(pattern);
-      if (match) return match[1];
-    }
-    
-    // If no pattern matches, return the original filename
-    return f;
-  })
-  .sort();
+// Dynamic stock list will be loaded from API
+// let AVAILABLE_SYMBOLS: string[] = []; // Removed - using state instead
 
 /* ============================================================================
    2) TYPES & CSV PARSER (fleksibel header)
@@ -133,107 +109,9 @@ type IndicatorData = {
 };
 
 
-function detectDelimiter(header: string): string {
-  const c = (header.match(/,/g) || []).length;
-  const s = (header.match(/;/g) || []).length;
-  const t = (header.match(/\t/g) || []).length;
-  if (s > c && s > t) return ';';
-  if (t > c && t > s) return '\t';
-  return ',';
-}
+// Removed utility functions - now using API data directly
 
-function toNum(x: string): number | undefined {
-  const s = x.trim().replace(/,/g, '');
-  if (!s || s.toLowerCase() === 'na' || s.toLowerCase() === 'null') return undefined;
-  const n = Number(s);
-  return Number.isFinite(n) ? n : undefined;
-}
-
-function toUnix(v: string): number | undefined {
-  const s = v.trim();
-  if (/^\d{10}$/.test(s)) return Number(s);          // seconds
-  if (/^\d{13}$/.test(s)) return Math.floor(Number(s) / 1000); // ms -> sec
-  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
-    // Handle YYYY-MM-DD format (most common in our CSV files)
-    // Use local time instead of UTC to avoid timezone issues
-    const t = Date.parse(s + 'T00:00:00');
-    return Number.isFinite(t) ? Math.floor(t / 1000) : undefined;
-  }
-  if (/^\d{4}\.\d{2}\.\d{2}/.test(s)) {
-    // Handle YYYY.MM.DD format (like 2021.07.04)
-    const iso = s.replace(/\./g, '-');
-    const t = Date.parse(iso + 'T00:00:00');
-    return Number.isFinite(t) ? Math.floor(t / 1000) : undefined;
-  }
-  if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(s)) {
-    const [d, m, yRaw] = s.split('/');
-    const y = Number((yRaw?.length === 2 ? '20' + yRaw : yRaw) ?? '2024');
-    const iso = `${y}-${String(Number(m)).padStart(2, '0')}-${String(Number(d)).padStart(2, '0')}`;
-    const t = Date.parse(iso + 'T00:00:00');
-    return Number.isFinite(t) ? Math.floor(t / 1000) : undefined;
-  }
-  const t = Date.parse(s);
-  return Number.isFinite(t) ? Math.floor(t / 1000) : undefined;
-}
-
-function parseCsv(text: string): OhlcRow[] {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '');
-  if (lines.length < 2) return [];
-  const delim = detectDelimiter(lines[0] ?? '');
-  const split = (line: string) => line.split(delim).map((s) => s.trim());
-  const header = split(lines[0] ?? '').map((h) => h.toLowerCase());
-
-  const findIdx = (...names: string[]) => {
-    const i = header.findIndex((h) => names.some((n) => new RegExp(`^${n}$`, 'i').test(h)));
-    return i >= 0 ? i : undefined;
-  };
-
-  const iTime =
-    findIdx('time', 'date', 'datetime', 'timestamp', '<date>', '<time>') ??
-    header.findIndex((h) => h.includes('date') || h.includes('time'));
-  const iOpen = findIdx('open', 'o', 'open_price', 'openprice', '<open>');
-  const iHigh = findIdx('high', 'h', 'high_price', 'highprice', '<high>');
-  const iLow = findIdx('low', 'l', 'low_price', 'lowprice', '<low>');
-  const iClose = findIdx('close', 'c', 'adj close', 'close_price', 'closeprice', 'price', 'last', '<close>');
-  const iVol = findIdx('volume', 'vol', 'qty', 'amount', 'tickvol', 'tick_vol', '<vol>', '<tickvol>');
-
-  console.log('CSV Headers:', header);
-  console.log('Column indices:', { iTime, iOpen, iHigh, iLow, iClose, iVol });
-
-  if (iTime === undefined || iClose === undefined) {
-    console.log('Missing required columns: time or close');
-    return [];
-  }
-
-  const out: OhlcRow[] = [];
-  for (let r = 1; r < lines.length; r++) {
-    const cols = split(lines[r] ?? '');
-    if (!cols.length) continue;
-
-    const t = toUnix(cols[iTime] ?? '');
-    const c = toNum(cols[iClose] ?? '');
-    if (!t || c === undefined) {
-      if (r <= 5) console.log(`Skipping row ${r}:`, { time: cols[iTime], close: cols[iClose], t, c });
-      continue;
-    }
-
-    const o = iOpen !== undefined ? toNum(cols[iOpen] ?? '') : undefined;
-    const h = iHigh !== undefined ? toNum(cols[iHigh] ?? '') : undefined;
-    const l = iLow !== undefined ? toNum(cols[iLow] ?? '') : undefined;
-    const v = iVol !== undefined ? toNum(cols[iVol] ?? '') : undefined;
-
-    out.push({
-      time: t,
-      open: o ?? c,
-      high: h ?? c,
-      low: l ?? c,
-      close: c,
-      volume: v ?? 0,
-    });
-  }
-  out.sort((a, b) => a.time - b.time);
-  return out;
-}
+// Removed parseCsv function - now using API data directly
 
 /* ============================================================================
    3) INDICATOR CALCULATION FUNCTIONS
@@ -361,160 +239,8 @@ function calculateBuySellFrequency(_data: OhlcRow[], _period: number = 14): { bu
   const buyFreq: IndicatorData[] = [];
   const sellFreq: IndicatorData[] = [];
   
-  // Extended dummy data for demonstration - in real implementation, this would come from done summary
-  const dummyData = [
-    { price: 650, bFreq: 0, sFreq: 8421 },
-    { price: 645, bFreq: 150, sFreq: 3200 },
-    { price: 640, bFreq: 300, sFreq: 2800 },
-    { price: 635, bFreq: 450, sFreq: 2400 },
-    { price: 630, bFreq: 600, sFreq: 2000 },
-    { price: 625, bFreq: 750, sFreq: 1800 },
-    { price: 620, bFreq: 900, sFreq: 1600 },
-    { price: 615, bFreq: 1050, sFreq: 1400 },
-    { price: 610, bFreq: 1200, sFreq: 1200 },
-    { price: 605, bFreq: 1350, sFreq: 1000 },
-    { price: 600, bFreq: 1500, sFreq: 800 },
-    { price: 595, bFreq: 1650, sFreq: 600 },
-    { price: 590, bFreq: 1800, sFreq: 400 },
-    { price: 585, bFreq: 1950, sFreq: 200 },
-    { price: 580, bFreq: 2100, sFreq: 100 },
-    { price: 575, bFreq: 2250, sFreq: 50 },
-    { price: 570, bFreq: 2400, sFreq: 25 },
-    { price: 565, bFreq: 0, sFreq: 292 },
-    { price: 560, bFreq: 669, sFreq: 762 },
-    { price: 555, bFreq: 1210, sFreq: 865 },
-    { price: 550, bFreq: 1406, sFreq: 2112 },
-    { price: 545, bFreq: 3088, sFreq: 3108 },
-    { price: 540, bFreq: 4699, sFreq: 140 },
-    { price: 535, bFreq: 111, sFreq: 0 },
-    { price: 530, bFreq: 200, sFreq: 500 },
-    { price: 525, bFreq: 400, sFreq: 800 },
-    { price: 520, bFreq: 600, sFreq: 1200 },
-    { price: 515, bFreq: 800, sFreq: 1500 },
-    { price: 510, bFreq: 1000, sFreq: 1800 },
-    { price: 505, bFreq: 1200, sFreq: 2000 },
-    { price: 500, bFreq: 1400, sFreq: 2200 },
-    { price: 495, bFreq: 1600, sFreq: 2400 },
-    { price: 490, bFreq: 1800, sFreq: 2600 },
-    { price: 485, bFreq: 2000, sFreq: 2800 },
-    { price: 480, bFreq: 2200, sFreq: 3000 },
-    { price: 475, bFreq: 2400, sFreq: 3200 },
-    { price: 470, bFreq: 2600, sFreq: 3400 },
-    { price: 465, bFreq: 2800, sFreq: 3600 },
-    { price: 460, bFreq: 3000, sFreq: 3800 },
-    { price: 455, bFreq: 3200, sFreq: 4000 },
-    { price: 450, bFreq: 3400, sFreq: 4200 },
-    { price: 445, bFreq: 3600, sFreq: 4400 },
-    { price: 440, bFreq: 3800, sFreq: 4600 },
-    { price: 435, bFreq: 4000, sFreq: 4800 },
-    { price: 430, bFreq: 4200, sFreq: 5000 },
-    { price: 425, bFreq: 4400, sFreq: 5200 },
-    { price: 420, bFreq: 4600, sFreq: 5400 },
-    { price: 415, bFreq: 4800, sFreq: 5600 },
-    { price: 410, bFreq: 5000, sFreq: 5800 },
-    { price: 405, bFreq: 5200, sFreq: 6000 },
-    { price: 400, bFreq: 5400, sFreq: 6200 },
-    { price: 395, bFreq: 5600, sFreq: 6400 },
-    { price: 390, bFreq: 5800, sFreq: 6600 },
-    { price: 385, bFreq: 6000, sFreq: 6800 },
-    { price: 380, bFreq: 6200, sFreq: 7000 },
-    { price: 375, bFreq: 6400, sFreq: 7200 },
-    { price: 370, bFreq: 6600, sFreq: 7400 },
-    { price: 365, bFreq: 6800, sFreq: 7600 },
-    { price: 360, bFreq: 7000, sFreq: 7800 },
-    { price: 355, bFreq: 7200, sFreq: 8000 },
-    { price: 350, bFreq: 7400, sFreq: 8200 },
-    { price: 345, bFreq: 7600, sFreq: 8400 },
-    { price: 340, bFreq: 7800, sFreq: 8600 },
-    { price: 335, bFreq: 8000, sFreq: 8800 },
-    { price: 330, bFreq: 8200, sFreq: 9000 },
-    { price: 325, bFreq: 8400, sFreq: 9200 },
-    { price: 320, bFreq: 8600, sFreq: 9400 },
-    { price: 315, bFreq: 8800, sFreq: 9600 },
-    { price: 310, bFreq: 9000, sFreq: 9800 },
-    { price: 305, bFreq: 9200, sFreq: 10000 },
-    { price: 300, bFreq: 9400, sFreq: 10200 },
-    { price: 295, bFreq: 9600, sFreq: 10400 },
-    { price: 290, bFreq: 9800, sFreq: 10600 },
-    { price: 285, bFreq: 10000, sFreq: 10800 },
-    { price: 280, bFreq: 10200, sFreq: 11000 },
-    { price: 275, bFreq: 10400, sFreq: 11200 },
-    { price: 270, bFreq: 10600, sFreq: 11400 },
-    { price: 265, bFreq: 10800, sFreq: 11600 },
-    { price: 260, bFreq: 11000, sFreq: 11800 },
-    { price: 255, bFreq: 11200, sFreq: 12000 },
-    { price: 250, bFreq: 11400, sFreq: 12200 },
-    { price: 245, bFreq: 11600, sFreq: 12400 },
-    { price: 240, bFreq: 11800, sFreq: 12600 },
-    { price: 235, bFreq: 12000, sFreq: 12800 },
-    { price: 230, bFreq: 12200, sFreq: 13000 },
-    { price: 225, bFreq: 12400, sFreq: 13200 },
-    { price: 220, bFreq: 12600, sFreq: 13400 },
-    { price: 215, bFreq: 12800, sFreq: 13600 },
-    { price: 210, bFreq: 13000, sFreq: 13800 },
-    { price: 205, bFreq: 13200, sFreq: 14000 },
-    { price: 200, bFreq: 13400, sFreq: 14200 },
-    { price: 195, bFreq: 13600, sFreq: 14400 },
-    { price: 190, bFreq: 13800, sFreq: 14600 },
-    { price: 185, bFreq: 14000, sFreq: 14800 },
-    { price: 180, bFreq: 14200, sFreq: 15000 },
-    { price: 175, bFreq: 14400, sFreq: 15200 },
-    { price: 170, bFreq: 14600, sFreq: 15400 },
-    { price: 165, bFreq: 14800, sFreq: 15600 },
-    { price: 160, bFreq: 15000, sFreq: 15800 },
-    { price: 155, bFreq: 15200, sFreq: 16000 },
-    { price: 150, bFreq: 15400, sFreq: 16200 },
-    { price: 145, bFreq: 15600, sFreq: 16400 },
-    { price: 140, bFreq: 15800, sFreq: 16600 },
-    { price: 135, bFreq: 16000, sFreq: 16800 },
-    { price: 130, bFreq: 16200, sFreq: 17000 },
-    { price: 125, bFreq: 16400, sFreq: 17200 },
-    { price: 120, bFreq: 16600, sFreq: 17400 },
-    { price: 115, bFreq: 16800, sFreq: 17600 },
-    { price: 110, bFreq: 17000, sFreq: 17800 },
-    { price: 105, bFreq: 17200, sFreq: 18000 },
-    { price: 100, bFreq: 17400, sFreq: 18200 },
-    { price: 95, bFreq: 17600, sFreq: 18400 },
-    { price: 90, bFreq: 17800, sFreq: 18600 },
-    { price: 85, bFreq: 18000, sFreq: 18800 },
-    { price: 80, bFreq: 18200, sFreq: 19000 },
-    { price: 75, bFreq: 18400, sFreq: 19200 },
-    { price: 70, bFreq: 18600, sFreq: 19400 },
-    { price: 65, bFreq: 18800, sFreq: 19600 },
-    { price: 60, bFreq: 19000, sFreq: 19800 },
-    { price: 55, bFreq: 19200, sFreq: 20000 },
-    { price: 50, bFreq: 19400, sFreq: 20200 },
-    { price: 45, bFreq: 19600, sFreq: 20400 },
-    { price: 40, bFreq: 19800, sFreq: 20600 },
-    { price: 35, bFreq: 20000, sFreq: 20800 },
-    { price: 30, bFreq: 20200, sFreq: 21000 },
-    { price: 25, bFreq: 20400, sFreq: 21200 },
-    { price: 20, bFreq: 20600, sFreq: 21400 },
-    { price: 15, bFreq: 20800, sFreq: 21600 },
-    { price: 10, bFreq: 21000, sFreq: 21800 },
-    { price: 5, bFreq: 21200, sFreq: 22000 }
-  ];
-  
-  // Generate time-based data from dummy data (spread over 3 months)
-  const baseTime = Date.now() - (90 * 24 * 60 * 60 * 1000); // Start from 3 months ago
-  const timeInterval = (90 * 24 * 60 * 60 * 1000) / dummyData.length; // Spread data over 3 months
-  
-  for (let i = 0; i < dummyData.length; i++) {
-    const time = baseTime + (i * timeInterval);
-    
-    // Buy frequency (positive values)
-    buyFreq.push({
-      time,
-      value: dummyData[i]?.bFreq ?? 0
-    });
-    
-    // Sell frequency (negative values for diverging chart)
-    sellFreq.push({
-      time,
-      value: -(dummyData[i]?.sFreq ?? 0)
-    });
-  }
-  
+  // For now, return empty arrays - this will be replaced with real footprint data
+  // when the footprint chart is implemented with API data
   return { buyFreq, sellFreq };
 }
 
@@ -892,16 +618,19 @@ interface TechnicalAnalysisTradingViewProps {
 }
 
 export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysisTradingView({ selectedStock, hideControls = false, styleProp, timeframeProp }: TechnicalAnalysisTradingViewProps) {
-  const [symbol, setSymbol] = useState<string>(selectedStock || (AVAILABLE_SYMBOLS[0] ?? 'MOCK'));
+  const [symbol, setSymbol] = useState<string>(selectedStock || 'BBCA');
   const [timeframe, setTimeframe] = useState<Timeframe>('1D');
   const [style, setStyle] = useState<ChartStyle>('candles');
   const [rows, setRows] = useState<OhlcRow[]>([]);
   const [, setSrc] = useState<'file' | 'mock' | 'none'>('none');
   const [, setPlotted] = useState(0);
   const [, setErr] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
-  const [selectedIndex, setSelectedIndex] = useState<number>(-1);
+  const [searchQuery, setSearchQuery] = useState<string>('BBCA');
+  const [showSearchDropdown, setShowSearchDropdown] = useState<boolean>(false);
+  const [searchDropdownIndex, setSearchDropdownIndex] = useState<number>(-1);
+  const [availableSymbols, setAvailableSymbols] = useState<string[]>([]);
+  const [isLoadingSymbols, setIsLoadingSymbols] = useState<boolean>(true);
+  const searchRef = useRef<HTMLDivElement>(null);
   const [chartColors, setChartColors] = useState({
       line: '#2563eb',
     candles: { up: '#16a34a', down: '#dc2626', wickUp: '#16a34a', wickDown: '#dc2626' },
@@ -954,6 +683,57 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
     return () => window.removeEventListener('resize', recalc);
   }, [hideControls]);
   
+  // Handle click outside to close dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
+        // Don't close if clicking on clear button
+        const target = event.target as HTMLElement;
+        if (target && target.closest('button[aria-label="Clear search"]')) {
+          return;
+        }
+        setShowSearchDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Load available symbols from API
+  useEffect(() => {
+    const loadSymbols = async () => {
+      try {
+        setIsLoadingSymbols(true);
+        const result = await api.getStockList();
+        console.log('🔍 TechnicalAnalysis: Loading symbols result:', result);
+        if (result.success && result.data?.stocks) {
+          console.log('✅ TechnicalAnalysis: Loaded symbols:', result.data.stocks.length, 'symbols');
+          setAvailableSymbols(result.data.stocks);
+          // Set default symbol if none selected
+          if (!selectedStock && result.data.stocks.length > 0) {
+            // Try to set BBCA as default, fallback to first available
+            const defaultSymbol = result.data.stocks.includes('BBCA') ? 'BBCA' : result.data.stocks[0];
+            setSymbol(defaultSymbol);
+            // Don't force setSearchQuery here - let user control it
+          }
+        } else {
+          console.error('❌ TechnicalAnalysis: Failed to load stock symbols:', result.error);
+          setAvailableSymbols(['MOCK']);
+        }
+      } catch (error) {
+        console.error('Error loading stock symbols:', error);
+        setAvailableSymbols(['MOCK']);
+      } finally {
+        setIsLoadingSymbols(false);
+      }
+    };
+    
+    loadSymbols();
+  }, []);
+
   // Update symbol when selectedStock prop changes
   useEffect(() => {
     if (selectedStock && selectedStock !== symbol) {
@@ -1068,7 +848,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       color,
       enabled: true,
       separateScale,
-      maMode: type === 'ma' ? maMode : undefined
+      ...(type === 'ma' && { maMode })
     };
     setIndicators(prev => [...prev, newIndicator]);
   };
@@ -1183,58 +963,53 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
     };
   };
 
-  const symbols = useMemo(() => (AVAILABLE_SYMBOLS.length ? AVAILABLE_SYMBOLS : ['MOCK']), []);
+  const symbols = useMemo(() => (availableSymbols.length ? availableSymbols : ['MOCK']), [availableSymbols]);
   
-  // Filter symbols based on search query
-  const filteredSymbols = useMemo(() => {
-    if (!searchQuery.trim()) return symbols.slice(0, 10); // Show first 10 if no search
-    return symbols
-      .filter(s => s?.toLowerCase().includes(searchQuery.toLowerCase()))
-      .slice(0, 10); // Limit to 10 results
-  }, [symbols, searchQuery]);
+  // Filter symbols based on search query (like MarketRotationRRC)
+  const getFilteredSymbols = () => {
+    return symbols.filter(symbol => 
+      symbol.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  };
 
-  // Update search query when symbol changes externally
-  useEffect(() => {
-    if (symbol && !searchQuery) {
-      setSearchQuery(symbol);
-    }
-  }, [symbol, searchQuery]);
+  // Removed useEffect that was forcing searchQuery to match symbol
+  // This was causing the clear button to not work properly
 
-  // Handle keyboard navigation
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (!showSuggestions || filteredSymbols.length === 0) return;
-
+  // Handle keyboard navigation (like MarketRotationRRC)
+  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
+    const filteredSymbols = getFilteredSymbols();
+    
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
-        setSelectedIndex(prev => 
+        setSearchDropdownIndex(prev => 
           prev < filteredSymbols.length - 1 ? prev + 1 : 0
         );
         break;
       case 'ArrowUp':
         e.preventDefault();
-        setSelectedIndex(prev => 
+        setSearchDropdownIndex(prev => 
           prev > 0 ? prev - 1 : filteredSymbols.length - 1
         );
         break;
       case 'Enter':
         e.preventDefault();
-        if (selectedIndex >= 0 && selectedIndex < filteredSymbols.length) {
-          const selectedSymbol = filteredSymbols[selectedIndex];
-          setSymbol(selectedSymbol ?? '');
-          setSearchQuery(selectedSymbol ?? '');
-          setShowSuggestions(false);
-          setSelectedIndex(-1);
+        if (searchDropdownIndex >= 0 && filteredSymbols[searchDropdownIndex]) {
+          const selectedSymbol = filteredSymbols[searchDropdownIndex];
+          setSymbol(selectedSymbol);
+          setSearchQuery(selectedSymbol);
+          setShowSearchDropdown(false);
+          setSearchDropdownIndex(-1);
         }
         break;
       case 'Escape':
-        setShowSuggestions(false);
-        setSelectedIndex(-1);
+        setShowSearchDropdown(false);
+        setSearchDropdownIndex(-1);
         break;
     }
   };
 
-  // Load CSV ketika symbol berubah
+  // Load stock data from API when symbol changes
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -1242,8 +1017,8 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         setErr(null);
         setPlotted(0);
 
-        if (symbol === 'MOCK' || !AVAILABLE_SYMBOLS.length) {
-          // fallback mock jika tak ada CSV
+        if (symbol === 'MOCK' || !availableSymbols.length) {
+          // fallback mock jika tak ada data
           const now = Date.now();
           const mock: OhlcRow[] = Array.from({ length: 120 }).map((_, i) => {
             const base = 4500 + Math.sin(i * 0.15) * 60 + Math.random() * 20;
@@ -1268,40 +1043,37 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           return;
         }
 
-        // Find CSV file that matches the symbol (handle various filename patterns)
-        const path = Object.keys(csvFiles).find((p) => {
-          const filename = p.split('/').pop()!.replace(/\.csv$/i, '');
-          const patterns = [
-            /^IDX_DLY_(.+?),\s*\d+D$/,  // IDX_DLY_BBRI, 1D
-            /^IDX_DLY_(.+?),\s*\d+D\s*\(\d+\)$/,  // IDX_DLY_BBRI, 1D (1)
-            /^(.+?),\s*\d+D$/,  // BBRI, 1D
-            /^(.+?),\s*\d+D\s*\(\d+\)$/,  // BBRI, 1D (1)
-            /^IDX_DLY_(.+?)_\d+D$/,  // IDX_DLY_BBRI_1D (fallback)
-            /^IDX_DLY_(.+?)_\d+D\s*\(\d+\)$/,  // IDX_DLY_BBRI_1D (1) (fallback)
-            /^(.+?)_\d+D$/,  // BBRI_1D (fallback)
-            /^(.+?)_\d+D\s*\(\d+\)$/,  // BBRI_1D (1) (fallback)
-          ];
-          
-          for (const pattern of patterns) {
-            const match = filename.match(pattern);
-            if (match && match[1] === symbol) return true;
-          }
-          
-          // Direct match
-          return filename === symbol;
-        });
+        // Load stock data from API
+        console.log(`Loading stock data for ${symbol} from API...`);
+        const result = await api.getStockData(symbol);
         
-        if (!path) throw new Error(`CSV untuk ${symbol} tidak ditemukan di src/data`);
-        const url = csvFiles[path];
+        if (!result.success) {
+          throw new Error(result.error || `Failed to load data for ${symbol}`);
+        }
 
-        const res = await fetch(url ?? '', { cache: 'no-store' });
-        if (!res.ok) throw new Error(`Gagal fetch CSV ${symbol}`);
+        if (!result.data?.data || result.data.data.length === 0) {
+          throw new Error(`No data found for ${symbol}`);
+        }
 
-        const text = await res.text();
-        console.log(`Loading CSV for ${symbol}:`, text.substring(0, 200) + '...');
-        const parsed = parseCsv(text);
-        console.log(`Parsed ${parsed.length} rows for ${symbol}`);
-        if (!parsed.length) throw new Error(`CSV ${symbol} tidak berisi data OHLC valid`);
+        // Convert API data to OhlcRow format
+        const apiData = result.data.data;
+        const parsed: OhlcRow[] = apiData.map((row: any) => {
+          // Convert date to Unix timestamp
+          const dateStr = row.Date || row.date || '';
+          const time = new Date(dateStr).getTime() / 1000;
+          
+          return {
+            time: Math.floor(time),
+            open: parseFloat(row.Open || row.open || 0),
+            high: parseFloat(row.High || row.high || 0),
+            low: parseFloat(row.Low || row.low || 0),
+            close: parseFloat(row.Close || row.close || 0),
+            volume: parseFloat(row.Volume || row.volume || 0)
+          };
+        }).filter((row: OhlcRow) => row.time > 0); // Filter out invalid dates
+
+        console.log(`Loaded ${parsed.length} rows for ${symbol} from API`);
+        if (!parsed.length) throw new Error(`No valid OHLC data for ${symbol}`);
 
         if (!cancelled) {
           setRows(parsed);
@@ -1309,7 +1081,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         }
       } catch (e: any) {
         if (!cancelled) {
-          setErr(e?.message ?? 'CSV load error');
+          setErr(e?.message ?? 'API load error');
           setRows([]);
           setSrc('none');
         }
@@ -1317,7 +1089,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
     })();
 
     return () => { cancelled = true; };
-  }, [symbol]);
+  }, [symbol, availableSymbols]);
 
   // Detect data frequency and available timeframes
   const dataFrequency = useMemo(() => {
@@ -1606,7 +1378,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           if (chartRef.current) {
             try {
               if (indicatorRefs.current[indicator.id]) {
-                chartRef.current.removeSeries(indicatorRefs.current[indicator.id]);
+                chartRef.current?.removeSeries(indicatorRefs.current[indicator.id]);
               }
             } catch {}
           }
@@ -1614,8 +1386,8 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           // Remove any auxiliary series for this indicator
           if (indicatorAuxRefs.current[indicator.id] && chartRef.current) {
             try {
-              indicatorAuxRefs.current[indicator.id].forEach(s => {
-                try { chartRef.current!.removeSeries(s); } catch {}
+              indicatorAuxRefs.current[indicator.id]?.forEach(s => {
+                try { chartRef.current?.removeSeries(s); } catch {}
               });
             } catch {}
           }
@@ -1668,12 +1440,12 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           if (chartRef.current) {
             try {
               if (indicatorRefs.current[indicator.id]) {
-                chartRef.current.removeSeries(indicatorRefs.current[indicator.id]);
+                chartRef.current?.removeSeries(indicatorRefs.current[indicator.id]);
               }
             } catch {}
             if (indicatorAuxRefs.current[indicator.id]) {
-              indicatorAuxRefs.current[indicator.id].forEach(s => {
-                try { chartRef.current!.removeSeries(s); } catch {}
+              indicatorAuxRefs.current[indicator.id]?.forEach(s => {
+                try { chartRef.current?.removeSeries(s); } catch {}
               });
               indicatorAuxRefs.current[indicator.id] = [];
             }
@@ -1723,7 +1495,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             })));
             // track aux
             if (!indicatorAuxRefs.current[indicator.id]) indicatorAuxRefs.current[indicator.id] = [];
-            indicatorAuxRefs.current[indicator.id].push(dSeries);
+            indicatorAuxRefs.current[indicator.id]?.push(dSeries);
           }
         }
         
@@ -1741,7 +1513,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               value: s.value
             })));
             if (!indicatorAuxRefs.current[indicator.id]) indicatorAuxRefs.current[indicator.id] = [];
-            indicatorAuxRefs.current[indicator.id].push(signalSeries);
+            indicatorAuxRefs.current[indicator.id]?.push(signalSeries);
           }
         }
         
@@ -1759,7 +1531,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               value: s.value
             })));
             if (!indicatorAuxRefs.current[indicator.id]) indicatorAuxRefs.current[indicator.id] = [];
-            indicatorAuxRefs.current[indicator.id].push(sellSeries);
+            indicatorAuxRefs.current[indicator.id]?.push(sellSeries);
           }
         }
           }
@@ -2270,65 +2042,119 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             {/* Symbol/Ticker selector styled like BrokerInventoryPage */}
             <div className="flex-1 min-w-0">
               <label className="block text-sm font-medium mb-2">Symbol:</label>
-              <div className="relative ticker-dropdown">
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                    setShowSuggestions(true);
-                    setSelectedIndex(-1);
-                  }}
-                  onFocus={() => setShowSuggestions(true)}
-                  onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="BBCA"
-                  className="w-full px-3 py-2 text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
-                  role="combobox"
-                  aria-expanded={showSuggestions}
-                  aria-controls="ta-symbol-suggestions"
-                  aria-autocomplete="list"
-                />
-                {!!searchQuery && (
-                  <button
-                    type="button"
-                    className="absolute right-2 top-2.5 text-muted-foreground hover:text-foreground"
-                    onClick={() => { setSearchQuery(''); setShowSuggestions(false); setSelectedIndex(-1); }}
-                    aria-label="Clear symbol"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-                {showSuggestions && (
-                  <div
-                    id="ta-symbol-suggestions"
-                    role="listbox"
-                    className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow"
-                  >
-                    <div className="p-2">
-                      {filteredSymbols.length > 0 ? (
-                        filteredSymbols.map((s, index) => (
-                          <div
-                            key={s}
-                            role="option"
-                            aria-selected={index === selectedIndex}
-                            onMouseEnter={() => setSelectedIndex(index)}
-                            onMouseDown={(e) => { e.preventDefault(); }}
-                            onClick={() => {
-                              setSymbol(s ?? '');
-                              setSearchQuery(s ?? '');
-                              setShowSuggestions(false);
-                              setSelectedIndex(-1);
-                            }}
-                            className={`flex items-center space-x-2 p-2 rounded cursor-pointer ${index === selectedIndex ? 'bg-accent' : 'hover:bg-muted'}`}
-                          >
-                            <span className="text-sm">{s}</span>
+              <div className="relative" ref={searchRef}>
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      setShowSearchDropdown(true);
+                      setSearchDropdownIndex(-1);
+                    }}
+                    onFocus={() => setShowSearchDropdown(true)}
+                    onKeyDown={handleSearchKeyDown}
+                    placeholder="Search and select stocks..."
+                    className="w-full pl-7 pr-8 py-2 text-xs bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      className="absolute right-2 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground z-20 pointer-events-auto"
+                      onTouchStart={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('🔍 Clear button onTouchStart clicked - searchQuery before:', searchQuery);
+                        setSearchQuery('');
+                        setShowSearchDropdown(false);
+                        setSearchDropdownIndex(-1);
+                        console.log('🔍 Clear button onTouchStart clicked - searchQuery after: ""');
+                      }}
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('🔍 Clear button onPointerDown clicked - searchQuery before:', searchQuery);
+                        setSearchQuery('');
+                        setShowSearchDropdown(false);
+                        setSearchDropdownIndex(-1);
+                        console.log('🔍 Clear button onPointerDown clicked - searchQuery after: ""');
+                      }}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('🔍 Clear button onMouseDown clicked - searchQuery before:', searchQuery);
+                        setSearchQuery('');
+                        setShowSearchDropdown(false);
+                        setSearchDropdownIndex(-1);
+                        console.log('🔍 Clear button onMouseDown clicked - searchQuery after: ""');
+                      }}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('🔍 Clear button onClick clicked - searchQuery before:', searchQuery);
+                        setSearchQuery('');
+                        setShowSearchDropdown(false);
+                        setSearchDropdownIndex(-1);
+                        console.log('🔍 Clear button onClick clicked - searchQuery after: ""');
+                      }}
+                      aria-label="Clear search"
+                      style={{ pointerEvents: 'auto' }}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+                
+                {/* Combined Search and Select Dropdown */}
+                {showSearchDropdown && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-50 max-h-60 overflow-y-auto">
+                    {isLoadingSymbols ? (
+                      <div className="p-3 text-sm text-muted-foreground">Loading symbols...</div>
+                    ) : (
+                      <>
+                        {/* Show filtered results if searching, otherwise show all available */}
+                        {(searchQuery ? getFilteredSymbols() : symbols)
+                          .slice(0, 15)
+                          .map((symbol, index) => (
+                            <button
+                              key={symbol}
+                              onClick={() => {
+                                setSymbol(symbol);
+                                setSearchQuery(symbol);
+                                setShowSearchDropdown(false);
+                                setSearchDropdownIndex(-1);
+                              }}
+                              className={`flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors ${
+                                index === searchDropdownIndex ? 'bg-accent' : ''
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <div 
+                                  className="w-3 h-3 rounded-full" 
+                                  style={{ backgroundColor: '#3B82F6' }}
+                                ></div>
+                                <span className="text-sm">{symbol}</span>
+                              </div>
+                              <Plus className="w-3 h-3 text-muted-foreground" />
+                            </button>
+                          ))}
+                        
+                        {/* Show "more available" message */}
+                        {!searchQuery && symbols.length > 15 && (
+                          <div className="text-xs text-muted-foreground px-3 py-2 border-t border-border">
+                            +{symbols.length - 15} more stocks available (use search to find specific stocks)
                           </div>
-                        ))
-                      ) : (
-                        <div className="p-2 text-sm text-muted-foreground">No symbols found</div>
-                      )}
-                    </div>
+                        )}
+                        
+                        {/* Show "no results" message */}
+                        {searchQuery && getFilteredSymbols().length === 0 && (
+                          <div className="p-2 text-sm text-muted-foreground">
+                            No stocks found matching "{searchQuery}"
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
                 )}
               </div>
