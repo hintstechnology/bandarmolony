@@ -312,4 +312,127 @@ router.get('/data', async (req, res) => {
   }
 });
 
+/**
+ * Get footprint data for a specific stock and date
+ */
+router.get('/footprint/:stockCode', async (req, res) => {
+  try {
+    const { stockCode } = req.params;
+    const { date } = req.query;
+    
+    if (!stockCode || stockCode.length !== 4) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid stock code. Must be 4 characters.'
+      });
+    }
+    
+    if (!date) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameter: date (YYYYMMDD format)'
+      });
+    }
+    
+    console.log(`📊 Getting footprint data for stock: ${stockCode} on date: ${date}`);
+    
+    // Look for bid/ask data in done-summary folder
+    const dateStr = String(date);
+    const dtFileName = `done-summary/${dateStr}/DT${dateStr.slice(2)}.csv`;
+    
+    try {
+      const csvData = await downloadText(dtFileName);
+      
+      // Parse CSV data with semicolon separator
+      const lines = csvData.split('\n').filter(line => line.trim());
+      if (lines.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'No transaction data found for this date'
+        });
+      }
+      
+      const headers = lines[0]?.split(';') || [];
+      const data = lines.slice(1).map(line => {
+        const values = line.split(';');
+        const row: any = {};
+        headers.forEach((header, index) => {
+          const value = values[index]?.trim() || '';
+          if (['STK_VOLM', 'STK_PRIC'].includes(header)) {
+            row[header] = parseFloat(value) || 0;
+          } else {
+            row[header] = value;
+          }
+        });
+        return row;
+      });
+      
+      // Filter data for the specific stock
+      const stockData = data.filter(row => 
+        row.STK_CODE === stockCode.toUpperCase()
+      );
+      
+      if (stockData.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: `No transaction data found for stock ${stockCode} on date ${date}`
+        });
+      }
+      
+      // Group by price level and calculate buy/sell frequency
+      const priceLevels: { [key: string]: { buy: number; sell: number; price: number } } = {};
+      
+      stockData.forEach(row => {
+        const price = row.STK_PRIC;
+        const volume = row.STK_VOLM;
+        const trxCode = row.TRX_CODE;
+        
+        if (!priceLevels[price]) {
+          priceLevels[price] = { buy: 0, sell: 0, price: price };
+        }
+        
+        if (trxCode === 'B') {
+          priceLevels[price].buy += volume;
+        } else if (trxCode === 'S') {
+          priceLevels[price].sell += volume;
+        }
+      });
+      
+      // Convert to array format for frontend
+      const footprintData = Object.values(priceLevels).map(level => ({
+        price: level.price,
+        bFreq: level.buy,
+        sFreq: level.sell
+      })).sort((a, b) => b.price - a.price); // Sort by price descending
+      
+      console.log(`📊 Generated footprint data: ${footprintData.length} price levels`);
+      
+      return res.json({
+        success: true,
+        data: {
+          stockCode: stockCode.toUpperCase(),
+          date: date,
+          footprintData,
+          total: footprintData.length,
+          generated_at: new Date().toISOString()
+        }
+      });
+      
+    } catch (error) {
+      console.error(`Error loading footprint data for ${stockCode}:`, error);
+      return res.status(404).json({
+        success: false,
+        error: `No footprint data found for stock ${stockCode} on date ${date}`
+      });
+    }
+    
+  } catch (error) {
+    console.error(`❌ Error getting footprint data for ${req.params.stockCode}:`, error);
+    return res.status(500).json({
+      success: false,
+      error: `Failed to get footprint data for ${req.params.stockCode}`
+    });
+  }
+});
+
 export default router;
