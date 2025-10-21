@@ -652,9 +652,9 @@ export default function MarketRotationRRC() {
               return;
             }
             setSelectedItems(prev => [...prev, selectedOption.name]);
-          }
-          setSearchQuery('');
-          setShowSearchDropdown(false);
+    }
+    setSearchQuery('');
+    setShowSearchDropdown(false);
           setSearchDropdownIndex(-1);
         }
         break;
@@ -698,8 +698,8 @@ export default function MarketRotationRRC() {
             setSelectedIndexes(prev => [...prev, selectedOption.name]);
             setSelectedIndex(selectedOption.name);
           }
-          setIndexSearchQuery('');
-          setShowIndexSearchDropdown(false);
+    setIndexSearchQuery('');
+    setShowIndexSearchDropdown(false);
           setIndexSearchDropdownIndex(-1);
         }
         break;
@@ -808,8 +808,8 @@ export default function MarketRotationRRC() {
           >
             Stock
                   </button>
-                </div>
-              </div>
+        </div>
+      </div>
 
               {/* Start Date */}
               <div className="flex flex-col gap-2">
@@ -1005,7 +1005,7 @@ export default function MarketRotationRRC() {
                     {...(isMoreThanOneMonth(startDate, endDate) && { tickCount: 6 })}
                   />
                   <YAxis className="text-muted-foreground" />
-                  <Tooltip
+                  <Tooltip 
                     content={<RrcTooltip />}
                     allowEscapeViewBox={{ x: false, y: false }}
                     isAnimationActive={false}
@@ -1100,8 +1100,8 @@ export default function MarketRotationRRC() {
                           {(indexSearchQuery ? getFilteredIndexOptions() : indexOptions.filter(option => !selectedIndexes.includes(option.name)))
                             .slice(0, 10)
                             .map((option, index) => (
-                            <button
-                              key={option.name}
+                        <button
+                          key={option.name}
                               onClick={() => {
                                 if (!selectedIndexes.includes(option.name)) {
                                   if (selectedIndexes.length >= 5) {
@@ -1122,19 +1122,19 @@ export default function MarketRotationRRC() {
                               className={`flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors ${
                                 index === indexSearchDropdownIndex ? 'bg-accent' : ''
                               }`}
-                            >
-                              <div className="flex items-center gap-2">
-                                <div 
-                                  className="w-3 h-3 rounded-full" 
-                                  style={{ backgroundColor: option.color }}
-                                ></div>
-                                <span className="text-sm">{option.name}</span>
-                              </div>
+                        >
+                          <div className="flex items-center gap-2">
+                            <div 
+                              className="w-3 h-3 rounded-full" 
+                              style={{ backgroundColor: option.color }}
+                            ></div>
+                            <span className="text-sm">{option.name}</span>
+                          </div>
                               {!selectedIndexes.includes(option.name) && (
-                                <Plus className="w-3 h-3 text-muted-foreground" />
+                          <Plus className="w-3 h-3 text-muted-foreground" />
                               )}
-                            </button>
-                          ))}
+                        </button>
+                      ))}
                           
                           {/* Show "more available" message */}
                           {!indexSearchQuery && indexOptions.filter(option => !selectedIndexes.includes(option.name)).length > 10 && (
@@ -1145,12 +1145,12 @@ export default function MarketRotationRRC() {
                           
                           {/* Show "no results" message */}
                           {indexSearchQuery && getFilteredIndexOptions().length === 0 && (
-                            <div className="p-2 text-sm text-muted-foreground">
+                        <div className="p-2 text-sm text-muted-foreground">
                               {indexOptions.filter(s => !selectedIndexes.includes(s.name)).length === 0 
                                 ? 'All indexes already selected' 
                                 : `No indexes found matching "${indexSearchQuery}"`
                               }
-                            </div>
+                        </div>
                           )}
                         </>
                       )}
@@ -1185,7 +1185,7 @@ export default function MarketRotationRRC() {
                           </div>
                           <div className="flex items-center gap-1">
                             {index !== selectedIndex && (
-                              <button
+                          <button
                                 onClick={() => setSelectedIndex(index)}
                                 className="px-2 py-1 text-xs bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors"
                                 title="Set as primary index"
@@ -1213,19 +1213,19 @@ export default function MarketRotationRRC() {
                                 }
                               }}
                               disabled={selectedIndexes.length === 1}
-                              className={`h-6 w-6 p-0 flex items-center justify-center rounded-md transition-colors ${
+                            className={`h-6 w-6 p-0 flex items-center justify-center rounded-md transition-colors ${
                                 selectedIndexes.length === 1 
-                                  ? 'cursor-not-allowed opacity-30' 
-                                  : 'hover:bg-muted/50 hover:shadow-sm opacity-60 hover:opacity-100'
-                              }`}
+                                ? 'cursor-not-allowed opacity-30' 
+                                : 'hover:bg-muted/50 hover:shadow-sm opacity-60 hover:opacity-100'
+                            }`}
                               title={selectedIndexes.length === 1 ? 'Cannot remove last index' : `Remove ${index} from selection`}
-                            >
-                              <X className={`w-3 h-3 transition-colors ${
+                          >
+                            <X className={`w-3 h-3 transition-colors ${
                                 selectedIndexes.length === 1 
-                                  ? 'text-muted-foreground/50' 
-                                  : 'text-muted-foreground hover:text-destructive'
-                              }`} />
-                            </button>
+                                ? 'text-muted-foreground/50' 
+                                : 'text-muted-foreground hover:text-destructive'
+                            }`} />
+                          </button>
                           </div>
                         </div>
                       );
@@ -1240,28 +1240,28 @@ export default function MarketRotationRRC() {
               )}
 
               {/* Search and Select Combined */}
-              <div>
+                <div>
                 <h4 className="text-sm font-medium mb-2">
                   Available {viewMode === 'sector' ? 'Sectors' : 'Stocks'}: {currentOptions.length}
                 </h4>
-                <div className="relative" ref={searchRef}>
-                  <div className="relative">
-                    <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-                    <input
-                      type="text"
+                  <div className="relative" ref={searchRef}>
+                    <div className="relative">
+                      <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                      <input
+                        type="text"
                       placeholder={`Search and select ${viewMode === 'sector' ? 'sectors' : 'stocks'}...`}
-                      value={searchQuery}
-                      onChange={(e) => {
-                        setSearchQuery(e.target.value);
-                        setShowSearchDropdown(true);
+                        value={searchQuery}
+                        onChange={(e) => {
+                          setSearchQuery(e.target.value);
+                          setShowSearchDropdown(true);
                         setSearchDropdownIndex(-1);
-                      }}
-                      onFocus={() => setShowSearchDropdown(true)}
+                        }}
+                        onFocus={() => setShowSearchDropdown(true)}
                       onKeyDown={handleSearchKeyDown}
-                      className="w-full pl-7 pr-3 py-2 text-xs bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors"
-                    />
-                  </div>
-                  
+                        className="w-full pl-7 pr-3 py-2 text-xs bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors"
+                      />
+                    </div>
+                    
                   {/* Combined Search and Select Dropdown */}
                   {showSearchDropdown && (
                     <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-50 max-h-60 overflow-y-auto">
@@ -1325,15 +1325,15 @@ export default function MarketRotationRRC() {
                           </div>
                         )}
                         </>
-                      )}
-                    </div>
-                  )}
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
 
               {/* Selected Items */}
               {selectedItems.length > 0 && (
-                <div>
+              <div>
                   <div className="flex items-center justify-between mb-2">
                     <h4 className="text-sm font-medium">Selected {viewMode === 'sector' ? 'Sectors' : 'Stocks'} ({selectedItems.length})</h4>
                     {selectedItems.length === 1 && (
@@ -1346,10 +1346,10 @@ export default function MarketRotationRRC() {
                       return (
                         <div key={item} className="flex items-center justify-between p-2 bg-accent rounded-md">
                           <div className="flex items-center gap-2">
-                            <div 
-                              className="w-3 h-3 rounded-full" 
+                      <div 
+                        className="w-3 h-3 rounded-full" 
                               style={{ backgroundColor: option?.color }}
-                            ></div>
+                      ></div>
                             <span className="text-sm">{item}</span>
                           </div>
                           <button
@@ -1367,8 +1367,8 @@ export default function MarketRotationRRC() {
                                 ? 'text-muted-foreground/50' 
                                 : 'text-muted-foreground hover:text-destructive'
                             }`} />
-                          </button>
-                        </div>
+                    </button>
+                    </div>
                       );
                     })}
                   </div>

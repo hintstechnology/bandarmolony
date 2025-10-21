@@ -42,7 +42,9 @@ const SCHEDULER_CONFIG = {
   
   // Phase-based Calculation Times
   PHASE1_UPDATE_TIME: '18:35', // Broker Data, Bid/Ask, Money Flow, Foreign Flow
-  PHASE2_UPDATE_TIME: '18:35', // Broker Inventory, Accumulation Distribution
+  PHASE2_UPDATE_TIME: '18:40', // Broker Inventory, Accumulation Distribution
+  // Temporary Phase 3 (manual trigger window) - runs Broker Inventory + Accumulation again
+  PHASE3_UPDATE_TIME: '18:45',
   
   // Timezone
   TIMEZONE: 'Asia/Jakarta'
@@ -76,6 +78,7 @@ const RRG_UPDATE_SCHEDULE = timeToCron(RRG_UPDATE_TIME);
 const SEASONAL_UPDATE_SCHEDULE = timeToCron(SEASONAL_UPDATE_TIME);
 const TREND_FILTER_UPDATE_SCHEDULE = timeToCron(TREND_FILTER_UPDATE_TIME);
 const PHASE1_UPDATE_SCHEDULE = timeToCron(PHASE1_UPDATE_TIME);
+const PHASE3_UPDATE_SCHEDULE = timeToCron(SCHEDULER_CONFIG.PHASE3_UPDATE_TIME);
 
 let schedulerRunning = false;
 let scheduledTasks: any[] = [];
@@ -373,6 +376,37 @@ export function startScheduler(): void {
 
   // Phase 2 calculations are now triggered automatically when Phase 1 completes
 
+  // 11. Temporary Phase 3: Re-run Broker Inventory and Accumulation Distribution on a fixed time
+  const phase3Task = cron.schedule(PHASE3_UPDATE_SCHEDULE, async () => {
+    console.log(`🕐 Scheduled Phase 3 calculations triggered at ${SCHEDULER_CONFIG.PHASE3_UPDATE_TIME}`);
+
+    try {
+      const today = new Date();
+      const dateSuffix = today.toISOString().slice(2, 10).replace(/-/g, '');
+
+      console.log('🔄 Starting Phase 3 calculations (Broker Inventory, Accumulation Distribution)...');
+      const phase3Results = await Promise.allSettled([
+        brokerInventoryService.generateBrokerInventoryData(dateSuffix),
+        accumulationService.generateAccumulationData(dateSuffix)
+      ]);
+
+      const names = ['Broker Inventory', 'Accumulation Distribution'];
+      phase3Results.forEach((result, idx) => {
+        if (result.status === 'fulfilled' && (result.value as any)?.success !== false) {
+          console.log(`✅ ${names[idx]} completed (Phase 3)`);
+        } else {
+          const err = result.status === 'rejected' ? result.reason : (result.value as any)?.message;
+          console.error(`❌ ${names[idx]} failed (Phase 3):`, err);
+        }
+      });
+    } catch (error) {
+      console.error('❌ Error during Phase 3 calculations:', error);
+    }
+  }, {
+    timezone: TIMEZONE
+  });
+  scheduledTasks.push(phase3Task);
+
   // Initialize Azure logging
   initializeAzureLogging().catch(console.error);
   
@@ -389,6 +423,7 @@ export function startScheduler(): void {
   console.log(`  🔄 Trend Filter Calculation: ${TREND_FILTER_UPDATE_TIME} daily`);
   console.log(`  🔄 Phase 1 (Broker Data, Bid/Ask, Money Flow, Foreign Flow): ${PHASE1_UPDATE_TIME} daily`);
   console.log(`  🔄 Phase 2 (Broker Inventory, Accumulation Distribution): Triggered when Phase 1 completes`);
+  console.log(`  🔄 Phase 3 (TEMP - re-run Inventory & Accumulation): ${SCHEDULER_CONFIG.PHASE3_UPDATE_TIME} daily`);
   console.log(`  ⏭️  Weekend updates: ENABLED (Sat/Sun)\n`);
 
   schedulerRunning = true;

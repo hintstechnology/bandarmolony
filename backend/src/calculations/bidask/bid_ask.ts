@@ -1,4 +1,4 @@
-import { downloadText, uploadText } from '../../utils/azureBlob';
+import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
 
 // Type definitions for bid/ask footprint data
 interface TransactionData {
@@ -56,67 +56,101 @@ export class BidAskCalculator {
   }
 
   /**
-   * Load and process the transaction data from DT file in Azure
+   * Find all DT files in done-summary folder
    */
-  private async loadAndProcessDataFromAzure(dateSuffix: string): Promise<TransactionData[]> {
-    console.log(`Loading transaction data for bid/ask analysis from Azure for date: ${dateSuffix}`);
+  private async findAllDtFiles(): Promise<string[]> {
+    console.log("Scanning all DT files in done-summary folder...");
     
-    // Try to find data from today back to 20250919
-    const today = new Date();
-    const targetDate = new Date('2025-09-19');
-    
-    for (let d = new Date(today); d >= targetDate; d.setDate(d.getDate() - 1)) {
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      const azureDate = `${year}${month}${day}`;
+    try {
+      const allFiles = await listPaths({ prefix: 'done-summary/' });
+      const dtFiles = allFiles.filter(file => 
+        file.includes('/DT') && file.endsWith('.csv')
+      );
       
-      // Convert to YYMMDD format for DT file
-      const yy = String(year).substring(2);
-      const mm = month;
-      const dd = day;
-      const dtSuffix = `${yy}${mm}${dd}`;
-      
-      const blobName = `done-summary/${azureDate}/DT${dtSuffix}.csv`;
-      console.log(`Looking for data at: ${blobName}`);
-      
-      try {
-        const content = await downloadText(blobName);
-        if (content && content.trim().length > 0) {
-          console.log(`✅ Found data at: ${blobName}`);
-          return this.parseTransactionData(content);
-        }
-      } catch (error) {
-        // Continue to next date
-        continue;
-      }
+      console.log(`Found ${dtFiles.length} DT files to process`);
+      return dtFiles;
+    } catch (error) {
+      console.error('Error scanning DT files:', error);
+      return [];
     }
+  }
+
+  /**
+   * Load and process a single DT file
+   */
+  private async loadAndProcessSingleDtFile(blobName: string): Promise<{ data: TransactionData[], dateSuffix: string } | null> {
+    try {
+      console.log(`Loading DT file: ${blobName}`);
+    const content = await downloadText(blobName);
     
-    console.log(`⚠️ No data found from today back to 20250919 - skipping bid/ask calculation`);
-    return [];
+      if (!content || content.trim().length === 0) {
+        console.log(`⚠️ Empty file: ${blobName}`);
+        return null;
+      }
+      
+      // Extract date from blob name (done-summary/20251021/DT251021.csv)
+      const pathParts = blobName.split('/');
+      const dateFolder = pathParts[1] || 'unknown'; // 20251021
+      const dateSuffix = dateFolder; // Use full date as suffix
+      
+      const data = this.parseTransactionData(content);
+      console.log(`✅ Loaded ${data.length} transactions from ${blobName}`);
+      
+      return { data, dateSuffix };
+    } catch (error) {
+      console.log(`📄 File not found, will create new: ${blobName}`);
+      return null;
+    }
   }
 
   private parseTransactionData(content: string): TransactionData[] {
     const lines = content.trim().split('\n');
     const data: TransactionData[] = [];
     
+    if (lines.length < 2) return data;
+    
+    // Parse header to get column indices (using semicolon separator)
+    const header = lines[0]?.split(';') || [];
+    console.log(`📋 CSV Header: ${header.join(', ')}`);
+    
+    const getColumnIndex = (columnName: string): number => {
+      return header.findIndex(col => col.trim() === columnName);
+    };
+    
+    const stkCodeIndex = getColumnIndex('STK_CODE');
+    const brkCod1Index = getColumnIndex('BRK_COD1');
+    const brkCod2Index = getColumnIndex('BRK_COD2');
+    const stkVolmIndex = getColumnIndex('STK_VOLM');
+    const stkPricIndex = getColumnIndex('STK_PRIC');
+    const trxCodeIndex = getColumnIndex('TRX_CODE');
+    const trxTimeIndex = getColumnIndex('TRX_TIME');
+    const trxOrd1Index = getColumnIndex('TRX_ORD1');
+    const trxOrd2Index = getColumnIndex('TRX_ORD2');
+    
+    // Validate required columns exist
+    if (stkCodeIndex === -1 || brkCod1Index === -1 || brkCod2Index === -1 || 
+        stkVolmIndex === -1 || stkPricIndex === -1 || trxCodeIndex === -1) {
+      console.error('❌ Required columns not found in CSV header');
+      return data;
+    }
+    
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i];
       if (!line || line.trim().length === 0) continue;
       
-      const values = line.split(',');
-      if (values.length < 8) continue;
+      const values = line.split(';');
+      if (values.length < header.length) continue;
       
       const transaction: TransactionData = {
-        STK_CODE: values[1]?.trim() || '',
-        BRK_COD1: values[2]?.trim() || '',
-        BRK_COD2: values[3]?.trim() || '',
-        STK_VOLM: parseFloat(values[4]?.trim() || '0') || 0,
-        STK_PRIC: parseFloat(values[5]?.trim() || '0') || 0,
-        TRX_CODE: values[6]?.trim() || '',
-        TRX_TIME: values[7]?.trim() || '',
-        TRX_ORD1: parseFloat(values[8]?.trim() || '0') || 0,
-        TRX_ORD2: parseFloat(values[9]?.trim() || '0') || 0
+        STK_CODE: values[stkCodeIndex]?.trim() || '',
+        BRK_COD1: values[brkCod1Index]?.trim() || '',
+        BRK_COD2: values[brkCod2Index]?.trim() || '',
+        STK_VOLM: parseFloat(values[stkVolmIndex]?.trim() || '0') || 0,
+        STK_PRIC: parseFloat(values[stkPricIndex]?.trim() || '0') || 0,
+        TRX_CODE: values[trxCodeIndex]?.trim() || '',
+        TRX_TIME: trxTimeIndex !== -1 ? values[trxTimeIndex]?.trim() || '' : '',
+        TRX_ORD1: trxOrd1Index !== -1 ? parseFloat(values[trxOrd1Index]?.trim() || '0') || 0 : 0,
+        TRX_ORD2: trxOrd2Index !== -1 ? parseFloat(values[trxOrd2Index]?.trim() || '0') || 0 : 0
       };
       
       data.push(transaction);
@@ -383,55 +417,134 @@ export class BidAskCalculator {
 
 
   /**
-   * Main function to generate bid/ask footprint data
+   * Process a single DT file with all bid/ask analysis
    */
-  public async generateBidAskData(dateSuffix: string): Promise<{ success: boolean; message: string; data?: any }> {
+  private async processSingleDtFile(blobName: string): Promise<{ success: boolean; dateSuffix: string; files: string[] }> {
+    const result = await this.loadAndProcessSingleDtFile(blobName);
+    
+    if (!result) {
+      return { success: false, dateSuffix: '', files: [] };
+    }
+    
+    const { data, dateSuffix } = result;
+    
+    if (data.length === 0) {
+      console.log(`⚠️ No transaction data in ${blobName} - skipping`);
+      return { success: false, dateSuffix, files: [] };
+    }
+    
+    console.log(`🔄 Processing ${blobName} (${data.length} transactions)...`);
+    
     try {
-      console.log(`Starting bid/ask footprint analysis for date: ${dateSuffix}`);
+      // Create all analysis types in parallel for speed
+      const [brokerFootprint, stockFootprint, priceLevelSummary] = await Promise.all([
+        Promise.resolve(this.createBrokerFootprintData(data)),
+        Promise.resolve(this.createStockFootprintData(data)),
+        Promise.resolve(this.createPriceLevelSummary(data))
+      ]);
       
-      // Load and process data
-      const data = await this.loadAndProcessDataFromAzure(dateSuffix);
+      // Save results to Azure in parallel
+      const basePath = `bid_ask/bid_ask_${dateSuffix}`;
+      await Promise.all([
+        this.saveToAzure(`${basePath}/price_level_summary.csv`, priceLevelSummary),
+        this.saveToAzure(`${basePath}/by_stock.csv`, stockFootprint),
+        this.saveToAzure(`${basePath}/by_broker.csv`, brokerFootprint)
+      ]);
       
-      // Check if data is empty (holiday or missing data)
-      if (data.length === 0) {
-        console.log(`⚠️ No transaction data available for ${dateSuffix} - skipping bid/ask calculation`);
+      const allFiles = [
+        `${basePath}/price_level_summary.csv`,
+        `${basePath}/by_stock.csv`,
+        `${basePath}/by_broker.csv`
+      ];
+      
+      console.log(`✅ Completed processing ${blobName} - ${allFiles.length} files created`);
+      return { success: true, dateSuffix, files: allFiles };
+      
+    } catch (error) {
+      console.error(`Error processing ${blobName}:`, error);
+      return { success: false, dateSuffix, files: [] };
+    }
+  }
+
+  /**
+   * Main function to generate bid/ask footprint data for all DT files
+   */
+  public async generateBidAskData(_dateSuffix: string): Promise<{ success: boolean; message: string; data?: any }> {
+    try {
+      console.log(`Starting bid/ask footprint analysis for all DT files...`);
+      
+      // Find all DT files
+      const dtFiles = await this.findAllDtFiles();
+      
+      if (dtFiles.length === 0) {
+        console.log(`⚠️ No DT files found in done-summary folder`);
         return {
           success: true,
-          message: `No transaction data available for ${dateSuffix} - skipped bid/ask calculation`,
-          data: { skipped: true, reason: 'No data available' }
+          message: `No DT files found - skipped bid/ask calculation`,
+          data: { skipped: true, reason: 'No DT files found' }
         };
       }
       
-      // Create different types of footprint analysis
-      const brokerFootprint = this.createBrokerFootprintData(data);
-      const stockFootprint = this.createStockFootprintData(data);
-      const priceLevelSummary = this.createPriceLevelSummary(data);
+      console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
-      // Save results to Azure
-      const basePath = `bid_ask/bid_ask_${dateSuffix}`;
+      // Process files in batches for speed (5 files at a time)
+      const BATCH_SIZE = 5;
+      const allResults: { success: boolean; dateSuffix: string; files: string[] }[] = [];
+      let processed = 0;
+      let successful = 0;
       
-      await this.saveToAzure(`${basePath}/price_level_summary.csv`, priceLevelSummary);
-      await this.saveToAzure(`${basePath}/by_stock.csv`, stockFootprint);
-      await this.saveToAzure(`${basePath}/by_broker.csv`, brokerFootprint);
+      for (let i = 0; i < dtFiles.length; i += BATCH_SIZE) {
+        const batch = dtFiles.slice(i, i + BATCH_SIZE);
+        console.log(`📦 Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`);
+        
+        // Process batch in parallel
+        const batchResults = await Promise.allSettled(
+          batch.map(blobName => this.processSingleDtFile(blobName))
+        );
+        
+        // Force garbage collection after each batch
+        if (global.gc) {
+          global.gc();
+        }
+        
+        // Collect results
+        batchResults.forEach((result, index) => {
+          if (result.status === 'fulfilled') {
+            allResults.push(result.value);
+            processed++;
+            if (result.value.success) {
+              successful++;
+            }
+          } else {
+            console.error(`Error processing ${batch[index]}:`, result.reason);
+            processed++;
+          }
+        });
+        
+        console.log(`📊 Batch complete: ${successful}/${processed} successful`);
+        
+        // Small delay between batches
+        if (i + BATCH_SIZE < dtFiles.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
       
-      console.log("Bid/Ask footprint analysis completed successfully!");
+      const totalFiles = allResults.reduce((sum, result) => sum + result.files.length, 0);
+      
+      console.log(`✅ Bid/Ask footprint analysis completed!`);
+      console.log(`📊 Processed: ${processed}/${dtFiles.length} DT files`);
+      console.log(`📊 Successful: ${successful}/${processed} files`);
+      console.log(`📊 Total output files: ${totalFiles}`);
       
       return {
         success: true,
-        message: `Bid/ask footprint data generated successfully for ${dateSuffix}`,
+        message: `Bid/ask footprint data generated successfully for ${successful}/${processed} DT files`,
         data: {
-          date: dateSuffix,
-          totalTransactions: data.length,
-          uniqueBrokers: new Set([...data.map(row => row.BRK_COD2), ...data.map(row => row.BRK_COD1)]).size,
-          uniqueStocks: new Set(data.map(row => row.STK_CODE)).size,
-          uniquePrices: new Set(data.map(row => row.STK_PRIC)).size,
-          totalVolume: data.reduce((sum, row) => sum + row.STK_VOLM, 0),
-          totalValue: data.reduce((sum, row) => sum + (row.STK_VOLM * row.STK_PRIC), 0),
-          outputFiles: [
-            `${basePath}/price_level_summary.csv`,
-            `${basePath}/by_stock.csv`,
-            `${basePath}/by_broker.csv`
-          ]
+          totalDtFiles: dtFiles.length,
+          processedFiles: processed,
+          successfulFiles: successful,
+          totalOutputFiles: totalFiles,
+          results: allResults.filter(r => r.success)
         }
       };
       

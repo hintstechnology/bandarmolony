@@ -8,6 +8,10 @@ interface BidAskData {
   AskVolume: number;
   NetVolume: number;
   TotalVolume: number;
+  BidCount: number;
+  AskCount: number;
+  UniqueBidBrokers: number;
+  UniqueAskBrokers: number;
 }
 
 interface StockData {
@@ -62,7 +66,7 @@ export class AccumulationDistributionCalculator {
   private async loadBidAskDataFromAzure(dateSuffix: string): Promise<BidAskData[]> {
     console.log(`Loading bid/ask data from Azure for date: ${dateSuffix}`);
     
-    const blobName = `bid_ask/bid_ask_${dateSuffix}/by_stock/by_stock.csv`;
+    const blobName = `bid_ask/bid_ask_${dateSuffix}/by_stock.csv`;
     const content = await downloadText(blobName);
     
     const lines = content.trim().split('\n');
@@ -73,14 +77,18 @@ export class AccumulationDistributionCalculator {
       if (!line) continue;
       
       const values = line.split(',');
-      if (values.length >= 6) {
+      if (values.length >= 10) {
         data.push({
           StockCode: values[0]?.trim() || '',
           Price: parseFloat(values[1]?.trim() || '0'),
           BidVolume: parseFloat(values[2]?.trim() || '0'),
           AskVolume: parseFloat(values[3]?.trim() || '0'),
           NetVolume: parseFloat(values[4]?.trim() || '0'),
-          TotalVolume: parseFloat(values[5]?.trim() || '0')
+          TotalVolume: parseFloat(values[5]?.trim() || '0'),
+          BidCount: parseFloat(values[6]?.trim() || '0'),
+          AskCount: parseFloat(values[7]?.trim() || '0'),
+          UniqueBidBrokers: parseFloat(values[8]?.trim() || '0'),
+          UniqueAskBrokers: parseFloat(values[9]?.trim() || '0')
         });
       }
     }
@@ -93,10 +101,33 @@ export class AccumulationDistributionCalculator {
    * Load stock data from Azure Blob Storage
    */
   private async loadStockDataFromAzure(stockCode: string): Promise<StockData[]> {
-    const blobName = `stock/${stockCode}.csv`;
+    // Try to find stock in sector subfolders
+    const sectors = ['Technology', 'Finance', 'Consumer', 'Industrial', 'Energy', 'Healthcare', 'Materials', 'Utilities', 'Real Estate', 'Communication'];
+    let blobName = `stock/${stockCode}.csv`;
+    let content = '';
+    
+    // First try direct path
+    try {
+      content = await downloadText(blobName);
+    } catch (error) {
+      // Try sector subfolders
+      let found = false;
+      for (const sector of sectors) {
+        try {
+          blobName = `stock/${sector}/${stockCode}.csv`;
+          content = await downloadText(blobName);
+          found = true;
+          break;
+        } catch (sectorError) {
+          // Continue to next sector
+        }
+      }
+      if (!found) {
+        throw new Error(`Stock ${stockCode} not found in any sector folder`);
+      }
+    }
     
     try {
-      const content = await downloadText(blobName);
     
     const lines = content.trim().split('\n');
     const data: StockData[] = [];
@@ -477,162 +508,188 @@ export class AccumulationDistributionCalculator {
   /**
    * Main function to generate accumulation distribution data
    */
-  public async generateAccumulationDistributionData(dateSuffix: string): Promise<{ success: boolean; message: string; data?: any }> {
+  public async generateAccumulationDistributionData(_dateSuffix: string): Promise<{ success: boolean; message: string; data?: any }> {
     try {
-      console.log(`Starting accumulation distribution calculation for date: ${dateSuffix}`);
+      console.log(`Starting accumulation distribution calculation for ALL available bid_ask dates...`);
+
+      // Discover all available bid_ask dates
+      console.log("🔍 Searching for bid_ask folders in Azure...");
       
-      // Load bid/ask data for current date
-      const bidAskData = await this.loadBidAskDataFromAzure(dateSuffix);
-      const dailyNetBuySell = this.calculateDailyNetBuySell(bidAskData);
+      // First, let's see what's actually in Azure
+      console.log("🔍 Checking all blobs in Azure...");
+      const allBlobs = await listPaths({ prefix: '' });
+      console.log(`📁 Total blobs in Azure: ${allBlobs.length}`);
+      console.log(`📋 Sample blobs:`, allBlobs.slice(0, 20));
       
-      // Get unique stock codes
-      const stockCodes = Array.from(new Set(bidAskData.map(d => d.StockCode)));
-      console.log(`Found ${stockCodes.length} unique stock codes`);
+      const blobs = await listPaths({ prefix: 'bid_ask/' });
+      console.log(`📁 Found ${blobs.length} blobs with prefix 'bid_ask/':`, blobs.slice(0, 10));
       
-      // Create daily net buy/sell map for accumulation calculations
-      const dailyNetBuySellMap = new Map<string, Map<string, number>>();
-      
-      // Initialize map for all stock codes
-      stockCodes.forEach(stockCode => {
-        dailyNetBuySellMap.set(stockCode, new Map());
-      });
-      
-      // Add current date data
-      stockCodes.forEach(stockCode => {
-        const currentValue = dailyNetBuySell.get(stockCode) || 0;
-        dailyNetBuySellMap.get(stockCode)!.set(dateSuffix, currentValue);
-      });
-      
-      // Load previous trading days data for accumulation
-      console.log("Loading previous trading days data for accumulation...");
-      
-      // Get all available bid_ask folders to find previous dates
-      const blobs = await listPaths({ prefix: 'bid_ask/bid_ask_' });
-      
-      const dates: string[] = [];
+      const allDates: string[] = [];
       for (const blobName of blobs) {
-        const folderName = blobName.split('/')[1];
-        if (folderName && folderName.startsWith('bid_ask_')) {
-          const date = folderName.replace('bid_ask_', '');
-          if (/^\d{6}$/.test(date)) {
-            dates.push(date);
+        console.log(`🔍 Processing blob: ${blobName}`);
+        const pathParts = blobName.split('/');
+        console.log(`📂 Path parts:`, pathParts);
+        
+        if (pathParts.length >= 2 && pathParts[0] === 'bid_ask') {
+          const folderName = pathParts[1];
+          console.log(`📁 Folder name: ${folderName}`);
+          
+          if (folderName && folderName.startsWith('bid_ask_')) {
+            const date = folderName.replace('bid_ask_', '');
+            console.log(`📅 Extracted date: ${date}`);
+            if (/^\d{6}$/.test(date) || /^\d{8}$/.test(date)) {
+              allDates.push(date);
+              console.log(`✅ Added date: ${date}`);
+            }
           }
         }
       }
+      allDates.sort();
+      console.log(`📊 Final dates found: ${allDates.join(', ')}`);
+
+      console.log(`Found ${allDates.length} bid_ask dates to process`);
       
-      dates.sort();
-      const currentDateIndex = dates.indexOf(dateSuffix);
-      
-      if (currentDateIndex > 0) {
-        // Load up to 20 previous trading days for weekly accumulation
-        const previousDates = dates.slice(Math.max(0, currentDateIndex - 20), currentDateIndex);
-        console.log(`Loading previous dates: ${previousDates.join(', ')}`);
-        
-        for (const prevDate of previousDates) {
-          try {
-            const prevBidAskData = await this.loadBidAskDataFromAzure(prevDate);
-            const prevDailyNetBuySell = this.calculateDailyNetBuySell(prevBidAskData);
-            
-            // Add previous date data to map
-            stockCodes.forEach(stockCode => {
-              const prevValue = prevDailyNetBuySell.get(stockCode) || 0;
-              dailyNetBuySellMap.get(stockCode)!.set(prevDate, prevValue);
-            });
-            
-            console.log(`Loaded data for ${prevDate}: ${prevBidAskData.length} records`);
-          } catch (error) {
-            console.log(`Error loading data for ${prevDate}: ${error}`);
-          }
-        }
-      }
-      
-      // Load stock data for all stocks
-      const stockDataMap = new Map<string, StockData[]>();
-      
-      for (const stockCode of stockCodes) {
-        const stockData = await this.loadStockDataFromAzure(stockCode);
-        if (stockData.length > 0) {
-          stockDataMap.set(stockCode, stockData);
-        }
-      }
-      
-      console.log(`Loaded stock data for ${stockDataMap.size} stocks`);
-      
-      // Calculate all metrics
-      const weeklyAccumulation = this.calculateWeeklyAccumulation(dailyNetBuySellMap, stockCodes);
-      const dailyAccumulation = this.calculateDailyAccumulation(dailyNetBuySellMap, stockCodes);
-      const percentageChange = this.calculatePercentageChange(stockDataMap);
-      const volumePercentageChanges = this.calculateVolumePercentageChanges(stockDataMap);
-      const maIndicators = this.calculateMovingAverageIndicators(stockDataMap);
-      
-      // Combine all data
-      const accumulationData: AccumulationDistributionData[] = [];
-      
-      stockCodes.forEach(stockCode => {
-        const stockData = stockDataMap.get(stockCode);
-        if (!stockData || stockData.length === 0) return;
-        
-        const latest = stockData[stockData.length - 1];
-        if (!latest) return;
-        
-        const weekly = weeklyAccumulation.get(stockCode) || { W4: 0, W3: 0, W2: 0, W1: 0 };
-        const daily = dailyAccumulation.get(stockCode) || { D4: 0, D3: 0, D2: 0, D1: 0, D0: 0 };
-        const percentChange = percentageChange.get(stockCode) || 0;
-        const volumeChanges = volumePercentageChanges.get(stockCode) || {
-          VPercent1D: 0, VPercent3D: 0, VPercent5D: 0, VPercent10D: 0,
-          VPercent20D: 0, VPercent50D: 0, VPercent100D: 0
+      if (allDates.length === 0) {
+        console.log("⚠️ No bid_ask dates found in Azure - skipping accumulation distribution");
+        return {
+          success: true,
+          message: "No bid_ask dates found - skipped accumulation distribution",
+          data: []
         };
-        const maInd = maIndicators.get(stockCode) || {
-          AboveMA5: 0, AboveMA10: 0, AboveMA20: 0,
-          AboveMA50: 0, AboveMA100: 0, AboveMA200: 0
-        };
-        
-        accumulationData.push({
-          Symbol: stockCode,
-          W4: Math.round(weekly.W4),
-          W3: Math.round(weekly.W3),
-          W2: Math.round(weekly.W2),
-          W1: Math.round(weekly.W1),
-          D4: Math.round(daily.D4),
-          D3: Math.round(daily.D3),
-          D2: Math.round(daily.D2),
-          D1: Math.round(daily.D1),
-          D0: Math.round(daily.D0),
-          Percent1D: percentChange,
-          VPercent1D: volumeChanges.VPercent1D,
-          VPercent3D: volumeChanges.VPercent3D,
-          VPercent5D: volumeChanges.VPercent5D,
-          VPercent10D: volumeChanges.VPercent10D,
-          VPercent20D: volumeChanges.VPercent20D,
-          VPercent50D: volumeChanges.VPercent50D,
-          VPercent100D: volumeChanges.VPercent100D,
-          AboveMA5: maInd.AboveMA5,
-          AboveMA10: maInd.AboveMA10,
-          AboveMA20: maInd.AboveMA20,
-          AboveMA50: maInd.AboveMA50,
-          AboveMA100: maInd.AboveMA100,
-          AboveMA200: maInd.AboveMA200,
-          Price: latest.Close,
-          Volume: latest.Volume
+      }
+
+      const createdFilesSummary: { date: string; file: string; count: number }[] = [];
+
+      for (let di = 0; di < allDates.length; di++) {
+        const dateSuffix = allDates[di];
+        if (!dateSuffix) {
+          console.log(`Skip undefined date at index ${di}`);
+          continue;
+        }
+        console.log(`\n===== Processing accumulation for date ${dateSuffix} (${di + 1}/${allDates.length}) =====`);
+
+        // Load bid/ask data for current date
+        const bidAskData = await this.loadBidAskDataFromAzure(dateSuffix);
+        const dailyNetBuySell = this.calculateDailyNetBuySell(bidAskData);
+
+        // Get unique stock codes
+        const stockCodes = Array.from(new Set(bidAskData.map(d => d.StockCode)));
+        console.log(`Found ${stockCodes.length} unique stock codes`);
+
+        // Create daily net buy/sell map for accumulation calculations
+        const dailyNetBuySellMap = new Map<string, Map<string, number>>();
+        stockCodes.forEach(stockCode => {
+          dailyNetBuySellMap.set(stockCode, new Map());
         });
-      });
-      
-      // Save to Azure
-      const outputFilename = `accumulation_distribution/accumulation_${dateSuffix}.csv`;
-      await this.saveToAzure(outputFilename, accumulationData);
-      
-      console.log("Accumulation distribution calculation completed successfully!");
-      
+        // Add current date data
+        stockCodes.forEach(stockCode => {
+          const currentValue = dailyNetBuySell.get(stockCode) || 0;
+          const mapRef = dailyNetBuySellMap.get(stockCode);
+          if (mapRef) {
+            mapRef.set(dateSuffix as string, currentValue);
+          }
+        });
+
+        // Load up to 20 previous trading days
+        const currentDateIndex = allDates.indexOf(dateSuffix);
+        if (currentDateIndex > 0) {
+          const previousDates = allDates.slice(Math.max(0, currentDateIndex - 20), currentDateIndex);
+          console.log(`Loading previous dates: ${previousDates.join(', ')}`);
+          for (const prevDate of previousDates) {
+            try {
+              const prevBidAskData = await this.loadBidAskDataFromAzure(prevDate);
+              const prevDailyNetBuySell = this.calculateDailyNetBuySell(prevBidAskData);
+              stockCodes.forEach(stockCode => {
+                const prevValue = prevDailyNetBuySell.get(stockCode) || 0;
+                const mapRef = dailyNetBuySellMap.get(stockCode);
+                if (mapRef && prevDate) {
+                  mapRef.set(prevDate as string, prevValue);
+                }
+              });
+            } catch (error) {
+              console.log(`Error loading data for ${prevDate}: ${error}`);
+            }
+          }
+        }
+
+        // Load stock data for all stocks
+        const stockDataMap = new Map<string, StockData[]>();
+        for (const stockCode of stockCodes) {
+          const stockData = await this.loadStockDataFromAzure(stockCode);
+          if (stockData.length > 0) {
+            stockDataMap.set(stockCode, stockData);
+          }
+        }
+
+        // Calculate all metrics
+        const weeklyAccumulation = this.calculateWeeklyAccumulation(dailyNetBuySellMap, stockCodes);
+        const dailyAccumulation = this.calculateDailyAccumulation(dailyNetBuySellMap, stockCodes);
+        const percentageChange = this.calculatePercentageChange(stockDataMap);
+        const volumePercentageChanges = this.calculateVolumePercentageChanges(stockDataMap);
+        const maIndicators = this.calculateMovingAverageIndicators(stockDataMap);
+
+        // Combine all data
+        const accumulationData: AccumulationDistributionData[] = [];
+        stockCodes.forEach(stockCode => {
+          const stockData = stockDataMap.get(stockCode);
+          if (!stockData || stockData.length === 0) return;
+          const latest = stockData[stockData.length - 1];
+          if (!latest) return;
+
+          const weekly = weeklyAccumulation.get(stockCode) || { W4: 0, W3: 0, W2: 0, W1: 0 };
+          const daily = dailyAccumulation.get(stockCode) || { D4: 0, D3: 0, D2: 0, D1: 0, D0: 0 };
+          const percentChange = percentageChange.get(stockCode) || 0;
+          const volumeChanges = volumePercentageChanges.get(stockCode) || {
+            VPercent1D: 0, VPercent3D: 0, VPercent5D: 0, VPercent10D: 0,
+            VPercent20D: 0, VPercent50D: 0, VPercent100D: 0
+          };
+          const maInd = maIndicators.get(stockCode) || {
+            AboveMA5: 0, AboveMA10: 0, AboveMA20: 0,
+            AboveMA50: 0, AboveMA100: 0, AboveMA200: 0
+          };
+
+          accumulationData.push({
+            Symbol: stockCode,
+            W4: Math.round(weekly.W4),
+            W3: Math.round(weekly.W3),
+            W2: Math.round(weekly.W2),
+            W1: Math.round(weekly.W1),
+            D4: Math.round(daily.D4),
+            D3: Math.round(daily.D3),
+            D2: Math.round(daily.D2),
+            D1: Math.round(daily.D1),
+            D0: Math.round(daily.D0),
+            Percent1D: percentChange,
+            VPercent1D: volumeChanges.VPercent1D,
+            VPercent3D: volumeChanges.VPercent3D,
+            VPercent5D: volumeChanges.VPercent5D,
+            VPercent10D: volumeChanges.VPercent10D,
+            VPercent20D: volumeChanges.VPercent20D,
+            VPercent50D: volumeChanges.VPercent50D,
+            VPercent100D: volumeChanges.VPercent100D,
+            AboveMA5: maInd.AboveMA5,
+            AboveMA10: maInd.AboveMA10,
+            AboveMA20: maInd.AboveMA20,
+            AboveMA50: maInd.AboveMA50,
+            AboveMA100: maInd.AboveMA100,
+            AboveMA200: maInd.AboveMA200,
+            Price: latest.Close,
+            Volume: latest.Volume
+          });
+        });
+
+        // Save to Azure per-date
+        const outputFilename = `accumulation_distribution/accumulation_${dateSuffix as string}.csv`;
+        await this.saveToAzure(outputFilename, accumulationData);
+        createdFilesSummary.push({ date: dateSuffix, file: outputFilename, count: accumulationData.length });
+        console.log(`Saved ${accumulationData.length} rows to ${outputFilename}`);
+      }
+
       return {
         success: true,
-        message: `Accumulation distribution data generated successfully for ${dateSuffix}`,
-        data: {
-          date: dateSuffix,
-          stocksProcessed: accumulationData.length,
-          outputFile: outputFilename
-        }
+        message: `Accumulation distribution generated for ${allDates.length} dates`,
+        data: createdFilesSummary
       };
-      
     } catch (error) {
       console.error('Error generating accumulation distribution data:', error);
       return {

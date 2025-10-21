@@ -60,13 +60,10 @@ export default function MarketRotationRRG() {
   console.log('🔍 Frontend: Current selectedItems:', selectedItems);
   const [searchQuery, setSearchQuery] = useState('');
   const [indexSearchQuery, setIndexSearchQuery] = useState('');
-  const [screenerSearchQuery, setScreenerSearchQuery] = useState('');
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const [showIndexSearchDropdown, setShowIndexSearchDropdown] = useState(false);
-  const [showScreenerSearchDropdown, setShowScreenerSearchDropdown] = useState(false);
   const [searchDropdownIndex, setSearchDropdownIndex] = useState(-1);
   const [indexSearchDropdownIndex, setIndexSearchDropdownIndex] = useState(-1);
-  const [screenerSearchDropdownIndex, setScreenerSearchDropdownIndex] = useState(-1);
   
   // Calculate default start date (10 days ago)
   const getDefaultStartDate = () => {
@@ -84,14 +81,26 @@ export default function MarketRotationRRG() {
   const [sectorOptions, setSectorOptions] = useState<{name: string, color: string}[]>([]);
   const [stockOptions, setStockOptions] = useState<{name: string, color: string}[]>([]);
   const [screenerStocks, setScreenerStocks] = useState<any[]>([]);
+  const [screenerSectors, setScreenerSectors] = useState<any[]>([]);
+  const [loadedStockData, setLoadedStockData] = useState<any[]>([]);
+  const [loadedSectorData, setLoadedSectorData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true); // Start with loading state
   const [error, setError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isLoadingScanner, setIsLoadingScanner] = useState(false);
   const [generationProgress, setGenerationProgress] = useState<any>(null);
+  
+  // Separate search states for stock and sector scanners
+  const [stockScreenerSearchQuery, setStockScreenerSearchQuery] = useState('');
+  const [sectorScreenerSearchQuery, setSectorScreenerSearchQuery] = useState('');
+  const [showStockScreenerSearchDropdown, setShowStockScreenerSearchDropdown] = useState(false);
+  const [showSectorScreenerSearchDropdown, setShowSectorScreenerSearchDropdown] = useState(false);
+  const [stockScreenerSearchDropdownIndex, setStockScreenerSearchDropdownIndex] = useState(-1);
+  const [sectorScreenerSearchDropdownIndex, setSectorScreenerSearchDropdownIndex] = useState(-1);
   const searchRef = useRef<HTMLDivElement>(null);
   const indexSearchRef = useRef<HTMLDivElement>(null);
-  const screenerSearchRef = useRef<HTMLDivElement>(null);
+  const stockScreenerSearchRef = useRef<HTMLDivElement>(null);
+  const sectorScreenerSearchRef = useRef<HTMLDivElement>(null);
   const startDateRef = useRef<HTMLInputElement>(null);
   const endDateRef = useRef<HTMLInputElement>(null);
   const isInitialMount = useRef(true);
@@ -195,27 +204,96 @@ export default function MarketRotationRRG() {
           sectorData: sectorResponse.data
         });
         
-        // Auto-populate screener with stock scanner data
-        if (stockResponse.data && stockResponse.data.length > 0) {
-          console.log('📊 Processing stock scanner data:', stockResponse.data[0]);
-          const formattedStocks = stockResponse.data.map((item: any) => ({
-            symbol: item.Symbol || item.symbol || item.name || 'Unknown',
-            sector: item.Sector || item.sector || 'Unknown',
-            rsRatio: parseFloat(item['RS-Ratio'] || item.rs_ratio || item.rsRatio || 0),
-            rsMomentum: parseFloat(item['RS-Momentum'] || item.rs_momentum || item.rsMomentum || 0),
-            performance: parseFloat(item.Performance || item.performance || 0),
-            trend: item.Trend || item.trend || 'Neutral'
-          }));
+        // Process and store stock scanner data
+        const stockArray = Array.isArray(stockResponse.data?.data)
+          ? stockResponse.data.data
+          : [];
+        if (stockArray.length > 0) {
+          console.log('📊 Processing stock scanner data first row:', stockArray[0]);
+          console.log('📊 Available columns in stock data:', Object.keys(stockArray[0] || {}));
+          console.log('📊 Raw stock data sample:', stockArray.slice(0, 3));
+          
+          const formattedStocks = stockArray.map((item: any, index: number) => {
+            // Try different ways to get the sector name
+            const sectorName = item.Sector || item.sector || item['Sector'] || item['sector'] || 
+                              item.SectorName || item.sector_name || item['Sector Name'] || 
+                              item['sector_name'] || item['SECTOR'] || 'Unknown';
+            
+            if (index < 3) {
+              console.log(`📊 Stock Item ${index}:`, {
+                raw: item,
+                sectorName: sectorName,
+                allKeys: Object.keys(item)
+              });
+            }
+            
+            return {
+              symbol: item.Symbol || item.symbol || item.name || 'Unknown',
+              sector: sectorName,
+              rsRatio: parseFloat(item['RS-Ratio'] ?? item['RS-Ratio'] ?? item.rs_ratio ?? item.rsRatio ?? 0),
+              rsMomentum: parseFloat(item['RS-Momentum'] ?? item['RS-Momentum'] ?? item.rs_momentum ?? item.rsMomentum ?? 0),
+              performance: parseFloat(item.Performance ?? item['Performance'] ?? item.performance ?? 0),
+              trend: item.Trend || item['Trend'] || item.trend || 'Neutral'
+            };
+          });
           console.log('📊 Formatted stocks:', formattedStocks);
+          setLoadedStockData(formattedStocks);
           setScreenerStocks(formattedStocks);
         } else {
           console.log('⚠️ No stock scanner data available');
+          setLoadedStockData([]);
+          setScreenerStocks([]);
+        }
+
+        // Process and store sector scanner data
+        const sectorArray = Array.isArray(sectorResponse.data?.data)
+          ? sectorResponse.data.data
+          : [];
+        if (sectorArray.length > 0) {
+          console.log('📊 Processing sector scanner data first row:', sectorArray[0]);
+          console.log('📊 Available columns in sector data:', Object.keys(sectorArray[0] || {}));
+          console.log('📊 Raw sector data sample:', sectorArray.slice(0, 3));
+          
+          const formattedSectors = sectorArray.map((item: any, index: number) => {
+            // Try different ways to get the sector name
+            const sectorName = item.Sector || item.sector || item['Sector'] || item['sector'] || 
+                              item.SectorName || item.sector_name || item['Sector Name'] || 
+                              item['sector_name'] || item['SECTOR'] || 'Unknown';
+            
+            if (index < 3) {
+              console.log(`📊 Item ${index}:`, {
+                raw: item,
+                sectorName: sectorName,
+                allKeys: Object.keys(item)
+              });
+            }
+            
+            return {
+              symbol: item.Symbol || item.symbol || item.name || 'Unknown',
+              sector: sectorName,
+              rsRatio: parseFloat(item['RS-Ratio'] ?? item['RS-Ratio'] ?? item.rs_ratio ?? item.rsRatio ?? 0),
+              rsMomentum: parseFloat(item['RS-Momentum'] ?? item['RS-Momentum'] ?? item.rs_momentum ?? item.rsMomentum ?? 0),
+              performance: parseFloat(item.Performance ?? item['Performance'] ?? item.performance ?? 0),
+              trend: item.Trend || item['Trend'] || item.trend || 'Neutral'
+            };
+          });
+          console.log('📊 Formatted sectors:', formattedSectors);
+          setLoadedSectorData(formattedSectors);
+          setScreenerSectors(formattedSectors);
+        } else {
+          console.log('⚠️ No sector scanner data available');
+          setLoadedSectorData([]);
+          setScreenerSectors([]);
         }
       } else {
         console.error('❌ Failed to load scanner data:', stockResponse.error || sectorResponse.error);
+        setScreenerStocks([]);
+        setScreenerSectors([]);
       }
     } catch (err) {
       console.error('Error loading scanner data:', err);
+      setScreenerStocks([]);
+      setScreenerSectors([]);
     } finally {
       setIsLoadingScanner(false);
     }
@@ -235,8 +313,11 @@ export default function MarketRotationRRG() {
       if (indexSearchRef.current && !indexSearchRef.current.contains(event.target as Node)) {
         setShowIndexSearchDropdown(false);
       }
-      if (screenerSearchRef.current && !screenerSearchRef.current.contains(event.target as Node)) {
-        setShowScreenerSearchDropdown(false);
+      if (stockScreenerSearchRef.current && !stockScreenerSearchRef.current.contains(event.target as Node)) {
+        setShowStockScreenerSearchDropdown(false);
+      }
+      if (sectorScreenerSearchRef.current && !sectorScreenerSearchRef.current.contains(event.target as Node)) {
+        setShowSectorScreenerSearchDropdown(false);
       }
     };
 
@@ -244,6 +325,25 @@ export default function MarketRotationRRG() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Handle stock screener search dropdown
+  useEffect(() => {
+    if (stockScreenerSearchQuery) {
+      setShowStockScreenerSearchDropdown(true);
+      setStockScreenerSearchDropdownIndex(-1);
+    } else {
+      setShowStockScreenerSearchDropdown(false);
+    }
+  }, [stockScreenerSearchQuery]);
+
+  // Handle sector screener search dropdown
+  useEffect(() => {
+    if (sectorScreenerSearchQuery) {
+      setShowSectorScreenerSearchDropdown(true);
+      setSectorScreenerSearchDropdownIndex(-1);
+    } else {
+      setShowSectorScreenerSearchDropdown(false);
+    }
+  }, [sectorScreenerSearchQuery]);
 
   useEffect(() => {
     if (isInitialMount.current) {
@@ -478,12 +578,19 @@ export default function MarketRotationRRG() {
 
 
 
-  const getFilteredScreenerOptions = useMemo(() => {
+  const getFilteredStockScreenerOptions = useMemo(() => {
     return stockOptions.filter(option => 
-      option.name.toLowerCase().includes(screenerSearchQuery.toLowerCase()) &&
+      option.name.toLowerCase().includes(stockScreenerSearchQuery.toLowerCase()) &&
       !screenerStocks.some(stock => stock.symbol === option.name)
     );
-  }, [screenerSearchQuery, screenerStocks, stockOptions]);
+  }, [stockScreenerSearchQuery, screenerStocks, stockOptions]);
+
+  const getFilteredSectorScreenerOptions = useMemo(() => {
+    return sectorOptions.filter(option => 
+      option.name.toLowerCase().includes(sectorScreenerSearchQuery.toLowerCase()) &&
+      !screenerSectors.some(sector => sector.symbol === option.name)
+    );
+  }, [sectorScreenerSearchQuery, screenerSectors, sectorOptions]);
 
   // Keyboard navigation handlers
   const handleSearchKeyDown = (e: React.KeyboardEvent) => {
@@ -517,9 +624,9 @@ export default function MarketRotationRRG() {
               return;
             }
             setSelectedItems(prev => [...prev, selectedOption.name]);
-          }
-          setSearchQuery('');
-          setShowSearchDropdown(false);
+    }
+    setSearchQuery('');
+    setShowSearchDropdown(false);
           setSearchDropdownIndex(-1);
         }
         break;
@@ -574,31 +681,60 @@ export default function MarketRotationRRG() {
     }
   };
 
-  const handleScreenerSearchKeyDown = (e: React.KeyboardEvent) => {
-    const availableOptions = getFilteredScreenerOptions;
+  const handleStockScreenerSearchKeyDown = (e: React.KeyboardEvent) => {
+    const availableOptions = getFilteredStockScreenerOptions;
     
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
-        setScreenerSearchDropdownIndex(prev => 
+        setStockScreenerSearchDropdownIndex(prev => 
           prev < availableOptions.length - 1 ? prev + 1 : 0
         );
         break;
       case 'ArrowUp':
         e.preventDefault();
-        setScreenerSearchDropdownIndex(prev => 
+        setStockScreenerSearchDropdownIndex(prev => 
           prev > 0 ? prev - 1 : availableOptions.length - 1
         );
         break;
       case 'Enter':
         e.preventDefault();
-        if (screenerSearchDropdownIndex >= 0 && availableOptions[screenerSearchDropdownIndex]) {
-          addToScreener(availableOptions[screenerSearchDropdownIndex].name);
+        if (stockScreenerSearchDropdownIndex >= 0 && availableOptions[stockScreenerSearchDropdownIndex]) {
+          addToScreener(availableOptions[stockScreenerSearchDropdownIndex].name);
         }
         break;
       case 'Escape':
-        setShowScreenerSearchDropdown(false);
-        setScreenerSearchDropdownIndex(-1);
+        setShowStockScreenerSearchDropdown(false);
+        setStockScreenerSearchDropdownIndex(-1);
+        break;
+    }
+  };
+
+  const handleSectorScreenerSearchKeyDown = (e: React.KeyboardEvent) => {
+    const availableOptions = getFilteredSectorScreenerOptions;
+    
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setSectorScreenerSearchDropdownIndex(prev => 
+          prev < availableOptions.length - 1 ? prev + 1 : 0
+        );
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setSectorScreenerSearchDropdownIndex(prev => 
+          prev > 0 ? prev - 1 : availableOptions.length - 1
+        );
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (sectorScreenerSearchDropdownIndex >= 0 && availableOptions[sectorScreenerSearchDropdownIndex]) {
+          addToSectorScreener(availableOptions[sectorScreenerSearchDropdownIndex].name);
+        }
+        break;
+      case 'Escape':
+        setShowSectorScreenerSearchDropdown(false);
+        setSectorScreenerSearchDropdownIndex(-1);
         break;
     }
   };
@@ -652,24 +788,58 @@ export default function MarketRotationRRG() {
   const addToScreener = useCallback((stockName: string) => {
     const stockOption = stockOptions.find(opt => opt.name === stockName);
     if (stockOption && !screenerStocks.some(stock => stock.symbol === stockName)) {
+      // Get the actual stock data from the loaded scanner data
+      const actualStockData = loadedStockData.find(stock => stock.symbol === stockName);
       const newStock = {
         symbol: stockName,
-        sector: 'Unknown',
-        rsRatio: Math.random() * 20 + 90,
-        rsMomentum: Math.random() * 20 + 90,
-        performance: (Math.random() - 0.5) * 10,
+        sector: actualStockData?.sector || 'Unknown', // Use actual sector name from CSV data
+        rsRatio: actualStockData?.rsRatio || Math.random() * 20 + 90,
+        rsMomentum: actualStockData?.rsMomentum || Math.random() * 20 + 90,
+        performance: actualStockData?.performance || (Math.random() - 0.5) * 10,
         volume: ['HIGH', 'MEDIUM', 'LOW'][Math.floor(Math.random() * 3)] || 'MEDIUM',
-        trend: ['STRONG', 'IMPROVING', 'WEAKENING', 'WEAK'][Math.floor(Math.random() * 4)] || 'IMPROVING'
+        trend: actualStockData?.trend || ['STRONG', 'IMPROVING', 'WEAKENING', 'WEAK'][Math.floor(Math.random() * 4)] || 'IMPROVING'
       };
       setScreenerStocks(prev => [...prev, newStock]);
     }
-    setScreenerSearchQuery('');
-    setShowScreenerSearchDropdown(false);
-    setScreenerSearchDropdownIndex(-1);
-  }, [screenerStocks, stockOptions]);
+    setStockScreenerSearchQuery('');
+    setShowStockScreenerSearchDropdown(false);
+    setStockScreenerSearchDropdownIndex(-1);
+  }, [screenerStocks, stockOptions, loadedStockData]);
+
+  const addToSectorScreener = useCallback((sectorName: string) => {
+    const sectorOption = sectorOptions.find(opt => opt.name === sectorName);
+    if (sectorOption && !screenerSectors.some(sector => sector.symbol === sectorName)) {
+      // Get the actual sector data from the loaded SECTOR scanner data (not stock data)
+      const actualSectorData = loadedSectorData.find(sector => sector.symbol === sectorName);
+      console.log('🔍 Adding sector to screener:', {
+        sectorName,
+        actualSectorData,
+        loadedSectorData: loadedSectorData.slice(0, 3)
+      });
+      
+      const newSector = {
+        symbol: sectorName,
+        sector: actualSectorData?.sector || sectorName, // Use actual sector name from CSV data
+        rsRatio: actualSectorData?.rsRatio || Math.random() * 20 + 90,
+        rsMomentum: actualSectorData?.rsMomentum || Math.random() * 20 + 90,
+        performance: actualSectorData?.performance || (Math.random() - 0.5) * 10,
+        volume: ['HIGH', 'MEDIUM', 'LOW'][Math.floor(Math.random() * 3)] || 'MEDIUM',
+        trend: actualSectorData?.trend || ['STRONG', 'IMPROVING', 'WEAKENING', 'WEAK'][Math.floor(Math.random() * 4)] || 'IMPROVING'
+      };
+      console.log('🔍 New sector created:', newSector);
+      setScreenerSectors(prev => [...prev, newSector]);
+    }
+    setSectorScreenerSearchQuery('');
+    setShowSectorScreenerSearchDropdown(false);
+    setSectorScreenerSearchDropdownIndex(-1);
+  }, [screenerSectors, sectorOptions, loadedSectorData]);
 
   const removeFromScreener = useCallback((symbol: string) => {
     setScreenerStocks(prev => prev.filter(stock => stock.symbol !== symbol));
+  }, []);
+
+  const removeFromSectorScreener = useCallback((symbol: string) => {
+    setScreenerSectors(prev => prev.filter(sector => sector.symbol !== symbol));
   }, []);
 
   const getBadgeVariant = useCallback((trend: string) => {
@@ -722,27 +892,27 @@ export default function MarketRotationRRG() {
                 <label className="text-sm font-medium">View Mode</label>
                 <div className="flex rounded-lg border border-input">
                   <button
-                    onClick={() => handleViewModeChange('sector')}
+            onClick={() => handleViewModeChange('sector')}
                     className={`flex-1 px-3 py-2 text-sm font-medium transition-colors rounded-l-lg ${
                       viewMode === 'sector'
                         ? 'bg-primary text-primary-foreground'
                         : 'bg-background text-foreground hover:bg-accent'
                     }`}
-                  >
-                    Sector
+          >
+            Sector
                   </button>
                   <button
-                    onClick={() => handleViewModeChange('stock')}
+            onClick={() => handleViewModeChange('stock')}
                     className={`flex-1 px-3 py-2 text-sm font-medium transition-colors rounded-r-lg ${
                       viewMode === 'stock'
                         ? 'bg-primary text-primary-foreground'
                         : 'bg-background text-foreground hover:bg-accent'
                     }`}
-                  >
-                    Stock
+          >
+            Stock
                   </button>
-                </div>
-              </div>
+        </div>
+      </div>
 
               {/* Start Date */}
               <div className="flex flex-col gap-2">
@@ -978,7 +1148,7 @@ export default function MarketRotationRRG() {
                   <div className="flex items-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin" />
                     <span className="text-sm text-muted-foreground">Loading chart data...</span>
-                  </div>
+                </div>
                 </div>
               )}
             </CardContent>
@@ -1301,22 +1471,22 @@ export default function MarketRotationRRG() {
                           </div>
                         )}
                         </>
+                        )}
+                      </div>
                     )}
+                  </div>
                 </div>
-              )}
-                </div>
-              </div>
             </CardContent>
           </Card>
         </div>
       </div>
 
-      {/* Dashboard Momentum Screener */}
+      {/* Relative Momentum Screener (Stock) */}
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
-              <CardTitle>Relative Momentum Screener</CardTitle>
+              <CardTitle>Relative Momentum Screener (Stock)</CardTitle>
               <Button
                 variant="outline"
                 size="sm"
@@ -1331,49 +1501,322 @@ export default function MarketRotationRRG() {
                 )}
               </Button>
             </div>
-            <div className="relative" ref={screenerSearchRef}>
+            <div className="relative" ref={stockScreenerSearchRef}>
+              <h4 className="text-sm font-medium mb-2">
+                Available Stocks: {isLoadingScanner ? (
+                  <div className="inline-flex items-center gap-2">
+                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary"></div>
+                    <span>Loading...</span>
+                  </div>
+                ) : (
+                  stockOptions.length
+                )}
+              </h4>
               <div className="relative">
                 <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <input
                   type="text"
-                  placeholder="Add stock to screener..."
-                  value={screenerSearchQuery}
+                  placeholder="Search and add stock to screener"
+                  value={stockScreenerSearchQuery}
                   onChange={(e) => {
-                    setScreenerSearchQuery(e.target.value);
-                    setShowScreenerSearchDropdown(true);
-                    setScreenerSearchDropdownIndex(-1);
+                    setStockScreenerSearchQuery(e.target.value);
+                    setShowStockScreenerSearchDropdown(true);
+                    setStockScreenerSearchDropdownIndex(-1);
                   }}
-                  onFocus={() => setShowScreenerSearchDropdown(true)}
-                  onKeyDown={handleScreenerSearchKeyDown}
+                  onFocus={() => setShowStockScreenerSearchDropdown(true)}
+                  onKeyDown={handleStockScreenerSearchKeyDown}
                   className="w-full pl-8 pr-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors sm:w-56"
                 />
               </div>
               
-              {/* Screener Search Dropdown */}
-              {showScreenerSearchDropdown && screenerSearchQuery && (
-                <div className="absolute top-full right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto min-w-48">
-                  {getFilteredScreenerOptions.map((option: any, index) => (
+              {/* Stock Screener Search Dropdown */}
+              {showStockScreenerSearchDropdown && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-50 max-h-60 overflow-y-auto">
+                  {stockOptions.length === 0 ? (
+                    <div className="p-3 text-sm text-muted-foreground">Loading stocks...</div>
+                  ) : (
+                    <>
+                      {/* Show filtered results when searching */}
+                      {stockScreenerSearchQuery ? (
+                        <>
+                          {getFilteredStockScreenerOptions
+                            .filter(option => !screenerStocks.some(stock => stock.symbol === option.name))
+                            .slice(0, 15)
+                            .map((option: any, index) => (
                     <button
                       key={option.name}
-                      onClick={() => addToScreener(option.name)}
-                      className={`flex items-center justify-between w-full p-2 text-left hover:bg-accent transition-colors ${
-                        index === screenerSearchDropdownIndex ? 'bg-accent' : ''
-                      }`}
+                                onClick={() => addToScreener(option.name)}
+                                className={`flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors ${
+                                  index === stockScreenerSearchDropdownIndex ? 'bg-accent' : ''
+                                }`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: option.color }}></div>
+                      <span className="text-sm">{option.name}</span>
+                                </div>
+                                <Plus className="w-3 h-3 text-muted-foreground" />
+                    </button>
+                  ))}
+                          {getFilteredStockScreenerOptions.filter(option => !screenerStocks.some(stock => stock.symbol === option.name)).length === 0 && (
+                            <div className="p-2 text-sm text-muted-foreground">
+                              {screenerStocks.some(stock => stock.symbol.toLowerCase().includes(stockScreenerSearchQuery.toLowerCase())) 
+                                ? `"${stockScreenerSearchQuery}" is already in the screener`
+                                : `No stocks found matching "${stockScreenerSearchQuery}"`
+                              }
+                    </div>
+                  )}
+                        </>
+                      ) : (
+                        // Show all available options when not searching
+                        <>
+                          {stockOptions
+                            .filter(option => !screenerStocks.some(stock => stock.symbol === option.name))
+                            .slice(0, 15)
+                            .map((option: any, index) => (
+                              <button
+                                key={option.name}
+                                onClick={() => addToScreener(option.name)}
+                                className={`flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors ${
+                                  index === stockScreenerSearchDropdownIndex ? 'bg-accent' : ''
+                                }`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: option.color }}></div>
+                                  <span className="text-sm">{option.name}</span>
+                </div>
+                                <Plus className="w-3 h-3 text-muted-foreground" />
+                              </button>
+                            ))}
+                          
+                          {/* Show "more available" message */}
+                          {!stockScreenerSearchQuery && stockOptions.length > 15 && (
+                            <div className="text-xs text-muted-foreground px-3 py-2 border-t border-border">
+                              +{stockOptions.length - 15} more stocks available (use search to find specific stocks)
+              </div>
+                          )}
+                        </>
+                      )}
+                    </>
+                  )}
+        </div>
+              )}
+      </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {isLoadingScanner ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                <Loader2 className="w-4 h-4 animate-spin mx-auto mb-2" />
+                Loading scanner data...
+              </div>
+            ) : screenerStocks.length === 0 ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                No stock screener data. Search and add stocks above.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-semibold text-foreground">Stocks ({screenerStocks.length})</h4>
+                </div> */}
+                
+                {/* Desktop/Table view */}
+                <div className="hidden md:grid grid-cols-7 gap-2 text-xs font-medium text-muted-foreground border-b pb-2">
+                  <div>Symbol</div>
+                  <div>Sector</div>
+                  <div>RS-Ratio</div>
+                  <div>RS-Momentum</div>
+                  <div>Performance</div>
+                  <div>Trend</div>
+                  <div className="text-center">Action</div>
+                </div>
+                <div className="hidden md:block max-h-80 overflow-y-auto pr-1">
+                  <div className="space-y-2">
+                    {screenerStocks.slice(0, 15).map((item, index) => (
+                      <div key={index} className="grid grid-cols-7 gap-2 items-center border-b border-border/50 py-2 text-xs">
+                        <div className="font-medium text-card-foreground">{item.symbol}</div>
+                        <div className="text-muted-foreground">{item.sector}</div>
+                        <div className="text-card-foreground">{item.rsRatio.toFixed(1)}</div>
+                        <div className="text-card-foreground">{item.rsMomentum.toFixed(1)}</div>
+                        <div className={item.performance >= 0 ? 'text-green-600' : 'text-red-600'}>
+                          {item.performance >= 0 ? '+' : ''}{item.performance.toFixed(1)}%
+                        </div>
+                        <div>
+                          <Badge variant={getBadgeVariant(item.trend)} className="text-xs">
+                            {item.trend}
+                          </Badge>
+                        </div>
+                        <div className="flex justify-center">
+                          <button
+                            onClick={() => removeFromScreener(item.symbol)}
+                            className="flex h-6 w-6 items-center justify-center rounded-md p-0 transition-colors hover:bg-muted/50 hover:shadow-sm opacity-60 hover:opacity-100"
+                            title={`Remove ${item.symbol} from screener`}
+                          >
+                            <X className="w-3 h-3 text-muted-foreground hover:text-destructive" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Mobile stacked view */}
+                <div className="grid gap-3 md:hidden">
+                  {screenerStocks.slice(0, 15).map((item, index) => (
+                    <div key={index} className="rounded-lg border border-border bg-card p-4 shadow-sm">
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-semibold text-card-foreground">{item.symbol}</div>
+                        <Badge variant={getBadgeVariant(item.trend)} className="text-[10px] uppercase tracking-wide">
+                          {item.trend}
+                        </Badge>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-muted-foreground">
+                        <span>Sektor</span>
+                        <span className="text-right text-card-foreground">{item.sector}</span>
+                        <span>RS-Ratio</span>
+                        <span className="text-right text-card-foreground">{item.rsRatio.toFixed(1)}</span>
+                        <span>RS-Momentum</span>
+                        <span className="text-right text-card-foreground">{item.rsMomentum.toFixed(1)}</span>
+                        <span>Performance</span>
+                        <span className={`text-right ${item.performance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {item.performance >= 0 ? '+' : ''}{item.performance.toFixed(1)}%
+                        </span>
+                      </div>
+                      <div className="mt-3 flex justify-end">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-xs text-muted-foreground hover:text-destructive"
+                          onClick={() => removeFromScreener(item.symbol)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Relative Momentum Screener (Sector) */}
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <CardTitle>Relative Momentum Screener (Sector)</CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={loadScannerData}
+                disabled={isLoadingScanner}
+                className="h-8"
+              >
+                {isLoadingScanner ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <RotateCcw className="w-3 h-3" />
+                )}
+              </Button>
+            </div>
+            <div className="relative" ref={sectorScreenerSearchRef}>
+              <h4 className="text-sm font-medium mb-2">
+                Available Sectors: {isLoadingScanner ? (
+                  <div className="inline-flex items-center gap-2">
+                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary"></div>
+                    <span>Loading...</span>
+                  </div>
+                ) : (
+                  sectorOptions.length
+                )}
+              </h4>
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Search and add sector to screener"
+                  value={sectorScreenerSearchQuery}
+                  onChange={(e) => {
+                    setSectorScreenerSearchQuery(e.target.value);
+                    setShowSectorScreenerSearchDropdown(true);
+                    setSectorScreenerSearchDropdownIndex(-1);
+                  }}
+                  onFocus={() => setShowSectorScreenerSearchDropdown(true)}
+                  onKeyDown={handleSectorScreenerSearchKeyDown}
+                  className="w-full pl-8 pr-3 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors sm:w-56"
+                />
+              </div>
+              
+              {/* Sector Screener Search Dropdown */}
+              {showSectorScreenerSearchDropdown && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-50 max-h-60 overflow-y-auto">
+                  {sectorOptions.length === 0 ? (
+                    <div className="p-3 text-sm text-muted-foreground">Loading sectors...</div>
+                  ) : (
+                    <>
+                      {/* Show filtered results when searching */}
+                      {sectorScreenerSearchQuery ? (
+                        <>
+                          {getFilteredSectorScreenerOptions
+                            .filter(option => !screenerSectors.some(sector => sector.symbol === option.name))
+                            .slice(0, 15)
+                            .map((option: any, index) => (
+                    <button
+                      key={option.name}
+                                onClick={() => addToSectorScreener(option.name)}
+                                className={`flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors ${
+                                  index === sectorScreenerSearchDropdownIndex ? 'bg-accent' : ''
+                                }`}
                     >
                       <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: option.color }}></div>
+                                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: option.color }}></div>
                         <span className="text-sm">{option.name}</span>
                       </div>
                       <Plus className="w-3 h-3 text-muted-foreground" />
                     </button>
                   ))}
-                  {getFilteredScreenerOptions.length === 0 && (
+                          {getFilteredSectorScreenerOptions.filter(option => !screenerSectors.some(sector => sector.symbol === option.name)).length === 0 && (
                     <div className="p-2 text-sm text-muted-foreground">
-                      {stockOptions.filter(s => !screenerStocks.some(stock => stock.symbol === s.name)).length === 0 
-                        ? 'All stocks already in screener' 
-                        : 'No stocks found'
+                              {screenerSectors.some(sector => sector.symbol.toLowerCase().includes(sectorScreenerSearchQuery.toLowerCase())) 
+                                ? `"${sectorScreenerSearchQuery}" is already in the screener`
+                                : `No sectors found matching "${sectorScreenerSearchQuery}"`
                       }
                     </div>
+                  )}
+                        </>
+                      ) : (
+                        // Show all available options when not searching
+                        <>
+                          {sectorOptions
+                            .filter(option => !screenerSectors.some(sector => sector.symbol === option.name))
+                            .slice(0, 15)
+                            .map((option: any, index) => (
+                              <button
+                                key={option.name}
+                                onClick={() => addToSectorScreener(option.name)}
+                                className={`flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors ${
+                                  index === sectorScreenerSearchDropdownIndex ? 'bg-accent' : ''
+                                }`}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: option.color }}></div>
+                                  <span className="text-sm">{option.name}</span>
+                                </div>
+                                <Plus className="w-3 h-3 text-muted-foreground" />
+                              </button>
+                            ))}
+                          
+                          {/* Show "more available" message */}
+                          {!sectorScreenerSearchQuery && sectorOptions.length > 15 && (
+                            <div className="text-xs text-muted-foreground px-3 py-2 border-t border-border">
+                              +{sectorOptions.length - 15} more sectors available (use search to find specific sectors)
+                </div>
+                          )}
+                        </>
+                      )}
+                    </>
                   )}
                 </div>
               )}
@@ -1387,28 +1830,30 @@ export default function MarketRotationRRG() {
                 <Loader2 className="w-4 h-4 animate-spin mx-auto mb-2" />
                 Loading scanner data...
               </div>
-            ) : screenerStocks.length === 0 ? (
+            ) : screenerSectors.length === 0 ? (
               <div className="py-8 text-center text-sm text-muted-foreground">
-                No stocks in screener. Search and add stocks above.
+                No sector screener data. Search and add sectors above.
               </div>
             ) : (
-              <>
+              <div className="space-y-4">
+                {/* <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-semibold text-foreground">Sectors </h4>
+                </div> */}
+                
                 {/* Desktop/Table view */}
-                <div className="hidden md:grid grid-cols-7 gap-2 text-xs font-medium text-muted-foreground border-b pb-2">
-              <div>Symbol</div>
-              <div>Sector</div>
+                <div className="hidden md:grid grid-cols-6 gap-2 text-xs font-medium text-muted-foreground border-b pb-2">
+                  <div>Sector Name</div>
               <div>RS-Ratio</div>
               <div>RS-Momentum</div>
               <div>Performance</div>
               <div>Trend</div>
-              <div>Action</div>
+                  <div className="text-center">Action</div>
             </div>
                 <div className="hidden md:block max-h-80 overflow-y-auto pr-1">
                   <div className="space-y-2">
-              {screenerStocks.map((item, index) => (
-                      <div key={index} className="grid grid-cols-7 gap-2 items-center border-b border-border/50 py-2 text-xs">
+                    {screenerSectors.slice(0, 15).map((item, index) => (
+                      <div key={index} className="grid grid-cols-6 gap-2 items-center border-b border-border/50 py-2 text-xs">
                   <div className="font-medium text-card-foreground">{item.symbol}</div>
-                  <div className="text-muted-foreground">{item.sector}</div>
                         <div className="text-card-foreground">{item.rsRatio.toFixed(1)}</div>
                         <div className="text-card-foreground">{item.rsMomentum.toFixed(1)}</div>
                   <div className={item.performance >= 0 ? 'text-green-600' : 'text-red-600'}>
@@ -1419,9 +1864,9 @@ export default function MarketRotationRRG() {
                       {item.trend}
                     </Badge>
                   </div>
-                        <div className="flex justify-end">
+                        <div className="flex justify-center">
                     <button
-                      onClick={() => removeFromScreener(item.symbol)}
+                            onClick={() => removeFromSectorScreener(item.symbol)}
                             className="flex h-6 w-6 items-center justify-center rounded-md p-0 transition-colors hover:bg-muted/50 hover:shadow-sm opacity-60 hover:opacity-100"
                       title={`Remove ${item.symbol} from screener`}
                     >
@@ -1435,7 +1880,7 @@ export default function MarketRotationRRG() {
 
                 {/* Mobile stacked view */}
                 <div className="grid gap-3 md:hidden">
-                  {screenerStocks.map((item, index) => (
+                  {screenerSectors.slice(0, 15).map((item, index) => (
                     <div key={index} className="rounded-lg border border-border bg-card p-4 shadow-sm">
                       <div className="flex items-center justify-between">
                         <div className="text-sm font-semibold text-card-foreground">{item.symbol}</div>
@@ -1460,7 +1905,7 @@ export default function MarketRotationRRG() {
                           variant="ghost"
                           size="sm"
                           className="text-xs text-muted-foreground hover:text-destructive"
-                          onClick={() => removeFromScreener(item.symbol)}
+                          onClick={() => removeFromSectorScreener(item.symbol)}
                         >
                           Remove
                         </Button>
@@ -1468,7 +1913,7 @@ export default function MarketRotationRRG() {
                     </div>
                   ))}
                 </div>
-              </>
+              </div>
             )}
           </div>
         </CardContent>
