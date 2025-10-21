@@ -6,6 +6,7 @@ import Logo from "./dashboard/Logo";
 const NAV_LINKS = [
   { label: "Home", to: "/" },
   { label: "Features", to: "/features" },
+  { label: "Pricing", to: "/pricing" },
   { label: "Contact Us", to: "/contact" },
 ];
 
