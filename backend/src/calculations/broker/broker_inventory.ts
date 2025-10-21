@@ -32,86 +32,67 @@ export class BrokerInventoryCalculator {
   /**
    * Auto-detect date range from available broker_transaction folders in Azure
    */
-  private async getDateRangeFromAzure(): Promise<{ startDate: string; endDate: string } | null> {
+  private async listAllBrokerTransactionDates(): Promise<string[]> {
     try {
-      const brokerTransactionPrefix = 'broker_transaction/';
-      const blobs = await listPaths({ prefix: brokerTransactionPrefix });
-      const brokerTransactionFolders = new Set<string>();
+      // Check if broker_transaction_output folder exists
+      console.log("🔍 Checking all blobs in Azure...");
+      const allBlobs = await listPaths({ prefix: '' });
+      console.log(`📁 Total blobs in Azure: ${allBlobs.length}`);
+      console.log(`📋 Sample blobs:`, allBlobs.slice(0, 20));
       
+      const brokerTransactionPrefix = 'broker_transaction_output/';
+      const blobs = await listPaths({ prefix: brokerTransactionPrefix });
+      
+      if (blobs.length === 0) {
+        console.log(`No files found in broker_transaction_output/`);
+        return [];
+      }
+      
+      // Extract dates from broker transaction folders
+      console.log(`📁 Found ${blobs.length} blobs in broker_transaction_output/`);
+      console.log(`📋 Sample blobs:`, blobs.slice(0, 10));
+      
+      const dates = new Set<string>();
       for (const blobName of blobs) {
+        console.log(`🔍 Processing broker blob: ${blobName}`);
         const pathParts = blobName.split('/');
-        if (pathParts.length >= 2 && pathParts[0] === 'broker_transaction') {
+        console.log(`📂 Path parts:`, pathParts);
+        
+        // Look for folders like: broker_transaction_output/broker_transaction_YYYYMMDD/
+        if (pathParts.length >= 2 && pathParts[0] === 'broker_transaction_output') {
           const folderName = pathParts[1];
+          console.log(`📁 Folder name: ${folderName}`);
+          
           if (folderName && folderName.startsWith('broker_transaction_')) {
-            brokerTransactionFolders.add(folderName);
+            const date = folderName.replace('broker_transaction_', '');
+            console.log(`📅 Extracted date: ${date}`);
+            if (/^\d{6}$/.test(date) || /^\d{8}$/.test(date)) {
+              dates.add(date);
+              console.log(`✅ Added broker date: ${date}`);
+            }
           }
         }
       }
       
-      if (brokerTransactionFolders.size === 0) {
-        console.log("No broker_transaction folders found in Azure! Please ensure broker_transaction folders exist.");
-        return null;
-      }
-      
-      // Extract dates from folder names
-      const dates = Array.from(brokerTransactionFolders)
-        .map(folder => folder.replace('broker_transaction_', ''))
-        .filter(date => /^\d{6}$/.test(date))
-        .sort();
-      
-      if (dates.length === 0) {
-        console.log("No valid date folders found in broker_transaction folders.");
-        return null;
-      }
-      
-      const startDate = dates[0];
-      const endDate = dates[dates.length - 1];
-      
-      if (!startDate || !endDate) {
-        console.log("No valid date folders found in broker_transaction folders.");
-        return null;
-      }
-      
-      console.log(`Auto-detected date range: ${startDate} to ${endDate}`);
-      console.log(`Found ${dates.length} broker_transaction folders: ${dates.join(', ')}`);
-      
-      return { startDate, endDate };
+      const dateList = Array.from(dates).sort();
+      console.log(`Discovered ${dateList.length} broker_transaction dates: ${dateList.join(', ')}`);
+      return dateList;
     } catch (error) {
-      console.error('Error auto-detecting date range from Azure:', error);
-      return null;
+      console.error('Error listing broker transaction dates from Azure:', error);
+      return [];
     }
   }
 
   /**
    * Generate date range between start and end dates
    */
-  private generateDateRange(startDate: string, endDate: string): string[] {
-    const dates: string[] = [];
-    
-    // Convert dates to comparable format (assuming YYMMDD format)
-    const start = parseInt(startDate || '0');
-    const end = parseInt(endDate || '0');
-    
-    if (start > end) {
-      console.error(`Start date (${startDate}) cannot be later than end date (${endDate})`);
-      return [];
-    }
-    
-    // Generate dates between start and end (inclusive)
-    for (let date = start; date <= end; date++) {
-      const dateStr = date.toString().padStart(6, '0');
-      dates.push(dateStr);
-    }
-    
-    console.log(`Generated ${dates.length} dates: ${dates.join(', ')}`);
-    return dates;
-  }
+  // Removed unused: generateDateRange (iteration now scans available dates directly)
 
   /**
    * Load broker transaction data for a specific broker and date from Azure
    */
   private async loadBrokerTransactionDataFromAzure(brokerCode: string, date: string): Promise<BrokerTransactionData[]> {
-    const blobName = `broker_transaction/broker_transaction_${date}/${brokerCode}.csv`;
+    const blobName = `broker_transaction_output/broker_transaction_${date}/${brokerCode}.csv`;
     
     try {
       const csvContent = await downloadText(blobName);
@@ -295,48 +276,36 @@ export class BrokerInventoryCalculator {
    * Main function to generate broker inventory data
    */
   public async generateBrokerInventoryData(dateSuffix: string): Promise<void> {
-    console.log("Starting broker inventory analysis...");
+    console.log("Starting broker inventory analysis for ALL available dates...");
     
     try {
-      // Auto-detect date range from Azure broker_transaction folders
-      const dateRange = await this.getDateRangeFromAzure();
-      if (!dateRange) {
-        throw new Error("Could not detect date range from Azure broker_transaction folders");
-      }
-      
-      const { startDate, endDate } = dateRange;
-      
-      // Generate date range
-      const dates = this.generateDateRange(startDate, endDate);
+      // Discover all dates
+      const dates = await this.listAllBrokerTransactionDates();
       if (dates.length === 0) {
-        throw new Error("Could not generate date range");
+        console.log("⚠️ No broker_transaction dates found in Azure - skipping broker inventory");
+        return;
       }
       
       // Load broker transaction data for all dates
       console.log("\nLoading broker transaction data for all dates...");
       const allBrokerData = new Map<string, Map<string, BrokerTransactionData[]>>();
       
-      // First, get all available brokers from the first date
-      const firstDate = dates[0];
-      const firstDateBlobName = `broker_transaction/broker_transaction_${firstDate}/`;
-      
-      const blobs = await listPaths({ prefix: firstDateBlobName });
-      const firstDateBrokers: string[] = [];
-      
-      for (const blobName of blobs) {
-        const fileName = blobName.split('/').pop();
-        if (fileName && fileName.endsWith('.csv')) {
-          firstDateBrokers.push(fileName.replace('.csv', ''));
-        }
-      }
-      
-      console.log(`Found ${firstDateBrokers.length} brokers: ${firstDateBrokers.slice(0, 10)}...`);
-      
+      // For each date, list brokers available for that date
       for (const date of dates) {
         console.log(`Loading data for date: ${date}`);
         const brokerMap = new Map<string, BrokerTransactionData[]>();
         
-        for (const brokerCode of firstDateBrokers) {
+        const datePrefix = `broker_transaction_output/broker_transaction_${date}/`;
+        const blobs = await listPaths({ prefix: datePrefix });
+        const brokersForDate: string[] = [];
+        for (const blobName of blobs) {
+          const fileName = blobName.split('/').pop();
+          if (fileName && fileName.endsWith('.csv')) {
+            brokersForDate.push(fileName.replace('.csv', ''));
+          }
+        }
+        
+        for (const brokerCode of brokersForDate) {
           const brokerData = await this.loadBrokerTransactionDataFromAzure(brokerCode, date);
           if (brokerData.length > 0) {
             brokerMap.set(brokerCode, brokerData);
@@ -346,14 +315,10 @@ export class BrokerInventoryCalculator {
         allBrokerData.set(date, brokerMap);
       }
       
-      // Create broker inventory files
+      // Create broker inventory files (per broker-emiten combination), using provided dateSuffix for output naming
       const createdFiles = await this.createBrokerInventoryFiles(allBrokerData, dates, dateSuffix);
       
       console.log("\nBroker inventory analysis completed successfully!");
-      
-      // Print summary statistics
-      console.log(`\nSummary Statistics:`);
-      console.log(`Date range: ${startDate} to ${endDate} (${dates.length} days)`);
       console.log(`Total broker inventory files created: ${createdFiles.length}`);
       
     } catch (error) {

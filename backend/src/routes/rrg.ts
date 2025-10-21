@@ -14,8 +14,8 @@ import {
   calculateRrgSector as calculateRrgSectorFromSector,
   listAvailableSectors as listAvailableSectorsFromSector
 } from '../calculations/rrg/rrg_sector';
-import { getGenerationStatus } from '../services/rrgAutoGenerate';
-import { preGenerateAllRRG } from '../services/rrgAutoGenerate';
+import { getGenerationStatus } from '../services/rrgDataScheduler';
+import { preGenerateAllRRG } from '../services/rrgDataScheduler';
 
 const router = Router();
 

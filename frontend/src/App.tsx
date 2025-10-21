@@ -16,7 +16,7 @@ import { PublicRoute } from "./components/dashboard/PublicRoute";
 import { Sidebar } from "./components/dashboard/Sidebar";
 import { ThemeToggle } from "./components/dashboard/ThemeToggle";
 import { Avatar, AvatarFallback, AvatarImage } from "./components/ui/avatar";
-import { User, Home, ChevronRight, ChevronDown, TrendingUp, Activity, ArrowRightLeft, BookOpen, Star, BarChart3, CreditCard, Shield } from "lucide-react";
+import { User, Home, ChevronRight, TrendingUp, Activity, ArrowRightLeft, BookOpen, Star, BarChart3, CreditCard, Shield } from "lucide-react";
  
 // Import all dashboard components
 import MarketRotationRRG from "./components/market-rotation/MarketRotationRRG";
@@ -35,13 +35,13 @@ import { StoryOwnership } from "./components/story/StoryOwnership";
 import { StoryForeignFlow } from "./components/story/StoryForeignFlow";
 import { AstrologyLunarCalendar } from "./components/astrology/AstrologyLunarCalendar";
 import BaZiCycleAnalyzer from "./components/astrology/BaZiCycleAnalysis";
-import { TechnicalAnalysis } from "./components/technical-analysis/TechnicalAnalysis";
 import { TechnicalAnalysisTradingView } from "./components/technical-analysis/TechnicalAnalysisTradingView";
 import { ProfilePage } from "./components/profile/ProfilePage";
 import { SubscriptionPage } from "./components/subscription/SubscriptionPage";
 import { AdminPage } from "./components/admin/AdminPage";
 import { Dashboard } from "./components/dashboard/Dashboard";
 import { LandingPage } from "./components/dashboard/LandingPage";
+import { PricingPage } from "./components/dashboard/PricingPage";
 import { SubscriptionSuccess } from "./components/subscription/SubscriptionSuccess";
 import { SubscriptionError } from "./components/subscription/SubscriptionError";
 import { SubscriptionPending } from "./components/subscription/SubscriptionPending";
@@ -364,6 +364,29 @@ export default function App() {
               } 
             />
             <Route path="/features" element={<FeaturesPage />} />
+            <Route 
+              path="/pricing" 
+              element={
+                <PricingPage 
+                  onSignIn={() => {
+                    const navigate = (window as any).navigate;
+                    if (navigate) {
+                      navigate('/auth?mode=login');
+                    } else {
+                      window.location.href = '/auth?mode=login';
+                    }
+                  }}
+                  onRegister={() => {
+                    const navigate = (window as any).navigate;
+                    if (navigate) {
+                      navigate('/auth?mode=register');
+                    } else {
+                      window.location.href = '/auth?mode=register';
+                    }
+                  }}
+                />
+              } 
+            />
             <Route path="/contact" element={<ContactPage />} />
             <Route path="/terms" element={<TermsPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />

@@ -25,6 +25,9 @@ ENV PORT=8080
 RUN apk add --no-cache tzdata
 ENV TZ=Asia/Jakarta
 
+# Memory optimization
+ENV NODE_OPTIONS="--max-old-space-size=8192 --expose-gc"
+
 # user non-root
 RUN addgroup -S nodejs && adduser -S nodejs -G nodejs -u 1001
 

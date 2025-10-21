@@ -9,7 +9,7 @@ import {
   listAvailableIndexes,
   listAvailableStocks
 } from '../calculations/rrc/rrc_sector';
-import { getGenerationStatus, preGenerateAllRRC } from '../services/rrcAutoGenerate';
+import { getGenerationStatus, preGenerateAllRRC } from '../services/rrcDataScheduler';
 
 const router = Router();
 

@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import TrendFilterAutoGenerateService from '../services/trendFilterAutoGenerate';
+import TrendFilterDataScheduler from '../services/trendFilterDataScheduler';
 
 const router = Router();
-const trendFilterService = new TrendFilterAutoGenerateService();
+const trendFilterService = new TrendFilterDataScheduler();
 
 // Get trend filter status
 router.get('/status', async (_req, res) => {
