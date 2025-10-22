@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { LoginForm } from './LoginForm';
 import { SignUpForm } from './SignUpForm';
@@ -9,8 +9,6 @@ import { AuthLayout } from './AuthLayout';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../services/api';
 import { toast } from 'sonner';
-import { getAuthError } from '../../utils/errorHandler';
-import { setAuthState } from '../../utils/auth';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 
@@ -82,13 +80,13 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
     navigate('/dashboard'); // Redirect to dashboard
   };
 
-  const handleLogin = (email: string, password: string) => {
+  const handleLogin = () => {
     // Login is now handled directly in LoginForm
     // This function is kept for compatibility but does nothing
     handleAuthSuccess();
   };
 
-  const handleSignUp = async (name: string, email: string, password: string) => {
+  const handleSignUp = async () => {
     // Signup is now handled directly in SignupForm
     // This function is kept for compatibility but does nothing
   };

@@ -1,290 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
-import { Search } from 'lucide-react';
+import { Search, X } from 'lucide-react';
+import { api } from '../../services/api';
+import { toast } from 'sonner';
 
-// Function to parse CSV data and create ownership data
-const parseOwnershipData = () => {
-  // Raw CSV data from BBCA.csv (latest data - 2025-08-31)
-  const csvData = [
-    { name: 'PT Dwimuria Investama Andalan', percentage: 54.942, shares: 67729950000, category: 'Controlling Shareholder' },
-    { name: 'Masyarakat Non Warkat', percentage: 42.463, shares: 52346743930, category: 'Public/Retail' },
-    { name: 'Pihak Afiliasi Pengendali', percentage: 2.455, shares: 3026977500, category: 'Affiliate' },
-    { name: 'Jahja Setiaatmadja', percentage: 0.03, shares: 34805144, category: 'Board Member' },
-    { name: 'Saham Treasury', percentage: 0.023, shares: 28317500, category: 'Treasury' },
-    { name: 'Robert Budi Hartono', percentage: 0.023, shares: 28135000, category: 'Major Shareholder' },
-    { name: 'Bambang Hartono', percentage: 0.022, shares: 27025000, category: 'Major Shareholder' },
-    { name: 'Masyarakat Warkat', percentage: 0.009, shares: 11248880, category: 'Public/Retail' },
-    { name: 'Tan Ho Hien/Subur', percentage: 0.009, shares: 11169044, category: 'Board Member' },
-    { name: 'Tonny Kusnadi', percentage: 0.006, shares: 7502058, category: 'Board Member' },
-    { name: 'Others', percentage: 0.017, shares: 21000000, category: 'Others' }
-  ];
-
-  // Separate major and minor shareholders
-  const majorShareholders = csvData.filter(item => item.percentage >= 2);
-  const minorShareholders = csvData.filter(item => item.percentage < 2);
-  
-  // Calculate total for others
-  const othersTotal = minorShareholders.reduce((sum, item) => ({
-    percentage: sum.percentage + item.percentage,
-    shares: sum.shares + item.shares
-  }), { percentage: 0, shares: 0 });
-
-  // Combine data
-  const combinedData = [
-    ...majorShareholders,
-    { name: 'Others', percentage: othersTotal.percentage, shares: othersTotal.shares, category: 'Others' }
-  ];
-
-  const colors = ['#3b82f6', '#06b6d4', '#8b5cf6', '#10b981'];
-
-  return combinedData.map((item, index) => ({
-    ...item,
-    color: colors[index % colors.length]
-  }));
-};
-
-// Get ownership data
-const ownershipData = parseOwnershipData();
-
-// Historical data from BBCA.csv - grouped by month
-const historicalOwnershipData = [
-  { period: 'Aug 2025', controlling: 54.942, public: 42.463, affiliate: 2.455, others: 0.14 },
-  { period: 'Jul 2025', controlling: 54.942, public: 42.463, affiliate: 2.455, others: 0.14 },
-  { period: 'Jun 2025', controlling: 54.942, public: 42.463, affiliate: 2.455, others: 0.14 },
-  { period: 'May 2025', controlling: 54.942, public: 42.376, affiliate: 2.455, others: 0.227 },
-  { period: 'Apr 2025', controlling: 54.942, public: 42.399, affiliate: 2.455, others: 0.204 },
-  { period: 'Mar 2025', controlling: 54.942, public: 42.399, affiliate: 2.455, others: 0.204 },
-  { period: 'Feb 2025', controlling: 54.942, public: 42.404, affiliate: 2.455, others: 0.199 },
-  { period: 'Jan 2025', controlling: 54.942, public: 42.404, affiliate: 2.455, others: 0.199 },
-  { period: 'Dec 2024', controlling: 54.942, public: 42.404, affiliate: 2.455, others: 0.199 },
-  { period: 'Nov 2024', controlling: 54.942, public: 42.404, affiliate: 2.455, others: 0.199 },
-  { period: 'Oct 2024', controlling: 54.942, public: 42.404, affiliate: 2.455, others: 0.199 },
-  { period: 'Sep 2024', controlling: 54.942, public: 42.405, affiliate: 2.455, others: 0.198 }
-];
-
-// Colors untuk historical chart
+// Colors for charts
 const stackColors = {
   controlling: '#3b82f6',
   public: '#06b6d4', 
   affiliate: '#8b5cf6',
   others: '#10b981'
 };
-
-// Complete detailed ownership data from BBCA.csv (all shareholders)
-const detailedOwnership = [
-  {
-    rank: 1,
-    holder: 'PT Dwimuria Investama Andalan',
-    type: 'Lebih dari 5%',
-    shares: 67729950000,
-    percentage: 54.942,
-    value: 315045367500,
-    change: '0.0%',
-    lastUpdate: '2025-08-31'
-  },
-  {
-    rank: 2,
-    holder: 'Masyarakat Non Warkat',
-    type: 'Masyarakat Non Warkat',
-    shares: 52346743930,
-    percentage: 42.463,
-    value: 243412359975,
-    change: '0.0%',
-    lastUpdate: '2025-08-31'
-  },
-  {
-    rank: 3,
-    holder: 'Pihak Afiliasi Pengendali',
-    type: 'Lebih dari 5%',
-    shares: 3026977500,
-    percentage: 2.455,
-    value: 14075455375,
-    change: '0.0%',
-    lastUpdate: '2025-08-31'
-  },
-  {
-    rank: 4,
-    holder: 'Jahja Setiaatmadja',
-    type: 'Komisaris',
-    shares: 34805144,
-    percentage: 0.03,
-    value: 161843920,
-    change: '0.0%',
-    lastUpdate: '2025-08-31'
-  },
-  {
-    rank: 5,
-    holder: 'Saham Treasury',
-    type: 'Saham Treasury',
-    shares: 28317500,
-    percentage: 0.023,
-    value: 131676375,
-    change: '0.0%',
-    lastUpdate: '2025-08-31'
-  },
-  {
-    rank: 6,
-    holder: 'Robert Budi Hartono',
-    type: 'Lebih dari 5%',
-    shares: 28135000,
-    percentage: 0.023,
-    value: 130827750,
-    change: '0.0%',
-    lastUpdate: '2025-08-31'
-  },
-  {
-    rank: 7,
-    holder: 'Bambang Hartono',
-    type: 'Lebih dari 5%',
-    shares: 27025000,
-    percentage: 0.022,
-    value: 125666250,
-    change: '0.0%',
-    lastUpdate: '2025-08-31'
-  },
-  {
-    rank: 8,
-    holder: 'Masyarakat Warkat',
-    type: 'Masyarakat Warkat',
-    shares: 11248880,
-    percentage: 0.009,
-    value: 52307292,
-    change: '0.0%',
-    lastUpdate: '2025-08-31'
-  },
-  {
-    rank: 9,
-    holder: 'Tan Ho Hien/Subur disebut juga Subur Tan',
-    type: 'Direksi',
-    shares: 11169044,
-    percentage: 0.009,
-    value: 51936055,
-    change: '0.0%',
-    lastUpdate: '2025-08-31'
-  },
-  {
-    rank: 10,
-    holder: 'Tonny Kusnadi',
-    type: 'Komisaris',
-    shares: 7502058,
-    percentage: 0.006,
-    value: 34884570,
-    change: '0.0%',
-    lastUpdate: '2025-08-31'
-  },
-  {
-    rank: 11,
-    holder: 'Armand Wahyudi Hartono',
-    type: 'Direksi',
-    shares: 4256065,
-    percentage: 0.003,
-    value: 19791022,
-    change: '0.0%',
-    lastUpdate: '2025-08-31'
-  },
-  {
-    rank: 12,
-    holder: 'Rudy Susanto',
-    type: 'Direksi',
-    shares: 3431711,
-    percentage: 0.003,
-    value: 15957456,
-    change: '0.0%',
-    lastUpdate: '2025-08-31'
-  },
-  {
-    rank: 13,
-    holder: 'Santoso',
-    type: 'Direksi',
-    shares: 3169028,
-    percentage: 0.003,
-    value: 14735980,
-    change: '0.0%',
-    lastUpdate: '2025-08-31'
-  },
-  {
-    rank: 14,
-    holder: 'Lianawaty Suwono',
-    type: 'Direksi',
-    shares: 2840417,
-    percentage: 0.002,
-    value: 13207939,
-    change: '0.0%',
-    lastUpdate: '2025-08-31'
-  },
-  {
-    rank: 15,
-    holder: 'Vera Eve Lim',
-    type: 'Direksi',
-    shares: 2731601,
-    percentage: 0.002,
-    value: 12701945,
-    change: '0.0%',
-    lastUpdate: '2025-08-31'
-  },
-  {
-    rank: 16,
-    holder: 'Frengky Chandra Kusuma',
-    type: 'Direksi',
-    shares: 2429926,
-    percentage: 0.002,
-    value: 11299156,
-    change: '0.0%',
-    lastUpdate: '2025-08-31'
-  },
-  {
-    rank: 17,
-    holder: 'Gregory Hendra Lembong',
-    type: 'Direksi',
-    shares: 1531282,
-    percentage: 0.001,
-    value: 7120461,
-    change: '0.0%',
-    lastUpdate: '2025-08-31'
-  },
-  {
-    rank: 18,
-    holder: 'John Kosasih',
-    type: 'Direksi',
-    shares: 1094492,
-    percentage: 0.001,
-    value: 5089388,
-    change: '0.0%',
-    lastUpdate: '2025-08-31'
-  },
-  {
-    rank: 19,
-    holder: 'Haryanto Tiara Budiman',
-    type: 'Direksi',
-    shares: 1057378,
-    percentage: 0.001,
-    value: 4916808,
-    change: '0.0%',
-    lastUpdate: '2025-08-31'
-  },
-  {
-    rank: 20,
-    holder: 'Antonius Widodo Mulyono',
-    type: 'Direksi',
-    shares: 440838,
-    percentage: 0.0,
-    value: 2049897,
-    change: '0.0%',
-    lastUpdate: '2025-08-31'
-  },
-  {
-    rank: 21,
-    holder: 'Hendra Tanumihardja',
-    type: 'Direksi',
-    shares: 193206,
-    percentage: 0.0,
-    value: 898408,
-    change: '0.0%',
-    lastUpdate: '2025-08-31'
-  }
-];
 
 export function StoryOwnership() {
   const [selectedStock, setSelectedStock] = useState('BBCA');
@@ -293,17 +21,100 @@ export function StoryOwnership() {
   const [stockInput, setStockInput] = useState('BBCA');
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
+  const [loading, setLoading] = useState(false);
+  const [availableStocks, setAvailableStocks] = useState<string[]>([]);
+  const [shareholdersData, setShareholdersData] = useState<any>(null);
+  
+  // Cache for API responses (5 minutes)
+  const cacheRef = useRef<Map<string, { data: any; timestamp: number }>>(new Map());
+  const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
-  const stocks = ['BBCA', 'BBRI', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM', 'ICBP', 'INDF', 'KLBF', 'ADRO', 'ANTM', 'ITMG', 'PTBA', 'SMGR', 'INTP', 'WIKA', 'WSKT', 'PGAS'];
+  // Constants for search display
+  const MAX_DISPLAYED = 10;
+  
+  // Fallback stock list in case API fails
+  const FALLBACK_STOCKS = ['BBCA', 'BBRI', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM', 'ICBP', 'INDF', 'KLBF', 'ADRO', 'ANTM', 'ITMG', 'PTBA', 'SMGR', 'INTP', 'WIKA', 'WSKT', 'PGAS'];
   const views = [
     { key: 'summary', label: 'Summary' },
     { key: 'detailed', label: 'Detailed' }
   ];
 
-  // Filter stocks based on input
-  const filteredStocks = stocks.filter(stock => 
+  // Fetch shareholders data from API
+  const fetchShareholdersData = async (stockCode: string) => {
+    // Check cache first
+    const cached = cacheRef.current.get(stockCode);
+    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+      console.log(`📊 Using cached shareholders data for ${stockCode}`);
+      setShareholdersData(cached.data);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      console.log(`📊 Fetching shareholders data for ${stockCode}...`);
+      // Don't pass limit to get ALL shareholders
+      const response = await api.getShareholdersData(stockCode);
+      
+      if (response.success && response.data) {
+        console.log(`✅ Shareholders data loaded for ${stockCode}`, response.data);
+        setShareholdersData(response.data);
+        
+        // Cache the data
+        cacheRef.current.set(stockCode, {
+          data: response.data,
+          timestamp: Date.now()
+        });
+      } else {
+        console.error(`❌ Failed to load shareholders data:`, response.error);
+        toast.error(response.error || 'Failed to load shareholders data');
+        setShareholdersData(null);
+      }
+    } catch (error: any) {
+      console.error(`❌ Error fetching shareholders data:`, error);
+      toast.error(error.message || 'Failed to load shareholders data');
+      setShareholdersData(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load available stocks from shareholders directory on mount
+  useEffect(() => {
+    const loadStocks = async () => {
+      try {
+        console.log('📊 Loading shareholders stock list...');
+        const response = await api.getShareholdersStockList();
+        console.log('📊 Shareholders stock list response:', response);
+        if (response.success && response.data?.stocks) {
+          console.log('📊 Setting available stocks from shareholders:', response.data.stocks);
+          setAvailableStocks(Array.isArray(response.data.stocks) ? response.data.stocks : []);
+        } else {
+          console.log('📊 No shareholders stock data available, using fallback');
+          setAvailableStocks(FALLBACK_STOCKS);
+        }
+      } catch (error) {
+        console.error('Failed to load shareholders stock list:', error);
+        setAvailableStocks(FALLBACK_STOCKS);
+      }
+    };
+    loadStocks();
+  }, []);
+
+  // Fetch data when selected stock changes
+  useEffect(() => {
+    if (selectedStock) {
+      fetchShareholdersData(selectedStock);
+    }
+  }, [selectedStock]);
+
+  // Use available stocks from API or fallback to default
+  const stockList = (availableStocks || []).length > 0 ? availableStocks : FALLBACK_STOCKS;
+  const filteredStocks = stockList.filter(stock => 
     stock.toLowerCase().includes(stockInput.toLowerCase())
   );
+  const hasMore = filteredStocks.length > MAX_DISPLAYED;
+  const displayedStocks = filteredStocks.slice(0, MAX_DISPLAYED);
+  const moreCount = filteredStocks.length - MAX_DISPLAYED;
 
   const handleStockSelect = (stock: string) => {
     setStockInput(stock);
@@ -315,7 +126,7 @@ export function StoryOwnership() {
     setStockInput(value.toUpperCase());
     setShowStockSuggestions(true);
     // Auto-select if exact match
-    if (stocks.includes(value.toUpperCase())) {
+    if (stockList.includes(value.toUpperCase())) {
       setSelectedStock(value.toUpperCase());
     }
   };
@@ -333,9 +144,121 @@ export function StoryOwnership() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Process real shareholders data for pie chart
+  const getOwnershipData = () => {
+    if (!shareholdersData?.data?.shareholders || shareholdersData.data.shareholders.length === 0) {
+      return [];
+    }
+
+    const colors = ['#3b82f6', '#06b6d4', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#14b8a6'];
+    const shareholders = shareholdersData.data.shareholders;
+    
+    // Get major shareholders (>= 2%)
+    const majorShareholders = shareholders
+      .filter((s: any) => s.PemegangSaham_Persentase >= 2)
+      .map((s: any, idx: number) => ({
+        name: s.PemegangSaham_Nama,
+        percentage: s.PemegangSaham_Persentase,
+        shares: s.PemegangSaham_JmlSaham,
+        category: s.PemegangSaham_Kategori,
+        color: colors[idx % colors.length]
+      }));
+
+    // Get minor shareholders (< 2%) and combine as "Others"
+    const minorShareholders = shareholders.filter((s: any) => s.PemegangSaham_Persentase < 2);
+    const othersTotal = minorShareholders.reduce((sum: number, s: any) => sum + s.PemegangSaham_Persentase, 0);
+    const othersShares = minorShareholders.reduce((sum: number, s: any) => sum + s.PemegangSaham_JmlSaham, 0);
+
+    if (othersTotal > 0) {
+      majorShareholders.push({
+        name: 'Others',
+        percentage: parseFloat(othersTotal.toFixed(3)),
+        shares: othersShares,
+        category: 'Others',
+        color: colors[majorShareholders.length % colors.length]
+      });
+    }
+
+    return majorShareholders;
+  };
+
+  // Get detailed shareholders list - ALL shareholders
+  const getDetailedOwnership = () => {
+    if (!shareholdersData?.data?.shareholders || shareholdersData.data.shareholders.length === 0) {
+      return [];
+    }
+
+    return shareholdersData.data.shareholders.map((s: any, idx: number) => ({
+      rank: idx + 1,
+      holder: s.PemegangSaham_Nama,
+      type: s.PemegangSaham_Kategori,
+      shares: s.PemegangSaham_JmlSaham,
+      percentage: s.PemegangSaham_Persentase,
+      value: 0, // Not available in current data
+      change: '0.0%', // Not available in current data
+      lastUpdate: s.DataDate
+    }));
+  };
+
   // Get historical data based on selected range
   const getHistoricalData = () => {
-    return historicalOwnershipData.slice(0, dataRange);
+    if (!shareholdersData?.data?.historical || shareholdersData.data.historical.length === 0) {
+      return [];
+    }
+
+    const historical = shareholdersData.data.historical;
+    
+    // Format dates to show month/year
+    const formattedHistorical = historical.map((h: any) => {
+      const date = new Date(h.period);
+      const month = date.toLocaleDateString('en-US', { month: 'short' });
+      const year = date.getFullYear();
+      return {
+        period: `${month} ${year}`,
+        controlling: h.controlling,
+        public: h.public,
+        affiliate: h.affiliate,
+        others: h.others
+      };
+    });
+
+    // Return last N months based on dataRange
+    return formattedHistorical.slice(-dataRange);
+  };
+
+  // Get summary metrics
+  const getSummaryMetrics = () => {
+    if (!shareholdersData?.data?.summary || !shareholdersData?.data?.shareholders) {
+      return {
+        totalShareholders: 0,
+        controllingPercentage: 0,
+        publicPercentage: 0,
+        controllingName: 'No data',
+        publicName: 'No data'
+      };
+    }
+
+    const summary = shareholdersData.data.summary;
+    const shareholders = shareholdersData.data.shareholders;
+    
+    // Find controlling shareholder name
+    const controllingHolder = shareholders.find((s: any) => 
+      s.PemegangSaham_Kategori?.toLowerCase().includes('pengendali') ||
+      s.PemegangSaham_Kategori?.toLowerCase().includes('lebih dari 5')
+    );
+    
+    // Find public holder name
+    const publicHolder = shareholders.find((s: any) => 
+      s.PemegangSaham_Kategori?.toLowerCase().includes('masyarakat')
+    );
+
+    return {
+      totalShareholders: summary.totalShareholders || 0,
+      controllingPercentage: summary.controllingPercentage || 0,
+      publicPercentage: summary.publicPercentage || 0,
+      controllingName: controllingHolder?.PemegangSaham_Nama || 'Controlling Shareholder',
+      publicName: publicHolder?.PemegangSaham_Nama || 'Public'
+    };
   };
 
   const formatNumber = (num: number): string => {
@@ -347,9 +270,6 @@ export function StoryOwnership() {
     return num.toLocaleString();
   };
 
-  const formatCurrency = (num: number): string => {
-    return `$${formatNumber(num)}`;
-  };
 
   return (
     <div className="space-y-6">
@@ -358,10 +278,15 @@ export function StoryOwnership() {
         <CardContent className="p-4">
           <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-end justify-between">
             <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-end w-full">
-              <div>
-                <label className="block text-sm font-medium mb-2">Stock:</label>
+              <div className="flex-1">
+                <label className="block text-sm font-medium mb-2">
+                  Stock Search:
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    Available stocks: {stockList.length}
+                  </span>
+                </label>
                 <div className="relative stock-dropdown-container">
-                  <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground z-10" />
                   <input
                     type="text"
                     value={stockInput}
@@ -369,15 +294,15 @@ export function StoryOwnership() {
                     onFocus={() => setShowStockSuggestions(true)}
                     onKeyDown={(e) => {
                       if (!showStockSuggestions) setShowStockSuggestions(true);
-                      if (e.key === 'ArrowDown' && filteredStocks.length) {
+                      if (e.key === 'ArrowDown' && displayedStocks.length) {
                         e.preventDefault();
-                        setHighlightedIndex((prev) => (prev + 1) % filteredStocks.length);
-                      } else if (e.key === 'ArrowUp' && filteredStocks.length) {
+                        setHighlightedIndex((prev) => (prev + 1) % displayedStocks.length);
+                      } else if (e.key === 'ArrowUp' && displayedStocks.length) {
                         e.preventDefault();
-                        setHighlightedIndex((prev) => (prev <= 0 ? filteredStocks.length - 1 : prev - 1));
+                        setHighlightedIndex((prev) => (prev <= 0 ? displayedStocks.length - 1 : prev - 1));
                       } else if (e.key === 'Enter') {
-                        if (highlightedIndex >= 0 && filteredStocks[highlightedIndex]) {
-                          handleStockSelect(filteredStocks[highlightedIndex]);
+                        if (highlightedIndex >= 0 && displayedStocks[highlightedIndex]) {
+                          handleStockSelect(displayedStocks[highlightedIndex]);
                           setHighlightedIndex(-1);
                         }
                       } else if (e.key === 'Escape') {
@@ -386,27 +311,45 @@ export function StoryOwnership() {
                       }
                     }}
                     placeholder="Enter stock code..."
-                    className="pl-9 pr-3 py-1 h-10 border border-border rounded-md bg-background text-foreground w-full sm:w-64"
+                    className="pl-9 pr-10 py-1 h-10 border border-border rounded-md bg-background text-foreground w-full"
                   />
+                  {stockInput && (
+                    <button
+                      onClick={() => {
+                        setStockInput('');
+                        setShowStockSuggestions(true);
+                      }}
+                      className="absolute right-2 top-1/2 transform -translate-y-1/2 w-6 h-6 flex items-center justify-center hover:bg-muted rounded-full transition-colors z-10"
+                    >
+                      <X className="w-4 h-4 text-muted-foreground" />
+                    </button>
+                  )}
                   {showStockSuggestions && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-64 overflow-y-auto">
                       {stockInput === '' && (
                         <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
                           All Stocks
                         </div>
                       )}
-                      {filteredStocks.length > 0 ? (
-                        filteredStocks.map((stock, idx) => (
-                          <div
-                            key={stock}
-                            onClick={() => handleStockSelect(stock)}
-                            onMouseEnter={() => setHighlightedIndex(idx)}
-                            onMouseLeave={() => setHighlightedIndex(-1)}
-                            className={`px-3 py-2 cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-muted' : 'hover:bg-muted'}`}
-                          >
-                            {stock}
-                          </div>
-                        ))
+                      {displayedStocks.length > 0 ? (
+                        <>
+                          {displayedStocks.map((stock, idx) => (
+                            <div
+                              key={stock}
+                              onClick={() => handleStockSelect(stock)}
+                              onMouseEnter={() => setHighlightedIndex(idx)}
+                              onMouseLeave={() => setHighlightedIndex(-1)}
+                              className={`px-3 py-2 cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-muted' : 'hover:bg-muted'}`}
+                            >
+                              {stock}
+                            </div>
+                          ))}
+                          {hasMore && (
+                            <div className="px-3 py-2 text-xs text-muted-foreground border-t border-border">
+                              +{moreCount} more stocks available
+                            </div>
+                          )}
+                        </>
                       ) : (
                         <div className="px-3 py-2 text-sm text-muted-foreground">
                           No stocks found
@@ -438,32 +381,47 @@ export function StoryOwnership() {
         </CardContent>
       </Card>
 
+      {/* Loading State */}
+      {loading && (
+        <Card>
+          <CardContent className="p-8 text-center">
+            <div className="animate-pulse">
+              <div className="text-lg font-medium text-muted-foreground">Loading shareholders data...</div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Summary View */}
-      {selectedView === 'summary' && (
+      {!loading && selectedView === 'summary' && (
         <>
           {/* Key Metrics */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card>
               <CardContent className="p-4">
-                <h3 className="font-medium mb-2">Total Shares</h3>
-                <div className="text-2xl font-bold text-primary">123.3B</div>
-                <p className="text-sm text-muted-foreground">Outstanding shares</p>
+                <h3 className="font-medium mb-2">Total Shareholders</h3>
+                <div className="text-2xl font-bold text-primary">{formatNumber(getSummaryMetrics().totalShareholders)}</div>
+                <p className="text-sm text-muted-foreground">Number of shareholders</p>
               </CardContent>
             </Card>
             
             <Card>
               <CardContent className="p-4">
                 <h3 className="font-medium mb-2">Controlling Shareholder</h3>
-                <div className="text-2xl font-bold text-blue-600">54.94%</div>
-                <p className="text-sm text-muted-foreground">PT Dwimuria Investama</p>
+                <div className="text-2xl font-bold text-blue-600">{getSummaryMetrics().controllingPercentage.toFixed(2)}%</div>
+                <p className="text-sm text-muted-foreground truncate" title={getSummaryMetrics().controllingName}>
+                  {getSummaryMetrics().controllingName}
+                </p>
               </CardContent>
             </Card>
             
             <Card>
               <CardContent className="p-4">
                 <h3 className="font-medium mb-2">Public Ownership</h3>
-                <div className="text-2xl font-bold text-green-600">42.46%</div>
-                <p className="text-sm text-muted-foreground">Masyarakat Non Warkat</p>
+                <div className="text-2xl font-bold text-green-600">{getSummaryMetrics().publicPercentage.toFixed(2)}%</div>
+                <p className="text-sm text-muted-foreground truncate" title={getSummaryMetrics().publicName}>
+                  {getSummaryMetrics().publicName}
+                </p>
               </CardContent>
             </Card>
           </div>
@@ -480,7 +438,7 @@ export function StoryOwnership() {
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
-                        data={ownershipData}
+                        data={getOwnershipData()}
                         cx="50%"
                         cy="50%"
                         innerRadius={60}
@@ -489,12 +447,12 @@ export function StoryOwnership() {
                         dataKey="percentage"
                         nameKey="name"
                       >
-                        {ownershipData.map((entry, index) => (
+                        {getOwnershipData().map((entry: any, index: number) => (
                           <Cell key={`cell-${index}`} fill={entry.color} />
                         ))}
                       </Pie>
                       <Tooltip 
-                        formatter={(value, name, props) => [
+                        formatter={(value: any, _name: any, props: any) => [
                           `${value}%`,
                           props.payload.name
                         ]}
@@ -522,7 +480,7 @@ export function StoryOwnership() {
               </CardContent>
             </Card>
 
-            {/* Summary Table */}
+            {/* Summary Table - Top Shareholders (>= 2%) */}
             <Card>
               <CardHeader>
                 <CardTitle>Top Shareholders</CardTitle>
@@ -538,7 +496,7 @@ export function StoryOwnership() {
                        </tr>
                      </thead>
                     <tbody>
-                      {ownershipData.map((owner, index) => (
+                      {getOwnershipData().map((owner: any, index: number) => (
                         <tr key={index} className="border-b border-border/50 hover:bg-muted/20">
                           <td className="p-2">
                             <div className="flex items-center gap-2">
@@ -551,7 +509,7 @@ export function StoryOwnership() {
                               </span>
                             </div>
                           </td>
-                          <td className="p-2 text-right font-medium text-foreground">{owner.percentage}%</td>
+                          <td className="p-2 text-right font-medium text-foreground">{owner.percentage.toFixed(2)}%</td>
                           <td className="p-2 text-right text-foreground">{formatNumber(owner.shares)}</td>
                         </tr>
                       ))}
@@ -630,7 +588,7 @@ export function StoryOwnership() {
       )}
 
       {/* Detailed View */}
-      {selectedView === 'detailed' && (
+      {!loading && selectedView === 'detailed' && (
         <Card>
           <CardHeader>
             <CardTitle>Detailed Ownership Analysis</CardTitle>
@@ -645,12 +603,11 @@ export function StoryOwnership() {
                      <th className="text-left p-3 text-foreground">Type</th>
                      <th className="text-right p-3 text-foreground">Shares</th>
                      <th className="text-right p-3 text-foreground">%</th>
-                     <th className="text-right p-3 text-foreground">Change</th>
                      <th className="text-right p-3 text-foreground">Last Update</th>
                    </tr>
                  </thead>
                 <tbody>
-                  {detailedOwnership.map((holder, index) => (
+                  {getDetailedOwnership().map((holder: any, index: number) => (
                     <tr key={index} className="border-b border-border/50 hover:bg-muted/20">
                       <td className="p-3 font-medium text-foreground">#{holder.rank}</td>
                       <td className="p-3 font-medium text-foreground">{holder.holder}</td>
@@ -660,12 +617,7 @@ export function StoryOwnership() {
                         </span>
                       </td>
                       <td className="p-3 text-right font-mono text-foreground">{formatNumber(holder.shares)}</td>
-                      <td className="p-3 text-right font-medium text-foreground">{holder.percentage}%</td>
-                      <td className="p-3 text-right">
-                        <span className={holder.change.startsWith('+') ? 'text-green-600' : holder.change.startsWith('-') ? 'text-red-600' : 'text-gray-600'}>
-                          {holder.change}
-                        </span>
-                      </td>
+                      <td className="p-3 text-right font-medium text-foreground">{holder.percentage.toFixed(3)}%</td>
                       <td className="p-3 text-right text-muted-foreground">{holder.lastUpdate}</td>
                     </tr>
                   ))}
