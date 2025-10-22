@@ -22,6 +22,14 @@ interface TrendData {
   Period: string;
 }
 
+interface EmitenDetail {
+  Code: string;
+  CompanyName: string;
+  ListingDate: string;
+  Shares: string;
+  ListingBoard: string;
+}
+
 interface TrendSummary {
   Period: string;
   PeriodDays: number;
@@ -78,14 +86,38 @@ export class TrendFilterCalculator {
       const headers = lines[0]?.split(',') || [];
 
       const data: StockData[] = [];
+      let skippedLines = 0;
+      let emptyLines = 0;
+      let invalidLines = 0;
 
       for (let i = 1; i < lines.length; i++) {
-        const values = lines[i]?.split(',') || [];
+        const line = lines[i]?.trim();
+        
+        // Skip empty lines or lines with only commas
+        if (!line || line === '' || /^,+\s*$/.test(line)) {
+          emptyLines++;
+          continue;
+        }
+        
+        const values = line.split(',') || [];
+        
+        // Skip if not enough columns or all values are empty
+        if (values.length < headers.length || values.every(v => !v.trim())) {
+          invalidLines++;
+          continue;
+        }
+        
         const row: any = {};
 
         headers.forEach((header, index) => {
-          row[header.trim()] = values[index]?.trim();
+          row[header.trim()] = values[index]?.trim() || '';
         });
+
+        // Skip if essential fields are missing or empty
+        if (!row.Date || !row.Close || row.Close === '' || row.Close === '0') {
+          skippedLines++;
+          continue;
+        }
 
         data.push({
           Date: row.Date,
@@ -98,6 +130,11 @@ export class TrendFilterCalculator {
           Frequency: parseInt(row.Frequency) || 0,
           ChangePercent: parseFloat(row.ChangePercent) || 0
         });
+      }
+
+      // Log data quality info for debugging
+      if (emptyLines > 0 || invalidLines > 0 || skippedLines > 0) {
+        console.log(`📊 ${ticker}: Total lines=${lines.length-1}, Valid=${data.length}, Empty=${emptyLines}, Invalid=${invalidLines}, Skipped=${skippedLines}`);
       }
 
       return data.sort((a, b) => new Date(a.Date).getTime() - new Date(b.Date).getTime());
@@ -125,11 +162,70 @@ export class TrendFilterCalculator {
           }
         }
       }
+      
+      console.log(`📊 Found ${stocks.length} stock files in Azure`);
+      console.log(`🔍 Sample stock paths:`, stocks.slice(0, 10).map(s => `stock/${s.sector}/${s.ticker}.csv`));
     } catch (error) {
       console.error(`❌ Error reading stocks from Azure: ${error}`);
     }
 
     return stocks;
+  }
+
+  private async loadEmitenDetailsFromAzure(): Promise<Map<string, EmitenDetail>> {
+    const emitenMap = new Map<string, EmitenDetail>();
+
+    try {
+      const blobName = 'csv_input/emiten_detail_list.csv';
+      const blobClient = this.blobServiceClient
+        .getContainerClient(this.containerName)
+        .getBlobClient(blobName);
+
+      if (!(await blobClient.exists())) {
+        console.warn('⚠️ Warning: emiten_detail_list.csv not found, using ticker as company name');
+        return emitenMap;
+      }
+
+      const downloadResponse = await blobClient.download();
+      const csvContent = await this.streamToString(downloadResponse.readableStreamBody!);
+      const lines = csvContent.trim().split('\n');
+      const headers = lines[0]?.split(',').map(h => h.trim()) || [];
+
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i]?.trim();
+        
+        // Skip empty lines or lines with only commas
+        if (!line || line === '' || /^,+\s*$/.test(line)) {
+          continue;
+        }
+        
+        const values = line.split(',').map(v => v.trim()) || [];
+        if (values.length >= headers.length) {
+          const row: any = {};
+          headers.forEach((header, index) => {
+            row[header] = values[index] || '';
+          });
+
+          const emitenDetail: EmitenDetail = {
+            Code: row.Code || '',
+            CompanyName: row['Company Name'] || row.CompanyName || '',
+            ListingDate: row['Listing Date'] || row.ListingDate || '',
+            Shares: row.Shares || '',
+            ListingBoard: row['Listing Board'] || row.ListingBoard || ''
+          };
+
+          if (emitenDetail.Code) {
+            emitenMap.set(emitenDetail.Code, emitenDetail);
+          }
+        }
+      }
+
+      console.log(`✅ Loaded ${emitenMap.size} emiten details from Azure`);
+    } catch (error) {
+      console.error(`❌ Error loading emiten details from Azure: ${error}`);
+    }
+
+    return emitenMap;
   }
 
   private calculateTrend(data: StockData[], periodDays: number): { trend: string; changePct: number; latestPrice: number } | null {
@@ -155,8 +251,19 @@ export class TrendFilterCalculator {
     const firstPrice = recentData[0]?.Close;
 
     // Calculate price change percentage (same as original)
-    if (!latestPrice || !firstPrice || firstPrice === 0) {
+    if (!latestPrice || !firstPrice) {
       return null;
+    }
+    
+    // Handle zero price case
+    if (firstPrice === 0) {
+      // If first price is 0, use a very small value to avoid division by zero
+      const changePct = latestPrice > 0 ? 100 : 0;
+      return {
+        trend: changePct > 0 ? 'Uptrend' : 'Sideways',
+        changePct: changePct,
+        latestPrice: parseFloat(latestPrice.toFixed(2))
+      };
     }
     
     const changePct = ((latestPrice - firstPrice) / firstPrice) * 100;
@@ -223,9 +330,14 @@ export class TrendFilterCalculator {
     };
 
     const allStocks = await this.getAllStocksFromAzure();
+    const emitenDetails = await this.loadEmitenDetailsFromAzure();
     const results: { [period: string]: TrendSummary } = {};
 
     console.log(`📊 Processing ${allStocks.length} stocks for trend analysis...`);
+    console.log(`📋 Loaded ${emitenDetails.size} emiten details for company names`);
+    
+    // Debug: Log some sample stocks
+    console.log(`🔍 Sample stocks to process:`, allStocks.slice(0, 5));
 
     for (const period of timePeriods) {
       if (!periodMapping[period]) {
@@ -234,6 +346,9 @@ export class TrendFilterCalculator {
 
       const periodDays = periodMapping[period];
       const stocksData: TrendData[] = [];
+      let noDataCount = 0;
+      let noTrendCount = 0;
+      let processedCount = 0;
 
       console.log(`⏰ Analyzing ${period} period (${periodDays} days)...`);
 
@@ -246,31 +361,47 @@ export class TrendFilterCalculator {
           const data = await this.loadStockDataFromAzure(stock.sector, stock.ticker);
           
           if (data.length === 0) {
+            noDataCount++;
+            if (noDataCount <= 5) { // Log first 5 missing data cases
+              console.log(`⚠️ No data found for ${stock.ticker} in sector ${stock.sector}`);
+            }
             return null;
           }
 
           const trendResult = this.calculateTrend(data, periodDays);
           
           if (trendResult) {
+            processedCount++;
+            // Get company name from emiten details, fallback to ticker if not found
+            const emitenDetail = emitenDetails.get(stock.ticker);
+            const companyName = emitenDetail?.CompanyName || `${stock.ticker} Company`;
+
             return {
               Symbol: stock.ticker,
-              Name: `${stock.ticker} Company`,
+              Name: companyName,
               Price: trendResult.latestPrice,
               ChangePct: trendResult.changePct,
               Sector: stock.sector,
               Trend: trendResult.trend as 'Uptrend' | 'Sideways' | 'Downtrend',
               Period: period
             };
+          } else {
+            noTrendCount++;
+            if (noTrendCount <= 5) { // Log first 5 no trend cases
+              console.log(`⚠️ No trend calculated for ${stock.ticker} (${data.length} data points, need ${periodDays})`);
+            }
+            return null;
           }
-          return null;
         });
 
         const batchResults = await Promise.all(batchPromises);
         const validResults = batchResults.filter((result): result is TrendData => result !== null);
         stocksData.push(...validResults);
 
-        console.log(`📊 Processed batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(allStocks.length / BATCH_SIZE)} for ${period}`);
+        console.log(`📊 Processed batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(allStocks.length / BATCH_SIZE)} for ${period} - Valid: ${validResults.length}/${batch.length}`);
       }
+
+      console.log(`📊 ${period} Summary: Total=${allStocks.length}, Processed=${processedCount}, NoData=${noDataCount}, NoTrend=${noTrendCount}, Final=${stocksData.length}`);
 
       // Sort by change percentage (descending)
       stocksData.sort((a, b) => b.ChangePct - a.ChangePct);
