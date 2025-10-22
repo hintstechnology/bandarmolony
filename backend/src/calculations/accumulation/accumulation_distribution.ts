@@ -679,7 +679,7 @@ export class AccumulationDistributionCalculator {
         });
 
         // Save to Azure per-date
-        const outputFilename = `accumulation_distribution/accumulation_${dateSuffix as string}.csv`;
+        const outputFilename = `accumulation_distribution/${dateSuffix as string}.csv`;
         await this.saveToAzure(outputFilename, accumulationData);
         createdFilesSummary.push({ date: dateSuffix, file: outputFilename, count: accumulationData.length });
         console.log(`Saved ${accumulationData.length} rows to ${outputFilename}`);

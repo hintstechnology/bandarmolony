@@ -507,22 +507,21 @@ async function generateRRGSectorData(sector: string, stockDir: string, indexDir:
       throw new Error(`Data sector yang ter-align terlalu sedikit (minimum 10 data points)`);
     }
     
-    // Calculate RS Ratio and RS Momentum
-    // Gunakan RS Ratio langsung untuk semua data (tanpa moving average)
+    // Calculate RS Ratio and RS Momentum using proper functions
     const rsRatio = sectorData.close.map((price, i) => {
       const indexPrice = indexData.close[i];
       if (!indexPrice || indexPrice === 0) return NaN;
       return (price / indexPrice) * 100;
     });
     
-    // Untuk RS Momentum: gunakan periode sangat pendek untuk data terbaru
+    // Calculate RS Momentum using 1-day period for all data (same as original)
     const rsMomentum: NumericArray = [];
     for (let i = 0; i < rsRatio.length; i++) {
       const currentRatio = rsRatio[i];
       const pastRatio = rsRatio[i - 1];
       
       if (i >= 1 && currentRatio !== undefined && pastRatio !== undefined && !isNaN(currentRatio) && !isNaN(pastRatio)) {
-        // Gunakan periode 1 hari untuk semua data
+        // Use 1-day period for all data (same as original)
         rsMomentum.push((currentRatio / pastRatio) * 100);
       } else {
         rsMomentum.push(NaN);

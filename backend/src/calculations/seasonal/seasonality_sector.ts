@@ -130,9 +130,16 @@ async function loadStockData(sector: string, ticker: string): Promise<StockData[
 }
 
 /**
- * Calculate sector returns using first open to last close method
+ * Calculate sector returns using daily returns method (same as original)
  */
 async function calculateSectorReturns(sector: string, tickers: string[]): Promise<MonthlyReturns> {
+  const sectorMonthlyReturns: { [month: number]: number[] } = {};
+  
+  // Initialize months
+  for (let i = 1; i <= 12; i++) {
+    sectorMonthlyReturns[i] = [];
+  }
+  
   // Load data for all stocks in the sector
   const stocksData: StockData[][] = [];
   const validTickers: string[] = [];
@@ -156,10 +163,7 @@ async function calculateSectorReturns(sector: string, tickers: string[]): Promis
     return emptyReturns;
   }
   
-  // Group sector data by (year, month) in UTC
-  const sectorMonthlyData: { [key: string]: { firstOpen: number; lastClose: number; year: number; month: number } } = {};
-  
-  // Calculate sector prices for each date (equal weight average)
+  // Calculate sector average for each time period
   const allDates = new Set<string>();
   stocksData.forEach(data => {
     data.forEach(point => allDates.add(point.Date));
@@ -167,94 +171,60 @@ async function calculateSectorReturns(sector: string, tickers: string[]): Promis
   
   const sortedDates = Array.from(allDates).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
   
-  // Calculate sector open and close prices for each date
-  const sectorPrices: { [date: string]: { open: number; close: number } } = {};
+  // Calculate sector price for each date (equal weight average)
+  const sectorPrices: { [date: string]: number } = {};
   
   sortedDates.forEach(date => {
-    const opensOnDate: number[] = [];
-    const closesOnDate: number[] = [];
+    const pricesOnDate: number[] = [];
     
     stocksData.forEach(data => {
       const dataPoint = data.find(point => point.Date === date);
-      if (dataPoint && !isNaN(dataPoint.Open) && !isNaN(dataPoint.Close) && dataPoint.Open > 0 && dataPoint.Close > 0) {
-        opensOnDate.push(dataPoint.Open);
-        closesOnDate.push(dataPoint.Close);
+      if (dataPoint && !isNaN(dataPoint.Close) && dataPoint.Close > 0) {
+        pricesOnDate.push(dataPoint.Close);
       }
     });
     
-    if (opensOnDate.length > 0 && closesOnDate.length > 0) {
-      sectorPrices[date] = {
-        open: opensOnDate.reduce((sum, price) => sum + price, 0) / opensOnDate.length,
-        close: closesOnDate.reduce((sum, price) => sum + price, 0) / closesOnDate.length
-      };
+    if (pricesOnDate.length > 0) {
+      sectorPrices[date] = pricesOnDate.reduce((sum, price) => sum + price, 0) / pricesOnDate.length;
     }
   });
   
-  // Group sector data by (year, month) in UTC
-  Object.keys(sectorPrices).forEach(date => {
-    const dateObj = new Date(date);
-    const year = dateObj.getUTCFullYear();
-    const month = dateObj.getUTCMonth() + 1; // 1-12
-    const key = `${year}-${month}`;
+  // Calculate daily returns for sector and group by month
+  const sectorDates = Object.keys(sectorPrices).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+  
+  for (let i = 1; i < sectorDates.length; i++) {
+    const currentDate = sectorDates[i];
+    const previousDate = sectorDates[i - 1];
     
-    const prices = sectorPrices[date];
-    
-    // Skip if prices is undefined
-    if (!prices) return;
-    
-    if (!sectorMonthlyData[key]) {
-      sectorMonthlyData[key] = {
-        firstOpen: prices.open,
-        lastClose: prices.close,
-        year: year,
-        month: month
-      };
-    } else {
-      // Update first open (earliest in month)
-      if (prices.open > 0 && (sectorMonthlyData[key].firstOpen <= 0 || prices.open < sectorMonthlyData[key].firstOpen)) {
-        sectorMonthlyData[key].firstOpen = prices.open;
-      }
-      // Update last close (latest in month)
-      if (prices.close > 0) {
-        sectorMonthlyData[key].lastClose = prices.close;
+    if (currentDate && previousDate) {
+      const currentPrice = sectorPrices[currentDate];
+      const previousPrice = sectorPrices[previousDate];
+      
+      if (currentPrice && previousPrice && previousPrice !== 0) {
+        const dailyReturn = (currentPrice - previousPrice) / previousPrice;
+        
+        const date = new Date(currentDate);
+        const month = date.getMonth() + 1; // getMonth() returns 0-11, we want 1-12
+        
+        if (sectorMonthlyReturns[month]) {
+          sectorMonthlyReturns[month].push(dailyReturn);
+        }
       }
     }
-  });
-  
-  // Calculate monthly returns for each (year, month)
-  const monthlyReturns: { [month: number]: number[] } = {};
-  
-  // Initialize months
-  for (let i = 1; i <= 12; i++) {
-    monthlyReturns[i] = [];
   }
   
-  Object.values(sectorMonthlyData).forEach(monthData => {
-    const { firstOpen, lastClose, month } = monthData;
-    
-    // Skip if firstOpen is invalid or 0
-    if (firstOpen > 0 && lastClose > 0) {
-      const monthlyReturn = (lastClose - firstOpen) / firstOpen;
-      const returnPct = 100 * monthlyReturn;
-      
-      if (monthlyReturns[month]) {
-        monthlyReturns[month].push(returnPct);
-      }
-    }
-  });
-  
-  // Calculate average monthly returns across years
+  // Calculate average monthly returns
   const avgMonthlyReturns: MonthlyReturns = {};
   const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   
   for (let i = 1; i <= 12; i++) {
-    const returns = monthlyReturns[i];
+    const returns = sectorMonthlyReturns[i];
     if (returns && returns.length > 0) {
       const avgReturn = returns.reduce((sum, ret) => sum + ret, 0) / returns.length;
       const monthName = monthNames[i - 1];
       if (monthName) {
-        avgMonthlyReturns[monthName] = parseFloat(avgReturn.toFixed(2));
+        avgMonthlyReturns[monthName] = parseFloat((avgReturn * 100).toFixed(2));
       }
     } else {
       const monthName = monthNames[i - 1];

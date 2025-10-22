@@ -100,17 +100,21 @@ export function RecentUsers() {
       }
 
       const result = await response.json();
+      console.log('RecentUsers: API Response:', result);
       if (result.ok) {
-        setRecentUsers(result.data?.users || []);
-        setPagination(result.data?.pagination || {
+        // Recent users endpoint returns data directly, not wrapped in users property
+        const users = result.data || [];
+        setRecentUsers(users);
+        setPagination({
           page: 1,
           limit: 5,
-          total: 0,
-          totalPages: 0
+          total: users.length,
+          totalPages: 1
         });
         setLastFetchTime(Date.now());
         setIsInitialized(true);
-        console.log('RecentUsers: Data fetched successfully, users:', result.data?.users?.length || 0);
+        console.log('RecentUsers: Data fetched successfully, users:', users.length);
+        console.log('RecentUsers: Users data:', users);
       } else {
         throw new Error(result.error || 'Failed to fetch recent users');
       }

@@ -97,6 +97,11 @@ export function UserManagement() {
     const isStale = (now - lastFetchTime) > 2 * 60 * 1000; // 2 minute cache
     
     if (isFilterChange || isStale) {
+      // Reset to page 1 when filters change
+      if (isFilterChange && currentPage !== 1) {
+        setCurrentPage(1);
+        return; // fetchUsers will be called in the next effect
+      }
       fetchUsers();
     }
   }, [currentPage, search, roleFilter, statusFilter]);
@@ -138,12 +143,14 @@ export function UserManagement() {
       }
 
       const result = await response.json();
+      console.log('UserManagement: API Response:', result);
       if (result.ok) {
         setUsers(result.data.users);
         setPagination(result.data.pagination);
         setLastFetchTime(Date.now());
         setIsInitialized(true);
         console.log('UserManagement: Data fetched successfully, users:', result.data.users.length);
+        console.log('UserManagement: Pagination:', result.data.pagination);
       } else {
         throw new Error(result.error || 'Failed to fetch users');
       }

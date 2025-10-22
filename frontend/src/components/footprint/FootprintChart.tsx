@@ -2,6 +2,8 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { CandlestickBar } from './CandlestickBar';
 import { Crosshair } from './Crosshair';
 import { Axis } from './Axis';
+import { api } from '../../services/api';
+import { Loader2 } from 'lucide-react';
 
 export interface VolumeLevel {
   price: number;
@@ -40,6 +42,61 @@ export interface CrosshairData {
   delta: number;
   visible: boolean;
 }
+
+// Convert API footprint data to CandleData format
+const convertFootprintDataToCandleData = (footprintData: Array<{price: number; bFreq: number; sFreq: number}>, ohlc?: OhlcInputCandle[]): CandleData[] => {
+  if (!ohlc || ohlc.length === 0) {
+    // If no OHLC data, create a simple candle from footprint data
+    const prices = footprintData.map(d => d.price);
+    const minPrice = Math.min(...prices);
+    const maxPrice = Math.max(...prices);
+    const avgPrice = (minPrice + maxPrice) / 2;
+    
+    return [{
+      timestamp: new Date().toISOString(),
+      open: avgPrice,
+      high: maxPrice,
+      low: minPrice,
+      close: avgPrice,
+      volumeLevels: footprintData.map(d => ({
+        price: d.price,
+        bidVolume: d.bFreq,
+        askVolume: d.sFreq,
+        totalVolume: d.bFreq + d.sFreq
+      })),
+      pocBid: footprintData.reduce((max, d) => d.bFreq > max.bFreq ? d : max, footprintData[0]).price,
+      pocAsk: footprintData.reduce((max, d) => d.sFreq > max.sFreq ? d : max, footprintData[0]).price
+    }];
+  }
+  
+  // Convert OHLC data to CandleData with footprint volume levels
+  return ohlc.map(candle => {
+    const candleFootprint = footprintData.filter(d => 
+      d.price >= candle.low && d.price <= candle.high
+    );
+    
+    const volumeLevels: VolumeLevel[] = candleFootprint.map(d => ({
+      price: d.price,
+      bidVolume: d.bFreq,
+      askVolume: d.sFreq,
+      totalVolume: d.bFreq + d.sFreq
+    }));
+    
+    const pocBid = candleFootprint.reduce((max, d) => d.bFreq > max.bFreq ? d : max, candleFootprint[0])?.price || candle.close;
+    const pocAsk = candleFootprint.reduce((max, d) => d.sFreq > max.sFreq ? d : max, candleFootprint[0])?.price || candle.close;
+    
+    return {
+      timestamp: candle.timestamp,
+      open: candle.open,
+      high: candle.high,
+      low: candle.low,
+      close: candle.close,
+      volumeLevels,
+      pocBid,
+      pocAsk
+    };
+  });
+};
 
 // Generate dummy OHLC data that mimics MOCK data used by other chart styles
 const generateDummyData = (): CandleData[] => {
@@ -188,6 +245,22 @@ interface FootprintChartProps {
   timeframe?: string;
   zoom?: number;
   ohlc?: OhlcInputCandle[]; // External OHLC input to mirror candlestick chart
+  stockCode?: string; // Stock code for API data
+  date?: string; // Date for API data
+}
+
+interface FootprintApiResponse {
+  success: boolean;
+  data?: {
+    stockCode: string;
+    date: string;
+    footprintData: Array<{
+      price: number;
+      bFreq: number;
+      sFreq: number;
+    }>;
+  };
+  error?: string;
 }
 
 export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
@@ -196,12 +269,16 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
   showDelta: propShowDelta,
   // timeframe: propTimeframe,
   zoom: propZoom,
-  ohlc
+  ohlc,
+  stockCode,
+  date
 }) => {
   const [data, setData] = useState<CandleData[]>([]);
   const [crosshair, setCrosshair] = useState<CrosshairData>({
     x: 0, y: 0, price: 0, time: '', bidVol: 0, askVol: 0, delta: 0, visible: false
   });
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
   // Chart dimensions and layout - responsive
   // Use measured container height instead of a fixed window-based constant
   // const PRICE_LEVEL_HEIGHT = 16;
@@ -211,6 +288,42 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
   const [showDelta, setShowDelta] = useState(propShowDelta ?? false);
   // const [timeframe, setTimeframe] = useState(propTimeframe ?? '15m');
   const [zoom, setZoom] = useState(propZoom ?? 1.1);
+
+  // Load footprint data from API
+  useEffect(() => {
+    const loadFootprintData = async () => {
+      if (!stockCode || !date) {
+        // Fallback to dummy data if no stockCode or date provided
+        setData(generateDummyData());
+        return;
+      }
+      
+      setIsLoading(true);
+      setError(null);
+      
+      try {
+        const response = await api.getFootprintData(stockCode, date);
+        if (response.success && response.data?.footprintData) {
+          // Convert API data to CandleData format
+          const apiData = response.data.footprintData;
+          const convertedData = convertFootprintDataToCandleData(apiData, ohlc);
+          setData(convertedData);
+        } else {
+          // Fallback to dummy data if API fails
+          setData(generateDummyData());
+        }
+      } catch (err) {
+        setError('Failed to load footprint data');
+        console.error('Error loading footprint data:', err);
+        // Fallback to dummy data
+        setData(generateDummyData());
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadFootprintData();
+  }, [stockCode, date, ohlc]);
   
   // Theme detection
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
@@ -699,6 +812,29 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [data.length, CANDLE_WIDTH, chartHeight, zoom, verticalScale]);
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-card text-card-foreground">
+        <div className="flex items-center gap-2">
+          <Loader2 className="w-6 h-6 animate-spin" />
+          <span>Loading footprint data...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-card text-card-foreground">
+        <div className="text-center text-red-600">
+          <span>{error}</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div 

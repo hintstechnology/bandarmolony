@@ -1537,6 +1537,51 @@ export const api = {
     }
   },
 
+  // Broker Summary Data
+  async getBrokerSummaryData(stockCode: string, date: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/broker/summary/${stockCode}?date=${date}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get broker summary data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get broker summary data' };
+    }
+  },
+
+  // Broker Transaction Data
+  async getBrokerTransactionData(brokerCode: string, date: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/broker/transaction/${brokerCode}?date=${date}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get broker transaction data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get broker transaction data' };
+    }
+  },
+
+  // Broker Inventory Data
+  async getBrokerInventoryData(stockCode: string, date: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/broker/inventory/${stockCode}?date=${date}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get broker inventory data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get broker inventory data' };
+    }
+  },
+
   async getMultipleStocksData(stockCodes: string[], startDate?: string, endDate?: string, limit?: number): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       const params = new URLSearchParams();

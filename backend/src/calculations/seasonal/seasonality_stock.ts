@@ -124,38 +124,9 @@ async function loadStockData(sector: string, ticker: string): Promise<StockData[
 }
 
 /**
- * Calculate monthly returns from stock data using first open to last close method
+ * Calculate monthly returns from stock data using daily returns method (same as original)
  */
 function calculateMonthlyReturns(data: StockData[]): MonthlyReturns {
-  // Group data by (year, month) in UTC
-  const monthlyData: { [key: string]: { firstOpen: number; lastClose: number; year: number; month: number } } = {};
-  
-  data.forEach(item => {
-    const date = new Date(item.Date);
-    const year = date.getUTCFullYear();
-    const month = date.getUTCMonth() + 1; // 1-12
-    const key = `${year}-${month}`;
-    
-    if (!monthlyData[key]) {
-      monthlyData[key] = {
-        firstOpen: item.Open,
-        lastClose: item.Close,
-        year: year,
-        month: month
-      };
-    } else {
-      // Update first open (earliest in month)
-      if (item.Open > 0 && (monthlyData[key].firstOpen <= 0 || item.Open < monthlyData[key].firstOpen)) {
-        monthlyData[key].firstOpen = item.Open;
-      }
-      // Update last close (latest in month)
-      if (item.Close > 0) {
-        monthlyData[key].lastClose = item.Close;
-      }
-    }
-  });
-  
-  // Calculate monthly returns for each (year, month)
   const monthlyReturns: { [month: number]: number[] } = {};
   
   // Initialize months
@@ -163,21 +134,24 @@ function calculateMonthlyReturns(data: StockData[]): MonthlyReturns {
     monthlyReturns[i] = [];
   }
   
-  Object.values(monthlyData).forEach(monthData => {
-    const { firstOpen, lastClose, month } = monthData;
+  // Calculate daily returns and group by month
+  for (let i = 1; i < data.length; i++) {
+    const currentPrice = data[i]?.Close;
+    const previousPrice = data[i - 1]?.Close;
     
-    // Skip if firstOpen is invalid or 0
-    if (firstOpen > 0 && lastClose > 0) {
-      const monthlyReturn = (lastClose - firstOpen) / firstOpen;
-      const returnPct = 100 * monthlyReturn;
+    if (currentPrice && previousPrice && previousPrice !== 0) {
+      const dailyReturn = (currentPrice - previousPrice) / previousPrice;
+      
+      const date = new Date(data[i]?.Date || '');
+      const month = date.getMonth() + 1; // getMonth() returns 0-11, we want 1-12
       
       if (monthlyReturns[month]) {
-        monthlyReturns[month].push(returnPct);
+        monthlyReturns[month].push(dailyReturn);
       }
     }
-  });
+  }
   
-  // Calculate average monthly returns across years
+  // Calculate average monthly returns
   const avgMonthlyReturns: MonthlyReturns = {};
   const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -188,7 +162,7 @@ function calculateMonthlyReturns(data: StockData[]): MonthlyReturns {
       const avgReturn = returns.reduce((sum, ret) => sum + ret, 0) / returns.length;
       const monthName = monthNames[i - 1];
       if (monthName) {
-        avgMonthlyReturns[monthName] = parseFloat(avgReturn.toFixed(2));
+        avgMonthlyReturns[monthName] = parseFloat((avgReturn * 100).toFixed(2));
       }
     } else {
       const monthName = monthNames[i - 1];

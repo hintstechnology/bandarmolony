@@ -1,9 +1,20 @@
-import { useRef, useEffect, useMemo } from 'react';
+import { useRef, useEffect, useMemo, useState } from 'react';
 import { createChart, IChartApi, LineSeries, ColorType, CrosshairMode } from 'lightweight-charts';
+import { api } from '../../services/api';
+import { Loader2 } from 'lucide-react';
 
 interface BrokerInventoryProps {
   selectedStock?: string;
 }
+
+interface BrokerInventoryData {
+  broker: string;
+  date: string;
+  inventory: number;
+  netFlow: number;
+  cumulativeNetFlow: number;
+}
+
 
 // Available brokers (unused for now)
 // const AVAILABLE_BROKERS = [
@@ -22,31 +33,18 @@ const getBrokerColor = (broker: string): string => {
   return colors[broker as keyof typeof colors] || '#6B7280';
 };
 
-// Generate inventory data for selected brokers
-const generateInventoryData = (_ticker: string, selectedBrokers: string[]) => {
-  const data: any[] = [];
-  const days = 30; // Last 30 days
-
-  for (let i = 0; i < days; i++) {
-    const currentDate = new Date();
-    currentDate.setDate(currentDate.getDate() - (days - 1 - i));
-    const timeStr = currentDate.toISOString().split('T')[0];
-
-    const dayData: any = { time: timeStr };
-
-    selectedBrokers.forEach(broker => {
-      // Start from 0, simulate cumulative net flow changes
-      const baseValue = i === 0 ? 0 : (Math.random() - 0.5) * 20;
-      const trend = Math.sin(i * 0.1) * 10; // Some trend
-      const noise = (Math.random() - 0.5) * 5; // Random noise
-
-      dayData[broker] = Math.round(baseValue + trend + noise);
-    });
-
-    data.push(dayData);
+// Fetch broker inventory data from API
+const fetchBrokerInventoryData = async (stockCode: string, date: string): Promise<BrokerInventoryData[]> => {
+  try {
+    const response = await api.getBrokerInventoryData(stockCode, date);
+    if (response.success && response.data?.inventoryData) {
+      return response.data.inventoryData;
+    }
+    return [];
+  } catch (error) {
+    console.error('Error fetching broker inventory data:', error);
+    return [];
   }
-
-  return data;
 };
 
 // TradingView-style chart component for broker inventory
@@ -211,34 +209,112 @@ const BrokerInventoryChart = ({
 export function BrokerInventory({ selectedStock = 'BBRI' }: BrokerInventoryProps) {
   // Select top 5 brokers for dashboard display
   const selectedBrokers = useMemo(() => ['LG', 'MG', 'BR', 'RG', 'CC'], []);
+  
+  // API data states
+  const [inventoryData, setInventoryData] = useState<Map<string, BrokerInventoryData[]>>(new Map());
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Generate inventory data
-  const inventoryData = useMemo(() =>
-    generateInventoryData(selectedStock, selectedBrokers),
-    [selectedStock, selectedBrokers]
-  );
+  // Load inventory data when selected stock changes
+  useEffect(() => {
+    const loadInventoryData = async () => {
+      if (!selectedStock) return;
+      
+      setIsLoading(true);
+      setError(null);
+      
+      try {
+        const newInventoryData = new Map<string, BrokerInventoryData[]>();
+        
+        // Load data for the last 30 days
+        const today = new Date();
+        for (let i = 0; i < 30; i++) {
+          const currentDate = new Date(today);
+          currentDate.setDate(currentDate.getDate() - i);
+          const dateStr = currentDate.toISOString().split('T')[0]?.replace(/-/g, '') || '';
+          
+          const data = await fetchBrokerInventoryData(selectedStock, dateStr);
+          if (data.length > 0) {
+            newInventoryData.set(dateStr, data);
+          }
+        }
+        
+        setInventoryData(newInventoryData);
+      } catch (err) {
+        setError('Failed to load inventory data');
+        console.error('Error loading inventory data:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadInventoryData();
+  }, [selectedStock]);
+
+  // Convert inventory data to chart format
+  const chartData = useMemo(() => {
+    const data: any[] = [];
+    const days = 30; // Last 30 days
+
+    for (let i = 0; i < days; i++) {
+      const currentDate = new Date();
+      currentDate.setDate(currentDate.getDate() - (days - 1 - i));
+      const timeStr = currentDate.toISOString().split('T')[0] || '';
+      const dateStr = timeStr.replace(/-/g, '');
+
+      const dayData: any = { time: timeStr };
+
+      selectedBrokers.forEach(broker => {
+        const brokerData = inventoryData.get(dateStr)?.find(d => d.broker === broker);
+        dayData[broker] = brokerData ? brokerData.cumulativeNetFlow : 0;
+      });
+
+      data.push(dayData);
+    }
+
+    return data;
+  }, [inventoryData, selectedBrokers]);
 
   return (
     <div>
       <div className="space-y-4">
+        {/* Loading State */}
+        {isLoading && (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="w-6 h-6 animate-spin mr-2" />
+            <span>Loading inventory data...</span>
+          </div>
+        )}
+
+        {/* Error State */}
+        {error && (
+          <div className="flex items-center justify-center py-8 text-red-600">
+            <span>{error}</span>
+          </div>
+        )}
+
         {/* Chart */}
-        <BrokerInventoryChart
-          inventoryData={inventoryData}
-          selectedBrokers={selectedBrokers}
-        />
+        {!isLoading && !error && (
+          <BrokerInventoryChart
+            inventoryData={chartData}
+            selectedBrokers={selectedBrokers}
+          />
+        )}
         
         {/* Legend */}
-        <div className="flex flex-wrap gap-3 justify-center mt-6">
-          {selectedBrokers.map(broker => (
-            <div key={broker} className="flex items-center gap-2">
-              <div 
-                className="w-3 h-3 rounded-full" 
-                style={{ backgroundColor: getBrokerColor(broker) }}
-              />
-              <span className="text-sm font-medium">{broker}</span>
-            </div>
-          ))}
-        </div>
+        {!isLoading && !error && (
+          <div className="flex flex-wrap gap-3 justify-center mt-6">
+            {selectedBrokers.map(broker => (
+              <div key={broker} className="flex items-center gap-2">
+                <div 
+                  className="w-3 h-3 rounded-full" 
+                  style={{ backgroundColor: getBrokerColor(broker) }}
+                />
+                <span className="text-sm font-medium">{broker}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
