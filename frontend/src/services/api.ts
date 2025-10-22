@@ -1550,6 +1550,93 @@ export const api = {
     }
   },
 
+  // Money Flow API
+  async getMoneyFlowData(stockCode: string, limit?: number): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const params = new URLSearchParams();
+      if (limit) params.append('limit', limit.toString());
+      
+      const res = await fetch(`${API_URL}/api/moneyflow/stock/${stockCode}?${params}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get money flow data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get money flow data' };
+    }
+  },
+
+  // Foreign Flow API
+  async getForeignFlowData(stockCode: string, limit?: number): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const params = new URLSearchParams();
+      if (limit) params.append('limit', limit.toString());
+      
+      const res = await fetch(`${API_URL}/api/foreign/stock/${stockCode}?${params}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get foreign flow data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get foreign flow data' };
+    }
+  },
+
+  // Holding/Shareholding API
+  async getHoldingData(stockCode: string, limit?: number): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const params = new URLSearchParams();
+      if (limit) params.append('limit', limit.toString());
+      
+      const res = await fetch(`${API_URL}/api/holding/stock/${stockCode}?${params}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get holding data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get holding data' };
+    }
+  },
+
+  // Shareholders API
+  async getShareholdersData(stockCode: string, limit?: number): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const params = new URLSearchParams();
+      if (limit) params.append('limit', limit.toString());
+      
+      const res = await fetch(`${API_URL}/api/shareholders/stock/${stockCode}?${params}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get shareholders data');
+      return { success: true, data: json };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get shareholders data' };
+    }
+  },
+
+  // Get list of stocks from shareholders directory
+  async getShareholdersStockList(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/shareholders/list`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get shareholders stock list');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get shareholders stock list' };
+    }
+  },
+
   // Stock Data API
   async getStockList(): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
