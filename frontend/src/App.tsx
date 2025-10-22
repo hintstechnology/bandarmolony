@@ -53,17 +53,24 @@ import { PrivacyPage } from "./pages/PrivacyPage";
 // Dashboard Layout Component
 function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { profile, isLoading } = useNavigation();
+  const { profile, isLoading, isAuthenticated } = useNavigation();
   const location = useLocation();
   const navigate = useNavigate();
+  const hasRedirected = React.useRef(false);
 
   // Handle redirect in useEffect to avoid calling navigate during render
   useEffect(() => {
-    if (!isLoading && !profile) {
-      console.log('DashboardLayout: No profile after loading, redirecting to auth');
+    // Reset redirect flag when user becomes authenticated with profile
+    if (isAuthenticated && profile) {
+      hasRedirected.current = false;
+    }
+    
+    if (!isLoading && (!profile || !isAuthenticated) && !hasRedirected.current) {
+      console.log('DashboardLayout: No profile or not authenticated, redirecting to auth');
+      hasRedirected.current = true;
       navigate('/auth', { replace: true });
     }
-  }, [isLoading, profile, navigate]);
+  }, [isLoading, profile, isAuthenticated, navigate]);
 
   // Show loading while profile is being fetched
   if (isLoading) {
@@ -77,8 +84,8 @@ function DashboardLayout() {
     );
   }
 
-  // If no profile after loading, show loading while redirect happens
-  if (!profile) {
+  // If no profile or not authenticated after loading, show loading while redirect happens
+  if (!profile || !isAuthenticated) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">

@@ -50,6 +50,21 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
   const { isAuthenticated, isLoading } = useAuth();
   const { showToast } = useToast();
 
+  // Check if user was kicked by another device login
+  useEffect(() => {
+    const kickedFlag = localStorage.getItem('kickedByOtherDevice');
+    if (kickedFlag === 'true') {
+      // Show toast notification
+      showToast({
+        type: 'warning',
+        title: 'Login di Perangkat Lain Terdeteksi',
+        message: 'Sesi di perangkat ini telah ditutup.',
+      });
+      // Clear the flag
+      localStorage.removeItem('kickedByOtherDevice');
+    }
+  }, [showToast]);
+
   // Redirect if already authenticated
   useEffect(() => {
     if (!isLoading && isAuthenticated) {

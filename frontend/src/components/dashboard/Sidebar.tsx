@@ -16,6 +16,7 @@ import {
   Shield,
 } from "lucide-react";
 import { useProfile } from "../../contexts/ProfileContext";
+import { useAuth } from "../../contexts/AuthContext";
 import { useToast } from "../../contexts/ToastContext";
 import { api } from "../../services/api";
 import logoUrl from "../../../logo.png";
@@ -112,6 +113,7 @@ export function Sidebar({
   const [isHovered, setIsHovered] = useState(false);
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
   const { profile } = useProfile();
+  const { signOut } = useAuth();
   const { showToast } = useToast();
   const isExpanded = isOpen || isHovered;
 
@@ -125,17 +127,22 @@ export function Sidebar({
   const handleNavigation = async (route: string) => {
     if (route === 'logout') {
       try {
-        await api.logout();
+        // Use AuthContext signOut for proper state management
+        await signOut();
+        // Show toast after logout
         showToast({
           type: 'success',
           title: 'Logout Berhasil!',
           message: 'Anda telah berhasil logout.',
         });
-        navigate('/auth');
       } catch (error) {
         console.error('Logout error:', error);
-        // Still navigate to auth even if logout fails
-        navigate('/auth');
+        // Show error toast if logout fails
+        showToast({
+          type: 'error',
+          title: 'Logout Gagal',
+          message: 'Terjadi kesalahan saat logout.',
+        });
       }
     } else if (route === '/profile') {
       // Navigate directly to profile page

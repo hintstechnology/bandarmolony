@@ -172,8 +172,7 @@ export const api = {
       
       if (!response.ok) {
         if (response.status === 401) {
-          // Clear session on unauthorized
-          await supabase.auth.signOut();
+          // Don't clear session here - let AuthContext handle it
           throw new Error('Session expired. Please sign in again.');
         }
         
@@ -470,49 +469,48 @@ export const api = {
 
   async login(email: string, password: string): Promise<AuthResponse> {
     try {
-      // Use Supabase direct login instead of backend API
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.toLowerCase().trim(),
-        password: password
+      // Use backend login to ensure session is created in database
+      const response = await fetch(`${API_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ email, password })
       });
 
-      if (error) {
-        // Handle Supabase auth errors
-        let errorCode = 'LOGIN_FAILED';
-        let field = 'general';
-        
-        if (error.message?.includes('Invalid login credentials')) {
-          errorCode = 'INVALID_CREDENTIALS';
-          field = 'general';
-        } else if (error.message?.includes('Email not confirmed')) {
-          errorCode = 'EMAIL_NOT_CONFIRMED';
-          field = 'email';
-        } else if (error.message?.includes('Too many requests')) {
-          errorCode = 'RATE_LIMITED';
-          field = 'general';
+      const result = await response.json();
+
+      if (!response.ok) {
+        // Handle structured error responses from backend
+        return { 
+          success: false, 
+          error: result.error || 'Login failed',
+          code: result.code,
+          field: result.field
+        };
+      }
+
+      if (result.ok && result.data) {
+        // Set session in Supabase client first
+        if (result.data.session) {
+          await supabase.auth.setSession({
+            access_token: result.data.session.access_token,
+            refresh_token: result.data.session.refresh_token
+          });
+          // Then store in localStorage for persistence
+          setAuthState(result.data.user, result.data.session);
         }
         
-        return {
-          success: false,
-          error: error.message || 'Login failed',
-          code: errorCode,
-          field: field
+        return { 
+          success: true, 
+          token: result.data.session?.access_token,
+          user: result.data.user,
+          session: result.data.session,
+          message: result.message
         };
       }
 
-      if (data.user && data.session) {
-        // Store session for compatibility
-        setAuthState(data.user, data.session);
-        
-        return {
-          success: true,
-          token: data.session.access_token,
-          user: data.user,
-          session: data.session
-        };
-      }
-
-      return { success: false, error: 'No session created' };
+      return { success: false, error: 'Login failed' };
     } catch (error: any) {
       // Handle connection errors
       if (error.message?.includes('Failed to fetch') || error.message?.includes('ERR_CONNECTION_REFUSED')) {
@@ -585,9 +583,52 @@ export const api = {
 
   async logout(): Promise<void> {
     try {
-      // Call backend logout route first
+      // Call backend logout route first (session-specific logout)
       try {
-        await fetch(`${API_URL}/api/auth/logout`, {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          await fetch(`${API_URL}/api/auth/logout`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`,
+              'Content-Type': 'application/json',
+            },
+          });
+        }
+      } catch (backendError) {
+        console.warn('Backend logout failed:', backendError);
+        // Continue with frontend logout even if backend fails
+      }
+      
+      // Sign out from Supabase (this will trigger auth state change)
+      // IMPORTANT: Supabase signOut() returns { error } instead of throwing
+      const { error: signOutError } = await supabase.auth.signOut();
+      
+      if (signOutError) {
+        console.error('Supabase signOut failed:', signOutError);
+        // Even if signOut fails, clear local storage
+      }
+      
+      // Clear local storage
+      clearAuthState();
+      
+      // Clear any remaining session data
+      localStorage.removeItem('user');
+      localStorage.removeItem('supabase_session');
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Clear local storage anyway
+      clearAuthState();
+      localStorage.removeItem('user');
+      localStorage.removeItem('supabase_session');
+    }
+  },
+
+  async logoutAllDevices(): Promise<void> {
+    try {
+      // Call backend logout-all route first
+      try {
+        await fetch(`${API_URL}/api/auth/logout-all`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
@@ -598,8 +639,14 @@ export const api = {
         // Continue with frontend logout even if backend fails
       }
       
-      // Sign out from Supabase
-      await supabase.auth.signOut();
+      // Sign out from Supabase (global)
+      // IMPORTANT: Supabase signOut() returns { error } instead of throwing
+      const { error: signOutError } = await supabase.auth.signOut();
+      
+      if (signOutError) {
+        console.error('Supabase signOut (all devices) failed:', signOutError);
+        // Even if signOut fails, clear local storage
+      }
       
       // Clear local storage
       clearAuthState();

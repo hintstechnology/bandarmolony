@@ -94,16 +94,9 @@ export class SessionManager {
         .single();
 
       if (error || !data) {
-        // If no session found, create one for tracking
-        try {
-          await this.createOrUpdateSession(
-            userId,
-            tokenHash,
-            new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
-          );
-        } catch (createError) {
-        }
-        return true; // Allow for new sessions
+        // If no session found, return false to force re-authentication
+        console.log('SessionManager: No active session found for user:', userId);
+        return false;
       }
 
       // Check if session is expired
@@ -164,6 +157,31 @@ export class SessionManager {
       return { success: true };
     } catch (error) {
       console.error('Database error in deactivateSession:', error);
+      return { success: false, error: 'Database error' };
+    }
+  }
+
+  /**
+   * Deactivate session by token hash
+   */
+  static async deactivateSessionByTokenHash(tokenHash: string) {
+    try {
+      const { error } = await supabaseAdmin
+        .from('user_sessions')
+        .update({
+          is_active: false,
+          updated_at: new Date().toISOString()
+        })
+        .eq('token_hash', tokenHash);
+
+      if (error) {
+        console.error('Error deactivating session by token hash:', error);
+        return { success: false, error: error.message };
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('Database error in deactivateSessionByTokenHash:', error);
       return { success: false, error: 'Database error' };
     }
   }

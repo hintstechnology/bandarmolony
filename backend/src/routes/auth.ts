@@ -303,13 +303,26 @@ router.post('/login', async (req, res) => {
       const userAgent = req.get('User-Agent') || 'unknown';
 
       try {
-        await SessionManager.createOrUpdateSession(
+        // SINGLE DEVICE LOGIN: Deactivate all previous sessions
+        console.log('Deactivating all previous sessions for user:', data.user.id);
+        await SessionManager.deactivateUserSessions(data.user.id);
+        
+        // Create new session
+        const tokenHash = SessionManager.generateTokenHash(data.session.access_token);
+        const sessionResult = await SessionManager.createOrUpdateSession(
           data.user.id,
-          data.session.access_token,
+          tokenHash,
           expiresAt,
           ipAddress,
           userAgent
         );
+        
+        if (!sessionResult.success) {
+          console.error('Session tracking failed:', sessionResult.error);
+          // Don't fail login if session tracking fails
+        } else {
+          console.log('New session tracked successfully for user:', data.user.id);
+        }
       } catch (sessionError) {
         console.error('Session tracking error:', sessionError);
         // Don't fail login if session tracking fails
@@ -494,22 +507,64 @@ router.post('/logout', async (req, res) => {
     // Get user info before signing out
     const { data: { user }, error: _userError } = await supabaseAdmin.auth.getUser(token);
     
-    // Sign out with Supabase Auth
-    const { error } = await supabaseAdmin.auth.signOut();
+    // Deactivate specific session in user_sessions table first
+    if (user?.id) {
+      const tokenHash = SessionManager.generateTokenHash(token);
+      await SessionManager.deactivateSessionByTokenHash(tokenHash);
+    }
 
-    if (error) {
-      return res.status(400).json({ 
+    // For session-specific logout, we'll rely on session deactivation
+    // Supabase doesn't have a reliable way to logout specific sessions
+    // The session will be invalidated when the token expires or when we check it
+    console.log('Session deactivated for user:', user?.id);
+
+    return res.json({ ok: true, message: 'Logged out successfully' });
+  } catch (err: any) {
+    return res.status(500).json({ 
+      ok: false, 
+      error: 'Internal server error' 
+    });
+  }
+});
+
+/**
+ * POST /api/auth/logout-all
+ * Logout from all devices
+ */
+router.post('/logout-all', async (req, res) => {
+  try {
+    const auth = req.headers.authorization || '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+    
+    if (!token) {
+      return res.status(401).json({ 
         ok: false, 
-        error: error.message 
+        error: 'Missing Bearer token' 
       });
     }
 
-    // Deactivate session in user_sessions table
-    if (user?.id) {
-      await SessionManager.deactivateUserSessions(user.id, token);
+    // Get user info before signing out
+    const { data: { user }, error: _userError } = await supabaseAdmin.auth.getUser(token);
+    
+    if (!user?.id) {
+      return res.status(401).json({ 
+        ok: false, 
+        error: 'Invalid user' 
+      });
     }
 
-    return res.json({ ok: true, message: 'Logged out successfully' });
+    // Deactivate all user sessions
+    await SessionManager.deactivateUserSessions(user.id);
+
+    // Use global logout for logout all devices
+    const { error } = await supabaseAdmin.auth.signOut();
+
+    if (error) {
+      console.warn('Global logout failed, but sessions deactivated:', error.message);
+      // Continue even if Supabase logout fails since we've deactivated all sessions
+    }
+
+    return res.json({ ok: true, message: 'Logged out from all devices successfully' });
   } catch (err: any) {
     return res.status(500).json({ 
       ok: false, 
