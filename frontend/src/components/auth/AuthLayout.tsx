@@ -1,7 +1,7 @@
 import React from 'react';
 import { Moon, Sun, ArrowLeft } from 'lucide-react';
 import { useTheme } from '../dashboard/ThemeProvider';
-import { getImageUrl } from '../../utils/imageMapping';
+import { getImageUrl } from '../../utils/imageMapping.ts';
 
 interface AuthLayoutProps {
   children: React.ReactNode;

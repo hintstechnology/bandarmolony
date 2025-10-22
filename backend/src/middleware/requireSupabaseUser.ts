@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '../supabaseClient';
 import { createErrorResponse, ERROR_CODES, HTTP_STATUS } from '../utils/responseUtils';
+import { SessionManager } from '../utils/sessionManager';
 
 export async function requireSupabaseUser(req: any, res: any, next: any) {
   try {
@@ -16,6 +17,19 @@ export async function requireSupabaseUser(req: any, res: any, next: any) {
     if (error || !user) {
       return res.status(HTTP_STATUS.UNAUTHORIZED).json(createErrorResponse(
         'Invalid or expired token',
+        ERROR_CODES.UNAUTHORIZED,
+        undefined,
+        HTTP_STATUS.UNAUTHORIZED
+      ));
+    }
+
+    // Validate session in database
+    const tokenHash = SessionManager.generateTokenHash(token);
+    const isSessionValid = await SessionManager.validateSession(user.id, tokenHash);
+    
+    if (!isSessionValid) {
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json(createErrorResponse(
+        'Session expired. Please sign in again.',
         ERROR_CODES.UNAUTHORIZED,
         undefined,
         HTTP_STATUS.UNAUTHORIZED

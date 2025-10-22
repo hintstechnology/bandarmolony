@@ -1,9 +1,10 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
 
 interface AuthContextType {
   user: any | null;
   isLoading: boolean;
+  isLoggingOut: boolean;
   isAuthenticated: boolean;
   signOut: () => Promise<void>;
 }
@@ -25,25 +26,45 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
+    let sessionCheckInterval: NodeJS.Timeout;
 
-    // Check initial session
-    const checkInitialSession = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (isMounted) {
-          setUser(session?.user || null);
-          setIsLoading(false);
-        }
-      } catch (error) {
-        console.error('AuthContext: Error checking initial session:', error);
-        if (isMounted) {
-          setUser(null);
-          setIsLoading(false);
-        }
+    // Periodic session validation for multi-device sync
+    const startSessionValidation = () => {
+      if (sessionCheckInterval) {
+        clearInterval(sessionCheckInterval);
       }
+      
+      sessionCheckInterval = setInterval(async () => {
+        if (!isMounted || !user) return;
+        
+        try {
+          const { data: { session }, error } = await supabase.auth.getSession();
+          if (error || !session) {
+            console.log('AuthContext: Session validation failed, clearing user state');
+            if (isMounted) {
+              setUser(null);
+              setIsLoading(false);
+            }
+          } else {
+            // Update user if session is valid but user state is stale
+            if (isMounted && (!user || user.id !== session.user.id)) {
+              console.log('AuthContext: Updating user from session validation');
+              setUser(session.user);
+              setIsLoading(false);
+            }
+          }
+        } catch (error) {
+          console.error('AuthContext: Session validation error:', error);
+          if (isMounted) {
+            setUser(null);
+            setIsLoading(false);
+          }
+        }
+      }, 60000); // Check every 60 seconds (reduced frequency)
     };
 
     // Listen for auth state changes
@@ -58,36 +79,69 @@ export function AuthProvider({ children }: AuthProviderProps) {
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
         setIsLoading(false);
+        // CRITICAL: Reset isLoggingOut when signed out (for session expired cases)
+        setIsLoggingOut(false);
       } else if (event === 'TOKEN_REFRESHED') {
-        // Only update user if it actually changed to prevent unnecessary re-renders
-        if (session?.user?.id !== user?.id) {
-          setUser(session?.user || null);
-        }
+        // Always update user on token refresh to prevent stale state
+        setUser(session?.user || null);
         setIsLoading(false);
+      } else if (event === 'USER_UPDATED') {
+        // Handle user updates (e.g., email change, profile update)
+        setUser(session?.user || null);
+        setIsLoading(false);
+      } else if (event === 'INITIAL_SESSION') {
+        // Handle initial session - set user immediately, ProfileContext will validate
+        if (session?.user) {
+          setUser(session.user);
+          setIsLoading(false);
+        } else {
+          setUser(null);
+          setIsLoading(false);
+        }
       }
     });
 
-    // Check initial session
-    checkInitialSession();
+    // Start periodic session validation
+    startSessionValidation();
 
     return () => {
       isMounted = false;
       subscription.unsubscribe();
+      if (sessionCheckInterval) {
+        clearInterval(sessionCheckInterval);
+      }
     };
   }, []);
 
   const signOut = async () => {
     try {
-      await supabase.auth.signOut();
+      // Set logging out flag first
+      setIsLoggingOut(true);
+      
+      // Clear user state immediately for better UX
       setUser(null);
+      setIsLoading(false);
+      
+      // Use API logout for session-specific logout
+      const { api } = await import('../services/api');
+      await api.logout();
     } catch (error) {
       console.error('AuthContext: Error signing out:', error);
+      // Fallback to direct Supabase logout
+      // IMPORTANT: Supabase signOut() returns { error } instead of throwing
+      const { error: signOutError } = await supabase.auth.signOut();
+      if (signOutError) {
+        console.error('AuthContext: Fallback logout failed:', signOutError);
+      }
+    } finally {
+      setIsLoggingOut(false);
     }
   };
 
   const value: AuthContextType = {
     user,
     isLoading,
+    isLoggingOut,
     isAuthenticated: !!user,
     signOut,
   };

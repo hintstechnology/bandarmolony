@@ -31,21 +31,16 @@ interface SummaryItem {
 const timeframes = ['3D', '5D', '2W', '1M'];
 
 export function MarketRotationTrendFilter() {
-  const [selectedTimeframe, setSelectedTimeframe] = useState("5D");
+  const [selectedTimeframe, setSelectedTimeframe] = useState("1M");
   const [selectedSector, setSelectedSector] = useState("All Sectors");
-  const [selectedTrend, setSelectedTrend] = useState("uptrend");
+  const [selectedTrend, setSelectedTrend] = useState("all");
   const [currentPage, setCurrentPage] = useState({
     uptrend: 0,
     sideways: 0,
     downtrend: 0,
   });
-  const [searchQueries, setSearchQueries] = useState({
-    uptrend: "",
-    sideways: "",
-    downtrend: "",
-  });
+  const [searchQuery, setSearchQuery] = useState("");
   const [trendData, setTrendData] = useState<TrendData>({ uptrend: [], sideways: [], downtrend: [] });
-  const [trendSummary, setTrendSummary] = useState<SummaryItem[]>([]);
   const [sectors, setSectors] = useState<string[]>(["All Sectors"]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -146,7 +141,6 @@ export function MarketRotationTrendFilter() {
           
           if (mounted) {
             setTrendData({ uptrend, sideways, downtrend });
-            setTrendSummary(summaries);
             setSectors(['All Sectors', ...Array.from(sectorsSet).sort()]);
           }
         } else {
@@ -195,7 +189,7 @@ export function MarketRotationTrendFilter() {
 
   const getPaginatedData = (trendType: string) => {
     const data = (trendData as any)[trendType] || [];
-    const query = (searchQueries as any)[trendType].toLowerCase();
+    const query = searchQuery.toLowerCase();
     const sectorFiltered = selectedSector === "All Sectors" ? data : data.filter((s: TrendStock) => s.Sector === selectedSector);
     const filtered = query
       ? sectorFiltered.filter(
@@ -261,15 +255,14 @@ export function MarketRotationTrendFilter() {
     }));
   };
 
-  const handleSearchChange = (trendType: string, value: string) => {
-    setSearchQueries((prev) => ({
-      ...prev,
-      [trendType]: value,
-    }));
-    setCurrentPage((prev) => ({
-      ...prev,
-      [trendType]: 0,
-    }));
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+    // Reset all pagination when search changes
+    setCurrentPage({
+      uptrend: 0,
+      sideways: 0,
+      downtrend: 0,
+    });
   };
 
   if (loading) {
@@ -407,6 +400,23 @@ export function MarketRotationTrendFilter() {
         </div>
       </Card>
 
+      {/* Global Search Bar */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder={`Search ${selectedTrend === "all" ? "all" : `${selectedTrend}`} stock symbols or company names here...`}
+            value={searchQuery}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            className="w-full pl-10 pr-3 py-2 text-sm bg-background border border-border rounded-md hover:border-primary/50 focus:border-primary focus:outline-none transition-colors"
+          />
+        </div>
+        {searchQuery && (
+          <p className="text-xs text-muted-foreground mt-2">
+            Searching in {selectedTrend === "all" ? "all trends" : selectedTrend} • {getFilteredSummary().reduce((sum, item) => sum + item.count, 0)} results
+          </p>
+        )}
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {getFilteredSummary().map((item, index) => (
           <Card key={index} className="p-4">
@@ -443,42 +453,21 @@ export function MarketRotationTrendFilter() {
             const paginatedResult = getPaginatedData(trendType);
             return (
               <Card key={trendType} className="p-6">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    {getTrendIcon(trendType)}
-                    <div>
-                      <h3 className="font-semibold capitalize">
-                        {trendType} Stocks
-                      </h3>
-                      <p className="text-xs text-muted-foreground">
-                        {trendType === 'uptrend' && 'Sum open-to-close > +1%'}
-                        {trendType === 'sideways' && 'Sum open-to-close between -1% to +1%'}
-                        {trendType === 'downtrend' && 'Sum open-to-close < -1%'}
-                      </p>
-                    </div>
-                    <Badge variant="secondary">
-                      {paginatedResult.totalItems} stocks
-                    </Badge>
+                <div className="flex items-center gap-3 mb-4">
+                  {getTrendIcon(trendType)}
+                  <div>
+                    <h3 className="font-semibold capitalize">
+                      {trendType} Stocks
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      {trendType === 'uptrend' && 'Sum open-to-close > +1%'}
+                      {trendType === 'sideways' && 'Sum open-to-close between -1% to +1%'}
+                      {trendType === 'downtrend' && 'Sum open-to-close < -1%'}
+                    </p>
                   </div>
-
-                   {/* Search for this trend */}
-                   <div className="flex items-center gap-2 w-full sm:max-w-sm">
-                     <div className="relative flex-1">
-                       <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                       <input
-                         type="text"
-                         placeholder={`Search ${trendType} stocks...`}
-                         value={(searchQueries as any)[trendType]}
-                         onChange={(e) =>
-                           handleSearchChange(
-                             trendType,
-                             e.target.value,
-                           )
-                         }
-                         className="w-full pl-10 pr-3 py-2 text-sm bg-background border border-border rounded-md hover:border-primary/50 transition-colors"
-                       />
-                     </div>
-                   </div>
+                  <Badge variant="secondary">
+                    {paginatedResult.totalItems} stocks
+                  </Badge>
                 </div>
 
                 <div className="-mx-4 overflow-x-auto sm:mx-0">
