@@ -2238,7 +2238,11 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         {/* Debug info */}
         {/* <div className="absolute top-2 right-2 z-20 bg-background/80 backdrop-blur-sm border border-border rounded px-2 py-1 text-xs">
           <div>Viewport: {chartViewportHeight}px</div>
+          <div>Data: {filter{/* <div className="absolute top-2 right-2 z-20 bg-background/80 backdrop-blur-sm border border-border rounded px-2 py-1 text-xs">
+          <div>Viewport: {chartViewportHeight}px</div>
           <div>Data: {filteredRows.length} rows</div>
+          <div>Loading: {isLoadingData ? 'Yes' : 'No'}</div>
+        </div>edRows.length} rows</div>
           <div>Loading: {isLoadingData ? 'Yes' : 'No'}</div>
         </div> */}
         {/* Loading overlay */}
