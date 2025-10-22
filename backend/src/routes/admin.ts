@@ -189,6 +189,7 @@ router.get('/users', requireAdmin, async (req, res) => {
     let query = supabaseAdmin
       .from('users')
       .select('id, email, full_name, role, is_active, email_verified, last_login_at, created_at, updated_at', { count: 'exact' })
+      .order('last_login_at', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false });
 
     // Apply filters

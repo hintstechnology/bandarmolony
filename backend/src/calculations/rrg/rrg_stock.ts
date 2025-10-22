@@ -32,6 +32,46 @@ interface RRGResult {
   trajectory: RRGPoint[];
 }
 
+
+/**
+ * Calculate RS Ratio (Relative Strength Ratio)
+ * RS Ratio = (Asset Price / Benchmark Price) * 100
+ * Use raw RS for all data (no moving average smoothing)
+ */
+function calculateRSRatio(assetPrices: NumericArray, benchmarkPrices: NumericArray, _period: number = 14): NumericArray {
+  // Calculate relative strength directly for all data
+  const rs = assetPrices.map((price, i) => {
+    const benchmarkPrice = benchmarkPrices[i];
+    if (benchmarkPrice === undefined || benchmarkPrice === 0) return NaN;
+    return (price / benchmarkPrice) * 100;
+  });
+  
+  return rs;
+}
+
+/**
+ * Calculate RS Momentum
+ * RS Momentum = (Current RS Ratio / RS Ratio n periods ago) * 100
+ * Use 1-day period for all data (same as original)
+ */
+function calculateRSMomentum(rsRatio: NumericArray, _period: number = 14): NumericArray {
+  const result: NumericArray = [];
+  
+  for (let i = 0; i < rsRatio.length; i++) {
+    const currentRatio = rsRatio[i];
+    const pastRatio = rsRatio[i - 1];
+    
+    if (i >= 1 && currentRatio !== undefined && pastRatio !== undefined && !isNaN(currentRatio) && !isNaN(pastRatio)) {
+      // Use 1-day period for all data (same as original)
+      result.push((currentRatio / pastRatio) * 100);
+    } else {
+      result.push(NaN);
+    }
+  }
+  
+  return result;
+}
+
 /**
  * Determine quadrant based on RS Ratio and RS Momentum
  */
@@ -323,27 +363,9 @@ async function generateRRGData(emitter: string, stockDir: string, indexDir: stri
       throw new Error(`Data yang ter-align terlalu sedikit (minimum 10 data points)`);
     }
     
-    // Calculate RS Ratio and RS Momentum
-    // Gunakan RS Ratio langsung untuk semua data (tanpa moving average)
-    const rsRatio = alignedStock.map((price, i) => {
-      const indexPrice = alignedIndex[i];
-      if (!indexPrice || indexPrice === 0) return NaN;
-      return (price / indexPrice) * 100;
-    });
-    
-    // Untuk RS Momentum: gunakan periode sangat pendek untuk data terbaru
-    const rsMomentum: NumericArray = [];
-    for (let i = 0; i < rsRatio.length; i++) {
-      const currentRatio = rsRatio[i];
-      const pastRatio = rsRatio[i - 1];
-      
-      if (i >= 1 && currentRatio !== undefined && pastRatio !== undefined && !isNaN(currentRatio) && !isNaN(pastRatio)) {
-        // Gunakan periode 1 hari untuk semua data
-        rsMomentum.push((currentRatio / pastRatio) * 100);
-      } else {
-        rsMomentum.push(NaN);
-      }
-    }
+    // Calculate RS Ratio and RS Momentum using proper functions
+    const rsRatio = calculateRSRatio(alignedStock, alignedIndex, 14);
+    const rsMomentum = calculateRSMomentum(rsRatio, 14);
     
     // Create valid data points (remove NaN values)
     const validPoints: RRGPoint[] = [];

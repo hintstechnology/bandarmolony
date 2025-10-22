@@ -140,73 +140,75 @@ export class TrendFilterCalculator {
     // Get data for the specified period
     const recentData = data.slice(-periodDays);
 
-    // Get latest values
-    const latestPrice = recentData[recentData.length - 1]?.Close || 0;
+    // Calculate moving averages
+    const shortWindow = Math.min(5, Math.max(1, Math.floor(recentData.length / 3)));
+    const longWindow = Math.min(Math.floor(periodDays / 2), Math.max(1, Math.floor(recentData.length / 2)));
 
-    // Calculate open-to-close percentage for each day in the period
-    const dailyOpenToClosePcts: number[] = [];
+    // Calculate short MA
+    const shortMA = recentData.slice(-shortWindow).reduce((sum, item) => sum + item.Close, 0) / shortWindow;
+
+    // Calculate long MA
+    const longMA = recentData.slice(-longWindow).reduce((sum, item) => sum + item.Close, 0) / longWindow;
+
+    // Get latest values
+    const latestPrice = recentData[recentData.length - 1]?.Close;
+    const firstPrice = recentData[0]?.Close;
+
+    // Calculate price change percentage (same as original)
+    if (!latestPrice || !firstPrice || firstPrice === 0) {
+      return null;
+    }
     
-    for (let i = 0; i < recentData.length; i++) {
-      const dayData = recentData[i];
-      if (!dayData) continue;
-      
-      const openPrice = dayData.Open;
-      const closePrice = dayData.Close;
-      
-      if (openPrice > 0) {
-        const dailyChangePct = ((closePrice - openPrice) / openPrice) * 100;
-        dailyOpenToClosePcts.push(dailyChangePct);
+    const changePct = ((latestPrice - firstPrice) / firstPrice) * 100;
+
+    // Determine trend based on multiple criteria
+    let trendScore = 0;
+
+    // Criterion 1: Moving Average relationship
+    if (shortMA > longMA) {
+      trendScore += 1;
+    } else if (shortMA < longMA) {
+      trendScore -= 1;
+    }
+
+    // Criterion 2: Price position relative to moving averages
+    if (latestPrice > shortMA) {
+      trendScore += 1;
+    } else if (latestPrice < shortMA) {
+      trendScore -= 1;
+    }
+
+    // Criterion 3: Price change percentage
+    if (changePct > 2) { // Strong uptrend threshold
+      trendScore += 1;
+    } else if (changePct < -2) { // Strong downtrend threshold
+      trendScore -= 1;
+    }
+
+    // Criterion 4: Recent momentum (last 3 days vs previous 3 days)
+    if (recentData.length >= 6) {
+      const recent3d = recentData.slice(-3).reduce((sum, item) => sum + item.Close, 0) / 3;
+      const previous3d = recentData.slice(-6, -3).reduce((sum, item) => sum + item.Close, 0) / 3;
+      if (recent3d > previous3d) {
+        trendScore += 1;
+      } else if (recent3d < previous3d) {
+        trendScore -= 1;
       }
     }
 
-    if (dailyOpenToClosePcts.length === 0) {
-      return null;
-    }
-
-    // Calculate SUM of open-to-close percentages for the period (not average)
-    const sumOpenToClosePct = dailyOpenToClosePcts.reduce((sum, pct) => sum + pct, 0);
-
-    // Determine trend based on the UNROUNDED sum to avoid boundary bias
+    // Determine final trend
     let trend: string;
-    if (sumOpenToClosePct > 1) {
+    if (trendScore >= 2) {
       trend = 'Uptrend';
-    } else if (sumOpenToClosePct < -1) {
+    } else if (trendScore <= -2) {
       trend = 'Downtrend';
     } else {
       trend = 'Sideways';
     }
 
-    // Round for display, but ensure it doesn't collapse to boundary and contradict classification
-    let displayPct = parseFloat(sumOpenToClosePct.toFixed(2));
-    if (trend === 'Uptrend' && displayPct <= 1.0) {
-      displayPct = 1.01; // nudge above threshold to preserve consistency
-    } else if (trend === 'Downtrend' && displayPct >= -1.0) {
-      displayPct = -1.01; // nudge below threshold to preserve consistency
-    }
-
-    // Debug logging shows raw and display values
-    console.log(`🔍 Backend Trend Debug: sumRaw=${sumOpenToClosePct.toFixed(4)}%, sumDisplay=${displayPct.toFixed(2)}%, trend=${trend}, period=${periodDays}d`);
-    
-    // Additional validation to catch any remaining inconsistencies
-    const finalTrend = trend;
-    const finalChangePct = displayPct;
-    const isConsistent = (
-      (finalTrend === 'Uptrend' && finalChangePct > 1) ||
-      (finalTrend === 'Downtrend' && finalChangePct < -1) ||
-      (finalTrend === 'Sideways' && finalChangePct >= -1 && finalChangePct <= 1)
-    );
-    
-    if (!isConsistent) {
-      console.error(`❌ Backend Inconsistency Detected:`);
-      console.error(`   - sumRaw: ${sumOpenToClosePct.toFixed(4)}%`);
-      console.error(`   - sumDisplay: ${finalChangePct.toFixed(2)}%`);
-      console.error(`   - trend: ${finalTrend}`);
-      console.error(`   - Expected: ${sumOpenToClosePct > 1 ? 'Uptrend' : sumOpenToClosePct < -1 ? 'Downtrend' : 'Sideways'}`);
-    }
-
     return {
       trend,
-      changePct: displayPct,
+      changePct: parseFloat(changePct.toFixed(2)),
       latestPrice: parseFloat(latestPrice.toFixed(2))
     };
   }

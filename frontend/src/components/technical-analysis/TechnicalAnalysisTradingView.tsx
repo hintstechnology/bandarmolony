@@ -2239,6 +2239,8 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                 showDelta={footprintSettings.showDelta}
                 timeframe={footprintSettings.timeframe}
                 zoom={footprintSettings.zoom}
+                stockCode={symbol}
+                date={new Date().toISOString().split('T')[0]?.replace(/-/g, '') || ''}
                 ohlc={filteredRows.map(d => ({
                   timestamp: new Date((d.time || 0) * 1000).toISOString(),
                   open: d.open,

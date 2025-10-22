@@ -200,7 +200,7 @@ export class MoneyFlowCalculator {
 
   /**
    * Create or update individual CSV files for each stock/index's money flow data
-   * Using simple classification based on source folder
+   * Using accurate classification based on source folder and index list
    */
   private async createMoneyFlowCsvFiles(
     moneyFlowData: Map<string, MoneyFlowData[]>,
@@ -211,8 +211,8 @@ export class MoneyFlowCalculator {
     const createdFiles: string[] = [];
     
     for (const [code, flowData] of moneyFlowData) {
-      // Simple classification: if code is in index list, treat as index
-      const isIndex = await this.isIndexCode(code, indexList);
+      // More accurate classification: check both index list AND common index patterns
+      const isIndex = await this.isIndexCode(code, indexList) || this.isIndexByPattern(code);
       const subfolder = isIndex ? 'index' : 'stock';
       const filename = `money_flow/${subfolder}/${code}.csv`;
       
@@ -259,6 +259,33 @@ export class MoneyFlowCalculator {
     
     console.log(`\nProcessed ${createdFiles.length} money flow CSV files total`);
     return createdFiles;
+  }
+
+  /**
+   * Check if code is an index by common patterns
+   */
+  private isIndexByPattern(code: string): boolean {
+    const indexPatterns = [
+      /^IDX/i,           // IDX30, IDX80, etc.
+      /^LQ45$/i,         // LQ45
+      /^COMPOSITE$/i,    // COMPOSITE
+      /^JII/i,           // JII, JII70
+      /^ISSI$/i,         // ISSI
+      /^SRI/i,           // SRI-KEHATI
+      /^ESG/i,           // ESGQKEHATI, ESGSKEHATI
+      /^BISNIS/i,        // BISNIS-27
+      /^ECONOMIC/i,      // ECONOMIC30
+      /^I-GRADE$/i,      // I-GRADE
+      /^INFOBANK/i,      // INFOBANK15
+      /^Investor/i,      // Investor33
+      /^MBX$/i,          // MBX
+      /^MNC/i,           // MNC36
+      /^PRIMBANK/i,      // PRIMBANK10
+      /^SM/i,            // SMinfra18
+      /^KOMPAS/i         // KOMPAS100
+    ];
+    
+    return indexPatterns.some(pattern => pattern.test(code));
   }
 
   /**
@@ -334,30 +361,23 @@ export class MoneyFlowCalculator {
   }
 
   /**
-   * Process all files (both stock and index) together
+   * Process all files (both stock and index) separately to avoid mixing
    */
   private async processAllFiles(_indexList: string[]): Promise<Map<string, MoneyFlowData[]>> {
-    console.log("\nProcessing all files (stock and index)...");
+    console.log("\nProcessing all files (stock and index) separately...");
     
-    // Get all stock files
+    const moneyFlowData = new Map<string, MoneyFlowData[]>();
+    const BATCH_SIZE = 10; // Reduced from 25 to prevent memory issues
+    
+    // Process stock files first
+    console.log("\n📈 Processing STOCK files...");
     const allStockFiles = await this.findAllCsvFiles('stock/');
     console.log(`Found ${allStockFiles.length} stock files`);
     
-    // Get all index files
-    const allIndexFiles = await this.findAllCsvFiles('index/');
-    console.log(`Found ${allIndexFiles.length} index files`);
-    
-    // Combine all files
-    const allFiles = [...allStockFiles, ...allIndexFiles];
-    console.log(`Total files to process: ${allFiles.length}`);
-    
-    const moneyFlowData = new Map<string, MoneyFlowData[]>();
-         const BATCH_SIZE = 10; // Reduced from 25 to prevent memory issues
     let processed = 0;
-    
-    for (let i = 0; i < allFiles.length; i += BATCH_SIZE) {
-      const batch = allFiles.slice(i, i + BATCH_SIZE);
-      console.log(`📦 Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(allFiles.length / BATCH_SIZE)} (${batch.length} files)`);
+    for (let i = 0; i < allStockFiles.length; i += BATCH_SIZE) {
+      const batch = allStockFiles.slice(i, i + BATCH_SIZE);
+      console.log(`📦 Processing stock batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(allStockFiles.length / BATCH_SIZE)} (${batch.length} files)`);
       
       // Process batch in parallel
       const batchResults = await Promise.allSettled(
@@ -369,12 +389,12 @@ export class MoneyFlowCalculator {
             const mfiData = this.calculateMFI(ohlcData);
             
             if (mfiData.length > 0) {
-              return { code, mfiData, success: true };
+              return { code, mfiData, success: true, type: 'stock' };
             }
-            return { code, mfiData: [], success: false, error: 'No MFI data' };
+            return { code, mfiData: [], success: false, error: 'No MFI data', type: 'stock' };
           } catch (error) {
-            console.error(`Error processing ${blobName}:`, error);
-            return { code, mfiData: [], success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+            console.error(`Error processing stock ${blobName}:`, error);
+            return { code, mfiData: [], success: false, error: error instanceof Error ? error.message : 'Unknown error', type: 'stock' };
           }
         })
       );
@@ -398,24 +418,78 @@ export class MoneyFlowCalculator {
         processed++;
       });
       
-           console.log(`📊 Batch complete: ✅ ${batchSuccess} success, ❌ ${batchFailed} failed (${processed}/${allFiles.length} total)`);
-           
-           // Force garbage collection after each batch
-           if (global.gc) {
-             global.gc();
-           }
-           
-           // Additional memory management
-           if (global.gc) {
-             global.gc();
-             global.gc(); // Double GC for better cleanup
-           }
-           
-           // Small delay to allow GC to complete
-           await new Promise(resolve => setTimeout(resolve, 100));
+      console.log(`📊 Stock batch complete: ✅ ${batchSuccess} success, ❌ ${batchFailed} failed (${processed}/${allStockFiles.length} total)`);
+      
+      // Force garbage collection after each batch
+      if (global.gc) {
+        global.gc();
+      }
+      
+      // Small delay to allow GC to complete
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
     
-    console.log(`Processed ${moneyFlowData.size} files successfully`);
+    // Process index files second
+    console.log("\n📊 Processing INDEX files...");
+    const allIndexFiles = await this.findAllCsvFiles('index/');
+    console.log(`Found ${allIndexFiles.length} index files`);
+    
+    processed = 0;
+    for (let i = 0; i < allIndexFiles.length; i += BATCH_SIZE) {
+      const batch = allIndexFiles.slice(i, i + BATCH_SIZE);
+      console.log(`📦 Processing index batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(allIndexFiles.length / BATCH_SIZE)} (${batch.length} files)`);
+      
+      // Process batch in parallel
+      const batchResults = await Promise.allSettled(
+        batch.map(async (blobName) => {
+          const code = this.extractStockCode(blobName);
+          
+          try {
+            const ohlcData = await this.loadOHLCDataFromAzure(blobName);
+            const mfiData = this.calculateMFI(ohlcData);
+            
+            if (mfiData.length > 0) {
+              return { code, mfiData, success: true, type: 'index' };
+            }
+            return { code, mfiData: [], success: false, error: 'No MFI data', type: 'index' };
+          } catch (error) {
+            console.error(`Error processing index ${blobName}:`, error);
+            return { code, mfiData: [], success: false, error: error instanceof Error ? error.message : 'Unknown error', type: 'index' };
+          }
+        })
+      );
+      
+      // Process batch results
+      let batchSuccess = 0;
+      let batchFailed = 0;
+      
+      batchResults.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          const { code, mfiData, success } = result.value;
+          if (success && mfiData.length > 0) {
+            moneyFlowData.set(code, mfiData);
+            batchSuccess++;
+          } else {
+            batchFailed++;
+          }
+        } else {
+          batchFailed++;
+        }
+        processed++;
+      });
+      
+      console.log(`📊 Index batch complete: ✅ ${batchSuccess} success, ❌ ${batchFailed} failed (${processed}/${allIndexFiles.length} total)`);
+      
+      // Force garbage collection after each batch
+      if (global.gc) {
+        global.gc();
+      }
+      
+      // Small delay to allow GC to complete
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    console.log(`\nProcessed ${moneyFlowData.size} files successfully (${allStockFiles.length} stocks + ${allIndexFiles.length} indices)`);
     return moneyFlowData;
   }
 

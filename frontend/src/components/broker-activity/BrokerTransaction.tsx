@@ -1,10 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { Calendar, Plus, X, RotateCcw } from 'lucide-react';
-import { useToast } from '../../contexts/ToastContext';
-import { getBrokerBackgroundClass, getBrokerTextClass } from '../../utils/brokerColors';
+import { Calendar, Plus, X, RotateCcw, Loader2 } from 'lucide-react';
+import { api } from '../../services/api';
 
 interface IssuerData {
   ticker: string;
@@ -14,61 +13,19 @@ interface IssuerData {
   sAvg: number;
 }
 
-// Deterministic pseudo-random generator based on string seed
-const seededRandom = (seed: string): number => {
-  let hash = 2166136261;
-  for (let i = 0; i < seed.length; i++) {
-    hash ^= seed.charCodeAt(i);
-    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
-  }
-  return (hash >>> 0) / 4294967295;
-};
 
-// Sample issuers universe
-const ISSUERS = [
-  'BBCA','BBRI','BMRI','BBNI','ARTO','BACA','TLKM','ISAT','FREN','EXCL',
-  'ASII','GOTO','ANTM','MDKA','ADRO','UNVR','ICBP','INDF','PGAS','MEDC',
-  'CPIN','JPFA','INCO','TPIA','TKIM','INKP','BRIS','SIDO','ERAA','ESSA'
-];
-
-// Generate issuers a broker bought on a date
-const generateIssuerBuyData = (date: string, brokerCode: string): IssuerData[] => {
-  const dateFactor = 0.8 + ((new Date(date).getDate() % 5) * 0.05);
-  const rows: IssuerData[] = [];
-  for (const ticker of ISSUERS) {
-    const r = seededRandom(brokerCode + ticker + date);
-    if (r > 0.45) {
-      const intensity = 0.5 + r; // 0.5..1.5
-      rows.push({
-        ticker,
-        rsVal: +(80 * intensity * dateFactor).toFixed(3),
-        hitLot: +(100 * intensity * dateFactor).toFixed(3),
-        rsFreq: +(200 * intensity * dateFactor).toFixed(3),
-        sAvg: +(1000 * intensity).toFixed(3),
-      });
+// Fetch broker transaction data from API
+const fetchBrokerTransactionData = async (brokerCode: string, date: string): Promise<IssuerData[]> => {
+  try {
+    const response = await api.getBrokerTransactionData(brokerCode, date);
+    if (response.success && response.data?.transactionData) {
+      return response.data.transactionData;
     }
+    return [];
+  } catch (error) {
+    console.error('Error fetching broker transaction data:', error);
+    return [];
   }
-  return rows.slice(0, 15);
-};
-
-// Generate issuers a broker sold on a date (negative values)
-const generateIssuerSellData = (date: string, brokerCode: string): IssuerData[] => {
-  const dateFactor = 0.8 + ((new Date(date).getDate() % 5) * 0.05);
-  const rows: IssuerData[] = [];
-  for (const ticker of ISSUERS) {
-    const r = seededRandom('S' + brokerCode + ticker + date);
-    if (r > 0.55) {
-      const intensity = 0.5 + r; // 0.5..1.5
-      rows.push({
-        ticker,
-        rsVal: -+(50 * intensity * dateFactor).toFixed(3),
-        hitLot: -+(80 * intensity * dateFactor).toFixed(3),
-        rsFreq: -+(150 * intensity * dateFactor).toFixed(3),
-        sAvg: +(900 * intensity).toFixed(3),
-      });
-    }
-  }
-  return rows.slice(0, 10);
 };
 
 const formatNumber = (num: number): string => {
@@ -93,7 +50,10 @@ const getTradingDays = (count: number): string[] => {
     
     // Skip weekends (Saturday = 6, Sunday = 0)
     if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-      dates.push(currentDate.toISOString().split('T')[0]);
+      const dateStr = currentDate.toISOString().split('T')[0];
+      if (dateStr) {
+        dates.push(dateStr);
+      }
     }
     
     // Go to previous day
@@ -101,7 +61,10 @@ const getTradingDays = (count: number): string[] => {
     
     // Safety check
     if (dates.length === 0 && currentDate.getTime() < today.getTime() - (30 * 24 * 60 * 60 * 1000)) {
-      dates.push(today.toISOString().split('T')[0]);
+      const todayStr = today.toISOString().split('T')[0];
+      if (todayStr) {
+        dates.push(todayStr);
+      }
       break;
     }
   }
@@ -115,7 +78,6 @@ const getLastThreeDays = (): string[] => {
 };
 
 export function BrokerTransaction() {
-  const { showToast } = useToast();
   const [selectedDates, setSelectedDates] = useState<string[]>(getLastThreeDays());
   const [startDate, setStartDate] = useState(() => {
     const threeDays = getLastThreeDays();
@@ -139,6 +101,40 @@ export function BrokerTransaction() {
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
   const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical'>('horizontal');
   const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
+  
+  // API data states
+  const [transactionData, setTransactionData] = useState<Map<string, IssuerData[]>>(new Map());
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load transaction data when selected broker or dates change
+  useEffect(() => {
+    const loadTransactionData = async () => {
+      if (!selectedBroker || selectedDates.length === 0) return;
+      
+      setIsLoading(true);
+      setError(null);
+      
+      try {
+        const newTransactionData = new Map<string, IssuerData[]>();
+        
+        // Load data for each selected date
+        for (const date of selectedDates) {
+          const data = await fetchBrokerTransactionData(selectedBroker, date);
+          newTransactionData.set(date, data);
+        }
+        
+        setTransactionData(newTransactionData);
+      } catch (err) {
+        setError('Failed to load transaction data');
+        console.error('Error loading transaction data:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadTransactionData();
+  }, [selectedBroker, selectedDates]);
 
   const addDateRange = () => {
     if (startDate && endDate) {
@@ -147,11 +143,7 @@ export function BrokerTransaction() {
       
       // Check if range is valid
       if (start > end) {
-        showToast({
-          type: 'warning',
-          title: 'Tanggal Tidak Valid',
-          message: 'Tanggal mulai harus sebelum tanggal akhir',
-        });
+        console.warn('Tanggal mulai harus sebelum tanggal akhir');
         return;
       }
       
@@ -161,7 +153,9 @@ export function BrokerTransaction() {
       
       while (currentDate <= end) {
         const dateString = currentDate.toISOString().split('T')[0];
-        dateArray.push(dateString);
+        if (dateString) {
+          dateArray.push(dateString);
+        }
         currentDate.setDate(currentDate.getDate() + 1);
       }
       
@@ -171,11 +165,7 @@ export function BrokerTransaction() {
       
       // Check if total dates would exceed 7
       if (sortedDates.length > 7) {
-        showToast({
-          type: 'warning',
-          title: 'Terlalu Banyak Tanggal',
-          message: 'Maksimal 7 tanggal yang bisa dipilih',
-        });
+        console.warn('Maksimal 7 tanggal yang bisa dipilih');
         return;
       }
       
@@ -238,26 +228,15 @@ export function BrokerTransaction() {
     setDateRangeMode('1day');
     const oneDay = getTradingDays(1);
     if (oneDay.length > 0) {
-      setStartDate(oneDay[0]);
-      setEndDate(oneDay[0]);
-    }
-  };
-
-  const resetToLastThreeDays = () => {
-    setSelectedDates(getLastThreeDays());
-    setDateRangeMode('3days');
-    const threeDays = getLastThreeDays();
-    if (threeDays.length > 0) {
-      const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-      setStartDate(sortedDates[0]);
-      setEndDate(sortedDates[sortedDates.length - 1]);
+      setStartDate(oneDay[0] || '');
+      setEndDate(oneDay[0] || '');
     }
   };
 
   const renderHorizontalView = () => {
-    if (!selectedBroker) return null;
-    const buyData = generateIssuerBuyData(selectedDates[0], selectedBroker);
-    const sellData = generateIssuerSellData(selectedDates[0], selectedBroker);
+    if (!selectedBroker || selectedDates.length === 0) return null;
+    const buyData = transactionData.get(selectedDates[0] || '') || [];
+    const sellData = transactionData.get(selectedDates[0] || '') || [];
     
     return (
       <div className="space-y-6">
@@ -296,7 +275,7 @@ export function BrokerTransaction() {
                       <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
                         <td className="py-1.5 px-2 font-medium bg-background sticky left-0 z-20 border-r border-border">{row.ticker}</td>
                         {selectedDates.map((date) => {
-                          const dayData = generateIssuerBuyData(date, selectedBroker).find(d => d.ticker === row.ticker) || row;
+                          const dayData = (transactionData.get(date) || []).find(d => d.ticker === row.ticker) || row;
                           return (
                             <React.Fragment key={date}>
                               <td className="text-right py-1.5 px-1 text-green-600">{formatValue(dayData.rsVal)}</td>
@@ -350,7 +329,7 @@ export function BrokerTransaction() {
                       <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
                         <td className="py-1.5 px-2 font-medium bg-background sticky left-0 z-20 border-r border-border">{row.ticker}</td>
                         {selectedDates.map((date) => {
-                          const dayData = generateIssuerSellData(date, selectedBroker).find(d => d.ticker === row.ticker) || row;
+                          const dayData = (transactionData.get(date) || []).find(d => d.ticker === row.ticker) || row;
                           return (
                             <React.Fragment key={date}>
                               <td className="text-right py-1.5 px-1 text-red-600">{formatValue(dayData.rsVal)}</td>
@@ -378,8 +357,8 @@ export function BrokerTransaction() {
     return (
       <div className="space-y-6">
         {selectedDates.map((date) => {
-          const buyData = generateIssuerBuyData(date, selectedBroker);
-          const sellData = generateIssuerSellData(date, selectedBroker);
+          const buyData = transactionData.get(date) || [];
+          const sellData = transactionData.get(date) || [];
           
           return (
             <div key={date} className="space-y-4">
@@ -465,6 +444,21 @@ export function BrokerTransaction() {
 
   return (
     <div className="space-y-6">
+      {/* Loading State */}
+      {isLoading && (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-6 h-6 animate-spin mr-2" />
+          <span>Loading transaction data...</span>
+        </div>
+      )}
+
+      {/* Error State */}
+      {error && (
+        <div className="flex items-center justify-center py-8 text-red-600">
+          <span>{error}</span>
+        </div>
+      )}
+
       {/* Top Controls */}
       <Card>
         <CardHeader>
@@ -667,7 +661,7 @@ export function BrokerTransaction() {
       </Card>
 
       {/* Main Data Display */}
-      {layoutMode === 'horizontal' ? renderHorizontalView() : renderVerticalView()}
+      {!isLoading && !error && (layoutMode === 'horizontal' ? renderHorizontalView() : renderVerticalView())}
     </div>
   );
 }

@@ -97,6 +97,14 @@ export default function MarketRotationRRG() {
   const [showSectorScreenerSearchDropdown, setShowSectorScreenerSearchDropdown] = useState(false);
   const [stockScreenerSearchDropdownIndex, setStockScreenerSearchDropdownIndex] = useState(-1);
   const [sectorScreenerSearchDropdownIndex, setSectorScreenerSearchDropdownIndex] = useState(-1);
+  
+  // Table search and sorting states
+  const [stockTableSearchQuery, setStockTableSearchQuery] = useState('');
+  const [sectorTableSearchQuery, setSectorTableSearchQuery] = useState('');
+  const [stockSortColumn, setStockSortColumn] = useState<string>('');
+  const [stockSortDirection, setStockSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [sectorSortColumn, setSectorSortColumn] = useState<string>('');
+  const [sectorSortDirection, setSectorSortDirection] = useState<'asc' | 'desc'>('asc');
   const searchRef = useRef<HTMLDivElement>(null);
   const indexSearchRef = useRef<HTMLDivElement>(null);
   const stockScreenerSearchRef = useRef<HTMLDivElement>(null);
@@ -261,16 +269,18 @@ export default function MarketRotationRRG() {
                               item['sector_name'] || item['SECTOR'] || 'Unknown';
             
             if (index < 3) {
-              console.log(`📊 Item ${index}:`, {
+              console.log(`📊 Sector Item ${index}:`, {
                 raw: item,
                 sectorName: sectorName,
-                allKeys: Object.keys(item)
+                allKeys: Object.keys(item),
+                finalSymbol: sectorName,
+                finalSector: sectorName
               });
             }
             
             return {
-              symbol: item.Symbol || item.symbol || item.name || 'Unknown',
-              sector: sectorName,
+              symbol: sectorName, // For sector data, symbol = sector name
+              sector: sectorName, // For sector data, sector = sector name (same as symbol)
               rsRatio: parseFloat(item['RS-Ratio'] ?? item['RS-Ratio'] ?? item.rs_ratio ?? item.rsRatio ?? 0),
               rsMomentum: parseFloat(item['RS-Momentum'] ?? item['RS-Momentum'] ?? item.rs_momentum ?? item.rsMomentum ?? 0),
               performance: parseFloat(item.Performance ?? item['Performance'] ?? item.performance ?? 0),
@@ -819,7 +829,7 @@ export default function MarketRotationRRG() {
       
       const newSector = {
         symbol: sectorName,
-        sector: actualSectorData?.sector || sectorName, // Use actual sector name from CSV data
+        sector: sectorName, // For sector screener, the sector name is the same as the symbol
         rsRatio: actualSectorData?.rsRatio || Math.random() * 20 + 90,
         rsMomentum: actualSectorData?.rsMomentum || Math.random() * 20 + 90,
         performance: actualSectorData?.performance || (Math.random() - 0.5) * 10,
@@ -834,13 +844,6 @@ export default function MarketRotationRRG() {
     setSectorScreenerSearchDropdownIndex(-1);
   }, [screenerSectors, sectorOptions, loadedSectorData]);
 
-  const removeFromScreener = useCallback((symbol: string) => {
-    setScreenerStocks(prev => prev.filter(stock => stock.symbol !== symbol));
-  }, []);
-
-  const removeFromSectorScreener = useCallback((symbol: string) => {
-    setScreenerSectors(prev => prev.filter(sector => sector.symbol !== symbol));
-  }, []);
 
   const getBadgeVariant = useCallback((trend: string) => {
     switch (trend) {
@@ -851,6 +854,95 @@ export default function MarketRotationRRG() {
       default: return 'secondary';
     }
   }, []);
+
+  // Sorting and filtering functions
+  const getSortedAndFilteredStocks = useCallback(() => {
+    let filtered = screenerStocks;
+    
+    // Apply search filter
+    if (stockTableSearchQuery) {
+      filtered = filtered.filter(item => 
+        item.symbol.toLowerCase().includes(stockTableSearchQuery.toLowerCase()) ||
+        item.sector.toLowerCase().includes(stockTableSearchQuery.toLowerCase()) ||
+        item.trend.toLowerCase().includes(stockTableSearchQuery.toLowerCase())
+      );
+    }
+    
+    // Apply sorting
+    if (stockSortColumn) {
+      filtered = [...filtered].sort((a, b) => {
+        let aVal = a[stockSortColumn as keyof typeof a];
+        let bVal = b[stockSortColumn as keyof typeof b];
+        
+        // Handle numeric values
+        if (stockSortColumn === 'rsRatio' || stockSortColumn === 'rsMomentum' || stockSortColumn === 'performance') {
+          aVal = Number(aVal) || 0;
+          bVal = Number(bVal) || 0;
+        }
+        
+        if (stockSortDirection === 'asc') {
+          return aVal > bVal ? 1 : -1;
+        } else {
+          return aVal < bVal ? 1 : -1;
+        }
+      });
+    }
+    
+    return filtered;
+  }, [screenerStocks, stockTableSearchQuery, stockSortColumn, stockSortDirection]);
+
+  const getSortedAndFilteredSectors = useCallback(() => {
+    let filtered = screenerSectors;
+    
+    // Apply search filter
+    if (sectorTableSearchQuery) {
+      filtered = filtered.filter(item => 
+        item.symbol.toLowerCase().includes(sectorTableSearchQuery.toLowerCase()) ||
+        item.sector.toLowerCase().includes(sectorTableSearchQuery.toLowerCase()) ||
+        item.trend.toLowerCase().includes(sectorTableSearchQuery.toLowerCase())
+      );
+    }
+    
+    // Apply sorting
+    if (sectorSortColumn) {
+      filtered = [...filtered].sort((a, b) => {
+        let aVal = a[sectorSortColumn as keyof typeof a];
+        let bVal = b[sectorSortColumn as keyof typeof b];
+        
+        // Handle numeric values
+        if (sectorSortColumn === 'rsRatio' || sectorSortColumn === 'rsMomentum' || sectorSortColumn === 'performance') {
+          aVal = Number(aVal) || 0;
+          bVal = Number(bVal) || 0;
+        }
+        
+        if (sectorSortDirection === 'asc') {
+          return aVal > bVal ? 1 : -1;
+        } else {
+          return aVal < bVal ? 1 : -1;
+        }
+      });
+    }
+    
+    return filtered;
+  }, [screenerSectors, sectorTableSearchQuery, sectorSortColumn, sectorSortDirection]);
+
+  const handleStockSort = (column: string) => {
+    if (stockSortColumn === column) {
+      setStockSortDirection(stockSortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setStockSortColumn(column);
+      setStockSortDirection('asc');
+    }
+  };
+
+  const handleSectorSort = (column: string) => {
+    if (sectorSortColumn === column) {
+      setSectorSortDirection(sectorSortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSectorSortColumn(column);
+      setSectorSortDirection('asc');
+    }
+  };
 
   // Memoized filtered data for performance
   const filteredTrajectoryData = useMemo(() => 
@@ -1616,24 +1708,74 @@ export default function MarketRotationRRG() {
               </div>
             ) : (
               <div className="space-y-4">
-                {/* <div className="flex items-center gap-2">
-                  <h4 className="text-sm font-semibold text-foreground">Stocks ({screenerStocks.length})</h4>
-                </div> */}
+                {/* Table Search Bar */}
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <input
+                      type="text"
+                      placeholder="Search in table..."
+                      value={stockTableSearchQuery}
+                      onChange={(e) => setStockTableSearchQuery(e.target.value)}
+                      className="w-full pl-8 pr-8 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors"
+                    />
+                    {stockTableSearchQuery && (
+                      <button
+                        onClick={() => setStockTableSearchQuery('')}
+                        className="absolute right-2 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    {getSortedAndFilteredStocks().length} of {screenerStocks.length} items
+                  </div>
+                </div>
                 
                 {/* Desktop/Table view */}
-                <div className="hidden md:grid grid-cols-7 gap-2 text-xs font-medium text-muted-foreground border-b pb-2">
-                  <div>Symbol</div>
-                  <div>Sector</div>
-                  <div>RS-Ratio</div>
-                  <div>RS-Momentum</div>
-                  <div>Performance</div>
-                  <div>Trend</div>
-                  <div className="text-center">Action</div>
+                <div className="hidden md:grid grid-cols-6 gap-2 text-xs font-medium text-muted-foreground border-b pb-2">
+                  <button 
+                    onClick={() => handleStockSort('symbol')}
+                    className="text-left hover:text-foreground transition-colors flex items-center gap-1"
+                  >
+                    Symbol {stockSortColumn === 'symbol' && (stockSortDirection === 'asc' ? '↑' : '↓')}
+                  </button>
+                  <button 
+                    onClick={() => handleStockSort('sector')}
+                    className="text-left hover:text-foreground transition-colors flex items-center gap-1"
+                  >
+                    Sector {stockSortColumn === 'sector' && (stockSortDirection === 'asc' ? '↑' : '↓')}
+                  </button>
+                  <button 
+                    onClick={() => handleStockSort('rsRatio')}
+                    className="text-left hover:text-foreground transition-colors flex items-center gap-1"
+                  >
+                    RS-Ratio {stockSortColumn === 'rsRatio' && (stockSortDirection === 'asc' ? '↑' : '↓')}
+                  </button>
+                  <button 
+                    onClick={() => handleStockSort('rsMomentum')}
+                    className="text-left hover:text-foreground transition-colors flex items-center gap-1"
+                  >
+                    RS-Momentum {stockSortColumn === 'rsMomentum' && (stockSortDirection === 'asc' ? '↑' : '↓')}
+                  </button>
+                  <button 
+                    onClick={() => handleStockSort('performance')}
+                    className="text-left hover:text-foreground transition-colors flex items-center gap-1"
+                  >
+                    Performance {stockSortColumn === 'performance' && (stockSortDirection === 'asc' ? '↑' : '↓')}
+                  </button>
+                  <button 
+                    onClick={() => handleStockSort('trend')}
+                    className="text-left hover:text-foreground transition-colors flex items-center gap-1"
+                  >
+                    Trend {stockSortColumn === 'trend' && (stockSortDirection === 'asc' ? '↑' : '↓')}
+                  </button>
                 </div>
                 <div className="hidden md:block max-h-80 overflow-y-auto pr-1">
                   <div className="space-y-2">
-                    {screenerStocks.slice(0, 15).map((item, index) => (
-                      <div key={index} className="grid grid-cols-7 gap-2 items-center border-b border-border/50 py-2 text-xs">
+                    {getSortedAndFilteredStocks().map((item, index) => (
+                      <div key={index} className="grid grid-cols-6 gap-2 items-center border-b border-border/50 py-2 text-xs">
                         <div className="font-medium text-card-foreground">{item.symbol}</div>
                         <div className="text-muted-foreground">{item.sector}</div>
                         <div className="text-card-foreground">{item.rsRatio.toFixed(1)}</div>
@@ -1646,15 +1788,6 @@ export default function MarketRotationRRG() {
                             {item.trend}
                           </Badge>
                         </div>
-                        <div className="flex justify-center">
-                          <button
-                            onClick={() => removeFromScreener(item.symbol)}
-                            className="flex h-6 w-6 items-center justify-center rounded-md p-0 transition-colors hover:bg-muted/50 hover:shadow-sm opacity-60 hover:opacity-100"
-                            title={`Remove ${item.symbol} from screener`}
-                          >
-                            <X className="w-3 h-3 text-muted-foreground hover:text-destructive" />
-                          </button>
-                        </div>
                       </div>
                     ))}
                   </div>
@@ -1662,7 +1795,7 @@ export default function MarketRotationRRG() {
 
                 {/* Mobile stacked view */}
                 <div className="grid gap-3 md:hidden">
-                  {screenerStocks.slice(0, 15).map((item, index) => (
+                  {getSortedAndFilteredStocks().map((item, index) => (
                     <div key={index} className="rounded-lg border border-border bg-card p-4 shadow-sm">
                       <div className="flex items-center justify-between">
                         <div className="text-sm font-semibold text-card-foreground">{item.symbol}</div>
@@ -1681,16 +1814,6 @@ export default function MarketRotationRRG() {
                         <span className={`text-right ${item.performance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                           {item.performance >= 0 ? '+' : ''}{item.performance.toFixed(1)}%
                         </span>
-                      </div>
-                      <div className="mt-3 flex justify-end">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-xs text-muted-foreground hover:text-destructive"
-                          onClick={() => removeFromScreener(item.symbol)}
-                        >
-                          Remove
-                        </Button>
                       </div>
                     </div>
                   ))}
@@ -1836,51 +1959,87 @@ export default function MarketRotationRRG() {
               </div>
             ) : (
               <div className="space-y-4">
-                {/* <div className="flex items-center gap-2">
-                  <h4 className="text-sm font-semibold text-foreground">Sectors </h4>
-                </div> */}
-                
-                {/* Desktop/Table view */}
-                <div className="hidden md:grid grid-cols-6 gap-2 text-xs font-medium text-muted-foreground border-b pb-2">
-                  <div>Sector Name</div>
-              <div>RS-Ratio</div>
-              <div>RS-Momentum</div>
-              <div>Performance</div>
-              <div>Trend</div>
-                  <div className="text-center">Action</div>
-            </div>
-                <div className="hidden md:block max-h-80 overflow-y-auto pr-1">
-                  <div className="space-y-2">
-                    {screenerSectors.slice(0, 15).map((item, index) => (
-                      <div key={index} className="grid grid-cols-6 gap-2 items-center border-b border-border/50 py-2 text-xs">
-                  <div className="font-medium text-card-foreground">{item.symbol}</div>
-                        <div className="text-card-foreground">{item.rsRatio.toFixed(1)}</div>
-                        <div className="text-card-foreground">{item.rsMomentum.toFixed(1)}</div>
-                  <div className={item.performance >= 0 ? 'text-green-600' : 'text-red-600'}>
-                    {item.performance >= 0 ? '+' : ''}{item.performance.toFixed(1)}%
+                {/* Table Search Bar */}
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <input
+                      type="text"
+                      placeholder="Search in table..."
+                      value={sectorTableSearchQuery}
+                      onChange={(e) => setSectorTableSearchQuery(e.target.value)}
+                      className="w-full pl-8 pr-8 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors"
+                    />
+                    {sectorTableSearchQuery && (
+                      <button
+                        onClick={() => setSectorTableSearchQuery('')}
+                        className="absolute right-2 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
-                  <div>
-                    <Badge variant={getBadgeVariant(item.trend)} className="text-xs">
-                      {item.trend}
-                    </Badge>
-                  </div>
-                        <div className="flex justify-center">
-                    <button
-                            onClick={() => removeFromSectorScreener(item.symbol)}
-                            className="flex h-6 w-6 items-center justify-center rounded-md p-0 transition-colors hover:bg-muted/50 hover:shadow-sm opacity-60 hover:opacity-100"
-                      title={`Remove ${item.symbol} from screener`}
-                    >
-                      <X className="w-3 h-3 text-muted-foreground hover:text-destructive" />
-                    </button>
+                  <div className="text-sm text-muted-foreground">
+                    {getSortedAndFilteredSectors().length} of {screenerSectors.length} items
                   </div>
                 </div>
-              ))}
+                
+                {/* Desktop/Table view */}
+                <div className="hidden md:grid grid-cols-5 gap-2 text-xs font-medium text-muted-foreground border-b pb-2">
+                  <button 
+                    onClick={() => handleSectorSort('symbol')}
+                    className="text-left hover:text-foreground transition-colors flex items-center gap-1"
+                  >
+                    Sector Name {sectorSortColumn === 'symbol' && (sectorSortDirection === 'asc' ? '↑' : '↓')}
+                  </button>
+                  <button 
+                    onClick={() => handleSectorSort('rsRatio')}
+                    className="text-left hover:text-foreground transition-colors flex items-center gap-1"
+                  >
+                    RS-Ratio {sectorSortColumn === 'rsRatio' && (sectorSortDirection === 'asc' ? '↑' : '↓')}
+                  </button>
+                  <button 
+                    onClick={() => handleSectorSort('rsMomentum')}
+                    className="text-left hover:text-foreground transition-colors flex items-center gap-1"
+                  >
+                    RS-Momentum {sectorSortColumn === 'rsMomentum' && (sectorSortDirection === 'asc' ? '↑' : '↓')}
+                  </button>
+                  <button 
+                    onClick={() => handleSectorSort('performance')}
+                    className="text-left hover:text-foreground transition-colors flex items-center gap-1"
+                  >
+                    Performance {sectorSortColumn === 'performance' && (sectorSortDirection === 'asc' ? '↑' : '↓')}
+                  </button>
+                  <button 
+                    onClick={() => handleSectorSort('trend')}
+                    className="text-left hover:text-foreground transition-colors flex items-center gap-1"
+                  >
+                    Trend {sectorSortColumn === 'trend' && (sectorSortDirection === 'asc' ? '↑' : '↓')}
+                  </button>
+                </div>
+                <div className="hidden md:block max-h-80 overflow-y-auto pr-1">
+                  <div className="space-y-2">
+                    {getSortedAndFilteredSectors().map((item, index) => (
+                      <div key={index} className="grid grid-cols-5 gap-2 items-center border-b border-border/50 py-2 text-xs">
+                        <div className="font-medium text-card-foreground">{item.symbol}</div>
+                        <div className="text-card-foreground">{item.rsRatio.toFixed(1)}</div>
+                        <div className="text-card-foreground">{item.rsMomentum.toFixed(1)}</div>
+                        <div className={item.performance >= 0 ? 'text-green-600' : 'text-red-600'}>
+                          {item.performance >= 0 ? '+' : ''}{item.performance.toFixed(1)}%
+                        </div>
+                        <div>
+                          <Badge variant={getBadgeVariant(item.trend)} className="text-xs">
+                            {item.trend}
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
             </div>
           </div>
 
                 {/* Mobile stacked view */}
                 <div className="grid gap-3 md:hidden">
-                  {screenerSectors.slice(0, 15).map((item, index) => (
+                  {getSortedAndFilteredSectors().map((item, index) => (
                     <div key={index} className="rounded-lg border border-border bg-card p-4 shadow-sm">
                       <div className="flex items-center justify-between">
                         <div className="text-sm font-semibold text-card-foreground">{item.symbol}</div>
@@ -1900,16 +2059,6 @@ export default function MarketRotationRRG() {
                           {item.performance >= 0 ? '+' : ''}{item.performance.toFixed(1)}%
                         </span>
       </div>
-                      <div className="mt-3 flex justify-end">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-xs text-muted-foreground hover:text-destructive"
-                          onClick={() => removeFromSectorScreener(item.symbol)}
-                        >
-                          Remove
-                        </Button>
-                      </div>
                     </div>
                   ))}
                 </div>

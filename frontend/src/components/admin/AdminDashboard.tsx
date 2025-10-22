@@ -23,8 +23,9 @@ function formatJakartaTime(dateString: string): string {
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
-    second: '2-digit'
-  });
+    second: '2-digit',
+    hour12: false // Use 24-hour format
+  }).replace(/,/g, ' '); // Replace comma with space for better readability
 }
 
 export function AdminDashboard() {
@@ -34,6 +35,9 @@ export function AdminDashboard() {
   // Debug section states
   const [rrcStatus, setRrcStatus] = useState<any>(null);
   const [rrgStatus, setRrgStatus] = useState<any>(null);
+  const [seasonalStatus, setSeasonalStatus] = useState<any>(null);
+  const [trendFilterStatus, setTrendFilterStatus] = useState<any>(null);
+  const [generationStatus, setGenerationStatus] = useState<any>(null);
   const [debugMessage, setDebugMessage] = useState<string>('');
   
   // Data scheduler states
@@ -56,13 +60,19 @@ export function AdminDashboard() {
 
   const loadStatus = async () => {
     try {
-      const [rrcResult, rrgResult] = await Promise.all([
+      const [rrcResult, rrgResult, seasonalResult, trendFilterResult, generationResult] = await Promise.all([
         api.getRRCStatus(),
-        api.getRRGStatus()
+        api.getRRGStatus(),
+        api.getSeasonalityStatus(),
+        api.getTrendFilterStatus(),
+        api.getGenerationStatus()
       ]);
       
       if (rrcResult.success) setRrcStatus(rrcResult.data);
       if (rrgResult.success) setRrgStatus(rrgResult.data);
+      if (seasonalResult.success) setSeasonalStatus(seasonalResult.data);
+      if (trendFilterResult.success) setTrendFilterStatus(trendFilterResult.data);
+      if (generationResult.success) setGenerationStatus(generationResult.data);
     } catch (error) {
       console.error('Error loading status:', error);
     }
@@ -174,10 +184,10 @@ export function AdminDashboard() {
   };
 
   const handleStopGeneration = async () => {
-    setDebugMessage('Stopping generation...');
+    setDebugMessage('Stopping all generation processes...');
     
     try {
-      // Stop both RRC and RRG generation
+      // Stop all generation processes
       const [rrcResult, rrgResult] = await Promise.all([
         api.stopRRCGeneration(),
         api.stopRRGGeneration()
@@ -264,17 +274,28 @@ export function AdminDashboard() {
       {/* User Statistics */}
       <UserStats key={`stats-${refreshKey}`} />
 
-      {/* Data Generation Debug Section */}
+
+      {/* User Management and Recent Users */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <UserManagement key={`management-${refreshKey}`} />
+        </div>
+        <div>
+          <RecentUsers key={`recent-${refreshKey}`} />
+        </div>
+      </div>
+
+      {/* Data Scheduler Control */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <AlertCircle className="w-5 h-5" />
-            Data Generation Control
+            <Database className="w-5 h-5" />
+            Data Scheduler Control
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-6">
           {/* Status Overview */}
-          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
             <div className="flex items-center justify-between p-4 border rounded-lg">
               <div className="flex items-center gap-3">
                 {getStatusIcon(rrcStatus?.isGenerating || false)}
@@ -300,10 +321,62 @@ export function AdminDashboard() {
               </div>
               {getStatusBadge(rrgStatus?.isGenerating || false)}
             </div>
+
+            <div className="flex items-center justify-between p-4 border rounded-lg">
+              <div className="flex items-center gap-3">
+                {getStatusIcon(seasonalStatus?.isGenerating || false)}
+                <div>
+                  <h3 className="font-medium">Seasonal Calculation</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {seasonalStatus?.progress?.current || 'Ready'}
+                  </p>
+                </div>
+              </div>
+              {getStatusBadge(seasonalStatus?.isGenerating || false)}
+            </div>
+
+            <div className="flex items-center justify-between p-4 border rounded-lg">
+              <div className="flex items-center gap-3">
+                {getStatusIcon(trendFilterStatus?.isGenerating || false)}
+                <div>
+                  <h3 className="font-medium">Trend Filter</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {trendFilterStatus?.progress?.current || 'Ready'}
+                  </p>
+                </div>
+              </div>
+              {getStatusBadge(trendFilterStatus?.isGenerating || false)}
+            </div>
+
+            <div className="flex items-center justify-between p-4 border rounded-lg">
+              <div className="flex items-center gap-3">
+                {getStatusIcon(generationStatus?.isGenerating || false)}
+                <div>
+                  <h3 className="font-medium">Phase 1 Calculations</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {generationStatus?.progress?.current || 'Ready'}
+                  </p>
+                </div>
+              </div>
+              {getStatusBadge(generationStatus?.isGenerating || false)}
+            </div>
+
+            <div className="flex items-center justify-between p-4 border rounded-lg">
+              <div className="flex items-center gap-3">
+                {getStatusIcon(generationStatus?.phase2Generating || false)}
+                <div>
+                  <h3 className="font-medium">Phase 2 Calculations</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {generationStatus?.phase2Progress?.current || 'Ready'}
+                  </p>
+                </div>
+              </div>
+              {getStatusBadge(generationStatus?.phase2Generating || false)}
+            </div>
           </div>
 
           {/* Progress Bars */}
-          {(rrcStatus?.isGenerating || rrgStatus?.isGenerating) && (
+          {(rrcStatus?.isGenerating || rrgStatus?.isGenerating || seasonalStatus?.isGenerating || trendFilterStatus?.isGenerating || generationStatus?.isGenerating || generationStatus?.phase2Generating) && (
             <div className="space-y-3">
               {rrcStatus?.isGenerating && rrcStatus?.progress && (
                 <div>
@@ -338,44 +411,82 @@ export function AdminDashboard() {
                   </div>
                 </div>
               )}
+
+              {seasonalStatus?.isGenerating && seasonalStatus?.progress && (
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span>Seasonal Progress</span>
+                    <span>{seasonalStatus.progress.completed}/{seasonalStatus.progress.total}</span>
+                  </div>
+                  <div className="w-full bg-muted rounded-full h-2">
+                    <div 
+                      className="bg-purple-500 h-2 rounded-full transition-all duration-300" 
+                      style={{ 
+                        width: `${(seasonalStatus.progress.completed / seasonalStatus.progress.total) * 100}%` 
+                      }} 
+                    />
+                  </div>
+                </div>
+              )}
+
+              {trendFilterStatus?.isGenerating && trendFilterStatus?.progress && (
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span>Trend Filter Progress</span>
+                    <span>{trendFilterStatus.progress.completed}/{trendFilterStatus.progress.total}</span>
+                  </div>
+                  <div className="w-full bg-muted rounded-full h-2">
+                    <div 
+                      className="bg-orange-500 h-2 rounded-full transition-all duration-300" 
+                      style={{ 
+                        width: `${(trendFilterStatus.progress.completed / trendFilterStatus.progress.total) * 100}%` 
+                      }} 
+                    />
+                  </div>
+                </div>
+              )}
+
+              {generationStatus?.isGenerating && generationStatus?.progress && (
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span>Phase 1 Progress</span>
+                    <span>{generationStatus.progress.completed}/{generationStatus.progress.total}</span>
+                  </div>
+                  <div className="w-full bg-muted rounded-full h-2">
+                    <div 
+                      className="bg-cyan-500 h-2 rounded-full transition-all duration-300" 
+                      style={{ 
+                        width: `${(generationStatus.progress.completed / generationStatus.progress.total) * 100}%` 
+                      }} 
+                    />
+                  </div>
+                </div>
+              )}
+
+              {generationStatus?.phase2Generating && generationStatus?.phase2Progress && (
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span>Phase 2 Progress</span>
+                    <span>{generationStatus.phase2Progress.completed}/{generationStatus.phase2Progress.total}</span>
+                  </div>
+                  <div className="w-full bg-muted rounded-full h-2">
+                    <div 
+                      className="bg-indigo-500 h-2 rounded-full transition-all duration-300" 
+                      style={{ 
+                        width: `${(generationStatus.phase2Progress.completed / generationStatus.phase2Progress.total) * 100}%` 
+                      }} 
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           {/* Control Buttons */}
           <div className="flex flex-wrap gap-2">
             <Button
-              onClick={() => handleTriggerUpdate('rrc')}
-              disabled={rrcStatus?.isGenerating}
-              variant="outline"
-              size="sm"
-            >
-              <Play className="w-3 h-3 mr-1" />
-              Trigger RRC
-            </Button>
-            
-            <Button
-              onClick={() => handleTriggerUpdate('rrg')}
-              disabled={rrgStatus?.isGenerating}
-              variant="outline"
-              size="sm"
-            >
-              <Play className="w-3 h-3 mr-1" />
-              Trigger RRG
-            </Button>
-            
-            <Button
-              onClick={() => handleTriggerUpdate('all')}
-              disabled={rrcStatus?.isGenerating || rrgStatus?.isGenerating}
-              variant="outline"
-              size="sm"
-            >
-              <Play className="w-3 h-3 mr-1" />
-              Trigger Both
-            </Button>
-            
-            <Button
               onClick={handleStopGeneration}
-              disabled={!rrcStatus?.isGenerating && !rrgStatus?.isGenerating}
+              disabled={!rrcStatus?.isGenerating && !rrgStatus?.isGenerating && !seasonalStatus?.isGenerating && !trendFilterStatus?.isGenerating && !generationStatus?.isGenerating && !generationStatus?.phase2Generating}
               variant="destructive"
               size="sm"
             >
@@ -400,251 +511,311 @@ export function AdminDashboard() {
             </div>
           )}
 
+          {/* Data Input Controls */}
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold">Data Input Updates</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* Stock Data */}
+              <div className="p-4 border rounded-lg">
+                <h4 className="font-semibold mb-2">Stock Data</h4>
+                <p className="text-sm text-muted-foreground mb-3">Update stock data from TICMI API</p>
+                <Button
+                  onClick={() => handleTriggerDataUpdate('stock')}
+                  disabled={triggering['stock']}
+                  className="w-full"
+                  size="sm"
+                >
+                  {triggering['stock'] ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-2" />
+                  )}
+                  {triggering['stock'] ? 'Updating...' : 'Trigger Update'}
+                </Button>
+              </div>
+
+              {/* Index Data */}
+              <div className="p-4 border rounded-lg">
+                <h4 className="font-semibold mb-2">Index Data</h4>
+                <p className="text-sm text-muted-foreground mb-3">Update index data from TICMI API</p>
+                <Button
+                  onClick={() => handleTriggerDataUpdate('index')}
+                  disabled={triggering['index']}
+                  className="w-full"
+                  size="sm"
+                >
+                  {triggering['index'] ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-2" />
+                  )}
+                  {triggering['index'] ? 'Updating...' : 'Trigger Update'}
+                </Button>
+              </div>
+
+              {/* Done Summary Data */}
+              <div className="p-4 border rounded-lg">
+                <h4 className="font-semibold mb-2">Done Summary Data</h4>
+                <p className="text-sm text-muted-foreground mb-3">Update done summary from GCS</p>
+                <Button
+                  onClick={() => handleTriggerDataUpdate('done-summary')}
+                  disabled={triggering['done-summary']}
+                  className="w-full"
+                  size="sm"
+                >
+                  {triggering['done-summary'] ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-2" />
+                  )}
+                  {triggering['done-summary'] ? 'Updating...' : 'Trigger Update'}
+                </Button>
+              </div>
+
+              {/* Shareholders Data */}
+              <div className="p-4 border rounded-lg">
+                <h4 className="font-semibold mb-2">Shareholders Data</h4>
+                <p className="text-sm text-muted-foreground mb-3">Update shareholders data (Monthly)</p>
+                <Button
+                  onClick={() => handleTriggerDataUpdate('shareholders')}
+                  disabled={triggering['shareholders']}
+                  className="w-full"
+                  size="sm"
+                >
+                  {triggering['shareholders'] ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-2" />
+                  )}
+                  {triggering['shareholders'] ? 'Updating...' : 'Trigger Update'}
+                </Button>
+              </div>
+
+              {/* Holding Data */}
+              <div className="p-4 border rounded-lg">
+                <h4 className="font-semibold mb-2">Holding Data</h4>
+                <p className="text-sm text-muted-foreground mb-3">Update holding data (Monthly)</p>
+                <Button
+                  onClick={() => handleTriggerDataUpdate('holding')}
+                  disabled={triggering['holding']}
+                  className="w-full"
+                  size="sm"
+                >
+                  {triggering['holding'] ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-2" />
+                  )}
+                  {triggering['holding'] ? 'Updating...' : 'Trigger Update'}
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Calculation Controls */}
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold">Data Calculations</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* RRC Calculation */}
+              <div className="p-4 border rounded-lg">
+                <h4 className="font-semibold mb-2">RRC Calculation</h4>
+                <p className="text-sm text-muted-foreground mb-3">Calculate Relative Rotation Chart data</p>
+                <Button
+                  onClick={() => handleTriggerDataUpdate('rrc')}
+                  disabled={triggering['rrc']}
+                  className="w-full"
+                  size="sm"
+                >
+                  {triggering['rrc'] ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-2" />
+                  )}
+                  {triggering['rrc'] ? 'Calculating...' : 'Trigger Calculation'}
+                </Button>
+              </div>
+
+              {/* RRG Calculation */}
+              <div className="p-4 border rounded-lg">
+                <h4 className="font-semibold mb-2">RRG Calculation</h4>
+                <p className="text-sm text-muted-foreground mb-3">Calculate Relative Rotation Graph data</p>
+                <Button
+                  onClick={() => handleTriggerDataUpdate('rrg')}
+                  disabled={triggering['rrg']}
+                  className="w-full"
+                  size="sm"
+                >
+                  {triggering['rrg'] ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-2" />
+                  )}
+                  {triggering['rrg'] ? 'Calculating...' : 'Trigger Calculation'}
+                </Button>
+              </div>
+
+              {/* Seasonal Calculation */}
+              <div className="p-4 border rounded-lg">
+                <h4 className="font-semibold mb-2">Seasonal Calculation</h4>
+                <p className="text-sm text-muted-foreground mb-3">Calculate seasonal analysis data</p>
+                <Button
+                  onClick={() => handleTriggerDataUpdate('seasonal')}
+                  disabled={triggering['seasonal']}
+                  className="w-full"
+                  size="sm"
+                >
+                  {triggering['seasonal'] ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-2" />
+                  )}
+                  {triggering['seasonal'] ? 'Calculating...' : 'Trigger Calculation'}
+                </Button>
+              </div>
+
+              {/* Trend Filter Calculation */}
+              <div className="p-4 border rounded-lg">
+                <h4 className="font-semibold mb-2">Trend Filter Calculation</h4>
+                <p className="text-sm text-muted-foreground mb-3">Calculate trend filter data</p>
+                <Button
+                  onClick={() => handleTriggerDataUpdate('trend-filter')}
+                  disabled={triggering['trend-filter']}
+                  className="w-full"
+                  size="sm"
+                >
+                  {triggering['trend-filter'] ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-2" />
+                  )}
+                  {triggering['trend-filter'] ? 'Calculating...' : 'Trigger Calculation'}
+                </Button>
+              </div>
+
+              {/* Accumulation Distribution */}
+              <div className="p-4 border rounded-lg">
+                <h4 className="font-semibold mb-2">Accumulation Distribution</h4>
+                <p className="text-sm text-muted-foreground mb-3">Calculate accumulation distribution data</p>
+                <Button
+                  onClick={() => handleTriggerDataUpdate('accumulation')}
+                  disabled={triggering['accumulation']}
+                  className="w-full"
+                  size="sm"
+                >
+                  {triggering['accumulation'] ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-2" />
+                  )}
+                  {triggering['accumulation'] ? 'Calculating...' : 'Trigger Calculation'}
+                </Button>
+              </div>
+
+              {/* Bid/Ask Footprint */}
+              <div className="p-4 border rounded-lg">
+                <h4 className="font-semibold mb-2">Bid/Ask Footprint</h4>
+                <p className="text-sm text-muted-foreground mb-3">Calculate bid/ask footprint data</p>
+                <Button
+                  onClick={() => handleTriggerDataUpdate('bidask')}
+                  disabled={triggering['bidask']}
+                  className="w-full"
+                  size="sm"
+                >
+                  {triggering['bidask'] ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-2" />
+                  )}
+                  {triggering['bidask'] ? 'Calculating...' : 'Trigger Calculation'}
+                </Button>
+              </div>
+
+              {/* Broker Data */}
+              <div className="p-4 border rounded-lg">
+                <h4 className="font-semibold mb-2">Broker Data</h4>
+                <p className="text-sm text-muted-foreground mb-3">Calculate broker data analysis</p>
+                <Button
+                  onClick={() => handleTriggerDataUpdate('broker-data')}
+                  disabled={triggering['broker-data']}
+                  className="w-full"
+                  size="sm"
+                >
+                  {triggering['broker-data'] ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-2" />
+                  )}
+                  {triggering['broker-data'] ? 'Calculating...' : 'Trigger Calculation'}
+                </Button>
+              </div>
+
+              {/* Broker Inventory */}
+              <div className="p-4 border rounded-lg">
+                <h4 className="font-semibold mb-2">Broker Inventory</h4>
+                <p className="text-sm text-muted-foreground mb-3">Calculate broker inventory data</p>
+                <Button
+                  onClick={() => handleTriggerDataUpdate('broker-inventory')}
+                  disabled={triggering['broker-inventory']}
+                  className="w-full"
+                  size="sm"
+                >
+                  {triggering['broker-inventory'] ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-2" />
+                  )}
+                  {triggering['broker-inventory'] ? 'Calculating...' : 'Trigger Calculation'}
+                </Button>
+              </div>
+
+              {/* Foreign Flow */}
+              <div className="p-4 border rounded-lg">
+                <h4 className="font-semibold mb-2">Foreign Flow</h4>
+                <p className="text-sm text-muted-foreground mb-3">Calculate foreign flow data</p>
+                <Button
+                  onClick={() => handleTriggerDataUpdate('foreign-flow')}
+                  disabled={triggering['foreign-flow']}
+                  className="w-full"
+                  size="sm"
+                >
+                  {triggering['foreign-flow'] ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-2" />
+                  )}
+                  {triggering['foreign-flow'] ? 'Calculating...' : 'Trigger Calculation'}
+                </Button>
+              </div>
+
+              {/* Money Flow */}
+              <div className="p-4 border rounded-lg">
+                <h4 className="font-semibold mb-2">Money Flow</h4>
+                <p className="text-sm text-muted-foreground mb-3">Calculate money flow index data</p>
+                <Button
+                  onClick={() => handleTriggerDataUpdate('money-flow')}
+                  disabled={triggering['money-flow']}
+                  className="w-full"
+                  size="sm"
+                >
+                  {triggering['money-flow'] ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-2" />
+                  )}
+                  {triggering['money-flow'] ? 'Calculating...' : 'Trigger Calculation'}
+                </Button>
+              </div>
+            </div>
+          </div>
+
           {/* Info Note */}
           <div className="p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg">
             <p className="text-sm text-blue-700 dark:text-blue-300">
-              <strong>Note:</strong> Data generation runs in the background and won't affect the server performance. 
-              Users can continue using RRC and RRG charts while data is being updated.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* User Management and Recent Users */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <UserManagement key={`management-${refreshKey}`} />
-        </div>
-        <div>
-          <RecentUsers key={`recent-${refreshKey}`} />
-        </div>
-      </div>
-
-      {/* Data Scheduler Manual Trigger */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Database className="w-5 h-5" />
-            Data Scheduler Manual Trigger
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {/* Stock Data */}
-            <div className="p-4 border rounded-lg">
-              <h3 className="font-semibold mb-2">Stock Data</h3>
-              <p className="text-sm text-muted-foreground mb-3">Update stock data from TICMI API</p>
-              <Button
-                onClick={() => handleTriggerDataUpdate('stock')}
-                disabled={triggering['stock']}
-                className="w-full"
-                size="sm"
-              >
-                {triggering['stock'] ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Play className="w-4 h-4 mr-2" />
-                )}
-                {triggering['stock'] ? 'Updating...' : 'Trigger Update'}
-              </Button>
-            </div>
-
-            {/* Index Data */}
-            <div className="p-4 border rounded-lg">
-              <h3 className="font-semibold mb-2">Index Data</h3>
-              <p className="text-sm text-muted-foreground mb-3">Update index data from TICMI API</p>
-              <Button
-                onClick={() => handleTriggerDataUpdate('index')}
-                disabled={triggering['index']}
-                className="w-full"
-                size="sm"
-              >
-                {triggering['index'] ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Play className="w-4 h-4 mr-2" />
-                )}
-                {triggering['index'] ? 'Updating...' : 'Trigger Update'}
-              </Button>
-            </div>
-
-            {/* Shareholders Data */}
-            <div className="p-4 border rounded-lg">
-              <h3 className="font-semibold mb-2">Shareholders Data</h3>
-              <p className="text-sm text-muted-foreground mb-3">Update shareholders data (Monthly)</p>
-              <Button
-                onClick={() => handleTriggerDataUpdate('shareholders')}
-                disabled={triggering['shareholders']}
-                className="w-full"
-                size="sm"
-              >
-                {triggering['shareholders'] ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Play className="w-4 h-4 mr-2" />
-                )}
-                {triggering['shareholders'] ? 'Updating...' : 'Trigger Update'}
-              </Button>
-            </div>
-
-            {/* Holding Data */}
-            <div className="p-4 border rounded-lg">
-              <h3 className="font-semibold mb-2">Holding Data</h3>
-              <p className="text-sm text-muted-foreground mb-3">Update holding data (Monthly)</p>
-              <Button
-                onClick={() => handleTriggerDataUpdate('holding')}
-                disabled={triggering['holding']}
-                className="w-full"
-                size="sm"
-              >
-                {triggering['holding'] ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Play className="w-4 h-4 mr-2" />
-                )}
-                {triggering['holding'] ? 'Updating...' : 'Trigger Update'}
-              </Button>
-            </div>
-
-            {/* Done Summary Data */}
-            <div className="p-4 border rounded-lg">
-              <h3 className="font-semibold mb-2">Done Summary Data</h3>
-              <p className="text-sm text-muted-foreground mb-3">Update done summary from GCS</p>
-              <Button
-                onClick={() => handleTriggerDataUpdate('done-summary')}
-                disabled={triggering['done-summary']}
-                className="w-full"
-                size="sm"
-              >
-                {triggering['done-summary'] ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Play className="w-4 h-4 mr-2" />
-                )}
-                {triggering['done-summary'] ? 'Updating...' : 'Trigger Update'}
-              </Button>
-            </div>
-
-            {/* Accumulation Distribution */}
-            <div className="p-4 border rounded-lg">
-              <h3 className="font-semibold mb-2">Accumulation Distribution</h3>
-              <p className="text-sm text-muted-foreground mb-3">Calculate accumulation distribution data</p>
-              <Button
-                onClick={() => handleTriggerDataUpdate('accumulation')}
-                disabled={triggering['accumulation']}
-                className="w-full"
-                size="sm"
-              >
-                {triggering['accumulation'] ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Play className="w-4 h-4 mr-2" />
-                )}
-                {triggering['accumulation'] ? 'Calculating...' : 'Trigger Calculation'}
-              </Button>
-            </div>
-
-            {/* Bid/Ask Footprint */}
-            <div className="p-4 border rounded-lg">
-              <h3 className="font-semibold mb-2">Bid/Ask Footprint</h3>
-              <p className="text-sm text-muted-foreground mb-3">Calculate bid/ask footprint data</p>
-              <Button
-                onClick={() => handleTriggerDataUpdate('bidask')}
-                disabled={triggering['bidask']}
-                className="w-full"
-                size="sm"
-              >
-                {triggering['bidask'] ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Play className="w-4 h-4 mr-2" />
-                )}
-                {triggering['bidask'] ? 'Calculating...' : 'Trigger Calculation'}
-              </Button>
-            </div>
-
-            {/* Broker Data */}
-            <div className="p-4 border rounded-lg">
-              <h3 className="font-semibold mb-2">Broker Data</h3>
-              <p className="text-sm text-muted-foreground mb-3">Calculate broker data analysis</p>
-              <Button
-                onClick={() => handleTriggerDataUpdate('broker-data')}
-                disabled={triggering['broker-data']}
-                className="w-full"
-                size="sm"
-              >
-                {triggering['broker-data'] ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Play className="w-4 h-4 mr-2" />
-                )}
-                {triggering['broker-data'] ? 'Calculating...' : 'Trigger Calculation'}
-              </Button>
-            </div>
-
-            {/* Broker Inventory */}
-            <div className="p-4 border rounded-lg">
-              <h3 className="font-semibold mb-2">Broker Inventory</h3>
-              <p className="text-sm text-muted-foreground mb-3">Calculate broker inventory data</p>
-              <Button
-                onClick={() => handleTriggerDataUpdate('broker-inventory')}
-                disabled={triggering['broker-inventory']}
-                className="w-full"
-                size="sm"
-              >
-                {triggering['broker-inventory'] ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Play className="w-4 h-4 mr-2" />
-                )}
-                {triggering['broker-inventory'] ? 'Calculating...' : 'Trigger Calculation'}
-              </Button>
-            </div>
-
-            {/* Foreign Flow */}
-            <div className="p-4 border rounded-lg">
-              <h3 className="font-semibold mb-2">Foreign Flow</h3>
-              <p className="text-sm text-muted-foreground mb-3">Calculate foreign flow data</p>
-              <Button
-                onClick={() => handleTriggerDataUpdate('foreign-flow')}
-                disabled={triggering['foreign-flow']}
-                className="w-full"
-                size="sm"
-              >
-                {triggering['foreign-flow'] ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Play className="w-4 h-4 mr-2" />
-                )}
-                {triggering['foreign-flow'] ? 'Calculating...' : 'Trigger Calculation'}
-              </Button>
-            </div>
-
-            {/* Money Flow */}
-            <div className="p-4 border rounded-lg">
-              <h3 className="font-semibold mb-2">Money Flow</h3>
-              <p className="text-sm text-muted-foreground mb-3">Calculate money flow index data</p>
-              <Button
-                onClick={() => handleTriggerDataUpdate('money-flow')}
-                disabled={triggering['money-flow']}
-                className="w-full"
-                size="sm"
-              >
-                {triggering['money-flow'] ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Play className="w-4 h-4 mr-2" />
-                )}
-                {triggering['money-flow'] ? 'Calculating...' : 'Trigger Calculation'}
-              </Button>
-            </div>
-          </div>
-
-          <div className="p-3 bg-yellow-50 dark:bg-yellow-950/20 rounded-lg">
-            <p className="text-sm text-yellow-700 dark:text-yellow-300">
-              <strong>Note:</strong> Manual triggers run in background. Stock, Index, and Done Summary run daily at 19:00. 
-              Shareholders and Holding run monthly on the last day at 00:01. The 6 new calculations run in 2 phases: 
-              Phase 1 (19:00) - Broker Data, Bid/Ask, Money Flow, Foreign Flow; Phase 2 (19:02) - Broker Inventory, Accumulation Distribution.
+              <strong>Note:</strong> All data operations run in the background and won't affect the server performance. 
+              Users can continue using charts while data is being updated. Stock, Index, and Done Summary run daily at 11:17. 
+              Shareholders and Holding run monthly on the last day at 00:00. The 6 new calculations run in 2 phases: 
+              Phase 1 (11:09) - Broker Data, Bid/Ask, Money Flow, Foreign Flow; Phase 2 (Auto-triggered) - Broker Inventory, Accumulation Distribution.
+              RRC, RRG, Seasonal, and Trend Filter calculations run daily at 11:35.
             </p>
           </div>
         </CardContent>
