@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
 
 interface AuthContextType {
@@ -28,6 +28,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   useEffect(() => {
     let isMounted = true;
+    let sessionCheckInterval: NodeJS.Timeout;
 
     // Check initial session
     const checkInitialSession = async () => {
@@ -46,6 +47,34 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
     };
 
+    // Periodic session validation for multi-device sync
+    const startSessionValidation = () => {
+      if (sessionCheckInterval) {
+        clearInterval(sessionCheckInterval);
+      }
+      
+      sessionCheckInterval = setInterval(async () => {
+        if (!isMounted) return;
+        
+        try {
+          const { data: { session }, error } = await supabase.auth.getSession();
+          if (error || !session) {
+            console.log('AuthContext: Session validation failed, signing out');
+            if (isMounted) {
+              setUser(null);
+              setIsLoading(false);
+            }
+          }
+        } catch (error) {
+          console.error('AuthContext: Session validation error:', error);
+          if (isMounted) {
+            setUser(null);
+            setIsLoading(false);
+          }
+        }
+      }, 30000); // Check every 30 seconds
+    };
+
     // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isMounted) return;
@@ -59,20 +88,28 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setUser(null);
         setIsLoading(false);
       } else if (event === 'TOKEN_REFRESHED') {
-        // Only update user if it actually changed to prevent unnecessary re-renders
-        if (session?.user?.id !== user?.id) {
-          setUser(session?.user || null);
-        }
+        // Always update user on token refresh to prevent stale state
+        setUser(session?.user || null);
+        setIsLoading(false);
+      } else if (event === 'USER_UPDATED') {
+        // Handle user updates (e.g., email change, profile update)
+        setUser(session?.user || null);
         setIsLoading(false);
       }
     });
 
     // Check initial session
     checkInitialSession();
+    
+    // Start periodic session validation
+    startSessionValidation();
 
     return () => {
       isMounted = false;
       subscription.unsubscribe();
+      if (sessionCheckInterval) {
+        clearInterval(sessionCheckInterval);
+      }
     };
   }, []);
 

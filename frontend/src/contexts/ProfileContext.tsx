@@ -7,7 +7,7 @@ interface ProfileContextType {
   profile: ProfileData | null;
   isLoading: boolean;
   updateProfile: (updates: Partial<ProfileData>) => void;
-  refreshProfile: () => Promise<void>;
+  refreshProfile: (force?: boolean) => Promise<void>;
   clearProfile: () => void;
 }
 
@@ -60,16 +60,30 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
     } catch (error: any) {
       console.error('ProfileContext: Error refreshing profile:', error);
       
-      // Handle different error types
+      // Handle session expired - trigger auth state change
       if (error.message?.includes('Session expired') || error.message?.includes('401')) {
-        console.log('ProfileContext: Session expired, clearing profile');
+        console.log('ProfileContext: Session expired, clearing profile and triggering logout');
         setProfile(null);
+        // Trigger logout to sync auth state
+        try {
+          const { supabase } = await import('../lib/supabase');
+          await supabase.auth.signOut();
+        } catch (logoutError) {
+          console.error('ProfileContext: Error during logout:', logoutError);
+        }
       } else if (error.message?.includes('timeout') || error.message?.includes('Request timeout')) {
         console.warn('ProfileContext: Request timeout, keeping existing profile');
         // Keep existing profile data
       } else if (error.message?.includes('No active session') || error.message?.includes('No access token')) {
-        console.log('ProfileContext: No valid session, clearing profile');
+        console.log('ProfileContext: No valid session, clearing profile and triggering logout');
         setProfile(null);
+        // Trigger logout to sync auth state
+        try {
+          const { supabase } = await import('../lib/supabase');
+          await supabase.auth.signOut();
+        } catch (logoutError) {
+          console.error('ProfileContext: Error during logout:', logoutError);
+        }
       } else {
         console.log('ProfileContext: Other error, clearing profile');
         setProfile(null);

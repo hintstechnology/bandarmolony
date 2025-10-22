@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { ThemeProvider } from "./components/dashboard/ThemeProvider";
 import { AuthProvider } from "./contexts/AuthContext";
@@ -57,6 +57,14 @@ function DashboardLayout() {
   const location = useLocation();
   const navigate = useNavigate();
 
+  // Handle redirect in useEffect to avoid calling navigate during render
+  useEffect(() => {
+    if (!isLoading && !profile) {
+      console.log('DashboardLayout: No profile after loading, redirecting to auth');
+      navigate('/auth', { replace: true });
+    }
+  }, [isLoading, profile, navigate]);
+
   // Show loading while profile is being fetched
   if (isLoading) {
     return (
@@ -69,11 +77,16 @@ function DashboardLayout() {
     );
   }
 
-  // If no profile after loading, redirect to auth
+  // If no profile after loading, show loading while redirect happens
   if (!profile) {
-    console.log('DashboardLayout: No profile after loading, redirecting to auth');
-    navigate('/auth', { replace: true });
-    return null;
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Redirecting to login...</p>
+        </div>
+      </div>
+    );
   }
 
   const toggleSidebar = () => setSidebarOpen((v) => !v);
