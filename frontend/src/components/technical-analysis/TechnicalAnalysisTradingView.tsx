@@ -624,7 +624,8 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   const [rows, setRows] = useState<OhlcRow[]>([]);
   const [, setSrc] = useState<'file' | 'mock' | 'none'>('none');
   const [, setPlotted] = useState(0);
-  const [, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [isLoadingData, setIsLoadingData] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('BBCA');
   const [showSearchDropdown, setShowSearchDropdown] = useState<boolean>(false);
   const [searchDropdownIndex, setSearchDropdownIndex] = useState<number>(-1);
@@ -717,15 +718,17 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             // Try to set BBCA as default, fallback to first available
             const defaultSymbol = result.data.stocks.includes('BBCA') ? 'BBCA' : result.data.stocks[0];
             setSymbol(defaultSymbol);
-            // Don't force setSearchQuery here - let user control it
+            setSearchQuery(defaultSymbol);
           }
         } else {
           console.error('❌ TechnicalAnalysis: Failed to load stock symbols:', result.error);
-          setAvailableSymbols(['MOCK']);
+          // Don't set MOCK, just leave availableSymbols empty
+          setAvailableSymbols([]);
         }
       } catch (error) {
         console.error('Error loading stock symbols:', error);
-        setAvailableSymbols(['MOCK']);
+        // Don't set MOCK, just leave availableSymbols empty
+        setAvailableSymbols([]);
       } finally {
         setIsLoadingSymbols(false);
       }
@@ -963,7 +966,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
     };
   };
 
-  const symbols = useMemo(() => (availableSymbols.length ? availableSymbols : ['MOCK']), [availableSymbols]);
+  const symbols = useMemo(() => availableSymbols, [availableSymbols]);
   
   // Filter symbols based on search query (like MarketRotationRRC)
   const getFilteredSymbols = () => {
@@ -1014,36 +1017,11 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
     let cancelled = false;
     (async () => {
       try {
+        setIsLoadingData(true);
         setErr(null);
         setPlotted(0);
 
-        if (symbol === 'MOCK' || !availableSymbols.length) {
-          // fallback mock jika tak ada data
-          const now = Date.now();
-          const mock: OhlcRow[] = Array.from({ length: 120 }).map((_, i) => {
-            const base = 4500 + Math.sin(i * 0.15) * 60 + Math.random() * 20;
-            const open = base + (Math.random() - 0.5) * 20;
-            const close = base + (Math.random() - 0.5) * 20;
-            const high = Math.max(open, close) + Math.random() * 25;
-            const low = Math.min(open, close) - Math.random() * 25;
-            const t = Math.floor((now - (119 - i) * 86400000) / 1000);
-            return {
-              time: t,
-              open: Math.round(open),
-              high: Math.round(high),
-              low: Math.round(low),
-              close: Math.round(close),
-              volume: Math.floor(1_000_000 + Math.random() * 9_000_000),
-            };
-          });
-          if (!cancelled) {
-            setRows(mock);
-            setSrc('mock');
-          }
-          return;
-        }
-
-        // Load stock data from API
+        // Always try to load from API first, regardless of availableSymbols status
         console.log(`Loading stock data for ${symbol} from API...`);
         const result = await api.getStockData(symbol);
         
@@ -1072,24 +1050,33 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           };
         }).filter((row: OhlcRow) => row.time > 0); // Filter out invalid dates
 
-        console.log(`Loaded ${parsed.length} rows for ${symbol} from API`);
+        console.log(`📊 Loaded ${parsed.length} rows for ${symbol} from API`);
+        console.log(`📊 First 3 API rows:`, parsed.slice(0, 3));
+        console.log(`📊 Last 3 API rows:`, parsed.slice(-3));
         if (!parsed.length) throw new Error(`No valid OHLC data for ${symbol}`);
 
         if (!cancelled) {
+          console.log(`✅ Data loaded successfully for ${symbol}, setting rows and stopping loading`);
           setRows(parsed);
           setSrc('file');
         }
       } catch (e: any) {
         if (!cancelled) {
+          console.error(`Failed to load data for ${symbol}:`, e?.message);
           setErr(e?.message ?? 'API load error');
           setRows([]);
           setSrc('none');
+        }
+      } finally {
+        if (!cancelled) {
+          console.log(`🔄 Setting isLoadingData to false for ${symbol}`);
+          setIsLoadingData(false);
         }
       }
     })();
 
     return () => { cancelled = true; };
-  }, [symbol, availableSymbols]);
+  }, [symbol]);
 
   // Detect data frequency and available timeframes
   const dataFrequency = useMemo(() => {
@@ -1166,7 +1153,9 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
     // Sort rows by time
     const sortedRows = [...rows].sort((a, b) => a.time - b.time);
     
-    console.log('Aggregating data for timeframe:', timeframe, 'Total rows:', rows.length);
+    console.log('📊 Aggregating data for timeframe:', timeframe, 'Total rows:', rows.length);
+    console.log('📊 First 3 original rows:', rows.slice(0, 3));
+    console.log('📊 Last 3 original rows:', rows.slice(-3));
     
     // Handle minute-based timeframes
     if (timeframe === '1M') {
@@ -1224,10 +1213,13 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       return aggregateByYear(sortedRows);
     }
     
+    console.log('📊 Final filtered rows:', sortedRows.length);
+    console.log('📊 First 3 filtered rows:', sortedRows.slice(0, 3));
+    console.log('📊 Last 3 filtered rows:', sortedRows.slice(-3));
     return sortedRows;
   }, [rows, timeframe]);
 
-  // Create chart only once when container is ready
+  // Create chart when container is ready and data is loaded
   useEffect(() => {
     // Early return for footprint style - don't create any chart
     if (style === 'footprint' as ChartStyle) {
@@ -1240,24 +1232,34 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       return;
     }
 
+    // Don't create chart if still loading or no data
+    if (isLoadingData || rows.length === 0) {
+      console.log('⏳ Skipping chart creation - loading or no data');
+      return;
+    }
+
     const el = containerRef.current;
-    if (!el) return;
+    if (!el) {
+      console.log('⏳ Skipping chart creation - container not ready');
+      return;
+    }
     
-    // Cleanup existing chart when style changes
+    // Cleanup existing chart when style changes or data changes
     if (chartRef.current) {
-      console.log('🗑️ Removing existing chart for style change');
+      console.log('🗑️ Removing existing chart for recreation');
       chartRef.current.remove();
       chartRef.current = null;
       priceRef.current = null;
       volRef.current = null;
     }
 
-    console.log('📊 Creating lightweight-charts for style:', style);
+    console.log('📊 Creating lightweight-charts for style:', style, 'with', rows.length, 'rows');
 
     const width = el.clientWidth || 800;
     const height = el.clientHeight || 420;
     const colors = getThemeColors();
-    console.log(`Creating chart with dimensions: ${width}x${height}`);
+    console.log(`📊 Creating chart with dimensions: ${width}x${height}`);
+    console.log(`📊 Container element:`, el);
     chartRef.current = createChart(el, {
       width,
       height,
@@ -1283,16 +1285,17 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           // Reset indicator refs when recreating chart to avoid stale series handles
           indicatorRefs.current = {};
           indicatorAuxRefs.current = {};
-        }, [style]);
+        }, [style, isLoadingData, rows.length]);
 
   // Update chart data when data changes
   useEffect(() => {
-    if (!chartRef.current || style === 'footprint' as ChartStyle) return;
+    if (!chartRef.current || style === 'footprint' as ChartStyle || isLoadingData || rows.length === 0) return;
 
     const chart = chartRef.current!;
     
     // Update timeScale visibility based on indicators
     const hasVisibleSeparateCharts = indicators.some(ind => ind.enabled && ind.separateScale);
+    console.log(`📊 TimeScale visibility: ${!hasVisibleSeparateCharts}, hasVisibleSeparateCharts: ${hasVisibleSeparateCharts}`);
     chart.timeScale().applyOptions({
       visible: !hasVisibleSeparateCharts
     });
@@ -1323,7 +1326,9 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       return; 
     }
 
-    console.log(`Rendering chart with ${filteredRows.length} rows, style: ${style}`);
+    console.log(`📊 Rendering chart with ${filteredRows.length} rows, style: ${style}, isLoadingData: ${isLoadingData}`);
+    console.log(`📊 First 3 rows:`, filteredRows.slice(0, 3));
+    console.log(`📊 Last 3 rows:`, filteredRows.slice(-3));
     try {
       // --- price series (v5 pakai addSeries(TipeSeri, opsi)) ---
       if (style === 'line') {
@@ -1332,7 +1337,9 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           topColor: chartColors.area.top,
           bottomColor: chartColors.area.bottom,
         });
-        s.setData(filteredRows.map(d => ({ time: d.time as any, value: d.close })));
+        const lineData = filteredRows.map(d => ({ time: d.time as any, value: d.close }));
+        console.log(`📊 Setting line data: ${lineData.length} points`);
+        s.setData(lineData);
         priceRef.current = s;
       } else if (style === 'footprint' as ChartStyle) {
         // For footprint chart, we'll use a simple line series as base
@@ -1359,13 +1366,15 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           wickUpColor: chartColors.candles.wickUp,
           wickDownColor: chartColors.candles.wickDown,
         });
-        s.setData(filteredRows.map(d => ({
+        const candleData = filteredRows.map(d => ({
           time: d.time as any,
           open: d.open,
           high: d.high,
           low: d.low,
           close: d.close,
-        })));
+        }));
+        console.log(`📊 Setting candle data: ${candleData.length} candles`);
+        s.setData(candleData);
         priceRef.current = s;
       }
 
@@ -1541,6 +1550,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       });
 
       chart.timeScale().fitContent();
+      console.log(`📊 Chart fitContent called, plotted ${filteredRows.length} rows`);
       setPlotted(filteredRows.length);
       setErr(null);
       
@@ -1550,7 +1560,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       setErr(e?.message ?? 'render error');
       setPlotted(0);
     }
-  }, [filteredRows, chartColors, volumeHistogramSettings, rsiSettings, stochasticSettings, style, indicators]);
+  }, [filteredRows, chartColors, volumeHistogramSettings, rsiSettings, stochasticSettings, style, indicators, isLoadingData]);
 
   // Add chart listeners only once
   useEffect(() => {
@@ -2111,6 +2121,8 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                   <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-50 max-h-60 overflow-y-auto">
                     {isLoadingSymbols ? (
                       <div className="p-3 text-sm text-muted-foreground">Loading symbols...</div>
+                    ) : symbols.length === 0 ? (
+                      <div className="p-3 text-sm text-muted-foreground">No symbols available. Please check your connection.</div>
                     ) : (
                       <>
                         {/* Show filtered results if searching, otherwise show all available */}
@@ -2223,38 +2235,85 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       )}
 
       <Card className="flex-1 p-0 relative" style={{ padding: 0, margin: 0, height: chartViewportHeight }}>
-        {/* Price overlay (top-left) for better focus on mobile/desktop */}
-        <div className="absolute top-2 left-2 z-10 bg-background/80 backdrop-blur-sm border border-border rounded px-2 py-1">
-          <div className="font-mono text-xs sm:text-sm font-medium">{latest ? latest.close.toLocaleString() : '-'}</div>
-          <div className={`text-xs sm:text-sm font-medium ${chg >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-            {chg >= 0 ? '+' : ''}{chg.toFixed(0)} ({chgPct.toFixed(2)}%)
+        {/* Debug info */}
+        {/* <div className="absolute top-2 right-2 z-20 bg-background/80 backdrop-blur-sm border border-border rounded px-2 py-1 text-xs">
+          <div>Viewport: {chartViewportHeight}px</div>
+          <div>Data: {filter{/* <div className="absolute top-2 right-2 z-20 bg-background/80 backdrop-blur-sm border border-border rounded px-2 py-1 text-xs">
+          <div>Viewport: {chartViewportHeight}px</div>
+          <div>Data: {filteredRows.length} rows</div>
+          <div>Loading: {isLoadingData ? 'Yes' : 'No'}</div>
+        </div>edRows.length} rows</div>
+          <div>Loading: {isLoadingData ? 'Yes' : 'No'}</div>
+        </div> */}
+        {/* Loading overlay */}
+        {isLoadingData && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+            <div className="flex flex-col items-center gap-3">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              <div className="text-sm text-muted-foreground">Loading chart data for {symbol}...</div>
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Error overlay */}
+        {!isLoadingData && rows.length === 0 && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+            <div className="flex flex-col items-center gap-3 text-center p-6">
+              <div className="text-4xl">📊</div>
+              <div className="text-sm text-muted-foreground">
+                {err ? `Error loading data: ${err}` : 'No data available'}
+              </div>
+              <button
+                onClick={() => {
+                  setSymbol(symbol); // Trigger reload
+                }}
+                className="px-4 py-2 text-xs bg-primary text-primary-foreground rounded hover:bg-primary/90"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Price overlay (top-left) for better focus on mobile/desktop */}
+        {!isLoadingData && rows.length > 0 && (
+          <div className="absolute top-2 left-2 z-10 bg-background/80 backdrop-blur-sm border border-border rounded px-2 py-1">
+            <div className="font-mono text-xs sm:text-sm font-medium">{latest ? latest.close.toLocaleString() : '-'}</div>
+            <div className={`text-xs sm:text-sm font-medium ${chg >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {chg >= 0 ? '+' : ''}{chg.toFixed(0)} ({chgPct.toFixed(2)}%)
+            </div>
+          </div>
+        )}
+
         <ChartErrorBoundary>
-          {style === 'footprint' ? (
-            <div className="w-full h-full" style={{ height: '100%', padding: 0, margin: 0 }}>
-              <FootprintChart 
-                showCrosshair={footprintSettings.showCrosshair}
-                showPOC={footprintSettings.showPOC}
-                showDelta={footprintSettings.showDelta}
-                timeframe={footprintSettings.timeframe}
-                zoom={footprintSettings.zoom}
-                stockCode={symbol}
-                date={new Date().toISOString().split('T')[0]?.replace(/-/g, '') || ''}
-                ohlc={filteredRows.map(d => ({
-                  timestamp: new Date((d.time || 0) * 1000).toISOString(),
-                  open: d.open,
-                  high: d.high,
-                  low: d.low,
-                  close: d.close
-                }))}
-              />
-        </div>
-          ) : (
-            <div 
-              ref={containerRef} 
-              className="h-full w-full"
-            />
+          {!isLoadingData && rows.length > 0 && (
+            <>
+              {style === 'footprint' ? (
+                <div className="w-full h-full" style={{ height: '100%', padding: 0, margin: 0 }}>
+                  <FootprintChart 
+                    showCrosshair={footprintSettings.showCrosshair}
+                    showPOC={footprintSettings.showPOC}
+                    showDelta={footprintSettings.showDelta}
+                    timeframe={footprintSettings.timeframe}
+                    zoom={footprintSettings.zoom}
+                    stockCode={symbol}
+                    date={new Date().toISOString().split('T')[0]?.replace(/-/g, '') || ''}
+                    ohlc={filteredRows.length > 0 ? filteredRows.map(d => ({
+                      timestamp: new Date((d.time || 0) * 1000).toISOString(),
+                      open: d.open,
+                      high: d.high,
+                      low: d.low,
+                      close: d.close
+                    })) : undefined}
+                  />
+                </div>
+              ) : (
+                <div 
+                  ref={containerRef} 
+                  className="h-full w-full"
+                />
+              )}
+            </>
           )}
         </ChartErrorBoundary>
       </Card>
@@ -2309,9 +2368,19 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                   indicatorContainerRefs.current[indicator.id] = el;
                 }
               }}
-              className="w-full"
+              className="w-full relative"
               style={{ height: `${indicatorChartHeight}px` }}
-            />
+            >
+              {/* Loading overlay for indicator charts */}
+              {isLoadingData && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                    <div className="text-xs text-muted-foreground">Loading...</div>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </Card>
       ))}
