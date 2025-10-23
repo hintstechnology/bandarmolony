@@ -63,6 +63,13 @@ const getLastThreeDays = (): string[] => {
 
 // This will be replaced with real API data fetching
 
+// Helper function to check if a date is a weekend
+const isWeekend = (dateString: string): boolean => {
+  const date = new Date(dateString);
+  const dayOfWeek = date.getDay();
+  return dayOfWeek === 0 || dayOfWeek === 6; // Sunday = 0, Saturday = 6
+};
+
 const formatNumber = (num: number): string => {
   return num.toLocaleString();
 };
@@ -190,7 +197,18 @@ export function StockTransactionDoneDetail() {
           const newData = new Map<string, DoneDetailData[]>();
           Object.entries(result.data.dataByDate).forEach(([date, data]: [string, any]) => {
             if (data?.doneTradeData) {
-              newData.set(date, data.doneTradeData);
+              // Ensure STK_VOLM values are integers for proper summation
+              const processedData = data.doneTradeData.map((item: any) => ({
+                ...item,
+                STK_VOLM: parseInt(item.STK_VOLM) || 0,
+                STK_PRIC: parseFloat(item.STK_PRIC) || 0,
+                TRX_TIME: parseInt(item.TRX_TIME) || 0,
+                TRX_CODE: parseInt(item.TRX_CODE) || 0,
+                TRX_SESS: parseInt(item.TRX_SESS) || 0,
+                TRX_ORD1: parseInt(item.TRX_ORD1) || 0,
+                TRX_ORD2: parseInt(item.TRX_ORD2) || 0
+              }));
+              newData.set(date, processedData);
             }
           });
           setDoneDetailData(newData);
@@ -297,16 +315,6 @@ export function StockTransactionDoneDetail() {
     return filteredData;
   };
 
-  // Pagination logic
-  const getPaginatedData = (data: DoneDetailData[]) => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    return data.slice(startIndex, endIndex);
-  };
-
-  const getTotalPages = (data: DoneDetailData[]) => {
-    return Math.ceil(data.length / itemsPerPage);
-  };
 
   // Reset to first page when filters change
   useEffect(() => {
@@ -341,29 +349,61 @@ export function StockTransactionDoneDetail() {
         return;
       }
 
-      // Check if range is within 7 days
-      const diffTime = Math.abs(end.getTime() - start.getTime());
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-      if (diffDays > 7) {
+      // Check if start or end date is a weekend
+      if (isWeekend(startDate)) {
         showToast({
           type: 'warning',
-          title: 'Rentang Tanggal Terlalu Panjang',
-          message: 'Maksimal rentang tanggal adalah 7 hari',
+          title: 'Tanggal Akhir Pekan',
+          message: 'Tanggal mulai tidak boleh hari Sabtu atau Minggu',
         });
         return;
       }
 
-      // Generate date array
+      if (isWeekend(endDate)) {
+        showToast({
+          type: 'warning',
+          title: 'Tanggal Akhir Pekan',
+          message: 'Tanggal akhir tidak boleh hari Sabtu atau Minggu',
+        });
+        return;
+      }
+
+      // Generate date array (excluding weekends) first
       const dateArray: string[] = [];
       const currentDate = new Date(start);
 
       while (currentDate <= end) {
-        const dateString = currentDate.toISOString().split('T')[0];
-        if (dateString) {
-          dateArray.push(dateString);
+        const dayOfWeek = currentDate.getDay();
+        
+        // Skip weekends (Saturday = 6, Sunday = 0)
+        if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+          const dateString = currentDate.toISOString().split('T')[0];
+          if (dateString) {
+            dateArray.push(dateString);
+          }
         }
+        
         currentDate.setDate(currentDate.getDate() + 1);
+      }
+
+      // Check if any weekdays were found
+      if (dateArray.length === 0) {
+        showToast({
+          type: 'warning',
+          title: 'Tidak Ada Hari Kerja',
+          message: 'Tidak ada hari kerja dalam rentang tanggal yang dipilih',
+        });
+        return;
+      }
+
+      // Check if the number of weekdays exceeds 7
+      if (dateArray.length > 7) {
+        showToast({
+          type: 'warning',
+          title: 'Terlalu Banyak Hari Kerja',
+          message: 'Maksimal 7 hari kerja yang bisa dipilih',
+        });
+        return;
       }
 
       // Remove duplicates, sort by date (newest first), and set
@@ -476,26 +516,40 @@ export function StockTransactionDoneDetail() {
   // Render horizontal view - pivot-style comparison across dates with pagination
   const renderHorizontalView = () => {
     // Get all transactions for all selected dates
+    const allRawTransactions: { [date: string]: DoneDetailData[] } = {};
     const allTransactions: { [date: string]: DoneDetailData[] } = {};
     selectedDates.forEach(date => {
       const rawData = doneDetailData.get(date) || [];
-      allTransactions[date] = filterData(rawData);
+      allRawTransactions[date] = rawData; // Keep raw data for totals
+      allTransactions[date] = filterData(rawData); // Filtered data for display
     });
 
-    // Get all transactions combined for pagination
-    const allCombinedTransactions = selectedDates.flatMap(date => allTransactions[date] || []);
-    const paginatedTransactions = getPaginatedData(allCombinedTransactions);
-    const totalPages = getTotalPages(allCombinedTransactions);
-
-    // Get all unique times across all dates
+    // Get all unique times across all dates for proper row alignment
     const allTimes = new Set<number>();
     Object.values(allTransactions).forEach(transactions => {
       transactions.forEach(tx => allTimes.add(tx.TRX_TIME));
     });
+    const sortedTimes = Array.from(allTimes).sort((a, b) => {
+      if (filters.timeSort === 'latest') {
+        return b - a; // Latest first
+      } else {
+        return a - b; // Oldest first
+      }
+    });
 
-    // Calculate totals - use allCombinedTransactions for accurate totals
-    const totalTransactions = allCombinedTransactions.length;
-    const totalVolume = allCombinedTransactions.reduce((sum, t) => sum + t.STK_VOLM, 0);
+     // Paginate by actual table rows (time slots)
+     const totalTimeSlots = sortedTimes.length;
+     const rowsPerPage = itemsPerPage; // Use itemsPerPage as actual rows per page
+     const totalPages = Math.ceil(totalTimeSlots / rowsPerPage);
+     const startTimeIndex = (currentPage - 1) * rowsPerPage;
+     const endTimeIndex = Math.min(startTimeIndex + rowsPerPage, totalTimeSlots);
+     const paginatedTimes = sortedTimes.slice(startTimeIndex, endTimeIndex);
+
+    // Calculate totals from RAW data (before filtering)
+    const allRawCombinedTransactions = selectedDates.flatMap(date => allRawTransactions[date] || []);
+    const totalTransactions = allRawCombinedTransactions.length;
+    const totalVolume = allRawCombinedTransactions.reduce((sum, t) => sum + (parseInt(t.STK_VOLM.toString()) || 0), 0);
+    const allCombinedTransactions = selectedDates.flatMap(date => allTransactions[date] || []);
     const uniqueBrokers = new Set([
       ...allCombinedTransactions.map(t => t.BRK_COD1),
       ...allCombinedTransactions.map(t => t.BRK_COD2)
@@ -594,15 +648,12 @@ export function StockTransactionDoneDetail() {
                 </tr>
               </thead>
               <tbody>
-                {/* Render paginated transactions */}
-                {paginatedTransactions.map((transaction, rowIdx) => (
+                {/* Render paginated time slots */}
+                {paginatedTimes.map((timeSlot, rowIdx) => (
                   <tr key={rowIdx} className="border-b border-border/50 hover:bg-accent/50">
                     {selectedDates.map(date => {
-                      // Find transaction for this date (simplified for horizontal view)
-                      const dateTransaction = allTransactions[date]?.find(tx => 
-                        tx.TRX_TIME === transaction.TRX_TIME && 
-                        tx.STK_PRIC === transaction.STK_PRIC
-                      ) || null;
+                      // Find transaction for this date and time slot
+                      const dateTransaction = allTransactions[date]?.find(tx => tx.TRX_TIME === timeSlot) || null;
                       
                       return (
                         <React.Fragment key={date}>
@@ -641,27 +692,27 @@ export function StockTransactionDoneDetail() {
 
           {/* Pagination Controls */}
           <div className="mt-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              <div>
-                Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, allCombinedTransactions.length)} of {allCombinedTransactions.length} transactions
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-xs">Items per page:</label>
-                <select
-                  value={itemsPerPage}
-                  onChange={(e) => {
-                    setItemsPerPage(Number(e.target.value));
-                    setCurrentPage(1);
-                  }}
-                  className="text-xs bg-background border border-border rounded px-2 py-1"
-                >
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                  <option value={200}>200</option>
-                  <option value={500}>500</option>
-                </select>
-              </div>
-            </div>
+             <div className="flex items-center gap-4 text-sm text-muted-foreground">
+               <div>
+                 Showing {((currentPage - 1) * rowsPerPage) + 1} to {Math.min(currentPage * rowsPerPage, totalTimeSlots)} of {totalTimeSlots} dates
+               </div>
+               <div className="flex items-center gap-2">
+                 <label className="text-xs">Rows per page:</label>
+                 <select
+                   value={itemsPerPage}
+                   onChange={(e) => {
+                     setItemsPerPage(Number(e.target.value));
+                     setCurrentPage(1);
+                   }}
+                   className="text-xs bg-background border border-border rounded px-2 py-1"
+                 >
+                   <option value={50}>50</option>
+                   <option value={100}>100</option>
+                   <option value={200}>200</option>
+                   <option value={500}>500</option>
+                 </select>
+               </div>
+             </div>
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"
@@ -709,13 +760,13 @@ export function StockTransactionDoneDetail() {
 
             <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
               {selectedDates.map(date => {
-                const dateTransactions = allTransactions[date] || [];
-                const dateVolume = dateTransactions.reduce((sum, t) => sum + t.STK_VOLM, 0);
+                const dateRawTransactions = allRawTransactions[date] || [];
+                const dateVolume = dateRawTransactions.reduce((sum, t) => sum + (parseInt(t.STK_VOLM.toString()) || 0), 0);
                 return (
                   <div key={date} className="p-2 bg-background rounded border">
                     <div className="font-medium text-blue-600">{formatDisplayDate(date)}</div>
                     <div className="text-xs text-muted-foreground">
-                      {dateTransactions.length} transactions, {formatNumber(dateVolume)} volume
+                      {dateRawTransactions.length} transactions, {formatNumber(dateVolume)} volume
                     </div>
                   </div>
                 );
