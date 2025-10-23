@@ -40,16 +40,16 @@ export class BrokerInventoryCalculator {
       console.log(`📁 Total blobs in Azure: ${allBlobs.length}`);
       console.log(`📋 Sample blobs:`, allBlobs.slice(0, 20));
       
-      const brokerTransactionPrefix = 'broker_transaction_output/';
+      const brokerTransactionPrefix = 'broker_transaction/';
       const blobs = await listPaths({ prefix: brokerTransactionPrefix });
       
       if (blobs.length === 0) {
-        console.log(`No files found in broker_transaction_output/`);
+        console.log(`No files found in broker_transaction/`);
         return [];
       }
       
       // Extract dates from broker transaction folders
-      console.log(`📁 Found ${blobs.length} blobs in broker_transaction_output/`);
+      console.log(`📁 Found ${blobs.length} blobs in broker_transaction/`);
       console.log(`📋 Sample blobs:`, blobs.slice(0, 10));
       
       const dates = new Set<string>();
@@ -58,8 +58,8 @@ export class BrokerInventoryCalculator {
         const pathParts = blobName.split('/');
         console.log(`📂 Path parts:`, pathParts);
         
-        // Look for folders like: broker_transaction_output/broker_transaction_YYYYMMDD/
-        if (pathParts.length >= 2 && pathParts[0] === 'broker_transaction_output') {
+        // Look for folders like: broker_transaction/broker_transaction_YYYYMMDD/
+        if (pathParts.length >= 2 && pathParts[0] === 'broker_transaction') {
           const folderName = pathParts[1];
           console.log(`📁 Folder name: ${folderName}`);
           
@@ -92,7 +92,7 @@ export class BrokerInventoryCalculator {
    * Load broker transaction data for a specific broker and date from Azure
    */
   private async loadBrokerTransactionDataFromAzure(brokerCode: string, date: string): Promise<BrokerTransactionData[]> {
-    const blobName = `broker_transaction_output/broker_transaction_${date}/${brokerCode}.csv`;
+    const blobName = `broker_transaction/broker_transaction_${date}/${brokerCode}.csv`;
     
     try {
       const csvContent = await downloadText(blobName);
@@ -224,8 +224,7 @@ export class BrokerInventoryCalculator {
    */
   private async createBrokerInventoryFiles(
     allBrokerData: Map<string, Map<string, BrokerTransactionData[]>>,
-    dateRange: string[],
-    dateSuffix: string
+    dateRange: string[]
   ): Promise<string[]> {
     console.log("\nCreating broker inventory files...");
     
@@ -253,8 +252,8 @@ export class BrokerInventoryCalculator {
         // Create inventory data for this broker-emiten combination
         const inventoryData = this.createBrokerInventoryData(brokerCode, emitenCode, dateRange, allBrokerData);
         
-        // Save to Azure Blob Storage
-        const blobName = `broker_inventory/${emitenCode}/${brokerCode}_${dateSuffix}.csv`;
+        // Save to Azure Blob Storage - same as original file structure
+        const blobName = `broker_inventory/${emitenCode}/${brokerCode}.csv`;
         await this.saveToAzure(blobName, inventoryData);
         createdFiles.push(blobName);
         
@@ -275,7 +274,7 @@ export class BrokerInventoryCalculator {
   /**
    * Main function to generate broker inventory data
    */
-  public async generateBrokerInventoryData(dateSuffix: string): Promise<void> {
+  public async generateBrokerInventoryData(_dateSuffix: string): Promise<void> {
     console.log("Starting broker inventory analysis for ALL available dates...");
     
     try {
@@ -293,9 +292,11 @@ export class BrokerInventoryCalculator {
       // For each date, list brokers available for that date
       for (const date of dates) {
         console.log(`Loading data for date: ${date}`);
+        
+        
         const brokerMap = new Map<string, BrokerTransactionData[]>();
         
-        const datePrefix = `broker_transaction_output/broker_transaction_${date}/`;
+        const datePrefix = `broker_transaction/broker_transaction_${date}/`;
         const blobs = await listPaths({ prefix: datePrefix });
         const brokersForDate: string[] = [];
         for (const blobName of blobs) {
@@ -315,8 +316,8 @@ export class BrokerInventoryCalculator {
         allBrokerData.set(date, brokerMap);
       }
       
-      // Create broker inventory files (per broker-emiten combination), using provided dateSuffix for output naming
-      const createdFiles = await this.createBrokerInventoryFiles(allBrokerData, dates, dateSuffix);
+      // Create broker inventory files (per broker-emiten combination)
+      const createdFiles = await this.createBrokerInventoryFiles(allBrokerData, dates);
       
       console.log("\nBroker inventory analysis completed successfully!");
       console.log(`Total broker inventory files created: ${createdFiles.length}`);

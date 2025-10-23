@@ -1671,25 +1671,13 @@ export const api = {
     }
   },
 
-  // Broker Summary Data
-  async getBrokerSummaryData(stockCode: string, date: string): Promise<{ success: boolean; data?: any; error?: string }> {
-    try {
-      const res = await fetch(`${API_URL}/api/broker/summary/${stockCode}?date=${date}`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to get broker summary data');
-      return { success: true, data: json.data };
-    } catch (err: any) {
-      return { success: false, error: err.message || 'Failed to get broker summary data' };
-    }
-  },
 
   // Broker Transaction Data
   async getBrokerTransactionData(brokerCode: string, date: string): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
-      const res = await fetch(`${API_URL}/api/broker/transaction/${brokerCode}?date=${date}`, {
+      // Convert YYYY-MM-DD to YYYYMMDD format
+      const dateStr = date.includes('-') ? date.replace(/-/g, '') : date;
+      const res = await fetch(`${API_URL}/api/broker/transaction/${brokerCode}?date=${dateStr}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -1748,6 +1736,319 @@ export const api = {
       return { success: true, data: json.data };
     } catch (err: any) {
       return { success: false, error: err.message || 'Failed to get footprint data' };
+    }
+  },
+
+  // Done Summary Data API
+  async getDoneSummaryData(stockCode: string, date: string, limit?: number): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const params = new URLSearchParams();
+      if (limit) params.append('limit', limit.toString());
+      
+      const res = await fetch(`${API_URL}/api/done-summary/stock/${stockCode}/${date}?${params}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get done summary data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get done summary data' };
+    }
+  },
+
+  // Get list of available dates from done-summary
+  async getDoneSummaryDates(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/done-summary/dates`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get done summary dates');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get done summary dates' };
+    }
+  },
+
+  // Get list of available stocks from done-summary
+  async getDoneSummaryStocks(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/done-summary/stocks`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get done summary stocks');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get done summary stocks' };
+    }
+  },
+
+  // Batch get done summary data for multiple dates - much faster
+  async getDoneSummaryBatch(stockCode: string, dates: string[]): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const datesParam = dates.join(',');
+      const res = await fetch(`${API_URL}/api/done-summary/batch/${stockCode}?dates=${datesParam}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get batch done summary data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get batch done summary data' };
+    }
+  },
+
+  // Pagination for large datasets
+  async getDoneSummaryPagination(stockCode: string, date: string, page: number = 1, pageSize: number = 1000, limit: number = 10000): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/done-summary/pagination/${stockCode}/${date}?page=${page}&pageSize=${pageSize}&limit=${limit}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get paginated done summary data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get paginated done summary data' };
+    }
+  },
+
+  // ===== BREAK DONE TRADE API =====
+  
+  // Get list of available dates from done_detail directory
+  async getBreakDoneTradeDates(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/break-done-trade/dates`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get break done trade dates');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get break done trade dates' };
+    }
+  },
+
+  // Get list of available stocks for a specific date from done_detail directory
+  async getBreakDoneTradeStocks(date: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/break-done-trade/stocks/${date}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get break done trade stocks');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get break done trade stocks' };
+    }
+  },
+
+  // Get break done trade data for specific stock and date
+  async getBreakDoneTradeData(stockCode: string, date: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/break-done-trade/data/${date}/${stockCode}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get break done trade data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get break done trade data' };
+    }
+  },
+
+  // Batch get break done trade data for multiple dates
+  async getBreakDoneTradeBatch(stockCode: string, dates: string[]): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const promises = dates.map(date => this.getBreakDoneTradeData(stockCode, date));
+      const results = await Promise.allSettled(promises);
+      
+      const dataByDate: { [date: string]: any } = {};
+      let successCount = 0;
+      
+      results.forEach((result, index) => {
+        const date = dates[index];
+        if (date) {
+          if (result.status === 'fulfilled' && result.value.success) {
+            dataByDate[date] = result.value.data;
+            successCount++;
+          } else {
+            dataByDate[date] = { doneTradeData: [], total: 0 };
+          }
+        }
+      });
+      
+      return { 
+        success: successCount > 0, 
+        data: { 
+          dataByDate, 
+          successCount, 
+          totalDates: dates.length 
+        } 
+      };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get batch break done trade data' };
+    }
+  },
+
+  // ===== ACCUMULATION DISTRIBUTION API =====
+  
+  // Get list of available dates from accumulation_distribution directory
+  async getAccumulationDistributionDates(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/accumulation/dates`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get accumulation distribution dates');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get accumulation distribution dates' };
+    }
+  },
+
+  // Get accumulation distribution data for specific date
+  async getAccumulationDistributionData(date: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/accumulation/data/${date}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get accumulation distribution data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get accumulation distribution data' };
+    }
+  },
+
+  // Calculate and store accumulation distribution data for specific date
+  async calculateAccumulationDistribution(date: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/accumulation/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date })
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to calculate accumulation distribution data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to calculate accumulation distribution data' };
+    }
+  },
+
+  // Bid/Ask API methods
+  async getBidAskData(stockCode: string, date: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/bidask/stock/${stockCode}/${date}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get bid/ask data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get bid/ask data' };
+    }
+  },
+
+  async getBidAskDates(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/bidask/dates`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get bid/ask dates');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get bid/ask dates' };
+    }
+  },
+
+  async getBidAskStocks(date: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/bidask/stocks/${date}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get bid/ask stocks');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get bid/ask stocks' };
+    }
+  },
+
+  // Batch get bid/ask data for multiple dates
+  async getBidAskBatch(stockCode: string, dates: string[]): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const promises = dates.map(date => this.getBidAskData(stockCode, date));
+      const results = await Promise.allSettled(promises);
+      
+      const dataByDate: { [date: string]: any } = {};
+      let successCount = 0;
+      
+      results.forEach((result, index) => {
+        const date = dates[index];
+        if (date) {
+          if (result.status === 'fulfilled' && result.value.success) {
+            dataByDate[date] = result.value.data;
+            successCount++;
+          } else {
+            dataByDate[date] = { data: [], total: 0 };
+          }
+        }
+      });
+      
+      return { 
+        success: successCount > 0, 
+        data: { 
+          dataByDate, 
+          successCount, 
+          totalDates: dates.length 
+        } 
+      };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get batch bid/ask data' };
+    }
+  },
+
+  // Broker Summary API
+  getBrokerSummaryData: async (stockCode: string, date: string) => {
+    try {
+      // Convert YYYY-MM-DD to YYYYMMDD format
+      const dateStr = date.includes('-') ? date.replace(/-/g, '') : date;
+      const response = await fetch(`${API_URL}/api/broker/summary/${stockCode}?date=${dateStr}`);
+      const data = await response.json();
+      return data;
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get broker summary data' };
+    }
+  },
+
+  // Get available dates for broker summary
+  getBrokerSummaryDates: async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/broker/dates`);
+      const data = await response.json();
+      return data;
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get broker summary dates' };
+    }
+  },
+
+  // Get available stocks for broker summary on specific date
+  getBrokerSummaryStocks: async (date: string) => {
+    try {
+      // Convert YYYY-MM-DD to YYYYMMDD format
+      const dateStr = date.includes('-') ? date.replace(/-/g, '') : date;
+      const response = await fetch(`${API_URL}/api/broker/stocks?date=${dateStr}`);
+      const data = await response.json();
+      return data;
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get broker summary stocks' };
     }
   },
 
