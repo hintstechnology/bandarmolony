@@ -12,12 +12,16 @@ const router = Router();
  * User akan otomatis dibuat oleh trigger saat signup.
  */
 router.get('/', requireSupabaseUser, async (req: any, res) => {
+  const startTime = Date.now();
   try {
     const userId = req.user.id as string;
     const userEmail = req.user.email as string;
+    
+    console.log(`📋 GET /api/me - User: ${userId}, Email: ${userEmail}`);
+    console.log(`📋 GET /api/me - User data:`, req.user);
+    console.log(`📋 GET /api/me - Request headers:`, req.headers.authorization ? 'Bearer token present' : 'No token');
 
-
-    // Fetch user profile (should exist due to trigger)
+    // Fetch user profile (should exist due to trigger or fallback in middleware)
     const { data, error } = await supabaseAdmin
       .from('users')
       .select('id, email, full_name, avatar_url, role, is_active, email_verified, last_login_at, created_at, updated_at')
@@ -25,9 +29,11 @@ router.get('/', requireSupabaseUser, async (req: any, res) => {
       .single();
 
     if (error) {
+      console.error(`❌ GET /api/me - Database error:`, error);
       
       if (error.code === 'PGRST116') {
         // User not found - this shouldn't happen with trigger, but handle gracefully
+        console.error(`❌ GET /api/me - User not found in database: ${userId}`);
         return res.status(HTTP_STATUS.NOT_FOUND).json(createErrorResponse(
           'User profile not found. Please try logging out and logging in again.',
           ERROR_CODES.NOT_FOUND,
@@ -40,23 +46,36 @@ router.get('/', requireSupabaseUser, async (req: any, res) => {
     }
 
     if (!data) {
+      console.error(`❌ GET /api/me - No data returned for user: ${userId}`);
       throw new Error('No user data found');
     }
 
-    // Update last_login_at
-    await supabaseAdmin
-      .from('users')
-      .update({ last_login_at: new Date().toISOString() })
-      .eq('id', userId);
+    console.log(`✅ GET /api/me - Profile found for user: ${userId}`);
 
+    // Update last_login_at in background (don't await)
+    (async () => {
+      try {
+        await supabaseAdmin
+          .from('users')
+          .update({ last_login_at: new Date().toISOString() })
+          .eq('id', userId);
+        console.log(`✅ GET /api/me - Updated last_login_at for: ${userId}`);
+      } catch (err) {
+        console.error(`⚠️ GET /api/me - Failed to update last_login_at:`, err);
+      }
+    })();
 
-    res.json(createSuccessResponse(data));
+    const duration = Date.now() - startTime;
+    console.log(`📤 GET /api/me - Sending response for user: ${userId} (${duration}ms)`);
+    console.log(`📤 GET /api/me - Response data:`, data);
+    return res.json(createSuccessResponse(data));
   } catch (err: any) {
-    
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+    const duration = Date.now() - startTime;
+    console.error(`❌ GET /api/me error (${duration}ms):`, err);
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Internal server error',
       ERROR_CODES.INTERNAL_SERVER_ERROR,
-      undefined,
+      err.message,
       HTTP_STATUS.INTERNAL_SERVER_ERROR
     ));
   }
@@ -68,9 +87,11 @@ router.get('/', requireSupabaseUser, async (req: any, res) => {
  */
 router.put('/', requireSupabaseUser, async (req: any, res) => {
   try {
-    
     const userId = req.user.id as string;
     const userEmail = req.user.email as string;
+    
+    console.log(`📝 PUT /api/me - User: ${userId}, Email: ${userEmail}`);
+    console.log(`📝 PUT /api/me - Request body:`, req.body);
 
 
     // Validate input data
@@ -96,13 +117,13 @@ router.put('/', requireSupabaseUser, async (req: any, res) => {
       return res.status(HTTP_STATUS.BAD_REQUEST).json(createErrorResponse(
         validationError.errors?.[0]?.message || 'Validation error',
         ERROR_CODES.VALIDATION_ERROR,
-        validationError.errors?.[0]?.path?.join('.') || 'unknown',
+        validationError.errors?.[0]?.['path']?.join('.') || 'unknown',
         HTTP_STATUS.BAD_REQUEST
       ));
     }
 
     // First check if user exists in public.users
-    const { data: existingUser, error: checkError } = await supabaseAdmin
+    const { data: _existingUser, error: checkError } = await supabaseAdmin
       .from('users')
       .select('id')
       .eq('id', userId)
@@ -122,7 +143,7 @@ router.put('/', requireSupabaseUser, async (req: any, res) => {
         .insert({
           id: userId,
           email: userEmail,
-          full_name: updateData.full_name || req.user.user_metadata?.full_name || '',
+          full_name: updateData.full_name || req.user.user_metadata?.['full_name'] || '',
           avatar_url: avatarUrl,
           email_verified: req.user.email_confirmed_at ? true : false,
           role: 'user',
@@ -144,6 +165,7 @@ router.put('/', requireSupabaseUser, async (req: any, res) => {
       }
 
       updatedProfile = newUser;
+      console.log(`✅ PUT /api/me - Created new user profile for: ${userId}`);
     } else if (checkError) {
       console.error('Error checking user existence:', checkError);
       return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
@@ -154,6 +176,7 @@ router.put('/', requireSupabaseUser, async (req: any, res) => {
       ));
     } else {
       // User exists, update profile
+      console.log(`📝 PUT /api/me - Updating existing profile for: ${userId}`);
       
       // Handle avatar_url: convert empty string to null
       const updatePayload: any = {
@@ -188,15 +211,33 @@ router.put('/', requireSupabaseUser, async (req: any, res) => {
       }
 
       updatedProfile = updated;
+      console.log(`✅ PUT /api/me - Updated profile for: ${userId}`);
     }
 
-    res.json(createSuccessResponse(updatedProfile, 'Profile updated successfully'));
+    console.log(`📤 PUT /api/me - Sending response for user: ${userId}`);
+    
+    // Ensure we return consistent profile data structure
+    const responseData = {
+      id: updatedProfile.id,
+      email: updatedProfile.email,
+      full_name: updatedProfile.full_name,
+      avatar_url: updatedProfile.avatar_url,
+      role: updatedProfile.role,
+      is_active: updatedProfile.is_active,
+      email_verified: updatedProfile.email_verified,
+      last_login_at: updatedProfile.last_login_at,
+      created_at: updatedProfile.created_at,
+      updated_at: updatedProfile.updated_at
+    };
+    
+    return res.json(createSuccessResponse(responseData, 'Profile updated successfully'));
 
   } catch (err: any) {
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+    console.error('PUT /api/me error:', err);
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Internal server error. Please try again later',
       ERROR_CODES.INTERNAL_SERVER_ERROR,
-      undefined,
+      err.message,
       HTTP_STATUS.INTERNAL_SERVER_ERROR
     ));
   }

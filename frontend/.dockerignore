@@ -1,12 +1,26 @@
 .git
 .gitignore
+
+# Dep & build outputs
 node_modules
-Dockerfile*
-docker-compose*
-npm-debug.log
 dist
 build
 coverage
 *.log
+
+# Editor & caches (opsional, disarankan)
+.vscode
+.idea
+.eslintcache
+.stylelintcache
+.cache
+.vite
+
+# Docker aux
+Dockerfile*
+docker-compose*
+npm-debug.log
+
+# Env
 .env
 .env.*

@@ -1,7 +1,8 @@
-import { supabase, auth } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { getAuthError } from '../utils/errorHandler';
 import { setAuthState, clearAuthState, getAuthState } from '../utils/auth';
 import { getAvatarUrl } from '../utils/avatar';
+// import config from '../config';
 
 export interface ProfileData {
   id: string;
@@ -31,29 +32,132 @@ export interface AuthResponse {
   session?: any;
   error?: string;
   code?: string;
-  field?: string;
+  field?: string | undefined;
   message?: string;
 }
 
 const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
 
 export const api = {
+  // Market Rotation Outputs (Azure-backed)
+  async listMarketRotationOutputs(feature: 'rrc' | 'rrg' | 'seasonal' | 'trend'): Promise<{ success: boolean; data?: { prefix: string; files: string[] }; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/market-rotation/outputs/${feature}/list`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to list outputs');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to list outputs' };
+    }
+  },
+
+  // Seasonal Analysis
+  async getSeasonalityData(type: 'index' | 'sector' | 'stock', startDate?: string, endDate?: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const params = new URLSearchParams();
+      if (startDate) params.append('startDate', startDate);
+      if (endDate) params.append('endDate', endDate);
+      
+      const res = await fetch(`${API_URL}/api/seasonality/data/${type}?${params}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get seasonality data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get seasonality data' };
+    }
+  },
+
+  async getSeasonalityStatus(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/seasonality/status`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get seasonality status');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get seasonality status' };
+    }
+  },
+
+  async generateSeasonality(triggerType: 'manual' | 'scheduled' = 'manual'): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/seasonality/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ triggerType })
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to generate seasonality');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to generate seasonality' };
+    }
+  },
+
+  async getMarketRotationOutputFile(feature: 'rrc' | 'rrg' | 'seasonal' | 'trend', path: string): Promise<string> {
+    const res = await fetch(`${API_URL}/api/market-rotation/outputs/${feature}/file?path=${encodeURIComponent(path)}`);
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(err || 'Failed to fetch output file');
+    }
+    return await res.text();
+  },
+
+  async backfillMarketRotationOutputs(feature: 'rrc' | 'rrg' | 'seasonal' | 'trend'): Promise<{ success: boolean; uploaded?: number; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/market-rotation/backfill/${feature}`, { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to backfill outputs');
+      return { success: true, uploaded: json?.data?.uploaded };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to backfill outputs' };
+    }
+  },
+  async listMarketRotationInputs(): Promise<{ success: boolean; data?: { index: string[]; stockSectors: string[]; holding: string[]; shareholders: string[] }; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/market-rotation/inputs`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to list inputs');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to list inputs' };
+    }
+  },
+
+  async preGenerateOutputs(feature: string): Promise<{ success: boolean; data?: { message: string; feature: string }; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/market-rotation/pre-generate/${feature}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to pre-generate outputs');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to pre-generate outputs' };
+    }
+  },
   async getProfile(): Promise<ProfileData> {
+    console.log('🔍 API: Getting profile...');
+    
     const { data: { session } } = await supabase.auth.getSession();
     
     if (!session?.user) {
+      console.log('❌ API: No active session');
       throw new Error('No active session');
     }
 
     if (!session.access_token) {
+      console.log('❌ API: No access token');
       throw new Error('No access token');
     }
+    
+    console.log('✅ API: Session and token found, making request');
     
     // Add timeout to fetch
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       controller.abort();
-    }, 5000); // 5 second timeout
+    }, 30000); // 30 seconds timeout
     
     try {
       const response = await fetch(`${API_URL}/api/me`, {
@@ -67,6 +171,11 @@ export const api = {
       clearTimeout(timeoutId);
       
       if (!response.ok) {
+        if (response.status === 401) {
+          // Don't clear session here - let AuthContext handle it
+          throw new Error('Session expired. Please sign in again.');
+        }
+        
         const errorText = await response.text();
         throw new Error(`Failed to fetch profile: ${response.status} ${errorText}`);
       }
@@ -99,6 +208,7 @@ export const api = {
       clearTimeout(timeoutId);
       
       if (error.name === 'AbortError') {
+        console.warn('⚠️ Profile fetch timeout, this might be a temporary issue');
         throw new Error('Request timeout');
       }
       
@@ -118,6 +228,17 @@ export const api = {
         throw new Error('No active session');
       }
 
+      // Pre-validate file size
+      const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
+      console.log(`🔍 API: File size validation: ${file.size} bytes (${fileSizeMB}MB)`);
+      
+      const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+      if (file.size > MAX_FILE_SIZE) {
+        console.log(`❌ API: File size validation failed: ${fileSizeMB}MB > ${MAX_FILE_SIZE / (1024 * 1024)}MB`);
+        throw new Error(`File size too large (${fileSizeMB}MB). Maximum size is ${MAX_FILE_SIZE / (1024 * 1024)}MB`);
+      }
+      console.log(`✅ API: File size validation passed: ${fileSizeMB}MB <= ${MAX_FILE_SIZE / (1024 * 1024)}MB`);
+
       const formData = new FormData();
       formData.append('avatar', file);
 
@@ -130,13 +251,39 @@ export const api = {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to upload avatar');
+        let errorMessage = 'Failed to upload avatar';
+        
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } catch (parseError) {
+          // If we can't parse the error response, use status-based messages
+          if (response.status === 413) {
+            errorMessage = 'File size too large. Maximum size is 1MB';
+          } else if (response.status === 400) {
+            errorMessage = 'Invalid file type or format';
+          } else if (response.status === 401) {
+            errorMessage = 'Authentication failed. Please log in again';
+          } else if (response.status >= 500) {
+            errorMessage = 'Server error. Please try again later';
+          }
+        }
+        
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();
       return result.data;
-    } catch (error) {
+    } catch (error: any) {
+      // Re-throw with more specific error messages
+      if (error.message?.includes('File size too large')) {
+        throw new Error('File size too large. Please select an image smaller than 1MB');
+      } else if (error.message?.includes('Invalid file type')) {
+        throw new Error('Invalid file type. Please select a JPEG, PNG, GIF, or WebP image');
+      } else if (error.message?.includes('Failed to fetch')) {
+        throw new Error('Network error. Please check your connection');
+      }
+      
       throw error;
     }
   },
@@ -158,10 +305,30 @@ export const api = {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to delete avatar');
+        let errorMessage = 'Failed to delete avatar';
+        
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } catch (parseError) {
+          // If we can't parse the error response, use status-based messages
+          if (response.status === 404) {
+            errorMessage = 'No avatar found to delete';
+          } else if (response.status === 401) {
+            errorMessage = 'Authentication failed. Please log in again';
+          } else if (response.status >= 500) {
+            errorMessage = 'Server error. Please try again later';
+          }
+        }
+        
+        throw new Error(errorMessage);
       }
-    } catch (error) {
+    } catch (error: any) {
+      // Re-throw with more specific error messages
+      if (error.message?.includes('Failed to fetch')) {
+        throw new Error('Network error. Please check your connection');
+      }
+      
       throw error;
     }
   },
@@ -268,11 +435,12 @@ export const api = {
       }
 
       const result = await response.json();
+      console.log('📥 API: Received response:', result);
       
       if (result.ok && result.data) {
         const profile = result.data;
         const avatarUrl = getAvatarUrl(profile.avatar_url);
-        return {
+        const processedProfile = {
           ...profile,
           // Legacy fields for backward compatibility
           name: profile.full_name,
@@ -287,16 +455,21 @@ export const api = {
           subscriptionStatus: profile.is_active ? 'active' : 'inactive' as const,
           subscriptionEndDate: profile.role === 'admin' ? 'December 25, 2025' : undefined,
         };
+        console.log('✅ API: Profile processed successfully');
+        return processedProfile;
       }
 
+      console.log('❌ API: Invalid profile data received');
       throw new Error('Invalid profile data');
     } catch (error) {
+      console.error('❌ API: Error in getProfile:', error);
       throw error;
     }
   },
 
   async login(email: string, password: string): Promise<AuthResponse> {
     try {
+      // Use backend login to ensure session is created in database
       const response = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
         headers: {
@@ -318,15 +491,13 @@ export const api = {
       }
 
       if (result.ok && result.data) {
-        // Store session using Supabase client for proper session management
+        // Set session in Supabase client first
         if (result.data.session) {
-          // Set session in Supabase client
           await supabase.auth.setSession({
             access_token: result.data.session.access_token,
             refresh_token: result.data.session.refresh_token
           });
-          
-          // Also store in localStorage for compatibility
+          // Then store in localStorage for persistence
           setAuthState(result.data.user, result.data.session);
         }
         
@@ -334,11 +505,12 @@ export const api = {
           success: true, 
           token: result.data.session?.access_token,
           user: result.data.user,
-          session: result.data.session
+          session: result.data.session,
+          message: result.message
         };
       }
 
-      return { success: false, error: 'No session created' };
+      return { success: false, error: 'Login failed' };
     } catch (error: any) {
       // Handle connection errors
       if (error.message?.includes('Failed to fetch') || error.message?.includes('ERR_CONNECTION_REFUSED')) {
@@ -347,7 +519,7 @@ export const api = {
           error: 'Cannot connect to server. Please make sure the backend is running.',
           code: 'CONNECTION_ERROR',
           field: 'general'
-        };
+        } as AuthResponse;
       }
       
       const authError = getAuthError(error);
@@ -356,7 +528,7 @@ export const api = {
         error: authError.message,
         code: authError.code,
         field: authError.field
-      };
+      } as AuthResponse;
     }
   },
 
@@ -411,9 +583,52 @@ export const api = {
 
   async logout(): Promise<void> {
     try {
-      // Call backend logout route first
+      // Call backend logout route first (session-specific logout)
       try {
-        await this.request('/auth/logout', {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          await fetch(`${API_URL}/api/auth/logout`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`,
+              'Content-Type': 'application/json',
+            },
+          });
+        }
+      } catch (backendError) {
+        console.warn('Backend logout failed:', backendError);
+        // Continue with frontend logout even if backend fails
+      }
+      
+      // Sign out from Supabase (this will trigger auth state change)
+      // IMPORTANT: Supabase signOut() returns { error } instead of throwing
+      const { error: signOutError } = await supabase.auth.signOut();
+      
+      if (signOutError) {
+        console.error('Supabase signOut failed:', signOutError);
+        // Even if signOut fails, clear local storage
+      }
+      
+      // Clear local storage
+      clearAuthState();
+      
+      // Clear any remaining session data
+      localStorage.removeItem('user');
+      localStorage.removeItem('supabase_session');
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Clear local storage anyway
+      clearAuthState();
+      localStorage.removeItem('user');
+      localStorage.removeItem('supabase_session');
+    }
+  },
+
+  async logoutAllDevices(): Promise<void> {
+    try {
+      // Call backend logout-all route first
+      try {
+        await fetch(`${API_URL}/api/auth/logout-all`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
@@ -424,8 +639,14 @@ export const api = {
         // Continue with frontend logout even if backend fails
       }
       
-      // Sign out from Supabase
-      await supabase.auth.signOut();
+      // Sign out from Supabase (global)
+      // IMPORTANT: Supabase signOut() returns { error } instead of throwing
+      const { error: signOutError } = await supabase.auth.signOut();
+      
+      if (signOutError) {
+        console.error('Supabase signOut (all devices) failed:', signOutError);
+        // Even if signOut fails, clear local storage
+      }
       
       // Clear local storage
       clearAuthState();
@@ -443,26 +664,28 @@ export const api = {
 
   async forgotPassword(email: string): Promise<{ success: boolean; error?: string; message?: string }> {
     try {
-      // Use Supabase resetPasswordForEmail - this will use the "Reset Password" template
-      // which sends magic link for password reset
+      // Use Supabase direct forgot password
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth/callback?type=recovery`
+        redirectTo: `${window.location.origin}/auth/reset-password`
       });
 
       if (error) {
-        return { 
-          success: false, 
-          error: error.message || 'Failed to send reset email'
+        return {
+          success: false,
+          error: error.message || 'Failed to send password reset email'
         };
       }
 
-      // Always return success to prevent email enumeration
-      return { 
-        success: true, 
-        message: 'Jika email terdaftar, kami telah mengirim link reset password.' 
+      return {
+        success: true,
+        message: 'Jika email terdaftar, kami telah mengirim link reset password.'
       };
     } catch (error: any) {
-      return { success: false, error: error.message || 'Failed to send reset email' };
+      console.error('Forgot password error:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to send reset email. Please try again.'
+      };
     }
   },
 
@@ -656,7 +879,8 @@ export const api = {
         throw new Error(error.message || 'OTP verification failed');
       }
 
-      return { success: true, token: data.session?.access_token };
+      const tokenValue = (data.session?.access_token ?? undefined) as string | undefined;
+      return { success: true, token: tokenValue } as { success: boolean; error?: string; token?: string };
     } catch (error: any) {
       return { success: false, error: error.message || 'OTP verification failed' };
     }
@@ -874,6 +1098,37 @@ export const api = {
     }
   },
 
+  async regenerateSnapToken(data: {
+    transactionId: string;
+  }): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.access_token) {
+        throw new Error('No active session found');
+      }
+
+      const response = await fetch(`${API_URL}/api/subscription/regenerate-snap-token`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify(data)
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to regenerate snap token');
+      }
+
+      return { success: true, data: result.data };
+    } catch (error: any) {
+      return { success: false, error: error.message || 'Failed to regenerate snap token' };
+    }
+  },
+
   async cancelPendingTransaction(data: {
     transactionId: string;
     reason?: string;
@@ -903,6 +1158,596 @@ export const api = {
       return { success: true, data: result.data };
     } catch (error: any) {
       return { success: false, error: error.message || 'Failed to cancel pending transaction' };
+    }
+  },
+
+  async updatePaymentMethod(params: {
+    transactionId: string;
+    paymentMethod: string;
+  }): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.access_token) {
+        throw new Error('No active session found');
+      }
+
+      const response = await fetch(`${API_URL}/api/subscription/update-payment-method`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify(params)
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to update payment method');
+      }
+
+      return { success: true, data: result.data };
+    } catch (error: any) {
+      return { success: false, error: error.message || 'Failed to update payment method' };
+    }
+  },
+
+  async changePassword(data: {
+    currentPassword: string;
+    newPassword: string;
+  }): Promise<{ success: boolean; error?: string; message?: string }> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.access_token) {
+        throw new Error('No active session found');
+      }
+
+      const response = await fetch(`${API_URL}/api/auth/change-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify(data)
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        return { 
+          success: false, 
+          error: result.error || 'Failed to change password'
+        };
+      }
+
+      return { 
+        success: true, 
+        message: result.message || 'Password changed successfully'
+      };
+    } catch (error: any) {
+      return { 
+        success: false, 
+        error: error.message || 'Failed to change password'
+      };
+    }
+  },
+
+  // RRC API methods
+  async listRRCInputs(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrc/inputs`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to list RRC inputs');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to list RRC inputs' };
+    }
+  },
+
+  async getRRCStatus(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrc/status`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get RRC status');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get RRC status' };
+    }
+  },
+
+  // Debug API methods
+  async triggerRRCUpdate(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrc/debug/trigger-update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to trigger RRC update');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to trigger RRC update' };
+    }
+  },
+
+  // Unified trigger with options
+  async triggerGeneration(feature: 'rrc' | 'rrg' | 'seasonal' | 'all' = 'all'): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/trigger/generate?feature=${feature}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to trigger generation');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to trigger generation' };
+    }
+  },
+
+  async getGenerationStatus(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/trigger/status`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get status');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get status' };
+    }
+  },
+
+  async stopRRCGeneration(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrc/debug/stop-generation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to stop RRC generation');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to stop RRC generation' };
+    }
+  },
+
+  async clearRRCCache(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrc/debug/clear-cache`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to clear RRC cache');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to clear RRC cache' };
+    }
+  },
+
+  // RRG API methods
+  async listRRGInputs(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrg/inputs`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to list RRG inputs');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to list RRG inputs' };
+    }
+  },
+
+  async getRRGData(type: 'stock' | 'sector' | 'index', items: string[], index: string = 'COMPOSITE', startDate?: string, endDate?: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const params = new URLSearchParams();
+      params.append('type', type);
+      items.forEach(item => params.append('items', item));
+      params.append('index', index);
+      if (startDate) params.append('startDate', startDate);
+      if (endDate) params.append('endDate', endDate);
+      
+      const res = await fetch(`${API_URL}/api/rrg/data?${params}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get RRG data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get RRG data' };
+    }
+  },
+
+  async getRRGStatus(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrg/status`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get RRG status');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get RRG status' };
+    }
+  },
+
+  // Debug RRG API methods
+  async triggerRRGUpdate(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrg/debug/trigger-update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to trigger RRG update');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to trigger RRG update' };
+    }
+  },
+
+  async stopRRGGeneration(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrg/debug/stop-generation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to stop RRG generation');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to stop RRG generation' };
+    }
+  },
+
+  async clearRRGCache(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrg/debug/clear-cache`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to clear RRG cache');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to clear RRG cache' };
+    }
+  },
+
+  // RRG Scanner API
+  async getRRGScannerData(type: 'stock' | 'sector'): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrg/scanner/${type}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get RRG scanner data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get RRG scanner data' };
+    }
+  },
+
+  // Seasonality API
+  async getSeasonalityInputs(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/seasonality/inputs`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get seasonality inputs');
+      return { success: true, data: json };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get seasonality inputs' };
+    }
+  },
+
+  async clearSeasonalityCache(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/seasonality/debug/clear-cache`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to clear seasonality cache');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to clear seasonality cache' };
+    }
+  },
+
+  async getRRCData(type: 'stock' | 'sector' | 'index', items: string[], index: string = 'COMPOSITE'): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const params = new URLSearchParams();
+      params.append('type', type);
+      items.forEach(item => params.append('items', item));
+      params.append('index', index);
+      
+      const res = await fetch(`${API_URL}/api/rrc/data?${params}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get RRC data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get RRC data' };
+    }
+  },
+
+  async preGenerateRRC(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/rrc/pre-generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to pre-generate RRC');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to pre-generate RRC' };
+    }
+  },
+
+  // Trend Filter API
+  async getTrendFilterStatus(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/trend-filter/status`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get trend filter status');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get trend filter status' };
+    }
+  },
+
+  async generateTrendFilter(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/trend-filter/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to generate trend filter');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to generate trend filter' };
+    }
+  },
+
+  async getTrendFilterData(period?: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const url = period 
+        ? `${API_URL}/api/trend-filter/data/${period}`
+        : `${API_URL}/api/trend-filter/data`;
+      const res = await fetch(url);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get trend filter data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get trend filter data' };
+    }
+  },
+
+  async getTrendFilterPeriods(): Promise<{ success: boolean; data?: string[]; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/trend-filter/periods`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get trend filter periods');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get trend filter periods' };
+    }
+  },
+
+  // Money Flow API
+  async getMoneyFlowData(stockCode: string, limit?: number): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const params = new URLSearchParams();
+      if (limit) params.append('limit', limit.toString());
+      
+      const res = await fetch(`${API_URL}/api/moneyflow/stock/${stockCode}?${params}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get money flow data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get money flow data' };
+    }
+  },
+
+  // Foreign Flow API
+  async getForeignFlowData(stockCode: string, limit?: number): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const params = new URLSearchParams();
+      if (limit) params.append('limit', limit.toString());
+      
+      const res = await fetch(`${API_URL}/api/foreign/stock/${stockCode}?${params}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get foreign flow data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get foreign flow data' };
+    }
+  },
+
+  // Holding/Shareholding API
+  async getHoldingData(stockCode: string, limit?: number): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const params = new URLSearchParams();
+      if (limit) params.append('limit', limit.toString());
+      
+      const res = await fetch(`${API_URL}/api/holding/stock/${stockCode}?${params}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get holding data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get holding data' };
+    }
+  },
+
+  // Shareholders API
+  async getShareholdersData(stockCode: string, limit?: number): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const params = new URLSearchParams();
+      if (limit) params.append('limit', limit.toString());
+      
+      const res = await fetch(`${API_URL}/api/shareholders/stock/${stockCode}?${params}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get shareholders data');
+      return { success: true, data: json };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get shareholders data' };
+    }
+  },
+
+  // Get list of stocks from shareholders directory
+  async getShareholdersStockList(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/shareholders/list`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get shareholders stock list');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get shareholders stock list' };
+    }
+  },
+
+  // Stock Data API
+  async getStockList(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/stock/list`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get stock list');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get stock list' };
+    }
+  },
+
+  async getStockData(stockCode: string, startDate?: string, endDate?: string, limit?: number): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const params = new URLSearchParams();
+      if (startDate) params.append('startDate', startDate);
+      if (endDate) params.append('endDate', endDate);
+      if (limit) params.append('limit', limit.toString());
+      
+      const res = await fetch(`${API_URL}/api/stock/data/${stockCode}?${params}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get stock data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get stock data' };
+    }
+  },
+
+  // Broker Summary Data
+  async getBrokerSummaryData(stockCode: string, date: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/broker/summary/${stockCode}?date=${date}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get broker summary data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get broker summary data' };
+    }
+  },
+
+  // Broker Transaction Data
+  async getBrokerTransactionData(brokerCode: string, date: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/broker/transaction/${brokerCode}?date=${date}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get broker transaction data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get broker transaction data' };
+    }
+  },
+
+  // Broker Inventory Data
+  async getBrokerInventoryData(stockCode: string, date: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/broker/inventory/${stockCode}?date=${date}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get broker inventory data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get broker inventory data' };
+    }
+  },
+
+  async getMultipleStocksData(stockCodes: string[], startDate?: string, endDate?: string, limit?: number): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const params = new URLSearchParams();
+      stockCodes.forEach(code => params.append('stocks', code));
+      if (startDate) params.append('startDate', startDate);
+      if (endDate) params.append('endDate', endDate);
+      if (limit) params.append('limit', limit.toString());
+      
+      const res = await fetch(`${API_URL}/api/stock/data?${params}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get stocks data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get stocks data' };
+    }
+  },
+
+  // Footprint Data API
+  async getFootprintData(stockCode: string, date: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/stock/footprint/${stockCode}?date=${date}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get footprint data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get footprint data' };
     }
   },
 

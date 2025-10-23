@@ -1,6 +1,6 @@
 import { supabaseAdmin } from '../supabaseClient';
-import { SessionManager } from '../utils/sessionManager';
 import { createErrorResponse, ERROR_CODES, HTTP_STATUS } from '../utils/responseUtils';
+import { SessionManager } from '../utils/sessionManager';
 
 export async function requireSupabaseUser(req: any, res: any, next: any) {
   try {
@@ -23,12 +23,25 @@ export async function requireSupabaseUser(req: any, res: any, next: any) {
       ));
     }
 
+    // Validate session in database
+    const tokenHash = SessionManager.generateTokenHash(token);
+    const isSessionValid = await SessionManager.validateSession(user.id, tokenHash);
+    
+    if (!isSessionValid) {
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json(createErrorResponse(
+        'Session expired. Please sign in again.',
+        ERROR_CODES.UNAUTHORIZED,
+        undefined,
+        HTTP_STATUS.UNAUTHORIZED
+      ));
+    }
+
     // Note: Session validation moved to backend logic
     // Since database minimal doesn't have RLS policies, we rely on Supabase Auth validation
 
     // Ensure user exists in public.users table (fallback for failed triggers)
     try {
-      const { data: userProfile, error: profileError } = await supabaseAdmin
+      const { data: _userProfile, error: profileError } = await supabaseAdmin
         .from('users')
         .select('id, role')
         .eq('id', user.id)
@@ -42,7 +55,7 @@ export async function requireSupabaseUser(req: any, res: any, next: any) {
           .insert({
             id: user.id,
             email: user.email,
-            full_name: user.user_metadata?.full_name || '',
+            full_name: user.user_metadata?.['full_name'] || '',
             avatar_url: null,
             email_verified: user.email_confirmed_at ? true : false,
             role: 'user',

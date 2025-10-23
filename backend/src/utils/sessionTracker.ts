@@ -1,5 +1,4 @@
 import { supabaseAdmin } from '../supabaseClient';
-import { v4 as uuidv4 } from 'uuid';
 
 export interface SessionData {
   userId: string;

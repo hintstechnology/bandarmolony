@@ -1,56 +1,76 @@
 import React, { useState, useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
-import { ThemeProvider } from "./components/ThemeProvider";
-import { ProfileProvider, useProfile } from "./contexts/ProfileContext";
+import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate } from "react-router-dom";
+import { ThemeProvider } from "./components/dashboard/ThemeProvider";
+import { AuthProvider } from "./contexts/AuthContext";
+import { ProfileProvider } from "./contexts/ProfileContext";
+import { ToastProvider } from "./contexts/ToastContext";
+import { ConfirmationProvider } from "./contexts/ConfirmationContext";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import { useNavigation } from "./hooks/useNavigation";
 import { AuthPage } from "./components/auth/AuthPage";
 import { EmailVerificationHandler } from "./components/auth/EmailVerificationHandler";
 import { SupabaseRedirectHandler } from "./components/auth/SupabaseRedirectHandler";
 import { ResetPasswordPage } from "./components/auth/ResetPasswordPage";
-import { ProtectedRoute } from "./components/ProtectedRoute";
-import { PublicRoute } from "./components/PublicRoute";
-import { Sidebar } from "./components/Sidebar";
-import { ThemeToggle } from "./components/ThemeToggle";
+import { ProtectedRoute } from "./components/dashboard/ProtectedRoute";
+import { PublicRoute } from "./components/dashboard/PublicRoute";
+import { Sidebar } from "./components/dashboard/Sidebar";
+import { ThemeToggle } from "./components/dashboard/ThemeToggle";
 import { Avatar, AvatarFallback, AvatarImage } from "./components/ui/avatar";
-import { User, Home, ChevronRight, ChevronDown } from "lucide-react";
+import { User, Home, ChevronRight, TrendingUp, Activity, ArrowRightLeft, BookOpen, Star, BarChart3, CreditCard, Shield } from "lucide-react";
+ 
 // Import all dashboard components
-import { MarketRotationRRG } from "./components/MarketRotationRRG";
-import { MarketRotationRRC } from "./components/MarketRotationRRC";
-import { MarketRotationSeasonality } from "./components/MarketRotationSeasonality";
-import { MarketRotationTrendFilter } from "./components/MarketRotationTrendFilter";
-import { BrokerTransaction } from "./components/BrokerTransaction";
-import { BrokerSummaryPage } from "./components/BrokerSummaryPage";
-import { BrokerInventoryPage } from "./components/BrokerInventoryPage";
-import { StockTransactionDoneSummary } from "./components/StockTransactionDoneSummary";
-import { StockTransactionDoneDetail } from "./components/StockTransactionDoneDetail";
-import { StoryAccumulationDistribution } from "./components/StoryAccumulationDistribution";
-import { StoryMarketParticipant } from "./components/StoryMarketParticipant";
-import { StoryOwnership } from "./components/StoryOwnership";
-import { StoryForeignFlow } from "./components/StoryForeignFlow";
-import { AstrologyLunarCalendar } from "./components/AstrologyLunarCalendar";
-import { TechnicalAnalysis } from "./components/TechnicalAnalysis";
-import { TechnicalAnalysisTradingView } from "./components/TechnicalAnalysisTradingView";
-import { ProfilePage } from "./components/ProfilePage";
-import { SubscriptionPage } from "./components/SubscriptionPage";
-import { AdminPage } from "./components/AdminPage";
-import { Dashboard } from "./components/Dashboard";
-import { LandingPage } from "./components/LandingPage";
-import { SubscriptionSuccess } from "./pages/SubscriptionSuccess";
-import { SubscriptionError } from "./pages/SubscriptionError";
-import { SubscriptionPending } from "./pages/SubscriptionPending";
+import MarketRotationRRG from "./components/market-rotation/MarketRotationRRG";
+import MarketRotationRRC from "./components/market-rotation/MarketRotationRRC";
+import { MarketRotationSeasonality } from "./components/market-rotation/MarketRotationSeasonality";
+import { MarketRotationTrendFilter } from "./components/market-rotation/MarketRotationTrendFilter";
+import SeasonalityAnalysis from "./components/SeasonalityAnalysis";
+import { BrokerTransaction } from "./components/broker-activity/BrokerTransaction";
+import { BrokerSummaryPage } from "./components/broker-activity/BrokerSummaryPage";
+import { BrokerInventoryPage } from "./components/broker-activity/BrokerInventoryPage";
+import { StockTransactionDoneSummary } from "./components/stock-transaction/StockTransactionDoneSummary";
+import { StockTransactionDoneDetail } from "./components/stock-transaction/StockTransactionDoneDetail";
+import { StoryAccumulationDistribution } from "./components/story/StoryAccumulationDistribution";
+import { StoryMarketParticipant } from "./components/story/StoryMarketParticipant";
+import { StoryOwnership } from "./components/story/StoryOwnership";
+import { StoryForeignFlow } from "./components/story/StoryForeignFlow";
+import { AstrologyLunarCalendar } from "./components/astrology/AstrologyLunarCalendar";
+import BaZiCycleAnalyzer from "./components/astrology/BaZiCycleAnalysis";
+import { TechnicalAnalysisTradingView } from "./components/technical-analysis/TechnicalAnalysisTradingView";
+import { ProfilePage } from "./components/profile/ProfilePage";
+import { SubscriptionPage } from "./components/subscription/SubscriptionPage";
+import { AdminPage } from "./components/admin/AdminPage";
+import { Dashboard } from "./components/dashboard/Dashboard";
+import { LandingPage } from "./components/dashboard/LandingPage";
+import { PricingPage } from "./components/dashboard/PricingPage";
+import { SubscriptionSuccess } from "./components/subscription/SubscriptionSuccess";
+import { SubscriptionError } from "./components/subscription/SubscriptionError";
+import { SubscriptionPending } from "./components/subscription/SubscriptionPending";
+import { FeaturesPage } from "./pages/FeaturesPage";
+import { ContactPage } from "./pages/ContactPage";
+import { TermsPage } from "./pages/TermsPage";
+import { PrivacyPage } from "./pages/PrivacyPage";
 
 // Dashboard Layout Component
 function DashboardLayout() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const { profile, isLoading } = useProfile();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { profile, isLoading, isAuthenticated } = useNavigation();
   const location = useLocation();
   const navigate = useNavigate();
+  const hasRedirected = React.useRef(false);
 
-  // Redirect to auth if no profile and not loading
+  // Handle redirect in useEffect to avoid calling navigate during render
   useEffect(() => {
-    if (!isLoading && !profile) {
+    // Reset redirect flag when user becomes authenticated with profile
+    if (isAuthenticated && profile) {
+      hasRedirected.current = false;
+    }
+    
+    if (!isLoading && (!profile || !isAuthenticated) && !hasRedirected.current) {
+      console.log('DashboardLayout: No profile or not authenticated, redirecting to auth');
+      hasRedirected.current = true;
       navigate('/auth', { replace: true });
     }
-  }, [profile, isLoading, navigate]);
+  }, [isLoading, profile, isAuthenticated, navigate]);
 
   // Show loading while profile is being fetched
   if (isLoading) {
@@ -64,9 +84,16 @@ function DashboardLayout() {
     );
   }
 
-  // If no profile after loading, show nothing (will redirect)
-  if (!profile) {
-    return null;
+  // If no profile or not authenticated after loading, show loading while redirect happens
+  if (!profile || !isAuthenticated) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Redirecting to login...</p>
+        </div>
+      </div>
+    );
   }
 
   const toggleSidebar = () => setSidebarOpen((v) => !v);
@@ -83,9 +110,74 @@ function DashboardLayout() {
 
   const currentRoute = getCurrentRoute();
 
-  // Handle profile click
+  // Breadcrumb mapping based on sidebar menu structure
+  const breadcrumbMap: Record<string, { title: string; icon?: React.ComponentType<any>; children?: Record<string, string> }> = {
+    'dashboard': { title: 'Dashboard', icon: Home },
+    'market-rotation': {
+      title: 'Market Rotation',
+      icon: TrendingUp,
+      children: {
+        'rrg': 'Relative Rotation Graph',
+        'rrc': 'Relative Rotation Curve',
+        'seasonality': 'Seasonality',
+        'trend-filter': 'Trend Filter',
+      },
+    },
+    'broker-activity': {
+      title: 'Broker Activity',
+      icon: Activity,
+      children: {
+        'transaction': 'Broker Transaction',
+        'summary': 'Broker Summary',
+        'inventory': 'Broker Inventory',
+      },
+    },
+    'stock-transaction': {
+      title: 'Stock Transaction',
+      icon: ArrowRightLeft,
+      children: {
+        'done-summary': 'Done Summary',
+        'done-detail': 'Done Detail',
+      },
+    },
+    'story': {
+      title: 'Story',
+      icon: BookOpen,
+      children: {
+        'accumulation-distribution': 'Accumulation Distribution',
+        'market-participant': 'Market Participant',
+        'ownership': 'Ownership',
+        'foreign-flow': 'Foreign Flow',
+      },
+    },
+    'astrology': { title: 'Astrology', icon: Star, children: { 'lunar': 'Ba Zi & Shio', 'bazi-cycle': 'Ba Zi Cycle Analysis' } },
+    'technical-analysis': { title: 'Technical Analysis', icon: BarChart3 },
+    'profile': { title: 'Profile' },
+    'subscription': { title: 'Subscription', icon: CreditCard },
+    'admin': { title: 'Admin', icon: Shield },
+  };
+
+  const getBreadcrumbParts = () => {
+    const path = location.pathname.replace(/^\/+/, '');
+    if (!path || path === 'dashboard') return [{ title: 'Dashboard', icon: Home }];
+    const segments = path.split('/');
+    const base = segments[0];
+    if (!base) return [{ title: 'Dashboard', icon: Home }];
+    const entry = breadcrumbMap[base];
+    if (!entry) return [{ title: 'Dashboard', icon: Home }];
+    const parts: { title: string; icon?: React.ComponentType<any> }[] = [{ title: entry.title, ...(entry.icon && { icon: entry.icon }) }];
+    if (segments[1] && entry.children) {
+      const child = entry.children[segments[1]];
+      if (child) parts.push({ title: child });
+    }
+    return parts;
+  };
+
+  // Handle profile click with debounce
   const handleProfileClick = () => {
-    navigate('/profile');
+    if (location.pathname !== '/profile') {
+      navigate('/profile');
+    }
   };
 
   // Render main content based on route
@@ -99,6 +191,8 @@ function DashboardLayout() {
         return <MarketRotationRRC />;
       case "market-rotation/seasonality":
         return <MarketRotationSeasonality />;
+      case "seasonality":
+        return <SeasonalityAnalysis />;
       case "market-rotation/trend-filter":
         return <MarketRotationTrendFilter />;
 
@@ -133,6 +227,8 @@ function DashboardLayout() {
       case "astrology":
       case "astrology/lunar":
         return <AstrologyLunarCalendar />;
+      case "astrology/bazi-cycle":
+        return <BaZiCycleAnalyzer />;
 
       // Technical Analysis
       case "technical-analysis":
@@ -171,7 +267,7 @@ function DashboardLayout() {
       />
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden ml-0 lg:ml-16">
         {/* Header */}
         <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card h-14">
           <div className="flex items-center gap-3">
@@ -188,37 +284,25 @@ function DashboardLayout() {
             
             {/* Breadcrumb Navigation */}
             <nav className="flex items-center space-x-2 text-sm">
-              <div className="flex items-center space-x-1">
-                <Home className="w-4 h-4 text-muted-foreground" />
-                <span className="text-muted-foreground">Dashboard</span>
-              </div>
-              {getCurrentRoute() !== 'dashboard' && (
-                <>
-                  <ChevronRight className="w-3 h-3 text-muted-foreground" />
-                  <span className="text-foreground font-medium">
-                    {getCurrentRoute()
-                      .split('/')
-                      .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-                      .join(' / ')}
-                  </span>
-                </>
-              )}
+              {getBreadcrumbParts().map((part, idx, arr) => (
+                <div key={idx} className="flex items-center space-x-2">
+                  {idx === 0 && part.icon ? (
+                    <part.icon className="w-4 h-4 text-muted-foreground" />
+                  ) : idx === 0 ? (
+                    <Home className="w-4 h-4 text-muted-foreground" />
+                  ) : null}
+                  <span className={`whitespace-nowrap ${idx === arr.length - 1 ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>{part.title}</span>
+                  {idx < arr.length - 1 && <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                </div>
+              ))}
             </nav>
           </div>
           
           <div className="flex items-center gap-3">
-            {/* Notifications */}
-            <button className="relative p-1.5 rounded-md hover:bg-accent hover:text-accent-foreground active:bg-accent/80 transition-all duration-200 group">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-              </svg>
-              <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-            </button>
-            
             {/* Theme Toggle */}
             <ThemeToggle />
-            
             {/* Profile Button */}
+            <div className="relative">
             <button
               onClick={handleProfileClick}
               className="flex items-center gap-2 hover:bg-accent hover:text-accent-foreground active:bg-accent/80 rounded-lg px-3 py-1.5 transition-all duration-200 group relative"
@@ -242,6 +326,8 @@ function DashboardLayout() {
               {/* Hover indicator */}
               <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-0 h-0.5 bg-blue-500 group-hover:w-8 transition-all duration-200"></div>
             </button>
+            
+            </div>
           </div>
         </header>
 
@@ -257,20 +343,73 @@ function DashboardLayout() {
 export default function App() {
   return (
     <ThemeProvider>
-      <ProfileProvider>
-        <Router>
-          <Routes>
+      <ToastProvider>
+        <ConfirmationProvider>
+          <AuthProvider>
+            <ProfileProvider>
+              <Router>
+                <ErrorBoundary>
+                  <Routes>
             {/* Landing page - public route */}
             <Route 
               path="/" 
               element={
                 <LandingPage 
-                  onStartTrial={() => window.location.href = '/auth?mode=register'} 
-                  onSignIn={() => window.location.href = '/auth?mode=login'}
-                  onRegister={() => window.location.href = '/auth?mode=register'}
+                  onStartTrial={() => {
+                    // Use navigate instead of window.location.href
+                    const navigate = (window as any).navigate;
+                    if (navigate) {
+                      navigate('/auth?mode=register');
+                    } else {
+                      window.location.href = '/auth?mode=register';
+                    }
+                  }} 
+                  onSignIn={() => {
+                    const navigate = (window as any).navigate;
+                    if (navigate) {
+                      navigate('/auth?mode=login');
+                    } else {
+                      window.location.href = '/auth?mode=login';
+                    }
+                  }}
+                  onRegister={() => {
+                    const navigate = (window as any).navigate;
+                    if (navigate) {
+                      navigate('/auth?mode=register');
+                    } else {
+                      window.location.href = '/auth?mode=register';
+                    }
+                  }}
                 />
               } 
             />
+            <Route path="/features" element={<FeaturesPage />} />
+            <Route 
+              path="/pricing" 
+              element={
+                <PricingPage 
+                  onSignIn={() => {
+                    const navigate = (window as any).navigate;
+                    if (navigate) {
+                      navigate('/auth?mode=login');
+                    } else {
+                      window.location.href = '/auth?mode=login';
+                    }
+                  }}
+                  onRegister={() => {
+                    const navigate = (window as any).navigate;
+                    if (navigate) {
+                      navigate('/auth?mode=register');
+                    } else {
+                      window.location.href = '/auth?mode=register';
+                    }
+                  }}
+                />
+              } 
+            />
+            <Route path="/contact" element={<ContactPage />} />
+            <Route path="/terms" element={<TermsPage />} />
+            <Route path="/privacy" element={<PrivacyPage />} />
             
             {/* Email verification handler */}
             <Route 
@@ -287,7 +426,7 @@ export default function App() {
             {/* Password reset page */}
             <Route 
               path="/auth/reset-password" 
-              element={<ResetPasswordPage />} 
+              element={<ResetPasswordPage key={window.location.search} />} 
             />
             
             {/* Public routes - redirect to dashboard if authenticated */}
@@ -391,9 +530,14 @@ export default function App() {
               path="/subscription/pending" 
               element={<SubscriptionPending />} 
             />
-          </Routes>
-        </Router>
-      </ProfileProvider>
+                  </Routes>
+                </ErrorBoundary>
+              </Router>
+            </ProfileProvider>
+          </AuthProvider>
+        </ConfirmationProvider>
+      </ToastProvider>
     </ThemeProvider>
   );
 }
+

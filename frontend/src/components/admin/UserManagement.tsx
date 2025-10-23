@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -6,8 +6,6 @@ import { Badge } from "../ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { 
   Search, 
-  Filter, 
-  MoreHorizontal, 
   UserCheck, 
   UserX, 
   Mail, 
@@ -19,6 +17,7 @@ import {
 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { useTabFocus } from "../../hooks/useTabFocus";
+import { useToast } from "../../contexts/ToastContext";
 
 interface User {
   id: string;
@@ -32,17 +31,9 @@ interface User {
   updated_at: string;
 }
 
-interface UserListResponse {
-  users: User[];
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
-  };
-}
 
 export function UserManagement() {
+  const { showToast } = useToast();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +45,7 @@ export function UserManagement() {
   const [isInitialized, setIsInitialized] = useState(false);
   const [pagination, setPagination] = useState({
     page: 1,
-    limit: 10,
+    limit: 5,
     total: 0,
     totalPages: 0
   });
@@ -92,10 +83,12 @@ export function UserManagement() {
 
   // Use tab focus hook to prevent unnecessary refreshes
   useTabFocus(() => {
-    if (isInitialized) {
+    // Only refresh if data is stale (older than 5 minutes)
+    const now = Date.now();
+    if (isInitialized && (now - lastFetchTime) > 5 * 60 * 1000) {
       fetchUsers();
     }
-  }, 2 * 60 * 1000, lastFetchTime); // 2 minutes stale time
+  }, 5 * 60 * 1000, lastFetchTime); // 5 minutes stale time
 
   useEffect(() => {
     // Fetch on filter changes or page changes
@@ -104,6 +97,11 @@ export function UserManagement() {
     const isStale = (now - lastFetchTime) > 2 * 60 * 1000; // 2 minute cache
     
     if (isFilterChange || isStale) {
+      // Reset to page 1 when filters change
+      if (isFilterChange && currentPage !== 1) {
+        setCurrentPage(1);
+        return; // fetchUsers will be called in the next effect
+      }
       fetchUsers();
     }
   }, [currentPage, search, roleFilter, statusFilter]);
@@ -125,7 +123,7 @@ export function UserManagement() {
 
       const params = new URLSearchParams({
         page: currentPage.toString(),
-        limit: '10'
+        limit: '5'
       });
 
       if (search) params.append('search', search);
@@ -145,12 +143,14 @@ export function UserManagement() {
       }
 
       const result = await response.json();
+      console.log('UserManagement: API Response:', result);
       if (result.ok) {
         setUsers(result.data.users);
         setPagination(result.data.pagination);
         setLastFetchTime(Date.now());
         setIsInitialized(true);
         console.log('UserManagement: Data fetched successfully, users:', result.data.users.length);
+        console.log('UserManagement: Pagination:', result.data.pagination);
       } else {
         throw new Error(result.error || 'Failed to fetch users');
       }
@@ -198,7 +198,11 @@ export function UserManagement() {
       }
     } catch (err: any) {
       console.error('Error updating user status:', err);
-      alert(`Error: ${err.message}`);
+      showToast({
+        type: 'error',
+        title: 'Error',
+        message: err.message || 'Failed to update user status',
+      });
     } finally {
       setActionLoading(null);
     }
@@ -287,7 +291,7 @@ export function UserManagement() {
         </div>
 
         {/* Users List */}
-        <div className="space-y-4">
+        <div className="space-y-4 min-h-[500px]">
           {users.map((user) => (
             <div key={user.id} className="flex items-center space-x-4 p-4 border rounded-lg hover:bg-muted/50 transition-colors">
               <Avatar className="h-10 w-10">
@@ -372,9 +376,22 @@ export function UserManagement() {
                 <ChevronLeft className="h-4 w-4" />
                 Previous
               </Button>
-              <span className="text-sm">
-                Page {pagination.page} of {pagination.totalPages}
-              </span>
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
+                  const page = i + 1;
+                  return (
+                    <Button
+                      key={page}
+                      variant={currentPage === page ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setCurrentPage(page)}
+                      className="w-8 h-8 p-0"
+                    >
+                      {page}
+                    </Button>
+                  );
+                })}
+              </div>
               <Button
                 variant="outline"
                 size="sm"

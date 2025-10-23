@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
+import { useToast } from '../../contexts/ToastContext';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -18,6 +19,7 @@ interface LoginFormProps {
 
 export function LoginForm({ onSwitchToSignUp, onSwitchToForgotPassword, onLogin }: LoginFormProps) {
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -119,7 +121,11 @@ export function LoginForm({ onSwitchToSignUp, onSwitchToForgotPassword, onLogin 
       const result = await api.login(email, password);
       
       if (result.success) {
-        toast.success('Login successful! Welcome back.');
+        showToast({
+          type: 'success',
+          title: 'Login Berhasil!',
+          message: 'Selamat datang kembali!',
+        });
         navigate('/dashboard');
       } else {
         // Handle structured error responses

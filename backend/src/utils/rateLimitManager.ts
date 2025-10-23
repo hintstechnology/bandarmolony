@@ -12,7 +12,7 @@ export class RateLimitManager {
   /**
    * Check if login is allowed for email/IP
    */
-  static async checkLoginRateLimit(email: string, ipAddress?: string) {
+  static async checkLoginRateLimit(email: string, _ipAddress?: string) {
     try {
       const { data, error } = await supabaseAdmin
         .from('login_attempts')
@@ -45,7 +45,6 @@ export class RateLimitManager {
       const now = new Date();
       const lockoutDuration = this.LOCKOUT_DURATION_MINUTES * 60 * 1000; // Convert to milliseconds
       const lastAttempt = new Date(data.last_attempt);
-      const lockoutEnd = new Date(lastAttempt.getTime() + lockoutDuration);
 
       // Check if currently blocked
       if (data.blocked_until && new Date(data.blocked_until) > now) {
@@ -267,7 +266,7 @@ export class RateLimitManager {
   /**
    * Block user after max failed attempts
    */
-  static async blockUserAfterMaxAttempts(email: string, ipAddress?: string) {
+  static async blockUserAfterMaxAttempts(email: string, _ipAddress?: string) {
     try {
       const { data: attemptRecord } = await supabaseAdmin
         .from('login_attempts')

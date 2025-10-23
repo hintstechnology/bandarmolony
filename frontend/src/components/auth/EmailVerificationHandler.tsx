@@ -55,10 +55,9 @@ export function EmailVerificationHandler() {
         setToken(finalToken);
         setType(finalType);
 
-        // Jika type adalah recovery, langsung tampilkan form reset password
+        // Jika type adalah recovery, redirect ke reset password page
         if (finalType === 'recovery') {
-          setStatus('reset-password');
-          setMessage('Please enter your new password');
+          navigate(`/auth/reset-password?token=${finalToken}&type=recovery`, { replace: true });
           return;
         }
 

@@ -4,7 +4,6 @@
  */
 
 import { supabaseAdmin } from '../supabaseClient';
-import { createErrorResponse, ERROR_CODES, HTTP_STATUS } from './responseUtils';
 
 export class DatabaseManager {
   /**

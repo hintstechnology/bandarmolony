@@ -33,13 +33,8 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
 /**
  * Rate limiting middleware for general API endpoints
  */
-export function generalRateLimit(req: Request, res: Response, next: NextFunction) {
+export function generalRateLimit(_req: Request, _res: Response, next: NextFunction) {
   // Simple in-memory rate limiting (for production, use Redis)
-  const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
-  const now = Date.now();
-  const windowMs = 15 * 60 * 1000; // 15 minutes
-  const maxRequests = 100; // 100 requests per window
-  
   // This is a simplified implementation
   // In production, use a proper rate limiting library like express-rate-limit
   next();
@@ -48,7 +43,7 @@ export function generalRateLimit(req: Request, res: Response, next: NextFunction
 /**
  * Input sanitization middleware
  */
-export function sanitizeInput(req: Request, res: Response, next: NextFunction) {
+export function sanitizeInput(req: Request, _res: Response, next: NextFunction) {
   // Basic XSS protection
   const sanitizeString = (str: string): string => {
     return str
@@ -79,31 +74,4 @@ export function sanitizeInput(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
-/**
- * CORS configuration
- */
-export function corsConfig(req: Request, res: Response, next: NextFunction) {
-  const origin = req.headers.origin;
-  const allowedOrigins = [
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'https://yourdomain.com' // Replace with your production domain
-  ];
-
-  if (origin && allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
-
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
-
-  next();
-}
 
