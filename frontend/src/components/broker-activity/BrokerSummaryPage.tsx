@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -48,18 +48,35 @@ const generateBrokerSummaryData = (date: string, ticker: string): BrokerSummaryD
   });
 };
 
-// Get last three trading days
-const getLastThreeDays = (): string[] => {
+// Get last trading days (excluding weekends)
+const getLastTradingDays = (count: number): string[] => {
   const today = new Date();
   const dates: string[] = [];
+  let daysBack = 0;
   
-  for (let i = 0; i < 3; i++) {
+  while (dates.length < count) {
     const date = new Date(today);
-    date.setDate(date.getDate() - i);
-    dates.push(date.toISOString().split('T')[0] ?? '');
+    date.setDate(date.getDate() - daysBack);
+    const dayOfWeek = date.getDay();
+    
+    // Skip weekends (Saturday = 6, Sunday = 0)
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      dates.push(date.toISOString().split('T')[0] ?? '');
+    }
+    daysBack++;
   }
   
   return dates;
+};
+
+// Get last three trading days
+const getLastThreeDays = (): string[] => {
+  return getLastTradingDays(3);
+};
+
+// Get last five trading days (1 week)
+const getLastFiveDays = (): string[] => {
+  return getLastTradingDays(5);
 };
 
 const formatNumber = (value: number): string => {
@@ -107,7 +124,6 @@ export function BrokerSummaryPage() {
   const [selectedTicker, setSelectedTicker] = useState<string>('BBCA');
   const [showTickerSuggestions, setShowTickerSuggestions] = useState(false);
   const [highlightedTickerIndex, setHighlightedTickerIndex] = useState<number>(-1);
-  const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical'>('vertical');
   const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
 
   const addDateRange = () => {
@@ -161,7 +177,7 @@ export function BrokerSummaryPage() {
       setStartDate(sortedDates[0] ?? '');
       setEndDate(sortedDates[sortedDates.length - 1] ?? '');
     } else if (mode === '1week') {
-      const oneWeek = getLastThreeDays().slice(0, 7);
+      const oneWeek = getLastFiveDays();
       setSelectedDates(oneWeek);
       const sortedDates = [...oneWeek].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
       setStartDate(sortedDates[0] ?? '');
@@ -175,103 +191,158 @@ export function BrokerSummaryPage() {
     setEndDate('');
   };
 
-  const renderVerticalView = () => {
+  const renderHorizontalView = () => {
     if (!selectedTicker || selectedDates.length === 0) return null;
+    
+    // Get all broker data for all selected dates
+    const allBrokerData = selectedDates.map(date => ({
+      date,
+      buyData: generateBrokerSummaryData(date, selectedTicker),
+      sellData: generateBrokerSummaryData(date, selectedTicker).map(broker => ({
+        ...broker,
+        nblot: Math.abs(broker.nslot),
+        nbval: Math.abs(broker.nsval),
+        bavg: broker.savg,
+        nslot: broker.nslot,
+        nsval: broker.nsval,
+        savg: broker.savg
+      }))
+    }));
+
+    // Get unique brokers
+    const brokers = allBrokerData[0]?.buyData.map(b => b.broker) || [];
     
     return (
       <div className="space-y-6">
-        {selectedDates.map((date) => {
-          const buyData = generateBrokerSummaryData(date, selectedTicker);
-          const sellData = generateBrokerSummaryData(date, selectedTicker).map(broker => ({
-            ...broker,
-            nblot: Math.abs(broker.nslot),
-            nbval: Math.abs(broker.nsval),
-            bavg: broker.savg,
-            nslot: broker.nslot,
-            nsval: broker.nsval,
-            savg: broker.savg
-          }));
-          
-          return (
-            <div key={date} className="space-y-4">
-              {/* Date Header */}
-              <div className="text-center">
-                <h3 className="text-lg font-semibold text-foreground">{formatDisplayDate(date)}</h3>
-              </div>
-              
-              {/* Buy Side and Sell Side side by side */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {/* Buy Side for this date */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-green-600">BUY SIDE - {selectedTicker}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto rounded-md">
-                      <table className="w-full min-w-[560px] text-xs">
-                        <thead className="bg-background">
-                          <tr className="border-b border-border">
-                            <th className="text-left py-2 px-2 font-medium">Broker</th>
-                            <th className="text-right py-2 px-2 font-medium">NBLot</th>
-                            <th className="text-right py-2 px-2 font-medium">NBVal</th>
-                            <th className="text-right py-2 px-2 font-medium">BAvg</th>
-                            <th className="text-right py-2 px-2 font-medium">SL</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {buyData.map((row, idx) => (
-                            <tr key={idx} className={`border-b border-border/50 hover:bg-accent/50 ${getBrokerRowClass(row.broker, row)}`}>
-                              <td className="py-2 px-2 font-medium">{row.broker}</td>
-                              <td className="text-right py-2 px-2 text-green-600">{formatNumber(row.nblot)}</td>
-                              <td className="text-right py-2 px-2 text-green-600">{formatNumber(row.nbval)}</td>
-                              <td className="text-right py-2 px-2">{formatNumber(row.bavg)}</td>
-                              <td className="text-right py-2 px-2">{formatNumber(row.sl)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
+        {/* Header with dates
+        <div className="text-center">
+          <h2 className="text-xl font-semibold text-foreground mb-2">
+            Broker Summary - {selectedTicker}
+          </h2>
+          <div className="flex flex-wrap justify-center gap-2">
+            {selectedDates.map(date => (
+              <Badge key={date} variant="outline" className="px-3 py-1">
+                {formatDisplayDate(date)}
+              </Badge>
+            ))}
+          </div>
+        </div> */}
 
-                {/* Sell Side for this date */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-red-600">SELL SIDE - {selectedTicker}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto rounded-md">
-                      <table className="w-full min-w-[560px] text-xs">
-                        <thead className="bg-background">
-                          <tr className="border-b border-border">
-                            <th className="text-left py-2 px-2 font-medium">Broker</th>
-                            <th className="text-right py-2 px-2 font-medium">NSLot</th>
-                            <th className="text-right py-2 px-2 font-medium">NSVal</th>
-                            <th className="text-right py-2 px-2 font-medium">SAvg</th>
-                            <th className="text-right py-2 px-2 font-medium">Net</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sellData.map((row, idx) => (
-                            <tr key={idx} className={`border-b border-border/50 hover:bg-accent/50 ${getBrokerRowClass(row.broker, row)}`}>
-                              <td className="py-2 px-2 font-medium">{row.broker}</td>
-                              <td className="text-right py-2 px-2 text-red-600">{formatNumber(row.nslot)}</td>
-                              <td className="text-right py-2 px-2 text-red-600">{formatNumber(row.nsval)}</td>
-                              <td className="text-right py-2 px-2">{formatNumber(row.savg)}</td>
-                              <td className="text-right py-2 px-2 font-medium">
-                                {formatNumber(row.nblot + row.nslot)}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
+        {/* Buy Side Table */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-green-600">
+              BUY SIDE - {selectedTicker}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto rounded-md">
+              <table className="w-full min-w-[800px] text-xs">
+                <thead className="bg-background">
+                  <tr className="border-b border-border">
+                    <th className="text-left py-2 px-2 font-medium sticky left-0 bg-background z-10">Broker</th>
+                    {selectedDates.map(date => (
+                      <React.Fragment key={date}>
+                        <th className="text-center py-2 px-2 font-medium text-green-600" colSpan={4}>
+                          {formatDisplayDate(date)}
+                        </th>
+                      </React.Fragment>
+                    ))}
+                  </tr>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-2 px-2 font-medium sticky left-0 bg-background z-10"></th>
+                    {selectedDates.map(date => (
+                      <React.Fragment key={date}>
+                        <th className="text-right py-2 px-2 font-medium text-green-600">NBLot</th>
+                        <th className="text-right py-2 px-2 font-medium text-green-600">NBVal</th>
+                        <th className="text-right py-2 px-2 font-medium text-green-600">BAvg</th>
+                        <th className="text-right py-2 px-2 font-medium text-green-600">SL</th>
+                      </React.Fragment>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {brokers.map((broker, brokerIdx) => (
+                    <tr key={broker} className={`border-b border-border/50 hover:bg-accent/50 ${getBrokerRowClass(broker, allBrokerData[0]?.buyData[brokerIdx] || {} as BrokerSummaryData)}`}>
+                      <td className="py-2 px-2 font-medium sticky left-0 bg-background z-10">{broker}</td>
+                      {selectedDates.map(date => {
+                        const dateData = allBrokerData.find(d => d.date === date);
+                        const brokerData = dateData?.buyData.find(b => b.broker === broker);
+                        return (
+                          <React.Fragment key={date}>
+                            <td className="text-right py-2 px-2 text-green-600">{formatNumber(brokerData?.nblot || 0)}</td>
+                            <td className="text-right py-2 px-2 text-green-600">{formatNumber(brokerData?.nbval || 0)}</td>
+                            <td className="text-right py-2 px-2">{formatNumber(brokerData?.bavg || 0)}</td>
+                            <td className="text-right py-2 px-2">{formatNumber(brokerData?.sl || 0)}</td>
+                          </React.Fragment>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          );
-        })}
+          </CardContent>
+        </Card>
+
+        {/* Sell Side Table */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-red-600">
+              SELL SIDE - {selectedTicker}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto rounded-md">
+              <table className="w-full min-w-[800px] text-xs">
+                <thead className="bg-background">
+                  <tr className="border-b border-border">
+                    <th className="text-left py-2 px-2 font-medium sticky left-0 bg-background z-10">Broker</th>
+                    {selectedDates.map(date => (
+                      <React.Fragment key={date}>
+                        <th className="text-center py-2 px-2 font-medium text-red-600" colSpan={4}>
+                          {formatDisplayDate(date)}
+                        </th>
+                      </React.Fragment>
+                    ))}
+                  </tr>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-2 px-2 font-medium sticky left-0 bg-background z-10"></th>
+                    {selectedDates.map(date => (
+                      <React.Fragment key={date}>
+                        <th className="text-right py-2 px-2 font-medium text-red-600">NSLot</th>
+                        <th className="text-right py-2 px-2 font-medium text-red-600">NSVal</th>
+                        <th className="text-right py-2 px-2 font-medium text-red-600">SAvg</th>
+                        <th className="text-right py-2 px-2 font-medium text-red-600">Net</th>
+                      </React.Fragment>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {brokers.map((broker, brokerIdx) => (
+                    <tr key={broker} className={`border-b border-border/50 hover:bg-accent/50 ${getBrokerRowClass(broker, allBrokerData[0]?.sellData[brokerIdx] || {} as BrokerSummaryData)}`}>
+                      <td className="py-2 px-2 font-medium sticky left-0 bg-background z-10">{broker}</td>
+                      {selectedDates.map(date => {
+                        const dateData = allBrokerData.find(d => d.date === date);
+                        const brokerData = dateData?.sellData.find(b => b.broker === broker);
+                        return (
+                          <React.Fragment key={date}>
+                            <td className="text-right py-2 px-2 text-red-600">{formatNumber(brokerData?.nslot || 0)}</td>
+                            <td className="text-right py-2 px-2 text-red-600">{formatNumber(brokerData?.nsval || 0)}</td>
+                            <td className="text-right py-2 px-2">{formatNumber(brokerData?.savg || 0)}</td>
+                            <td className="text-right py-2 px-2 font-medium">
+                              {formatNumber((brokerData?.nblot || 0) + (brokerData?.nslot || 0))}
+                            </td>
+                          </React.Fragment>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     );
   };
@@ -428,39 +499,13 @@ export function BrokerSummaryPage() {
                     <option value="1week">1 Week</option>
                     <option value="custom">Custom</option>
                   </select>
-                  {dateRangeMode === 'custom' && (
-                    <Button onClick={clearAllDates} variant="outline" size="sm">
-                      <RotateCcw className="w-4 h-4 mr-1" />
-                      Clear
-                    </Button>
-                  )}
+                  <Button onClick={clearAllDates} variant="outline" size="sm">
+                    <RotateCcw className="w-4 h-4 mr-1" />
+                    Reset
+                  </Button>
                 </div>
               </div>
 
-              {/* Layout Mode Toggle */}
-              <div className="flex-1 min-w-0 w-full lg:w-auto lg:flex-none">
-                <label className="block text-sm font-medium mb-2">Layout:</label>
-                <div className="flex sm:inline-flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto w-full sm:w-auto lg:w-auto justify-center sm:justify-start">
-                  <div className="grid grid-cols-2 gap-1 w-full max-w-xs mx-auto sm:flex sm:items-center sm:gap-1 sm:max-w-none sm:mx-0">
-                    <Button
-                      variant={layoutMode === 'horizontal' ? 'default' : 'ghost'}
-                      size="sm"
-                      onClick={() => setLayoutMode('horizontal')}
-                      className="px-3 py-1 h-8 text-xs"
-                    >
-                      Horizontal
-                    </Button>
-                    <Button
-                      variant={layoutMode === 'vertical' ? 'default' : 'ghost'}
-                      size="sm"
-                      onClick={() => setLayoutMode('vertical')}
-                      className="px-3 py-1 h-8 text-xs"
-                    >
-                      Vertical
-                    </Button>
-                  </div>
-                </div>
-              </div>
             </div>
 
             {/* Row 2: Selected Dates */}
@@ -487,13 +532,7 @@ export function BrokerSummaryPage() {
       </Card>
 
       {/* Main Data Display */}
-      {layoutMode === 'horizontal' ? (
-        <div className="text-center py-8 text-muted-foreground">
-          Horizontal view is not available in this version
-        </div>
-      ) : (
-        renderVerticalView()
-      )}
+      {renderHorizontalView()}
     </div>
   );
 }
