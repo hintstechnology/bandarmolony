@@ -933,20 +933,20 @@ export function StockTransactionDoneSummary() {
     <div className="min-h-screen space-y-4 sm:space-y-6 p-2 sm:p-4 lg:p-6 overflow-x-hidden">
       {/* Top Controls */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
-            <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
-            Stock Selection & Date Range (Max 7 Days)
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3 sm:space-y-4">
-            {/* Row 1: All controls in one horizontal line */}
-            <div className="flex flex-wrap items-end gap-4">
+        <CardContent className="pt-6">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            {/* Title */}
+            <div className="flex items-center gap-2 text-sm sm:text-base font-medium">
+              <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
+              Stock Selection & Date Range (Max 7 Days)
+            </div>
+            
+            {/* Menu Controls */}
+            <div className="flex flex-wrap items-center gap-4">
               {/* Stock Selection */}
-              <div className="flex-shrink-0">
-                <label className="block text-sm font-medium mb-2">Stock:</label>
-                <div className="relative stock-dropdown-container">
+              <div className="flex items-center gap-2">
+              <label className="text-sm font-medium whitespace-nowrap">Stock:</label>
+              <div className="relative stock-dropdown-container">
                   <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                   <input
                     type="text"
@@ -1011,8 +1011,8 @@ export function StockTransactionDoneSummary() {
               </div>
 
               {/* Date Range */}
-              <div className="flex-shrink-0">
-                <label className="block text-sm font-medium mb-2">Date Range:</label>
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
                 <div className="flex items-center gap-2">
                   <input
                     type="date"
@@ -1035,8 +1035,8 @@ export function StockTransactionDoneSummary() {
               </div>
 
               {/* Quick Select */}
-              <div className="flex-shrink-0">
-                <label className="block text-sm font-medium mb-2">Quick Select:</label>
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium whitespace-nowrap">Quick Select:</label>
                 <div className="flex items-center gap-2">
                   <select 
                     className="w-24 px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
@@ -1058,8 +1058,8 @@ export function StockTransactionDoneSummary() {
               </div>
               
               {/* View Mode Toggle */}
-              <div className="flex-shrink-0">
-                <label className="block text-sm font-medium mb-2">View:</label>
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium whitespace-nowrap">View:</label>
                 <div className="flex items-center gap-1 border border-border rounded-lg p-1">
                   <Button
                     variant={viewMode === 'summary' ? 'default' : 'ghost'}
@@ -1079,28 +1079,26 @@ export function StockTransactionDoneSummary() {
                   </Button>
                 </div>
               </div>
-
-
+            </div>
             </div>
 
-            {/* Row 2: Selected Dates */}
-            <div>
-              <label className="text-sm font-medium">Selected Dates:</label>
-              <div className="flex flex-wrap gap-2 mt-2">
-                {selectedDates.map((date) => (
-                  <Badge key={date} variant="secondary" className="px-3 py-1">
-                    {formatDisplayDate(date)}
-                    {selectedDates.length > 1 && (
-                      <button
-                        onClick={() => removeDate(date)}
-                        className="ml-2 hover:text-destructive"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    )}
-                  </Badge>
-                ))}
-              </div>
+            {/* Selected Dates */}
+            <div className="mt-4">
+            <label className="text-sm font-medium">Selected Dates:</label>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {selectedDates.map((date) => (
+                <Badge key={date} variant="secondary" className="px-3 py-1">
+                  {formatDisplayDate(date)}
+                  {selectedDates.length > 1 && (
+                    <button
+                      onClick={() => removeDate(date)}
+                      className="ml-2 hover:text-destructive"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </Badge>
+              ))}
             </div>
           </div>
         </CardContent>

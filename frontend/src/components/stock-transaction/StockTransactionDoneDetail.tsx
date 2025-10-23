@@ -165,7 +165,6 @@ export function StockTransactionDoneDetail() {
   
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
-  const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical'>('horizontal');
   const [filters, setFilters] = useState({
     timeSort: 'latest',
     broker: 'all',
@@ -386,67 +385,16 @@ export function StockTransactionDoneDetail() {
     }
   };
 
-  // Render table like IPOT format - showing individual transactions
-  const renderTransactionTable = (data: DoneDetailData[]) => {
-        return (
-          <div className="overflow-x-auto -mx-4 sm:mx-0">
-            <div className="min-w-full px-4 sm:px-0">
-        <table className="w-full text-xs border-collapse min-w-[600px]">
-              <thead>
-                <tr className="border-b border-border bg-muted/50">
-              <th className="text-left py-2 px-2 font-medium sticky left-0 bg-muted/50 z-10">Time</th>
-              <th className="text-left py-2 px-2 font-medium">Brd</th>
-              <th className="text-right py-2 px-2 font-medium">Price</th>
-              <th className="text-right py-2 px-2 font-medium">Qty</th>
-               <th className="text-center py-2 px-2 font-medium">BBCode</th>
-               <th className="text-center py-2 px-2 font-medium">BT</th>
-               <th className="text-center py-2 px-2 font-medium">ST</th>
-               <th className="text-center py-2 px-2 font-medium">SBCode</th>
-                </tr>
-              </thead>
-              <tbody>
-            {data.map((row, idx) => (
-              <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                <td className="py-1 px-2 font-medium sticky left-0 bg-background z-10 border-r border-border text-foreground">
-                  {formatTime(row.trxTime)}
-                </td>
-                <td className="py-1 px-2 text-red-600 font-medium">
-                  {row.trxType}
-                </td>
-                <td className="py-1 px-2 text-right font-medium">
-                  {formatNumber(row.stkPric)}
-                </td>
-                <td className="py-1 px-2 text-right font-medium">
-                  {formatNumber(row.stkVolm)}
-                </td>
-                <td className="py-1 px-2 text-center text-blue-600">
-                  {row.brkCod1}
-                </td>
-                <td className="py-1 px-2 text-center text-gray-600">
-                  {row.invTyp1}
-                </td>
-                <td className="py-1 px-2 text-center text-gray-600">
-                  {row.invTyp2}
-                        </td>
-                <td className="py-1 px-2 text-center text-red-600">
-                  {row.brkCod2}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            </div>
-          </div>
-        );
-  };
 
   // Render horizontal view - pivot-style comparison across dates
   const renderHorizontalView = () => {
-    // Get all transactions for all selected dates and apply filters
+    // Get all transactions for all selected dates
+    const allRawTransactions: { [date: string]: DoneDetailData[] } = {};
     const allTransactions: { [date: string]: DoneDetailData[] } = {};
     selectedDates.forEach(date => {
       const rawData = generateDoneDetailData(selectedStock, date);
-      allTransactions[date] = filterData(rawData);
+      allRawTransactions[date] = rawData; // Keep raw data for totals
+      allTransactions[date] = filterData(rawData); // Filtered data for display
     });
 
     // Get all unique times across all dates
@@ -456,9 +404,9 @@ export function StockTransactionDoneDetail() {
     });
     // const sortedTimes = Array.from(allTimes).sort((a, b) => a - b);
 
-    // Calculate totals
-    const totalTransactions = Object.values(allTransactions).flat().length;
-    const totalVolume = Object.values(allTransactions).flat().reduce((sum, t) => sum + t.stkVolm, 0);
+    // Calculate totals from RAW data (before filtering)
+    const totalTransactions = Object.values(allRawTransactions).flat().length;
+    const totalVolume = Object.values(allRawTransactions).flat().reduce((sum, t) => sum + t.stkVolm, 0);
     const uniqueBrokers = new Set([
       ...Object.values(allTransactions).flat().map(t => t.brkCod1),
       ...Object.values(allTransactions).flat().map(t => t.brkCod2)
@@ -629,14 +577,14 @@ export function StockTransactionDoneDetail() {
 
             <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
               {selectedDates.map(date => {
-                const dateTransactions = allTransactions[date];
-                if (!dateTransactions) return null;
-                const dateVolume = dateTransactions.reduce((sum, t) => sum + t.stkVolm, 0);
+                const dateRawTransactions = allRawTransactions[date];
+                if (!dateRawTransactions) return null;
+                const dateVolume = dateRawTransactions.reduce((sum, t) => sum + t.stkVolm, 0);
                 return (
                   <div key={date} className="p-2 bg-background rounded border">
                     <div className="font-medium text-blue-600">{formatDisplayDate(date)}</div>
                     <div className="text-xs text-muted-foreground">
-                      {dateTransactions.length} transactions, {formatNumber(dateVolume)} volume
+                      {dateRawTransactions.length} transactions, {formatNumber(dateVolume)} volume
                     </div>
                   </div>
                 );
@@ -648,161 +596,25 @@ export function StockTransactionDoneDetail() {
     );
   };
 
-  // Render vertical view - separate table for each date
-  const renderVerticalView = () => {
-    return (
-      <div className="space-y-6">
-        {/* Filter Section */}
-        <Card>
-          <CardHeader>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <CardTitle className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
-                <Grid3X3 className="w-5 h-5" />
-                Filters
-              </CardTitle>
-
-              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center w-full">
-                <div className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
-                  <label className="text-xs font-medium text-muted-foreground">Sort Time:</label>
-                  <select
-                    className="text-xs bg-background border border-border rounded px-2 h-9 w-full sm:w-auto min-w-[160px]"
-                    value={filters.timeSort}
-                    onChange={(e) => setFilters(prev => ({ ...prev, timeSort: e.target.value }))}
-                  >
-                    <option value="latest">Latest</option>
-                    <option value="oldest">Oldest</option>
-                  </select>
-                </div>
-
-                <div className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
-                  <label className="text-xs font-medium text-muted-foreground">Broker:</label>
-                  <select
-                    className="text-xs bg-background border border-border rounded px-2 h-9 w-full sm:w-auto min-w-[160px]"
-                    value={filters.broker}
-                    onChange={(e) => setFilters(prev => ({ ...prev, broker: e.target.value }))}
-                  >
-                    <option value="all">All</option>
-                    {brokerOptions.map(option => (
-                      <option key={option} value={option}>{option}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
-                  <label className="text-xs font-medium text-muted-foreground">Price:</label>
-                  <select
-                    className="text-xs bg-background border border-border rounded px-2 h-9 w-full sm:w-auto min-w-[160px]"
-                    value={filters.price}
-                    onChange={(e) => setFilters(prev => ({ ...prev, price: e.target.value }))}
-                  >
-                    <option value="all">All</option>
-                    {priceOptions.map(option => (
-                      <option key={option} value={option}>{formatNumber(parseInt(option))}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setFilters({ timeSort: 'latest', broker: 'all', price: 'all' })}
-                  className="w-full sm:w-auto text-xs h-9"
-                >
-                  <RotateCcw className="w-3 h-3 mr-1" />
-                  Reset
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-        </Card>
-        {selectedDates.map((date) => {
-          const rawData = generateDoneDetailData(selectedStock, date);
-          const doneDetailData = filterData(rawData);
-        
-        return (
-            <Card key={date}>
-              <CardHeader>
-                <CardTitle className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
-                  <Grid3X3 className="w-5 h-5" />
-                  Done Detail - {selectedStock} ({formatDisplayDate(date)})
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {renderTransactionTable(doneDetailData)}
-
-                {/* Summary */}
-                <div className="mt-4 pt-4 border-t border-border">
-                  <div className="grid grid-cols-1 md:grid-cols-6 gap-4 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">Transactions: </span>
-                      <span className="font-medium">{formatNumber(doneDetailData.length)}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Total Volume: </span>
-                      <span className="font-medium text-blue-600">
-                        {formatNumber(doneDetailData.reduce((sum, tx) => sum + tx.stkVolm, 0))}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Unique Brokers: </span>
-                      <span className="font-medium text-purple-600">
-                        {new Set([...doneDetailData.map(tx => tx.brkCod1), ...doneDetailData.map(tx => tx.brkCod2)]).size}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Price Range: </span>
-                      <span className="font-medium">
-                        {doneDetailData.length > 0 ?
-                          `${formatNumber(Math.min(...doneDetailData.map(tx => tx.stkPric)))} - ${formatNumber(Math.max(...doneDetailData.map(tx => tx.stkPric)))}`
-                          : 'N/A'
-                        }
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Avg Price: </span>
-                      <span className="font-medium">
-                        {doneDetailData.length > 0 ?
-                          formatNumber(Math.round(doneDetailData.reduce((sum, tx) => sum + tx.stkPric, 0) / doneDetailData.length))
-                          : 'N/A'
-                        }
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Avg Volume: </span>
-                      <span className="font-medium">
-                        {doneDetailData.length > 0 ?
-                          formatNumber(Math.round(doneDetailData.reduce((sum, tx) => sum + tx.stkVolm, 0) / doneDetailData.length))
-                          : 'N/A'
-                        }
-                      </span>
-                    </div>
-                  </div>
-                            </div>
-              </CardContent>
-            </Card>
-                      );
-                    })}
-          </div>
-        );
-  };
 
 
   return (
     <div className="min-h-screen space-y-4 sm:space-y-6 p-2 sm:p-4 lg:p-6 overflow-x-hidden">
       {/* Top Controls */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
-            <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
-            Stock Selection & Date Range (Max 7 Days)
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3 sm:space-y-4">
-            {/* Row 1: Stock, Date Range, Clear, Last 3 Days, Layout */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 items-center lg:items-end">
-              <div className="flex-1 min-w-0 w-full">
-                <label className="block text-sm font-medium mb-2">Stock:</label>
+        <CardContent className="pt-6">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            {/* Title */}
+            <div className="flex items-center gap-2 text-sm sm:text-base font-medium">
+              <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
+              Stock Selection & Date Range (Max 7 Days)
+            </div>
+            
+            {/* Menu Controls */}
+            <div className="flex flex-wrap items-center gap-4">
+              {/* Stock Selection */}
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium whitespace-nowrap">Stock:</label>
                 <div className="relative" ref={dropdownRef}>
                   <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                   <input
@@ -869,9 +681,10 @@ export function StockTransactionDoneDetail() {
                 </div>
               </div>
 
-              <div className="flex-1 min-w-0 w-full">
-                <label className="block text-sm font-medium mb-2">Date Range:</label>
-                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2 w-full">
+              {/* Date Range */}
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
+                <div className="flex items-center gap-2">
                   <input
                     type="date"
                     value={startDate}
@@ -892,9 +705,10 @@ export function StockTransactionDoneDetail() {
                 </div>
               </div>
 
-              <div className="flex-1 min-w-0 w-full">
-                <label className="block text-sm font-medium mb-2">Quick Select:</label>
-                <div className="flex flex-col sm:flex-row gap-2">
+              {/* Quick Select */}
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium whitespace-nowrap">Quick Select:</label>
+                <div className="flex items-center gap-2">
                 <select 
                     className="w-full xl:flex-1 px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
                     value={dateRangeMode}
@@ -913,33 +727,9 @@ export function StockTransactionDoneDetail() {
                   )}
               </div>
             </div>
-
-              <div className="flex-1 min-w-0 w-full lg:w-auto lg:flex-none">
-                <label className="block text-sm font-medium mb-2">Layout:</label>
-                <div className="flex sm:inline-flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto w-full sm:w-auto lg:w-auto justify-center sm:justify-start">
-                  <div className="grid grid-cols-2 gap-1 w-full max-w-xs mx-auto sm:flex sm:items-center sm:gap-1 sm:max-w-none sm:mx-0">
-                    <Button
-                      variant={layoutMode === 'horizontal' ? 'default' : 'ghost'}
-                      size="sm"
-                      onClick={() => setLayoutMode('horizontal')}
-                      className="px-3 py-1 h-8 text-xs"
-                    >
-                      Horizontal
-                    </Button>
-                    <Button
-                      variant={layoutMode === 'vertical' ? 'default' : 'ghost'}
-                      size="sm"
-                      onClick={() => setLayoutMode('vertical')}
-                      className="px-3 py-1 h-8 text-xs"
-                    >
-                      Vertical
-                    </Button>
-                  </div>
-                </div>
-              </div>
             </div>
 
-            {/* Row 2: Selected Dates */}
+            {/* Selected Dates */}
             <div>
               <label className="text-sm font-medium">Selected Dates:</label>
               <div className="flex flex-wrap gap-2 mt-2">
@@ -963,7 +753,7 @@ export function StockTransactionDoneDetail() {
       </Card>
 
       {/* Main Data Display */}
-      {layoutMode === 'horizontal' ? renderHorizontalView() : renderVerticalView()}
+      {renderHorizontalView()}
 
       {/* Info Card */}
       <Card className={infoOpen ? '' : 'my-4'}>
