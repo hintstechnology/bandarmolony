@@ -530,16 +530,16 @@ export function StockTransactionDoneSummary() {
                 <tr className="border-b border-border bg-accent">
                   {selectedDates.map((date) => (
                     <React.Fragment key={date}>
-                      <th className="text-right py-1 px-1 font-medium text-[10px]">BFreq</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px]">BLot</th>
+                      <th className="text-right py-1 px-1 font-medium text-[10px]">BFreq</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px]">SLot</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px]">SFreq</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px]">TFreq</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px] border-r-2 border-border">TLot</th>
                     </React.Fragment>
                   ))}
-                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">BFreq</th>
                   <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">BLot</th>
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">BFreq</th>
                   <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">SLot</th>
                   <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">SFreq</th>
                   <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">TFreq</th>
@@ -588,11 +588,11 @@ export function StockTransactionDoneSummary() {
                         const data = getDataForPriceAndDate(selectedStock, date, price);
                         return (
                           <React.Fragment key={date}>
-                            <td className={`text-right py-1.5 px-1 ${data && data.bFreq === maxValues.maxBFreq && data.bFreq > 0 ? 'font-bold text-blue-600' : 'text-blue-600'}`}>
-                              {data ? formatNumber(data.bFreq) : '-'}
-                            </td>
                             <td className={`text-right py-1.5 px-1 ${data && data.bLot === maxValues.maxBLot && data.bLot > 0 ? 'font-bold text-green-600' : 'text-green-600'}`}>
                               {data ? formatNumber(data.bLot) : '-'}
+                            </td>
+                            <td className={`text-right py-1.5 px-1 ${data && data.bFreq === maxValues.maxBFreq && data.bFreq > 0 ? 'font-bold text-blue-600' : 'text-blue-600'}`}>
+                              {data ? formatNumber(data.bFreq) : '-'}
                             </td>
                             <td className={`text-right py-1.5 px-1 ${data && data.sLot === maxValues.maxSLot && data.sLot > 0 ? 'font-bold text-red-600' : 'text-red-600'}`}>
                               {data ? formatNumber(data.sLot) : '-'}
@@ -610,11 +610,11 @@ export function StockTransactionDoneSummary() {
                         );
                       })}
                       {/* Total Column */}
-                      <td className="text-right py-1.5 px-1 font-bold text-blue-600 bg-accent/30">
-                        {formatNumber(totalBFreq)}
-                      </td>
                       <td className="text-right py-1.5 px-1 font-bold text-green-600 bg-accent/30">
                         {formatNumber(totalBLot)}
+                      </td>
+                      <td className="text-right py-1.5 px-1 font-bold text-blue-600 bg-accent/30">
+                        {formatNumber(totalBFreq)}
                       </td>
                       <td className="text-right py-1.5 px-1 font-bold text-red-600 bg-accent/30">
                         {formatNumber(totalSLot)}
@@ -639,11 +639,11 @@ export function StockTransactionDoneSummary() {
                     const totals = calculateTotals(dateData);
                     return (
                       <React.Fragment key={date}>
-                        <td className="text-right py-3 px-1 font-bold text-blue-600">
-                          {formatNumber(totals.bFreq)}
-                        </td>
                         <td className="text-right py-3 px-1 font-bold text-green-600">
                           {formatNumber(totals.bLot)}
+                        </td>
+                        <td className="text-right py-3 px-1 font-bold text-blue-600">
+                          {formatNumber(totals.bFreq)}
                         </td>
                         <td className="text-right py-3 px-1 font-bold text-red-600">
                           {formatNumber(totals.sLot)}
@@ -661,18 +661,18 @@ export function StockTransactionDoneSummary() {
                     );
                   })}
                   {/* Grand Total Column */}
-                  <td className="text-right py-3 px-1 font-bold text-blue-600 bg-accent/50">
-                    {formatNumber(selectedDates.reduce((sum, date) => {
-                      const dateData = generatePriceData(selectedStock, date);
-                      const totals = calculateTotals(dateData);
-                      return sum + totals.bFreq;
-                    }, 0))}
-                  </td>
                   <td className="text-right py-3 px-1 font-bold text-green-600 bg-accent/50">
                     {formatNumber(selectedDates.reduce((sum, date) => {
                       const dateData = generatePriceData(selectedStock, date);
                       const totals = calculateTotals(dateData);
                       return sum + totals.bLot;
+                    }, 0))}
+                  </td>
+                  <td className="text-right py-3 px-1 font-bold text-blue-600 bg-accent/50">
+                    {formatNumber(selectedDates.reduce((sum, date) => {
+                      const dateData = generatePriceData(selectedStock, date);
+                      const totals = calculateTotals(dateData);
+                      return sum + totals.bFreq;
                     }, 0))}
                   </td>
                   <td className="text-right py-3 px-1 font-bold text-red-600 bg-accent/50">
@@ -748,16 +748,16 @@ export function StockTransactionDoneSummary() {
                 <tr className="border-b border-border bg-accent">
                   {selectedDates.map((date) => (
                     <React.Fragment key={date}>
-                      <th className="text-right py-1 px-1 font-medium text-[10px]">BFreq</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px]">BLot</th>
+                      <th className="text-right py-1 px-1 font-medium text-[10px]">BFreq</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px]">SLot</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px]">SFreq</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px]">TFreq</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px] border-r-2 border-border">TLot</th>
                     </React.Fragment>
                   ))}
-                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">BFreq</th>
                   <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">BLot</th>
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">BFreq</th>
                   <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">SLot</th>
                   <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">SFreq</th>
                   <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">TFreq</th>
@@ -809,11 +809,11 @@ export function StockTransactionDoneSummary() {
                         const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
                         return (
                           <React.Fragment key={date}>
-                            <td className={`text-right py-1.5 px-1 ${data && data.bFreq === maxValues.maxBFreq && data.bFreq > 0 ? 'font-bold text-blue-600' : 'text-blue-600'}`}>
-                              {data ? formatNumber(data.bFreq) : '-'}
-                            </td>
                             <td className={`text-right py-1.5 px-1 ${data && data.bLot === maxValues.maxBLot && data.bLot > 0 ? 'font-bold text-green-600' : 'text-green-600'}`}>
                               {data ? formatNumber(data.bLot) : '-'}
+                            </td>
+                            <td className={`text-right py-1.5 px-1 ${data && data.bFreq === maxValues.maxBFreq && data.bFreq > 0 ? 'font-bold text-blue-600' : 'text-blue-600'}`}>
+                              {data ? formatNumber(data.bFreq) : '-'}
                             </td>
                             <td className={`text-right py-1.5 px-1 ${data && data.sLot === maxValues.maxSLot && data.sLot > 0 ? 'font-bold text-red-600' : 'text-red-600'}`}>
                               {data ? formatNumber(data.sLot) : '-'}
@@ -831,11 +831,11 @@ export function StockTransactionDoneSummary() {
                         );
                       })}
                       {/* Total Column */}
-                      <td className="text-right py-1.5 px-1 font-bold text-blue-600 bg-accent/30">
-                        {formatNumber(totalBFreq)}
-                      </td>
                       <td className="text-right py-1.5 px-1 font-bold text-green-600 bg-accent/30">
                         {formatNumber(totalBLot)}
+                      </td>
+                      <td className="text-right py-1.5 px-1 font-bold text-blue-600 bg-accent/30">
+                        {formatNumber(totalBFreq)}
                       </td>
                       <td className="text-right py-1.5 px-1 font-bold text-red-600 bg-accent/30">
                         {formatNumber(totalSLot)}
@@ -860,11 +860,11 @@ export function StockTransactionDoneSummary() {
                     const totals = calculateBrokerBreakdownTotals(selectedStock, date);
                     return (
                       <React.Fragment key={date}>
-                        <td className="text-right py-3 px-1 font-bold text-blue-600">
-                          {formatNumber(totals.bFreq)}
-                        </td>
                         <td className="text-right py-3 px-1 font-bold text-green-600">
                           {formatNumber(totals.bLot)}
+                        </td>
+                        <td className="text-right py-3 px-1 font-bold text-blue-600">
+                          {formatNumber(totals.bFreq)}
                         </td>
                         <td className="text-right py-3 px-1 font-bold text-red-600">
                           {formatNumber(totals.sLot)}
@@ -882,16 +882,16 @@ export function StockTransactionDoneSummary() {
                     );
                   })}
                   {/* Grand Total Column */}
-                  <td className="text-right py-3 px-1 font-bold text-blue-600 bg-accent/50">
-                    {formatNumber(selectedDates.reduce((sum, date) => {
-                      const totals = calculateBrokerBreakdownTotals(selectedStock, date);
-                      return sum + totals.bFreq;
-                    }, 0))}
-                  </td>
                   <td className="text-right py-3 px-1 font-bold text-green-600 bg-accent/50">
                     {formatNumber(selectedDates.reduce((sum, date) => {
                       const totals = calculateBrokerBreakdownTotals(selectedStock, date);
                       return sum + totals.bLot;
+                    }, 0))}
+                  </td>
+                  <td className="text-right py-3 px-1 font-bold text-blue-600 bg-accent/50">
+                    {formatNumber(selectedDates.reduce((sum, date) => {
+                      const totals = calculateBrokerBreakdownTotals(selectedStock, date);
+                      return sum + totals.bFreq;
                     }, 0))}
                   </td>
                   <td className="text-right py-3 px-1 font-bold text-red-600 bg-accent/50">
@@ -941,10 +941,10 @@ export function StockTransactionDoneSummary() {
         </CardHeader>
         <CardContent>
           <div className="space-y-3 sm:space-y-4">
-            {/* Row 1: Stock, Date Range, Quick Select, View, Layout */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-center lg:items-end">
-            {/* Stock Selection */}
-              <div className="flex-1 min-w-0 w-full">
+            {/* Row 1: All controls in one horizontal line */}
+            <div className="flex flex-wrap items-end gap-4">
+              {/* Stock Selection */}
+              <div className="flex-shrink-0">
                 <label className="block text-sm font-medium mb-2">Stock:</label>
                 <div className="relative stock-dropdown-container">
                   <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
@@ -973,7 +973,7 @@ export function StockTransactionDoneSummary() {
                       }
                     }}
                     placeholder="Enter stock code..."
-                    className="w-full pl-10 pr-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
+                    className="w-32 pl-10 pr-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
                     role="combobox"
                     aria-expanded={showStockSuggestions}
                     aria-controls="stock-suggestions"
@@ -1011,23 +1011,23 @@ export function StockTransactionDoneSummary() {
               </div>
 
               {/* Date Range */}
-              <div className="flex-1 min-w-0 w-full md:col-span-2">
+              <div className="flex-shrink-0">
                 <label className="block text-sm font-medium mb-2">Date Range:</label>
-                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2 w-full">
+                <div className="flex items-center gap-2">
                   <input
                     type="date"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
+                    className="w-36 px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
                   />
-                  <span className="text-sm text-muted-foreground text-center whitespace-nowrap px-2">to</span>
+                  <span className="text-sm text-muted-foreground whitespace-nowrap">to</span>
                   <input
                     type="date"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
+                    className="w-36 px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
                   />
-                  <Button onClick={addDateRange} size="sm" className="w-auto justify-self-center">
+                  <Button onClick={addDateRange} size="sm" className="w-auto">
                     <Plus className="w-4 h-4" />
                     <span className="ml-1">Add</span>
                   </Button>
@@ -1035,11 +1035,11 @@ export function StockTransactionDoneSummary() {
               </div>
 
               {/* Quick Select */}
-              <div className="flex-1 min-w-0 w-full">
+              <div className="flex-shrink-0">
                 <label className="block text-sm font-medium mb-2">Quick Select:</label>
-                <div className="flex flex-col sm:flex-row gap-2">
-                <select 
-                    className="w-full xl:flex-1 px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
+                <div className="flex items-center gap-2">
+                  <select 
+                    className="w-24 px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
                     value={dateRangeMode}
                     onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
                   >
@@ -1047,40 +1047,39 @@ export function StockTransactionDoneSummary() {
                     <option value="3days">3 Days</option>
                     <option value="1week">1 Week</option>
                     <option value="custom">Custom</option>
-                </select>
+                  </select>
                   {dateRangeMode === 'custom' && (
-                    <Button onClick={clearAllDates} variant="outline" size="sm" className="w-auto justify-self-center">
+                    <Button onClick={clearAllDates} variant="outline" size="sm" className="w-auto">
                       <RotateCcw className="w-4 h-4 mr-1" />
-                      <span className="text-xs sm:text-sm">Clear</span>
+                      <span className="text-xs">Clear</span>
                     </Button>
                   )}
                 </div>
               </div>
-
+              
               {/* View Mode Toggle */}
-              <div className="flex-1 min-w-0 w-full lg:w-auto lg:flex-none">
+              <div className="flex-shrink-0">
                 <label className="block text-sm font-medium mb-2">View:</label>
-                <div className="flex sm:inline-flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto w-full sm:w-auto lg:w-auto justify-center sm:justify-start">
-                  <div className="grid grid-cols-2 gap-1 w-full max-w-xs mx-auto sm:flex sm:items-center sm:gap-1 sm:max-w-none sm:mx-0">
-                    <Button
-                      variant={viewMode === 'summary' ? 'default' : 'ghost'}
-                      size="sm"
-                      onClick={() => setViewMode('summary')}
-                      className="px-3 py-1 h-8 text-xs"
-                    >
-                      Summary
-                    </Button>
-                    <Button
-                      variant={viewMode === 'broker' ? 'default' : 'ghost'}
-                      size="sm"
-                      onClick={() => setViewMode('broker')}
-                      className="px-3 py-1 h-8 text-xs"
-                    >
-                      Broker Breakdown
-                    </Button>
-                  </div>
+                <div className="flex items-center gap-1 border border-border rounded-lg p-1">
+                  <Button
+                    variant={viewMode === 'summary' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setViewMode('summary')}
+                    className="px-3 py-1 h-8 text-xs"
+                  >
+                    Summary
+                  </Button>
+                  <Button
+                    variant={viewMode === 'broker' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setViewMode('broker')}
+                    className="px-3 py-1 h-8 text-xs"
+                  >
+                    Broker Breakdown
+                  </Button>
                 </div>
               </div>
+
 
             </div>
 
