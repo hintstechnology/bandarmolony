@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { X, Plus, RotateCcw, Calendar } from 'lucide-react';
+import { X, Plus, RotateCcw, Calendar, Loader2 } from 'lucide-react';
 import { getBrokerBackgroundClass, getBrokerTextClass, useDarkMode } from '../../utils/brokerColors';
+import { api } from '../../services/api';
+import { useToast } from '../../contexts/ToastContext';
 
 interface BrokerSummaryData {
   broker: string;
@@ -16,36 +18,53 @@ interface BrokerSummaryData {
   savg: number;
 }
 
-// Sample issuers universe for suggestions
-const TICKERS = [
-  'BBCA','BBRI','BMRI','BBNI','ARTO','BACA','TLKM','ISAT','FREN','EXCL',
-  'ASII','GOTO','ANTM','MDKA','ADRO','UNVR','ICBP','INDF','PGAS','MEDC',
-  'KLBF','INAF','ADHI','WIKA','JSMR','TOWR','SMGR','INCO','ANTM','UNTR'
-];
-
-// Generate broker summary data for a specific date and ticker
-const generateBrokerSummaryData = (date: string, ticker: string): BrokerSummaryData[] => {
-  const brokers = ['LG', 'MG', 'BR', 'RG', 'CC', 'UQ', 'MI', 'KS', 'DA', 'SS'];
-  
-  return brokers.map(broker => {
-    // Create deterministic seed based on date and ticker
-    const seed = ticker.charCodeAt(0) + (date ?? '').split('-').reduce((acc, part) => acc + parseInt(part), 0);
-    const random = (seed * 9301 + 49297) % 233280 / 233280;
+// Fetch broker summary data from API
+const fetchBrokerSummaryData = async (stock: string, date: string, showToast: any): Promise<BrokerSummaryData[]> => {
+  try {
+    console.log(`Fetching broker data for ${stock} on ${date}`);
+    const response = await api.getBrokerSummaryData(stock, date);
+    console.log('API Response:', response);
     
-    const baseVolume = 100 + (random * 500);
-    const price = 2000 + (random * 3000);
+    if (response.success && response.data?.brokerData) {
+      return response.data.brokerData;
+    }
     
-    return {
-      broker,
-      nblot: Math.round(baseVolume * (0.5 + random * 0.5)),
-      nbval: Math.round(baseVolume * price * (0.5 + random * 0.5)),
-      bavg: Math.round(price * (0.9 + random * 0.2)),
-      sl: Math.round(baseVolume * 0.1),
-      nslot: Math.round(-baseVolume * (0.3 + random * 0.4)),
-      nsval: Math.round(-baseVolume * price * (0.3 + random * 0.4)),
-      savg: Math.round(price * (0.95 + random * 0.1))
-    };
-  });
+    if (!response.success) {
+      console.error('API Error:', response.error);
+      
+      // Show toast for data not found
+      const formattedDate = new Date(date).toLocaleDateString('id-ID', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric'
+      });
+      
+      showToast({
+        type: 'warning',
+        title: 'Data Tidak Ditemukan',
+        message: `Data broker untuk ${stock} pada tanggal ${formattedDate} tidak tersedia.`
+      });
+    }
+    
+    return [];
+  } catch (error) {
+    console.error('Error fetching broker summary data:', error);
+    
+    // Show toast for network/other errors
+    const formattedDate = new Date(date).toLocaleDateString('id-ID', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+    
+    showToast({
+      type: 'error',
+      title: 'Error Memuat Data',
+      message: `Gagal memuat data broker untuk ${stock} pada tanggal ${formattedDate}.`
+    });
+    
+    return [];
+  }
 };
 
 // Get last three trading days
@@ -79,6 +98,7 @@ const getBrokerRowClass = (broker: string, _data: BrokerSummaryData): string => 
 };
 
 export function BrokerSummaryPage() {
+  const { showToast } = useToast();
   const [selectedDates, setSelectedDates] = useState<string[]>(() => {
     const threeDays = getLastThreeDays();
     if (threeDays.length > 0) {
@@ -109,6 +129,94 @@ export function BrokerSummaryPage() {
   const [highlightedTickerIndex, setHighlightedTickerIndex] = useState<number>(-1);
   const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical'>('vertical');
   const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
+  
+  // API data states
+  const [brokerDataByDate, setBrokerDataByDate] = useState<{ [date: string]: BrokerSummaryData[] }>({});
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [availableStocks, setAvailableStocks] = useState<string[]>([]);
+
+  // Load available dates and stocks on component mount
+  useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        // Load available dates
+        const datesResponse = await api.getBrokerSummaryDates();
+        if (datesResponse.success && datesResponse.data?.dates && datesResponse.data.dates.length > 0) {
+          const firstDate = datesResponse.data.dates[0];
+          if (firstDate) {
+            const stocksResponse = await api.getBrokerSummaryStocks(firstDate);
+            if (stocksResponse.success && stocksResponse.data?.stocks) {
+              setAvailableStocks(stocksResponse.data.stocks);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error loading initial data:', error);
+      }
+    };
+    
+    loadInitialData();
+  }, []);
+
+  // Load broker data when selected ticker or dates change
+  useEffect(() => {
+    const loadBrokerData = async () => {
+      if (!selectedTicker || selectedDates.length === 0) return;
+      
+      setIsLoading(true);
+      setError(null);
+      
+      try {
+        const newBrokerDataByDate: { [date: string]: BrokerSummaryData[] } = {};
+        
+        // Fetch data for each selected date
+        for (const date of selectedDates) {
+          const data = await fetchBrokerSummaryData(selectedTicker, date, showToast);
+          newBrokerDataByDate[date] = data;
+        }
+        
+        setBrokerDataByDate(newBrokerDataByDate);
+        
+        // Check if no data was found for any date
+        const hasAnyData = Object.values(newBrokerDataByDate).some(data => data.length > 0);
+        if (!hasAnyData && selectedDates.length > 0) {
+          const startDate = selectedDates[0];
+          const endDate = selectedDates[selectedDates.length - 1];
+          const formattedStartDate = startDate ? new Date(startDate).toLocaleDateString('id-ID', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric'
+          }) : '';
+          const formattedEndDate = endDate ? new Date(endDate).toLocaleDateString('id-ID', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric'
+          }) : '';
+          
+          showToast({
+            type: 'warning',
+            title: 'Data Tidak Ditemukan',
+            message: `Data broker untuk ${selectedTicker} pada rentang tanggal ${formattedStartDate} - ${formattedEndDate} tidak tersedia.`
+          });
+        }
+      } catch (err) {
+        setError('Failed to load broker data');
+        console.error('Error loading broker data:', err);
+        
+        // Show toast for general error
+        showToast({
+          type: 'error',
+          title: 'Error Memuat Data',
+          message: `Gagal memuat data broker untuk ${selectedTicker}.`
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadBrokerData();
+  }, [selectedTicker, selectedDates]);
 
   const addDateRange = () => {
     if (startDate && endDate) {
@@ -149,6 +257,7 @@ export function BrokerSummaryPage() {
   const handleDateRangeModeChange = (mode: '1day' | '3days' | '1week' | 'custom') => {
     setDateRangeMode(mode);
     
+    // Only auto-set dates for quick select modes, not custom
     if (mode === '1day') {
       const oneDay = getLastThreeDays().slice(0, 1);
       setSelectedDates(oneDay);
@@ -166,6 +275,11 @@ export function BrokerSummaryPage() {
       const sortedDates = [...oneWeek].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
       setStartDate(sortedDates[0] ?? '');
       setEndDate(sortedDates[sortedDates.length - 1] ?? '');
+    } else if (mode === 'custom') {
+      // For custom mode, don't auto-set dates, let user input manually
+      // Keep current selectedDates, but clear start/end dates for fresh input
+      setStartDate('');
+      setEndDate('');
     }
   };
 
@@ -181,8 +295,8 @@ export function BrokerSummaryPage() {
     return (
       <div className="space-y-6">
         {selectedDates.map((date) => {
-          const buyData = generateBrokerSummaryData(date, selectedTicker);
-          const sellData = generateBrokerSummaryData(date, selectedTicker).map(broker => ({
+          const buyData = brokerDataByDate[date] || [];
+          const sellData = (brokerDataByDate[date] || []).map(broker => ({
             ...broker,
             nblot: Math.abs(broker.nslot),
             nbval: Math.abs(broker.nsval),
@@ -276,6 +390,101 @@ export function BrokerSummaryPage() {
     );
   };
 
+  const renderHorizontalView = () => {
+    if (!selectedTicker || selectedDates.length === 0) return null;
+    
+    return (
+      <div className="space-y-6">
+        {selectedDates.map((date) => {
+          const buyData = brokerDataByDate[date] || [];
+          const sellData = (brokerDataByDate[date] || []).map(broker => ({
+            ...broker,
+            nblot: Math.abs(broker.nslot),
+            nbval: Math.abs(broker.nsval),
+            bavg: broker.savg,
+            nslot: broker.nslot,
+            nsval: broker.nsval,
+            savg: broker.savg
+          }));
+          
+          return (
+            <div key={date} className="space-y-4">
+              {/* Date Header */}
+              <div className="text-center">
+                <h3 className="text-lg font-semibold text-foreground">{formatDisplayDate(date)}</h3>
+              </div>
+              
+              {/* Horizontal Layout: Buy and Sell side by side */}
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                {/* Buy Side for this date */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-green-600">BUY SIDE - {selectedTicker}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto rounded-md">
+                      <table className="w-full min-w-[400px] text-xs">
+                        <thead className="bg-background">
+                          <tr className="border-b border-border">
+                            <th className="text-left py-2 px-2 font-medium">Broker</th>
+                            <th className="text-right py-2 px-2 font-medium">NBLot</th>
+                            <th className="text-right py-2 px-2 font-medium">NBVal</th>
+                            <th className="text-right py-2 px-2 font-medium">BAvg</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {buyData.map((row, idx) => (
+                            <tr key={idx} className={`border-b border-border/50 hover:bg-accent/50 ${getBrokerRowClass(row.broker, row)}`}>
+                              <td className="py-2 px-2 font-medium">{row.broker}</td>
+                              <td className="text-right py-2 px-2 text-green-600">{formatNumber(row.nblot)}</td>
+                              <td className="text-right py-2 px-2 text-green-600">{formatNumber(row.nbval)}</td>
+                              <td className="text-right py-2 px-2 text-green-600">{formatNumber(row.bavg)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Sell Side for this date */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-red-600">SELL SIDE - {selectedTicker}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto rounded-md">
+                      <table className="w-full min-w-[400px] text-xs">
+                        <thead className="bg-background">
+                          <tr className="border-b border-border">
+                            <th className="text-left py-2 px-2 font-medium">Broker</th>
+                            <th className="text-right py-2 px-2 font-medium">SL</th>
+                            <th className="text-right py-2 px-2 font-medium">NSVal</th>
+                            <th className="text-right py-2 px-2 font-medium">SAvg</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sellData.map((row, idx) => (
+                            <tr key={idx} className={`border-b border-border/50 hover:bg-accent/50 ${getBrokerRowClass(row.broker, row)}`}>
+                              <td className="py-2 px-2 font-medium">{row.broker}</td>
+                              <td className="text-right py-2 px-2 text-red-600">{formatNumber(row.sl)}</td>
+                              <td className="text-right py-2 px-2 text-red-600">{formatNumber(row.nsval)}</td>
+                              <td className="text-right py-2 px-2 text-red-600">{formatNumber(row.savg)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Controls */}
@@ -288,10 +497,10 @@ export function BrokerSummaryPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {/* Row 1: Ticker, Date Range, Quick Select, Layout */}
-            <div className="flex flex-col gap-4 md:grid md:grid-cols-2 lg:flex lg:flex-row items-center lg:items-end">
+            {/* Row 1: Ticker, Quick Select, Layout */}
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
               {/* Ticker Selection */}
-              <div className="flex-1 min-w-0 w-full">
+              <div className="flex-1 min-w-0 w-full lg:w-2/3">
                 <label className="block text-sm font-medium mb-2">Ticker:</label>
                 <div className="relative">
                   <input
@@ -306,7 +515,7 @@ export function BrokerSummaryPage() {
                     }}
                     onFocus={() => setShowTickerSuggestions(true)}
                     onKeyDown={(e) => {
-                      const suggestions = TICKERS
+                      const suggestions = availableStocks
                         .filter(t => t.toLowerCase().includes(tickerInput.toLowerCase()))
                         .slice(0, 10);
                       if (!suggestions.length) return;
@@ -358,7 +567,7 @@ export function BrokerSummaryPage() {
                   )}
                   {showTickerSuggestions && (
                     (() => {
-                      const suggestions = TICKERS
+                      const suggestions = availableStocks
                         .filter(t => t.toLowerCase().includes(tickerInput.toLowerCase()))
                         .slice(0, 10);
                       return (
@@ -391,35 +600,13 @@ export function BrokerSummaryPage() {
                 </div>
               </div>
 
-              {/* Date Range */}
-              <div className="flex-1 min-w-0 w-full md:col-span-2">
-                <label className="block text-sm font-medium mb-2">Date Range:</label>
-                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2 w-full">
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
-                  />
-                  <span className="text-sm text-muted-foreground text-center whitespace-nowrap sm:px-2">to</span>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
-                  />
-                  <Button onClick={addDateRange} size="sm" className="w-auto justify-self-center">
-                    <Plus className="w-4 h-4" />
-                  </Button>
-                </div>
-              </div>
 
               {/* Quick Select */}
-              <div className="flex-1 min-w-0 w-full">
+              <div className="w-full lg:w-1/3">
                 <label className="block text-sm font-medium mb-2">Quick Select:</label>
                 <div className="flex gap-2">
                   <select 
-                    className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                    className="flex-1 px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
                     value={dateRangeMode}
                     onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
                   >
@@ -438,7 +625,7 @@ export function BrokerSummaryPage() {
               </div>
 
               {/* Layout Mode Toggle */}
-              <div className="flex-1 min-w-0 w-full lg:w-auto lg:flex-none">
+              <div className="w-full lg:w-auto lg:flex-none">
                 <label className="block text-sm font-medium mb-2">Layout:</label>
                 <div className="flex sm:inline-flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto w-full sm:w-auto lg:w-auto justify-center sm:justify-start">
                   <div className="grid grid-cols-2 gap-1 w-full max-w-xs mx-auto sm:flex sm:items-center sm:gap-1 sm:max-w-none sm:mx-0">
@@ -462,6 +649,39 @@ export function BrokerSummaryPage() {
                 </div>
               </div>
             </div>
+
+            {/* Custom Date Range - Only show when custom is selected */}
+            {dateRangeMode === 'custom' && (
+              <div className="space-y-4">
+                <div className="flex flex-col gap-4">
+                  <div className="flex-1 min-w-0 w-full">
+                    <label className="block text-sm font-medium mb-2">Date Range:</label>
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_auto] items-center gap-2 w-full">
+                      <input
+                        type="date"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                      />
+                      <span className="text-sm text-muted-foreground text-center whitespace-nowrap sm:px-2">to</span>
+                      <input
+                        type="date"
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                      />
+                      <Button onClick={addDateRange} size="sm" className="w-auto justify-self-center">
+                        <Plus className="w-4 h-4" />
+                      </Button>
+                      <Button onClick={clearAllDates} variant="outline" size="sm" className="w-auto">
+                        <RotateCcw className="w-4 h-4 mr-1" />
+                        Clear
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Row 2: Selected Dates */}
             <div>
@@ -487,10 +707,17 @@ export function BrokerSummaryPage() {
       </Card>
 
       {/* Main Data Display */}
-      {layoutMode === 'horizontal' ? (
-        <div className="text-center py-8 text-muted-foreground">
-          Horizontal view is not available in this version
+      {isLoading ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-6 h-6 animate-spin mr-2" />
+          <span>Loading broker data...</span>
         </div>
+      ) : error ? (
+        <div className="flex items-center justify-center py-8 text-red-600">
+          <span>{error}</span>
+        </div>
+      ) : layoutMode === 'horizontal' ? (
+        renderHorizontalView()
       ) : (
         renderVerticalView()
       )}

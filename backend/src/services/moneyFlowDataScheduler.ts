@@ -8,13 +8,14 @@ export class MoneyFlowDataScheduler {
   }
 
   /**
-   * Generate money flow data
+   * Generate money flow data for specific date or all files
    */
   async generateMoneyFlowData(dateSuffix?: string): Promise<{ success: boolean; message: string; data?: any }> {
     try {
-      const targetDate = dateSuffix || this.getCurrentDateSuffix();
-      console.log(`🔄 Starting Money Flow calculation for date: ${targetDate}`);
+      const targetDate = dateSuffix || 'all';
+      console.log(`🔄 Starting Money Flow calculation for: ${targetDate}`);
       
+      // Money flow calculator processes specific date or all files
       const result = await this.calculator.generateMoneyFlowData(targetDate);
       
       if (result.success) {
@@ -33,13 +34,6 @@ export class MoneyFlowDataScheduler {
     }
   }
 
-  /**
-   * Get current date suffix in YYMMDD format
-   */
-  private getCurrentDateSuffix(): string {
-    const today = new Date();
-    return today.toISOString().slice(2, 10).replace(/-/g, '');
-  }
 
   /**
    * Get generation status

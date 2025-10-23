@@ -4,6 +4,7 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Calendar, Plus, X, ChevronDown, RotateCcw, TrendingUp, Search } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
+import { api } from '../../services/api';
 
 interface PriceData {
   price: number;
@@ -13,6 +14,20 @@ interface PriceData {
   sFreq: number;
   tFreq: number;
   tLot: number;
+}
+
+// Backend bid/ask data interface
+interface BackendBidAskData {
+  StockCode: string;
+  Price: number;
+  BidVolume: number;
+  AskVolume: number;
+  NetVolume: number;
+  TotalVolume: number;
+  BidCount: number;
+  AskCount: number;
+  UniqueBidBrokers: number;
+  UniqueAskBrokers: number;
 }
 
 interface BrokerBreakdownData {
@@ -32,7 +47,8 @@ const AVAILABLE_STOCKS = [
   'KLBF', 'ADRO', 'ANTM', 'ITMG', 'PTBA', 'SMGR', 'INTP', 'WIKA', 'WSKT', 'PGAS'
 ];
 
-// Generate realistic price data based on BBRI.csv structure
+// Generate realistic price data based on BBRI.csv structure (DEPRECATED - using real data now)
+/*
 const generatePriceData = (stock: string, date: string): PriceData[] => {
   const basePrice = stock === 'BBRI' ? 4150 : stock === 'BBCA' ? 2750 : stock === 'BMRI' ? 3200 : 1500;
   
@@ -67,6 +83,7 @@ const generatePriceData = (stock: string, date: string): PriceData[] => {
   
   return data.sort((a, b) => b.price - a.price); // Sort by price descending
 };
+*/
 
 // Generate broker breakdown data
 const generateBrokerBreakdownData = (stock: string, date: string): BrokerBreakdownData[] => {
@@ -160,12 +177,12 @@ const calculateBrokerBreakdownTotals = (stock: string, date: string) => {
 };
 
 // Helper function to get all unique prices across all dates that have transactions (sorted ascending)
-const getAllUniquePrices = (stock: string, dates: string[]): number[] => {
+const getAllUniquePrices = (stock: string, dates: string[], priceDataByDate: { [date: string]: PriceData[] }): number[] => {
   const allPrices = new Set<number>();
   
   // First, collect all possible prices from all dates
   dates.forEach(date => {
-    const data = generatePriceData(stock, date);
+    const data = priceDataByDate[date] || [];
     data.forEach(item => allPrices.add(item.price));
   });
   
@@ -175,7 +192,7 @@ const getAllUniquePrices = (stock: string, dates: string[]): number[] => {
     let hasAnyTransaction = false;
     
     for (const date of dates) {
-      const data = getDataForPriceAndDate(stock, date, price);
+      const data = getDataForPriceAndDate(stock, date, price, priceDataByDate);
       if (data && (
         data.bFreq > 0 || data.bLot > 0 || data.sLot > 0 || 
         data.sFreq > 0 || data.tFreq > 0 || data.tLot > 0
@@ -193,7 +210,7 @@ const getAllUniquePrices = (stock: string, dates: string[]): number[] => {
     let totalTransactions = 0;
     
     for (const date of dates) {
-      const data = getDataForPriceAndDate(stock, date, price);
+      const data = getDataForPriceAndDate(stock, date, price, priceDataByDate);
       if (data) {
         totalTransactions += data.bFreq + data.bLot + data.sLot + data.sFreq + data.tFreq + data.tLot;
       }
@@ -206,17 +223,17 @@ const getAllUniquePrices = (stock: string, dates: string[]): number[] => {
 };
 
 // Helper function to get data for specific price and date
-const getDataForPriceAndDate = (stock: string, date: string, price: number): PriceData | null => {
-  const data = generatePriceData(stock, date);
+const getDataForPriceAndDate = (_stock: string, date: string, price: number, priceDataByDate: { [date: string]: PriceData[] }): PriceData | null => {
+  const data = priceDataByDate[date] || [];
   return data.find(item => item.price === price) || null;
 };
 
 // Helper function to find max values across all dates for horizontal layout
-const findMaxValuesHorizontal = (stock: string, dates: string[]) => {
+const findMaxValuesHorizontal = (_stock: string, dates: string[], priceDataByDate: { [date: string]: PriceData[] }) => {
   let maxBFreq = 0, maxBLot = 0, maxSLot = 0, maxSFreq = 0, maxTFreq = 0, maxTLot = 0;
   
   dates.forEach(date => {
-    const data = generatePriceData(stock, date);
+    const data = priceDataByDate[date] || [];
     data.forEach(item => {
       if (item.bFreq > maxBFreq) maxBFreq = item.bFreq;
       if (item.bLot > maxBLot) maxBLot = item.bLot;
@@ -322,7 +339,10 @@ const getTradingDays = (count: number): string[] => {
     
     // Skip weekends (Saturday = 6, Sunday = 0)
     if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-      dates.push(currentDate.toISOString().split('T')[0]);
+      const dateStr = currentDate.toISOString().split('T')[0];
+      if (dateStr) {
+        dates.push(dateStr);
+      }
     }
     
     // Go to previous day
@@ -330,7 +350,10 @@ const getTradingDays = (count: number): string[] => {
     
     // Safety check
     if (dates.length === 0 && currentDate.getTime() < today.getTime() - (30 * 24 * 60 * 60 * 1000)) {
-      dates.push(today.toISOString().split('T')[0]);
+      const todayStr = today.toISOString().split('T')[0];
+      if (todayStr) {
+        dates.push(todayStr);
+      }
       break;
     }
   }
@@ -369,6 +392,114 @@ export function StockTransactionDoneSummary() {
   const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical'>('horizontal');
   const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
   const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
+  
+  // Real data states
+  const [priceDataByDate, setPriceDataByDate] = useState<{ [date: string]: PriceData[] }>({});
+  const [_brokerDataByDate, setBrokerDataByDate] = useState<{ [date: string]: BrokerBreakdownData[] }>({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [availableStocks, setAvailableStocks] = useState<string[]>([]);
+  const [_availableDates, setAvailableDates] = useState<string[]>([]);
+
+  // Convert backend bid/ask data to frontend format
+  const convertBackendToFrontend = (backendData: BackendBidAskData[]): PriceData[] => {
+    return backendData.map(item => ({
+      price: item.Price,
+      bFreq: item.BidCount,
+      bLot: item.BidVolume,
+      sLot: item.AskVolume,
+      sFreq: item.AskCount,
+      tFreq: item.BidCount + item.AskCount,
+      tLot: item.BidVolume + item.AskVolume
+    }));
+  };
+
+  // Load available dates and stocks on component mount
+  useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        // Load available dates
+        const datesResponse = await api.getBidAskDates();
+        if (datesResponse.success && datesResponse.data?.dates) {
+          setAvailableDates(datesResponse.data.dates);
+          
+          // Load available stocks for the first date
+          if (datesResponse.data.dates.length > 0) {
+            const firstDate = datesResponse.data.dates[0];
+            if (firstDate) {
+              const stocksResponse = await api.getBidAskStocks(firstDate);
+              if (stocksResponse.success && stocksResponse.data?.stocks) {
+                setAvailableStocks(stocksResponse.data.stocks);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error loading initial data:', error);
+        setAvailableStocks(AVAILABLE_STOCKS);
+      }
+    };
+
+    loadInitialData();
+  }, []);
+
+  // Fetch data when selected stock or dates change
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!selectedStock || selectedDates.length === 0) return;
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        // Fetch bid/ask data for all selected dates
+        const response = await api.getBidAskBatch(selectedStock, selectedDates);
+        
+        if (response.success && response.data?.dataByDate) {
+          const newPriceDataByDate: { [date: string]: PriceData[] } = {};
+          const newBrokerDataByDate: { [date: string]: BrokerBreakdownData[] } = {};
+          
+          Object.entries(response.data.dataByDate).forEach(([date, dateData]: [string, any]) => {
+            if (dateData.data && Array.isArray(dateData.data)) {
+              // Convert backend data to frontend format
+              const convertedData = convertBackendToFrontend(dateData.data);
+              newPriceDataByDate[date] = convertedData;
+              
+              // For broker breakdown, we'll use the same data but group by broker
+              // This is a simplified version - in real implementation, you might need separate broker data
+              const brokerData: BrokerBreakdownData[] = convertedData.map(item => ({
+                broker: 'ALL', // Simplified - in real implementation, you'd have broker-specific data
+                price: item.price,
+                bLot: item.bLot,
+                sLot: item.sLot,
+                bFreq: item.bFreq,
+                sFreq: item.sFreq,
+                tFreq: item.tFreq,
+                tLot: item.tLot
+              }));
+              newBrokerDataByDate[date] = brokerData;
+            }
+          });
+          
+          setPriceDataByDate(newPriceDataByDate);
+          setBrokerDataByDate(newBrokerDataByDate);
+        }
+
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        setError('Failed to load data');
+        showToast({
+          type: 'error',
+          title: 'Error',
+          message: 'Failed to load data. Please try again.'
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [selectedStock, selectedDates, showToast]);
 
   const addDateRange = () => {
     if (startDate && endDate) {
@@ -404,7 +535,9 @@ export function StockTransactionDoneSummary() {
       
       while (currentDate <= end) {
         const dateString = currentDate.toISOString().split('T')[0];
-        dateArray.push(dateString);
+        if (dateString) {
+          dateArray.push(dateString);
+        }
         currentDate.setDate(currentDate.getDate() + 1);
       }
       
@@ -477,7 +610,7 @@ export function StockTransactionDoneSummary() {
   };
 
   // Filter stocks based on input
-  const filteredStocks = AVAILABLE_STOCKS.filter(stock => 
+  const filteredStocks = (availableStocks.length > 0 ? availableStocks : AVAILABLE_STOCKS).filter(stock => 
     stock.toLowerCase().includes(stockInput.toLowerCase())
   );
 
@@ -510,8 +643,8 @@ export function StockTransactionDoneSummary() {
   }, []);
 
   const renderHorizontalSummaryView = () => {
-    const allPrices = getAllUniquePrices(selectedStock, selectedDates);
-    const maxValues = findMaxValuesHorizontal(selectedStock, selectedDates);
+    const allPrices = getAllUniquePrices(selectedStock, selectedDates, priceDataByDate);
+    const maxValues = findMaxValuesHorizontal(selectedStock, selectedDates, priceDataByDate);
     
     return (
       <Card>
@@ -556,7 +689,7 @@ export function StockTransactionDoneSummary() {
                       {formatNumber(price)}
                     </td>
                     {selectedDates.map((date) => {
-                      const data = getDataForPriceAndDate(selectedStock, date, price);
+                      const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
                       return (
                         <React.Fragment key={date}>
                           <td className={`text-right py-1.5 px-1 ${data && data.bFreq === maxValues.maxBFreq && data.bFreq > 0 ? 'font-bold text-blue-600' : 'text-blue-600'}`}>
@@ -586,7 +719,7 @@ export function StockTransactionDoneSummary() {
                 <tr className="border-t-2 border-border bg-accent/30 font-bold">
                   <td className="py-3 px-3 font-bold bg-accent/30 sticky left-0 z-30 border-r-2 border-border text-foreground min-w-[80px]">TOTAL</td>
                   {selectedDates.map((date) => {
-                    const dateData = generatePriceData(selectedStock, date);
+                    const dateData = priceDataByDate[date] || [];
                     const totals = calculateTotals(dateData);
                     return (
                       <React.Fragment key={date}>
@@ -626,7 +759,7 @@ export function StockTransactionDoneSummary() {
       <div className="space-y-6">
         {/* Done Summary Table for Each Date */}
         {selectedDates.map((date) => {
-          const priceData = generatePriceData(selectedStock, date);
+          const priceData = priceDataByDate[date] || [];
           const maxValues = findMaxValues(priceData);
           const totals = calculateTotals(priceData);
           
@@ -930,6 +1063,30 @@ export function StockTransactionDoneSummary() {
 
   return (
     <div className="min-h-screen space-y-4 sm:space-y-6 p-2 sm:p-4 lg:p-6 overflow-x-hidden">
+      {/* Loading State */}
+      {loading && (
+        <Card>
+          <CardContent className="flex items-center justify-center py-8">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+              <p className="text-muted-foreground">Loading bid/ask data...</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Error State */}
+      {error && (
+        <Card>
+          <CardContent className="flex items-center justify-center py-8">
+            <div className="text-center">
+              <p className="text-destructive mb-2">Error loading data</p>
+              <p className="text-muted-foreground text-sm">{error}</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Top Controls */}
       <Card>
         <CardHeader>
@@ -1131,10 +1288,12 @@ export function StockTransactionDoneSummary() {
       </Card>
 
       {/* Main Data Display */}
-      {viewMode === 'summary' ? (
-        layoutMode === 'horizontal' ? renderHorizontalSummaryView() : renderVerticalSummaryView()
-      ) : (
-        layoutMode === 'horizontal' ? renderHorizontalBrokerBreakdownView() : renderVerticalBrokerBreakdownView()
+      {!loading && !error && (
+        viewMode === 'summary' ? (
+          layoutMode === 'horizontal' ? renderHorizontalSummaryView() : renderVerticalSummaryView()
+        ) : (
+          layoutMode === 'horizontal' ? renderHorizontalBrokerBreakdownView() : renderVerticalBrokerBreakdownView()
+        )
       )}
     </div>
   );

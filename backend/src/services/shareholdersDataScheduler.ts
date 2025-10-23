@@ -23,6 +23,73 @@ function getJakartaTime(): string {
   return jakartaTime.toISOString();
 }
 
+// -------------------------------------------------
+// Fungsi untuk menormalisasi data shareholders sesuai file asli
+// 
+// Input: Array dari TICMI API response.data
+// Output: Array flattened dengan struktur:
+// - EmitenCode: Kode emiten (BBCA, BBRI, dll)
+// - DataDate: Tanggal data (YYYY-MM-DD)
+// - JumlahPemegangSaham: Total jumlah pemegang saham
+// - LastUpdate: Tanggal update terakhir
+// - PemegangSaham_Pengendali: Status pengendali (true/false)
+// - PemegangSaham_Nama: Nama pemegang saham
+// - PemegangSaham_Kategori: Kategori pemegang (Lebih dari 5%, Direksi, dll)
+// - PemegangSaham_Persentase: Persentase kepemilikan
+// - PemegangSaham_JmlSaham: Jumlah saham yang dimiliki
+// 
+// Setiap DataDate akan menghasilkan multiple rows sesuai jumlah PemegangSaham
+// -------------------------------------------------
+function normalizeShareholdersData(data: any[]): any[] {
+  const normalizedData: any[] = [];
+  
+  for (const item of data) {
+    // Pastikan item memiliki struktur yang benar
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+    
+    // Flatten PemegangSaham array untuk setiap DataDate
+    if (Array.isArray(item.PemegangSaham) && item.PemegangSaham.length > 0) {
+      for (const pemegang of item.PemegangSaham) {
+        // Pastikan pemegang memiliki struktur yang benar
+        if (!pemegang || typeof pemegang !== 'object') {
+          continue;
+        }
+        
+        const row: any = {
+          EmitenCode: item.EmitenCode || '',
+          DataDate: item.DataDate || '',
+          JumlahPemegangSaham: item.JumlahPemegangSaham || '',
+          LastUpdate: item.LastUpdate || '',
+          PemegangSaham_Pengendali: pemegang.Pengendali || '',
+          PemegangSaham_Nama: pemegang.Nama || '',
+          PemegangSaham_Kategori: pemegang.Kategori || '',
+          PemegangSaham_Persentase: pemegang.Persentase || '',
+          PemegangSaham_JmlSaham: pemegang.JmlSaham || ''
+        };
+        normalizedData.push(row);
+      }
+    } else {
+      // If PemegangSaham is not an array or empty, create a single row with null values
+      const row: any = {
+        EmitenCode: item.EmitenCode || '',
+        DataDate: item.DataDate || '',
+        JumlahPemegangSaham: item.JumlahPemegangSaham || '',
+        LastUpdate: item.LastUpdate || '',
+        PemegangSaham_Pengendali: '',
+        PemegangSaham_Nama: '',
+        PemegangSaham_Kategori: '',
+        PemegangSaham_Persentase: '',
+        PemegangSaham_JmlSaham: ''
+      };
+      normalizedData.push(row);
+    }
+  }
+  
+  return normalizedData;
+}
+
 // Process single emiten for shareholders data
 async function processShareholdersEmiten(
   emiten: string,
@@ -57,129 +124,77 @@ async function processShareholdersEmiten(
     
     const azureBlobName = `shareholders/${emiten}.csv`;
     
-    // Check if data already exists for today
+    // Check if data already exists for today - sesuai file asli
     let existingData: any[] = [];
     if (await azureStorage.blobExists(azureBlobName)) {
       const existingCsvData = await azureStorage.downloadCsvData(azureBlobName);
       existingData = await parseCsvString(existingCsvData);
     }
     
-    // Check if any data exists for the past week
-    const weekAgo = new Date();
-    weekAgo.setDate(weekAgo.getDate() - 7);
-    const weekAgoDate = weekAgo.toISOString().split('T')[0];
-    
-    if (!weekAgoDate) {
-      await AzureLogger.logItemProcess('shareholders', 'ERROR', emiten, 'Failed to calculate week ago date');
-      return { success: false, skipped: false, error: 'Failed to calculate week ago date' };
-    }
-    
-    // Check if ALL days in the past week have data
-    const weekAgoDateObj = new Date(weekAgoDate);
-    const todayDateObj = new Date(todayDate);
-    
-    // Generate all dates in the range
-    const requiredDates: string[] = [];
-    for (let d = new Date(weekAgoDateObj); d <= todayDateObj; d.setDate(d.getDate() + 1)) {
-      const isoString = d.toISOString();
-      if (isoString) {
-        const datePart = isoString.split('T')[0];
-        if (datePart) {
-          requiredDates.push(datePart);
-        }
-      }
-    }
-    
-    // Check if we have data for all required dates
-    const existingDates = new Set(
-      existingData
-        .map(row => {
-          const rowDate = row.date || row.tanggal || row.Date || '';
-          if (!rowDate) return '';
-          
-          // Try different date formats
-          let rowDateObj: Date;
-          if (rowDate.includes('/')) {
-            const parts = rowDate.split('/');
-            if (parts.length === 3) {
-              rowDateObj = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
-            } else {
-              rowDateObj = new Date(rowDate);
-            }
-          } else if (rowDate.includes('-')) {
-            rowDateObj = new Date(rowDate);
-          } else {
-            rowDateObj = new Date(rowDate);
-          }
-          
-          return isNaN(rowDateObj.getTime()) ? '' : rowDateObj.toISOString().split('T')[0];
-        })
-        .filter(date => date)
+    // Cek apakah data untuk tanggal hari ini sudah ada - sesuai file asli
+    const todayDataExists = existingData.some(row => 
+      row.DataDate === todayDate || row.date === todayDate || row.Date === todayDate
     );
     
-    // Check if all required dates exist
-    const weekDataExists = requiredDates.every(date => existingDates.has(date));
-    
-    if (weekDataExists) {
-      await AzureLogger.logItemProcess('shareholders', 'SKIP', emiten, 'Data already exists for the past week');
+    if (todayDataExists) {
+      await AzureLogger.logItemProcess('shareholders', 'SKIP', emiten, `Data untuk ${emiten} tanggal ${todayDate} sudah ada`);
       return { success: true, skipped: true };
     }
     
-    // Fetch data from API for the past week
+    // Fetch data from API - sesuai file asli (hanya secCode)
     const params = {
       secCode: emiten,
-      startDate: weekAgoDate,
-      endDate: todayDate,
-      granularity: "daily",
     };
 
     const response = await httpClient.get(baseUrl, params);
     
-    if (!response.data || response.data === null) {
-      const placeholderData = [{
-        date: todayDate,
-        emiten: emiten,
-        status: 'EMPTY',
-        note: 'Data kosong dari TICMI API'
-      }];
-      
-      const combinedData = [...placeholderData, ...existingData];
-      combinedData.sort((a, b) => {
-        const dateA = a.date || a.tanggal || a.Date || '';
-        const dateB = b.date || b.tanggal || b.Date || '';
-        return new Date(dateB).getTime() - new Date(dateA).getTime();
-      });
-      
-      const deduplicatedData = removeDuplicates(combinedData);
-      const csvData = convertToCsv(deduplicatedData);
-      
-      await azureStorage.uploadCsvData(azureBlobName, csvData);
-      
-      // Cache the result
-      cache.set(cacheKey, { processed: true });
-      
-      return { success: true, skipped: false };
+    // Jika respons kosong - sesuai file asli
+    if (!response.data) {
+      await AzureLogger.logItemProcess('shareholders', 'SKIP', emiten, 'Kosong');
+      return { success: true, skipped: true };
     }
 
     const payload = response.data;
-    const data = payload.data || payload;
-
-    let normalizedData: any[] = [];
-    if (Array.isArray(data)) {
-      normalizedData = data;
-    } else if (typeof data === 'object' && data !== null) {
-      normalizedData = [data];
-    } else {
+    
+    // Pastikan payload memiliki struktur yang benar
+    if (!payload || typeof payload !== 'object') {
+      await AzureLogger.logItemProcess('shareholders', 'SKIP', emiten, 'Invalid payload structure');
       return { success: true, skipped: true };
     }
     
+    // Ambil data dari payload.data (sesuai struktur TICMI API)
+    const data = payload.data;
+    
+    // Normalisasi JSON menjadi array sesuai dengan file asli
+    let normalizedData: any[] = [];
+    if (Array.isArray(data) && data.length > 0) {
+      normalizedData = normalizeShareholdersData(data);
+      await AzureLogger.logItemProcess('shareholders', 'SUCCESS', emiten, `Processing ${normalizedData.length} shareholder records`);
+    } else if (typeof data === 'object' && data !== null) {
+      normalizedData = normalizeShareholdersData([data]);
+      await AzureLogger.logItemProcess('shareholders', 'SUCCESS', emiten, 'Processing single shareholder record');
+    } else {
+      await AzureLogger.logItemProcess('shareholders', 'SKIP', emiten, 'No valid data found');
+      return { success: true, skipped: true };
+    }
+    
+    // Cek apakah ada data yang berhasil dinormalisasi
+    if (normalizedData.length === 0) {
+      await AzureLogger.logItemProcess('shareholders', 'SKIP', emiten, 'No normalized data');
+      return { success: true, skipped: true };
+    }
+    
+    // Gabungkan data baru dengan data existing
     const combinedData = [...normalizedData, ...existingData];
+    
+    // Urutkan berdasarkan tanggal (terbaru di atas) - sesuai file asli
     combinedData.sort((a, b) => {
-      const dateA = a.date || a.tanggal || a.Date || '';
-      const dateB = b.date || b.tanggal || b.Date || '';
-      return dateB.localeCompare(dateA);
+      const dateA = a.DataDate || a.date || a.Date || '';
+      const dateB = b.DataDate || b.date || b.Date || '';
+      return dateB.localeCompare(dateA); // Descending (terbaru di atas)
     });
     
+    // Hapus duplikat berdasarkan kombinasi unik - sesuai file asli
     const deduplicatedData = removeDuplicates(combinedData);
     const csvData = convertToCsv(deduplicatedData);
     

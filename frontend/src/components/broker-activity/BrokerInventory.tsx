@@ -1,7 +1,11 @@
 import { useRef, useEffect, useMemo, useState } from 'react';
 import { createChart, IChartApi, LineSeries, ColorType, CrosshairMode } from 'lightweight-charts';
 import { api } from '../../services/api';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Calendar, Plus, RotateCcw, X } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Button } from '../ui/button';
+import { Badge } from '../ui/badge';
+import { useToast } from '../../contexts/ToastContext';
 
 interface BrokerInventoryProps {
   selectedStock?: string;
@@ -207,18 +211,109 @@ const BrokerInventoryChart = ({
 };
 
 export function BrokerInventory({ selectedStock = 'BBRI' }: BrokerInventoryProps) {
+  const { showToast } = useToast();
+  
   // Select top 5 brokers for dashboard display
   const selectedBrokers = useMemo(() => ['LG', 'MG', 'BR', 'RG', 'CC'], []);
+  
+  // Date range states
+  const [selectedDates, setSelectedDates] = useState<string[]>([]);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
   
   // API data states
   const [inventoryData, setInventoryData] = useState<Map<string, BrokerInventoryData[]>>(new Map());
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load inventory data when selected stock changes
+  // Helper functions for date management
+  const getTradingDays = (count: number): string[] => {
+    const dates: string[] = [];
+    const today = new Date();
+    let currentDate = new Date(today);
+    
+    while (dates.length < count) {
+      const dayOfWeek = currentDate.getDay();
+      
+      // Skip weekends (Saturday = 6, Sunday = 0)
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        const dateStr = currentDate.toISOString().split('T')[0];
+        if (dateStr) {
+          dates.push(dateStr);
+        }
+      }
+      
+      // Go to previous day
+      currentDate.setDate(currentDate.getDate() - 1);
+      
+      // Safety check
+      if (dates.length === 0 && currentDate.getTime() < today.getTime() - (30 * 24 * 60 * 60 * 1000)) {
+        const todayStr = today.toISOString().split('T')[0];
+        if (todayStr) {
+          dates.push(todayStr);
+        }
+        break;
+      }
+    }
+    
+    return dates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+  };
+
+  const getLastThreeDays = (): string[] => {
+    return getTradingDays(3);
+  };
+
+  const formatDisplayDate = (dateString: string): string => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('id-ID', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+  };
+
+  const handleDateRangeModeChange = (mode: '1day' | '3days' | '1week' | 'custom') => {
+    setDateRangeMode(mode);
+    
+    // Only auto-set dates for quick select modes, not custom
+    if (mode === '1day') {
+      const oneDay = getLastThreeDays().slice(0, 1);
+      setSelectedDates(oneDay);
+      setStartDate(oneDay[0] ?? '');
+      setEndDate(oneDay[0] ?? '');
+    } else if (mode === '3days') {
+      const threeDays = getLastThreeDays();
+      setSelectedDates(threeDays);
+      const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+      setStartDate(sortedDates[0] ?? '');
+      setEndDate(sortedDates[sortedDates.length - 1] ?? '');
+    } else if (mode === '1week') {
+      const oneWeek = getLastThreeDays().slice(0, 7);
+      setSelectedDates(oneWeek);
+      const sortedDates = [...oneWeek].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+      setStartDate(sortedDates[0] ?? '');
+      setEndDate(sortedDates[sortedDates.length - 1] ?? '');
+    } else if (mode === 'custom') {
+      // For custom mode, don't auto-set dates, let user input manually
+      setStartDate('');
+      setEndDate('');
+    }
+  };
+
+  // Initialize dates on component mount
+  useEffect(() => {
+    const threeDays = getLastThreeDays();
+    setSelectedDates(threeDays);
+    const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+    setStartDate(sortedDates[0] ?? '');
+    setEndDate(sortedDates[sortedDates.length - 1] ?? '');
+  }, []);
+
+  // Load inventory data when selected stock or dates change
   useEffect(() => {
     const loadInventoryData = async () => {
-      if (!selectedStock) return;
+      if (!selectedStock || selectedDates.length === 0) return;
       
       setIsLoading(true);
       setError(null);
@@ -226,13 +321,9 @@ export function BrokerInventory({ selectedStock = 'BBRI' }: BrokerInventoryProps
       try {
         const newInventoryData = new Map<string, BrokerInventoryData[]>();
         
-        // Load data for the last 30 days
-        const today = new Date();
-        for (let i = 0; i < 30; i++) {
-          const currentDate = new Date(today);
-          currentDate.setDate(currentDate.getDate() - i);
-          const dateStr = currentDate.toISOString().split('T')[0]?.replace(/-/g, '') || '';
-          
+        // Load data for selected dates
+        for (const date of selectedDates) {
+          const dateStr = date.replace(/-/g, '');
           const data = await fetchBrokerInventoryData(selectedStock, dateStr);
           if (data.length > 0) {
             newInventoryData.set(dateStr, data);
@@ -243,13 +334,18 @@ export function BrokerInventory({ selectedStock = 'BBRI' }: BrokerInventoryProps
       } catch (err) {
         setError('Failed to load inventory data');
         console.error('Error loading inventory data:', err);
+        showToast({
+          type: 'error',
+          title: 'Error Memuat Data',
+          message: 'Gagal memuat data inventory broker.'
+        });
       } finally {
         setIsLoading(false);
       }
     };
 
     loadInventoryData();
-  }, [selectedStock]);
+  }, [selectedStock, selectedDates, showToast]);
 
   // Convert inventory data to chart format
   const chartData = useMemo(() => {
@@ -276,7 +372,81 @@ export function BrokerInventory({ selectedStock = 'BBRI' }: BrokerInventoryProps
   }, [inventoryData, selectedBrokers]);
 
   return (
-    <div>
+    <div className="space-y-6">
+      {/* Date Range Selection */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Calendar className="w-5 h-5" />
+            Date Range Selection
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col gap-4 md:grid md:grid-cols-2 lg:flex lg:flex-row items-center lg:items-end">
+            {/* Date Range */}
+            <div className="flex-1 min-w-0 w-full md:col-span-2">
+              <label className="block text-sm font-medium mb-2">Date Range:</label>
+              <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2 w-full">
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                />
+                <span className="text-sm text-muted-foreground text-center whitespace-nowrap sm:px-2">to</span>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                />
+                <Button size="sm" className="w-auto justify-self-center" onClick={() => { /* hook for future filtering */ }}>
+                  Apply
+                </Button>
+              </div>
+            </div>
+
+            {/* Quick Select */}
+            <div className="flex-1 min-w-0 w-full">
+              <label className="block text-sm font-medium mb-2">Quick Select:</label>
+              <div className="flex gap-2">
+                <select 
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                  value={dateRangeMode}
+                  onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
+                >
+                  <option value="1day">1 Day</option>
+                  <option value="3days">3 Days</option>
+                  <option value="1week">1 Week</option>
+                  <option value="custom">Custom</option>
+                </select>
+                {dateRangeMode === 'custom' && (
+                  <Button variant="outline" size="sm" onClick={() => { setStartDate(''); setEndDate(''); }}>
+                    <RotateCcw className="w-4 h-4 mr-1" />
+                    Clear
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Selected Dates */}
+          {selectedDates.length > 0 && (
+            <div className="mt-4">
+              <label className="text-sm font-medium">Selected Dates:</label>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {selectedDates.map((date) => (
+                  <Badge key={date} variant="secondary" className="px-3 py-1">
+                    {formatDisplayDate(date)}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Chart Display */}
       <div className="space-y-4">
         {/* Loading State */}
         {isLoading && (

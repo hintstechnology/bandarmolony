@@ -2,9 +2,11 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { X } from 'lucide-react';
+import { X, Plus, RotateCcw, Calendar } from 'lucide-react';
 // Removed unused Recharts imports
 import { getBrokerBackgroundClass, getBrokerTextClass, useDarkMode } from '../../utils/brokerColors';
+import { api } from '../../services/api';
+import { useToast } from '../../contexts/ToastContext';
 import {
   createChart,
   ColorType,
@@ -23,12 +25,12 @@ interface InventoryTimeSeries {
   [brokerCode: string]: string | number;
 }
 
-// Available tickers
-const AVAILABLE_TICKERS = [
-  'BBCA', 'BBRI', 'BMRI', 'BBNI', 'ARTO', 'BACA', 'TLKM', 'ISAT', 'FREN', 'EXCL',
-  'ASII', 'GOTO', 'ANTM', 'MDKA', 'ADRO', 'UNVR', 'ICBP', 'INDF', 'PGAS', 'MEDC',
-  'CPIN', 'JPFA', 'INCO', 'TPIA', 'TKIM', 'INKP', 'BRIS', 'SIDO', 'ERAA', 'ESSA'
-];
+// Available tickers (now using API data)
+// const AVAILABLE_TICKERS = [
+//   'BBCA', 'BBRI', 'BMRI', 'BBNI', 'ARTO', 'BACA', 'TLKM', 'ISAT', 'FREN', 'EXCL',
+//   'ASII', 'GOTO', 'ANTM', 'MDKA', 'ADRO', 'UNVR', 'ICBP', 'INDF', 'PGAS', 'MEDC',
+//   'CPIN', 'JPFA', 'INCO', 'TPIA', 'TKIM', 'INKP', 'BRIS', 'SIDO', 'ERAA', 'ESSA'
+// ];
 
 // Available brokers
 const AVAILABLE_BROKERS = [
@@ -875,6 +877,8 @@ const BrokerFootprintOverlay = ({ nblot, totalNblot, brokerColor }: { nblot: num
 };
 
 export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
+  const { showToast } = useToast();
+  
   // State management
   const [selectedTicker, setSelectedTicker] = useState('BBCA');
   const [selectedBrokers, setSelectedBrokers] = useState<string[]>(['LG', 'MG', 'BR']);
@@ -893,6 +897,149 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
   const [splitVisualization, setSplitVisualization] = useState(false);
   const [highlightedTickerIndex, setHighlightedTickerIndex] = useState<number>(-1);
   const [highlightedBrokerIndex, setHighlightedBrokerIndex] = useState<number>(-1);
+  
+  // New states for consistent UI
+  const [selectedDates, setSelectedDates] = useState<string[]>([]);
+  const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
+  const [availableStocks, setAvailableStocks] = useState<string[]>([]);
+  // Note: isLoading and error states are managed by the chart components
+
+  // Helper functions for date management
+  const getTradingDays = (count: number): string[] => {
+    const dates: string[] = [];
+    const today = new Date();
+    let currentDate = new Date(today);
+    
+    while (dates.length < count) {
+      const dayOfWeek = currentDate.getDay();
+      
+      // Skip weekends (Saturday = 6, Sunday = 0)
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        const dateStr = currentDate.toISOString().split('T')[0];
+        if (dateStr) {
+          dates.push(dateStr);
+        }
+      }
+      
+      // Go to previous day
+      currentDate.setDate(currentDate.getDate() - 1);
+      
+      // Safety check
+      if (dates.length === 0 && currentDate.getTime() < today.getTime() - (30 * 24 * 60 * 60 * 1000)) {
+        const todayStr = today.toISOString().split('T')[0];
+        if (todayStr) {
+          dates.push(todayStr);
+        }
+        break;
+      }
+    }
+    
+    return dates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+  };
+
+  const getLastThreeDays = (): string[] => {
+    return getTradingDays(3);
+  };
+
+  const formatDisplayDate = (dateString: string): string => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('id-ID', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+  };
+
+  const addDateRange = () => {
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      
+      // Check if range is valid
+      if (start <= end) {
+        const newDates: string[] = [];
+        const current = new Date(start);
+        
+        while (current <= end) {
+          newDates.push(current.toISOString().split('T')[0] ?? '');
+          current.setDate(current.getDate() + 1);
+        }
+        
+        setSelectedDates(prev => {
+          const combined = [...prev, ...newDates];
+          return [...new Set(combined)].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+        });
+      }
+    }
+  };
+
+  const removeDate = (dateToRemove: string) => {
+    setSelectedDates(prev => prev.filter(date => date !== dateToRemove));
+  };
+
+  const handleDateRangeModeChange = (mode: '1day' | '3days' | '1week' | 'custom') => {
+    setDateRangeMode(mode);
+    
+    // Only auto-set dates for quick select modes, not custom
+    if (mode === '1day') {
+      const oneDay = getLastThreeDays().slice(0, 1);
+      setSelectedDates(oneDay);
+      setStartDate(oneDay[0] ?? '');
+      setEndDate(oneDay[0] ?? '');
+    } else if (mode === '3days') {
+      const threeDays = getLastThreeDays();
+      setSelectedDates(threeDays);
+      const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+      setStartDate(sortedDates[0] ?? '');
+      setEndDate(sortedDates[sortedDates.length - 1] ?? '');
+    } else if (mode === '1week') {
+      const oneWeek = getLastThreeDays().slice(0, 7);
+      setSelectedDates(oneWeek);
+      const sortedDates = [...oneWeek].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+      setStartDate(sortedDates[0] ?? '');
+      setEndDate(sortedDates[sortedDates.length - 1] ?? '');
+    } else if (mode === 'custom') {
+      // For custom mode, don't auto-set dates, let user input manually
+      // Keep current selectedDates, but clear start/end dates for fresh input
+      setStartDate('');
+      setEndDate('');
+    }
+  };
+
+  const clearAllDates = () => {
+    setSelectedDates([]);
+    setStartDate('');
+    setEndDate('');
+  };
+
+  // Load available stocks and initialize dates on component mount
+  useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        // Load available stocks
+        const response = await api.getStockList();
+        if (response.success && response.data?.stocks) {
+          setAvailableStocks(response.data.stocks);
+        }
+        
+        // Initialize with last 3 days
+        const threeDays = getLastThreeDays();
+        setSelectedDates(threeDays);
+        const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+        setStartDate(sortedDates[0] ?? '');
+        setEndDate(sortedDates[sortedDates.length - 1] ?? '');
+      } catch (error) {
+        console.error('Error loading initial data:', error);
+        showToast({
+          type: 'error',
+          title: 'Error Memuat Data',
+          message: 'Gagal memuat data awal.'
+        });
+      }
+    };
+    
+    loadInitialData();
+  }, [showToast]);
 
   // Broker search handlers
   const handleBrokerSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -931,7 +1078,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
     !selectedBrokers.includes(broker)
   );
 
-  const filteredTickers = AVAILABLE_TICKERS.filter(ticker =>
+  const filteredTickers = availableStocks.filter(ticker =>
     ticker.toLowerCase().includes(tickerSearch.toLowerCase())
   );
 
@@ -983,247 +1130,314 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
           {/* Controls */}
       <Card>
         <CardHeader>
-              <CardTitle>Broker Inventory Analysis Controls</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <Calendar className="w-5 h-5" />
+            Date Range Selection (Max 7 Days)
+          </CardTitle>
         </CardHeader>
         <CardContent>
-               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                {/* Ticker Selection */}
-                <div className="flex-1 min-w-0">
-                  <label className="block text-sm font-medium mb-2">Ticker:</label>
-                  <div className="relative ticker-dropdown">
-                    <input
-                      type="text"
-                      placeholder="BBCA"
-                      value={tickerSearch || selectedTicker}
-                      onChange={(e) => { handleTickerSearchChange(e); setHighlightedTickerIndex(0); }}
-                      onFocus={() => { setShowTickerSuggestions(true); setHighlightedTickerIndex(0); }}
-                      onKeyDown={(e) => {
-                        const baseList = tickerSearch.length === 0 ? AVAILABLE_TICKERS : filteredTickers;
-                        const suggestions = baseList.slice(0, 10);
-                        if (!suggestions.length) return;
-                        if (e.key === 'ArrowDown') {
-                          e.preventDefault();
-                          setHighlightedTickerIndex(prev => {
-                            const next = prev + 1;
-                            return next >= suggestions.length ? 0 : next;
-                          });
-                        } else if (e.key === 'ArrowUp') {
-                          e.preventDefault();
-                          setHighlightedTickerIndex(prev => {
-                            const next = prev - 1;
-                            return next < 0 ? suggestions.length - 1 : next;
-                          });
-                        } else if (e.key === 'Enter' && showTickerSuggestions) {
-                          e.preventDefault();
-                          const idx = highlightedTickerIndex >= 0 ? highlightedTickerIndex : 0;
-                          const choice = suggestions[idx];
-                          if (choice) {
-                            handleTickerSelect(choice);
-                            setShowTickerSuggestions(false);
-                            setHighlightedTickerIndex(-1);
-                          }
-                        } else if (e.key === 'Escape') {
+          <div className="space-y-4">
+            {/* Row 1: Ticker, Quick Select, Layout */}
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
+              {/* Ticker Selection */}
+              <div className="flex-1 min-w-0 w-full lg:w-2/3">
+                <label className="block text-sm font-medium mb-2">Ticker:</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={tickerSearch || selectedTicker}
+                    onChange={(e) => { handleTickerSearchChange(e); setHighlightedTickerIndex(0); }}
+                    onFocus={() => { setShowTickerSuggestions(true); setHighlightedTickerIndex(0); }}
+                    onKeyDown={(e) => {
+                      const suggestions = filteredTickers.slice(0, 10);
+                      if (!suggestions.length) return;
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        setHighlightedTickerIndex(prev => {
+                          const next = prev + 1;
+                          return next >= suggestions.length ? 0 : next;
+                        });
+                      } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setHighlightedTickerIndex(prev => {
+                          const next = prev - 1;
+                          return next < 0 ? suggestions.length - 1 : next;
+                        });
+                      } else if (e.key === 'Enter' && showTickerSuggestions) {
+                        e.preventDefault();
+                        const idx = highlightedTickerIndex >= 0 ? highlightedTickerIndex : 0;
+                        const choice = suggestions[idx];
+                        if (choice) {
+                          handleTickerSelect(choice);
                           setShowTickerSuggestions(false);
                           setHighlightedTickerIndex(-1);
                         }
-                      }}
-                      className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
-                      role="combobox"
-                      aria-expanded={showTickerSuggestions}
-                      aria-controls="inv-ticker-suggestions"
-                      aria-autocomplete="list"
-                    />
-                    
-                    {!!tickerSearch && (
-                      <button
-                        className="absolute right-2 top-2.5 text-muted-foreground"
-                        onClick={() => { setTickerSearch(''); setShowTickerSuggestions(false); }}
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    )}
-                    
-                    {showTickerSuggestions && (
-                      (() => {
-                        const baseList = tickerSearch.length === 0 ? AVAILABLE_TICKERS : filteredTickers;
-                        const suggestions = baseList.slice(0, 10);
-                        return (
-                          <div id="inv-ticker-suggestions" role="listbox" className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
-                            <div className="p-2">
-                              {tickerSearch.length === 0 && (
-                                <div className="text-xs text-muted-foreground mb-2">All Tickers:</div>
-                              )}
-                              {suggestions.map((ticker, idx) => (
-                                <div
-                                  key={ticker}
-                                  role="option"
-                                  aria-selected={idx === highlightedTickerIndex}
-                                  onMouseEnter={() => setHighlightedTickerIndex(idx)}
-                                  onMouseDown={(e) => { e.preventDefault(); }}
-                                  onClick={() => { handleTickerSelect(ticker); setShowTickerSuggestions(false); setHighlightedTickerIndex(-1); }}
-                                  className={`flex items-center space-x-2 p-2 rounded cursor-pointer ${idx === highlightedTickerIndex ? 'bg-accent' : 'hover:bg-muted'}`}
-                                >
-                                  <span className="text-sm">{ticker}</span>
-                                </div>
-                              ))}
-                              {suggestions.length === 0 && (
-                                <div className="p-2 text-sm text-muted-foreground">No tickers found</div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })()
-                    )}
+                      } else if (e.key === 'Escape') {
+                        setShowTickerSuggestions(false);
+                        setHighlightedTickerIndex(-1);
+                      }
+                    }}
+                    placeholder="Enter ticker code..."
+                    className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                    role="combobox"
+                    aria-expanded={showTickerSuggestions}
+                    aria-controls="ticker-suggestions"
+                    aria-autocomplete="list"
+                  />
+                  {!!tickerSearch && (
+                    <button
+                      className="absolute right-2 top-2.5 text-muted-foreground"
+                      onClick={() => { setTickerSearch(''); setShowTickerSuggestions(false); }}
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                  {showTickerSuggestions && (
+                    (() => {
+                      const suggestions = filteredTickers.slice(0, 10);
+                      return (
+                        <div id="ticker-suggestions" role="listbox" className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
+                          {suggestions.map((t, idx) => (
+                            <button
+                              key={t}
+                              role="option"
+                              aria-selected={idx === highlightedTickerIndex}
+                              className={`w-full text-left px-3 py-2 text-sm ${idx === highlightedTickerIndex ? 'bg-accent' : 'hover:bg-accent'}`}
+                              onMouseEnter={() => setHighlightedTickerIndex(idx)}
+                              onMouseDown={(e) => { e.preventDefault(); }}
+                              onClick={() => {
+                                handleTickerSelect(t);
+                                setShowTickerSuggestions(false);
+                                setHighlightedTickerIndex(-1);
+                              }}
+                            >
+                              {t}
+                            </button>
+                          ))}
+                          {suggestions.length === 0 && (
+                            <div className="px-3 py-2 text-sm text-muted-foreground">No results</div>
+                          )}
+                        </div>
+                      );
+                    })()
+                  )}
+                </div>
+              </div>
+
+              {/* Quick Select */}
+              <div className="w-full lg:w-1/3">
+                <label className="block text-sm font-medium mb-2">Quick Select:</label>
+                <div className="flex gap-2">
+                  <select 
+                    className="flex-1 px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                    value={dateRangeMode}
+                    onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
+                  >
+                    <option value="1day">1 Day</option>
+                    <option value="3days">3 Days</option>
+                    <option value="1week">1 Week</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                  {dateRangeMode === 'custom' && (
+                    <Button onClick={clearAllDates} variant="outline" size="sm">
+                      <RotateCcw className="w-4 h-4 mr-1" />
+                      Clear
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* Layout Mode Toggle */}
+              <div className="w-full lg:w-auto lg:flex-none">
+                <label className="block text-sm font-medium mb-2">Layout:</label>
+                <div className="flex sm:inline-flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto w-full sm:w-auto lg:w-auto justify-center sm:justify-start">
+                  <div className="grid grid-cols-2 gap-1 w-full max-w-xs mx-auto sm:flex sm:items-center sm:gap-1 sm:max-w-none sm:mx-0">
+                    <Button
+                      variant={!splitVisualization ? "default" : "ghost"}
+                      onClick={() => setSplitVisualization(false)}
+                      size="sm"
+                      className="px-3 py-1 h-8 text-xs"
+                    >
+                      Combined
+                    </Button>
+                    <Button
+                      variant={splitVisualization ? "default" : "ghost"}
+                      onClick={() => setSplitVisualization(true)}
+                      size="sm"
+                      className="px-3 py-1 h-8 text-xs"
+                    >
+                      Split
+                    </Button>
                   </div>
                 </div>
+              </div>
+            </div>
 
-                {/* Broker Selection */}
-                <div className="flex-1 min-w-0">
-                  <label className="block text-sm font-medium mb-2">Broker:</label>
-                  <div className="relative broker-dropdown">
-                    <input
-                      type="text"
-                      placeholder="Broker..."
-                      value={brokerSearch}
-                      onChange={(e) => { handleBrokerSearchChange(e); setHighlightedBrokerIndex(0); }}
-                      onFocus={() => { setShowBrokerSuggestions(true); setHighlightedBrokerIndex(0); }}
-                      onKeyDown={(e) => {
-                        const baseList = brokerSearch.length === 0
-                          ? AVAILABLE_BROKERS.filter(b => !selectedBrokers.includes(b))
-                          : filteredBrokers;
-                        const suggestions = baseList.slice(0, 10);
-                        if (!suggestions.length) return;
-                        if (e.key === 'ArrowDown') {
-                          e.preventDefault();
-                          setHighlightedBrokerIndex(prev => {
-                            const next = prev + 1;
-                            return next >= suggestions.length ? 0 : next;
-                          });
-                        } else if (e.key === 'ArrowUp') {
-                          e.preventDefault();
-                          setHighlightedBrokerIndex(prev => {
-                            const next = prev - 1;
-                            return next < 0 ? suggestions.length - 1 : next;
-                          });
-                        } else if (e.key === 'Enter' && showBrokerSuggestions) {
-                          e.preventDefault();
-                          const idx = highlightedBrokerIndex >= 0 ? highlightedBrokerIndex : 0;
-                          const choice = suggestions[idx];
-                          if (choice) {
-                            handleBrokerSelect(choice);
-                            setShowBrokerSuggestions(false);
-                            setHighlightedBrokerIndex(-1);
-                          }
-                        } else if (e.key === 'Escape') {
-                          setShowBrokerSuggestions(false);
-                          setHighlightedBrokerIndex(-1);
-                        }
-                      }}
-                      className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
-                      role="combobox"
-                      aria-expanded={showBrokerSuggestions}
-                      aria-controls="inv-broker-suggestions"
-                      aria-autocomplete="list"
-                    />
-                    
-                    {!!brokerSearch && (
-                      <button
-                        className="absolute right-2 top-2.5 text-muted-foreground"
-                        onClick={() => { setBrokerSearch(''); setShowBrokerSuggestions(false); }}
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    )}
-                    
-                    {showBrokerSuggestions && (
-                      (() => {
-                        const baseList = brokerSearch.length === 0
-                          ? AVAILABLE_BROKERS.filter(b => !selectedBrokers.includes(b))
-                          : filteredBrokers;
-                        const suggestions = baseList.slice(0, 10);
-                        return (
-                          <div id="inv-broker-suggestions" role="listbox" className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
-                            <div className="p-2">
-                              {brokerSearch.length === 0 && (
-                                <div className="text-xs text-muted-foreground mb-2">All Brokers:</div>
-                              )}
-                              {suggestions.map((broker, idx) => (
-                                <div
-                                  key={broker}
-                                  role="option"
-                                  aria-selected={idx === highlightedBrokerIndex}
-                                  onMouseEnter={() => setHighlightedBrokerIndex(idx)}
-                                  onMouseDown={(e) => { e.preventDefault(); }}
-                                  onClick={() => { handleBrokerSelect(broker); setShowBrokerSuggestions(false); setHighlightedBrokerIndex(-1); }}
-                                  className={`flex items-center space-x-2 p-2 rounded cursor-pointer ${idx === highlightedBrokerIndex ? 'bg-accent' : 'hover:bg-muted'}`}
-                                >
-                                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getBrokerColor(broker) }} />
-                                  <span className="text-sm">{broker}</span>
-                                </div>
-                              ))}
-                              {suggestions.length === 0 && (
-                                <div className="p-2 text-sm text-muted-foreground">No brokers found</div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })()
-                    )}
-                  </div>
-                </div>
-
-                {/* Date Range */}
-                <div className="flex-1 min-w-0">
-                  <label className="block text-sm font-medium mb-2">Date Range:</label>
-                  <div className="flex gap-2 items-center">
-                    <input
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      className="flex-1 px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm min-w-0"
-                    />
-                    <span className="text-sm text-muted-foreground whitespace-nowrap">to</span>
-                    <input
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
-                      className="flex-1 px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm min-w-0"
-                    />
-                  </div>
-                </div>
-
-                {/* Split Visualization Toggle */}
-                <div className="flex-1 min-w-0 w-full lg:w-auto lg:flex-none">
-                  <label className="block text-sm font-medium mb-2">Visualization:</label>
-                  <div className="flex sm:inline-flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto w-full sm:w-auto lg:w-auto justify-center sm:justify-start">
-                    <div className="grid grid-cols-2 gap-1 w-full max-w-xs mx-auto sm:flex sm:items-center sm:gap-1 sm:max-w-none sm:mx-0">
-                      <Button
-                        variant={!splitVisualization ? "default" : "ghost"}
-                        onClick={() => setSplitVisualization(false)}
-                        size="sm"
-                        className="px-3 py-1 h-8 text-xs"
-                      >
-                        Combined
+            {/* Custom Date Range - Only show when custom is selected */}
+            {dateRangeMode === 'custom' && (
+              <div className="space-y-4">
+                <div className="flex flex-col gap-4">
+                  <div className="flex-1 min-w-0 w-full">
+                    <label className="block text-sm font-medium mb-2">Date Range:</label>
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_auto] items-center gap-2 w-full">
+                      <input
+                        type="date"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                      />
+                      <span className="text-sm text-muted-foreground text-center whitespace-nowrap sm:px-2">to</span>
+                      <input
+                        type="date"
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                      />
+                      <Button onClick={addDateRange} size="sm" className="w-auto justify-self-center">
+                        <Plus className="w-4 h-4" />
                       </Button>
-                      <Button
-                        variant={splitVisualization ? "default" : "ghost"}
-                        onClick={() => setSplitVisualization(true)}
-                        size="sm"
-                        className="px-3 py-1 h-8 text-xs"
-                      >
-                        Split
+                      <Button onClick={clearAllDates} variant="outline" size="sm" className="w-auto">
+                        <RotateCcw className="w-4 h-4 mr-1" />
+                        Clear
                       </Button>
                     </div>
                   </div>
                 </div>
               </div>
+            )}
 
-              {/* Selected Brokers Display */}
-              {selectedBrokers.length > 0 && (
-                <div className="mt-4">
-                  <label className="text-sm font-medium">Selected Brokers:</label>
+            {/* Row 2: Selected Dates */}
+            <div>
+              <label className="text-sm font-medium">Selected Dates:</label>
               <div className="flex flex-wrap gap-2 mt-2">
-                    {selectedBrokers.map(broker => (
+                {selectedDates.map((date) => (
+                  <Badge key={date} variant="secondary" className="px-3 py-1">
+                    {formatDisplayDate(date)}
+                    {selectedDates.length > 1 && (
+                      <button
+                        onClick={() => removeDate(date)}
+                        className="ml-2 hover:text-destructive"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Broker Selection */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Broker Selection</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* Broker Selection */}
+            <div className="flex-1 min-w-0">
+              <label className="block text-sm font-medium mb-2">Broker:</label>
+              <div className="relative broker-dropdown">
+                <input
+                  type="text"
+                  placeholder="Broker..."
+                  value={brokerSearch}
+                  onChange={(e) => { handleBrokerSearchChange(e); setHighlightedBrokerIndex(0); }}
+                  onFocus={() => { setShowBrokerSuggestions(true); setHighlightedBrokerIndex(0); }}
+                  onKeyDown={(e) => {
+                    const baseList = brokerSearch.length === 0
+                      ? AVAILABLE_BROKERS.filter(b => !selectedBrokers.includes(b))
+                      : filteredBrokers;
+                    const suggestions = baseList.slice(0, 10);
+                    if (!suggestions.length) return;
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      setHighlightedBrokerIndex(prev => {
+                        const next = prev + 1;
+                        return next >= suggestions.length ? 0 : next;
+                      });
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      setHighlightedBrokerIndex(prev => {
+                        const next = prev - 1;
+                        return next < 0 ? suggestions.length - 1 : next;
+                      });
+                    } else if (e.key === 'Enter' && showBrokerSuggestions) {
+                      e.preventDefault();
+                      const idx = highlightedBrokerIndex >= 0 ? highlightedBrokerIndex : 0;
+                      const choice = suggestions[idx];
+                      if (choice) {
+                        handleBrokerSelect(choice);
+                        setShowBrokerSuggestions(false);
+                        setHighlightedBrokerIndex(-1);
+                      }
+                    } else if (e.key === 'Escape') {
+                      setShowBrokerSuggestions(false);
+                      setHighlightedBrokerIndex(-1);
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                  role="combobox"
+                  aria-expanded={showBrokerSuggestions}
+                  aria-controls="inv-broker-suggestions"
+                  aria-autocomplete="list"
+                />
+                
+                {!!brokerSearch && (
+                  <button
+                    className="absolute right-2 top-2.5 text-muted-foreground"
+                    onClick={() => { setBrokerSearch(''); setShowBrokerSuggestions(false); }}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+                
+                {showBrokerSuggestions && (
+                  (() => {
+                    const baseList = brokerSearch.length === 0
+                      ? AVAILABLE_BROKERS.filter(b => !selectedBrokers.includes(b))
+                      : filteredBrokers;
+                    const suggestions = baseList.slice(0, 10);
+                    return (
+                      <div id="inv-broker-suggestions" role="listbox" className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
+                        <div className="p-2">
+                          {brokerSearch.length === 0 && (
+                            <div className="text-xs text-muted-foreground mb-2">All Brokers:</div>
+                          )}
+                          {suggestions.map((broker, idx) => (
+                            <div
+                              key={broker}
+                              role="option"
+                              aria-selected={idx === highlightedBrokerIndex}
+                              onMouseEnter={() => setHighlightedBrokerIndex(idx)}
+                              onMouseDown={(e) => { e.preventDefault(); }}
+                              onClick={() => { handleBrokerSelect(broker); setShowBrokerSuggestions(false); setHighlightedBrokerIndex(-1); }}
+                              className={`flex items-center space-x-2 p-2 rounded cursor-pointer ${idx === highlightedBrokerIndex ? 'bg-accent' : 'hover:bg-muted'}`}
+                            >
+                              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getBrokerColor(broker) }} />
+                              <span className="text-sm">{broker}</span>
+                            </div>
+                          ))}
+                          {suggestions.length === 0 && (
+                            <div className="p-2 text-sm text-muted-foreground">No brokers found</div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Selected Brokers Display */}
+          {selectedBrokers.length > 0 && (
+            <div className="mt-4">
+              <label className="text-sm font-medium">Selected Brokers:</label>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {selectedBrokers.map(broker => (
                   <Badge 
                     key={broker} 
                     variant="outline"
@@ -1233,24 +1447,24 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                       color: getBrokerColor(broker)
                     }}
                   >
-                        <div
-                          className="w-2 h-2 rounded-full mr-1"
-                          style={{ backgroundColor: getBrokerColor(broker) }}
-                        />
+                    <div
+                      className="w-2 h-2 rounded-full mr-1"
+                      style={{ backgroundColor: getBrokerColor(broker) }}
+                    />
                     {broker}
-                        <button
-                          onClick={() => removeBroker(broker)}
-                          className="ml-1 hover:text-destructive"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
+                    <button
+                      onClick={() => removeBroker(broker)}
+                      className="ml-1 hover:text-destructive"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
                   </Badge>
                 ))}
               </div>
             </div>
-              )}
-            </CardContent>
-          </Card>
+          )}
+        </CardContent>
+      </Card>
 
           {/* Conditional Chart Rendering */}
           {splitVisualization ? (
@@ -1317,8 +1531,8 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                     title={`${selectedTicker} Inventory Analysis`}
                     volumeData={volumeData}
                   />
-        </CardContent>
-      </Card>
+                </CardContent>
+              </Card>
             </>
           )}            
           {/* Big 5 Gross & Net Table */}
