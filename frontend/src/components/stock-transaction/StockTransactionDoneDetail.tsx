@@ -109,7 +109,6 @@ export function StockTransactionDoneDetail() {
   
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
-  const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical'>('horizontal');
   const [filters, setFilters] = useState({
     timeSort: 'latest',
     broker: 'all',
@@ -582,9 +581,13 @@ export function StockTransactionDoneDetail() {
 
   // Render horizontal view - pivot-style comparison across dates with pagination
   const renderHorizontalView = () => {
-    // Get all transactions for all selected dates and apply filters
+    // Get all transactions for all selected dates
+    const allRawTransactions: { [date: string]: DoneDetailData[] } = {};
     const allTransactions: { [date: string]: DoneDetailData[] } = {};
     selectedDates.forEach(date => {
+      const rawData = generateDoneDetailData(selectedStock, date);
+      allRawTransactions[date] = rawData; // Keep raw data for totals
+      allTransactions[date] = filterData(rawData); // Filtered data for display
       const rawData = doneDetailData.get(date) || [];
       allTransactions[date] = filterData(rawData);
     });
@@ -601,6 +604,9 @@ export function StockTransactionDoneDetail() {
     });
     // const sortedTimes = Array.from(allTimes).sort((a, b) => a - b);
 
+    // Calculate totals from RAW data (before filtering)
+    const totalTransactions = Object.values(allRawTransactions).flat().length;
+    const totalVolume = Object.values(allRawTransactions).flat().reduce((sum, t) => sum + t.stkVolm, 0);
     // Calculate totals - use allCombinedTransactions for accurate totals
     const totalTransactions = allCombinedTransactions.length;
     const totalVolume = allCombinedTransactions.reduce((sum, t) => sum + t.STK_VOLM, 0);
@@ -817,13 +823,16 @@ export function StockTransactionDoneDetail() {
 
             <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
               {selectedDates.map(date => {
+                const dateRawTransactions = allRawTransactions[date];
+                if (!dateRawTransactions) return null;
+                const dateVolume = dateRawTransactions.reduce((sum, t) => sum + t.stkVolm, 0);
                 const dateTransactions = allTransactions[date] || [];
                 const dateVolume = dateTransactions.reduce((sum, t) => sum + t.STK_VOLM, 0);
                 return (
                   <div key={date} className="p-2 bg-background rounded border">
                     <div className="font-medium text-blue-600">{formatDisplayDate(date)}</div>
                     <div className="text-xs text-muted-foreground">
-                      {dateTransactions.length} transactions, {formatNumber(dateVolume)} volume
+                      {dateRawTransactions.length} transactions, {formatNumber(dateVolume)} volume
                     </div>
                   </div>
                 );
@@ -979,18 +988,19 @@ export function StockTransactionDoneDetail() {
     <div className="min-h-screen space-y-4 sm:space-y-6 p-2 sm:p-4 lg:p-6 overflow-x-hidden">
       {/* Top Controls */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
-            <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
-            Stock Selection & Date Range (Max 7 Days)
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3 sm:space-y-4">
-            {/* Row 1: Stock, Date Range, Clear, Last 3 Days, Layout */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 items-center lg:items-end">
-              <div className="flex-1 min-w-0 w-full">
-                <label className="block text-sm font-medium mb-2">Stock:</label>
+        <CardContent className="pt-6">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            {/* Title */}
+            <div className="flex items-center gap-2 text-sm sm:text-base font-medium">
+              <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
+              Stock Selection & Date Range (Max 7 Days)
+            </div>
+            
+            {/* Menu Controls */}
+            <div className="flex flex-wrap items-center gap-4">
+              {/* Stock Selection */}
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium whitespace-nowrap">Stock:</label>
                 <div className="relative" ref={dropdownRef}>
                   <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                   <input
@@ -1067,9 +1077,10 @@ export function StockTransactionDoneDetail() {
                 </div>
               </div>
 
-              <div className="flex-1 min-w-0 w-full">
-                <label className="block text-sm font-medium mb-2">Date Range:</label>
-                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2 w-full">
+              {/* Date Range */}
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
+                <div className="flex items-center gap-2">
                   <input
                     type="date"
                     value={startDate}
@@ -1090,9 +1101,10 @@ export function StockTransactionDoneDetail() {
                 </div>
               </div>
 
-              <div className="flex-1 min-w-0 w-full">
-                <label className="block text-sm font-medium mb-2">Quick Select:</label>
-                <div className="flex flex-col sm:flex-row gap-2">
+              {/* Quick Select */}
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium whitespace-nowrap">Quick Select:</label>
+                <div className="flex items-center gap-2">
                 <select 
                     className="w-full xl:flex-1 px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
                     value={dateRangeMode}
@@ -1111,33 +1123,9 @@ export function StockTransactionDoneDetail() {
                   )}
               </div>
             </div>
-
-              <div className="flex-1 min-w-0 w-full lg:w-auto lg:flex-none">
-                <label className="block text-sm font-medium mb-2">Layout:</label>
-                <div className="flex sm:inline-flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto w-full sm:w-auto lg:w-auto justify-center sm:justify-start">
-                  <div className="grid grid-cols-2 gap-1 w-full max-w-xs mx-auto sm:flex sm:items-center sm:gap-1 sm:max-w-none sm:mx-0">
-                    <Button
-                      variant={layoutMode === 'horizontal' ? 'default' : 'ghost'}
-                      size="sm"
-                      onClick={() => setLayoutMode('horizontal')}
-                      className="px-3 py-1 h-8 text-xs"
-                    >
-                      Horizontal
-                    </Button>
-                    <Button
-                      variant={layoutMode === 'vertical' ? 'default' : 'ghost'}
-                      size="sm"
-                      onClick={() => setLayoutMode('vertical')}
-                      className="px-3 py-1 h-8 text-xs"
-                    >
-                      Vertical
-                    </Button>
-                  </div>
-                </div>
-              </div>
             </div>
 
-            {/* Row 2: Selected Dates */}
+            {/* Selected Dates */}
             <div>
               <label className="text-sm font-medium">Selected Dates:</label>
               <div className="flex flex-wrap gap-2 mt-2">
@@ -1180,6 +1168,7 @@ export function StockTransactionDoneDetail() {
       )}
 
       {/* Main Data Display */}
+      {renderHorizontalView()}
       {!isLoading && !error && (layoutMode === 'horizontal' ? renderHorizontalView() : renderVerticalView())}
 
       {/* Info Card */}
