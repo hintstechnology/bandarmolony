@@ -22,6 +22,15 @@ interface BrokerSummary {
   SellerAvg: number;
 }
 
+interface TopBrokerData {
+  BrokerCode: string;
+  Emiten: string;
+  TotalVolume: number;
+  AvgPrice: number;
+  TransactionCount: number;
+  TotalValue: number;
+}
+
 
 interface BrokerTransactionData {
   Emiten: string;
@@ -157,19 +166,24 @@ export class BrokerDataCalculator {
       const values = line.split(';');
       if (values.length < header.length) continue;
       
-      const transaction: TransactionData = {
-        STK_CODE: values[stkCodeIndex]?.trim() || '',
-        BRK_COD1: values[brkCod1Index]?.trim() || '',
-        BRK_COD2: values[brkCod2Index]?.trim() || '',
-        STK_VOLM: parseFloat(values[stkVolmIndex]?.trim() || '0') || 0,
-        STK_PRIC: parseFloat(values[stkPricIndex]?.trim() || '0') || 0,
-        TRX_CODE: values[trxCodeIndex]?.trim() || ''
-      };
+      const stockCode = values[stkCodeIndex]?.trim() || '';
       
-      data.push(transaction);
+      // Filter hanya kode emiten 4 huruf - same as original file
+      if (stockCode.length === 4) {
+        const transaction: TransactionData = {
+          STK_CODE: stockCode,
+          BRK_COD1: values[brkCod1Index]?.trim() || '',
+          BRK_COD2: values[brkCod2Index]?.trim() || '',
+          STK_VOLM: parseFloat(values[stkVolmIndex]?.trim() || '0') || 0,
+          STK_PRIC: parseFloat(values[stkPricIndex]?.trim() || '0') || 0,
+          TRX_CODE: values[trxCodeIndex]?.trim() || ''
+        };
+        
+        data.push(transaction);
+      }
     }
     
-    console.log(`📊 Loaded ${data.length} transaction records from Azure`);
+    console.log(`📊 Loaded ${data.length} transaction records from Azure (4-character stocks only)`);
     return data;
   }
 
@@ -387,6 +401,63 @@ export class BrokerDataCalculator {
 
 
   /**
+   * Create top broker analysis: For each broker, show what stocks they bought
+   * Same as original file - only processes buyer brokers (BRK_COD2)
+   */
+  private createTopBroker(data: TransactionData[]): TopBrokerData[] {
+    console.log("\nCreating top broker analysis...");
+    
+    // Group by buyer broker and stock code - same as original file
+    const groups = new Map<string, Map<string, TransactionData[]>>();
+    
+    data.forEach(row => {
+      const broker = row.BRK_COD2; // Only buyer brokers - same as original file
+      const stock = row.STK_CODE;
+      
+      if (!groups.has(broker)) {
+        groups.set(broker, new Map());
+      }
+      
+      const brokerGroups = groups.get(broker)!;
+      if (!brokerGroups.has(stock)) {
+        brokerGroups.set(stock, []);
+      }
+      
+      brokerGroups.get(stock)!.push(row);
+    });
+    
+    const topBroker: TopBrokerData[] = [];
+    
+    groups.forEach((stockGroups, broker) => {
+      stockGroups.forEach((transactions, stock) => {
+        const totalVolume = transactions.reduce((sum, t) => sum + t.STK_VOLM, 0);
+        const totalValue = transactions.reduce((sum, t) => sum + (t.STK_VOLM * t.STK_PRIC), 0);
+        const avgPrice = totalVolume > 0 ? totalValue / totalVolume : 0;
+        
+        topBroker.push({
+          BrokerCode: broker,
+          Emiten: stock,
+          TotalVolume: totalVolume,
+          AvgPrice: avgPrice,
+          TransactionCount: transactions.length,
+          TotalValue: totalValue
+        });
+      });
+    });
+    
+    // Sort by broker and then by total volume descending - same as original file
+    topBroker.sort((a, b) => {
+      if (a.BrokerCode !== b.BrokerCode) {
+        return a.BrokerCode.localeCompare(b.BrokerCode);
+      }
+      return b.TotalVolume - a.TotalVolume;
+    });
+    
+    console.log(`Top broker analysis created with ${topBroker.length} records`);
+    return topBroker;
+  }
+
+  /**
    * Create detailed broker summary with buy/sell analysis
    */
   private createDetailedBrokerSummary(data: TransactionData[]): DetailedBrokerSummary[] {
@@ -586,9 +657,10 @@ export class BrokerDataCalculator {
     
     try {
       // Create all analysis types in parallel for speed
-      const [brokerSummaryFiles, brokerTransactionFiles, detailedSummary, comprehensiveSummary] = await Promise.all([
+      const [brokerSummaryFiles, brokerTransactionFiles, topBroker, detailedSummary, comprehensiveSummary] = await Promise.all([
         this.createBrokerSummaryPerEmiten(data, dateSuffix),
         this.createBrokerTransactionPerBroker(data, dateSuffix),
+        Promise.resolve(this.createTopBroker(data)),
         Promise.resolve(this.createDetailedBrokerSummary(data)),
         Promise.resolve(this.createComprehensiveTopBroker(data))
       ]);
@@ -609,7 +681,8 @@ export class BrokerDataCalculator {
       // Save main summary files in parallel
       await Promise.all([
         this.saveToAzure(`broker_summary/broker_summary_${dateSuffix}.csv`, detailedSummary),
-        this.saveToAzure(`top_broker/top_broker_${dateSuffix}.csv`, comprehensiveSummary)
+        this.saveToAzure(`top_broker/top_broker_${dateSuffix}.csv`, comprehensiveSummary),
+        this.saveToAzure(`top_broker/top_broker_${dateSuffix}/top_broker_by_stock.csv`, topBroker)
       ]);
       
       const allFiles = [
@@ -618,7 +691,8 @@ export class BrokerDataCalculator {
         ...allsumFiles,
         ...topBrokerFiles,
         `broker_summary/broker_summary_${dateSuffix}.csv`,
-        `top_broker/top_broker_${dateSuffix}.csv`
+        `top_broker/top_broker_${dateSuffix}.csv`,
+        `top_broker/top_broker_${dateSuffix}/top_broker_by_stock.csv`
       ];
       
       console.log(`✅ Completed processing ${blobName} - ${allFiles.length} files created`);
@@ -651,8 +725,8 @@ export class BrokerDataCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
-      // Process files in batches for speed (5 files at a time)
-      const BATCH_SIZE = 5;
+      // Process files in batches for speed (2 files at a time to prevent OOM)
+      const BATCH_SIZE = 2;
       const allResults: { success: boolean; dateSuffix: string; files: string[] }[] = [];
       let processed = 0;
       let successful = 0;

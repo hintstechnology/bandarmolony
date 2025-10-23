@@ -111,22 +111,27 @@ export class ForeignFlowCalculator {
       const values = line.split(';');
       if (values.length < header.length) continue;
       
-      const transaction: TransactionData = {
-        STK_CODE: values[stkCodeIndex]?.trim() || '',
-        BRK_COD1: values[brkCod1Index]?.trim() || '',
-        BRK_COD2: values[brkCod2Index]?.trim() || '',
-        STK_VOLM: parseFloat(values[stkVolmIndex]?.trim() || '0') || 0,
-        STK_PRIC: parseFloat(values[stkPricIndex]?.trim() || '0') || 0,
-        TRX_DATE: trxDateIndex !== -1 ? values[trxDateIndex]?.trim() || '' : '',
-        TRX_TIME: trxTimeIndex !== -1 ? values[trxTimeIndex]?.trim() || '' : '',
-        INV_TYP1: invTyp1Index !== -1 ? values[invTyp1Index]?.trim() || '' : '',
-        INV_TYP2: invTyp2Index !== -1 ? values[invTyp2Index]?.trim() || '' : ''
-      };
+      const stockCode = values[stkCodeIndex]?.trim() || '';
       
-      data.push(transaction);
+      // Filter hanya kode emiten 4 huruf - same as original file
+      if (stockCode.length === 4) {
+        const transaction: TransactionData = {
+          STK_CODE: stockCode,
+          BRK_COD1: values[brkCod1Index]?.trim() || '',
+          BRK_COD2: values[brkCod2Index]?.trim() || '',
+          STK_VOLM: parseFloat(values[stkVolmIndex]?.trim() || '0') || 0,
+          STK_PRIC: parseFloat(values[stkPricIndex]?.trim() || '0') || 0,
+          TRX_DATE: trxDateIndex !== -1 ? values[trxDateIndex]?.trim() || '' : '',
+          TRX_TIME: trxTimeIndex !== -1 ? values[trxTimeIndex]?.trim() || '' : '',
+          INV_TYP1: invTyp1Index !== -1 ? values[invTyp1Index]?.trim() || '' : '',
+          INV_TYP2: invTyp2Index !== -1 ? values[invTyp2Index]?.trim() || '' : ''
+        };
+        
+        data.push(transaction);
+      }
     }
     
-    console.log(`📊 Loaded ${data.length} transaction records from Azure`);
+    console.log(`📊 Loaded ${data.length} transaction records from Azure (4-character stocks only)`);
     return data;
   }
 
@@ -377,8 +382,8 @@ export class ForeignFlowCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
-      // Process files in batches for speed (5 files at a time)
-      const BATCH_SIZE = 5;
+      // Process files in batches for speed (2 files at a time to prevent OOM)
+      const BATCH_SIZE = 2;
       const allResults: { success: boolean; dateSuffix: string; files: string[] }[] = [];
       let processed = 0;
       let successful = 0;

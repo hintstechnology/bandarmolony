@@ -4,18 +4,27 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Calendar, Plus, X, RotateCcw, Loader2 } from 'lucide-react';
 import { api } from '../../services/api';
+import { useToast } from '../../contexts/ToastContext';
 
-interface IssuerData {
-  ticker: string;
-  rsVal: number;
-  hitLot: number;
-  rsFreq: number;
-  sAvg: number;
+interface BrokerTransactionData {
+  Emiten: string;
+  BuyerVol: number;
+  BuyerValue: number;
+  SellerVol: number;
+  SellerValue: number;
+  NetBuyVol: number;
+  NetBuyValue: number;
+  BuyerAvg: number;
+  SellerAvg: number;
+  TotalVolume: number;
+  AvgPrice: number;
+  TransactionCount: number;
+  TotalValue: number;
 }
 
 
 // Fetch broker transaction data from API
-const fetchBrokerTransactionData = async (brokerCode: string, date: string): Promise<IssuerData[]> => {
+const fetchBrokerTransactionData = async (brokerCode: string, date: string): Promise<BrokerTransactionData[]> => {
   try {
     const response = await api.getBrokerTransactionData(brokerCode, date);
     if (response.success && response.data?.transactionData) {
@@ -78,6 +87,7 @@ const getLastThreeDays = (): string[] => {
 };
 
 export function BrokerTransaction() {
+  const { showToast } = useToast();
   const [selectedDates, setSelectedDates] = useState<string[]>(getLastThreeDays());
   const [startDate, setStartDate] = useState(() => {
     const threeDays = getLastThreeDays();
@@ -103,7 +113,7 @@ export function BrokerTransaction() {
   const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
   
   // API data states
-  const [transactionData, setTransactionData] = useState<Map<string, IssuerData[]>>(new Map());
+  const [transactionData, setTransactionData] = useState<Map<string, BrokerTransactionData[]>>(new Map());
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -116,7 +126,7 @@ export function BrokerTransaction() {
       setError(null);
       
       try {
-        const newTransactionData = new Map<string, IssuerData[]>();
+        const newTransactionData = new Map<string, BrokerTransactionData[]>();
         
         // Load data for each selected date
         for (const date of selectedDates) {
@@ -128,6 +138,11 @@ export function BrokerTransaction() {
       } catch (err) {
         setError('Failed to load transaction data');
         console.error('Error loading transaction data:', err);
+        showToast({
+          type: 'error',
+          title: 'Error Memuat Data',
+          message: 'Gagal memuat data transaksi broker.'
+        });
       } finally {
         setIsLoading(false);
       }
@@ -262,10 +277,10 @@ export function BrokerTransaction() {
                       <th className="text-left py-1 px-2 font-medium bg-accent sticky left-0 z-20"></th>
                       {selectedDates.map((date) => (
                         <React.Fragment key={date}>
-                          <th className="text-right py-1 px-1 font-medium text-[10px]">RSVal</th>
-                          <th className="text-right py-1 px-1 font-medium text-[10px]">HitLot</th>
-                          <th className="text-right py-1 px-1 font-medium text-[10px]">RSFreq</th>
-                          <th className="text-right py-1 px-1 font-medium text-[10px] border-r-2 border-border">SAvg</th>
+                          <th className="text-right py-1 px-1 font-medium text-[10px]">BuyVol</th>
+                          <th className="text-right py-1 px-1 font-medium text-[10px]">BuyVal</th>
+                          <th className="text-right py-1 px-1 font-medium text-[10px]">SellVol</th>
+                          <th className="text-right py-1 px-1 font-medium text-[10px] border-r-2 border-border">SellVal</th>
                         </React.Fragment>
                       ))}
                     </tr>
@@ -273,15 +288,15 @@ export function BrokerTransaction() {
                   <tbody>
                     {buyData.map((row, idx) => (
                       <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                        <td className="py-1.5 px-2 font-medium bg-background sticky left-0 z-20 border-r border-border">{row.ticker}</td>
+                        <td className="py-1.5 px-2 font-medium bg-background sticky left-0 z-20 border-r border-border">{row.Emiten}</td>
                         {selectedDates.map((date) => {
-                          const dayData = (transactionData.get(date) || []).find(d => d.ticker === row.ticker) || row;
+                          const dayData = (transactionData.get(date) || []).find(d => d.Emiten === row.Emiten) || row;
                           return (
                             <React.Fragment key={date}>
-                              <td className="text-right py-1.5 px-1 text-green-600">{formatValue(dayData.rsVal)}</td>
-                              <td className="text-right py-1.5 px-1">{formatValue(dayData.hitLot)}</td>
-                              <td className="text-right py-1.5 px-1">{formatValue(dayData.rsFreq)}</td>
-                              <td className="text-right py-1.5 px-1 border-r-2 border-border">{formatValue(dayData.sAvg)}</td>
+                              <td className="text-right py-1.5 px-1 text-green-600">{formatValue(dayData.BuyerVol)}</td>
+                              <td className="text-right py-1.5 px-1 text-green-600">{formatValue(dayData.BuyerValue)}</td>
+                              <td className="text-right py-1.5 px-1 text-red-600">{formatValue(dayData.SellerVol)}</td>
+                              <td className="text-right py-1.5 px-1 text-red-600 border-r-2 border-border">{formatValue(dayData.SellerValue)}</td>
                             </React.Fragment>
                           );
                         })}
@@ -316,10 +331,10 @@ export function BrokerTransaction() {
                       <th className="text-left py-1 px-2 font-medium bg-accent sticky left-0 z-20"></th>
                       {selectedDates.map((date) => (
                         <React.Fragment key={date}>
-                          <th className="text-right py-1 px-1 font-medium text-[10px]">RSVal</th>
-                          <th className="text-right py-1 px-1 font-medium text-[10px]">HitLot</th>
-                          <th className="text-right py-1 px-1 font-medium text-[10px]">RSFreq</th>
-                          <th className="text-right py-1 px-1 font-medium text-[10px] border-r-2 border-border">SAvg</th>
+                          <th className="text-right py-1 px-1 font-medium text-[10px]">NetBuyVol</th>
+                          <th className="text-right py-1 px-1 font-medium text-[10px]">NetBuyVal</th>
+                          <th className="text-right py-1 px-1 font-medium text-[10px]">TotalVol</th>
+                          <th className="text-right py-1 px-1 font-medium text-[10px] border-r-2 border-border">TotalVal</th>
                         </React.Fragment>
                       ))}
                     </tr>
@@ -327,15 +342,15 @@ export function BrokerTransaction() {
                   <tbody>
                     {sellData.map((row, idx) => (
                       <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                        <td className="py-1.5 px-2 font-medium bg-background sticky left-0 z-20 border-r border-border">{row.ticker}</td>
+                        <td className="py-1.5 px-2 font-medium bg-background sticky left-0 z-20 border-r border-border">{row.Emiten}</td>
                         {selectedDates.map((date) => {
-                          const dayData = (transactionData.get(date) || []).find(d => d.ticker === row.ticker) || row;
+                          const dayData = (transactionData.get(date) || []).find(d => d.Emiten === row.Emiten) || row;
                           return (
                             <React.Fragment key={date}>
-                              <td className="text-right py-1.5 px-1 text-red-600">{formatValue(dayData.rsVal)}</td>
-                              <td className="text-right py-1.5 px-1 text-red-600">{formatValue(dayData.hitLot)}</td>
-                              <td className="text-right py-1.5 px-1 text-red-600">{formatValue(dayData.rsFreq)}</td>
-                              <td className="text-right py-1.5 px-1 border-r-2 border-border">{formatValue(dayData.sAvg)}</td>
+                              <td className="text-right py-1.5 px-1 text-blue-600">{formatValue(dayData.NetBuyVol)}</td>
+                              <td className="text-right py-1.5 px-1 text-blue-600">{formatValue(dayData.NetBuyValue)}</td>
+                              <td className="text-right py-1.5 px-1">{formatValue(dayData.TotalVolume)}</td>
+                              <td className="text-right py-1.5 px-1 border-r-2 border-border">{formatValue(dayData.TotalValue)}</td>
                             </React.Fragment>
                           );
                         })}
@@ -380,20 +395,20 @@ export function BrokerTransaction() {
                         <thead className="bg-background">
                           <tr className="border-b border-border bg-accent/30">
                             <th className="text-left py-2 px-3 font-medium">Ticker</th>
-                            <th className="text-right py-2 px-3 font-medium">RSVal</th>
-                            <th className="text-right py-2 px-3 font-medium">HitLot</th>
-                            <th className="text-right py-2 px-3 font-medium">RSFreq</th>
-                            <th className="text-right py-2 px-3 font-medium">SAvg</th>
+                            <th className="text-right py-2 px-3 font-medium">BuyVol</th>
+                            <th className="text-right py-2 px-3 font-medium">BuyVal</th>
+                            <th className="text-right py-2 px-3 font-medium">SellVol</th>
+                            <th className="text-right py-2 px-3 font-medium">SellVal</th>
                           </tr>
                         </thead>
                         <tbody>
                           {buyData.map((row, idx) => (
                             <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                              <td className="py-2 px-3 font-medium">{row.ticker}</td>
-                              <td className="text-right py-2 px-3 text-green-600">{formatValue(row.rsVal)}</td>
-                              <td className="text-right py-2 px-3">{formatValue(row.hitLot)}</td>
-                              <td className="text-right py-2 px-3">{formatValue(row.rsFreq)}</td>
-                              <td className="text-right py-2 px-3">{formatValue(row.sAvg)}</td>
+                              <td className="py-2 px-3 font-medium">{row.Emiten}</td>
+                              <td className="text-right py-2 px-3 text-green-600">{formatValue(row.BuyerVol)}</td>
+                              <td className="text-right py-2 px-3 text-green-600">{formatValue(row.BuyerValue)}</td>
+                              <td className="text-right py-2 px-3 text-red-600">{formatValue(row.SellerVol)}</td>
+                              <td className="text-right py-2 px-3 text-red-600">{formatValue(row.SellerValue)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -413,20 +428,20 @@ export function BrokerTransaction() {
                         <thead className="bg-background">
                           <tr className="border-b border-border bg-accent/30">
                             <th className="text-left py-2 px-3 font-medium">Ticker</th>
-                            <th className="text-right py-2 px-3 font-medium">RSVal</th>
-                            <th className="text-right py-2 px-3 font-medium">HitLot</th>
-                            <th className="text-right py-2 px-3 font-medium">RSFreq</th>
-                            <th className="text-right py-2 px-3 font-medium">SAvg</th>
+                            <th className="text-right py-2 px-3 font-medium">NetBuyVol</th>
+                            <th className="text-right py-2 px-3 font-medium">NetBuyVal</th>
+                            <th className="text-right py-2 px-3 font-medium">TotalVol</th>
+                            <th className="text-right py-2 px-3 font-medium">TotalVal</th>
                           </tr>
                         </thead>
                         <tbody>
                           {sellData.map((row, idx) => (
                             <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                              <td className="py-2 px-3 font-medium">{row.ticker}</td>
-                              <td className="text-right py-2 px-3 text-red-600">{formatValue(row.rsVal)}</td>
-                              <td className="text-right py-2 px-3 text-red-600">{formatValue(row.hitLot)}</td>
-                              <td className="text-right py-2 px-3 text-red-600">{formatValue(row.rsFreq)}</td>
-                              <td className="text-right py-2 px-3">{formatValue(row.sAvg)}</td>
+                              <td className="py-2 px-3 font-medium">{row.Emiten}</td>
+                              <td className="text-right py-2 px-3 text-blue-600">{formatValue(row.NetBuyVol)}</td>
+                              <td className="text-right py-2 px-3 text-blue-600">{formatValue(row.NetBuyValue)}</td>
+                              <td className="text-right py-2 px-3">{formatValue(row.TotalVolume)}</td>
+                              <td className="text-right py-2 px-3">{formatValue(row.TotalValue)}</td>
                             </tr>
                           ))}
                         </tbody>

@@ -8,13 +8,14 @@ export class AccumulationDataScheduler {
   }
 
   /**
-   * Generate accumulation distribution data
+   * Generate accumulation distribution data for specific date or all dates
    */
   async generateAccumulationData(dateSuffix?: string): Promise<{ success: boolean; message: string; data?: any }> {
     try {
-      const targetDate = dateSuffix || this.getCurrentDateSuffix();
-      console.log(`🔄 Starting Accumulation Distribution calculation for date: ${targetDate}`);
+      const targetDate = dateSuffix || 'all';
+      console.log(`🔄 Starting Accumulation Distribution calculation for: ${targetDate}`);
       
+      // Accumulation distribution calculator processes specific date or all dates
       const result = await this.calculator.generateAccumulationDistributionData(targetDate);
       
       if (result.success) {
@@ -33,13 +34,6 @@ export class AccumulationDataScheduler {
     }
   }
 
-  /**
-   * Get current date suffix in YYMMDD format
-   */
-  private getCurrentDateSuffix(): string {
-    const today = new Date();
-    return today.toISOString().slice(2, 10).replace(/-/g, '');
-  }
 
   /**
    * Get generation status

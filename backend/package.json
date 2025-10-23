@@ -4,12 +4,12 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "dev": "nodemon --env-file=.env",
+    "dev": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' nodemon --env-file=.env",
     "build": "tsc",
-    "start": "node --env-file=.env dist/index.js",
+    "start": "NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' node --env-file=.env dist/index.js",
     "typecheck": "tsc --noEmit",
     "build:prod": "NODE_ENV=production tsc",
-    "start:prod": "NODE_ENV=production node --env-file=.env dist/index.js",
+    "start:prod": "NODE_ENV=production NODE_OPTIONS='--max-old-space-size=8192 --expose-gc' node --env-file=.env dist/index.js",
     "lint": "eslint . --ext ts --report-unused-disable-directives --max-warnings 0"
   },
   "engines": {
