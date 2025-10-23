@@ -412,7 +412,7 @@ export function StockTransactionDoneSummary() {
     if (startDate && endDate) {
       const start = new Date(startDate);
       const end = new Date(endDate);
-
+      
       // Check if range is valid
       if (start > end) {
         showToast({
@@ -422,11 +422,11 @@ export function StockTransactionDoneSummary() {
         });
         return;
       }
-
+      
       // Check if range is within 7 days
       const diffTime = Math.abs(end.getTime() - start.getTime());
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
+      
       if (diffDays > 7) {
         showToast({
           type: 'warning',
@@ -435,19 +435,19 @@ export function StockTransactionDoneSummary() {
         });
         return;
       }
-
+      
       // Generate date array
       const dateArray: string[] = [];
       const currentDate = new Date(start);
-
+      
       while (currentDate <= end) {
         const dateString = currentDate.toISOString().split('T')[0];
         if (dateString) {
-          dateArray.push(dateString);
+        dateArray.push(dateString);
         }
         currentDate.setDate(currentDate.getDate() + 1);
       }
-
+      
       // Remove duplicates, sort by date (newest first), and set
       const uniqueDates = Array.from(new Set([...selectedDates, ...dateArray]));
       const sortedDates = uniqueDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
@@ -476,11 +476,11 @@ export function StockTransactionDoneSummary() {
 
   const handleDateRangeModeChange = (mode: '1day' | '3days' | '1week' | 'custom') => {
     setDateRangeMode(mode);
-
+    
     if (mode === 'custom') {
       return;
     }
-
+    
     // Apply preset dates based on mode
     let newDates: string[] = [];
     switch (mode) {
@@ -494,9 +494,9 @@ export function StockTransactionDoneSummary() {
         newDates = getTradingDays(5);
         break;
     }
-
+    
     setSelectedDates(newDates);
-
+    
     // Set date range to show the selected dates
     if (newDates.length > 0) {
       const sortedDates = [...newDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
@@ -885,7 +885,7 @@ export function StockTransactionDoneSummary() {
                           </td>
                             <td className={`text-right py-1.5 px-1 ${data && data.bFreq === maxValues.maxBFreq && data.bFreq > 0 ? 'font-bold text-blue-600' : 'text-blue-600'}`}>
                               {data ? formatNumber(data.bFreq) : '-'}
-                            </td>
+                          </td>
                           <td className={`text-right py-1.5 px-1 ${data && data.sLot === maxValues.maxSLot && data.sLot > 0 ? 'font-bold text-red-600' : 'text-red-600'}`}>
                             {data ? formatNumber(data.sLot) : '-'}
                           </td>
@@ -1008,13 +1008,13 @@ export function StockTransactionDoneSummary() {
           <div className="flex flex-wrap items-center justify-between gap-4">
             {/* Title */}
             <div className="flex items-center gap-2 text-sm sm:text-base font-medium">
-              <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
-              Stock Selection & Date Range (Max 7 Days)
+            <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
+            Stock Selection & Date Range (Max 7 Days)
             </div>
             
             {/* Menu Controls */}
             <div className="flex flex-wrap items-center gap-4">
-              {/* Stock Selection */}
+            {/* Stock Selection */}
               <div className="flex items-center gap-2">
                 <label className="text-sm font-medium whitespace-nowrap">Stock:</label>
                 <div className="relative stock-dropdown-container">
@@ -1051,24 +1051,24 @@ export function StockTransactionDoneSummary() {
                     aria-autocomplete="list"
                   />
                   {showStockSuggestions && (
-                    <div id="stock-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
-                      {stockInput === '' && (
-                        <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">All Stocks</div>
-                      )}
+                        <div id="stock-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                          {stockInput === '' && (
+                            <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">All Stocks</div>
+                          )}
                       {(stockInput === '' ? availableStocks : filteredStocks).slice(0, 10).map((stock, idx) => (
-                        <div
-                          key={stock}
-                          role="option"
-                          aria-selected={idx === highlightedStockIndex}
-                          onMouseEnter={() => setHighlightedStockIndex(idx)}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => handleStockSelect(stock)}
-                          className={`px-3 py-2 cursor-pointer text-sm ${idx === highlightedStockIndex ? 'bg-accent' : 'hover:bg-muted'}`}
-                        >
-                          {stock}
+                            <div
+                              key={stock}
+                              role="option"
+                              aria-selected={idx === highlightedStockIndex}
+                              onMouseEnter={() => setHighlightedStockIndex(idx)}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => handleStockSelect(stock)}
+                              className={`px-3 py-2 cursor-pointer text-sm ${idx === highlightedStockIndex ? 'bg-accent' : 'hover:bg-muted'}`}
+                            >
+                              {stock}
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
                   )}
                 </div>
               </div>
@@ -1101,7 +1101,7 @@ export function StockTransactionDoneSummary() {
               <div className="flex items-center gap-2">
                 <label className="text-sm font-medium whitespace-nowrap">Quick Select:</label>
                 <div className="flex items-center gap-2">
-                  <select 
+                <select 
                     className="w-24 px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
                     value={dateRangeMode}
                     onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
@@ -1110,7 +1110,7 @@ export function StockTransactionDoneSummary() {
                     <option value="3days">3 Days</option>
                     <option value="1week">1 Week</option>
                     <option value="custom">Custom</option>
-                  </select>
+                </select>
                   {dateRangeMode === 'custom' && (
                     <Button onClick={clearAllDates} variant="outline" size="sm" className="w-auto">
                       <RotateCcw className="w-4 h-4 mr-1" />
@@ -1119,51 +1119,51 @@ export function StockTransactionDoneSummary() {
                   )}
                 </div>
               </div>
-              
+
               {/* View Mode Toggle */}
               <div className="flex items-center gap-2">
                 <label className="text-sm font-medium whitespace-nowrap">View:</label>
                 <div className="flex items-center gap-1 border border-border rounded-lg p-1">
-                  <Button
-                    variant={viewMode === 'summary' ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => setViewMode('summary')}
-                    className="px-3 py-1 h-8 text-xs"
-                  >
-                    Summary
-                  </Button>
-                  <Button
-                    variant={viewMode === 'broker' ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => setViewMode('broker')}
-                    className="px-3 py-1 h-8 text-xs"
-                  >
-                    Broker Breakdown
-                  </Button>
+                    <Button
+                      variant={viewMode === 'summary' ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => setViewMode('summary')}
+                      className="px-3 py-1 h-8 text-xs"
+                    >
+                      Summary
+                    </Button>
+                    <Button
+                      variant={viewMode === 'broker' ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => setViewMode('broker')}
+                      className="px-3 py-1 h-8 text-xs"
+                    >
+                      Broker Breakdown
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
           {/* Selected Dates */}
           <div className="mt-4">
-            <label className="text-sm font-medium">Selected Dates:</label>
-            <div className="flex flex-wrap gap-2 mt-2">
-              {selectedDates.map((date) => (
-                <Badge key={date} variant="secondary" className="px-3 py-1">
-                  {formatDisplayDate(date)}
-                  {selectedDates.length > 1 && (
-                    <button
-                      onClick={() => removeDate(date)}
-                      className="ml-2 hover:text-destructive"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  )}
-                </Badge>
-              ))}
+              <label className="text-sm font-medium">Selected Dates:</label>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {selectedDates.map((date) => (
+                  <Badge key={date} variant="secondary" className="px-3 py-1">
+                    {formatDisplayDate(date)}
+                    {selectedDates.length > 1 && (
+                      <button
+                        onClick={() => removeDate(date)}
+                        className="ml-2 hover:text-destructive"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                  </Badge>
+                ))}
+              </div>
             </div>
-          </div>
         </CardContent>
       </Card>
 
@@ -1174,9 +1174,9 @@ export function StockTransactionDoneSummary() {
             <div className="text-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
               <p className="text-muted-foreground">Loading bid/ask data...</p>
-            </div>
-          </CardContent>
-        </Card>
+          </div>
+        </CardContent>
+      </Card>
       )}
 
       {/* Error State */}
