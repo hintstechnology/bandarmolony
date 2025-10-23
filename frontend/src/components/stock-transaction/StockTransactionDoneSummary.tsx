@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { ChevronDown, TrendingUp } from 'lucide-react';
+import { Button } from '../ui/button';
+import { Badge } from '../ui/badge';
+import { ChevronDown, TrendingUp, Calendar, Plus, X, Search, RotateCcw } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 import { api } from '../../services/api';
 
@@ -351,17 +353,167 @@ const getLastThreeDays = (): string[] => {
 
 export function StockTransactionDoneSummary() {
   const { showToast } = useToast();
-  const [selectedDates] = useState<string[]>(getLastThreeDays());
-  const [selectedStock] = useState('BBRI');
-  const [viewMode] = useState<'summary' | 'broker'>('summary');
+  const [selectedDates, setSelectedDates] = useState<string[]>(getLastThreeDays());
+  const [selectedStock, setSelectedStock] = useState('BBRI');
+  const [viewMode, setViewMode] = useState<'summary' | 'broker'>('summary');
   
   // Real data states
   const [priceDataByDate, setPriceDataByDate] = useState<{ [date: string]: PriceData[] }>({});
   const [_brokerDataByDate, setBrokerDataByDate] = useState<{ [date: string]: BrokerBreakdownData[] }>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [_availableStocks] = useState<string[]>([]);
+  const [availableStocks] = useState<string[]>([]);
   const [_availableDates] = useState<string[]>([]);
+  
+  // UI states
+  const [stockInput, setStockInput] = useState('BBRI');
+  const [showStockSuggestions, setShowStockSuggestions] = useState(false);
+  const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
+  const [startDate, setStartDate] = useState(() => {
+    const threeDays = getLastThreeDays();
+    if (threeDays.length > 0) {
+      const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+      return sortedDates[0];
+    }
+    return '';
+  });
+  const [endDate, setEndDate] = useState(() => {
+    const threeDays = getLastThreeDays();
+    if (threeDays.length > 0) {
+      const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+      return sortedDates[sortedDates.length - 1];
+    }
+    return '';
+  });
+  const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
+
+  // Helper functions
+  const handleStockSelect = (stock: string) => {
+    setSelectedStock(stock);
+    setStockInput(stock);
+    setShowStockSuggestions(false);
+  };
+
+  const handleStockInputChange = (value: string) => {
+    setStockInput(value);
+    setShowStockSuggestions(true);
+    
+    // If exact match, select it
+    if (availableStocks.includes(value.toUpperCase())) {
+      setSelectedStock(value.toUpperCase());
+    }
+  };
+
+  const filteredStocks = availableStocks.filter(stock =>
+    stock.toLowerCase().includes(stockInput.toLowerCase())
+  );
+
+  const addDateRange = () => {
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+
+      // Check if range is valid
+      if (start > end) {
+        showToast({
+          type: 'warning',
+          title: 'Tanggal Tidak Valid',
+          message: 'Tanggal mulai harus sebelum tanggal akhir',
+        });
+        return;
+      }
+
+      // Check if range is within 7 days
+      const diffTime = Math.abs(end.getTime() - start.getTime());
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      if (diffDays > 7) {
+        showToast({
+          type: 'warning',
+          title: 'Rentang Tanggal Terlalu Panjang',
+          message: 'Maksimal rentang tanggal adalah 7 hari',
+        });
+        return;
+      }
+
+      // Generate date array
+      const dateArray: string[] = [];
+      const currentDate = new Date(start);
+
+      while (currentDate <= end) {
+        const dateString = currentDate.toISOString().split('T')[0];
+        if (dateString) {
+          dateArray.push(dateString);
+        }
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+
+      // Remove duplicates, sort by date (newest first), and set
+      const uniqueDates = Array.from(new Set([...selectedDates, ...dateArray]));
+      const sortedDates = uniqueDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+
+      // Check if total dates would exceed 7
+      if (sortedDates.length > 7) {
+        showToast({
+          type: 'warning',
+          title: 'Terlalu Banyak Tanggal',
+          message: 'Maksimal 7 tanggal yang bisa dipilih',
+        });
+        return;
+      }
+
+      setSelectedDates(sortedDates);
+      setDateRangeMode('custom');
+    }
+  };
+
+  const removeDate = (dateToRemove: string) => {
+    if (selectedDates.length > 1) {
+      setSelectedDates(selectedDates.filter(date => date !== dateToRemove));
+      setDateRangeMode('custom');
+    }
+  };
+
+  const handleDateRangeModeChange = (mode: '1day' | '3days' | '1week' | 'custom') => {
+    setDateRangeMode(mode);
+
+    if (mode === 'custom') {
+      return;
+    }
+
+    // Apply preset dates based on mode
+    let newDates: string[] = [];
+    switch (mode) {
+      case '1day':
+        newDates = getTradingDays(1);
+        break;
+      case '3days':
+        newDates = getTradingDays(3);
+        break;
+      case '1week':
+        newDates = getTradingDays(5);
+        break;
+    }
+
+    setSelectedDates(newDates);
+
+    // Set date range to show the selected dates
+    if (newDates.length > 0) {
+      const sortedDates = [...newDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+      setStartDate(sortedDates[0]);
+      setEndDate(sortedDates[sortedDates.length - 1]);
+    }
+  };
+
+  const clearAllDates = () => {
+    setSelectedDates(getTradingDays(1));
+    setDateRangeMode('1day');
+    const oneDay = getTradingDays(1);
+    if (oneDay.length > 0) {
+      setStartDate(oneDay[0]);
+      setEndDate(oneDay[0]);
+    }
+  };
 
   // Convert backend bid/ask data to frontend format
   const convertBackendToFrontend = (backendData: BackendBidAskData[]): PriceData[] => {
@@ -586,49 +738,49 @@ export function StockTransactionDoneSummary() {
                       const totals = calculateTotals(dateData);
                       return sum + totals.bLot;
                     }, 0))}
-                  </td>
+                          </td>
                   <td className="text-right py-3 px-1 font-bold text-blue-600 bg-accent/50">
                     {formatNumber(selectedDates.reduce((sum, date) => {
                       const dateData = priceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return sum + totals.bFreq;
                     }, 0))}
-                  </td>
+                          </td>
                   <td className="text-right py-3 px-1 font-bold text-red-600 bg-accent/50">
                     {formatNumber(selectedDates.reduce((sum, date) => {
                       const dateData = priceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return sum + totals.sLot;
                     }, 0))}
-                  </td>
+                          </td>
                   <td className="text-right py-3 px-1 font-bold text-orange-600 bg-accent/50">
                     {formatNumber(selectedDates.reduce((sum, date) => {
                       const dateData = priceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return sum + totals.sFreq;
                     }, 0))}
-                  </td>
+                          </td>
                   <td className="text-right py-3 px-1 font-bold text-purple-600 bg-accent/50">
                     {formatNumber(selectedDates.reduce((sum, date) => {
                       const dateData = priceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return sum + totals.tFreq;
                     }, 0))}
-                  </td>
+                          </td>
                   <td className="text-right py-3 px-1 font-bold text-indigo-600 bg-accent/50 border-r-2 border-border">
                     {formatNumber(selectedDates.reduce((sum, date) => {
                       const dateData = priceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return sum + totals.tLot;
                     }, 0))}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+                </div>
+              </CardContent>
+            </Card>
     );
   };
 
@@ -717,38 +869,38 @@ export function StockTransactionDoneSummary() {
                   }, 0);
                   
                   return (
-                    <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                      <td className="py-1.5 px-3 font-medium bg-background sticky left-0 z-30 border-r-2 border-border text-foreground min-w-[80px]">
-                        {formatNumber(combination.price)}
-                      </td>
-                      <td className="py-1.5 px-3 font-medium bg-background sticky left-[80px] z-30 border-r-2 border-border text-foreground min-w-[80px]">
-                        {combination.broker}
-                      </td>
-                      {selectedDates.map((date) => {
-                        const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
-                        return (
-                          <React.Fragment key={date}>
-                            <td className={`text-right py-1.5 px-1 ${data && data.bLot === maxValues.maxBLot && data.bLot > 0 ? 'font-bold text-green-600' : 'text-green-600'}`}>
-                              {data ? formatNumber(data.bLot) : '-'}
-                            </td>
+                  <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
+                    <td className="py-1.5 px-3 font-medium bg-background sticky left-0 z-30 border-r-2 border-border text-foreground min-w-[80px]">
+                      {formatNumber(combination.price)}
+                    </td>
+                    <td className="py-1.5 px-3 font-medium bg-background sticky left-[80px] z-30 border-r-2 border-border text-foreground min-w-[80px]">
+                      {combination.broker}
+                    </td>
+                    {selectedDates.map((date) => {
+                      const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
+                      return (
+                        <React.Fragment key={date}>
+                          <td className={`text-right py-1.5 px-1 ${data && data.bLot === maxValues.maxBLot && data.bLot > 0 ? 'font-bold text-green-600' : 'text-green-600'}`}>
+                            {data ? formatNumber(data.bLot) : '-'}
+                          </td>
                             <td className={`text-right py-1.5 px-1 ${data && data.bFreq === maxValues.maxBFreq && data.bFreq > 0 ? 'font-bold text-blue-600' : 'text-blue-600'}`}>
                               {data ? formatNumber(data.bFreq) : '-'}
                             </td>
-                            <td className={`text-right py-1.5 px-1 ${data && data.sLot === maxValues.maxSLot && data.sLot > 0 ? 'font-bold text-red-600' : 'text-red-600'}`}>
-                              {data ? formatNumber(data.sLot) : '-'}
-                            </td>
-                            <td className={`text-right py-1.5 px-1 ${data && data.sFreq === maxValues.maxSFreq && data.sFreq > 0 ? 'font-bold text-orange-600' : 'text-orange-600'}`}>
-                              {data ? formatNumber(data.sFreq) : '-'}
-                            </td>
-                            <td className={`text-right py-1.5 px-1 ${data && data.tFreq === maxValues.maxTFreq && data.tFreq > 0 ? 'font-bold text-purple-600' : 'text-purple-600'}`}>
-                              {data ? formatNumber(data.tFreq) : '-'}
-                            </td>
-                            <td className={`text-right py-1.5 px-1 border-r-2 border-border ${data && data.tLot === maxValues.maxTLot && data.tLot > 0 ? 'font-bold text-indigo-600' : 'text-indigo-600'}`}>
-                              {data ? formatNumber(data.tLot) : '-'}
-                            </td>
-                          </React.Fragment>
-                        );
-                      })}
+                          <td className={`text-right py-1.5 px-1 ${data && data.sLot === maxValues.maxSLot && data.sLot > 0 ? 'font-bold text-red-600' : 'text-red-600'}`}>
+                            {data ? formatNumber(data.sLot) : '-'}
+                          </td>
+                          <td className={`text-right py-1.5 px-1 ${data && data.sFreq === maxValues.maxSFreq && data.sFreq > 0 ? 'font-bold text-orange-600' : 'text-orange-600'}`}>
+                            {data ? formatNumber(data.sFreq) : '-'}
+                          </td>
+                          <td className={`text-right py-1.5 px-1 ${data && data.tFreq === maxValues.maxTFreq && data.tFreq > 0 ? 'font-bold text-purple-600' : 'text-purple-600'}`}>
+                            {data ? formatNumber(data.tFreq) : '-'}
+                          </td>
+                          <td className={`text-right py-1.5 px-1 border-r-2 border-border ${data && data.tLot === maxValues.maxTLot && data.tLot > 0 ? 'font-bold text-indigo-600' : 'text-indigo-600'}`}>
+                            {data ? formatNumber(data.tLot) : '-'}
+                          </td>
+                        </React.Fragment>
+                      );
+                    })}
                       {/* Total Column */}
                       <td className="text-right py-1.5 px-1 font-bold text-green-600 bg-accent/30">
                         {formatNumber(totalBLot)}
@@ -768,7 +920,7 @@ export function StockTransactionDoneSummary() {
                       <td className="text-right py-1.5 px-1 font-bold text-indigo-600 bg-accent/30 border-r-2 border-border">
                         {formatNumber(totalTLot)}
                       </td>
-                    </tr>
+                  </tr>
                   );
                 })}
                 {/* Total Row */}
@@ -803,47 +955,47 @@ export function StockTransactionDoneSummary() {
                   {/* Grand Total Column */}
                   <td className="text-right py-3 px-1 font-bold text-green-600 bg-accent/50">
                     {formatNumber(selectedDates.reduce((sum, date) => {
-                      const totals = calculateBrokerBreakdownTotals(selectedStock, date);
+          const totals = calculateBrokerBreakdownTotals(selectedStock, date);
                       return sum + totals.bLot;
                     }, 0))}
-                  </td>
+                          </td>
                   <td className="text-right py-3 px-1 font-bold text-blue-600 bg-accent/50">
                     {formatNumber(selectedDates.reduce((sum, date) => {
                       const totals = calculateBrokerBreakdownTotals(selectedStock, date);
                       return sum + totals.bFreq;
                     }, 0))}
-                  </td>
+                          </td>
                   <td className="text-right py-3 px-1 font-bold text-red-600 bg-accent/50">
                     {formatNumber(selectedDates.reduce((sum, date) => {
                       const totals = calculateBrokerBreakdownTotals(selectedStock, date);
                       return sum + totals.sLot;
                     }, 0))}
-                  </td>
+                          </td>
                   <td className="text-right py-3 px-1 font-bold text-orange-600 bg-accent/50">
                     {formatNumber(selectedDates.reduce((sum, date) => {
                       const totals = calculateBrokerBreakdownTotals(selectedStock, date);
                       return sum + totals.sFreq;
                     }, 0))}
-                  </td>
+                          </td>
                   <td className="text-right py-3 px-1 font-bold text-purple-600 bg-accent/50">
                     {formatNumber(selectedDates.reduce((sum, date) => {
                       const totals = calculateBrokerBreakdownTotals(selectedStock, date);
                       return sum + totals.tFreq;
                     }, 0))}
-                  </td>
+                          </td>
                   <td className="text-right py-3 px-1 font-bold text-indigo-600 bg-accent/50 border-r-2 border-border">
                     {formatNumber(selectedDates.reduce((sum, date) => {
                       const totals = calculateBrokerBreakdownTotals(selectedStock, date);
                       return sum + totals.tLot;
                     }, 0))}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+                </div>
+              </CardContent>
+            </Card>
     );
   };
 
@@ -864,8 +1016,8 @@ export function StockTransactionDoneSummary() {
             <div className="flex flex-wrap items-center gap-4">
               {/* Stock Selection */}
               <div className="flex items-center gap-2">
-              <label className="text-sm font-medium whitespace-nowrap">Stock:</label>
-              <div className="relative stock-dropdown-container">
+                <label className="text-sm font-medium whitespace-nowrap">Stock:</label>
+                <div className="relative stock-dropdown-container">
                   <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                   <input
                     type="text"
@@ -873,7 +1025,7 @@ export function StockTransactionDoneSummary() {
                     onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
                     onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
                     onKeyDown={(e) => {
-                      const suggestions = (stockInput === '' ? AVAILABLE_STOCKS : filteredStocks).slice(0, 10);
+                      const suggestions = (stockInput === '' ? availableStocks : filteredStocks).slice(0, 10);
                       if (!suggestions.length) return;
                       if (e.key === 'ArrowDown') {
                         e.preventDefault();
@@ -899,32 +1051,24 @@ export function StockTransactionDoneSummary() {
                     aria-autocomplete="list"
                   />
                   {showStockSuggestions && (
-                    (() => {
-                      const suggestions = (stockInput === '' ? AVAILABLE_STOCKS : filteredStocks).slice(0, 10);
-                      return (
-                        <div id="stock-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
-                          {stockInput === '' && (
-                            <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">All Stocks</div>
-                          )}
-                          {suggestions.map((stock, idx) => (
-                            <div
-                              key={stock}
-                              role="option"
-                              aria-selected={idx === highlightedStockIndex}
-                              onMouseEnter={() => setHighlightedStockIndex(idx)}
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => handleStockSelect(stock)}
-                              className={`px-3 py-2 cursor-pointer text-sm ${idx === highlightedStockIndex ? 'bg-accent' : 'hover:bg-muted'}`}
-                            >
-                              {stock}
-                            </div>
-                          ))}
-                          {suggestions.length === 0 && (
-                            <div className="px-3 py-2 text-sm text-muted-foreground">No stocks found</div>
-                          )}
+                    <div id="stock-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                      {stockInput === '' && (
+                        <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">All Stocks</div>
+                      )}
+                      {(stockInput === '' ? availableStocks : filteredStocks).slice(0, 10).map((stock, idx) => (
+                        <div
+                          key={stock}
+                          role="option"
+                          aria-selected={idx === highlightedStockIndex}
+                          onMouseEnter={() => setHighlightedStockIndex(idx)}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => handleStockSelect(stock)}
+                          className={`px-3 py-2 cursor-pointer text-sm ${idx === highlightedStockIndex ? 'bg-accent' : 'hover:bg-muted'}`}
+                        >
+                          {stock}
                         </div>
-                      );
-                    })()
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>
@@ -999,10 +1143,10 @@ export function StockTransactionDoneSummary() {
                 </div>
               </div>
             </div>
-            </div>
+          </div>
 
-            {/* Selected Dates */}
-            <div className="mt-4">
+          {/* Selected Dates */}
+          <div className="mt-4">
             <label className="text-sm font-medium">Selected Dates:</label>
             <div className="flex flex-wrap gap-2 mt-2">
               {selectedDates.map((date) => (
@@ -1018,6 +1162,11 @@ export function StockTransactionDoneSummary() {
                   )}
                 </Badge>
               ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Loading State */}
       {loading && (
         <Card>

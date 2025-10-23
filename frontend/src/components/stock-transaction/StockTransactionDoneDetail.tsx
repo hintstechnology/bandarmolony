@@ -472,122 +472,12 @@ export function StockTransactionDoneDetail() {
     }
   };
 
-  // Render table like IPOT format - showing individual transactions with pagination
-  const renderTransactionTable = (data: DoneDetailData[]) => {
-    const filteredData = filterData(data);
-    const paginatedData = getPaginatedData(filteredData);
-    const totalPages = getTotalPages(filteredData);
-    
-    return (
-      <div className="space-y-4">
-        {/* Pagination Info */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-sm text-muted-foreground">
-          <div className="flex items-center gap-4">
-            <div>
-              Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredData.length)} of {filteredData.length} transactions
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-xs">Items per page:</label>
-              <select
-                value={itemsPerPage}
-                onChange={(e) => {
-                  setItemsPerPage(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
-                className="text-xs bg-background border border-border rounded px-2 py-1"
-              >
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-                <option value={200}>200</option>
-                <option value={500}>500</option>
-              </select>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-              disabled={currentPage === 1}
-            >
-              Previous
-            </Button>
-            <span className="px-2">
-              Page {currentPage} of {totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-              disabled={currentPage === totalPages}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
-
-        {/* Table */}
-        <div className="overflow-x-auto -mx-4 sm:mx-0">
-          <div className="min-w-full px-4 sm:px-0">
-            <table className="w-full text-xs border-collapse min-w-[600px]">
-              <thead>
-                <tr className="border-b border-border bg-muted/50">
-                  <th className="text-left py-2 px-2 font-medium sticky left-0 bg-muted/50 z-10">Time</th>
-                  <th className="text-left py-2 px-2 font-medium">Brd</th>
-                  <th className="text-right py-2 px-2 font-medium">Price</th>
-                  <th className="text-right py-2 px-2 font-medium">Qty</th>
-                  <th className="text-center py-2 px-2 font-medium">BBCode</th>
-                  <th className="text-center py-2 px-2 font-medium">BT</th>
-                  <th className="text-center py-2 px-2 font-medium">ST</th>
-                  <th className="text-center py-2 px-2 font-medium">SBCode</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paginatedData.map((row, idx) => (
-                  <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                    <td className="py-1 px-2 font-medium sticky left-0 bg-background z-10 border-r border-border text-foreground">
-                      {formatTime(row.TRX_TIME)}
-                    </td>
-                    <td className="py-1 px-2 text-red-600 font-medium">
-                      {row.TYP}
-                    </td>
-                    <td className="py-1 px-2 text-right font-medium">
-                      {formatNumber(row.STK_PRIC)}
-                    </td>
-                    <td className="py-1 px-2 text-right font-medium">
-                      {formatNumber(row.STK_VOLM)}
-                    </td>
-                    <td className="py-1 px-2 text-center text-blue-600">
-                      {row.BRK_COD1}
-                    </td>
-                    <td className="py-1 px-2 text-center text-gray-600">
-                      {row.INV_TYP1}
-                    </td>
-                    <td className="py-1 px-2 text-center text-gray-600">
-                      {row.INV_TYP2}
-                    </td>
-                    <td className="py-1 px-2 text-center text-red-600">
-                      {row.BRK_COD2}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   // Render horizontal view - pivot-style comparison across dates with pagination
   const renderHorizontalView = () => {
     // Get all transactions for all selected dates
-    const allRawTransactions: { [date: string]: DoneDetailData[] } = {};
     const allTransactions: { [date: string]: DoneDetailData[] } = {};
     selectedDates.forEach(date => {
-      const rawData = generateDoneDetailData(selectedStock, date);
-      allRawTransactions[date] = rawData; // Keep raw data for totals
-      allTransactions[date] = filterData(rawData); // Filtered data for display
       const rawData = doneDetailData.get(date) || [];
       allTransactions[date] = filterData(rawData);
     });
@@ -602,11 +492,7 @@ export function StockTransactionDoneDetail() {
     Object.values(allTransactions).forEach(transactions => {
       transactions.forEach(tx => allTimes.add(tx.TRX_TIME));
     });
-    // const sortedTimes = Array.from(allTimes).sort((a, b) => a - b);
 
-    // Calculate totals from RAW data (before filtering)
-    const totalTransactions = Object.values(allRawTransactions).flat().length;
-    const totalVolume = Object.values(allRawTransactions).flat().reduce((sum, t) => sum + t.stkVolm, 0);
     // Calculate totals - use allCombinedTransactions for accurate totals
     const totalTransactions = allCombinedTransactions.length;
     const totalVolume = allCombinedTransactions.reduce((sum, t) => sum + t.STK_VOLM, 0);
@@ -823,16 +709,13 @@ export function StockTransactionDoneDetail() {
 
             <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
               {selectedDates.map(date => {
-                const dateRawTransactions = allRawTransactions[date];
-                if (!dateRawTransactions) return null;
-                const dateVolume = dateRawTransactions.reduce((sum, t) => sum + t.stkVolm, 0);
                 const dateTransactions = allTransactions[date] || [];
                 const dateVolume = dateTransactions.reduce((sum, t) => sum + t.STK_VOLM, 0);
                 return (
                   <div key={date} className="p-2 bg-background rounded border">
                     <div className="font-medium text-blue-600">{formatDisplayDate(date)}</div>
                     <div className="text-xs text-muted-foreground">
-                      {dateRawTransactions.length} transactions, {formatNumber(dateVolume)} volume
+                      {dateTransactions.length} transactions, {formatNumber(dateVolume)} volume
                     </div>
                   </div>
                 );
@@ -844,144 +727,6 @@ export function StockTransactionDoneDetail() {
     );
   };
 
-  // Render vertical view - separate table for each date
-  const renderVerticalView = () => {
-    return (
-      <div className="space-y-6">
-        {/* Filter Section */}
-        <Card>
-          <CardHeader>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <CardTitle className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
-                <Grid3X3 className="w-5 h-5" />
-                Filters
-              </CardTitle>
-
-              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center w-full">
-                <div className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
-                  <label className="text-xs font-medium text-muted-foreground">Sort Time:</label>
-                  <select
-                    className="text-xs bg-background border border-border rounded px-2 h-9 w-full sm:w-auto min-w-[160px]"
-                    value={filters.timeSort}
-                    onChange={(e) => setFilters(prev => ({ ...prev, timeSort: e.target.value }))}
-                  >
-                    <option value="latest">Latest</option>
-                    <option value="oldest">Oldest</option>
-                  </select>
-                </div>
-
-                <div className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
-                  <label className="text-xs font-medium text-muted-foreground">Broker:</label>
-                  <select
-                    className="text-xs bg-background border border-border rounded px-2 h-9 w-full sm:w-auto min-w-[160px]"
-                    value={filters.broker}
-                    onChange={(e) => setFilters(prev => ({ ...prev, broker: e.target.value }))}
-                  >
-                    <option value="all">All</option>
-                    {brokerOptions.map(option => (
-                      <option key={option} value={option}>{option}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
-                  <label className="text-xs font-medium text-muted-foreground">Price:</label>
-                  <select
-                    className="text-xs bg-background border border-border rounded px-2 h-9 w-full sm:w-auto min-w-[160px]"
-                    value={filters.price}
-                    onChange={(e) => setFilters(prev => ({ ...prev, price: e.target.value }))}
-                  >
-                    <option value="all">All</option>
-                    {priceOptions.map(option => (
-                      <option key={option} value={option}>{formatNumber(parseInt(option))}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setFilters({ timeSort: 'latest', broker: 'all', price: 'all' })}
-                  className="w-full sm:w-auto text-xs h-9"
-                >
-                  <RotateCcw className="w-3 h-3 mr-1" />
-                  Reset
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-        </Card>
-        {selectedDates.map((date) => {
-          const rawData = doneDetailData.get(date) || [];
-          const filteredData = filterData(rawData);
-          
-        
-        return (
-            <Card key={date}>
-              <CardHeader>
-                <CardTitle className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
-                  <Grid3X3 className="w-5 h-5" />
-                  Done Detail - {selectedStock} ({formatDisplayDate(date)})
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {renderTransactionTable(filteredData)}
-
-                {/* Summary */}
-                <div className="mt-4 pt-4 border-t border-border">
-                  <div className="grid grid-cols-1 md:grid-cols-6 gap-4 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">Transactions: </span>
-                      <span className="font-medium">{formatNumber(filteredData.length)}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Total Volume: </span>
-                      <span className="font-medium text-blue-600">
-                        {formatNumber(filteredData.reduce((sum, tx) => sum + tx.STK_VOLM, 0))}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Unique Brokers: </span>
-                      <span className="font-medium text-purple-600">
-                        {new Set([...filteredData.map(tx => tx.BRK_COD1), ...filteredData.map(tx => tx.BRK_COD2)]).size}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Price Range: </span>
-                      <span className="font-medium">
-                        {filteredData.length > 0 ?
-                          `${formatNumber(Math.min(...filteredData.map(tx => tx.STK_PRIC)))} - ${formatNumber(Math.max(...filteredData.map(tx => tx.STK_PRIC)))}`
-                          : 'N/A'
-                        }
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Avg Price: </span>
-                      <span className="font-medium">
-                        {filteredData.length > 0 ?
-                          formatNumber(Math.round(filteredData.reduce((sum, tx) => sum + tx.STK_PRIC, 0) / filteredData.length))
-                          : 'N/A'
-                        }
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Avg Volume: </span>
-                      <span className="font-medium">
-                        {filteredData.length > 0 ?
-                          formatNumber(Math.round(filteredData.reduce((sum, tx) => sum + tx.STK_VOLM, 0) / filteredData.length))
-                          : 'N/A'
-                        }
-                      </span>
-                    </div>
-                  </div>
-                            </div>
-              </CardContent>
-            </Card>
-                      );
-                    })}
-          </div>
-        );
-  };
 
 
   return (
@@ -1168,8 +913,7 @@ export function StockTransactionDoneDetail() {
       )}
 
       {/* Main Data Display */}
-      {renderHorizontalView()}
-      {!isLoading && !error && (layoutMode === 'horizontal' ? renderHorizontalView() : renderVerticalView())}
+      {!isLoading && !error && renderHorizontalView()}
 
       {/* Info Card */}
       <Card className={infoOpen ? '' : 'my-4'}>
