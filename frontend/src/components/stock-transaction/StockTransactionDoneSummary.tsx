@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
-import { Calendar, Plus, X, ChevronDown, RotateCcw, TrendingUp, Search } from 'lucide-react';
+import { ChevronDown, TrendingUp } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 import { api } from '../../services/api';
 
@@ -41,11 +39,6 @@ interface BrokerBreakdownData {
   tLot: number;
 }
 
-// Available stocks from the data
-const AVAILABLE_STOCKS = [
-  'BBRI', 'BBCA', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM', 'ICBP', 'INDF', 
-  'KLBF', 'ADRO', 'ANTM', 'ITMG', 'PTBA', 'SMGR', 'INTP', 'WIKA', 'WSKT', 'PGAS'
-];
 
 // Generate realistic price data based on BBRI.csv structure (DEPRECATED - using real data now)
 /*
@@ -217,6 +210,7 @@ const getDataForPriceAndDate = (_stock: string, date: string, price: number, pri
   return data.find(item => item.price === price) || null;
 };
 
+
 // Helper function to find max values across all dates for horizontal layout
 const findMaxValuesHorizontal = (_stock: string, dates: string[], priceDataByDate: { [date: string]: PriceData[] }) => {
   let maxBFreq = 0, maxBLot = 0, maxSLot = 0, maxSFreq = 0, maxTFreq = 0, maxTLot = 0;
@@ -357,37 +351,17 @@ const getLastThreeDays = (): string[] => {
 
 export function StockTransactionDoneSummary() {
   const { showToast } = useToast();
-  const [selectedDates, setSelectedDates] = useState<string[]>(getLastThreeDays());
-  const [startDate, setStartDate] = useState(() => {
-    const threeDays = getLastThreeDays();
-    if (threeDays.length > 0) {
-      const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-      return sortedDates[0];
-    }
-    return '';
-  });
-  const [endDate, setEndDate] = useState(() => {
-    const threeDays = getLastThreeDays();
-    if (threeDays.length > 0) {
-      const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-      return sortedDates[sortedDates.length - 1];
-    }
-    return '';
-  });
-  const [selectedStock, setSelectedStock] = useState('BBRI');
-  const [stockInput, setStockInput] = useState('BBRI');
-  const [showStockSuggestions, setShowStockSuggestions] = useState(false);
-  const [viewMode, setViewMode] = useState<'summary' | 'broker'>('summary');
-  const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
-  const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
+  const [selectedDates] = useState<string[]>(getLastThreeDays());
+  const [selectedStock] = useState('BBRI');
+  const [viewMode] = useState<'summary' | 'broker'>('summary');
   
   // Real data states
   const [priceDataByDate, setPriceDataByDate] = useState<{ [date: string]: PriceData[] }>({});
   const [_brokerDataByDate, setBrokerDataByDate] = useState<{ [date: string]: BrokerBreakdownData[] }>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [availableStocks, setAvailableStocks] = useState<string[]>([]);
-  const [_availableDates, setAvailableDates] = useState<string[]>([]);
+  const [_availableStocks] = useState<string[]>([]);
+  const [_availableDates] = useState<string[]>([]);
 
   // Convert backend bid/ask data to frontend format
   const convertBackendToFrontend = (backendData: BackendBidAskData[]): PriceData[] => {
@@ -409,22 +383,19 @@ export function StockTransactionDoneSummary() {
         // Load available dates
         const datesResponse = await api.getBidAskDates();
         if (datesResponse.success && datesResponse.data?.dates) {
-          setAvailableDates(datesResponse.data.dates);
-          
           // Load available stocks for the first date
           if (datesResponse.data.dates.length > 0) {
             const firstDate = datesResponse.data.dates[0];
             if (firstDate) {
               const stocksResponse = await api.getBidAskStocks(firstDate);
               if (stocksResponse.success && stocksResponse.data?.stocks) {
-                setAvailableStocks(stocksResponse.data.stocks);
+                // Stocks loaded successfully
               }
             }
           }
         }
       } catch (error) {
         console.error('Error loading initial data:', error);
-        setAvailableStocks(AVAILABLE_STOCKS);
       }
     };
 
@@ -489,146 +460,13 @@ export function StockTransactionDoneSummary() {
     fetchData();
   }, [selectedStock, selectedDates, showToast]);
 
-  const addDateRange = () => {
-    if (startDate && endDate) {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      
-      // Check if range is valid
-      if (start > end) {
-        showToast({
-          type: 'warning',
-          title: 'Tanggal Tidak Valid',
-          message: 'Tanggal mulai harus sebelum tanggal akhir',
-        });
-        return;
-      }
-      
-      // Check if range is within 7 days
-      const diffTime = Math.abs(end.getTime() - start.getTime());
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      
-      if (diffDays > 7) {
-        showToast({
-          type: 'warning',
-          title: 'Rentang Tanggal Terlalu Panjang',
-          message: 'Maksimal rentang tanggal adalah 7 hari',
-        });
-        return;
-      }
-      
-      // Generate date array
-      const dateArray: string[] = [];
-      const currentDate = new Date(start);
-      
-      while (currentDate <= end) {
-        const dateString = currentDate.toISOString().split('T')[0];
-        if (dateString) {
-          dateArray.push(dateString);
-        }
-        currentDate.setDate(currentDate.getDate() + 1);
-      }
-      
-      // Remove duplicates, sort by date (newest first), and set
-      const uniqueDates = Array.from(new Set([...selectedDates, ...dateArray]));
-      const sortedDates = uniqueDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
-      setSelectedDates(sortedDates);
-      // Switch to custom mode when user manually selects dates
-      setDateRangeMode('custom');
-      setStartDate('');
-      setEndDate('');
-    }
-  };
-
-  const removeDate = (dateToRemove: string) => {
-    if (selectedDates.length > 1) {
-      setSelectedDates(selectedDates.filter(date => date !== dateToRemove));
-      // Switch to custom mode when user manually removes dates
-      setDateRangeMode('custom');
-    }
-  };
 
   const formatDisplayDate = (dateString: string): string => {
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
   };
 
-  // Handle date range mode change
-  const handleDateRangeModeChange = (mode: '1day' | '3days' | '1week' | 'custom') => {
-    setDateRangeMode(mode);
-    
-    if (mode === 'custom') {
-      // Don't change dates, just switch to custom mode
-      return;
-    }
-    
-    // Apply preset dates based on mode
-    let newDates: string[] = [];
-    switch (mode) {
-      case '1day':
-        newDates = getTradingDays(1);
-        break;
-      case '3days':
-        newDates = getTradingDays(3);
-        break;
-      case '1week':
-        newDates = getTradingDays(5);
-        break;
-    }
-    
-    setSelectedDates(newDates);
-    
-    // Set date range to show the selected dates
-    if (newDates.length > 0) {
-      const sortedDates = [...newDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-      setStartDate(sortedDates[0]);
-      setEndDate(sortedDates[sortedDates.length - 1]);
-    }
-  };
 
-  // Clear all dates and reset to 1 day
-  const clearAllDates = () => {
-    setSelectedDates(getTradingDays(1));
-    setDateRangeMode('1day');
-    const oneDay = getTradingDays(1);
-    if (oneDay.length > 0) {
-      setStartDate(oneDay[0]);
-      setEndDate(oneDay[0]);
-    }
-  };
-
-  // Filter stocks based on input
-  const filteredStocks = (availableStocks.length > 0 ? availableStocks : AVAILABLE_STOCKS).filter(stock => 
-    stock.toLowerCase().includes(stockInput.toLowerCase())
-  );
-
-  const handleStockSelect = (stock: string) => {
-    setStockInput(stock);
-    setSelectedStock(stock);
-    setShowStockSuggestions(false);
-  };
-
-  const handleStockInputChange = (value: string) => {
-    setStockInput(value.toUpperCase());
-    setShowStockSuggestions(true);
-    // Auto-select if exact match
-    if (AVAILABLE_STOCKS.includes(value.toUpperCase())) {
-      setSelectedStock(value.toUpperCase());
-    }
-  };
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Element;
-      if (!target.closest('.stock-dropdown-container')) {
-        setShowStockSuggestions(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
   const renderHorizontalSummaryView = () => {
     const allPrices = getAllUniquePrices(selectedStock, selectedDates, priceDataByDate);
@@ -1035,181 +873,6 @@ export function StockTransactionDoneSummary() {
           </CardContent>
         </Card>
       )}
-
-      {/* Top Controls */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
-            <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
-            Stock Selection & Date Range (Max 7 Days)
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3 sm:space-y-4">
-            {/* Row 1: All controls in one horizontal line */}
-            <div className="flex flex-wrap items-end gap-4">
-              {/* Stock Selection */}
-              <div className="flex-shrink-0">
-                <label className="block text-sm font-medium mb-2">Stock:</label>
-                <div className="relative stock-dropdown-container">
-                  <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
-                  <input
-                    type="text"
-                    value={stockInput}
-                    onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
-                    onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
-                    onKeyDown={(e) => {
-                      const suggestions = (stockInput === '' ? AVAILABLE_STOCKS : filteredStocks).slice(0, 10);
-                      if (!suggestions.length) return;
-                      if (e.key === 'ArrowDown') {
-                        e.preventDefault();
-                        setHighlightedStockIndex((prev) => (prev + 1) % suggestions.length);
-                      } else if (e.key === 'ArrowUp') {
-                        e.preventDefault();
-                        setHighlightedStockIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
-                      } else if (e.key === 'Enter' && showStockSuggestions) {
-                        e.preventDefault();
-                        const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
-                        const choice = suggestions[idx];
-                        if (choice) handleStockSelect(choice);
-                      } else if (e.key === 'Escape') {
-                        setShowStockSuggestions(false);
-                        setHighlightedStockIndex(-1);
-                      }
-                    }}
-                    placeholder="Enter stock code..."
-                    className="w-32 pl-10 pr-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
-                    role="combobox"
-                    aria-expanded={showStockSuggestions}
-                    aria-controls="stock-suggestions"
-                    aria-autocomplete="list"
-                  />
-                  {showStockSuggestions && (
-                    (() => {
-                      const suggestions = (stockInput === '' ? AVAILABLE_STOCKS : filteredStocks).slice(0, 10);
-                      return (
-                        <div id="stock-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
-                          {stockInput === '' && (
-                            <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">All Stocks</div>
-                          )}
-                          {suggestions.map((stock, idx) => (
-                            <div
-                              key={stock}
-                              role="option"
-                              aria-selected={idx === highlightedStockIndex}
-                              onMouseEnter={() => setHighlightedStockIndex(idx)}
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => handleStockSelect(stock)}
-                              className={`px-3 py-2 cursor-pointer text-sm ${idx === highlightedStockIndex ? 'bg-accent' : 'hover:bg-muted'}`}
-                            >
-                              {stock}
-                            </div>
-                          ))}
-                          {suggestions.length === 0 && (
-                            <div className="px-3 py-2 text-sm text-muted-foreground">No stocks found</div>
-                          )}
-                        </div>
-                      );
-                    })()
-                  )}
-                </div>
-              </div>
-
-              {/* Date Range */}
-              <div className="flex-shrink-0">
-                <label className="block text-sm font-medium mb-2">Date Range:</label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="w-36 px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
-                  />
-                  <span className="text-sm text-muted-foreground whitespace-nowrap">to</span>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="w-36 px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
-                  />
-                  <Button onClick={addDateRange} size="sm" className="w-auto">
-                    <Plus className="w-4 h-4" />
-                    <span className="ml-1">Add</span>
-                  </Button>
-                </div>
-              </div>
-
-              {/* Quick Select */}
-              <div className="flex-shrink-0">
-                <label className="block text-sm font-medium mb-2">Quick Select:</label>
-                <div className="flex items-center gap-2">
-                  <select 
-                    className="w-24 px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
-                    value={dateRangeMode}
-                    onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
-                  >
-                    <option value="1day">1 Day</option>
-                    <option value="3days">3 Days</option>
-                    <option value="1week">1 Week</option>
-                    <option value="custom">Custom</option>
-                  </select>
-                  {dateRangeMode === 'custom' && (
-                    <Button onClick={clearAllDates} variant="outline" size="sm" className="w-auto">
-                      <RotateCcw className="w-4 h-4 mr-1" />
-                      <span className="text-xs">Clear</span>
-                    </Button>
-                  )}
-                </div>
-              </div>
-              
-              {/* View Mode Toggle */}
-              <div className="flex-shrink-0">
-                <label className="block text-sm font-medium mb-2">View:</label>
-                <div className="flex items-center gap-1 border border-border rounded-lg p-1">
-                  <Button
-                    variant={viewMode === 'summary' ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => setViewMode('summary')}
-                    className="px-3 py-1 h-8 text-xs"
-                  >
-                    Summary
-                  </Button>
-                  <Button
-                    variant={viewMode === 'broker' ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => setViewMode('broker')}
-                    className="px-3 py-1 h-8 text-xs"
-                  >
-                    Broker Breakdown
-                  </Button>
-                </div>
-              </div>
-
-
-            </div>
-
-            {/* Row 2: Selected Dates */}
-            <div>
-              <label className="text-sm font-medium">Selected Dates:</label>
-              <div className="flex flex-wrap gap-2 mt-2">
-                {selectedDates.map((date) => (
-                  <Badge key={date} variant="secondary" className="px-3 py-1">
-                    {formatDisplayDate(date)}
-                    {selectedDates.length > 1 && (
-                      <button
-                        onClick={() => removeDate(date)}
-                        className="ml-2 hover:text-destructive"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    )}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Main Data Display */}
       {!loading && !error && (
