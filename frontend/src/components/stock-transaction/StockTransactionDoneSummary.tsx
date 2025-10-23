@@ -122,17 +122,6 @@ const formatNumber = (num: number): string => {
   return num.toLocaleString();
 };
 
-// Helper function to find max values for highlighting
-const findMaxValues = (data: PriceData[]) => {
-  return {
-    maxBLot: Math.max(...data.map(d => d.bLot)),
-    maxSLot: Math.max(...data.map(d => d.sLot)),
-    maxBFreq: Math.max(...data.map(d => d.bFreq)),
-    maxSFreq: Math.max(...data.map(d => d.sFreq)),
-    maxTFreq: Math.max(...data.map(d => d.tFreq)),
-    maxTLot: Math.max(...data.map(d => d.tLot))
-  };
-};
 
 // Helper function to calculate totals
 const calculateTotals = (data: PriceData[]) => {
@@ -322,7 +311,7 @@ const getTradingDays = (count: number): string[] => {
     
     // Skip weekends (Saturday = 6, Sunday = 0)
     if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-      dates.push(currentDate.toISOString().split('T')[0]);
+      dates.push(currentDate.toISOString().split('T')[0]!);
     }
     
     // Go to previous day
@@ -330,7 +319,7 @@ const getTradingDays = (count: number): string[] => {
     
     // Safety check
     if (dates.length === 0 && currentDate.getTime() < today.getTime() - (30 * 24 * 60 * 60 * 1000)) {
-      dates.push(today.toISOString().split('T')[0]);
+      dates.push(today.toISOString().split('T')[0]!);
       break;
     }
   }
@@ -366,7 +355,6 @@ export function StockTransactionDoneSummary() {
   const [stockInput, setStockInput] = useState('BBRI');
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [viewMode, setViewMode] = useState<'summary' | 'broker'>('summary');
-  const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical'>('horizontal');
   const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
   const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
 
@@ -403,7 +391,7 @@ export function StockTransactionDoneSummary() {
       const currentDate = new Date(start);
       
       while (currentDate <= end) {
-        const dateString = currentDate.toISOString().split('T')[0];
+        const dateString = currentDate.toISOString().split('T')[0]!;
         dateArray.push(dateString);
         currentDate.setDate(currentDate.getDate() + 1);
       }
@@ -534,54 +522,115 @@ export function StockTransactionDoneSummary() {
                       {formatDisplayDate(date)}
                     </th>
                   ))}
+                  <th colSpan={6} className="text-center py-2 px-1 font-medium border-l border-border bg-accent/30">
+                    Total
+                  </th>
                 </tr>
                 {/* Sub Header Row - Metrics */}
                 <tr className="border-b border-border bg-accent">
                   {selectedDates.map((date) => (
                     <React.Fragment key={date}>
-                      <th className="text-right py-1 px-1 font-medium text-[10px]">BFreq</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px]">BLot</th>
+                      <th className="text-right py-1 px-1 font-medium text-[10px]">BFreq</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px]">SLot</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px]">SFreq</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px]">TFreq</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px] border-r-2 border-border">TLot</th>
                     </React.Fragment>
                   ))}
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">BLot</th>
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">BFreq</th>
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">SLot</th>
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">SFreq</th>
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">TFreq</th>
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30 border-r-2 border-border">TLot</th>
                 </tr>
               </thead>
               <tbody>
-                {allPrices.map((price) => (
-                  <tr key={price} className="border-b border-border/50 hover:bg-accent/50">
-                    <td className="py-1.5 px-3 font-medium bg-background sticky left-0 z-30 border-r-2 border-border text-foreground min-w-[80px]">
-                      {formatNumber(price)}
-                    </td>
-                    {selectedDates.map((date) => {
-                      const data = getDataForPriceAndDate(selectedStock, date, price);
-                      return (
-                        <React.Fragment key={date}>
-                          <td className={`text-right py-1.5 px-1 ${data && data.bFreq === maxValues.maxBFreq && data.bFreq > 0 ? 'font-bold text-blue-600' : 'text-blue-600'}`}>
-                            {data ? formatNumber(data.bFreq) : '-'}
-                          </td>
-                          <td className={`text-right py-1.5 px-1 ${data && data.bLot === maxValues.maxBLot && data.bLot > 0 ? 'font-bold text-green-600' : 'text-green-600'}`}>
-                            {data ? formatNumber(data.bLot) : '-'}
-                          </td>
-                          <td className={`text-right py-1.5 px-1 ${data && data.sLot === maxValues.maxSLot && data.sLot > 0 ? 'font-bold text-red-600' : 'text-red-600'}`}>
-                            {data ? formatNumber(data.sLot) : '-'}
-                          </td>
-                          <td className={`text-right py-1.5 px-1 ${data && data.sFreq === maxValues.maxSFreq && data.sFreq > 0 ? 'font-bold text-orange-600' : 'text-orange-600'}`}>
-                            {data ? formatNumber(data.sFreq) : '-'}
-                          </td>
-                          <td className={`text-right py-1.5 px-1 ${data && data.tFreq === maxValues.maxTFreq && data.tFreq > 0 ? 'font-bold text-purple-600' : 'text-purple-600'}`}>
-                            {data ? formatNumber(data.tFreq) : '-'}
-                          </td>
-                          <td className={`text-right py-1.5 px-1 border-r-2 border-border ${data && data.tLot === maxValues.maxTLot && data.tLot > 0 ? 'font-bold text-indigo-600' : 'text-indigo-600'}`}>
-                            {data ? formatNumber(data.tLot) : '-'}
-                          </td>
-                        </React.Fragment>
-                      );
-                    })}
-                  </tr>
-                ))}
+                {allPrices.map((price) => {
+                  // Calculate totals for this price across all dates
+                  const totalBFreq = selectedDates.reduce((sum, date) => {
+                    const data = getDataForPriceAndDate(selectedStock, date, price);
+                    return sum + (data?.bFreq || 0);
+                  }, 0);
+                  
+                  const totalBLot = selectedDates.reduce((sum, date) => {
+                    const data = getDataForPriceAndDate(selectedStock, date, price);
+                    return sum + (data?.bLot || 0);
+                  }, 0);
+                  
+                  const totalSLot = selectedDates.reduce((sum, date) => {
+                    const data = getDataForPriceAndDate(selectedStock, date, price);
+                    return sum + (data?.sLot || 0);
+                  }, 0);
+                  
+                  const totalSFreq = selectedDates.reduce((sum, date) => {
+                    const data = getDataForPriceAndDate(selectedStock, date, price);
+                    return sum + (data?.sFreq || 0);
+                  }, 0);
+                  
+                  const totalTFreq = selectedDates.reduce((sum, date) => {
+                    const data = getDataForPriceAndDate(selectedStock, date, price);
+                    return sum + (data?.tFreq || 0);
+                  }, 0);
+                  
+                  const totalTLot = selectedDates.reduce((sum, date) => {
+                    const data = getDataForPriceAndDate(selectedStock, date, price);
+                    return sum + (data?.tLot || 0);
+                  }, 0);
+                  
+                  return (
+                    <tr key={price} className="border-b border-border/50 hover:bg-accent/50">
+                      <td className="py-1.5 px-3 font-medium bg-background sticky left-0 z-30 border-r-2 border-border text-foreground min-w-[80px]">
+                        {formatNumber(price)}
+                      </td>
+                      {selectedDates.map((date) => {
+                        const data = getDataForPriceAndDate(selectedStock, date, price);
+                        return (
+                          <React.Fragment key={date}>
+                            <td className={`text-right py-1.5 px-1 ${data && data.bLot === maxValues.maxBLot && data.bLot > 0 ? 'font-bold text-green-600' : 'text-green-600'}`}>
+                              {data ? formatNumber(data.bLot) : '-'}
+                            </td>
+                            <td className={`text-right py-1.5 px-1 ${data && data.bFreq === maxValues.maxBFreq && data.bFreq > 0 ? 'font-bold text-blue-600' : 'text-blue-600'}`}>
+                              {data ? formatNumber(data.bFreq) : '-'}
+                            </td>
+                            <td className={`text-right py-1.5 px-1 ${data && data.sLot === maxValues.maxSLot && data.sLot > 0 ? 'font-bold text-red-600' : 'text-red-600'}`}>
+                              {data ? formatNumber(data.sLot) : '-'}
+                            </td>
+                            <td className={`text-right py-1.5 px-1 ${data && data.sFreq === maxValues.maxSFreq && data.sFreq > 0 ? 'font-bold text-orange-600' : 'text-orange-600'}`}>
+                              {data ? formatNumber(data.sFreq) : '-'}
+                            </td>
+                            <td className={`text-right py-1.5 px-1 ${data && data.tFreq === maxValues.maxTFreq && data.tFreq > 0 ? 'font-bold text-purple-600' : 'text-purple-600'}`}>
+                              {data ? formatNumber(data.tFreq) : '-'}
+                            </td>
+                            <td className={`text-right py-1.5 px-1 border-r-2 border-border ${data && data.tLot === maxValues.maxTLot && data.tLot > 0 ? 'font-bold text-indigo-600' : 'text-indigo-600'}`}>
+                              {data ? formatNumber(data.tLot) : '-'}
+                            </td>
+                          </React.Fragment>
+                        );
+                      })}
+                      {/* Total Column */}
+                      <td className="text-right py-1.5 px-1 font-bold text-green-600 bg-accent/30">
+                        {formatNumber(totalBLot)}
+                      </td>
+                      <td className="text-right py-1.5 px-1 font-bold text-blue-600 bg-accent/30">
+                        {formatNumber(totalBFreq)}
+                      </td>
+                      <td className="text-right py-1.5 px-1 font-bold text-red-600 bg-accent/30">
+                        {formatNumber(totalSLot)}
+                      </td>
+                      <td className="text-right py-1.5 px-1 font-bold text-orange-600 bg-accent/30">
+                        {formatNumber(totalSFreq)}
+                      </td>
+                      <td className="text-right py-1.5 px-1 font-bold text-purple-600 bg-accent/30">
+                        {formatNumber(totalTFreq)}
+                      </td>
+                      <td className="text-right py-1.5 px-1 font-bold text-indigo-600 bg-accent/30 border-r-2 border-border">
+                        {formatNumber(totalTLot)}
+                      </td>
+                    </tr>
+                  );
+                })}
                 {/* Total Row */}
                 <tr className="border-t-2 border-border bg-accent/30 font-bold">
                   <td className="py-3 px-3 font-bold bg-accent/30 sticky left-0 z-30 border-r-2 border-border text-foreground min-w-[80px]">TOTAL</td>
@@ -590,11 +639,11 @@ export function StockTransactionDoneSummary() {
                     const totals = calculateTotals(dateData);
                     return (
                       <React.Fragment key={date}>
-                        <td className="text-right py-3 px-1 font-bold text-blue-600">
-                          {formatNumber(totals.bFreq)}
-                        </td>
                         <td className="text-right py-3 px-1 font-bold text-green-600">
                           {formatNumber(totals.bLot)}
+                        </td>
+                        <td className="text-right py-3 px-1 font-bold text-blue-600">
+                          {formatNumber(totals.bFreq)}
                         </td>
                         <td className="text-right py-3 px-1 font-bold text-red-600">
                           {formatNumber(totals.sLot)}
@@ -611,6 +660,49 @@ export function StockTransactionDoneSummary() {
                       </React.Fragment>
                     );
                   })}
+                  {/* Grand Total Column */}
+                  <td className="text-right py-3 px-1 font-bold text-green-600 bg-accent/50">
+                    {formatNumber(selectedDates.reduce((sum, date) => {
+                      const dateData = generatePriceData(selectedStock, date);
+                      const totals = calculateTotals(dateData);
+                      return sum + totals.bLot;
+                    }, 0))}
+                  </td>
+                  <td className="text-right py-3 px-1 font-bold text-blue-600 bg-accent/50">
+                    {formatNumber(selectedDates.reduce((sum, date) => {
+                      const dateData = generatePriceData(selectedStock, date);
+                      const totals = calculateTotals(dateData);
+                      return sum + totals.bFreq;
+                    }, 0))}
+                  </td>
+                  <td className="text-right py-3 px-1 font-bold text-red-600 bg-accent/50">
+                    {formatNumber(selectedDates.reduce((sum, date) => {
+                      const dateData = generatePriceData(selectedStock, date);
+                      const totals = calculateTotals(dateData);
+                      return sum + totals.sLot;
+                    }, 0))}
+                  </td>
+                  <td className="text-right py-3 px-1 font-bold text-orange-600 bg-accent/50">
+                    {formatNumber(selectedDates.reduce((sum, date) => {
+                      const dateData = generatePriceData(selectedStock, date);
+                      const totals = calculateTotals(dateData);
+                      return sum + totals.sFreq;
+                    }, 0))}
+                  </td>
+                  <td className="text-right py-3 px-1 font-bold text-purple-600 bg-accent/50">
+                    {formatNumber(selectedDates.reduce((sum, date) => {
+                      const dateData = generatePriceData(selectedStock, date);
+                      const totals = calculateTotals(dateData);
+                      return sum + totals.tFreq;
+                    }, 0))}
+                  </td>
+                  <td className="text-right py-3 px-1 font-bold text-indigo-600 bg-accent/50 border-r-2 border-border">
+                    {formatNumber(selectedDates.reduce((sum, date) => {
+                      const dateData = generatePriceData(selectedStock, date);
+                      const totals = calculateTotals(dateData);
+                      return sum + totals.tLot;
+                    }, 0))}
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -621,95 +713,6 @@ export function StockTransactionDoneSummary() {
     );
   };
 
-  const renderVerticalSummaryView = () => {
-    return (
-      <div className="space-y-6">
-        {/* Done Summary Table for Each Date */}
-        {selectedDates.map((date) => {
-          const priceData = generatePriceData(selectedStock, date);
-          const maxValues = findMaxValues(priceData);
-          const totals = calculateTotals(priceData);
-          
-          return (
-            <Card key={date}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <ChevronDown className="w-5 h-5" />
-                  Done Summary - {selectedStock} ({formatDisplayDate(date)})
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-muted/50">
-                        <th className="text-left py-2 px-3 font-medium">Price</th>
-                        <th className="text-right py-2 px-3 font-medium">BFreq</th>
-                        <th className="text-right py-2 px-3 font-medium">BLot</th>
-                        <th className="text-right py-2 px-3 font-medium">SLot</th>
-                        <th className="text-right py-2 px-3 font-medium">SFreq</th>
-                        <th className="text-right py-2 px-3 font-medium">TFreq</th>
-                        <th className="text-right py-2 px-3 font-medium">TLot</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {priceData.map((row, idx) => (
-                        <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                          <td className="py-2 px-3 font-medium text-foreground">
-                            {formatNumber(row.price)}
-                          </td>
-                          <td className={`text-right py-2 px-3 ${row.bFreq === maxValues.maxBFreq && row.bFreq > 0 ? 'font-bold text-blue-600' : 'text-blue-600'}`}>
-                            {formatNumber(row.bFreq)}
-                          </td>
-                          <td className={`text-right py-2 px-3 ${row.bLot === maxValues.maxBLot && row.bLot > 0 ? 'font-bold text-green-600' : 'text-green-600'}`}>
-                            {formatNumber(row.bLot)}
-                          </td>
-                          <td className={`text-right py-2 px-3 ${row.sLot === maxValues.maxSLot && row.sLot > 0 ? 'font-bold text-red-600' : 'text-red-600'}`}>
-                            {formatNumber(row.sLot)}
-                          </td>
-                          <td className={`text-right py-2 px-3 ${row.sFreq === maxValues.maxSFreq && row.sFreq > 0 ? 'font-bold text-orange-600' : 'text-orange-600'}`}>
-                            {formatNumber(row.sFreq)}
-                          </td>
-                          <td className={`text-right py-2 px-3 ${row.tFreq === maxValues.maxTFreq && row.tFreq > 0 ? 'font-bold text-purple-600' : 'text-purple-600'}`}>
-                            {formatNumber(row.tFreq)}
-                          </td>
-                          <td className={`text-right py-2 px-3 ${row.tLot === maxValues.maxTLot && row.tLot > 0 ? 'font-bold text-indigo-600' : 'text-indigo-600'}`}>
-                            {formatNumber(row.tLot)}
-                          </td>
-                        </tr>
-                      ))}
-                      {/* Total Row */}
-                      <tr className="border-t-2 border-border bg-accent/30 font-bold">
-                        <td className="py-3 px-3 font-bold text-foreground">TOTAL</td>
-                        <td className="text-right py-3 px-3 font-bold text-blue-600">
-                          {formatNumber(totals.bFreq)}
-                        </td>
-                        <td className="text-right py-3 px-3 font-bold text-green-600">
-                          {formatNumber(totals.bLot)}
-                        </td>
-                        <td className="text-right py-3 px-3 font-bold text-red-600">
-                          {formatNumber(totals.sLot)}
-                        </td>
-                        <td className="text-right py-3 px-3 font-bold text-orange-600">
-                          {formatNumber(totals.sFreq)}
-                        </td>
-                        <td className="text-right py-3 px-3 font-bold text-purple-600">
-                          {formatNumber(totals.tFreq)}
-                        </td>
-                        <td className="text-right py-3 px-3 font-bold text-indigo-600">
-                          {formatNumber(totals.tLot)}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-    );
-  };
 
   const renderHorizontalBrokerBreakdownView = () => {
     const priceBrokerCombinations = getAllUniquePriceBrokerCombinations(selectedStock, selectedDates);
@@ -737,57 +740,118 @@ export function StockTransactionDoneSummary() {
                       {formatDisplayDate(date)}
                     </th>
                   ))}
+                  <th colSpan={6} className="text-center py-2 px-1 font-medium border-l border-border bg-accent/30">
+                    Total
+                  </th>
                 </tr>
                 {/* Sub Header Row - Metrics */}
                 <tr className="border-b border-border bg-accent">
                   {selectedDates.map((date) => (
                     <React.Fragment key={date}>
-                      <th className="text-right py-1 px-1 font-medium text-[10px]">BFreq</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px]">BLot</th>
+                      <th className="text-right py-1 px-1 font-medium text-[10px]">BFreq</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px]">SLot</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px]">SFreq</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px]">TFreq</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px] border-r-2 border-border">TLot</th>
                     </React.Fragment>
                   ))}
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">BLot</th>
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">BFreq</th>
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">SLot</th>
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">SFreq</th>
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">TFreq</th>
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30 border-r-2 border-border">TLot</th>
                 </tr>
               </thead>
               <tbody>
-                {priceBrokerCombinations.map((combination, idx) => (
-                  <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                    <td className="py-1.5 px-3 font-medium bg-background sticky left-0 z-30 border-r-2 border-border text-foreground min-w-[80px]">
-                      {formatNumber(combination.price)}
-                    </td>
-                    <td className="py-1.5 px-3 font-medium bg-background sticky left-[80px] z-30 border-r-2 border-border text-foreground min-w-[80px]">
-                      {combination.broker}
-                    </td>
-                    {selectedDates.map((date) => {
-                      const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
-                      return (
-                        <React.Fragment key={date}>
-                          <td className={`text-right py-1.5 px-1 ${data && data.bFreq === maxValues.maxBFreq && data.bFreq > 0 ? 'font-bold text-blue-600' : 'text-blue-600'}`}>
-                            {data ? formatNumber(data.bFreq) : '-'}
-                          </td>
-                          <td className={`text-right py-1.5 px-1 ${data && data.bLot === maxValues.maxBLot && data.bLot > 0 ? 'font-bold text-green-600' : 'text-green-600'}`}>
-                            {data ? formatNumber(data.bLot) : '-'}
-                          </td>
-                          <td className={`text-right py-1.5 px-1 ${data && data.sLot === maxValues.maxSLot && data.sLot > 0 ? 'font-bold text-red-600' : 'text-red-600'}`}>
-                            {data ? formatNumber(data.sLot) : '-'}
-                          </td>
-                          <td className={`text-right py-1.5 px-1 ${data && data.sFreq === maxValues.maxSFreq && data.sFreq > 0 ? 'font-bold text-orange-600' : 'text-orange-600'}`}>
-                            {data ? formatNumber(data.sFreq) : '-'}
-                          </td>
-                          <td className={`text-right py-1.5 px-1 ${data && data.tFreq === maxValues.maxTFreq && data.tFreq > 0 ? 'font-bold text-purple-600' : 'text-purple-600'}`}>
-                            {data ? formatNumber(data.tFreq) : '-'}
-                          </td>
-                          <td className={`text-right py-1.5 px-1 border-r-2 border-border ${data && data.tLot === maxValues.maxTLot && data.tLot > 0 ? 'font-bold text-indigo-600' : 'text-indigo-600'}`}>
-                            {data ? formatNumber(data.tLot) : '-'}
-                          </td>
-                        </React.Fragment>
-                      );
-                    })}
-                  </tr>
-                ))}
+                {priceBrokerCombinations.map((combination, idx) => {
+                  // Calculate totals for this price-broker combination across all dates
+                  const totalBFreq = selectedDates.reduce((sum, date) => {
+                    const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
+                    return sum + (data?.bFreq || 0);
+                  }, 0);
+                  
+                  const totalBLot = selectedDates.reduce((sum, date) => {
+                    const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
+                    return sum + (data?.bLot || 0);
+                  }, 0);
+                  
+                  const totalSLot = selectedDates.reduce((sum, date) => {
+                    const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
+                    return sum + (data?.sLot || 0);
+                  }, 0);
+                  
+                  const totalSFreq = selectedDates.reduce((sum, date) => {
+                    const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
+                    return sum + (data?.sFreq || 0);
+                  }, 0);
+                  
+                  const totalTFreq = selectedDates.reduce((sum, date) => {
+                    const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
+                    return sum + (data?.tFreq || 0);
+                  }, 0);
+                  
+                  const totalTLot = selectedDates.reduce((sum, date) => {
+                    const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
+                    return sum + (data?.tLot || 0);
+                  }, 0);
+                  
+                  return (
+                    <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
+                      <td className="py-1.5 px-3 font-medium bg-background sticky left-0 z-30 border-r-2 border-border text-foreground min-w-[80px]">
+                        {formatNumber(combination.price)}
+                      </td>
+                      <td className="py-1.5 px-3 font-medium bg-background sticky left-[80px] z-30 border-r-2 border-border text-foreground min-w-[80px]">
+                        {combination.broker}
+                      </td>
+                      {selectedDates.map((date) => {
+                        const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
+                        return (
+                          <React.Fragment key={date}>
+                            <td className={`text-right py-1.5 px-1 ${data && data.bLot === maxValues.maxBLot && data.bLot > 0 ? 'font-bold text-green-600' : 'text-green-600'}`}>
+                              {data ? formatNumber(data.bLot) : '-'}
+                            </td>
+                            <td className={`text-right py-1.5 px-1 ${data && data.bFreq === maxValues.maxBFreq && data.bFreq > 0 ? 'font-bold text-blue-600' : 'text-blue-600'}`}>
+                              {data ? formatNumber(data.bFreq) : '-'}
+                            </td>
+                            <td className={`text-right py-1.5 px-1 ${data && data.sLot === maxValues.maxSLot && data.sLot > 0 ? 'font-bold text-red-600' : 'text-red-600'}`}>
+                              {data ? formatNumber(data.sLot) : '-'}
+                            </td>
+                            <td className={`text-right py-1.5 px-1 ${data && data.sFreq === maxValues.maxSFreq && data.sFreq > 0 ? 'font-bold text-orange-600' : 'text-orange-600'}`}>
+                              {data ? formatNumber(data.sFreq) : '-'}
+                            </td>
+                            <td className={`text-right py-1.5 px-1 ${data && data.tFreq === maxValues.maxTFreq && data.tFreq > 0 ? 'font-bold text-purple-600' : 'text-purple-600'}`}>
+                              {data ? formatNumber(data.tFreq) : '-'}
+                            </td>
+                            <td className={`text-right py-1.5 px-1 border-r-2 border-border ${data && data.tLot === maxValues.maxTLot && data.tLot > 0 ? 'font-bold text-indigo-600' : 'text-indigo-600'}`}>
+                              {data ? formatNumber(data.tLot) : '-'}
+                            </td>
+                          </React.Fragment>
+                        );
+                      })}
+                      {/* Total Column */}
+                      <td className="text-right py-1.5 px-1 font-bold text-green-600 bg-accent/30">
+                        {formatNumber(totalBLot)}
+                      </td>
+                      <td className="text-right py-1.5 px-1 font-bold text-blue-600 bg-accent/30">
+                        {formatNumber(totalBFreq)}
+                      </td>
+                      <td className="text-right py-1.5 px-1 font-bold text-red-600 bg-accent/30">
+                        {formatNumber(totalSLot)}
+                      </td>
+                      <td className="text-right py-1.5 px-1 font-bold text-orange-600 bg-accent/30">
+                        {formatNumber(totalSFreq)}
+                      </td>
+                      <td className="text-right py-1.5 px-1 font-bold text-purple-600 bg-accent/30">
+                        {formatNumber(totalTFreq)}
+                      </td>
+                      <td className="text-right py-1.5 px-1 font-bold text-indigo-600 bg-accent/30 border-r-2 border-border">
+                        {formatNumber(totalTLot)}
+                      </td>
+                    </tr>
+                  );
+                })}
                 {/* Total Row */}
                 <tr className="border-t-2 border-border bg-accent/30 font-bold">
                   <td className="py-3 px-3 font-bold bg-accent/30 sticky left-0 z-30 border-r-2 border-border text-foreground min-w-[80px]">TOTAL</td>
@@ -796,11 +860,11 @@ export function StockTransactionDoneSummary() {
                     const totals = calculateBrokerBreakdownTotals(selectedStock, date);
                     return (
                       <React.Fragment key={date}>
-                        <td className="text-right py-3 px-1 font-bold text-blue-600">
-                          {formatNumber(totals.bFreq)}
-                        </td>
                         <td className="text-right py-3 px-1 font-bold text-green-600">
                           {formatNumber(totals.bLot)}
+                        </td>
+                        <td className="text-right py-3 px-1 font-bold text-blue-600">
+                          {formatNumber(totals.bFreq)}
                         </td>
                         <td className="text-right py-3 px-1 font-bold text-red-600">
                           {formatNumber(totals.sLot)}
@@ -817,6 +881,43 @@ export function StockTransactionDoneSummary() {
                       </React.Fragment>
                     );
                   })}
+                  {/* Grand Total Column */}
+                  <td className="text-right py-3 px-1 font-bold text-green-600 bg-accent/50">
+                    {formatNumber(selectedDates.reduce((sum, date) => {
+                      const totals = calculateBrokerBreakdownTotals(selectedStock, date);
+                      return sum + totals.bLot;
+                    }, 0))}
+                  </td>
+                  <td className="text-right py-3 px-1 font-bold text-blue-600 bg-accent/50">
+                    {formatNumber(selectedDates.reduce((sum, date) => {
+                      const totals = calculateBrokerBreakdownTotals(selectedStock, date);
+                      return sum + totals.bFreq;
+                    }, 0))}
+                  </td>
+                  <td className="text-right py-3 px-1 font-bold text-red-600 bg-accent/50">
+                    {formatNumber(selectedDates.reduce((sum, date) => {
+                      const totals = calculateBrokerBreakdownTotals(selectedStock, date);
+                      return sum + totals.sLot;
+                    }, 0))}
+                  </td>
+                  <td className="text-right py-3 px-1 font-bold text-orange-600 bg-accent/50">
+                    {formatNumber(selectedDates.reduce((sum, date) => {
+                      const totals = calculateBrokerBreakdownTotals(selectedStock, date);
+                      return sum + totals.sFreq;
+                    }, 0))}
+                  </td>
+                  <td className="text-right py-3 px-1 font-bold text-purple-600 bg-accent/50">
+                    {formatNumber(selectedDates.reduce((sum, date) => {
+                      const totals = calculateBrokerBreakdownTotals(selectedStock, date);
+                      return sum + totals.tFreq;
+                    }, 0))}
+                  </td>
+                  <td className="text-right py-3 px-1 font-bold text-indigo-600 bg-accent/50 border-r-2 border-border">
+                    {formatNumber(selectedDates.reduce((sum, date) => {
+                      const totals = calculateBrokerBreakdownTotals(selectedStock, date);
+                      return sum + totals.tLot;
+                    }, 0))}
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -827,106 +928,6 @@ export function StockTransactionDoneSummary() {
     );
   };
 
-  const renderVerticalBrokerBreakdownView = () => {
-    return (
-      <div className="space-y-6">
-        {selectedDates.map((date) => {
-          const brokerData = generateBrokerBreakdownData(selectedStock, date);
-          const maxValues = {
-            maxBFreq: Math.max(...brokerData.map(d => d.bFreq)),
-            maxBLot: Math.max(...brokerData.map(d => d.bLot)),
-            maxSLot: Math.max(...brokerData.map(d => d.sLot)),
-            maxSFreq: Math.max(...brokerData.map(d => d.sFreq)),
-            maxTFreq: Math.max(...brokerData.map(d => d.tFreq)),
-            maxTLot: Math.max(...brokerData.map(d => d.tLot))
-          };
-          const totals = calculateBrokerBreakdownTotals(selectedStock, date);
-          
-          return (
-            <Card key={date}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <TrendingUp className="w-5 h-5" />
-                  Broker Breakdown - {selectedStock} ({formatDisplayDate(date)})
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-muted/50">
-                        <th className="text-left py-2 px-3 font-medium">Price</th>
-                        <th className="text-left py-2 px-3 font-medium">Broker</th>
-                        <th className="text-right py-2 px-3 font-medium">BFreq</th>
-                        <th className="text-right py-2 px-3 font-medium">BLot</th>
-                        <th className="text-right py-2 px-3 font-medium">SLot</th>
-                        <th className="text-right py-2 px-3 font-medium">SFreq</th>
-                        <th className="text-right py-2 px-3 font-medium">TFreq</th>
-                        <th className="text-right py-2 px-3 font-medium">TLot</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {brokerData.map((row, idx) => (
-                        <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                          <td className="py-2 px-3 font-medium text-foreground">
-                            {formatNumber(row.price)}
-                          </td>
-                          <td className="py-2 px-3 font-medium text-foreground">
-                            {row.broker}
-                          </td>
-                          <td className={`text-right py-2 px-3 ${row.bFreq === maxValues.maxBFreq && row.bFreq > 0 ? 'font-bold text-blue-600' : 'text-blue-600'}`}>
-                            {formatNumber(row.bFreq)}
-                          </td>
-                          <td className={`text-right py-2 px-3 ${row.bLot === maxValues.maxBLot && row.bLot > 0 ? 'font-bold text-green-600' : 'text-green-600'}`}>
-                            {formatNumber(row.bLot)}
-                          </td>
-                          <td className={`text-right py-2 px-3 ${row.sLot === maxValues.maxSLot && row.sLot > 0 ? 'font-bold text-red-600' : 'text-red-600'}`}>
-                            {formatNumber(row.sLot)}
-                          </td>
-                          <td className={`text-right py-2 px-3 ${row.sFreq === maxValues.maxSFreq && row.sFreq > 0 ? 'font-bold text-orange-600' : 'text-orange-600'}`}>
-                            {formatNumber(row.sFreq)}
-                          </td>
-                          <td className={`text-right py-2 px-3 ${row.tFreq === maxValues.maxTFreq && row.tFreq > 0 ? 'font-bold text-purple-600' : 'text-purple-600'}`}>
-                            {formatNumber(row.tFreq)}
-                          </td>
-                          <td className={`text-right py-2 px-3 ${row.tLot === maxValues.maxTLot && row.tLot > 0 ? 'font-bold text-indigo-600' : 'text-indigo-600'}`}>
-                            {formatNumber(row.tLot)}
-                          </td>
-                        </tr>
-                      ))}
-                      {/* Total Row */}
-                      <tr className="border-t-2 border-border bg-accent/30 font-bold">
-                        <td className="py-3 px-3 font-bold text-foreground">TOTAL</td>
-                        <td className="py-3 px-3 font-bold text-foreground">ALL</td>
-                        <td className="text-right py-3 px-3 font-bold text-blue-600">
-                          {formatNumber(totals.bFreq)}
-                        </td>
-                        <td className="text-right py-3 px-3 font-bold text-green-600">
-                          {formatNumber(totals.bLot)}
-                        </td>
-                        <td className="text-right py-3 px-3 font-bold text-red-600">
-                          {formatNumber(totals.sLot)}
-                        </td>
-                        <td className="text-right py-3 px-3 font-bold text-orange-600">
-                          {formatNumber(totals.sFreq)}
-                        </td>
-                        <td className="text-right py-3 px-3 font-bold text-purple-600">
-                          {formatNumber(totals.tFreq)}
-                        </td>
-                        <td className="text-right py-3 px-3 font-bold text-indigo-600">
-                          {formatNumber(totals.tLot)}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-    );
-  };
 
   return (
     <div className="min-h-screen space-y-4 sm:space-y-6 p-2 sm:p-4 lg:p-6 overflow-x-hidden">
@@ -940,10 +941,10 @@ export function StockTransactionDoneSummary() {
         </CardHeader>
         <CardContent>
           <div className="space-y-3 sm:space-y-4">
-            {/* Row 1: Stock, Date Range, Quick Select, View, Layout */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-center lg:items-end">
-            {/* Stock Selection */}
-              <div className="flex-1 min-w-0 w-full">
+            {/* Row 1: All controls in one horizontal line */}
+            <div className="flex flex-wrap items-end gap-4">
+              {/* Stock Selection */}
+              <div className="flex-shrink-0">
                 <label className="block text-sm font-medium mb-2">Stock:</label>
                 <div className="relative stock-dropdown-container">
                   <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
@@ -972,7 +973,7 @@ export function StockTransactionDoneSummary() {
                       }
                     }}
                     placeholder="Enter stock code..."
-                    className="w-full pl-10 pr-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
+                    className="w-32 pl-10 pr-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
                     role="combobox"
                     aria-expanded={showStockSuggestions}
                     aria-controls="stock-suggestions"
@@ -1010,23 +1011,23 @@ export function StockTransactionDoneSummary() {
               </div>
 
               {/* Date Range */}
-              <div className="flex-1 min-w-0 w-full md:col-span-2">
+              <div className="flex-shrink-0">
                 <label className="block text-sm font-medium mb-2">Date Range:</label>
-                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2 w-full">
+                <div className="flex items-center gap-2">
                   <input
                     type="date"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
+                    className="w-36 px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
                   />
-                  <span className="text-sm text-muted-foreground text-center whitespace-nowrap px-2">to</span>
+                  <span className="text-sm text-muted-foreground whitespace-nowrap">to</span>
                   <input
                     type="date"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
+                    className="w-36 px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
                   />
-                  <Button onClick={addDateRange} size="sm" className="w-auto justify-self-center">
+                  <Button onClick={addDateRange} size="sm" className="w-auto">
                     <Plus className="w-4 h-4" />
                     <span className="ml-1">Add</span>
                   </Button>
@@ -1034,11 +1035,11 @@ export function StockTransactionDoneSummary() {
               </div>
 
               {/* Quick Select */}
-              <div className="flex-1 min-w-0 w-full">
+              <div className="flex-shrink-0">
                 <label className="block text-sm font-medium mb-2">Quick Select:</label>
-                <div className="flex flex-col sm:flex-row gap-2">
-                <select 
-                    className="w-full xl:flex-1 px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
+                <div className="flex items-center gap-2">
+                  <select 
+                    className="w-24 px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
                     value={dateRangeMode}
                     onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
                   >
@@ -1046,65 +1047,40 @@ export function StockTransactionDoneSummary() {
                     <option value="3days">3 Days</option>
                     <option value="1week">1 Week</option>
                     <option value="custom">Custom</option>
-                </select>
+                  </select>
                   {dateRangeMode === 'custom' && (
-                    <Button onClick={clearAllDates} variant="outline" size="sm" className="w-auto justify-self-center">
+                    <Button onClick={clearAllDates} variant="outline" size="sm" className="w-auto">
                       <RotateCcw className="w-4 h-4 mr-1" />
-                      <span className="text-xs sm:text-sm">Clear</span>
+                      <span className="text-xs">Clear</span>
                     </Button>
                   )}
                 </div>
               </div>
-
+              
               {/* View Mode Toggle */}
-              <div className="flex-1 min-w-0 w-full lg:w-auto lg:flex-none">
+              <div className="flex-shrink-0">
                 <label className="block text-sm font-medium mb-2">View:</label>
-                <div className="flex sm:inline-flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto w-full sm:w-auto lg:w-auto justify-center sm:justify-start">
-                  <div className="grid grid-cols-2 gap-1 w-full max-w-xs mx-auto sm:flex sm:items-center sm:gap-1 sm:max-w-none sm:mx-0">
-                    <Button
-                      variant={viewMode === 'summary' ? 'default' : 'ghost'}
-                      size="sm"
-                      onClick={() => setViewMode('summary')}
-                      className="px-3 py-1 h-8 text-xs"
-                    >
-                      Summary
-                    </Button>
-                    <Button
-                      variant={viewMode === 'broker' ? 'default' : 'ghost'}
-                      size="sm"
-                      onClick={() => setViewMode('broker')}
-                      className="px-3 py-1 h-8 text-xs"
-                    >
-                      Broker Breakdown
-                    </Button>
-                  </div>
+                <div className="flex items-center gap-1 border border-border rounded-lg p-1">
+                  <Button
+                    variant={viewMode === 'summary' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setViewMode('summary')}
+                    className="px-3 py-1 h-8 text-xs"
+                  >
+                    Summary
+                  </Button>
+                  <Button
+                    variant={viewMode === 'broker' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setViewMode('broker')}
+                    className="px-3 py-1 h-8 text-xs"
+                  >
+                    Broker Breakdown
+                  </Button>
                 </div>
               </div>
 
-              {/* Layout Mode Toggle */}
-              <div className="flex-1 min-w-0 w-full lg:w-auto lg:flex-none">
-                <label className="block text-sm font-medium mb-2">Layout:</label>
-                <div className="flex sm:inline-flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto w-full sm:w-auto lg:w-auto justify-center sm:justify-start">
-                  <div className="grid grid-cols-2 gap-1 w-full max-w-xs mx-auto sm:flex sm:items-center sm:gap-1 sm:max-w-none sm:mx-0">
-                    <Button
-                      variant={layoutMode === 'horizontal' ? 'default' : 'ghost'}
-                      size="sm"
-                      onClick={() => setLayoutMode('horizontal')}
-                      className="px-3 py-1 h-8 text-xs"
-                    >
-                      Horizontal
-                    </Button>
-                    <Button
-                      variant={layoutMode === 'vertical' ? 'default' : 'ghost'}
-                      size="sm"
-                      onClick={() => setLayoutMode('vertical')}
-                      className="px-3 py-1 h-8 text-xs"
-                    >
-                      Vertical
-                    </Button>
-                  </div>
-                </div>
-              </div>
+
             </div>
 
             {/* Row 2: Selected Dates */}
@@ -1131,11 +1107,7 @@ export function StockTransactionDoneSummary() {
       </Card>
 
       {/* Main Data Display */}
-      {viewMode === 'summary' ? (
-        layoutMode === 'horizontal' ? renderHorizontalSummaryView() : renderVerticalSummaryView()
-      ) : (
-        layoutMode === 'horizontal' ? renderHorizontalBrokerBreakdownView() : renderVerticalBrokerBreakdownView()
-      )}
+      {viewMode === 'summary' ? renderHorizontalSummaryView() : renderHorizontalBrokerBreakdownView()}
     </div>
   );
 }
