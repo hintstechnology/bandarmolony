@@ -14,6 +14,7 @@ import BrokerDataScheduler from './brokerDataScheduler';
 import BrokerInventoryDataScheduler from './brokerInventoryDataScheduler';
 import ForeignFlowDataScheduler from './foreignFlowDataScheduler';
 import MoneyFlowDataScheduler from './moneyFlowDataScheduler';
+import BreakDoneTradeDataScheduler from './breakDoneTradeDataScheduler';
 import { SchedulerLogService, SchedulerLog } from './schedulerLogService';
 import { updateDoneSummaryData } from './doneSummaryDataScheduler';
 import { updateStockData } from './stockDataScheduler';
@@ -35,13 +36,13 @@ const SCHEDULER_CONFIG = {
   HOLDING_UPDATE_TIME: '00:00', // Monthly (last day)
   
   // Calculation Times
-  RRC_UPDATE_TIME: '13:31',
-  RRG_UPDATE_TIME: '13:31',
-  SEASONAL_UPDATE_TIME: '13:31',
-  TREND_FILTER_UPDATE_TIME: '13:31',
+  RRC_UPDATE_TIME: '12:31',
+  RRG_UPDATE_TIME: '12:31',
+  SEASONAL_UPDATE_TIME: '12:31',
+  TREND_FILTER_UPDATE_TIME: '12:31',
   
   // Phase-based Calculation Times
-  PHASE1_UPDATE_TIME: '13:51', // Broker Data, Bid/Ask, Money Flow, Foreign Flow
+  PHASE1_UPDATE_TIME: '14:46', // Broker Data, Bid/Ask, Money Flow, Foreign Flow, Break Done Trade
   // Phase 2 is triggered automatically when Phase 1 completes
   
   // Timezone
@@ -86,6 +87,7 @@ const brokerDataService = new BrokerDataScheduler();
 const brokerInventoryService = new BrokerInventoryDataScheduler();
 const foreignFlowService = new ForeignFlowDataScheduler();
 const moneyFlowService = new MoneyFlowDataScheduler();
+const breakDoneTradeService = new BreakDoneTradeDataScheduler();
 
 /**
  * Start the scheduler
@@ -323,16 +325,40 @@ export function startScheduler(): void {
         console.log('📊 Phase 1 database log created:', logEntry.id);
       }
       
-      console.log('🔄 Starting Phase 1 calculations (Broker Data, Bid/Ask, Money Flow, Foreign Flow)...');
+      console.log('🔄 Starting Phase 1 calculations (SEQUENTIAL MODE to prevent memory overflow)...');
       
-      // Process all available dates
-      let totalSuccessCount = 0;
-      let totalCalculations = 0;
+      // Run Break Done Trade calculation first (processes all DT files - lightest)
+      console.log('🔄 Starting Break Done Trade calculation (1/5)...');
+      const breakDoneTradeResult = await breakDoneTradeService.generateBreakDoneTradeData();
+      
+      let breakDoneTradeSuccess = 0;
+      if (breakDoneTradeResult.success) {
+        breakDoneTradeSuccess = 1;
+        console.log('✅ Break Done Trade calculation completed successfully');
+        
+        // Force garbage collection after Break Done Trade
+        if (global.gc) {
+          global.gc();
+          console.log('🧹 Forced garbage collection after Break Done Trade');
+        }
+      } else {
+        console.error('❌ Break Done Trade calculation failed:', breakDoneTradeResult.message);
+      }
+      
+      // Process all available dates for other calculations
+      let totalSuccessCount = breakDoneTradeSuccess;
+      let totalCalculations = 1; // Break Done Trade
       
       for (const dateSuffix of availableDates) {
-        console.log(`📅 Processing date: ${dateSuffix}`);
+        console.log(`📅 Processing date: ${dateSuffix} (SEQUENTIAL MODE)...`);
         
-        // Run calculations with optimized parallel execution and progress tracking
+        // Force garbage collection before processing each date
+        if (global.gc) {
+          global.gc();
+          console.log('🧹 Forced garbage collection before processing date:', dateSuffix);
+        }
+        
+        // Run calculations with sequential execution and progress tracking
         const phase1Results = await runOptimizedPhase1Calculations(dateSuffix, logEntry);
         
         const successCount = phase1Results.filter(r => r.success).length;
@@ -340,6 +366,15 @@ export function startScheduler(): void {
         totalCalculations += 4; // 4 calculations per date
         
         console.log(`📊 Date ${dateSuffix}: ${successCount}/4 calculations successful`);
+        
+        // Force garbage collection after processing each date
+        if (global.gc) {
+          global.gc();
+          console.log('🧹 Forced garbage collection after processing date:', dateSuffix);
+        }
+        
+        // Small delay to allow memory cleanup between dates
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
       
       console.log(`📊 Phase 1 complete: ${totalSuccessCount}/${totalCalculations} calculations successful across ${availableDates.length} dates`);
@@ -394,7 +429,7 @@ export function startScheduler(): void {
   console.log(`  🔄 RRG Calculation + Scanners: ${RRG_UPDATE_TIME} daily`);
   console.log(`  🔄 Seasonality Calculation: ${SEASONAL_UPDATE_TIME} daily`);
   console.log(`  🔄 Trend Filter Calculation: ${TREND_FILTER_UPDATE_TIME} daily`);
-  console.log(`  🔄 Phase 1 (Broker Data, Bid/Ask, Money Flow, Foreign Flow): ${PHASE1_UPDATE_TIME} daily`);
+  console.log(`  🔄 Phase 1 (Broker Data, Bid/Ask, Money Flow, Foreign Flow, Break Done Trade): ${PHASE1_UPDATE_TIME} daily`);
   console.log(`  🔄 Phase 2 (Broker Inventory, Accumulation Distribution): Triggered when Phase 1 completes`);
   console.log(`  ⏭️  Weekend updates: ENABLED (Sat/Sun)\n`);
 
@@ -453,10 +488,15 @@ async function runPreflightChecks(): Promise<{ success: boolean; message: string
       };
     }
     
-    // Extract available dates from DT files
+    // Extract available dates from DT files and convert to full format
     const availableDates = availableDtFiles.map(file => {
       const match = file.match(/DT(\d{6})\.csv$/);
-      return match ? match[1] : null;
+      if (match) {
+        const yyMMdd = match[1];
+        // Convert YYMMDD to YYYYMMDD (assume 20xx)
+        return `20${yyMMdd}`;
+      }
+      return null;
     }).filter(date => date !== null) as string[];
     
     console.log(`✅ Pre-flight checks passed - Found ${availableDtFiles.length} DT files and ${ohlcFiles.length} OHLC files`);
@@ -484,28 +524,41 @@ async function runOptimizedPhase1Calculations(
   dateSuffix: string, 
   logEntry: SchedulerLog | null
 ): Promise<Array<{ name: string; success: boolean; error?: string; duration?: number }>> {
+  // Sequential execution to prevent memory overflow
+  // Order: Lightest to heaviest memory usage
   const calculations = [
-    { name: 'Broker Data', service: brokerDataService, method: 'generateBrokerData' },
-    { name: 'Bid/Ask Footprint', service: bidAskService, method: 'generateBidAskData' },
+    { name: 'Foreign Flow', service: foreignFlowService, method: 'generateForeignFlowData' },
     { name: 'Money Flow', service: moneyFlowService, method: 'generateMoneyFlowData' },
-    { name: 'Foreign Flow', service: foreignFlowService, method: 'generateForeignFlowData' }
+    { name: 'Bid/Ask Footprint', service: bidAskService, method: 'generateBidAskData' },
+    { name: 'Broker Data', service: brokerDataService, method: 'generateBrokerData' }
   ];
   
   const results: Array<{ name: string; success: boolean; error?: string; duration?: number }> = [];
   
-  // Run calculations with timeout and progress tracking
-  const calculationPromises = calculations.map(async (calc, index) => {
+  // Run calculations sequentially to prevent memory overflow
+  for (let index = 0; index < calculations.length; index++) {
+    const calc = calculations[index];
+    if (!calc) {
+      console.error(`❌ Calculation at index ${index} is undefined`);
+      continue;
+    }
     const startTime = Date.now();
     
     try {
-      console.log(`🔄 Starting ${calc.name} calculation (${index + 1}/4)...`);
+      console.log(`🔄 Starting ${calc.name} calculation (${index + 1}/4) - SEQUENTIAL MODE...`);
       
       // Update progress in database
       if (logEntry) {
         await SchedulerLogService.updateLog(logEntry.id!, {
           progress_percentage: Math.round((index / 4) * 100),
-          current_processing: `Running ${calc.name} calculation...`
+          current_processing: `Running ${calc.name} calculation (sequential)...`
         });
+      }
+      
+      // Force garbage collection before each calculation
+      if (global.gc) {
+        global.gc();
+        console.log('🧹 Forced garbage collection before', calc.name);
       }
       
       // Run calculation with timeout
@@ -520,35 +573,34 @@ async function runOptimizedPhase1Calculations(
       
       if (result.success) {
         console.log(`✅ ${calc.name} calculation completed in ${Math.round(duration / 1000)}s`);
-        return { name: calc.name, success: true, duration };
+        results.push({ name: calc.name, success: true, duration });
       } else {
         console.error(`❌ ${calc.name} calculation failed:`, result.message);
-        return { name: calc.name, success: false, error: result.message, duration };
+        results.push({ name: calc.name, success: false, error: result.message, duration });
       }
+      
+      // Force garbage collection after each calculation
+      if (global.gc) {
+        global.gc();
+        console.log('🧹 Forced garbage collection after', calc.name);
+      }
+      
+      // Small delay to allow memory cleanup
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
     } catch (error) {
       const duration = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       console.error(`❌ ${calc.name} calculation failed:`, errorMessage);
-      return { name: calc.name, success: false, error: errorMessage, duration };
+      results.push({ name: calc.name, success: false, error: errorMessage, duration });
+      
+      // Force garbage collection after error
+      if (global.gc) {
+        global.gc();
+        console.log('🧹 Forced garbage collection after', calc.name, 'error');
+      }
     }
-  });
-  
-  // Wait for all calculations to complete
-  const calculationResults = await Promise.allSettled(calculationPromises);
-  
-  // Process results
-  calculationResults.forEach((result, index) => {
-    if (result.status === 'fulfilled') {
-      results.push(result.value);
-    } else {
-      results.push({
-        name: calculations[index]?.name || 'Unknown',
-        success: false,
-        error: result.reason instanceof Error ? result.reason.message : 'Unknown error'
-      });
-    }
-  });
+  }
   
   // Force garbage collection after calculations
   if (global.gc) {
@@ -659,14 +711,26 @@ async function runPhase2Calculations(availableDates: string[]): Promise<void> {
       console.log('📊 Phase 2 database log created:', logEntry.id);
     }
     
-    console.log('🔄 Starting Phase 2 calculations (Broker Inventory, Accumulation Distribution)...');
+    console.log('🔄 Starting Phase 2 calculations (Broker Inventory, Accumulation Distribution) - SEQUENTIAL MODE...');
+    
+    // Force garbage collection before Phase 2
+    if (global.gc) {
+      global.gc();
+      console.log('🧹 Forced garbage collection before Phase 2');
+    }
     
     // Process all available dates
     let totalSuccessCount = 0;
     let totalCalculations = 0;
     
     for (const dateSuffix of availableDates) {
-      console.log(`📅 Processing date: ${dateSuffix}`);
+      console.log(`📅 Processing date: ${dateSuffix} (SEQUENTIAL MODE)...`);
+      
+      // Force garbage collection before processing each date
+      if (global.gc) {
+        global.gc();
+        console.log('🧹 Forced garbage collection before processing date:', dateSuffix);
+      }
       
       // Run optimized Phase 2 calculations
       const phase2Results = await runOptimizedPhase2Calculations(dateSuffix, logEntry);
@@ -676,6 +740,21 @@ async function runPhase2Calculations(availableDates: string[]): Promise<void> {
       totalCalculations += 2; // 2 calculations per date
       
       console.log(`📊 Date ${dateSuffix}: ${successCount}/2 calculations successful`);
+      
+      // Force garbage collection after processing each date
+      if (global.gc) {
+        global.gc();
+        console.log('🧹 Forced garbage collection after processing date:', dateSuffix);
+      }
+      
+      // Small delay to allow memory cleanup between dates
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+    
+    // Force garbage collection after Phase 2
+    if (global.gc) {
+      global.gc();
+      console.log('🧹 Forced garbage collection after Phase 2');
     }
     
     console.log(`📊 Phase 2 complete: ${totalSuccessCount}/${totalCalculations} calculations successful across ${availableDates.length} dates`);

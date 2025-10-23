@@ -127,8 +127,9 @@ router.get('/stock/:code', async (req, res) => {
       // Filter to only latest date for summary calculations
       const latestData = allData.filter(row => row.DataDate === latestDate);
 
-      // Calculate summary
-      const totalShareholders = latestData[0]?.JumlahPemegangSaham || 0;
+      // Calculate summary - count unique shareholders
+      const uniqueShareholders = new Set(latestData.map(row => row.PemegangSaham_Nama).filter(name => name && name.trim()));
+      const totalShareholders = uniqueShareholders.size;
       const controllingData = latestData.filter(row => 
         row.PemegangSaham_Kategori?.toLowerCase().includes('pengendali') || 
         row.PemegangSaham_Kategori?.toLowerCase().includes('lebih dari 5')

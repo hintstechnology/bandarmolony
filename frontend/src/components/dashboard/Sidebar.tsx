@@ -18,7 +18,6 @@ import {
 import { useProfile } from "../../contexts/ProfileContext";
 import { useAuth } from "../../contexts/AuthContext";
 import { useToast } from "../../contexts/ToastContext";
-import { api } from "../../services/api";
 import logoUrl from "../../../logo.png";
 
 /** ===== MENU ===== */

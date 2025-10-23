@@ -8,10 +8,11 @@ export interface AzureListOptions {
 
 function getContainer(): any {
   const connectionString = config.AZURE_STORAGE_CONNECTION_STRING;
-  const containerName = config.AZURE_STORAGE_CONTAINER_NAME;
-  if (!connectionString || !containerName) {
+  const containerName = config.AZURE_STORAGE_CONTAINER_NAME || 'stock-trading-data';
+  if (!connectionString) {
     throw new Error('Azure Storage configuration is missing');
   }
+  console.log(`🔧 Azure Storage - Container: ${containerName}`);
   const service = BlobServiceClient.fromConnectionString(connectionString);
   return service.getContainerClient(containerName);
 }

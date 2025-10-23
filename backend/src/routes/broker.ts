@@ -43,16 +43,20 @@ router.get('/summary/:stockCode', async (req, res) => {
     const filename = `broker_summary/broker_summary_${dateStr}/${stockCode}.csv`;
     
     console.log(`Fetching broker summary data for ${stockCode} on ${dateStr}`);
+    console.log(`Looking for file: ${filename}`);
     
     // Download CSV data from Azure
     const csvData = await downloadText(filename);
     
     if (!csvData) {
+      console.log(`File not found: ${filename}`);
       return res.status(404).json({
         success: false,
         error: `No broker summary data found for ${stockCode} on ${dateStr}`
       });
     }
+    
+    console.log(`File found, size: ${csvData.length} characters`);
     
     // Parse CSV data
     const lines = csvData.trim().split('\n');
@@ -74,14 +78,26 @@ router.get('/summary/:stockCode', async (req, res) => {
       headers.forEach((header, index) => {
         const value = values[index];
         // Convert numeric fields
-        if (['nblot', 'nbval', 'bavg', 'sl', 'nslot', 'nsval', 'savg'].includes(header)) {
+        if (['BuyerVol', 'BuyerValue', 'SellerVol', 'SellerValue', 'NetBuyVol', 'NetBuyValue', 'BuyerAvg', 'SellerAvg'].includes(header)) {
           row[header] = parseFloat(value || '0') || 0;
         } else {
           row[header] = value || '';
         }
       });
       
-      brokerData.push(row);
+      // Map backend columns to frontend format
+      const mappedRow = {
+        broker: row.BrokerCode || '',
+        nblot: row.NetBuyVol || 0,        // Net Buy Lot
+        nbval: row.NetBuyValue || 0,      // Net Buy Value
+        bavg: row.BuyerAvg || 0,          // Buyer Average
+        sl: row.SellerVol || 0,           // Seller Lot
+        nslot: -(row.SellerVol || 0),     // Net Sell Lot (negative)
+        nsval: -(row.SellerValue || 0),   // Net Sell Value (negative)
+        savg: row.SellerAvg || 0          // Seller Average
+      };
+      
+      brokerData.push(mappedRow);
     }
     
     return res.json({
@@ -95,6 +111,13 @@ router.get('/summary/:stockCode', async (req, res) => {
     
   } catch (error: any) {
     console.error('Error fetching broker summary data:', error);
+    console.error('Error details:', {
+      stockCode: req.params.stockCode,
+      date: req.query['date'],
+      filename: `broker_summary/broker_summary_${req.query['date']}/${req.params.stockCode}.csv`,
+      error: error.message,
+      stack: error.stack
+    });
     return res.status(500).json({
       success: false,
       error: error.message || 'Failed to fetch broker summary data'
@@ -244,6 +267,85 @@ router.get('/inventory/:stockCode', async (req, res) => {
     return res.status(500).json({
       success: false,
       error: error.message || 'Failed to fetch broker inventory data'
+    });
+  }
+});
+
+/**
+ * GET /api/broker/dates
+ * Get available dates for broker summary data
+ */
+router.get('/dates', async (_req, res) => {
+  try {
+    const { listPaths } = await import('../utils/azureBlob');
+    
+    // List all broker_summary directories
+    const allFiles = await listPaths({ prefix: 'broker_summary/' });
+    const dates = new Set<string>();
+    
+    allFiles.forEach(file => {
+      // Extract date from broker_summary/broker_summary_YYYYMMDD/ pattern
+      const match = file.match(/broker_summary\/broker_summary_(\d{8})\//);
+      if (match && match[1]) {
+        dates.add(match[1]);
+      }
+    });
+    
+    const sortedDates = Array.from(dates).sort().reverse(); // Newest first
+    
+    return res.json({
+      success: true,
+      data: {
+        dates: sortedDates
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('Error fetching broker summary dates:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch broker summary dates'
+    });
+  }
+});
+
+/**
+ * GET /api/broker/stocks
+ * Get available stocks for broker summary on specific date
+ */
+router.get('/stocks', async (req, res) => {
+  try {
+    const { date } = brokerSummaryQuerySchema.parse(req.query);
+    const { listPaths } = await import('../utils/azureBlob');
+    
+    // List all files in broker_summary for specific date
+    const prefix = `broker_summary/broker_summary_${date}/`;
+    const allFiles = await listPaths({ prefix });
+    
+    const stocks = allFiles
+      .filter(file => file.endsWith('.csv') && !file.includes('ALLSUM'))
+      .map(file => {
+        // Extract stock code from filename: broker_summary/broker_summary_YYYYMMDD/STOCK.csv
+        const parts = file.split('/');
+        const filename = parts[parts.length - 1];
+        return filename ? filename.replace('.csv', '') : '';
+      })
+      .filter(stock => stock.length === 4) // Only 4-character stock codes
+      .sort();
+    
+    return res.json({
+      success: true,
+      data: {
+        stocks,
+        date
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('Error fetching broker summary stocks:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch broker summary stocks'
     });
   }
 });

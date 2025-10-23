@@ -168,7 +168,7 @@ export class MoneyFlowCalculator {
       dataMap.set(item.Date, item);
     });
     
-    // Convert back to array and sort by date (oldest first)
+    // Convert back to array and sort by date (oldest first) - same as original file
     const mergedData = Array.from(dataMap.values());
     mergedData.sort((a, b) => a.Date.localeCompare(b.Date));
     
@@ -200,7 +200,7 @@ export class MoneyFlowCalculator {
 
   /**
    * Create or update individual CSV files for each stock/index's money flow data
-   * Using accurate classification based on source folder (preserved from input)
+   * Using flat structure like original file: money_flow/{code}.csv
    */
   private async createMoneyFlowCsvFiles(
     moneyFlowData: Map<string, { code: string; type: 'stock' | 'index'; mfiData: MoneyFlowData[] }>
@@ -212,11 +212,10 @@ export class MoneyFlowCalculator {
     let indexCount = 0;
     
     for (const [_key, { code, type, mfiData: flowData }] of moneyFlowData) {
-      // Use type from source folder directly (no guessing!)
-      const subfolder = type; // 'stock' or 'index'
-      const filename = `money_flow/${subfolder}/${code}.csv`;
+      // Use flat structure like original: money_flow/{code}.csv
+      const filename = `money_flow/${code}.csv`;
       
-      console.log(`📁 Processing ${code} -> ${subfolder}/${code}.csv (${type.toUpperCase()})`);
+      console.log(`📁 Processing ${code} -> ${code}.csv (${type.toUpperCase()})`);
       
       try {
         // Check if file already exists (simplified error handling)
@@ -228,7 +227,7 @@ export class MoneyFlowCalculator {
           // Merge with new data
           const mergedData = this.mergeMoneyFlowData(existingData, flowData);
           
-          // Sort by date descending (newest first)
+          // Sort by date ascending (oldest first) - same as original file
           const sortedData = this.sortMoneyFlowDataByDate(mergedData);
           
           // Save merged and sorted data
@@ -237,7 +236,7 @@ export class MoneyFlowCalculator {
         } else {
           console.log(`📄 Creating new file: ${filename}`);
           
-          // Sort new data by date descending (newest first)
+          // Sort new data by date ascending (oldest first) - same as original file
           const sortedData = this.sortMoneyFlowDataByDate(flowData);
           
           await this.saveToAzure(filename, sortedData);
@@ -254,7 +253,7 @@ export class MoneyFlowCalculator {
         // Simplified error handling - just log and continue
         console.log(`📄 File not found, creating new: ${filename}`);
         
-        // Sort new data by date descending (newest first)
+        // Sort new data by date ascending (oldest first) - same as original file
         const sortedData = this.sortMoneyFlowDataByDate(flowData);
         
         await this.saveToAzure(filename, sortedData);
@@ -272,20 +271,18 @@ export class MoneyFlowCalculator {
     }
     
     console.log(`\n📊 Processed ${createdFiles.length} money flow CSV files total:`);
-    console.log(`   - 📈 ${stockCount} stock files in money_flow/stock/`);
-    console.log(`   - 📊 ${indexCount} index files in money_flow/index/`);
+    console.log(`   - 📈 ${stockCount} stock files in money_flow/`);
+    console.log(`   - 📊 ${indexCount} index files in money_flow/`);
     return createdFiles;
   }
 
   /**
-   * Sort money flow data by date descending (newest first)
+   * Sort money flow data by date ascending (oldest first) - same as original file
    */
   private sortMoneyFlowDataByDate(data: MoneyFlowData[]): MoneyFlowData[] {
     return data.sort((a, b) => {
-      // Parse dates and compare (newest first)
-      const dateA = new Date(a.Date);
-      const dateB = new Date(b.Date);
-      return dateB.getTime() - dateA.getTime();
+      // Parse dates and compare (oldest first) - same as original file
+      return a.Date.localeCompare(b.Date);
     });
   }
 
@@ -347,7 +344,7 @@ export class MoneyFlowCalculator {
     console.log("\nProcessing all files (stock and index) separately...");
     
     const moneyFlowData = new Map<string, { code: string; type: 'stock' | 'index'; mfiData: MoneyFlowData[] }>();
-    const BATCH_SIZE = 10; // Reduced from 25 to prevent memory issues
+    const BATCH_SIZE = 5; // Further reduced to prevent OOM
     
     // Process stock files first
     console.log("\n📈 Processing STOCK files...");

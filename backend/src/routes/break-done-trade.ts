@@ -1,10 +1,9 @@
 import { Router } from 'express';
 import { downloadText, listPaths } from '../utils/azureBlob';
-import AccumulationDistributionCalculator from '../calculations/accumulation/accumulation_distribution';
-
+import BreakDoneTradeCalculator from '../calculations/done/break_done_trade';
 
 const router = Router();
-const accumulationCalculator = new AccumulationDistributionCalculator();
+const breakDoneTradeCalculator = new BreakDoneTradeCalculator();
 
 // Cache untuk menyimpan data yang sudah diambil
 const dataCache = new Map<string, { data: any; timestamp: number }>();
@@ -48,42 +47,42 @@ function parseCsvContent(csvContent: string): any[] {
   return data;
 }
 
-// Get accumulation distribution status
+// Get break done trade status
 router.get('/status', async (_req, res) => {
   try {
     return res.json({
       success: true,
       data: {
-        service: 'Accumulation Distribution Calculator',
+        service: 'Break Done Trade Calculator',
         status: 'ready',
-        description: 'Calculates weekly/daily accumulation, volume percentages, and MA indicators'
+        description: 'Breaks down done trade data by stock code into separate files'
       }
     });
   } catch (error) {
     return res.status(500).json({
       success: false,
-      error: `Failed to get accumulation distribution status: ${error instanceof Error ? error.message : 'Unknown error'}`
+      error: `Failed to get break done trade status: ${error instanceof Error ? error.message : 'Unknown error'}`
     });
   }
 });
 
-// Get list of available dates from accumulation_distribution directory
+// Get list of available dates from done_detail directory
 router.get('/dates', async (_req, res) => {
   try {
-    const cacheKey = 'accumulation-distribution-dates';
+    const cacheKey = 'break-done-trade-dates';
     const cachedData = getCachedData(cacheKey);
     if (cachedData) {
       return res.json(cachedData);
     }
 
-    console.log('📊 Getting list of available dates from accumulation_distribution directory...');
+    console.log('📊 Getting list of available dates from done_detail directory...');
     
-    const accumulationBlobs = await listPaths({ prefix: 'accumulation_distribution/' });
+    const doneDetailBlobs = await listPaths({ prefix: 'done_detail/' });
     const dates: string[] = [];
     
-    for (const blobName of accumulationBlobs) {
-      // Extract date from path like "accumulation_distribution/20241201.csv"
-      const match = blobName.match(/accumulation_distribution\/(\d{8})\.csv$/);
+    for (const blobName of doneDetailBlobs) {
+      // Extract date from path like "done_detail/20241201/BBRI.csv"
+      const match = blobName.match(/done_detail\/(\d{8})\//);
       if (match && match[1]) {
         const dateStr = match[1];
         // Convert YYYYMMDD to YYYY-MM-DD
@@ -108,28 +107,90 @@ router.get('/dates', async (_req, res) => {
     return res.json(response);
     
   } catch (error) {
-    console.error('❌ Error getting accumulation distribution dates:', error);
+    console.error('❌ Error getting break done trade dates:', error);
     return res.status(500).json({
       success: false,
-      error: 'Failed to get accumulation distribution dates'
+      error: 'Failed to get break done trade dates'
     });
   }
 });
 
-// Get accumulation distribution data for specific date
-router.get('/data/:date', async (req, res) => {
+// Get list of available stocks for a specific date
+router.get('/stocks/:date', async (req, res) => {
   try {
     const { date } = req.params;
-    const cacheKey = `accumulation-distribution-${date}`;
+    const cacheKey = `break-done-trade-stocks-${date}`;
     const cachedData = getCachedData(cacheKey);
     if (cachedData) {
       return res.json(cachedData);
     }
 
-    console.log(`📊 Getting accumulation distribution data for date: ${date}`);
+    console.log(`📊 Getting list of available stocks for date: ${date}`);
     
     const dateFormatted = date.replace(/-/g, '');
-    const filePath = `accumulation_distribution/${dateFormatted}.csv`;
+    const prefix = `done_detail/${dateFormatted}/`;
+    
+    try {
+      const blobs = await listPaths({ prefix });
+      const stocks: string[] = [];
+      
+      for (const blobName of blobs) {
+        // Extract stock code from path like "done_detail/20241201/BBRI.csv"
+        const match = blobName.match(new RegExp(`done_detail/${dateFormatted}/(.+)\\.csv$`));
+        if (match && match[1]) {
+          stocks.push(match[1]);
+        }
+      }
+      
+      const response = {
+        success: true,
+        data: {
+          date: date,
+          stocks: stocks.sort(),
+          total: stocks.length
+        }
+      };
+      
+      setCachedData(cacheKey, response);
+      return res.json(response);
+      
+    } catch (error: any) {
+      if (error.message.includes('Blob not found')) {
+        return res.json({
+          success: true,
+          data: {
+            date: date,
+            stocks: [],
+            total: 0
+          }
+        });
+      }
+      throw error;
+    }
+    
+  } catch (error) {
+    console.error('❌ Error getting break done trade stocks:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get break done trade stocks'
+    });
+  }
+});
+
+// Get break done trade data for specific stock and date
+router.get('/data/:date/:stock', async (req, res) => {
+  try {
+    const { date, stock } = req.params;
+    const cacheKey = `break-done-trade-data-${date}-${stock}`;
+    const cachedData = getCachedData(cacheKey);
+    if (cachedData) {
+      return res.json(cachedData);
+    }
+
+    console.log(`📊 Getting break done trade data for stock: ${stock}, date: ${date}`);
+    
+    const dateFormatted = date.replace(/-/g, '');
+    const filePath = `done_detail/${dateFormatted}/${stock}.csv`;
     
     try {
       const csvContent = await downloadText(filePath);
@@ -139,7 +200,8 @@ router.get('/data/:date', async (req, res) => {
         success: true,
         data: {
           date: date,
-          accumulationData: data,
+          stock: stock,
+          doneTradeData: data,
           total: data.length
         }
       };
@@ -153,7 +215,8 @@ router.get('/data/:date', async (req, res) => {
           success: true,
           data: {
             date: date,
-            accumulationData: [],
+            stock: stock,
+            doneTradeData: [],
             total: 0
           }
         });
@@ -162,15 +225,15 @@ router.get('/data/:date', async (req, res) => {
     }
     
   } catch (error) {
-    console.error('❌ Error getting accumulation distribution data:', error);
+    console.error('❌ Error getting break done trade data:', error);
     return res.status(500).json({
       success: false,
-      error: 'Failed to get accumulation distribution data'
+      error: 'Failed to get break done trade data'
     });
   }
 });
 
-// Generate accumulation distribution data
+// Generate break done trade data
 router.post('/generate', async (req, res) => {
   try {
     const { date } = req.body;
@@ -182,10 +245,10 @@ router.post('/generate', async (req, res) => {
       });
     }
     
-    console.log(`🚀 Calculating accumulation distribution for date: ${date}`);
+    console.log(`🚀 Generating break done trade data for date: ${date}`);
     
     // Use the existing calculator class
-    const result = await accumulationCalculator.generateAccumulationDistributionData(date);
+    const result = await breakDoneTradeCalculator.generateBreakDoneTradeData(date);
     
     if (result.success) {
       return res.json(result);
@@ -194,10 +257,10 @@ router.post('/generate', async (req, res) => {
     }
     
   } catch (error) {
-    console.error('❌ Error calculating accumulation distribution:', error);
+    console.error('❌ Error generating break done trade data:', error);
     return res.status(500).json({
       success: false,
-      error: 'Failed to calculate accumulation distribution data'
+      error: 'Failed to generate break done trade data'
     });
   }
 });

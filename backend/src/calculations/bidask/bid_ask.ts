@@ -21,21 +21,10 @@ interface PriceLevelData {
   TotalVolume: number; // BidVolume + AskVolume
   BidCount: number;   // Jumlah transaksi bid
   AskCount: number;   // Jumlah transaksi ask
+  UniqueBidBrokers: number; // Jumlah broker unik yang bid
+  UniqueAskBrokers: number; // Jumlah broker unik yang ask
 }
 
-interface BrokerFootprintData {
-  BrokerCode: string;
-  StockCode: string;
-  Price: number;
-  BidVolume: number;  // Volume yang dijual oleh broker ini
-  AskVolume: number;  // Volume yang dibeli oleh broker ini
-  NetVolume: number;  // AskVolume - BidVolume
-  TotalVolume: number;
-  BidCount: number;
-  AskCount: number;
-  AvgBidPrice: number;
-  AvgAskPrice: number;
-}
 
 interface StockFootprintData {
   StockCode: string;
@@ -141,118 +130,30 @@ export class BidAskCalculator {
       const values = line.split(';');
       if (values.length < header.length) continue;
       
-      const transaction: TransactionData = {
-        STK_CODE: values[stkCodeIndex]?.trim() || '',
-        BRK_COD1: values[brkCod1Index]?.trim() || '',
-        BRK_COD2: values[brkCod2Index]?.trim() || '',
-        STK_VOLM: parseFloat(values[stkVolmIndex]?.trim() || '0') || 0,
-        STK_PRIC: parseFloat(values[stkPricIndex]?.trim() || '0') || 0,
-        TRX_CODE: values[trxCodeIndex]?.trim() || '',
-        TRX_TIME: trxTimeIndex !== -1 ? values[trxTimeIndex]?.trim() || '' : '',
-        TRX_ORD1: trxOrd1Index !== -1 ? parseFloat(values[trxOrd1Index]?.trim() || '0') || 0 : 0,
-        TRX_ORD2: trxOrd2Index !== -1 ? parseFloat(values[trxOrd2Index]?.trim() || '0') || 0 : 0
-      };
+      const stockCode = values[stkCodeIndex]?.trim() || '';
       
-      data.push(transaction);
+      // Filter only 4-character stock codes (regular stocks) - same as original file
+      if (stockCode && stockCode.length === 4) {
+        const transaction: TransactionData = {
+          STK_CODE: stockCode,
+          BRK_COD1: values[brkCod1Index]?.trim() || '',
+          BRK_COD2: values[brkCod2Index]?.trim() || '',
+          STK_VOLM: parseFloat(values[stkVolmIndex]?.trim() || '0') || 0,
+          STK_PRIC: parseFloat(values[stkPricIndex]?.trim() || '0') || 0,
+          TRX_CODE: values[trxCodeIndex]?.trim() || '',
+          TRX_TIME: trxTimeIndex !== -1 ? values[trxTimeIndex]?.trim() || '' : '',
+          TRX_ORD1: trxOrd1Index !== -1 ? parseFloat(values[trxOrd1Index]?.trim() || '0') || 0 : 0,
+          TRX_ORD2: trxOrd2Index !== -1 ? parseFloat(values[trxOrd2Index]?.trim() || '0') || 0 : 0
+        };
+        
+        data.push(transaction);
+      }
     }
     
-    console.log(`📊 Loaded ${data.length} transaction records from Azure`);
+    console.log(`📊 Loaded ${data.length} transaction records from Azure (4-character stocks only)`);
     return data;
   }
 
-  /**
-   * Create bid/ask footprint data by broker
-   */
-  private createBrokerFootprintData(data: TransactionData[]): BrokerFootprintData[] {
-    console.log("\nCreating broker footprint data...");
-    
-    // Group data by broker, stock, and price level
-    const brokerStockPriceMap = new Map<string, Map<string, Map<number, {
-      bidVolume: number;
-      askVolume: number;
-      bidCount: number;
-      askCount: number;
-      bidPriceSum: number;
-      askPriceSum: number;
-    }>>>();
-    
-    data.forEach(row => {
-      const stock = row.STK_CODE;
-      const price = row.STK_PRIC;
-      const volume = row.STK_VOLM;
-      const isBid = row.TRX_ORD1 > row.TRX_ORD2; // HAKA -> BID, HAKI -> ASK
-
-      const targetBroker = isBid ? row.BRK_COD1 : row.BRK_COD2; // seller for BID, buyer for ASK
-      if (!brokerStockPriceMap.has(targetBroker)) {
-        brokerStockPriceMap.set(targetBroker, new Map());
-      }
-      const brokerMap = brokerStockPriceMap.get(targetBroker)!;
-      if (!brokerMap.has(stock)) {
-        brokerMap.set(stock, new Map());
-      }
-      const stockMap = brokerMap.get(stock)!;
-      if (!stockMap.has(price)) {
-        stockMap.set(price, {
-          bidVolume: 0,
-          askVolume: 0,
-          bidCount: 0,
-          askCount: 0,
-          bidPriceSum: 0,
-          askPriceSum: 0
-        });
-      }
-      const rec = stockMap.get(price)!;
-      if (isBid) {
-        rec.bidVolume += volume;
-        rec.bidCount += 1;
-        rec.bidPriceSum += price * volume;
-      } else {
-        rec.askVolume += volume;
-        rec.askCount += 1;
-        rec.askPriceSum += price * volume;
-      }
-    });
-    
-    // Convert to array format
-    const brokerFootprintData: BrokerFootprintData[] = [];
-    
-    brokerStockPriceMap.forEach((stockMap, broker) => {
-      stockMap.forEach((priceMap, stock) => {
-        priceMap.forEach((priceData, price) => {
-          const avgBidPrice = priceData.bidVolume > 0 ? priceData.bidPriceSum / priceData.bidVolume : 0;
-          const avgAskPrice = priceData.askVolume > 0 ? priceData.askPriceSum / priceData.askVolume : 0;
-          
-          brokerFootprintData.push({
-            BrokerCode: broker,
-            StockCode: stock,
-            Price: price,
-            BidVolume: priceData.bidVolume,
-            AskVolume: priceData.askVolume,
-            NetVolume: priceData.askVolume - priceData.bidVolume,
-            TotalVolume: priceData.bidVolume + priceData.askVolume,
-            BidCount: priceData.bidCount,
-            AskCount: priceData.askCount,
-            AvgBidPrice: avgBidPrice,
-            AvgAskPrice: avgAskPrice
-          });
-        });
-      });
-    });
-    
-    // Sort by broker code, then by stock code, then by price
-    brokerFootprintData.sort((a, b) => {
-      if (a.BrokerCode !== b.BrokerCode) {
-        return a.BrokerCode.localeCompare(b.BrokerCode);
-      }
-      if (a.StockCode !== b.StockCode) {
-        return a.StockCode.localeCompare(b.StockCode);
-      }
-      return a.Price - b.Price;
-    });
-    
-    console.log(`Broker footprint data created with ${brokerFootprintData.length} records`);
-    return brokerFootprintData;
-  }
 
   /**
    * Create bid/ask footprint data by stock
@@ -336,64 +237,6 @@ export class BidAskCalculator {
     return stockFootprintData;
   }
 
-  /**
-   * Create price level summary data
-   */
-  private createPriceLevelSummary(data: TransactionData[]): PriceLevelData[] {
-    console.log("\nCreating price level summary...");
-    
-    const priceMap = new Map<number, {
-      bidVolume: number;
-      askVolume: number;
-      bidCount: number;
-      askCount: number;
-    }>();
-    
-    data.forEach(row => {
-      const price = row.STK_PRIC;
-      const volume = row.STK_VOLM;
-      const isBid = row.TRX_ORD1 > row.TRX_ORD2; // HAKA -> BID, HAKI -> ASK
-      
-      if (!priceMap.has(price)) {
-        priceMap.set(price, {
-          bidVolume: 0,
-          askVolume: 0,
-          bidCount: 0,
-          askCount: 0
-        });
-      }
-      
-      const priceData = priceMap.get(price)!;
-      if (isBid) {
-        priceData.bidVolume += volume;
-        priceData.bidCount += 1;
-      } else {
-        priceData.askVolume += volume;
-        priceData.askCount += 1;
-      }
-    });
-    
-    // Convert to array format
-    const priceLevelData: PriceLevelData[] = [];
-    
-    priceMap.forEach((priceData, price) => {
-      priceLevelData.push({
-        Price: price,
-        BidVolume: priceData.bidVolume,
-        AskVolume: priceData.askVolume,
-        NetVolume: priceData.askVolume - priceData.bidVolume,
-        TotalVolume: priceData.bidVolume + priceData.askVolume,
-        BidCount: priceData.bidCount,
-        AskCount: priceData.askCount
-      });
-    });
-    
-    // Sort by price
-    priceLevelData.sort((a, b) => a.Price - b.Price);
-    
-    console.log(`Price level summary created with ${priceLevelData.length} price levels`);
-    return priceLevelData;
-  }
 
   /**
    * Save data to Azure Blob Storage
@@ -417,6 +260,83 @@ export class BidAskCalculator {
 
 
   /**
+   * Create price level data grouped by stock code (for individual files)
+   */
+  private createPriceLevelData(data: TransactionData[]): Map<string, PriceLevelData[]> {
+    console.log("Creating price level data by stock...");
+    
+    const stockPriceMap = new Map<string, Map<number, {
+      bidVolume: number;
+      askVolume: number;
+      bidCount: number;
+      askCount: number;
+      uniqueBidBrokers: Set<string>;
+      uniqueAskBrokers: Set<string>;
+    }>>();
+    
+    data.forEach(row => {
+      const stock = row.STK_CODE;
+      const price = row.STK_PRIC;
+      const volume = row.STK_VOLM;
+      const isBid = row.TRX_ORD1 > row.TRX_ORD2; // HAKA -> BID, HAKI -> ASK
+      
+      if (!stockPriceMap.has(stock)) {
+        stockPriceMap.set(stock, new Map());
+      }
+      const stockMap = stockPriceMap.get(stock)!;
+      if (!stockMap.has(price)) {
+        stockMap.set(price, {
+          bidVolume: 0,
+          askVolume: 0,
+          bidCount: 0,
+          askCount: 0,
+          uniqueBidBrokers: new Set(),
+          uniqueAskBrokers: new Set()
+        });
+      }
+      const rec = stockMap.get(price)!;
+      
+      // Klasifikasi BID/ASK berdasarkan HAKA/HAKI (per tes.py)
+      if (isBid) {
+        rec.bidVolume += volume;
+        rec.bidCount += 1;
+        if (row.BRK_COD1) rec.uniqueBidBrokers.add(row.BRK_COD1);
+      } else {
+        rec.askVolume += volume;
+        rec.askCount += 1;
+        if (row.BRK_COD2) rec.uniqueAskBrokers.add(row.BRK_COD2);
+      }
+    });
+    
+    // Convert to array format
+    const priceLevelData = new Map<string, PriceLevelData[]>();
+    
+    stockPriceMap.forEach((priceMap, stock) => {
+      const stockData: PriceLevelData[] = [];
+      priceMap.forEach((priceData, price) => {
+        stockData.push({
+          Price: price,
+          BidVolume: priceData.bidVolume,
+          AskVolume: priceData.askVolume,
+          NetVolume: priceData.askVolume - priceData.bidVolume,
+          TotalVolume: priceData.bidVolume + priceData.askVolume,
+          BidCount: priceData.bidCount,
+          AskCount: priceData.askCount,
+          UniqueBidBrokers: priceData.uniqueBidBrokers.size,
+          UniqueAskBrokers: priceData.uniqueAskBrokers.size
+        });
+      });
+      
+      // Sort by price ascending (low to high) - same as original file
+      stockData.sort((a, b) => a.Price - b.Price);
+      priceLevelData.set(stock, stockData);
+    });
+    
+    console.log(`Created price level data for ${priceLevelData.size} stocks`);
+    return priceLevelData;
+  }
+
+  /**
    * Process a single DT file with all bid/ask analysis
    */
   private async processSingleDtFile(blobName: string): Promise<{ success: boolean; dateSuffix: string; files: string[] }> {
@@ -436,26 +356,42 @@ export class BidAskCalculator {
     console.log(`🔄 Processing ${blobName} (${data.length} transactions)...`);
     
     try {
-      // Create all analysis types in parallel for speed
-      const [brokerFootprint, stockFootprint, priceLevelSummary] = await Promise.all([
-        Promise.resolve(this.createBrokerFootprintData(data)),
-        Promise.resolve(this.createStockFootprintData(data)),
-        Promise.resolve(this.createPriceLevelSummary(data))
-      ]);
+      // Create price level data by stock (for individual files) - same as original file
+      const priceLevelData = this.createPriceLevelData(data);
       
-      // Save results to Azure in parallel
+      // Create stock footprint data (for ALL_STOCK.csv) - same as original file
+      const stockFootprintData = this.createStockFootprintData(data);
+      
+      // Save individual CSV files for each stock - same as original file
       const basePath = `bid_ask/bid_ask_${dateSuffix}`;
-      await Promise.all([
-        this.saveToAzure(`${basePath}/price_level_summary.csv`, priceLevelSummary),
-        this.saveToAzure(`${basePath}/by_stock.csv`, stockFootprint),
-        this.saveToAzure(`${basePath}/by_broker.csv`, brokerFootprint)
-      ]);
+      const allFiles: string[] = [];
       
-      const allFiles = [
-        `${basePath}/price_level_summary.csv`,
-        `${basePath}/by_stock.csv`,
-        `${basePath}/by_broker.csv`
-      ];
+      // Save individual stock files
+      for (const [stockCode, stockData] of priceLevelData) {
+        const filename = `${basePath}/${stockCode}.csv`;
+        
+        // Add StockCode column to each row - same as original file
+        const dataWithStockCode = stockData.map(row => ({
+          StockCode: stockCode,
+          Price: row.Price,
+          BidVolume: row.BidVolume,
+          AskVolume: row.AskVolume,
+          NetVolume: row.NetVolume,
+          TotalVolume: row.TotalVolume,
+          BidCount: row.BidCount,
+          AskCount: row.AskCount,
+          UniqueBidBrokers: row.UniqueBidBrokers,
+          UniqueAskBrokers: row.UniqueAskBrokers
+        }));
+        
+        await this.saveToAzure(filename, dataWithStockCode);
+        allFiles.push(filename);
+      }
+      
+      // Save ALL_STOCK.csv file - same as original file
+      const allStockFilename = `${basePath}/ALL_STOCK.csv`;
+      await this.saveToAzure(allStockFilename, stockFootprintData);
+      allFiles.push(allStockFilename);
       
       console.log(`✅ Completed processing ${blobName} - ${allFiles.length} files created`);
       return { success: true, dateSuffix, files: allFiles };
@@ -487,8 +423,8 @@ export class BidAskCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
-      // Process files in batches for speed (5 files at a time)
-      const BATCH_SIZE = 5;
+      // Process files in batches for speed (2 files at a time to prevent OOM)
+      const BATCH_SIZE = 2;
       const allResults: { success: boolean; dateSuffix: string; files: string[] }[] = [];
       let processed = 0;
       let successful = 0;

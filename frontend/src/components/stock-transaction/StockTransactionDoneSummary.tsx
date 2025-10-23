@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
-import { Calendar, Plus, X, ChevronDown, RotateCcw, TrendingUp, Search } from 'lucide-react';
+import { ChevronDown, TrendingUp } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
+import { api } from '../../services/api';
 
 interface PriceData {
   price: number;
@@ -13,6 +12,20 @@ interface PriceData {
   sFreq: number;
   tFreq: number;
   tLot: number;
+}
+
+// Backend bid/ask data interface
+interface BackendBidAskData {
+  StockCode: string;
+  Price: number;
+  BidVolume: number;
+  AskVolume: number;
+  NetVolume: number;
+  TotalVolume: number;
+  BidCount: number;
+  AskCount: number;
+  UniqueBidBrokers: number;
+  UniqueAskBrokers: number;
 }
 
 interface BrokerBreakdownData {
@@ -26,13 +39,9 @@ interface BrokerBreakdownData {
   tLot: number;
 }
 
-// Available stocks from the data
-const AVAILABLE_STOCKS = [
-  'BBRI', 'BBCA', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM', 'ICBP', 'INDF', 
-  'KLBF', 'ADRO', 'ANTM', 'ITMG', 'PTBA', 'SMGR', 'INTP', 'WIKA', 'WSKT', 'PGAS'
-];
 
-// Generate realistic price data based on BBRI.csv structure
+// Generate realistic price data based on BBRI.csv structure (DEPRECATED - using real data now)
+/*
 const generatePriceData = (stock: string, date: string): PriceData[] => {
   const basePrice = stock === 'BBRI' ? 4150 : stock === 'BBCA' ? 2750 : stock === 'BMRI' ? 3200 : 1500;
   
@@ -67,6 +76,7 @@ const generatePriceData = (stock: string, date: string): PriceData[] => {
   
   return data.sort((a, b) => b.price - a.price); // Sort by price descending
 };
+*/
 
 // Generate broker breakdown data
 const generateBrokerBreakdownData = (stock: string, date: string): BrokerBreakdownData[] => {
@@ -149,12 +159,12 @@ const calculateBrokerBreakdownTotals = (stock: string, date: string) => {
 };
 
 // Helper function to get all unique prices across all dates that have transactions (sorted ascending)
-const getAllUniquePrices = (stock: string, dates: string[]): number[] => {
+const getAllUniquePrices = (stock: string, dates: string[], priceDataByDate: { [date: string]: PriceData[] }): number[] => {
   const allPrices = new Set<number>();
   
   // First, collect all possible prices from all dates
   dates.forEach(date => {
-    const data = generatePriceData(stock, date);
+    const data = priceDataByDate[date] || [];
     data.forEach(item => allPrices.add(item.price));
   });
   
@@ -164,7 +174,7 @@ const getAllUniquePrices = (stock: string, dates: string[]): number[] => {
     let hasAnyTransaction = false;
     
     for (const date of dates) {
-      const data = getDataForPriceAndDate(stock, date, price);
+      const data = getDataForPriceAndDate(stock, date, price, priceDataByDate);
       if (data && (
         data.bFreq > 0 || data.bLot > 0 || data.sLot > 0 || 
         data.sFreq > 0 || data.tFreq > 0 || data.tLot > 0
@@ -182,7 +192,7 @@ const getAllUniquePrices = (stock: string, dates: string[]): number[] => {
     let totalTransactions = 0;
     
     for (const date of dates) {
-      const data = getDataForPriceAndDate(stock, date, price);
+      const data = getDataForPriceAndDate(stock, date, price, priceDataByDate);
       if (data) {
         totalTransactions += data.bFreq + data.bLot + data.sLot + data.sFreq + data.tFreq + data.tLot;
       }
@@ -195,17 +205,18 @@ const getAllUniquePrices = (stock: string, dates: string[]): number[] => {
 };
 
 // Helper function to get data for specific price and date
-const getDataForPriceAndDate = (stock: string, date: string, price: number): PriceData | null => {
-  const data = generatePriceData(stock, date);
+const getDataForPriceAndDate = (_stock: string, date: string, price: number, priceDataByDate: { [date: string]: PriceData[] }): PriceData | null => {
+  const data = priceDataByDate[date] || [];
   return data.find(item => item.price === price) || null;
 };
 
+
 // Helper function to find max values across all dates for horizontal layout
-const findMaxValuesHorizontal = (stock: string, dates: string[]) => {
+const findMaxValuesHorizontal = (_stock: string, dates: string[], priceDataByDate: { [date: string]: PriceData[] }) => {
   let maxBFreq = 0, maxBLot = 0, maxSLot = 0, maxSFreq = 0, maxTFreq = 0, maxTLot = 0;
   
   dates.forEach(date => {
-    const data = generatePriceData(stock, date);
+    const data = priceDataByDate[date] || [];
     data.forEach(item => {
       if (item.bFreq > maxBFreq) maxBFreq = item.bFreq;
       if (item.bLot > maxBLot) maxBLot = item.bLot;
@@ -311,7 +322,10 @@ const getTradingDays = (count: number): string[] => {
     
     // Skip weekends (Saturday = 6, Sunday = 0)
     if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-      dates.push(currentDate.toISOString().split('T')[0]!);
+      const dateStr = currentDate.toISOString().split('T')[0];
+      if (dateStr) {
+        dates.push(dateStr);
+      }
     }
     
     // Go to previous day
@@ -319,7 +333,10 @@ const getTradingDays = (count: number): string[] => {
     
     // Safety check
     if (dates.length === 0 && currentDate.getTime() < today.getTime() - (30 * 24 * 60 * 60 * 1000)) {
-      dates.push(today.toISOString().split('T')[0]!);
+      const todayStr = today.toISOString().split('T')[0];
+      if (todayStr) {
+        dates.push(todayStr);
+      }
       break;
     }
   }
@@ -334,172 +351,126 @@ const getLastThreeDays = (): string[] => {
 
 export function StockTransactionDoneSummary() {
   const { showToast } = useToast();
-  const [selectedDates, setSelectedDates] = useState<string[]>(getLastThreeDays());
-  const [startDate, setStartDate] = useState(() => {
-    const threeDays = getLastThreeDays();
-    if (threeDays.length > 0) {
-      const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-      return sortedDates[0];
-    }
-    return '';
-  });
-  const [endDate, setEndDate] = useState(() => {
-    const threeDays = getLastThreeDays();
-    if (threeDays.length > 0) {
-      const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-      return sortedDates[sortedDates.length - 1];
-    }
-    return '';
-  });
-  const [selectedStock, setSelectedStock] = useState('BBRI');
-  const [stockInput, setStockInput] = useState('BBRI');
-  const [showStockSuggestions, setShowStockSuggestions] = useState(false);
-  const [viewMode, setViewMode] = useState<'summary' | 'broker'>('summary');
-  const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
-  const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
+  const [selectedDates] = useState<string[]>(getLastThreeDays());
+  const [selectedStock] = useState('BBRI');
+  const [viewMode] = useState<'summary' | 'broker'>('summary');
+  
+  // Real data states
+  const [priceDataByDate, setPriceDataByDate] = useState<{ [date: string]: PriceData[] }>({});
+  const [_brokerDataByDate, setBrokerDataByDate] = useState<{ [date: string]: BrokerBreakdownData[] }>({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [_availableStocks] = useState<string[]>([]);
+  const [_availableDates] = useState<string[]>([]);
 
-  const addDateRange = () => {
-    if (startDate && endDate) {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      
-      // Check if range is valid
-      if (start > end) {
-        showToast({
-          type: 'warning',
-          title: 'Tanggal Tidak Valid',
-          message: 'Tanggal mulai harus sebelum tanggal akhir',
-        });
-        return;
-      }
-      
-      // Check if range is within 7 days
-      const diffTime = Math.abs(end.getTime() - start.getTime());
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      
-      if (diffDays > 7) {
-        showToast({
-          type: 'warning',
-          title: 'Rentang Tanggal Terlalu Panjang',
-          message: 'Maksimal rentang tanggal adalah 7 hari',
-        });
-        return;
-      }
-      
-      // Generate date array
-      const dateArray: string[] = [];
-      const currentDate = new Date(start);
-      
-      while (currentDate <= end) {
-        const dateString = currentDate.toISOString().split('T')[0]!;
-        dateArray.push(dateString);
-        currentDate.setDate(currentDate.getDate() + 1);
-      }
-      
-      // Remove duplicates, sort by date (newest first), and set
-      const uniqueDates = Array.from(new Set([...selectedDates, ...dateArray]));
-      const sortedDates = uniqueDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
-      setSelectedDates(sortedDates);
-      // Switch to custom mode when user manually selects dates
-      setDateRangeMode('custom');
-      setStartDate('');
-      setEndDate('');
-    }
+  // Convert backend bid/ask data to frontend format
+  const convertBackendToFrontend = (backendData: BackendBidAskData[]): PriceData[] => {
+    return backendData.map(item => ({
+      price: item.Price,
+      bFreq: item.BidCount,
+      bLot: item.BidVolume,
+      sLot: item.AskVolume,
+      sFreq: item.AskCount,
+      tFreq: item.BidCount + item.AskCount,
+      tLot: item.BidVolume + item.AskVolume
+    }));
   };
 
-  const removeDate = (dateToRemove: string) => {
-    if (selectedDates.length > 1) {
-      setSelectedDates(selectedDates.filter(date => date !== dateToRemove));
-      // Switch to custom mode when user manually removes dates
-      setDateRangeMode('custom');
-    }
-  };
+  // Load available dates and stocks on component mount
+  useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        // Load available dates
+        const datesResponse = await api.getBidAskDates();
+        if (datesResponse.success && datesResponse.data?.dates) {
+          // Load available stocks for the first date
+          if (datesResponse.data.dates.length > 0) {
+            const firstDate = datesResponse.data.dates[0];
+            if (firstDate) {
+              const stocksResponse = await api.getBidAskStocks(firstDate);
+              if (stocksResponse.success && stocksResponse.data?.stocks) {
+                // Stocks loaded successfully
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error loading initial data:', error);
+      }
+    };
+
+    loadInitialData();
+  }, []);
+
+  // Fetch data when selected stock or dates change
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!selectedStock || selectedDates.length === 0) return;
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        // Fetch bid/ask data for all selected dates
+        const response = await api.getBidAskBatch(selectedStock, selectedDates);
+        
+        if (response.success && response.data?.dataByDate) {
+          const newPriceDataByDate: { [date: string]: PriceData[] } = {};
+          const newBrokerDataByDate: { [date: string]: BrokerBreakdownData[] } = {};
+          
+          Object.entries(response.data.dataByDate).forEach(([date, dateData]: [string, any]) => {
+            if (dateData.data && Array.isArray(dateData.data)) {
+              // Convert backend data to frontend format
+              const convertedData = convertBackendToFrontend(dateData.data);
+              newPriceDataByDate[date] = convertedData;
+              
+              // For broker breakdown, we'll use the same data but group by broker
+              // This is a simplified version - in real implementation, you might need separate broker data
+              const brokerData: BrokerBreakdownData[] = convertedData.map(item => ({
+                broker: 'ALL', // Simplified - in real implementation, you'd have broker-specific data
+                price: item.price,
+                bLot: item.bLot,
+                sLot: item.sLot,
+                bFreq: item.bFreq,
+                sFreq: item.sFreq,
+                tFreq: item.tFreq,
+                tLot: item.tLot
+              }));
+              newBrokerDataByDate[date] = brokerData;
+            }
+          });
+          
+          setPriceDataByDate(newPriceDataByDate);
+          setBrokerDataByDate(newBrokerDataByDate);
+        }
+
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        setError('Failed to load data');
+        showToast({
+          type: 'error',
+          title: 'Error',
+          message: 'Failed to load data. Please try again.'
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [selectedStock, selectedDates, showToast]);
+
 
   const formatDisplayDate = (dateString: string): string => {
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
   };
 
-  // Handle date range mode change
-  const handleDateRangeModeChange = (mode: '1day' | '3days' | '1week' | 'custom') => {
-    setDateRangeMode(mode);
-    
-    if (mode === 'custom') {
-      // Don't change dates, just switch to custom mode
-      return;
-    }
-    
-    // Apply preset dates based on mode
-    let newDates: string[] = [];
-    switch (mode) {
-      case '1day':
-        newDates = getTradingDays(1);
-        break;
-      case '3days':
-        newDates = getTradingDays(3);
-        break;
-      case '1week':
-        newDates = getTradingDays(5);
-        break;
-    }
-    
-    setSelectedDates(newDates);
-    
-    // Set date range to show the selected dates
-    if (newDates.length > 0) {
-      const sortedDates = [...newDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-      setStartDate(sortedDates[0]);
-      setEndDate(sortedDates[sortedDates.length - 1]);
-    }
-  };
 
-  // Clear all dates and reset to 1 day
-  const clearAllDates = () => {
-    setSelectedDates(getTradingDays(1));
-    setDateRangeMode('1day');
-    const oneDay = getTradingDays(1);
-    if (oneDay.length > 0) {
-      setStartDate(oneDay[0]);
-      setEndDate(oneDay[0]);
-    }
-  };
-
-  // Filter stocks based on input
-  const filteredStocks = AVAILABLE_STOCKS.filter(stock => 
-    stock.toLowerCase().includes(stockInput.toLowerCase())
-  );
-
-  const handleStockSelect = (stock: string) => {
-    setStockInput(stock);
-    setSelectedStock(stock);
-    setShowStockSuggestions(false);
-  };
-
-  const handleStockInputChange = (value: string) => {
-    setStockInput(value.toUpperCase());
-    setShowStockSuggestions(true);
-    // Auto-select if exact match
-    if (AVAILABLE_STOCKS.includes(value.toUpperCase())) {
-      setSelectedStock(value.toUpperCase());
-    }
-  };
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Element;
-      if (!target.closest('.stock-dropdown-container')) {
-        setShowStockSuggestions(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
   const renderHorizontalSummaryView = () => {
-    const allPrices = getAllUniquePrices(selectedStock, selectedDates);
-    const maxValues = findMaxValuesHorizontal(selectedStock, selectedDates);
+    const allPrices = getAllUniquePrices(selectedStock, selectedDates, priceDataByDate);
+    const maxValues = findMaxValuesHorizontal(selectedStock, selectedDates, priceDataByDate);
     
     return (
       <Card>
@@ -547,95 +518,43 @@ export function StockTransactionDoneSummary() {
                 </tr>
               </thead>
               <tbody>
-                {allPrices.map((price) => {
-                  // Calculate totals for this price across all dates
-                  const totalBFreq = selectedDates.reduce((sum, date) => {
-                    const data = getDataForPriceAndDate(selectedStock, date, price);
-                    return sum + (data?.bFreq || 0);
-                  }, 0);
-                  
-                  const totalBLot = selectedDates.reduce((sum, date) => {
-                    const data = getDataForPriceAndDate(selectedStock, date, price);
-                    return sum + (data?.bLot || 0);
-                  }, 0);
-                  
-                  const totalSLot = selectedDates.reduce((sum, date) => {
-                    const data = getDataForPriceAndDate(selectedStock, date, price);
-                    return sum + (data?.sLot || 0);
-                  }, 0);
-                  
-                  const totalSFreq = selectedDates.reduce((sum, date) => {
-                    const data = getDataForPriceAndDate(selectedStock, date, price);
-                    return sum + (data?.sFreq || 0);
-                  }, 0);
-                  
-                  const totalTFreq = selectedDates.reduce((sum, date) => {
-                    const data = getDataForPriceAndDate(selectedStock, date, price);
-                    return sum + (data?.tFreq || 0);
-                  }, 0);
-                  
-                  const totalTLot = selectedDates.reduce((sum, date) => {
-                    const data = getDataForPriceAndDate(selectedStock, date, price);
-                    return sum + (data?.tLot || 0);
-                  }, 0);
-                  
-                  return (
-                    <tr key={price} className="border-b border-border/50 hover:bg-accent/50">
-                      <td className="py-1.5 px-3 font-medium bg-background sticky left-0 z-30 border-r-2 border-border text-foreground min-w-[80px]">
-                        {formatNumber(price)}
-                      </td>
-                      {selectedDates.map((date) => {
-                        const data = getDataForPriceAndDate(selectedStock, date, price);
-                        return (
-                          <React.Fragment key={date}>
-                            <td className={`text-right py-1.5 px-1 ${data && data.bLot === maxValues.maxBLot && data.bLot > 0 ? 'font-bold text-green-600' : 'text-green-600'}`}>
-                              {data ? formatNumber(data.bLot) : '-'}
-                            </td>
-                            <td className={`text-right py-1.5 px-1 ${data && data.bFreq === maxValues.maxBFreq && data.bFreq > 0 ? 'font-bold text-blue-600' : 'text-blue-600'}`}>
-                              {data ? formatNumber(data.bFreq) : '-'}
-                            </td>
-                            <td className={`text-right py-1.5 px-1 ${data && data.sLot === maxValues.maxSLot && data.sLot > 0 ? 'font-bold text-red-600' : 'text-red-600'}`}>
-                              {data ? formatNumber(data.sLot) : '-'}
-                            </td>
-                            <td className={`text-right py-1.5 px-1 ${data && data.sFreq === maxValues.maxSFreq && data.sFreq > 0 ? 'font-bold text-orange-600' : 'text-orange-600'}`}>
-                              {data ? formatNumber(data.sFreq) : '-'}
-                            </td>
-                            <td className={`text-right py-1.5 px-1 ${data && data.tFreq === maxValues.maxTFreq && data.tFreq > 0 ? 'font-bold text-purple-600' : 'text-purple-600'}`}>
-                              {data ? formatNumber(data.tFreq) : '-'}
-                            </td>
-                            <td className={`text-right py-1.5 px-1 border-r-2 border-border ${data && data.tLot === maxValues.maxTLot && data.tLot > 0 ? 'font-bold text-indigo-600' : 'text-indigo-600'}`}>
-                              {data ? formatNumber(data.tLot) : '-'}
-                            </td>
-                          </React.Fragment>
-                        );
-                      })}
-                      {/* Total Column */}
-                      <td className="text-right py-1.5 px-1 font-bold text-green-600 bg-accent/30">
-                        {formatNumber(totalBLot)}
-                      </td>
-                      <td className="text-right py-1.5 px-1 font-bold text-blue-600 bg-accent/30">
-                        {formatNumber(totalBFreq)}
-                      </td>
-                      <td className="text-right py-1.5 px-1 font-bold text-red-600 bg-accent/30">
-                        {formatNumber(totalSLot)}
-                      </td>
-                      <td className="text-right py-1.5 px-1 font-bold text-orange-600 bg-accent/30">
-                        {formatNumber(totalSFreq)}
-                      </td>
-                      <td className="text-right py-1.5 px-1 font-bold text-purple-600 bg-accent/30">
-                        {formatNumber(totalTFreq)}
-                      </td>
-                      <td className="text-right py-1.5 px-1 font-bold text-indigo-600 bg-accent/30 border-r-2 border-border">
-                        {formatNumber(totalTLot)}
-                      </td>
-                    </tr>
-                  );
-                })}
+                {allPrices.map((price) => (
+                  <tr key={price} className="border-b border-border/50 hover:bg-accent/50">
+                    <td className="py-1.5 px-3 font-medium bg-background sticky left-0 z-30 border-r-2 border-border text-foreground min-w-[80px]">
+                      {formatNumber(price)}
+                    </td>
+                    {selectedDates.map((date) => {
+                      const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                      return (
+                        <React.Fragment key={date}>
+                          <td className={`text-right py-1.5 px-1 ${data && data.bFreq === maxValues.maxBFreq && data.bFreq > 0 ? 'font-bold text-blue-600' : 'text-blue-600'}`}>
+                            {data ? formatNumber(data.bFreq) : '-'}
+                          </td>
+                          <td className={`text-right py-1.5 px-1 ${data && data.bLot === maxValues.maxBLot && data.bLot > 0 ? 'font-bold text-green-600' : 'text-green-600'}`}>
+                            {data ? formatNumber(data.bLot) : '-'}
+                          </td>
+                          <td className={`text-right py-1.5 px-1 ${data && data.sLot === maxValues.maxSLot && data.sLot > 0 ? 'font-bold text-red-600' : 'text-red-600'}`}>
+                            {data ? formatNumber(data.sLot) : '-'}
+                          </td>
+                          <td className={`text-right py-1.5 px-1 ${data && data.sFreq === maxValues.maxSFreq && data.sFreq > 0 ? 'font-bold text-orange-600' : 'text-orange-600'}`}>
+                            {data ? formatNumber(data.sFreq) : '-'}
+                          </td>
+                          <td className={`text-right py-1.5 px-1 ${data && data.tFreq === maxValues.maxTFreq && data.tFreq > 0 ? 'font-bold text-purple-600' : 'text-purple-600'}`}>
+                            {data ? formatNumber(data.tFreq) : '-'}
+                          </td>
+                          <td className={`text-right py-1.5 px-1 border-r-2 border-border ${data && data.tLot === maxValues.maxTLot && data.tLot > 0 ? 'font-bold text-indigo-600' : 'text-indigo-600'}`}>
+                            {data ? formatNumber(data.tLot) : '-'}
+                          </td>
+                        </React.Fragment>
+                      );
+                    })}
+                  </tr>
+                ))}
                 {/* Total Row */}
                 <tr className="border-t-2 border-border bg-accent/30 font-bold">
                   <td className="py-3 px-3 font-bold bg-accent/30 sticky left-0 z-30 border-r-2 border-border text-foreground min-w-[80px]">TOTAL</td>
                   {selectedDates.map((date) => {
-                    const dateData = generatePriceData(selectedStock, date);
+                    const dateData = priceDataByDate[date] || [];
                     const totals = calculateTotals(dateData);
                     return (
                       <React.Fragment key={date}>
@@ -663,42 +582,42 @@ export function StockTransactionDoneSummary() {
                   {/* Grand Total Column */}
                   <td className="text-right py-3 px-1 font-bold text-green-600 bg-accent/50">
                     {formatNumber(selectedDates.reduce((sum, date) => {
-                      const dateData = generatePriceData(selectedStock, date);
+                      const dateData = priceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return sum + totals.bLot;
                     }, 0))}
                   </td>
                   <td className="text-right py-3 px-1 font-bold text-blue-600 bg-accent/50">
                     {formatNumber(selectedDates.reduce((sum, date) => {
-                      const dateData = generatePriceData(selectedStock, date);
+                      const dateData = priceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return sum + totals.bFreq;
                     }, 0))}
                   </td>
                   <td className="text-right py-3 px-1 font-bold text-red-600 bg-accent/50">
                     {formatNumber(selectedDates.reduce((sum, date) => {
-                      const dateData = generatePriceData(selectedStock, date);
+                      const dateData = priceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return sum + totals.sLot;
                     }, 0))}
                   </td>
                   <td className="text-right py-3 px-1 font-bold text-orange-600 bg-accent/50">
                     {formatNumber(selectedDates.reduce((sum, date) => {
-                      const dateData = generatePriceData(selectedStock, date);
+                      const dateData = priceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return sum + totals.sFreq;
                     }, 0))}
                   </td>
                   <td className="text-right py-3 px-1 font-bold text-purple-600 bg-accent/50">
                     {formatNumber(selectedDates.reduce((sum, date) => {
-                      const dateData = generatePriceData(selectedStock, date);
+                      const dateData = priceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return sum + totals.tFreq;
                     }, 0))}
                   </td>
                   <td className="text-right py-3 px-1 font-bold text-indigo-600 bg-accent/50 border-r-2 border-border">
                     {formatNumber(selectedDates.reduce((sum, date) => {
-                      const dateData = generatePriceData(selectedStock, date);
+                      const dateData = priceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return sum + totals.tLot;
                     }, 0))}
@@ -1099,13 +1018,34 @@ export function StockTransactionDoneSummary() {
                   )}
                 </Badge>
               ))}
+      {/* Loading State */}
+      {loading && (
+        <Card>
+          <CardContent className="flex items-center justify-center py-8">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+              <p className="text-muted-foreground">Loading bid/ask data...</p>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Error State */}
+      {error && (
+        <Card>
+          <CardContent className="flex items-center justify-center py-8">
+            <div className="text-center">
+              <p className="text-destructive mb-2">Error loading data</p>
+              <p className="text-muted-foreground text-sm">{error}</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Main Data Display */}
-      {viewMode === 'summary' ? renderHorizontalSummaryView() : renderHorizontalBrokerBreakdownView()}
+      {!loading && !error && (
+        viewMode === 'summary' ? renderHorizontalSummaryView() : renderHorizontalBrokerBreakdownView()
+      )}
     </div>
   );
 }

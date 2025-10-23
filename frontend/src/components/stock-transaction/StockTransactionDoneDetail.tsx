@@ -2,33 +2,30 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { Calendar, Plus, X, Grid3X3, ChevronDown, RotateCcw, Search } from 'lucide-react';
+import { Calendar, Plus, X, Grid3X3, ChevronDown, RotateCcw, Search, Loader2 } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
+import { api } from '../../services/api';
 
 interface DoneDetailData {
-  trxCode: number;    // TRX_CODE
-  trxSess: number;    // TRX_SESS
-  trxType: string;    // TRX_TYPE (RG = Regular)
-  brkCod2: string;    // BRK_COD2 (Seller broker)
-  invTyp2: string;    // INV_TYP2 (Seller investor type)
-  brkCod1: string;    // BRK_COD1 (Buyer broker)
-  invTyp1: string;    // INV_TYP1 (Buyer investor type)
-  stkCode: string;    // STK_CODE
-  stkVolm: number;    // STK_VOLM
-  stkPric: number;    // STK_PRIC
-  trxDate: string;    // TRX_DATE
-  trxOrd2: number;    // TRX_ORD2
-  trxOrd1: number;    // TRX_ORD1
-  trxTime: number;    // TRX_TIME (as number like 85800)
+  STK_CODE: string;   // Stock code
+  BRK_COD1: string;   // Buyer broker
+  BRK_COD2: string;   // Seller broker
+  STK_VOLM: number;   // Volume
+  STK_PRIC: number;   // Price
+  TRX_DATE: string;   // Transaction date
+  TRX_TIME: number;   // Transaction time (as number like 85800)
+  INV_TYP1: string;   // Buyer investor type
+  INV_TYP2: string;   // Seller investor type
+  TYP: string;        // Transaction type
+  TRX_CODE: number;   // Transaction code
+  TRX_SESS: number;   // Transaction session
+  TRX_ORD1: number;   // Order 1
+  TRX_ORD2: number;   // Order 2
+  [key: string]: any; // Allow additional columns
 }
 
 
-// Available stocks from the data
-const AVAILABLE_STOCKS = [
-  'BBRI', 'BBCA', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM', 'ICBP', 'INDF',
-  'KLBF', 'ADRO', 'ANTM', 'ITMG', 'PTBA', 'SMGR', 'INTP', 'WIKA', 'WSKT', 'PGAS',
-  'YUPI', 'ZYRX', 'ZONE'
-];
+// This will be replaced with API data
 
 // Get last 3 trading days (weekdays only, excluding weekends)
 const getLastThreeDays = (): string[] => {
@@ -64,66 +61,7 @@ const getLastThreeDays = (): string[] => {
   return dates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
 };
 
-// Generate realistic done detail data based on CSV structure
-const generateDoneDetailData = (stock: string, date: string): DoneDetailData[] => {
-  if (!stock || !date) return [];
-  const brokers = ['RG', 'MG', 'BR', 'LG', 'CC', 'AT', 'SD', 'UU', 'TG', 'KK', 'XL', 'XC', 'PC', 'PD', 'DR'];
-  const basePrice = stock === 'BBRI' ? 4150 : stock === 'BBCA' ? 2750 : stock === 'BMRI' ? 3200 :
-    stock === 'YUPI' ? 1610 : stock === 'ZYRX' ? 148 : stock === 'ZONE' ? 755 : 1500;
-
-  // Create a seed based on stock and date for consistent data
-  const seed = stock.charCodeAt(0) + date.split('-').reduce((acc, part) => acc + parseInt(part), 0);
-
-  const data: DoneDetailData[] = [];
-
-  // Generate transactions throughout the day (08:58:00 to 15:00:00)
-  const startTime = 8 * 3600 + 58 * 60; // 08:58:00 in seconds
-  const endTime = 15 * 3600; // 15:00:00 in seconds
-
-  // Generate 100-300 transactions per day
-  const numTransactions = 100 + (seed % 200);
-
-  for (let i = 0; i < numTransactions; i++) {
-    const txSeed = seed + i * 17;
-
-    // Random time between start and end
-    const timeInSeconds = startTime + (txSeed % (endTime - startTime));
-    const hours = Math.floor(timeInSeconds / 3600);
-    const minutes = Math.floor((timeInSeconds % 3600) / 60);
-    const seconds = timeInSeconds % 60;
-    const trxTime = `${hours.toString().padStart(2, '0')}${minutes.toString().padStart(2, '0')}${seconds.toString().padStart(2, '0')}`;
-
-    // Price variation around base price
-    const priceVariation = ((txSeed * 7) % 21) - 10; // -10 to +10
-    const price = basePrice + (priceVariation * 5);
-
-    // Volume
-    const volume = 100 + ((txSeed * 13) % 2000);
-
-    // Brokers
-    const buyerBroker = brokers[(txSeed * 3) % brokers.length] || 'RG';
-    const sellerBroker = brokers[(txSeed * 5) % brokers.length] || 'RG';
-
-    data.push({
-      trxCode: i,  // Sequential number starting from 0
-      trxSess: 1,  // Session number as number
-      trxType: 'RG',
-      brkCod2: sellerBroker, // Seller
-      invTyp2: 'I',
-      brkCod1: buyerBroker,  // Buyer
-      invTyp1: 'I',
-      stkCode: stock,
-      stkVolm: volume,
-      stkPric: price,
-      trxDate: date,
-      trxOrd2: (txSeed * 11) % 999999,  // Order number as number
-      trxOrd1: (txSeed * 19) % 999999,  // Order number as number
-      trxTime: parseInt(trxTime)  // Time as number (e.g., 85800)
-    });
-  }
-
-  return data.sort((a, b) => a.trxTime - b.trxTime);
-};
+// This will be replaced with real API data fetching
 
 const formatNumber = (num: number): string => {
   return num.toLocaleString();
@@ -163,6 +101,12 @@ export function StockTransactionDoneDetail() {
   const [selectedStock, setSelectedStock] = useState('BBRI');
   const [stockInput, setStockInput] = useState('BBRI');
   
+  // Real data state
+  const [availableStocks, setAvailableStocks] = useState<string[]>([]);
+  const [doneDetailData, setDoneDetailData] = useState<Map<string, DoneDetailData[]>>(new Map());
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
   const [filters, setFilters] = useState({
@@ -170,9 +114,105 @@ export function StockTransactionDoneDetail() {
     broker: 'all',
     price: 'all'
   });
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(100); // Limit to 100 items per page
   const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [infoOpen, setInfoOpen] = useState(false); // collapsible info, default minimized
+  const [stockSearchTimeout, setStockSearchTimeout] = useState<NodeJS.Timeout | null>(null);
+
+  // Load initial data - only dates, no stocks until user selects
+  useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        // Load available dates only
+        const datesResult = await api.getBreakDoneTradeDates();
+        if (datesResult.success && datesResult.data?.dates) {
+          // Update selected dates to use real available dates
+          const realDates = datesResult.data.dates.slice(0, 3); // Take first 3 dates
+          setSelectedDates(realDates);
+        }
+
+      } catch (err) {
+        console.error('Error loading initial data:', err);
+        setError('Failed to load initial data');
+        showToast({
+          type: 'error',
+          title: 'Error Memuat Data',
+          message: 'Gagal memuat data awal.'
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadInitialData();
+  }, [showToast]);
+
+  // Load available stocks when user starts typing or when dates change
+  useEffect(() => {
+    const loadAvailableStocks = async () => {
+      if (selectedDates.length === 0) return;
+
+      try {
+        // Load stocks for the first selected date
+        if (selectedDates[0]) {
+          const stocksResult = await api.getBreakDoneTradeStocks(selectedDates[0]);
+          if (stocksResult.success && stocksResult.data?.stocks) {
+            setAvailableStocks(stocksResult.data.stocks);
+          }
+        }
+      } catch (err) {
+        console.error('Error loading available stocks:', err);
+        // Don't show error toast for stocks loading, just log it
+      }
+    };
+
+    loadAvailableStocks();
+  }, [selectedDates]);
+
+  // Load done detail data when stock or dates change
+  useEffect(() => {
+    const loadDoneDetailData = async () => {
+      if (!selectedStock || selectedDates.length === 0) return;
+
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        const result = await api.getBreakDoneTradeBatch(selectedStock, selectedDates);
+        if (result.success && result.data?.dataByDate) {
+          const newData = new Map<string, DoneDetailData[]>();
+          Object.entries(result.data.dataByDate).forEach(([date, data]: [string, any]) => {
+            if (data?.doneTradeData) {
+              newData.set(date, data.doneTradeData);
+            }
+          });
+          setDoneDetailData(newData);
+        } else {
+          setError('Failed to load done detail data');
+        }
+
+      } catch (err) {
+        console.error('Error loading done detail data:', err);
+        setError('Failed to load done detail data');
+        showToast({
+          type: 'error',
+          title: 'Error Memuat Data',
+          message: 'Gagal memuat data transaksi.'
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadDoneDetailData();
+  }, [selectedStock, selectedDates, showToast]);
 
   // Handle click outside to close dropdown
   useEffect(() => {
@@ -188,6 +228,15 @@ export function StockTransactionDoneDetail() {
     };
   }, []);
 
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (stockSearchTimeout) {
+        clearTimeout(stockSearchTimeout);
+      }
+    };
+  }, [stockSearchTimeout]);
+
   const handleStockSelect = (stock: string) => {
     setSelectedStock(stock);
     setStockInput(stock);
@@ -198,46 +247,84 @@ export function StockTransactionDoneDetail() {
     setStockInput(value);
     setShowStockSuggestions(true);
 
+    // Clear previous timeout
+    if (stockSearchTimeout) {
+      clearTimeout(stockSearchTimeout);
+    }
+
+    // Set new timeout for debounced stock loading
+    const timeout = setTimeout(async () => {
+      // Load stocks if not already loaded and user is typing
+      if (availableStocks.length === 0 && selectedDates.length > 0 && selectedDates[0]) {
+        try {
+          const stocksResult = await api.getBreakDoneTradeStocks(selectedDates[0]);
+          if (stocksResult.success && stocksResult.data?.stocks) {
+            setAvailableStocks(stocksResult.data.stocks);
+          }
+        } catch (err) {
+          console.error('Error loading stocks:', err);
+        }
+      }
+    }, 300); // 300ms debounce
+
+    setStockSearchTimeout(timeout);
+
     // If exact match, select it
-    if (AVAILABLE_STOCKS.includes(value.toUpperCase())) {
+    if ((availableStocks || []).includes(value.toUpperCase())) {
       setSelectedStock(value.toUpperCase());
     }
   };
 
-  const filteredStocks = AVAILABLE_STOCKS.filter(stock =>
+  const filteredStocks = (availableStocks || []).filter(stock =>
     stock.toLowerCase().includes(stockInput.toLowerCase())
   );
 
   // Filter and sort data based on selected filters
   const filterData = (data: DoneDetailData[]): DoneDetailData[] => {
     let filteredData = data.filter(transaction => {
-      if (filters.broker !== 'all' && transaction.brkCod1 !== filters.broker && transaction.brkCod2 !== filters.broker) return false;
-      if (filters.price !== 'all' && transaction.stkPric.toString() !== filters.price) return false;
+      if (filters.broker !== 'all' && transaction.BRK_COD1 !== filters.broker && transaction.BRK_COD2 !== filters.broker) return false;
+      if (filters.price !== 'all' && transaction.STK_PRIC.toString() !== filters.price) return false;
       return true;
     });
 
     // Sort by time
     if (filters.timeSort === 'latest') {
-      filteredData.sort((a, b) => b.trxTime - a.trxTime);
+      filteredData.sort((a, b) => b.TRX_TIME - a.TRX_TIME);
     } else {
-      filteredData.sort((a, b) => a.trxTime - b.trxTime);
+      filteredData.sort((a, b) => a.TRX_TIME - b.TRX_TIME);
     }
 
     return filteredData;
   };
 
+  // Pagination logic
+  const getPaginatedData = (data: DoneDetailData[]) => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return data.slice(startIndex, endIndex);
+  };
+
+  const getTotalPages = (data: DoneDetailData[]) => {
+    return Math.ceil(data.length / itemsPerPage);
+  };
+
+  // Reset to first page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters, selectedStock, selectedDates]);
+
   // Get unique values for filter options
   const getUniqueValues = (field: keyof DoneDetailData): string[] => {
-    const allData = selectedDates.flatMap(date => generateDoneDetailData(selectedStock, date));
+    const allData = selectedDates.flatMap(date => doneDetailData.get(date) || []);
     const uniqueValues = [...new Set(allData.map(item => String(item[field])))];
     return uniqueValues.sort();
   };
 
   const brokerOptions = [...new Set([
-    ...getUniqueValues('brkCod1'),
-    ...getUniqueValues('brkCod2')
+    ...getUniqueValues('BRK_COD1'),
+    ...getUniqueValues('BRK_COD2')
   ])].sort();
-  const priceOptions = getUniqueValues('stkPric').sort((a, b) => parseInt(a) - parseInt(b));
+  const priceOptions = getUniqueValues('STK_PRIC').sort((a, b) => parseInt(a) - parseInt(b));
 
   const addDateRange = () => {
     if (startDate && endDate) {
@@ -385,8 +472,114 @@ export function StockTransactionDoneDetail() {
     }
   };
 
+  // Render table like IPOT format - showing individual transactions with pagination
+  const renderTransactionTable = (data: DoneDetailData[]) => {
+    const filteredData = filterData(data);
+    const paginatedData = getPaginatedData(filteredData);
+    const totalPages = getTotalPages(filteredData);
+    
+    return (
+      <div className="space-y-4">
+        {/* Pagination Info */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-sm text-muted-foreground">
+          <div className="flex items-center gap-4">
+            <div>
+              Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredData.length)} of {filteredData.length} transactions
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs">Items per page:</label>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => {
+                  setItemsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="text-xs bg-background border border-border rounded px-2 py-1"
+              >
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={200}>200</option>
+                <option value={500}>500</option>
+              </select>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+            >
+              Previous
+            </Button>
+            <span className="px-2">
+              Page {currentPage} of {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+              disabled={currentPage === totalPages}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
 
-  // Render horizontal view - pivot-style comparison across dates
+        {/* Table */}
+        <div className="overflow-x-auto -mx-4 sm:mx-0">
+          <div className="min-w-full px-4 sm:px-0">
+            <table className="w-full text-xs border-collapse min-w-[600px]">
+              <thead>
+                <tr className="border-b border-border bg-muted/50">
+                  <th className="text-left py-2 px-2 font-medium sticky left-0 bg-muted/50 z-10">Time</th>
+                  <th className="text-left py-2 px-2 font-medium">Brd</th>
+                  <th className="text-right py-2 px-2 font-medium">Price</th>
+                  <th className="text-right py-2 px-2 font-medium">Qty</th>
+                  <th className="text-center py-2 px-2 font-medium">BBCode</th>
+                  <th className="text-center py-2 px-2 font-medium">BT</th>
+                  <th className="text-center py-2 px-2 font-medium">ST</th>
+                  <th className="text-center py-2 px-2 font-medium">SBCode</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedData.map((row, idx) => (
+                  <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
+                    <td className="py-1 px-2 font-medium sticky left-0 bg-background z-10 border-r border-border text-foreground">
+                      {formatTime(row.TRX_TIME)}
+                    </td>
+                    <td className="py-1 px-2 text-red-600 font-medium">
+                      {row.TYP}
+                    </td>
+                    <td className="py-1 px-2 text-right font-medium">
+                      {formatNumber(row.STK_PRIC)}
+                    </td>
+                    <td className="py-1 px-2 text-right font-medium">
+                      {formatNumber(row.STK_VOLM)}
+                    </td>
+                    <td className="py-1 px-2 text-center text-blue-600">
+                      {row.BRK_COD1}
+                    </td>
+                    <td className="py-1 px-2 text-center text-gray-600">
+                      {row.INV_TYP1}
+                    </td>
+                    <td className="py-1 px-2 text-center text-gray-600">
+                      {row.INV_TYP2}
+                    </td>
+                    <td className="py-1 px-2 text-center text-red-600">
+                      {row.BRK_COD2}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Render horizontal view - pivot-style comparison across dates with pagination
   const renderHorizontalView = () => {
     // Get all transactions for all selected dates
     const allRawTransactions: { [date: string]: DoneDetailData[] } = {};
@@ -395,22 +588,33 @@ export function StockTransactionDoneDetail() {
       const rawData = generateDoneDetailData(selectedStock, date);
       allRawTransactions[date] = rawData; // Keep raw data for totals
       allTransactions[date] = filterData(rawData); // Filtered data for display
+      const rawData = doneDetailData.get(date) || [];
+      allTransactions[date] = filterData(rawData);
     });
+
+    // Get all transactions combined for pagination
+    const allCombinedTransactions = selectedDates.flatMap(date => allTransactions[date] || []);
+    const paginatedTransactions = getPaginatedData(allCombinedTransactions);
+    const totalPages = getTotalPages(allCombinedTransactions);
 
     // Get all unique times across all dates
     const allTimes = new Set<number>();
     Object.values(allTransactions).forEach(transactions => {
-      transactions.forEach(tx => allTimes.add(tx.trxTime));
+      transactions.forEach(tx => allTimes.add(tx.TRX_TIME));
     });
     // const sortedTimes = Array.from(allTimes).sort((a, b) => a - b);
 
     // Calculate totals from RAW data (before filtering)
     const totalTransactions = Object.values(allRawTransactions).flat().length;
     const totalVolume = Object.values(allRawTransactions).flat().reduce((sum, t) => sum + t.stkVolm, 0);
+    // Calculate totals - use allCombinedTransactions for accurate totals
+    const totalTransactions = allCombinedTransactions.length;
+    const totalVolume = allCombinedTransactions.reduce((sum, t) => sum + t.STK_VOLM, 0);
     const uniqueBrokers = new Set([
-      ...Object.values(allTransactions).flat().map(t => t.brkCod1),
-      ...Object.values(allTransactions).flat().map(t => t.brkCod2)
+      ...allCombinedTransactions.map(t => t.BRK_COD1),
+      ...allCombinedTransactions.map(t => t.BRK_COD2)
     ]).size;
+    
         
         return (
       <Card>
@@ -504,53 +708,95 @@ export function StockTransactionDoneDetail() {
                 </tr>
               </thead>
               <tbody>
-                {/* Get maximum number of transactions across all dates to create enough rows */}
-                {(() => {
-                  const maxTransactions = Math.max(...selectedDates.map(date => allTransactions[date]?.length || 0));
-                  const rows: React.ReactElement[] = [];
-
-                  for (let rowIdx = 0; rowIdx < maxTransactions; rowIdx++) {
-                    rows.push(
-                      <tr key={rowIdx} className="border-b border-border/50 hover:bg-accent/50">
-                        {selectedDates.map(date => {
-                          const transaction = allTransactions[date]?.[rowIdx] || null;
+                {/* Render paginated transactions */}
+                {paginatedTransactions.map((transaction, rowIdx) => (
+                  <tr key={rowIdx} className="border-b border-border/50 hover:bg-accent/50">
+                    {selectedDates.map(date => {
+                      // Find transaction for this date (simplified for horizontal view)
+                      const dateTransaction = allTransactions[date]?.find(tx => 
+                        tx.TRX_TIME === transaction.TRX_TIME && 
+                        tx.STK_PRIC === transaction.STK_PRIC
+                      ) || null;
+                      
                       return (
-                            <React.Fragment key={date}>
-                              <td className="py-1 px-1 font-medium border-l-2 border-border text-foreground text-xs">
-                                {transaction ? formatTime(transaction.trxTime) : '-'}
-                              </td>
-                              <td className="py-1 px-1 text-red-600 font-medium text-xs">
-                                {transaction?.trxType || '-'}
-                              </td>
-                              <td className="py-1 px-1 text-center text-blue-600 text-xs">
-                                {transaction?.brkCod1 || '-'}
-                              </td>
-                              <td className="py-1 px-1 text-center text-gray-600 text-xs">
-                                {transaction?.invTyp1 || '-'}
-                              </td>
-                              <td className="py-1 px-1 text-center text-red-600 text-xs">
-                                {transaction?.brkCod2 || '-'}
-                              </td>
-                              <td className="py-1 px-1 text-center text-gray-600 text-xs">
-                                {transaction?.invTyp2 || '-'}
-                              </td>
-                              <td className="py-1 px-1 text-right font-medium text-xs">
-                                {transaction ? formatNumber(transaction.stkPric) : '-'}
-                              </td>
-                              <td className="py-1 px-1 text-right font-medium border-r-2 border-border text-xs">
-                                {transaction ? formatNumber(transaction.stkVolm) : '-'}
-                        </td>
-                            </React.Fragment>
+                        <React.Fragment key={date}>
+                          <td className="py-1 px-1 font-medium border-l-2 border-border text-foreground text-xs">
+                            {dateTransaction ? formatTime(dateTransaction.TRX_TIME) : '-'}
+                          </td>
+                          <td className="py-1 px-1 text-red-600 font-medium text-xs">
+                            {dateTransaction?.TYP || '-'}
+                          </td>
+                          <td className="py-1 px-1 text-center text-blue-600 text-xs">
+                            {dateTransaction?.BRK_COD1 || '-'}
+                          </td>
+                          <td className="py-1 px-1 text-center text-gray-600 text-xs">
+                            {dateTransaction?.INV_TYP1 || '-'}
+                          </td>
+                          <td className="py-1 px-1 text-center text-red-600 text-xs">
+                            {dateTransaction?.BRK_COD2 || '-'}
+                          </td>
+                          <td className="py-1 px-1 text-center text-gray-600 text-xs">
+                            {dateTransaction?.INV_TYP2 || '-'}
+                          </td>
+                          <td className="py-1 px-1 text-right font-medium text-xs">
+                            {dateTransaction ? formatNumber(dateTransaction.STK_PRIC) : '-'}
+                          </td>
+                          <td className="py-1 px-1 text-right font-medium border-r-2 border-border text-xs">
+                            {dateTransaction ? formatNumber(dateTransaction.STK_VOLM) : '-'}
+                          </td>
+                        </React.Fragment>
                       );
                     })}
                   </tr>
-                    );
-                  }
-
-                  return rows;
-                })()}
+                ))}
               </tbody>
             </table>
+          </div>
+
+          {/* Pagination Controls */}
+          <div className="mt-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <div>
+                Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, allCombinedTransactions.length)} of {allCombinedTransactions.length} transactions
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs">Items per page:</label>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="text-xs bg-background border border-border rounded px-2 py-1"
+                >
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={200}>200</option>
+                  <option value={500}>500</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+              >
+                Previous
+              </Button>
+              <span className="px-2 text-sm">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+              >
+                Next
+              </Button>
+            </div>
           </div>
 
           {/* Summary */}
@@ -570,8 +816,8 @@ export function StockTransactionDoneDetail() {
                 <div className="font-medium">{uniqueBrokers}</div>
               </div>
               <div>
-                <span className="text-muted-foreground">Max Rows:</span>
-                <div className="font-medium">{Math.max(...selectedDates.map(date => allTransactions[date]?.length || 0))}</div>
+                <span className="text-muted-foreground">Current Page:</span>
+                <div className="font-medium">{currentPage} of {totalPages}</div>
               </div>
             </div>
 
@@ -580,6 +826,8 @@ export function StockTransactionDoneDetail() {
                 const dateRawTransactions = allRawTransactions[date];
                 if (!dateRawTransactions) return null;
                 const dateVolume = dateRawTransactions.reduce((sum, t) => sum + t.stkVolm, 0);
+                const dateTransactions = allTransactions[date] || [];
+                const dateVolume = dateTransactions.reduce((sum, t) => sum + t.STK_VOLM, 0);
                 return (
                   <div key={date} className="p-2 bg-background rounded border">
                     <div className="font-medium text-blue-600">{formatDisplayDate(date)}</div>
@@ -596,6 +844,144 @@ export function StockTransactionDoneDetail() {
     );
   };
 
+  // Render vertical view - separate table for each date
+  const renderVerticalView = () => {
+    return (
+      <div className="space-y-6">
+        {/* Filter Section */}
+        <Card>
+          <CardHeader>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <CardTitle className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
+                <Grid3X3 className="w-5 h-5" />
+                Filters
+              </CardTitle>
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center w-full">
+                <div className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
+                  <label className="text-xs font-medium text-muted-foreground">Sort Time:</label>
+                  <select
+                    className="text-xs bg-background border border-border rounded px-2 h-9 w-full sm:w-auto min-w-[160px]"
+                    value={filters.timeSort}
+                    onChange={(e) => setFilters(prev => ({ ...prev, timeSort: e.target.value }))}
+                  >
+                    <option value="latest">Latest</option>
+                    <option value="oldest">Oldest</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
+                  <label className="text-xs font-medium text-muted-foreground">Broker:</label>
+                  <select
+                    className="text-xs bg-background border border-border rounded px-2 h-9 w-full sm:w-auto min-w-[160px]"
+                    value={filters.broker}
+                    onChange={(e) => setFilters(prev => ({ ...prev, broker: e.target.value }))}
+                  >
+                    <option value="all">All</option>
+                    {brokerOptions.map(option => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
+                  <label className="text-xs font-medium text-muted-foreground">Price:</label>
+                  <select
+                    className="text-xs bg-background border border-border rounded px-2 h-9 w-full sm:w-auto min-w-[160px]"
+                    value={filters.price}
+                    onChange={(e) => setFilters(prev => ({ ...prev, price: e.target.value }))}
+                  >
+                    <option value="all">All</option>
+                    {priceOptions.map(option => (
+                      <option key={option} value={option}>{formatNumber(parseInt(option))}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setFilters({ timeSort: 'latest', broker: 'all', price: 'all' })}
+                  className="w-full sm:w-auto text-xs h-9"
+                >
+                  <RotateCcw className="w-3 h-3 mr-1" />
+                  Reset
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+        </Card>
+        {selectedDates.map((date) => {
+          const rawData = doneDetailData.get(date) || [];
+          const filteredData = filterData(rawData);
+          
+        
+        return (
+            <Card key={date}>
+              <CardHeader>
+                <CardTitle className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
+                  <Grid3X3 className="w-5 h-5" />
+                  Done Detail - {selectedStock} ({formatDisplayDate(date)})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {renderTransactionTable(filteredData)}
+
+                {/* Summary */}
+                <div className="mt-4 pt-4 border-t border-border">
+                  <div className="grid grid-cols-1 md:grid-cols-6 gap-4 text-sm">
+                    <div>
+                      <span className="text-muted-foreground">Transactions: </span>
+                      <span className="font-medium">{formatNumber(filteredData.length)}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Total Volume: </span>
+                      <span className="font-medium text-blue-600">
+                        {formatNumber(filteredData.reduce((sum, tx) => sum + tx.STK_VOLM, 0))}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Unique Brokers: </span>
+                      <span className="font-medium text-purple-600">
+                        {new Set([...filteredData.map(tx => tx.BRK_COD1), ...filteredData.map(tx => tx.BRK_COD2)]).size}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Price Range: </span>
+                      <span className="font-medium">
+                        {filteredData.length > 0 ?
+                          `${formatNumber(Math.min(...filteredData.map(tx => tx.STK_PRIC)))} - ${formatNumber(Math.max(...filteredData.map(tx => tx.STK_PRIC)))}`
+                          : 'N/A'
+                        }
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Avg Price: </span>
+                      <span className="font-medium">
+                        {filteredData.length > 0 ?
+                          formatNumber(Math.round(filteredData.reduce((sum, tx) => sum + tx.STK_PRIC, 0) / filteredData.length))
+                          : 'N/A'
+                        }
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Avg Volume: </span>
+                      <span className="font-medium">
+                        {filteredData.length > 0 ?
+                          formatNumber(Math.round(filteredData.reduce((sum, tx) => sum + tx.STK_VOLM, 0) / filteredData.length))
+                          : 'N/A'
+                        }
+                      </span>
+                    </div>
+                  </div>
+                            </div>
+              </CardContent>
+            </Card>
+                      );
+                    })}
+          </div>
+        );
+  };
 
 
   return (
@@ -623,7 +1009,7 @@ export function StockTransactionDoneDetail() {
                     onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
                     onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
                     onKeyDown={(e) => {
-                      const suggestions = (stockInput === '' ? AVAILABLE_STOCKS : filteredStocks).slice(0, 10);
+                      const suggestions = (stockInput === '' ? availableStocks : filteredStocks).slice(0, 10);
                       if (!suggestions.length) return;
                       if (e.key === 'ArrowDown') {
                         e.preventDefault();
@@ -646,12 +1032,17 @@ export function StockTransactionDoneDetail() {
                   />
                   {showStockSuggestions && (
                     <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
-                      {stockInput === '' ? (
+                      {availableStocks.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-muted-foreground flex items-center">
+                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                          Loading stocks...
+                        </div>
+                      ) : stockInput === '' ? (
                         <>
                           <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
-                            All Stocks
+                            Available Stocks ({availableStocks.length})
                           </div>
-                          {AVAILABLE_STOCKS.map(stock => (
+                          {availableStocks.map(stock => (
                             <div
                               key={stock}
                               onClick={() => handleStockSelect(stock)}
@@ -662,15 +1053,20 @@ export function StockTransactionDoneDetail() {
                           ))}
                         </>
                       ) : filteredStocks.length > 0 ? (
-                        filteredStocks.map(stock => (
-                          <div
-                            key={stock}
-                            onClick={() => handleStockSelect(stock)}
-                            className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
-                          >
-                            {stock}
+                        <>
+                          <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
+                            {filteredStocks.length} stocks found
                           </div>
-                        ))
+                          {filteredStocks.map(stock => (
+                            <div
+                              key={stock}
+                              onClick={() => handleStockSelect(stock)}
+                              className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
+                            >
+                              {stock}
+                            </div>
+                          ))}
+                        </>
                       ) : (
                         <div className="px-3 py-2 text-sm text-muted-foreground">
                           No stocks found
@@ -752,8 +1148,28 @@ export function StockTransactionDoneDetail() {
         </CardContent>
       </Card>
 
+      {/* Loading State */}
+      {isLoading && (
+        <Card>
+          <CardContent className="flex items-center justify-center py-8">
+            <Loader2 className="w-6 h-6 animate-spin mr-2" />
+            <span>Loading transaction data...</span>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Error State */}
+      {error && !isLoading && (
+        <Card>
+          <CardContent className="flex items-center justify-center py-8 text-destructive">
+            <span>Error: {error}</span>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Main Data Display */}
       {renderHorizontalView()}
+      {!isLoading && !error && (layoutMode === 'horizontal' ? renderHorizontalView() : renderVerticalView())}
 
       {/* Info Card */}
       <Card className={infoOpen ? '' : 'my-4'}>
@@ -805,9 +1221,3 @@ export function StockTransactionDoneDetail() {
     </div>
   );
 }
-
-
-
-
-
-

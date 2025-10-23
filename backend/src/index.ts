@@ -21,6 +21,8 @@ import moneyFlowRoutes from './routes/moneyflow';
 import stockRoutes from './routes/stock';
 import holdingRoutes from './routes/holding';
 import shareholdersRoutes from './routes/shareholders';
+import doneSummaryRoutes from './routes/done-summary';
+import breakDoneTradeRoutes from './routes/break-done-trade';
 import { requireSupabaseUser } from './middleware/requireSupabaseUser';
 import { securityHeaders, sanitizeInput } from './middleware/security';
 import { createErrorResponse, ERROR_CODES, HTTP_STATUS } from './utils/responseUtils';
@@ -91,6 +93,8 @@ app.use('/api/moneyflow', moneyFlowRoutes);
 app.use('/api/stock', stockRoutes);
 app.use('/api/holding', holdingRoutes);
 app.use('/api/shareholders', shareholdersRoutes);
+app.use('/api/done-summary', doneSummaryRoutes);
+app.use('/api/break-done-trade', breakDoneTradeRoutes);
 
 // contoh protected route pakai Supabase Auth token
 app.get('/me', requireSupabaseUser, (req: any, res) => {
