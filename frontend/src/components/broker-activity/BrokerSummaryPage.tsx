@@ -23,9 +23,20 @@ const TICKERS = [
   'KLBF','INAF','ADHI','WIKA','JSMR','TOWR','SMGR','INCO','ANTM','UNTR'
 ];
 
+// Foreign brokers (red background)
+const FOREIGN_BROKERS = [
+  'AG', 'AH', 'AI', 'AK', 'AO', 'AT', 'AZ', 'BB', 'BK', 'BQ', 'CC', 'CD', 'CP', 
+  'DH', 'DP', 'DR', 'DU', 'DX', 'EP', 'FS', 'GR', 'GW', 'HD', 'HP', 'IF', 'II', 
+  'KI', 'KK', 'KZ', 'LG', 'MG', 'MU', 'NI', 'OD', 'PD', 'PP', 'QA', 'RB', 'RF', 
+  'RX', 'SQ', 'SS', 'TP', 'XA', 'XC', 'XL', 'YB', 'YJ', 'YO', 'YP', 'YU', 'ZP'
+];
+
+// Government brokers (green background)
+const GOVERNMENT_BROKERS = ['CC', 'NI', 'OD', 'DX'];
+
 // Generate broker summary data for a specific date and ticker
 const generateBrokerSummaryData = (date: string, ticker: string): BrokerSummaryData[] => {
-  const brokers = ['LG', 'MG', 'BR', 'RG', 'CC', 'UQ', 'MI', 'KS', 'DA', 'SS'];
+  const brokers = ['LG', 'MG', 'BR', 'RG', 'CC', 'UQ', 'MI', 'KS', 'DA', 'SS', 'NI', 'OD', 'DX', 'AG', 'AH', 'AI'];
   
   return brokers.map(broker => {
     // Create deterministic seed based on date and ticker
@@ -90,6 +101,22 @@ const formatNumber = (value: number): string => {
 
 const getBrokerRowClass = (broker: string, _data: BrokerSummaryData): string => {
   const isDarkMode = useDarkMode();
+  
+  // Check if broker is government broker (green background)
+  if (GOVERNMENT_BROKERS.includes(broker)) {
+    return isDarkMode 
+      ? 'bg-green-900/30 text-green-100 hover:opacity-80' 
+      : 'bg-green-100/50 text-green-800 hover:opacity-80';
+  }
+  
+  // Check if broker is foreign broker (red background)
+  if (FOREIGN_BROKERS.includes(broker)) {
+    return isDarkMode 
+      ? 'bg-red-900/30 text-red-100 hover:opacity-80' 
+      : 'bg-red-100/50 text-red-800 hover:opacity-80';
+  }
+  
+  // Default broker styling
   const backgroundClass = getBrokerBackgroundClass(broker, isDarkMode);
   const textClass = getBrokerTextClass(broker, isDarkMode);
   return `${backgroundClass} ${textClass} hover:opacity-80`;
