@@ -38,14 +38,110 @@ const fetchBrokerTransactionData = async (brokerCode: string, date: string): Pro
 };
 
 const formatNumber = (num: number): string => {
+  // Ensure num is a valid number
+  if (isNaN(num) || !isFinite(num)) {
+    return '0';
+  }
+  
   if (Math.abs(num) >= 1000) {
     return (num / 1000).toFixed(1) + 'K';
   }
   return num.toFixed(num >= 10 ? 0 : num >= 1 ? 1 : 2);
 };
 
-const formatValue = (value: number): string => {
-  return formatNumber(value);
+const formatValue = (value: any): string => {
+  // Handle null, undefined, or non-numeric values
+  if (value === null || value === undefined || isNaN(Number(value))) {
+    return '0';
+  }
+  return formatNumber(Number(value));
+};
+
+// Filter and sort functions
+const getFilteredAndSortedStocks = (
+  uniqueStocks: string[], 
+  transactionData: Map<string, BrokerTransactionData[]>, 
+  selectedDates: string[], 
+  tickerSearch: string, 
+  filter: string
+) => {
+  // Filter by ticker search
+  let filteredStocks = uniqueStocks;
+  if (tickerSearch.trim()) {
+    filteredStocks = uniqueStocks.filter(stock => 
+      stock.toLowerCase().includes(tickerSearch.toLowerCase())
+    );
+  }
+  
+  // Sort by filter
+  if (filter !== 'all') {
+    filteredStocks.sort((a, b) => {
+      let aValue = 0;
+      let bValue = 0;
+      
+      // Get the first date with data for comparison
+      for (const date of selectedDates) {
+        const dateData = transactionData.get(date) || [];
+        const aData = dateData.find(d => d.Emiten === a);
+        const bData = dateData.find(d => d.Emiten === b);
+        
+        if (aData && bData) {
+          switch (filter) {
+            case 'buyVol-highest':
+            case 'buyVol-lowest':
+              aValue = aData.BuyerVol || 0;
+              bValue = bData.BuyerVol || 0;
+              break;
+            case 'buyVal-highest':
+            case 'buyVal-lowest':
+              aValue = aData.BuyerValue || 0;
+              bValue = bData.BuyerValue || 0;
+              break;
+            case 'sellVol-highest':
+            case 'sellVol-lowest':
+              aValue = aData.SellerVol || 0;
+              bValue = bData.SellerVol || 0;
+              break;
+            case 'sellVal-highest':
+            case 'sellVal-lowest':
+              aValue = aData.SellerValue || 0;
+              bValue = bData.SellerValue || 0;
+              break;
+            case 'netBuyVol-highest':
+            case 'netBuyVol-lowest':
+              aValue = aData.NetBuyVol || 0;
+              bValue = bData.NetBuyVol || 0;
+              break;
+            case 'netBuyVal-highest':
+            case 'netBuyVal-lowest':
+              aValue = aData.NetBuyValue || 0;
+              bValue = bData.NetBuyValue || 0;
+              break;
+            case 'totalVol-highest':
+            case 'totalVol-lowest':
+              aValue = aData.TotalVolume || 0;
+              bValue = bData.TotalVolume || 0;
+              break;
+            case 'totalVal-highest':
+            case 'totalVal-lowest':
+              aValue = aData.TotalValue || 0;
+              bValue = bData.TotalValue || 0;
+              break;
+          }
+          break;
+        }
+      }
+      
+      // Determine sort direction based on filter
+      if (filter.includes('-lowest')) {
+        return aValue - bValue; // Lowest to highest
+      } else {
+        return bValue - aValue; // Highest to lowest
+      }
+    });
+  }
+  
+  return filteredStocks;
 };
 
 // Get trading days based on count
@@ -88,7 +184,24 @@ const getLastThreeDays = (): string[] => {
 
 export function BrokerTransaction() {
   const { showToast } = useToast();
-  const [selectedDates, setSelectedDates] = useState<string[]>(getLastThreeDays());
+  const [selectedDates, setSelectedDates] = useState<string[]>([]);
+  
+  // Get available dates from backend and return recent trading days
+  const getAvailableTradingDays = async (count: number): Promise<string[]> => {
+    try {
+      // Get available dates from backend
+      const response = await api.getBrokerTransactionDates();
+      if (response.success && response.data?.dates) {
+        const availableDates = response.data.dates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+        return availableDates.slice(0, count);
+      }
+    } catch (error) {
+      console.error('Error fetching available dates:', error);
+    }
+    
+    // Fallback to local calculation if backend fails
+    return getTradingDays(count);
+  };
   const [startDate, setStartDate] = useState(() => {
     const threeDays = getLastThreeDays();
     if (threeDays.length > 0) {
@@ -105,8 +218,8 @@ export function BrokerTransaction() {
     }
     return '';
   });
-  const [brokerInput, setBrokerInput] = useState('MG');
-  const [selectedBroker, setSelectedBroker] = useState<string>('MG');
+  const [brokerInput, setBrokerInput] = useState('CC');
+  const [selectedBroker, setSelectedBroker] = useState<string>('CC');
   const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
   const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical'>('horizontal');
@@ -116,6 +229,56 @@ export function BrokerTransaction() {
   const [transactionData, setTransactionData] = useState<Map<string, BrokerTransactionData[]>>(new Map());
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [availableBrokers, setAvailableBrokers] = useState<string[]>([]);
+  
+  // Search and filter states
+  const [tickerSearch, setTickerSearch] = useState<string>('');
+  const [buySideFilter, setBuySideFilter] = useState<string>('all');
+  const [sellSideFilter, setSellSideFilter] = useState<string>('all');
+
+  // Load available brokers and initial dates on component mount
+  useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        // Load broker list from csv_input/broker_list.csv
+        const brokerResponse = await api.getBrokerList();
+        if (brokerResponse.success && brokerResponse.data?.brokers) {
+          setAvailableBrokers(brokerResponse.data.brokers);
+        } else {
+          throw new Error('Failed to load broker list');
+        }
+        
+        // Load initial dates based on available data
+        const initialDates = await getAvailableTradingDays(3);
+        setSelectedDates(initialDates);
+        
+        // Set initial date range
+        if (initialDates.length > 0) {
+          const sortedDates = [...initialDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+          setStartDate(sortedDates[0]);
+          setEndDate(sortedDates[sortedDates.length - 1]);
+        }
+        
+      } catch (error) {
+        console.error('Error loading initial data:', error);
+        
+        // Fallback to hardcoded broker list and local date calculation
+        const brokers = ['MG','CIMB','UOB','COIN','NH','TRIM','DEWA','BNCA','PNLF','VRNA','SD','LMGA','DEAL','ESA','SSA'];
+        setAvailableBrokers(brokers);
+        
+        const fallbackDates = getTradingDays(3);
+        setSelectedDates(fallbackDates);
+        
+        if (fallbackDates.length > 0) {
+          const sortedDates = [...fallbackDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+          setStartDate(sortedDates[0]);
+          setEndDate(sortedDates[sortedDates.length - 1]);
+        }
+      }
+    };
+
+    loadInitialData();
+  }, [showToast]);
 
   // Load transaction data when selected broker or dates change
   useEffect(() => {
@@ -127,29 +290,41 @@ export function BrokerTransaction() {
       
       try {
         const newTransactionData = new Map<string, BrokerTransactionData[]>();
+        let hasAnyData = false;
+        let missingDates: string[] = [];
         
-        // Load data for each selected date
+        // Load data for ALL selected dates
         for (const date of selectedDates) {
+          try {
           const data = await fetchBrokerTransactionData(selectedBroker, date);
+            if (data.length > 0) {
           newTransactionData.set(date, data);
+              hasAnyData = true;
+            } else {
+              // Set empty array for dates with no data
+              newTransactionData.set(date, []);
+              missingDates.push(date);
+            }
+          } catch (err) {
+            // Set empty array for dates with errors
+            newTransactionData.set(date, []);
+            missingDates.push(date);
+            console.log(`No data available for ${selectedBroker} on ${date}`);
+          }
         }
         
         setTransactionData(newTransactionData);
+        
       } catch (err) {
         setError('Failed to load transaction data');
         console.error('Error loading transaction data:', err);
-        showToast({
-          type: 'error',
-          title: 'Error Memuat Data',
-          message: 'Gagal memuat data transaksi broker.'
-        });
       } finally {
         setIsLoading(false);
       }
     };
 
     loadTransactionData();
-  }, [selectedBroker, selectedDates]);
+  }, [selectedBroker, selectedDates, showToast]);
 
   const addDateRange = () => {
     if (startDate && endDate) {
@@ -188,6 +363,12 @@ export function BrokerTransaction() {
       // Switch to custom mode when user manually selects dates
       setDateRangeMode('custom');
       // Don't clear the date inputs - keep them for user reference
+      
+      showToast({
+        type: 'success',
+        title: 'Date Range Added',
+        message: `Berhasil menambahkan ${dateArray.length} tanggal.`
+      });
     }
   };
 
@@ -205,7 +386,7 @@ export function BrokerTransaction() {
   };
 
   // Handle date range mode change
-  const handleDateRangeModeChange = (mode: '1day' | '3days' | '1week' | 'custom') => {
+  const handleDateRangeModeChange = async (mode: '1day' | '3days' | '1week' | 'custom') => {
     setDateRangeMode(mode);
     
     if (mode === 'custom') {
@@ -213,17 +394,18 @@ export function BrokerTransaction() {
       return;
     }
     
-    // Apply preset dates based on mode
+    // Apply preset dates based on mode using available data
     let newDates: string[] = [];
+    try {
     switch (mode) {
       case '1day':
-        newDates = getTradingDays(1);
+          newDates = await getAvailableTradingDays(1);
         break;
       case '3days':
-        newDates = getTradingDays(3);
+          newDates = await getAvailableTradingDays(3);
         break;
       case '1week':
-        newDates = getTradingDays(5);
+          newDates = await getAvailableTradingDays(5);
         break;
     }
     
@@ -234,37 +416,150 @@ export function BrokerTransaction() {
       const sortedDates = [...newDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
       setStartDate(sortedDates[0]);
       setEndDate(sortedDates[sortedDates.length - 1]);
+      }
+      
+    } catch (error) {
+      console.error('Error updating date range:', error);
+      
+      // Fallback to local calculation
+      switch (mode) {
+        case '1day':
+          newDates = getTradingDays(1);
+          break;
+        case '3days':
+          newDates = getTradingDays(3);
+          break;
+        case '1week':
+          newDates = getTradingDays(5);
+          break;
+      }
+      setSelectedDates(newDates);
     }
   };
 
   // Clear all dates and reset to 1 day
-  const clearAllDates = () => {
-    setSelectedDates(getTradingDays(1));
+  const clearAllDates = async () => {
+    try {
+      const oneDay = await getAvailableTradingDays(1);
+      setSelectedDates(oneDay);
     setDateRangeMode('1day');
+      if (oneDay.length > 0) {
+        setStartDate(oneDay[0] || '');
+        setEndDate(oneDay[0] || '');
+      }
+      
+    } catch (error) {
+      console.error('Error clearing dates:', error);
+      // Fallback to local calculation
     const oneDay = getTradingDays(1);
+      setSelectedDates(oneDay);
+      setDateRangeMode('1day');
     if (oneDay.length > 0) {
       setStartDate(oneDay[0] || '');
       setEndDate(oneDay[0] || '');
+      }
+      
     }
   };
 
   const renderHorizontalView = () => {
     if (!selectedBroker || selectedDates.length === 0) return null;
-    const buyData = transactionData.get(selectedDates[0] || '') || [];
-    const sellData = transactionData.get(selectedDates[0] || '') || [];
+    
+    // Get all unique stocks from all dates
+    const allStocks = new Set<string>();
+    selectedDates.forEach(date => {
+      const data = transactionData.get(date) || [];
+      data.forEach(item => allStocks.add(item.Emiten));
+    });
+    
+    const uniqueStocks = Array.from(allStocks);
+    
+    if (uniqueStocks.length === 0) {
+      return (
+        <div className="text-center py-8 text-muted-foreground">
+          No data available for {selectedBroker} on selected dates
+        </div>
+      );
+    }
+    
+    // Get filtered and sorted stocks
+    const filteredBuyStocks = getFilteredAndSortedStocks(uniqueStocks, transactionData, selectedDates, tickerSearch, buySideFilter);
+    const filteredSellStocks = getFilteredAndSortedStocks(uniqueStocks, transactionData, selectedDates, tickerSearch, sellSideFilter);
     
     return (
       <div className="space-y-6">
+        {/* Search and Filter Controls */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Search & Filter Controls</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Ticker Search */}
+              <div>
+                <label className="block text-sm font-medium mb-2">Search Ticker:</label>
+                <input
+                  type="text"
+                  value={tickerSearch}
+                  onChange={(e) => setTickerSearch(e.target.value)}
+                  placeholder="Enter ticker code..."
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                />
+              </div>
+              
+              {/* Buy Side Filter */}
+              <div>
+                <label className="block text-sm font-medium mb-2">Buy Side Sort:</label>
+                <select
+                  value={buySideFilter}
+                  onChange={(e) => setBuySideFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                >
+                  <option value="all">All</option>
+                  <option value="buyVol-highest">BuyVol (Highest)</option>
+                  <option value="buyVol-lowest">BuyVol (Lowest)</option>
+                  <option value="buyVal-highest">BuyVal (Highest)</option>
+                  <option value="buyVal-lowest">BuyVal (Lowest)</option>
+                  <option value="sellVol-highest">SellVol (Highest)</option>
+                  <option value="sellVol-lowest">SellVol (Lowest)</option>
+                  <option value="sellVal-highest">SellVal (Highest)</option>
+                  <option value="sellVal-lowest">SellVal (Lowest)</option>
+                </select>
+              </div>
+              
+              {/* Sell Side Filter */}
+              <div>
+                <label className="block text-sm font-medium mb-2">Sell Side Sort:</label>
+                <select
+                  value={sellSideFilter}
+                  onChange={(e) => setSellSideFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                >
+                  <option value="all">All</option>
+                  <option value="netBuyVol-highest">NetBuyVol (Highest)</option>
+                  <option value="netBuyVol-lowest">NetBuyVol (Lowest)</option>
+                  <option value="netBuyVal-highest">NetBuyVal (Highest)</option>
+                  <option value="netBuyVal-lowest">NetBuyVal (Lowest)</option>
+                  <option value="totalVol-highest">TotalVol (Highest)</option>
+                  <option value="totalVol-lowest">TotalVol (Lowest)</option>
+                  <option value="totalVal-highest">TotalVal (Highest)</option>
+                  <option value="totalVal-lowest">TotalVal (Lowest)</option>
+                </select>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Buy Side Horizontal Table */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-green-600">BUY SIDE - {selectedBroker}</CardTitle>
+            <CardTitle className="text-green-600">BUY SIDE - {selectedBroker} ({filteredBuyStocks.length} stocks)</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto rounded-md">
+            <div className="overflow-x-auto rounded-md max-h-96 overflow-y-auto">
               <div className="inline-block min-w-full">
                 <table className="w-full min-w-[900px] text-xs border-collapse">
-                  <thead className="bg-background">
+                  <thead className="bg-background sticky top-0 z-30">
                     <tr className="border-b border-border">
                       <th className="text-left py-2 px-2 font-medium bg-accent sticky left-0 z-20">Ticker</th>
                       {selectedDates.map((date) => (
@@ -286,17 +581,30 @@ export function BrokerTransaction() {
                     </tr>
                   </thead>
                   <tbody>
-                    {buyData.map((row, idx) => (
+                    {filteredBuyStocks.map((stock, idx) => (
                       <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                        <td className="py-1.5 px-2 font-medium bg-background sticky left-0 z-20 border-r border-border">{row.Emiten}</td>
+                        <td className="py-1.5 px-2 font-medium bg-background sticky left-0 z-20 border-r border-border">{stock}</td>
                         {selectedDates.map((date) => {
-                          const dayData = (transactionData.get(date) || []).find(d => d.Emiten === row.Emiten) || row;
+                          const dateData = transactionData.get(date) || [];
+                          const dayData = dateData.find(d => d.Emiten === stock);
+                          const hasDataForDate = dayData !== undefined;
+                          
                           return (
                             <React.Fragment key={date}>
-                              <td className="text-right py-1.5 px-1 text-green-600">{formatValue(dayData.BuyerVol)}</td>
-                              <td className="text-right py-1.5 px-1 text-green-600">{formatValue(dayData.BuyerValue)}</td>
-                              <td className="text-right py-1.5 px-1 text-red-600">{formatValue(dayData.SellerVol)}</td>
-                              <td className="text-right py-1.5 px-1 text-red-600 border-r-2 border-border">{formatValue(dayData.SellerValue)}</td>
+                              {hasDataForDate && dayData ? (
+                                <>
+                                  <td className="text-right py-1.5 px-1 text-green-600">{formatValue(dayData.BuyerVol || 0)}</td>
+                                  <td className="text-right py-1.5 px-1 text-green-600">{formatValue(dayData.BuyerValue || 0)}</td>
+                                  <td className="text-right py-1.5 px-1 text-red-600">{formatValue(dayData.SellerVol || 0)}</td>
+                                  <td className="text-right py-1.5 px-1 text-red-600 border-r-2 border-border">{formatValue(dayData.SellerValue || 0)}</td>
+                                </>
+                              ) : (
+                                <>
+                                  <td className="text-center py-1.5 px-1 text-muted-foreground text-[10px]" colSpan={4}>
+                                    No data
+                                  </td>
+                                </>
+                              )}
                             </React.Fragment>
                           );
                         })}
@@ -312,13 +620,13 @@ export function BrokerTransaction() {
         {/* Sell Side Horizontal Table */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-red-600">SELL SIDE - {selectedBroker}</CardTitle>
+            <CardTitle className="text-red-600">SELL SIDE - {selectedBroker} ({filteredSellStocks.length} stocks)</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto rounded-md">
+            <div className="overflow-x-auto rounded-md max-h-96 overflow-y-auto">
               <div className="inline-block min-w-full">
                 <table className="w-full min-w-[900px] text-xs border-collapse">
-                  <thead className="bg-background">
+                  <thead className="bg-background sticky top-0 z-30">
                     <tr className="border-b border-border">
                       <th className="text-left py-2 px-2 font-medium bg-accent sticky left-0 z-20">Ticker</th>
                       {selectedDates.map((date) => (
@@ -340,17 +648,30 @@ export function BrokerTransaction() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sellData.map((row, idx) => (
+                    {filteredSellStocks.map((stock, idx) => (
                       <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                        <td className="py-1.5 px-2 font-medium bg-background sticky left-0 z-20 border-r border-border">{row.Emiten}</td>
+                        <td className="py-1.5 px-2 font-medium bg-background sticky left-0 z-20 border-r border-border">{stock}</td>
                         {selectedDates.map((date) => {
-                          const dayData = (transactionData.get(date) || []).find(d => d.Emiten === row.Emiten) || row;
+                          const dateData = transactionData.get(date) || [];
+                          const dayData = dateData.find(d => d.Emiten === stock);
+                          const hasDataForDate = dayData !== undefined;
+                          
                           return (
                             <React.Fragment key={date}>
-                              <td className="text-right py-1.5 px-1 text-blue-600">{formatValue(dayData.NetBuyVol)}</td>
-                              <td className="text-right py-1.5 px-1 text-blue-600">{formatValue(dayData.NetBuyValue)}</td>
-                              <td className="text-right py-1.5 px-1">{formatValue(dayData.TotalVolume)}</td>
-                              <td className="text-right py-1.5 px-1 border-r-2 border-border">{formatValue(dayData.TotalValue)}</td>
+                              {hasDataForDate && dayData ? (
+                                <>
+                                  <td className="text-right py-1.5 px-1 text-blue-600">{formatValue(dayData.NetBuyVol || 0)}</td>
+                                  <td className="text-right py-1.5 px-1 text-blue-600">{formatValue(dayData.NetBuyValue || 0)}</td>
+                                  <td className="text-right py-1.5 px-1">{formatValue(dayData.TotalVolume || 0)}</td>
+                                  <td className="text-right py-1.5 px-1 border-r-2 border-border">{formatValue(dayData.TotalValue || 0)}</td>
+                                </>
+                              ) : (
+                                <>
+                                  <td className="text-center py-1.5 px-1 text-muted-foreground text-[10px]" colSpan={4}>
+                                    No data
+                                  </td>
+                                </>
+                              )}
                             </React.Fragment>
                           );
                         })}
@@ -374,6 +695,7 @@ export function BrokerTransaction() {
         {selectedDates.map((date) => {
           const buyData = transactionData.get(date) || [];
           const sellData = transactionData.get(date) || [];
+          const hasData = buyData.length > 0;
           
           return (
             <div key={date} className="space-y-4">
@@ -382,7 +704,12 @@ export function BrokerTransaction() {
                 <h3 className="text-lg font-semibold text-foreground">{formatDisplayDate(date)}</h3>
               </div>
               
-              {/* Buy Side and Sell Side side by side */}
+              {!hasData ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  No data available for {selectedBroker} on {formatDisplayDate(date)}
+                </div>
+              ) : (
+                /* Buy Side and Sell Side side by side */
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {/* Buy Side for this date */}
                 <Card>
@@ -450,6 +777,7 @@ export function BrokerTransaction() {
                   </CardContent>
                 </Card>
               </div>
+              )}
             </div>
           );
         })}
@@ -502,8 +830,8 @@ export function BrokerTransaction() {
                     }}
                     onFocus={() => setShowBrokerSuggestions(true)}
                     onKeyDown={(e) => {
-                      const all = ['MG','CIMB','UOB','COIN','NH','TRIM','DEWA','BNCA','PNLF','VRNA','SD','LMGA','DEAL','ESA','SSA'];
-                      const suggestions = all.filter(b => b.toLowerCase().includes(brokerInput.toLowerCase())).slice(0, 10);
+                      // Filter brokers by text input only (no availability filtering)
+                      const suggestions = availableBrokers.filter(b => b.toLowerCase().includes(brokerInput.toLowerCase())).slice(0, 10);
                       if (e.key === 'ArrowDown' && suggestions.length) {
                         e.preventDefault();
                         setHighlightedIndex((prev) => {
@@ -547,11 +875,18 @@ export function BrokerTransaction() {
                     </button>
                   )}
                   {showBrokerSuggestions && (
+                    <div id="broker-suggestions" role="listbox" className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
+                      {availableBrokers.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-muted-foreground flex items-center">
+                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                          Loading brokers...
+                        </div>
+                      ) : (
                     (() => {
-                      const all = ['MG','CIMB','UOB','COIN','NH','TRIM','DEWA','BNCA','PNLF','VRNA','SD','LMGA','DEAL','ESA','SSA'];
-                      const suggestions = all.filter(b => b.toLowerCase().includes(brokerInput.toLowerCase())).slice(0, 10);
+                          // Filter brokers by text input only (no availability filtering)
+                          const suggestions = availableBrokers.filter(b => b.toLowerCase().includes(brokerInput.toLowerCase())).slice(0, 10);
                       return (
-                        <div id="broker-suggestions" role="listbox" className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
+                            <>
                           {suggestions.map((b, idx) => (
                             <button
                               key={b}
@@ -573,9 +908,11 @@ export function BrokerTransaction() {
                           {suggestions.length === 0 && (
                             <div className="px-3 py-2 text-sm text-muted-foreground">No results</div>
                           )}
-                        </div>
+                            </>
                       );
                     })()
+                      )}
+                    </div>
                   )}
                 </div>
               </div>

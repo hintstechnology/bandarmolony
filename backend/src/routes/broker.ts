@@ -30,6 +30,74 @@ const brokerInventoryQuerySchema = z.object({
 });
 
 /**
+ * GET /api/broker/list
+ * Get list of available brokers from csv_input/broker_list.csv
+ */
+router.get('/list', async (_req, res) => {
+  try {
+    console.log('Fetching broker list from csv_input/broker_list.csv');
+    
+    // Download CSV data from Azure
+    const csvData = await downloadText('csv_input/broker_list.csv');
+    
+    if (!csvData) {
+      console.log('Broker list file not found, using fallback list');
+      // Fallback to hardcoded list
+      const fallbackBrokers = ['MG','CIMB','UOB','COIN','NH','TRIM','DEWA','BNCA','PNLF','VRNA','SD','LMGA','DEAL','ESA','SSA'];
+      return res.json({
+        success: true,
+        data: {
+          brokers: fallbackBrokers,
+          total: fallbackBrokers.length
+        }
+      });
+    }
+    
+    // Parse CSV data
+    const lines = csvData.split('\n').filter(line => line.trim());
+    const brokers: string[] = [];
+    
+    // Skip header row, process data rows
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (line && line.trim()) {
+        const brokerCode = line.trim();
+        if (brokerCode) {
+          brokers.push(brokerCode);
+        }
+      }
+    }
+    
+    console.log(`Found ${brokers.length} brokers in CSV file`);
+    
+    return res.json({
+      success: true,
+      data: {
+        brokers: brokers,
+        total: brokers.length
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('Error fetching broker list:', error);
+    console.error('Error details:', {
+      error: error.message,
+      stack: error.stack
+    });
+    
+    // Fallback to hardcoded list on error
+    const fallbackBrokers = ['MG','CIMB','UOB','COIN','NH','TRIM','DEWA','BNCA','PNLF','VRNA','SD','LMGA','DEAL','ESA','SSA'];
+    return res.json({
+      success: true,
+      data: {
+        brokers: fallbackBrokers,
+        total: fallbackBrokers.length
+      }
+    });
+  }
+});
+
+/**
  * GET /api/broker/summary/:stockCode
  * Get broker summary data for a specific stock and date
  */
@@ -346,6 +414,40 @@ router.get('/stocks', async (req, res) => {
     return res.status(500).json({
       success: false,
       error: error.message || 'Failed to fetch broker summary stocks'
+    });
+  }
+});
+
+// Get available dates for broker transaction data
+router.get('/transaction/dates', async (_req, res) => {
+  try {
+    const { listPaths } = await import('../utils/azureBlob');
+    
+    // List all broker_transaction directories
+    const allFiles = await listPaths({ prefix: 'broker_transaction/' });
+    const dates = new Set<string>();
+    
+    allFiles.forEach(file => {
+      // Extract date from broker_transaction/broker_transaction_YYYYMMDD/ pattern
+      const match = file.match(/broker_transaction\/broker_transaction_(\d{8})\//);
+      if (match && match[1]) {
+        dates.add(match[1]);
+      }
+    });
+    
+    const sortedDates = Array.from(dates).sort().reverse(); // Newest first
+    
+    return res.json({
+      success: true,
+      data: {
+        dates: sortedDates
+      }
+    });
+  } catch (error: any) {
+    console.error('Error fetching broker transaction dates:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch broker transaction dates'
     });
   }
 });
