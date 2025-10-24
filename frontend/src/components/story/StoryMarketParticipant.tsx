@@ -402,9 +402,19 @@ const TradingViewMultiPaneChart = ({
   );
 };
 
-export function StoryMarketParticipant() {
-  const [selectedStock, setSelectedStock] = useState('BBRI');
-  const [stockInput, setStockInput] = useState('BBRI');
+interface StoryMarketParticipantProps {
+  selectedStock?: string;
+  hideMarketAnalysis?: boolean;
+  hideForeignFlowAnalysis?: boolean;
+}
+
+export function StoryMarketParticipant({ 
+  selectedStock: propSelectedStock, 
+  hideMarketAnalysis = false,
+  hideForeignFlowAnalysis = false 
+}: StoryMarketParticipantProps) {
+  const [selectedStock, setSelectedStock] = useState(propSelectedStock || 'BBRI');
+  const [stockInput, setStockInput] = useState(propSelectedStock || 'BBRI');
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [layoutMode, setLayoutMode] = useState<'split' | 'combined'>('combined');
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
@@ -572,6 +582,14 @@ export function StoryMarketParticipant() {
       setLoading(false);
     }
   };
+
+  // Update selectedStock when prop changes
+  useEffect(() => {
+    if (propSelectedStock && propSelectedStock !== selectedStock) {
+      setSelectedStock(propSelectedStock);
+      setStockInput(propSelectedStock);
+    }
+  }, [propSelectedStock, selectedStock]);
 
   // Load available stocks on mount
   useEffect(() => {
@@ -810,7 +828,7 @@ export function StoryMarketParticipant() {
               <p className="text-muted-foreground">No data available for {selectedStock}</p>
             </CardContent>
           </Card>
-        ) : layoutMode === 'combined' ? (
+        ) : layoutMode === 'combined' && !hideMarketAnalysis ? (
           /* Combined TradingView Chart with Multiple Panes */
           <Card>
             <CardHeader>
@@ -825,7 +843,7 @@ export function StoryMarketParticipant() {
               />
             </CardContent>
           </Card>
-        ) : (
+        ) : !hideMarketAnalysis ? (
           /* Split View - Individual Charts */
           <div className="space-y-4">
             {/* Price Chart */}
@@ -881,12 +899,12 @@ export function StoryMarketParticipant() {
               </CardContent>
             </Card>
           </div>
-        )}
+        ) : null}
 
         {/* Stacked Bar Charts Section */}
         <div className="space-y-4">
           {/* Foreign Flow Chart */}
-          {foreignFlowDataReal.length > 0 && (
+          {foreignFlowDataReal.length > 0 && !hideForeignFlowAnalysis && (
             <Card>
               <CardHeader>
                 <CardTitle>{selectedStock} - Foreign Flow Analysis</CardTitle>

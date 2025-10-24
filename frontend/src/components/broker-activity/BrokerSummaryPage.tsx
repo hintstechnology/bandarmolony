@@ -117,7 +117,11 @@ const getBrokerRowClass = (broker: string, _data: BrokerSummaryData, isDarkMode:
   return `${backgroundClass} ${textClass} hover:opacity-80`;
 };
 
-export function BrokerSummaryPage() {
+interface BrokerSummaryPageProps {
+  selectedStock?: string;
+}
+
+export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSummaryPageProps) {
   const [selectedDates, setSelectedDates] = useState<string[]>(() => {
     const threeDays = getLastThreeDays();
     if (threeDays.length > 0) {
@@ -142,8 +146,8 @@ export function BrokerSummaryPage() {
     }
     return '';
   });
-  const [selectedTicker, setSelectedTicker] = useState<string>('BBCA');
-  const [tickerInput, setTickerInput] = useState<string>('BBCA');
+  const [selectedTicker, setSelectedTicker] = useState<string>(propSelectedStock || 'BBCA');
+  const [tickerInput, setTickerInput] = useState<string>(propSelectedStock || 'BBCA');
   const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
   const [maxBrokersToShow, setMaxBrokersToShow] = useState<number>(20);
   
@@ -161,6 +165,14 @@ export function BrokerSummaryPage() {
   const [summaryByDate, setSummaryByDate] = useState<Map<string, BrokerSummaryData[]>>(new Map());
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Update selectedTicker when prop changes
+  useEffect(() => {
+    if (propSelectedStock && propSelectedStock !== selectedTicker) {
+      setSelectedTicker(propSelectedStock);
+      setTickerInput(propSelectedStock);
+    }
+  }, [propSelectedStock, selectedTicker]);
 
   // Load available stocks when dates change
   useEffect(() => {

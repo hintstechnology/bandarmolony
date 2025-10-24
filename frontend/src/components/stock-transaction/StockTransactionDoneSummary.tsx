@@ -374,10 +374,14 @@ const getLastThreeTradingDays = (): string[] => {
   return getTradingDays(3);
 };
 
-export function StockTransactionDoneSummary() {
+interface StockTransactionDoneSummaryProps {
+  selectedStock?: string;
+}
+
+export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }: StockTransactionDoneSummaryProps) {
   const { showToast } = useToast();
   const [selectedDates, setSelectedDates] = useState<string[]>(getLastThreeTradingDays());
-  const [selectedStock, setSelectedStock] = useState('BBRI');
+  const [selectedStock, setSelectedStock] = useState(propSelectedStock || 'BBRI');
   const [viewMode, setViewMode] = useState<'summary' | 'broker'>('summary');
   
   // Real data states
@@ -570,6 +574,13 @@ export function StockTransactionDoneSummary() {
   };
 
   // No need to load stocks from API anymore - using static list
+
+  // Update selectedStock when prop changes
+  useEffect(() => {
+    if (propSelectedStock && propSelectedStock !== selectedStock) {
+      setSelectedStock(propSelectedStock);
+    }
+  }, [propSelectedStock, selectedStock]);
 
   // Fetch data when selected stock or dates change
   useEffect(() => {
