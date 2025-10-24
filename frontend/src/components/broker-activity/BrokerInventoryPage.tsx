@@ -1376,10 +1376,22 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                        const barWidth = brokerData && totalVolume > 0 ? (brokerData.volume / totalVolume) * 100 : 0;
                        
                        return (
-                         <td key={`${dateData.date}-${rank}`} className="text-center py-2 px-3 relative min-w-[120px]">
+                         <td 
+                           key={`${dateData.date}-${rank}`} 
+                           className={`text-center py-2 px-3 relative min-w-[120px] ${
+                             brokerData && isTop5FromFirstDate 
+                               ? 'text-white' 
+                               : 'text-foreground'
+                           }`}
+                           style={{
+                             backgroundColor: brokerData && isTop5FromFirstDate 
+                               ? brokerData.color 
+                               : 'transparent'
+                           }}
+                         >
                            <div className="relative w-full h-8 flex items-center justify-center">
-                             {/* Transparent horizontal bar chart */}
-                             {brokerData && (
+                             {/* Transparent horizontal bar chart for non-top5 brokers */}
+                             {brokerData && !isTop5FromFirstDate && (
                                <div 
                                  className="absolute left-0 top-0 h-full rounded-r"
                                  style={{ 
@@ -1394,19 +1406,10 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                              <div className="relative z-10 flex items-center gap-2">
                                {brokerData ? (
                                  <>
-                                   {isTop5FromFirstDate ? (
-                                     <span 
-                                       className="inline-block px-2 py-1 rounded text-xs font-medium text-white"
-                                       style={{ backgroundColor: brokerData.color }}
-                                     >
-                                       {brokerData.broker}
-                                     </span>
-                                   ) : (
-                                     <span className="text-foreground font-medium text-xs">
-                                       {brokerData.broker}
-                                     </span>
-                                   )}
-                                   <span className="text-xs text-muted-foreground">
+                                   <span className="font-medium text-xs">
+                                     {brokerData.broker}
+                                   </span>
+                                   <span className="text-xs opacity-80">
                                      {brokerData.volume.toLocaleString()}
                                    </span>
                                  </>
