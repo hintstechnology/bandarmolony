@@ -4,6 +4,17 @@ import { Settings as SettingsIcon, BarChart2, Search, Plus, X } from 'lucide-rea
 // import { Button } from '../ui/button';
 import { FootprintChart } from '../footprint/FootprintChart';
 import { api } from '../../services/api';
+import { 
+  calculateSMA, 
+  calculateEMA, 
+  calculateRSI, 
+  calculateMACD, 
+  calculateStochastic, 
+  calculateVolumeHistogram, 
+  calculateBuySellFrequency,
+  IndicatorEditor,
+  type OhlcRow
+} from './indicators';
 
 // Error Boundary Component
 class ChartErrorBoundary extends React.Component<
@@ -80,17 +91,13 @@ declare global {
 /* ============================================================================
    2) TYPES & CSV PARSER (fleksibel header)
 ============================================================================ */
-type OhlcRow = {
-  time: number; // UNIX seconds
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume?: number;
-};
-
 type ChartStyle = 'line' | 'candles' | 'footprint';
 type Timeframe = '1M' | '5M' | '15M' | '30M' | '1H' | '1D' | '1W' | '1MO' | '3M' | '6M' | '1Y';
+
+export type IndicatorData = {
+  time: number;
+  value: number;
+};
 
 type Indicator = {
   id: string;
@@ -103,11 +110,6 @@ type Indicator = {
   maMode?: 'simple' | 'exponential'; // for Moving Average (MA) indicator
 };
 
-type IndicatorData = {
-  time: number;
-  value: number;
-};
-
 
 // Removed utility functions - now using API data directly
 
@@ -115,170 +117,8 @@ type IndicatorData = {
 
 /* ============================================================================
    3) INDICATOR CALCULATION FUNCTIONS
+   - All indicator functions have been moved to ./indicators/ folder
 ============================================================================ */
-function calculateSMA(data: OhlcRow[], period: number): IndicatorData[] {
-  const result: IndicatorData[] = [];
-  
-  for (let i = period - 1; i < data.length; i++) {
-    const slice = data.slice(i - period + 1, i + 1);
-    const sum = slice.reduce((acc, item) => acc + item.close, 0);
-    const sma = sum / period;
-    
-    result.push({
-      time: data[i]?.time ?? 0,
-      value: sma
-    });
-  }
-  
-  return result;
-}
-
-function calculateEMA(data: OhlcRow[], period: number): IndicatorData[] {
-  const result: IndicatorData[] = [];
-  const multiplier = 2 / (period + 1);
-  
-  if (data.length === 0) return result;
-  
-  // First EMA is the first close price
-  let ema = data[0]?.close ?? 0;
-  result.push({ time: data[0]?.time ?? 0, value: ema });
-  
-  for (let i = 1; i < data.length; i++) {
-    ema = ((data[i]?.close ?? 0) * multiplier) + (ema * (1 - multiplier));
-    result.push({ time: data[i]?.time ?? 0, value: ema });
-  }
-  
-  return result;
-}
-
-function calculateRSI(data: OhlcRow[], period: number): IndicatorData[] {
-  const result: IndicatorData[] = [];
-  
-  if (data.length < period + 1) return result;
-  
-  const gains: number[] = [];
-  const losses: number[] = [];
-  
-  // Calculate price changes
-  for (let i = 1; i < data.length; i++) {
-    const change = (data[i]?.close ?? 0) - (data[i - 1]?.close ?? 0);
-    gains.push(change > 0 ? change : 0);
-    losses.push(change < 0 ? Math.abs(change) : 0);
-  }
-  
-  // Calculate RSI for each period
-  for (let i = period; i < gains.length; i++) {
-    const avgGain = gains.slice(i - period, i).reduce((sum, gain) => sum + gain, 0) / period;
-    const avgLoss = losses.slice(i - period, i).reduce((sum, loss) => sum + loss, 0) / period;
-    
-    if (avgLoss === 0) {
-      result.push({ time: data[i + 1]?.time ?? 0, value: 100 });
-    } else {
-      const rs = avgGain / avgLoss;
-      const rsi = 100 - (100 / (1 + rs));
-      result.push({ time: data[i + 1]?.time ?? 0, value: rsi });
-    }
-  }
-  
-  return result;
-}
-
-function calculateMACD(data: OhlcRow[], fastPeriod: number = 12, slowPeriod: number = 26, signalPeriod: number = 9): { macd: IndicatorData[], signal: IndicatorData[] } {
-  const macdLine: IndicatorData[] = [];
-  const signalLine: IndicatorData[] = [];
-  
-  if (data.length < slowPeriod) return { macd: macdLine, signal: signalLine };
-  
-  // Calculate EMAs
-  const fastEMA = calculateEMA(data, fastPeriod);
-  const slowEMA = calculateEMA(data, slowPeriod);
-  
-  // Calculate MACD line
-  for (let i = 0; i < Math.min(fastEMA.length, slowEMA.length); i++) {
-    if (fastEMA[i] && slowEMA[i]) {
-      macdLine.push({
-        time: fastEMA[i]?.time ?? 0,
-        value: (fastEMA[i]?.value ?? 0) - (slowEMA[i]?.value ?? 0)
-      });
-    }
-  }
-  
-  // Calculate signal line (EMA of MACD line)
-  const signalLineData = calculateEMA(macdLine.map(d => ({ time: d.time, open: d.value, high: d.value, low: d.value, close: d.value })), signalPeriod);
-  
-  // Convert signal line data to IndicatorData format
-  for (let i = 0; i < signalLineData.length; i++) {
-    if (signalLineData[i]) {
-      signalLine.push({
-        time: signalLineData[i]?.time ?? 0,
-        value: signalLineData[i]?.value ?? 0
-      });
-    }
-  }
-  
-  return { macd: macdLine, signal: signalLine };
-}
-
-
-function calculateVolumeHistogram(data: OhlcRow[]): IndicatorData[] {
-  const result: IndicatorData[] = [];
-  
-  for (let i = 0; i < data.length; i++) {
-    if (data[i]?.volume !== undefined) {
-      result.push({
-        time: data[i]?.time ?? 0,
-        value: data[i]?.volume ?? 0
-      });
-    }
-  }
-  
-  return result;
-}
-
-function calculateBuySellFrequency(_data: OhlcRow[], _period: number = 14): { buyFreq: IndicatorData[], sellFreq: IndicatorData[] } {
-  const buyFreq: IndicatorData[] = [];
-  const sellFreq: IndicatorData[] = [];
-  
-  // For now, return empty arrays - this will be replaced with real footprint data
-  // when the footprint chart is implemented with API data
-  return { buyFreq, sellFreq };
-}
-
-function calculateStochastic(data: OhlcRow[], kPeriod: number = 14, dPeriod: number = 3): { k: IndicatorData[], d: IndicatorData[] } {
-  const kValues: IndicatorData[] = [];
-  const dValues: IndicatorData[] = [];
-  
-  if (data.length < kPeriod) return { k: kValues, d: dValues };
-  
-  // Calculate %K values
-  for (let i = kPeriod - 1; i < data.length; i++) {
-    const slice = data.slice(i - kPeriod + 1, i + 1);
-    const highestHigh = Math.max(...slice.map(item => item?.high ?? 0));
-    const lowestLow = Math.min(...slice.map(item => item?.low ?? 0));
-    const currentClose = data[i]?.close ?? 0;
-    
-    // Calculate %K
-    const kPercent = ((currentClose - lowestLow) / (highestHigh - lowestLow)) * 100;
-    
-    kValues.push({
-      time: data[i]?.time ?? 0,
-      value: kPercent
-    });
-  }
-  
-  // Calculate %D values (SMA of %K)
-  for (let i = dPeriod - 1; i < kValues.length; i++) {
-    const slice = kValues.slice(i - dPeriod + 1, i + 1);
-    const dValue = slice.reduce((sum, item) => sum + item.value, 0) / dPeriod;
-    
-    dValues.push({
-      time: kValues[i]?.time ?? 0,
-      value: dValue
-    });
-  }
-  
-  return { k: kValues, d: dValues };
-}
 
 
 /* ============================================================================
@@ -626,6 +466,9 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   const [, setPlotted] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const [isLoadingData, setIsLoadingData] = useState<boolean>(false);
+  const [bidAskData, setBidAskData] = useState<any[]>([]);
+  const [indicatorSeriesReady, setIndicatorSeriesReady] = useState<{ [key: string]: boolean }>({});
+  const [indicatorReloaded, setIndicatorReloaded] = useState<{ [key: string]: boolean }>({});
   const [searchQuery, setSearchQuery] = useState<string>('BBCA');
   const [showSearchDropdown, setShowSearchDropdown] = useState<boolean>(false);
   const [searchDropdownIndex, setSearchDropdownIndex] = useState<number>(-1);
@@ -1020,6 +863,8 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         setIsLoadingData(true);
         setErr(null);
         setPlotted(0);
+        setIndicatorSeriesReady({}); // Reset indicator series ready state
+        setIndicatorReloaded({}); // Reset indicator reload state
 
         // Always try to load from API first, regardless of availableSymbols status
         console.log(`Loading stock data for ${symbol} from API...`);
@@ -1077,6 +922,124 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
 
     return () => { cancelled = true; };
   }, [symbol]);
+
+  // Load bid/ask data from API when symbol changes
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        // Get all available dates from OHLC data
+        if (rows.length === 0) {
+          console.log('📊 No OHLC data available yet, skipping bid/ask data load');
+          return;
+        }
+
+        console.log(`📊 Loading Buy/Sell Frequency data for ${symbol} across all available dates...`);
+        
+        // Extract unique dates from OHLC data
+        const uniqueDates = new Set<string>();
+        rows.forEach(row => {
+          const date = new Date(row.time * 1000);
+          const dateStr = date.toISOString().split('T')[0]?.replace(/-/g, '') || '';
+          if (dateStr) {
+            uniqueDates.add(dateStr);
+          }
+        });
+
+        console.log(`📊 Found ${uniqueDates.size} unique dates in OHLC data:`, Array.from(uniqueDates).sort());
+
+        // Generate date range starting from today going backwards
+        const today = new Date();
+        const oneYearAgo = new Date(today);
+        oneYearAgo.setFullYear(today.getFullYear() - 1);
+        
+        console.log(`📊 Generating date range from ${oneYearAgo.toISOString().split('T')[0]} to ${today.toISOString().split('T')[0]}`);
+        
+        // Generate all possible dates in the last year
+        const possibleDates: string[] = [];
+        const currentDate = new Date(today);
+        
+        while (currentDate >= oneYearAgo) {
+          const isoString = currentDate.toISOString();
+          const dateStr = isoString.split('T')[0]?.replace(/-/g, '') || '';
+          if (dateStr) {
+            possibleDates.push(dateStr);
+          }
+          currentDate.setDate(currentDate.getDate() - 1);
+        }
+        
+        console.log(`📊 Generated ${possibleDates.length} possible dates in the last year`);
+        
+        // Filter to only include dates that exist in OHLC data
+        const availableDates = possibleDates.filter(dateStr => uniqueDates.has(dateStr));
+        console.log(`📊 Found ${availableDates.length} available dates in OHLC data:`, availableDates.slice(0, 10), '...');
+        
+        // Load bid/ask data starting from the most recent date going backwards
+        const allBidAskData: any[] = [];
+        const maxDates = 365; // 1 year limit
+        const dateArray = availableDates.slice(0, maxDates);
+        
+        console.log(`📊 Loading bid/ask data for ${dateArray.length} dates (limited to ${maxDates} most recent dates)`);
+
+        let dataFoundCount = 0;
+        const maxDataDays = 21; // Stop after finding 21 days of data
+        
+        for (const dateStr of dateArray) {
+          // Check if cancelled before each API call
+          if (cancelled) {
+            console.log(`📊 Bid/ask data loading cancelled for ${symbol}`);
+            return;
+          }
+          
+          try {
+            console.log(`📊 Loading bid/ask data for ${symbol} on ${dateStr}...`);
+            // Use the same API endpoint as FootprintChart for consistency
+            const result = await api.getBidAskData(symbol, dateStr);
+            
+            // Check if cancelled after API call
+            if (cancelled) {
+              console.log(`📊 Bid/ask data loading cancelled for ${symbol} after API call`);
+              return;
+            }
+            
+            if (result.success && result.data?.data && result.data.data.length > 0) {
+              console.log(`✅ Buy/Sell Frequency data found for ${symbol} on ${dateStr}: ${result.data.data.length} records`);
+              
+              // Add date field to each record (same as FootprintChart)
+              const dataWithDate = result.data.data.map((record: any) => ({
+                ...record,
+                date: dateStr
+              }));
+              
+              allBidAskData.push(...dataWithDate);
+              dataFoundCount++;
+              
+              // Stop if we have enough data days (21 days)
+              if (dataFoundCount >= maxDataDays) {
+                console.log(`📊 Found data for ${dataFoundCount} days, stopping search`);
+                break;
+              }
+            } else {
+              console.log(`⚠️ No bid/ask data for ${symbol} on ${dateStr} - skipping`);
+            }
+          } catch (error) {
+            console.warn(`⚠️ Error loading bid/ask data for ${symbol} on ${dateStr}:`, error);
+          }
+        }
+
+        console.log(`📊 Total bid/ask data loaded: ${allBidAskData.length} records across ${dataFoundCount} days with data`);
+        setBidAskData(allBidAskData);
+
+      } catch (e: any) {
+        if (!cancelled) {
+          console.error(`Failed to load bid/ask data for ${symbol}:`, e?.message);
+          setBidAskData([]);
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [symbol, rows]); // Add rows dependency to reload when OHLC data changes
 
   // Detect data frequency and available timeframes
   const dataFrequency = useMemo(() => {
@@ -1291,6 +1254,14 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   useEffect(() => {
     if (!chartRef.current || style === 'footprint' as ChartStyle || isLoadingData || rows.length === 0) return;
 
+    console.log('📊 Chart data useEffect triggered:', {
+      filteredRowsLength: filteredRows.length,
+      bidAskDataLength: bidAskData.length,
+      indicatorsCount: indicators.length,
+      enabledIndicatorsCount: indicators.filter(ind => ind.enabled).length,
+      isLoadingData
+    });
+
     const chart = chartRef.current!;
     
     // Update timeScale visibility based on indicators
@@ -1381,7 +1352,19 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       // Volume histogram removed - now handled as separate indicator
 
       // --- indicators ---
+      console.log('📊 Processing indicators:', {
+        totalIndicators: indicators.length,
+        enabledIndicators: indicators.filter(ind => ind.enabled).length,
+        bidAskDataAvailable: bidAskData.length > 0
+      });
+      
       indicators.forEach(indicator => {
+        console.log(`📊 Processing indicator: ${indicator.type} (${indicator.id})`, {
+          enabled: indicator.enabled,
+          separateScale: indicator.separateScale,
+          period: indicator.period
+        });
+        
         // Remove existing series if indicator is disabled
         if (!indicator.enabled) {
           if (chartRef.current) {
@@ -1439,12 +1422,39 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             indicatorData = calculateVolumeHistogram(filteredRows);
             break;
           case 'buy_sell_frequency':
-            const buySellData = calculateBuySellFrequency(filteredRows, indicator.period);
+            console.log('📊 Buy/Sell Frequency - Input Data:', {
+              filteredRowsLength: filteredRows.length,
+              bidAskDataLength: bidAskData.length,
+              period: indicator.period,
+              sampleBidAskData: bidAskData.slice(0, 3)
+            });
+            const buySellData = calculateBuySellFrequency(filteredRows, bidAskData, indicator.period);
+            console.log('📊 Main Chart Buy/Sell Frequency Data:', {
+              buyFreqLength: buySellData.buyFreq.length,
+              sellFreqLength: buySellData.sellFreq.length,
+              sampleBuyFreq: buySellData.buyFreq.slice(0, 3),
+              sampleSellFreq: buySellData.sellFreq.slice(0, 3)
+            });
+            // Use buy frequency as main indicator data
             indicatorData = buySellData.buyFreq;
             break;
         }
         
+        console.log(`📊 Indicator ${indicator.type} data check:`, {
+          indicatorId: indicator.id,
+          dataLength: indicatorData.length,
+          hasData: indicatorData.length > 0,
+          sampleData: indicatorData.slice(0, 3)
+        });
+        
         if (indicatorData.length > 0) {
+          console.log(`📊 Adding ${indicator.type} series to main chart:`, {
+            indicatorId: indicator.id,
+            dataLength: indicatorData.length,
+            sampleData: indicatorData.slice(0, 3),
+            chartExists: !!chartRef.current
+          });
+          
           // Remove existing series (and any aux) if they exist
           if (chartRef.current) {
             try {
@@ -1480,14 +1490,23 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           } else {
             // Use LineSeries for other indicators
             indicatorSeries = chart.addSeries(LineSeries, {
-              color: indicator.color,
+              color: indicator.type === 'buy_sell_frequency' ? '#10b981' : indicator.color, // Green for bid frequency
               lineWidth: 2,
-              title: indicator.name
+              title: indicator.type === 'buy_sell_frequency' ? 'Bid Frequency' : indicator.name
             });
             indicatorSeries.setData(indicatorData.map(d => ({
               time: d.time as any,
               value: d.value
             })));
+            
+            console.log(`📊 Main chart ${indicator.type} series added successfully:`, {
+              indicatorId: indicator.id,
+              seriesType: 'LineSeries',
+              dataPoints: indicatorData.length
+            });
+            
+            // Mark this indicator series as ready
+            setIndicatorSeriesReady(prev => ({ ...prev, [indicator.id]: true }));
             
         // Add %D line for Stochastic Oscillator in main chart
         if (indicator.type === 'stochastic') {
@@ -1528,12 +1547,12 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         
         // Add sell frequency line for Buy/Sell Frequency in main chart
         if (indicator.type === 'buy_sell_frequency') {
-          const buySellData = calculateBuySellFrequency(filteredRows, indicator.period);
+          const buySellData = calculateBuySellFrequency(filteredRows, bidAskData, indicator.period);
           if (buySellData.sellFreq.length > 0) {
             const sellSeries = chart.addSeries(LineSeries, {
-              color: '#e74c3c',
+              color: '#ef4444', // Red color for ask/sell frequency
               lineWidth: 2,
-              title: 'Sell Frequency'
+              title: 'Ask Frequency'
             });
             sellSeries.setData(buySellData.sellFreq.map(s => ({
               time: s.time as any,
@@ -1560,7 +1579,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       setErr(e?.message ?? 'render error');
       setPlotted(0);
     }
-  }, [filteredRows, chartColors, volumeHistogramSettings, rsiSettings, stochasticSettings, style, indicators, isLoadingData]);
+  }, [filteredRows, chartColors, volumeHistogramSettings, rsiSettings, stochasticSettings, style, indicators, isLoadingData, bidAskData]);
 
   // Add chart listeners only once
   useEffect(() => {
@@ -1639,6 +1658,41 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
     }
   }, [style]);
 
+  // Reload indicator chart if series not ready after timeout
+  useEffect(() => {
+    const enabledBuySellIndicators = indicators.filter(ind => 
+      ind.enabled && ind.type === 'buy_sell_frequency' && !indicatorSeriesReady[ind.id]
+    );
+    
+    if (enabledBuySellIndicators.length === 0 || bidAskData.length === 0 || isLoadingData) {
+      return;
+    }
+    
+    // Set timeout to reload if series not ready after 5 seconds
+    const timeoutId = setTimeout(() => {
+      enabledBuySellIndicators.forEach(indicator => {
+        if (!indicatorSeriesReady[indicator.id] && bidAskData.length > 0) {
+          console.log(`⚠️ Indicator ${indicator.id} series not ready after timeout, triggering reload...`);
+          
+          // Remove existing chart
+          if (indicatorChartRefs.current[indicator.id]) {
+            const chart = indicatorChartRefs.current[indicator.id];
+            if ((chart as any)._timeScaleUnsubscribe) {
+              (chart as any)._timeScaleUnsubscribe();
+            }
+            chart?.remove();
+            delete indicatorChartRefs.current[indicator.id];
+          }
+          
+          // Trigger re-render by updating state
+          setPlotted(prev => prev + 1);
+        }
+      });
+    }, 5000);
+    
+    return () => clearTimeout(timeoutId);
+  }, [indicators, indicatorSeriesReady, bidAskData, isLoadingData]);
+  
   // Create separate charts for indicators
   useEffect(() => {
     // Skip indicator charts for footprint style
@@ -1648,7 +1702,18 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
     
     const enabledSeparateIndicators = indicators.filter(ind => ind.enabled && ind.separateScale);
     
+    console.log('📊 Processing separate indicators:', {
+      totalIndicators: indicators.length,
+      enabledSeparateIndicators: enabledSeparateIndicators.length,
+      bidAskDataAvailable: bidAskData.length > 0
+    });
+    
     indicators.forEach((indicator) => {
+      console.log(`📊 Processing separate indicator: ${indicator.type} (${indicator.id})`, {
+        enabled: indicator.enabled,
+        separateScale: indicator.separateScale,
+        period: indicator.period
+      });
       // Remove chart if indicator is disabled
       if (!indicator.enabled) {
         if (indicatorChartRefs.current[indicator.id]) {
@@ -1670,10 +1735,19 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       const container = indicatorContainerRefs.current[indicator.id];
       if (!container) return;
       
-      // Always remove existing chart to force recreation
+      // Only remove existing chart if it doesn't exist or data has changed significantly
       if (indicatorChartRefs.current[indicator.id]) {
-        indicatorChartRefs.current[indicator.id]?.remove();
-        delete indicatorChartRefs.current[indicator.id];
+        const existingChart = indicatorChartRefs.current[indicator.id];
+        // Check if we need to recreate the chart (only for buy_sell_frequency when bidAskData changes)
+        if (indicator.type === 'buy_sell_frequency' && bidAskData.length > 0) {
+          console.log(`📊 Recreating chart for ${indicator.type} due to bidAskData change`);
+          existingChart?.remove();
+          delete indicatorChartRefs.current[indicator.id];
+        } else {
+          // For other indicators, just update the data without recreating
+          console.log(`📊 Updating existing chart for ${indicator.type}`);
+          return;
+        }
       }
       
       // Create new chart
@@ -1700,6 +1774,12 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       });
       
       // Calculate indicator data
+      console.log(`📊 Calculating separate indicator data for ${indicator.type}:`, {
+        filteredRowsLength: filteredRows.length,
+        bidAskDataLength: bidAskData.length,
+        period: indicator.period
+      });
+      
       let indicatorData: IndicatorData[] = [];
       switch (indicator.type) {
         case 'rsi':
@@ -1718,12 +1798,39 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           indicatorData = calculateVolumeHistogram(filteredRows);
           break;
         case 'buy_sell_frequency':
-          const buySellData = calculateBuySellFrequency(filteredRows, indicator.period);
-          indicatorData = buySellData.buyFreq;
+          console.log('📊 Separate Chart Buy/Sell Frequency - Input Data:', {
+            filteredRowsLength: filteredRows.length,
+            bidAskDataLength: bidAskData.length,
+            period: indicator.period,
+            sampleBidAskData: bidAskData.slice(0, 3)
+          });
+          const buySellDataSeparate = calculateBuySellFrequency(filteredRows, bidAskData, indicator.period);
+          console.log('📊 Separate Chart Buy/Sell Frequency Data:', {
+            buyFreqLength: buySellDataSeparate.buyFreq.length,
+            sellFreqLength: buySellDataSeparate.sellFreq.length,
+            sampleBuyFreq: buySellDataSeparate.buyFreq.slice(0, 3),
+            sampleSellFreq: buySellDataSeparate.sellFreq.slice(0, 3)
+          });
+          // Use buy frequency as main indicator data
+          indicatorData = buySellDataSeparate.buyFreq;
           break;
       }
       
+      console.log(`📊 Separate Indicator ${indicator.type} data check:`, {
+        indicatorId: indicator.id,
+        dataLength: indicatorData.length,
+        hasData: indicatorData.length > 0,
+        sampleData: indicatorData.slice(0, 3)
+      });
+      
       if (indicatorData.length > 0) {
+        console.log(`📊 Adding ${indicator.type} series to separate chart:`, {
+          indicatorId: indicator.id,
+          dataLength: indicatorData.length,
+          sampleData: indicatorData.slice(0, 3),
+          chartExists: !!indicatorChart
+        });
+        
         // Add indicator series
         let indicatorSeries;
         if (indicator.type === 'volume_histogram') {
@@ -1744,9 +1851,9 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         } else {
           // Use LineSeries for other indicators
           indicatorSeries = indicatorChart.addSeries(LineSeries, {
-            color: indicator.color,
+            color: indicator.type === 'buy_sell_frequency' ? '#10b981' : indicator.color, // Green for bid frequency
             lineWidth: 2,
-            title: indicator.name
+            title: indicator.type === 'buy_sell_frequency' ? 'Bid Frequency' : indicator.name
           });
           
           // Convert data format for lightweight-charts
@@ -1756,6 +1863,15 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           }));
           
           indicatorSeries.setData(chartData);
+          
+          console.log(`📊 Separate chart ${indicator.type} series added successfully:`, {
+            indicatorId: indicator.id,
+            seriesType: 'LineSeries',
+            dataPoints: indicatorData.length
+          });
+          
+          // Mark this indicator series as ready
+          setIndicatorSeriesReady(prev => ({ ...prev, [indicator.id]: true }));
         }
         
         // Add reference lines for RSI
@@ -1856,12 +1972,12 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         
         // Add sell frequency line for Buy/Sell Frequency in separate chart
         if (indicator.type === 'buy_sell_frequency') {
-          const buySellData = calculateBuySellFrequency(filteredRows, indicator.period);
+          const buySellData = calculateBuySellFrequency(filteredRows, bidAskData, indicator.period);
           if (buySellData.sellFreq.length > 0) {
             const sellSeries = indicatorChart.addSeries(LineSeries, {
-              color: '#e74c3c',
+              color: '#ef4444', // Red color for ask/sell frequency
               lineWidth: 2,
-              title: 'Sell Frequency'
+              title: 'Ask Frequency'
             });
             
             const sellChartData = buySellData.sellFreq.map(s => ({
@@ -1972,8 +2088,133 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         }
       }
     });
-  }, [filteredRows, indicators, indicatorChartHeight, rsiSettings, volumeHistogramSettings]);
+    
+    // Cleanup function to prevent memory leaks
+    return () => {
+      console.log('📊 Cleaning up indicator charts to prevent memory leaks');
+      Object.entries(indicatorChartRefs.current).forEach(([id, chart]) => {
+        if (chart) {
+          try {
+            // Unsubscribe from time scale changes
+            if ((chart as any)._timeScaleUnsubscribe) {
+              (chart as any)._timeScaleUnsubscribe();
+            }
+            // Remove chart
+            chart.remove();
+          } catch (error) {
+            console.warn(`Error cleaning up chart ${id}:`, error);
+          }
+        }
+      });
+      // Clear all chart references
+      indicatorChartRefs.current = {};
+    };
+  }, [filteredRows, indicators, indicatorChartHeight, rsiSettings, volumeHistogramSettings, bidAskData]);
 
+  // Stabilize indicator chart containers when data changes
+  useEffect(() => {
+    // Force re-layout of indicator containers to prevent positioning issues
+    const enabledIndicators = indicators.filter(ind => ind.enabled && ind.separateScale);
+    
+    enabledIndicators.forEach(indicator => {
+      const container = indicatorContainerRefs.current[indicator.id];
+      if (container) {
+        // Force reflow to stabilize layout
+        container.style.transform = 'translateZ(0)';
+        setTimeout(() => {
+          container.style.transform = '';
+        }, 0);
+      }
+    });
+  }, [bidAskData, indicators]);
+
+  // Check if indicator series are visible in viewport and auto-reload if needed
+  useEffect(() => {
+    const enabledIndicators = indicators.filter(ind => ind.enabled && ind.separateScale);
+    
+    enabledIndicators.forEach(indicator => {
+      const chart = indicatorChartRefs.current[indicator.id];
+      if (!chart || !indicatorSeriesReady[indicator.id] || indicatorReloaded[indicator.id]) {
+        return; // Skip if chart not ready, series not ready, or already reloaded
+      }
+      
+      // Check visibility after a delay to allow chart to render
+      const timeoutId = setTimeout(() => {
+        try {
+          if (!chartRef.current) return;
+          
+          // Get visible range from main chart
+          const mainTimeScale = chartRef.current.timeScale();
+          const visibleRange = mainTimeScale.getVisibleRange();
+          
+          if (!visibleRange) return;
+          
+          // Get all series from indicator chart
+          const series = (chart as any).series();
+          if (!series || series.length === 0) return;
+          
+          // Check if any series has data in visible range
+          let hasVisibleData = false;
+          for (const s of series) {
+            const data = s.data();
+            if (!data || data.length === 0) continue;
+            
+            // Check if any data point is in visible range
+            const hasDataInRange = data.some((point: any) => {
+              const pointTime = point.time;
+              return pointTime >= visibleRange.from && pointTime <= visibleRange.to;
+            });
+            
+            if (hasDataInRange) {
+              hasVisibleData = true;
+              break;
+            }
+          }
+          
+          console.log(`📊 Indicator ${indicator.id} visibility check:`, {
+            hasVisibleData,
+            visibleRange: { from: visibleRange.from, to: visibleRange.to },
+            seriesCount: series.length,
+            alreadyReloaded: indicatorReloaded[indicator.id]
+          });
+          
+          // If series is not visible and hasn't been reloaded yet, trigger invisible reload
+          if (!hasVisibleData && !indicatorReloaded[indicator.id]) {
+            console.log(`⚠️ Indicator ${indicator.id} series not visible in viewport, triggering invisible reload...`);
+            
+            // Mark as reloaded to prevent multiple reloads
+            setIndicatorReloaded(prev => ({ ...prev, [indicator.id]: true }));
+            
+            // Mark series as not ready
+            setIndicatorSeriesReady(prev => ({ ...prev, [indicator.id]: false }));
+            
+            // Unload chart invisibly
+            if (chart) {
+              try {
+                if ((chart as any)._timeScaleUnsubscribe) {
+                  (chart as any)._timeScaleUnsubscribe();
+                }
+                chart.remove();
+              } catch (error) {
+                console.warn(`Error removing chart ${indicator.id}:`, error);
+              }
+            }
+            delete indicatorChartRefs.current[indicator.id];
+            
+            // Trigger re-render after a short delay (invisible)
+            setTimeout(() => {
+              console.log(`🔄 Invisible reloading indicator ${indicator.id}...`);
+              setPlotted(prev => prev + 1);
+            }, 100);
+          }
+        } catch (error) {
+          console.warn(`Error checking visibility for indicator ${indicator.id}:`, error);
+        }
+      }, 3000); // Check after 3 seconds
+      
+      return () => clearTimeout(timeoutId);
+    });
+  }, [indicators, indicatorSeriesReady, indicatorReloaded]);
 
   // Resize responsif
   useEffect(() => {
@@ -2043,15 +2284,35 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         #tv-attr-logo {
           display: none !important;
         }
+        
+        /* Stabilize indicator chart containers to prevent positioning issues */
+        .indicator-chart-container {
+          position: relative !important;
+          overflow: hidden !important;
+          contain: layout style paint !important;
+          transform: translateZ(0) !important; /* Force hardware acceleration */
+        }
+        
+        .indicator-card {
+          flex-shrink: 0 !important;
+          position: relative !important;
+          contain: layout style paint !important;
+        }
+        
+        .indicator-header {
+          flex-shrink: 0 !important;
+          position: relative !important;
+          contain: layout style paint !important;
+        }
       `}</style>
       
       {!hideControls && (
-        <Card className="p-4" ref={controlsContainerRef}>
-        <div className="flex flex-col xl:flex-row gap-3 sm:gap-4 items-start xl:items-center justify-between">
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 items-start sm:items-center w-full xl:w-auto">
+        <Card className="p-3 sm:p-4" ref={controlsContainerRef}>
+        <div className="flex flex-col lg:flex-row gap-2 sm:gap-3 items-start lg:items-center justify-between">
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 items-start sm:items-center w-full lg:w-auto">
             {/* Symbol/Ticker selector styled like BrokerInventoryPage */}
-            <div className="flex-1 min-w-0">
-              <label className="block text-sm font-medium mb-2">Symbol:</label>
+            <div className="flex-1 min-w-0 sm:min-w-[200px]">
+              <label className="block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Symbol:</label>
               <div className="relative" ref={searchRef}>
                 <div className="relative">
                   <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-muted-foreground" />
@@ -2066,7 +2327,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                     onFocus={() => setShowSearchDropdown(true)}
                     onKeyDown={handleSearchKeyDown}
                     placeholder="Search and select stocks..."
-                    className="w-full pl-7 pr-8 py-2 text-xs bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors"
+                    className="w-full pl-7 pr-8 py-1.5 sm:py-2 text-xs sm:text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors"
                   />
                   {searchQuery && (
                     <button
@@ -2118,7 +2379,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                 
                 {/* Combined Search and Select Dropdown */}
                 {showSearchDropdown && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-50 max-h-60 overflow-y-auto">
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-50 max-h-48 sm:max-h-60 overflow-y-auto">
                     {isLoadingSymbols ? (
                       <div className="p-3 text-sm text-muted-foreground">Loading symbols...</div>
                     ) : symbols.length === 0 ? (
@@ -2172,12 +2433,12 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               </div>
             </div>
 
-            <div className="flex-1 min-w-0">
-              <label className="block text-sm font-medium mb-2">Timeframe:</label>
+            <div className="flex-1 min-w-0 sm:min-w-[140px]">
+              <label className="block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Timeframe:</label>
               <select
                 value={timeframe}
                 onChange={(e) => setTimeframe(e.target.value as Timeframe)}
-                className="w-full px-3 py-2 text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                className="w-full px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
               >
                 {availableTimeframes.map(tf => (
                   <option key={tf.value} value={tf.value}>
@@ -2187,13 +2448,13 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               </select>
             </div>
 
-            <div className="flex-1 min-w-0">
-              <label className="block text-sm font-medium mb-2">Chart Style:</label>
+            <div className="flex-1 min-w-0 sm:min-w-[200px]">
+              <label className="block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Chart Style:</label>
               <div className="flex flex-col sm:flex-row gap-2">
                 <select
                   value={style}
                   onChange={(e) => setStyle(e.target.value as ChartStyle)}
-                  className="w-full sm:w-auto px-3 py-2 text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                  className="w-full sm:w-auto px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                 >
                   <option value="line">Line</option>
                   <option value="candles">Candles</option>
@@ -2247,7 +2508,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         </div> */}
         {/* Loading overlay */}
         {isLoadingData && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
             <div className="flex flex-col items-center gap-3">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
               <div className="text-sm text-muted-foreground">Loading chart data for {symbol}...</div>
@@ -2257,7 +2518,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
 
         {/* Error overlay */}
         {!isLoadingData && rows.length === 0 && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
             <div className="flex flex-col items-center gap-3 text-center p-6">
               <div className="text-4xl">📊</div>
               <div className="text-sm text-muted-foreground">
@@ -2304,7 +2565,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                       high: d.high,
                       low: d.low,
                       close: d.close
-                    })) : undefined}
+                    })) : []}
                   />
                 </div>
               ) : (
@@ -2318,10 +2579,10 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         </ChartErrorBoundary>
       </Card>
 
-      {/* Separate indicator charts */}
-      {indicators.filter(ind => ind.separateScale).map(indicator => (
-        <Card key={indicator.id} className="p-0 relative">
-          <div className="p-2 border-b border-border">
+        {/* Separate indicator charts */}
+        {indicators.filter(ind => ind.separateScale).map(indicator => (
+          <Card key={indicator.id} className="p-0 relative indicator-card">
+            <div className="p-2 border-b border-border indicator-header">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div 
@@ -2368,15 +2629,19 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                   indicatorContainerRefs.current[indicator.id] = el;
                 }
               }}
-              className="w-full relative"
-              style={{ height: `${indicatorChartHeight}px` }}
+              className="w-full relative indicator-chart-container"
+              style={{ height: `${indicatorChartHeight}px`, minHeight: `${indicatorChartHeight}px` }}
             >
               {/* Loading overlay for indicator charts */}
-              {isLoadingData && (
+              {(isLoadingData || (indicator.type === 'buy_sell_frequency' && bidAskData.length === 0) || !indicatorSeriesReady[indicator.id]) && (
                 <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
                   <div className="flex flex-col items-center gap-2">
                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
-                    <div className="text-xs text-muted-foreground">Loading...</div>
+                    <div className="text-xs text-muted-foreground">
+                      {isLoadingData ? 'Loading chart data...' : 
+                       indicator.type === 'buy_sell_frequency' && bidAskData.length === 0 ? 'Loading bid/ask data...' :
+                       'Loading indicator series...'}
+                    </div>
                   </div>
                 </div>
               )}
@@ -2870,302 +3135,5 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   );
 });
 
-// Indicator Editor Component
-function IndicatorEditor({ 
-  indicator, 
-  onSave, 
-  onCancel,
-  volumeHistogramSettings,
-  setVolumeHistogramSettings
-}: { 
-  indicator: Indicator; 
-  onSave: (indicator: Indicator) => void; 
-  onCancel: () => void;
-  volumeHistogramSettings: any;
-  setVolumeHistogramSettings: any;
-}) {
-  const [editedIndicator, setEditedIndicator] = useState<Indicator>(indicator);
-
-  const handleSave = () => {
-    onSave(editedIndicator);
-  };
-
-  const renderIndicatorSettings = () => {
-    switch (editedIndicator.type) {
-      case 'ma':
-        return (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Period</label>
-              <input
-                type="number"
-                value={editedIndicator.period}
-                onChange={(e) => setEditedIndicator(prev => ({ ...prev, period: parseInt(e.target.value) || (prev.period || 20) }))}
-                className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
-                min="1"
-                max="200"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Mode</label>
-              <select
-                value={editedIndicator.maMode || 'simple'}
-                onChange={(e) => setEditedIndicator(prev => ({ 
-                  ...prev, 
-                  type: 'ma',
-                  maMode: (e.target.value as 'simple' | 'exponential'),
-                  name: `MA (${e.target.value === 'exponential' ? 'Exponential' : 'Simple'})`
-                }))}
-                className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
-              >
-                <option value="simple">Simple</option>
-                <option value="exponential">Exponential</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Color</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={editedIndicator.color}
-                  onChange={(e) => setEditedIndicator(prev => ({ ...prev, color: e.target.value }))}
-                  className="w-8 h-8 border border-border rounded cursor-pointer"
-                />
-                <span className="text-sm text-muted-foreground">{editedIndicator.color}</span>
-              </div>
-            </div>
-          </div>
-        );
-
-      case 'rsi':
-        return (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Period</label>
-              <input
-                type="number"
-                value={editedIndicator.period}
-                onChange={(e) => setEditedIndicator(prev => ({ ...prev, period: parseInt(e.target.value) || 14 }))}
-                className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
-                min="1"
-                max="100"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Color</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={editedIndicator.color}
-                  onChange={(e) => setEditedIndicator(prev => ({ ...prev, color: e.target.value }))}
-                  className="w-8 h-8 border border-border rounded cursor-pointer"
-                />
-                <span className="text-sm text-muted-foreground">{editedIndicator.color}</span>
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Chart Type</label>
-              <select
-                value={editedIndicator.separateScale ? 'separate' : 'overlay'}
-                onChange={(e) => setEditedIndicator(prev => ({ ...prev, separateScale: e.target.value === 'separate' }))}
-                className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
-              >
-                <option value="overlay">Overlay on Main Chart</option>
-                <option value="separate">Separate Chart Below</option>
-              </select>
-            </div>
-          </div>
-        );
-
-      case 'macd':
-        return (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Fast Period</label>
-              <input
-                type="number"
-                value={12}
-                className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
-                disabled
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Slow Period</label>
-              <input
-                type="number"
-                value={26}
-                className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
-                disabled
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Signal Period</label>
-              <input
-                type="number"
-                value={9}
-                className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
-                disabled
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Color</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={editedIndicator.color}
-                  onChange={(e) => setEditedIndicator(prev => ({ ...prev, color: e.target.value }))}
-                  className="w-8 h-8 border border-border rounded cursor-pointer"
-                />
-                <span className="text-sm text-muted-foreground">{editedIndicator.color}</span>
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Chart Type</label>
-              <select
-                value={editedIndicator.separateScale ? 'separate' : 'overlay'}
-                onChange={(e) => setEditedIndicator(prev => ({ ...prev, separateScale: e.target.value === 'separate' }))}
-                className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
-              >
-                <option value="overlay">Overlay on Main Chart</option>
-                <option value="separate">Separate Chart Below</option>
-              </select>
-            </div>
-          </div>
-        );
-
-      case 'volume_histogram':
-        return (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Base Color</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={editedIndicator.color}
-                  onChange={(e) => setEditedIndicator(prev => ({ ...prev, color: e.target.value }))}
-                  className="w-8 h-8 border border-border rounded cursor-pointer"
-                />
-                <span className="text-sm text-muted-foreground">{editedIndicator.color}</span>
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Chart Type</label>
-              <select
-                value={editedIndicator.separateScale ? 'separate' : 'overlay'}
-                onChange={(e) => setEditedIndicator(prev => ({ ...prev, separateScale: e.target.value === 'separate' }))}
-                className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
-              >
-                <option value="overlay">Overlay on Main Chart</option>
-                <option value="separate">Separate Chart Below</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Volume Colors</label>
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs text-muted-foreground mb-1">Up Color (Price Rising)</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={volumeHistogramSettings.upColor}
-                      onChange={(e) => setVolumeHistogramSettings((prev: any) => ({ ...prev, upColor: e.target.value }))}
-                      className="w-8 h-6 border border-border rounded cursor-pointer"
-                    />
-                    <span className="text-xs text-muted-foreground font-mono">{volumeHistogramSettings.upColor}</span>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs text-muted-foreground mb-1">Down Color (Price Falling)</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={volumeHistogramSettings.downColor}
-                      onChange={(e) => setVolumeHistogramSettings((prev: any) => ({ ...prev, downColor: e.target.value }))}
-                      className="w-8 h-6 border border-border rounded cursor-pointer"
-                    />
-                    <span className="text-xs text-muted-foreground font-mono">{volumeHistogramSettings.downColor}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-
-      case 'buy_sell_frequency':
-        return (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Line Color</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={editedIndicator.color}
-                  onChange={(e) => setEditedIndicator(prev => ({ ...prev, color: e.target.value }))}
-                  className="w-8 h-8 border border-border rounded cursor-pointer"
-                />
-                <span className="text-sm text-muted-foreground">{editedIndicator.color}</span>
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Period</label>
-              <input
-                type="number"
-                value={editedIndicator.period}
-                onChange={(e) => setEditedIndicator(prev => ({ ...prev, period: parseInt(e.target.value) || 14 }))}
-                min="1"
-                max="100"
-                className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Chart Type</label>
-              <select
-                value={editedIndicator.separateScale ? 'separate' : 'overlay'}
-                onChange={(e) => setEditedIndicator(prev => ({ ...prev, separateScale: e.target.value === 'separate' }))}
-                className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
-              >
-                <option value="overlay">Overlay on Price</option>
-                <option value="separate">Separate Chart</option>
-              </select>
-            </div>
-          </div>
-        );
-
-      default:
-        return <div>Unknown indicator type</div>;
-    }
-  };
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <label className="block text-sm font-medium mb-2">Indicator Name</label>
-        <input
-          type="text"
-          value={editedIndicator.name}
-          onChange={(e) => setEditedIndicator(prev => ({ ...prev, name: e.target.value }))}
-          className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
-        />
-      </div>
-
-      {renderIndicatorSettings()}
-
-      <div className="flex gap-2 pt-4">
-        <button
-          onClick={handleSave}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
-        >
-          Save Changes
-        </button>
-        <button
-          onClick={onCancel}
-          className="px-4 py-2 border border-border rounded-md hover:bg-accent"
-        >
-          Cancel
-        </button>
-      </div>
-    </div>
-  );
-}
 
 

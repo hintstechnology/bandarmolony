@@ -1683,6 +1683,44 @@ export const api = {
     }
   },
 
+  // Get bid/ask data for specific stock and date
+  async getBidAskData(stockCode: string, date: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/bidask/stock/${stockCode}/${date}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get bid/ask data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get bid/ask data' };
+    }
+  },
+
+  // Get Buy/Sell Frequency data for specific stock and date
+  async getBuySellFrequencyData(stockCode: string, date: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/bidask/frequency/${stockCode}/${date}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get Buy/Sell Frequency data');
+      console.log(`📊 API getBuySellFrequencyData response for ${stockCode} on ${date}:`, {
+        success: json.success,
+        dataExists: !!json.data,
+        dataDataExists: !!json.data?.data,
+        dataLength: json.data?.data?.length || 0,
+        sampleData: json.data?.data?.slice(0, 2) || []
+      });
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      console.error(`❌ API getBuySellFrequencyData error for ${stockCode} on ${date}:`, err);
+      return { success: false, error: err.message || 'Failed to get Buy/Sell Frequency data' };
+    }
+  },
+
 
   // Get broker list from csv_input/broker_list.csv
   async getBrokerList(): Promise<{ success: boolean; data?: { brokers: string[] }; error?: string }> {
@@ -1974,17 +2012,6 @@ export const api = {
     }
   },
 
-  // Bid/Ask API methods
-  async getBidAskData(stockCode: string, date: string): Promise<{ success: boolean; data?: any; error?: string }> {
-    try {
-      const res = await fetch(`${API_URL}/api/bidask/stock/${stockCode}/${date}`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to get bid/ask data');
-      return { success: true, data: json.data };
-    } catch (err: any) {
-      return { success: false, error: err.message || 'Failed to get bid/ask data' };
-    }
-  },
 
   async getBidAskDates(): Promise<{ success: boolean; data?: any; error?: string }> {
     try {

@@ -5,6 +5,7 @@ import { Button } from '../ui/button';
 import { Search, X } from 'lucide-react';
 import { api } from '../../services/api';
 import { toast } from 'sonner';
+import { useSearchParams } from 'react-router-dom';
 
 // Colors for charts
 const stackColors = {
@@ -14,11 +15,19 @@ const stackColors = {
   others: '#10b981'
 };
 
-export function StoryOwnership() {
-  const [selectedStock, setSelectedStock] = useState('BBCA');
-  const [selectedView, setSelectedView] = useState('summary');
+interface StoryOwnershipProps {
+  selectedStock?: string;
+}
+
+export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwnershipProps) {
+  const [searchParams] = useSearchParams();
+  const urlStock = searchParams.get('stock');
+  const urlView = searchParams.get('view');
+  
+  const [selectedStock, setSelectedStock] = useState(urlStock || propSelectedStock || 'BBCA');
+  const [selectedView, setSelectedView] = useState(urlView || 'summary');
   const [dataRange, setDataRange] = useState(6); // Default 6 months
-  const [stockInput, setStockInput] = useState('BBCA');
+  const [stockInput, setStockInput] = useState(urlStock || propSelectedStock || 'BBCA');
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
   const [loading, setLoading] = useState(false);
@@ -77,6 +86,24 @@ export function StoryOwnership() {
       setLoading(false);
     }
   };
+
+  // Update selectedStock when prop or URL changes
+  useEffect(() => {
+    const urlStock = searchParams.get('stock');
+    const urlView = searchParams.get('view');
+    
+    if (urlStock && urlStock !== selectedStock) {
+      setSelectedStock(urlStock);
+      setStockInput(urlStock);
+    } else if (propSelectedStock && propSelectedStock !== selectedStock) {
+      setSelectedStock(propSelectedStock);
+      setStockInput(propSelectedStock);
+    }
+    
+    if (urlView && urlView !== selectedView) {
+      setSelectedView(urlView);
+    }
+  }, [propSelectedStock, selectedStock, searchParams, selectedView]);
 
   // Load available stocks from shareholders directory on mount
   useEffect(() => {

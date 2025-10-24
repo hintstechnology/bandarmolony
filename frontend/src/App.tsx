@@ -78,7 +78,19 @@ function DashboardLayout() {
     if (!isLoading && (!profile || !isAuthenticated) && !hasRedirected.current) {
       console.log('DashboardLayout: No profile or not authenticated, redirecting to auth');
       hasRedirected.current = true;
-      navigate('/auth', { replace: true });
+      
+      // Safely navigate with error handling
+      try {
+        navigate('/auth', { replace: true });
+      } catch (error) {
+        console.error('Navigation error:', error);
+        // Fallback to window.location if navigate fails
+        try {
+          window.location.href = '/auth';
+        } catch (fallbackError) {
+          console.error('Fallback navigation also failed:', fallbackError);
+        }
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoading, profile, isAuthenticated]); // Don't include navigate - causes loop!
@@ -111,12 +123,17 @@ function DashboardLayout() {
 
   // Get current route from URL
   const getCurrentRoute = () => {
-    const path = location.pathname;
-    if (path === '/profile') return 'profile';
-    if (path === '/dashboard' || path === '/dashboard/') return 'dashboard';
-    if (path === '/subscription') return 'subscription';
-    // Remove leading slash and return the route
-    return path.replace('/', '') || 'dashboard';
+    try {
+      const path = location?.pathname || '';
+      if (path === '/profile') return 'profile';
+      if (path === '/dashboard' || path === '/dashboard/') return 'dashboard';
+      if (path === '/subscription') return 'subscription';
+      // Remove leading slash and return the route
+      return path.replace('/', '') || 'dashboard';
+    } catch (error) {
+      console.warn('Error getting current route:', error);
+      return 'dashboard';
+    }
   };
 
   const currentRoute = getCurrentRoute();
@@ -169,25 +186,35 @@ function DashboardLayout() {
   };
 
   const getBreadcrumbParts = () => {
-    const path = location.pathname.replace(/^\/+/, '');
-    if (!path || path === 'dashboard') return [{ title: 'Dashboard', icon: Home }];
-    const segments = path.split('/');
-    const base = segments[0];
-    if (!base) return [{ title: 'Dashboard', icon: Home }];
-    const entry = breadcrumbMap[base];
-    if (!entry) return [{ title: 'Dashboard', icon: Home }];
-    const parts: { title: string; icon?: React.ComponentType<any> }[] = [{ title: entry.title, ...(entry.icon && { icon: entry.icon }) }];
-    if (segments[1] && entry.children) {
-      const child = entry.children[segments[1]];
-      if (child) parts.push({ title: child });
+    try {
+      const path = (location?.pathname || '').replace(/^\/+/, '');
+      if (!path || path === 'dashboard') return [{ title: 'Dashboard', icon: Home }];
+      const segments = path.split('/');
+      const base = segments[0];
+      if (!base) return [{ title: 'Dashboard', icon: Home }];
+      const entry = breadcrumbMap[base];
+      if (!entry) return [{ title: 'Dashboard', icon: Home }];
+      const parts: { title: string; icon?: React.ComponentType<any> }[] = [{ title: entry.title, ...(entry.icon && { icon: entry.icon }) }];
+      if (segments[1] && entry.children) {
+        const child = entry.children[segments[1]];
+        if (child) parts.push({ title: child });
+      }
+      return parts;
+    } catch (error) {
+      console.warn('Error getting breadcrumb parts:', error);
+      return [{ title: 'Dashboard', icon: Home }];
     }
-    return parts;
   };
 
   // Handle profile click with debounce
   const handleProfileClick = () => {
-    if (location.pathname !== '/profile') {
-      navigate('/profile');
+    try {
+      const currentPath = location?.pathname || '';
+      if (currentPath !== '/profile') {
+        navigate('/profile');
+      }
+    } catch (error) {
+      console.error('Error handling profile click:', error);
     }
   };
 
