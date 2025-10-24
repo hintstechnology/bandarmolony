@@ -386,7 +386,7 @@ router.post('/signup', async (req, res) => {
         data: {
           full_name: full_name.trim()
         },
-        emailRedirectTo: `${process.env['FRONTEND_URL'] || 'http://localhost:3000'}/auth/verify?type=signup`
+        emailRedirectTo: `${process.env['FRONTEND_URL'] || 'http://localhost:3000'}/auth/callback`
       }
     });
 
@@ -816,6 +816,118 @@ router.post('/check-attempts', async (req, res) => {
 });
 
 /**
+ * POST /api/auth/init-session
+ * Initialize session in database after email verification (called by frontend)
+ */
+router.post('/init-session', async (req, res) => {
+  try {
+    console.log('📥 /init-session: Request received');
+    
+    // Get user from token
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.error('❌ /init-session: No authorization header');
+      return res.status(401).json(createErrorResponse(
+        'No valid session found',
+        'UNAUTHORIZED',
+        undefined,
+        401
+      ));
+    }
+
+    const token = authHeader.split(' ')[1];
+    console.log('🔑 /init-session: Verifying token with Supabase...');
+    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
+    
+    if (userError || !user) {
+      console.error('❌ /init-session: Invalid token:', userError);
+      return res.status(401).json(createErrorResponse(
+        'Invalid session',
+        'UNAUTHORIZED',
+        undefined,
+        401
+      ));
+    }
+
+    console.log(`✅ /init-session: User verified: ${user.email} (${user.id})`);
+
+    // Ensure user profile exists
+    console.log('👤 /init-session: Checking if profile exists...');
+    const { error: profileCheckError } = await supabaseAdmin
+      .from('users')
+      .select('id')
+      .eq('id', user.id)
+      .single();
+
+    if (profileCheckError && profileCheckError.code === 'PGRST116') {
+      // Profile doesn't exist, create it
+      console.log('➕ /init-session: Profile not found, creating...');
+      const { error: createError } = await supabaseAdmin
+        .from('users')
+        .insert({
+          id: user.id,
+          email: user.email,
+          full_name: user.user_metadata?.['full_name'] || '',
+          avatar_url: null,
+          email_verified: user.email_confirmed_at ? true : false,
+          role: 'user',
+          is_active: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+
+      if (createError) {
+        console.error('❌ /init-session: Failed to create user profile:', createError);
+        return res.status(500).json(createErrorResponse(
+          'Failed to create user profile',
+          'INTERNAL_SERVER_ERROR',
+          undefined,
+          500
+        ));
+      }
+      console.log('✅ /init-session: User profile created successfully');
+    } else if (profileCheckError) {
+      console.error('❌ /init-session: Error checking profile:', profileCheckError);
+    } else {
+      console.log('✅ /init-session: Profile already exists');
+    }
+
+    // Create session in database
+    try {
+      console.log('🔐 /init-session: Creating session in database...');
+      const tokenHash = SessionManager.generateTokenHash(token || '');
+      
+      await SessionManager.createOrUpdateSession(
+        user.id,
+        tokenHash,
+        new Date(Date.now() + 3600000), // 1 hour from now
+        req.ip || req.connection.remoteAddress || 'Unknown',
+        req.headers['user-agent'] || 'Unknown'
+      );
+      console.log('✅ /init-session: Session created in database successfully');
+    } catch (sessionError) {
+      console.error('❌ /init-session: Failed to create session:', sessionError);
+      // Don't fail - session will be created on next API call
+    }
+
+    console.log('🎉 /init-session: Initialization complete!');
+    return res.json(createSuccessResponse(
+      { user, initialized: true },
+      'Session initialized successfully'
+    ));
+
+  } catch (err: any) {
+    console.error('init-session error:', err);
+    return res.status(500).json(createErrorResponse(
+      'Failed to initialize session',
+      'INTERNAL_SERVER_ERROR',
+      undefined,
+      500
+    ));
+  }
+});
+
+/**
  * POST /api/auth/verify-email
  * Verify email with token from email confirmation
  */
@@ -864,18 +976,71 @@ router.post('/verify-email', async (req, res) => {
     }
 
     if (data.user) {
-      // Update user email_verified status in our users table
-      const { error: updateError } = await supabaseAdmin
+      // First, check if user profile exists
+      const { data: existingProfile, error: profileCheckError } = await supabaseAdmin
         .from('users')
-        .update({ 
-          email_verified: true,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', data.user.id);
+        .select('id, email_verified')
+        .eq('id', data.user.id)
+        .single();
 
-      if (updateError) {
-        console.error('Failed to update email_verified status:', updateError);
-        // Don't fail the verification, just log the error
+      if (profileCheckError && profileCheckError.code === 'PGRST116') {
+        // Profile doesn't exist yet, create it
+        console.log('Email verification: User profile not found, creating...');
+        const { error: createError } = await supabaseAdmin
+          .from('users')
+          .insert({
+            id: data.user.id,
+            email: data.user.email,
+            full_name: data.user.user_metadata?.['full_name'] || '',
+            avatar_url: null,
+            email_verified: true,
+            role: 'user',
+            is_active: true,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+
+        if (createError) {
+          console.error('Failed to create user profile during email verification:', createError);
+          // Don't fail the verification, just log the error
+        } else {
+          console.log('Email verification: User profile created successfully');
+        }
+      } else if (!profileCheckError && existingProfile) {
+        // Profile exists, just update email_verified status
+        console.log('Email verification: Updating email_verified status for existing profile');
+        const { error: updateError } = await supabaseAdmin
+          .from('users')
+          .update({ 
+            email_verified: true,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', data.user.id);
+
+        if (updateError) {
+          console.error('Failed to update email_verified status:', updateError);
+          // Don't fail the verification, just log the error
+        }
+      } else {
+        console.error('Error checking user profile:', profileCheckError);
+      }
+    }
+
+    // Create session in database for the verified user
+    if (data.session && data.user) {
+      try {
+        const tokenHash = SessionManager.generateTokenHash(data.session.access_token);
+        await SessionManager.createOrUpdateSession(
+          data.user.id,
+          tokenHash,
+          data.session.expires_at ? new Date(data.session.expires_at * 1000) : new Date(Date.now() + 3600000),
+          req.ip || req.connection.remoteAddress || 'Unknown',
+          req.headers['user-agent'] || 'Unknown'
+        );
+        console.log('Email verification: Session created in database');
+      } catch (sessionError) {
+        console.error('Failed to create session after email verification:', sessionError);
+        // Don't fail the verification, user can create session on next login
       }
     }
 

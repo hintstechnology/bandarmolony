@@ -1,17 +1,21 @@
 import { useEffect, useState, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { XCircle, Loader2 } from 'lucide-react';
-import { toast } from 'sonner';
 import { supabase } from '../../lib/supabase';
 import { EmailVerificationSuccess } from './EmailVerificationSuccess';
 import { setAuthState } from '../../utils/auth';
+import { useAuth } from '../../contexts/AuthContext';
+import { useProfile } from '../../contexts/ProfileContext';
 
 export function SupabaseRedirectHandler() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
+  const { profile } = useProfile();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('');
   const hasProcessed = useRef(false);
+  const hasRedirected = useRef(false);
 
   useEffect(() => {
     // Prevent duplicate execution
@@ -195,95 +199,148 @@ export function SupabaseRedirectHandler() {
         if (errorParam) {
           setStatus('error');
           setMessage(errorDescription || 'Authentication failed. Please try again.');
+          // Clear any kickedByOtherDevice flag since this is email verification, not device login
+          localStorage.removeItem('kickedByOtherDevice');
           return;
         }
 
-
-        // Wait a bit for Supabase to process the URL
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        // Let Supabase handle the auth state change automatically
-        const { data: { session }, error } = await supabase.auth.getSession();
+        // For email verification (signup), extract tokens from hash/query and set session manually
+        // Supabase sends tokens in hash fragment: #access_token=xxx&refresh_token=yyy&type=signup
+        console.log('Email verification flow detected');
+        console.log('Full URL:', window.location.href);
+        console.log('Search params:', window.location.search);
+        console.log('Hash:', window.location.hash);
         
-        if (error) {
-          setStatus('error');
-          setMessage('Verification link has expired or is invalid. Please try again.');
-          return;
-        }
-
-        if (session?.user) {
-          setStatus('success');
-          
-          setMessage('Email verified successfully! Welcome to BandarmoloNY!');
-          // Save auth state to localStorage
-          setAuthState(session.user, session);
-          
-          // Show success toast
-          toast.success('🎉 Email verified successfully! Welcome to BandarmoloNY!', {
-            duration: 4000,
-            position: 'top-center'
-          });
-          
-          // Redirect to dashboard after successful verification
-          setTimeout(() => {
-            navigate('/dashboard');
-          }, 2000);
-        } else {
-          // No session found, try to handle URL parameters manually
-          const hashParams = new URLSearchParams(window.location.hash.substring(1));
-          const queryParams = new URLSearchParams(window.location.search);
-          
-          const accessToken = hashParams.get('access_token') || queryParams.get('access_token');
-          const refreshToken = hashParams.get('refresh_token') || queryParams.get('refresh_token');
-          
-          if (accessToken && refreshToken) {
-            // Try to set session manually
+        // Use hashParams that was already declared at the top
+        const accessToken = hashParams.get('access_token') || searchParams.get('access_token');
+        const refreshToken = hashParams.get('refresh_token') || searchParams.get('refresh_token');
+        
+        console.log('Email verification params:', { 
+          hasAccessToken: !!accessToken, 
+          hasRefreshToken: !!refreshToken,
+          type: type 
+        });
+        
+        if (accessToken && refreshToken) {
+          try {
+            console.log('Setting session with tokens for email verification');
             const { data, error: sessionError } = await supabase.auth.setSession({
               access_token: accessToken,
               refresh_token: refreshToken
             });
             
             if (sessionError) {
+              console.error('Session set error:', sessionError);
               setStatus('error');
               setMessage('Failed to verify email. Please try again.');
+              // Clear any kickedByOtherDevice flag since this is email verification, not device login
+              localStorage.removeItem('kickedByOtherDevice');
               return;
             }
             
             if (data.session?.user) {
+              console.log('Session set successfully for email verification');
               setStatus('success');
+              setMessage('Email verified successfully! Setting up your account...');
               
-              setMessage('Email verified successfully! Welcome to BandarmoloNY!');
               // Save auth state to localStorage
               setAuthState(data.session.user, data.session);
               
-              toast.success('🎉 Email verified successfully! Welcome to BandarmoloNY!', {
-                duration: 4000,
-                position: 'top-center'
-              });
+              // Call backend to create session in database and ensure profile exists
+              try {
+                console.log('Calling backend to initialize user session and profile...');
+                const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
+                const initResponse = await fetch(`${API_URL}/api/auth/init-session`, {
+                  method: 'POST',
+                  headers: {
+                    'Authorization': `Bearer ${data.session.access_token}`,
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({ 
+                    refresh_token: refreshToken
+                  })
+                });
+                
+                if (initResponse.ok) {
+                  const result = await initResponse.json();
+                  console.log('✅ Backend initialization successful:', result);
+                } else {
+                  const errorText = await initResponse.text();
+                  console.error('❌ Backend initialization failed:', errorText);
+                }
+              } catch (backendError) {
+                console.warn('Failed to initialize backend:', backendError);
+                // Continue anyway - middleware will create profile on first API call
+              }
               
-              // Redirect to dashboard after successful verification
-              setTimeout(() => {
-                navigate('/dashboard');
-              }, 2000);
+              // Set flag to indicate this is a fresh email verification
+              // ProfileContext will use this to skip kicked-by-other-device logic and retry profile fetch
+              localStorage.setItem('emailVerificationSuccess', 'true');
+              
+              // Don't show toast here - will be shown in AuthPage or Dashboard after redirect
+              // Don't redirect manually - let AuthPage handle it based on authentication state
+              // This prevents race conditions with profile fetching
+              console.log('Email verification complete. Waiting for profile to be created...');
             } else {
+              console.error('No session after setting tokens');
               setStatus('error');
               setMessage('Email verification is still pending. Please check your email and click the verification link.');
+              // Clear any kickedByOtherDevice flag since this is email verification, not device login
+              localStorage.removeItem('kickedByOtherDevice');
             }
-          } else {
-            // No valid session or tokens found
+          } catch (error) {
+            console.error('Email verification processing error:', error);
             setStatus('error');
-            setMessage('Verification link is invalid or has expired. Please try again.');
+            setMessage('An error occurred during verification. Please try again.');
+            // Clear any kickedByOtherDevice flag since this is email verification, not device login
+            localStorage.removeItem('kickedByOtherDevice');
           }
+        } else {
+          // No valid tokens found
+          console.error('No access_token or refresh_token found in URL');
+          setStatus('error');
+          setMessage('Verification link is invalid or has expired. Please try again.');
+          // Clear any kickedByOtherDevice flag since this is email verification, not device login
+          localStorage.removeItem('kickedByOtherDevice');
         }
 
       } catch (error: any) {
         setStatus('error');
         setMessage('An error occurred during verification. Please try again.');
+        // Clear any kickedByOtherDevice flag since this is email verification, not device login
+        localStorage.removeItem('kickedByOtherDevice');
       }
     };
 
     handleSupabaseRedirect();
   }, [searchParams]);
+
+  // Auto-redirect to dashboard when profile is ready after email verification
+  useEffect(() => {
+    if (hasRedirected.current) {
+      return;
+    }
+
+    console.log('SupabaseRedirectHandler: Checking redirect conditions:', {
+      status,
+      isAuthenticated,
+      hasProfile: !!profile,
+      profileEmail: profile?.email
+    });
+
+    // If we're showing success screen AND user is authenticated with profile
+    // Redirect to dashboard
+    if (status === 'success' && isAuthenticated && profile) {
+      console.log('SupabaseRedirectHandler: ✅ Profile ready, redirecting to dashboard...');
+      hasRedirected.current = true;
+      
+      // Small delay to let user see the success message
+      setTimeout(() => {
+        console.log('SupabaseRedirectHandler: Navigating to dashboard now');
+        navigate('/dashboard', { replace: true });
+      }, 1500);
+    }
+  }, [status, isAuthenticated, profile, navigate]);
 
   const handleLogin = () => {
     navigate('/auth?mode=login');
