@@ -11,6 +11,7 @@ import { api } from '../../services/api';
 import { toast } from 'sonner';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
+import { useProfile } from '../../contexts/ProfileContext';
 
 interface AuthPageProps {
   initialMode?: 'login' | 'signup';
@@ -26,8 +27,12 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { isLoading: profileLoading } = useProfile();
   const { showToast } = useToast();
+  
+  // Combined loading state - wait for both auth and profile
+  const isLoading = authLoading || profileLoading;
 
   useEffect(() => {
     const mode = searchParams.get('mode');
@@ -61,19 +66,66 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
     }
   }, [searchParams, navigate, showToast]);
 
-  // Check if user was kicked by another device login
+  // Check for email verification success/error and kicked device flags
   useEffect(() => {
-    const kickedFlag = localStorage.getItem('kickedByOtherDevice');
-    if (kickedFlag === 'true') {
-      // Show toast notification
+    // Check email verification success
+    const emailVerificationSuccess = localStorage.getItem('showEmailVerificationSuccessToast');
+    if (emailVerificationSuccess === 'true') {
+      localStorage.removeItem('showEmailVerificationSuccessToast');
       showToast({
-        type: 'warning',
-        title: 'Login di Perangkat Lain Terdeteksi',
-        message: 'Sesi di perangkat ini telah ditutup.',
+        type: 'success',
+        title: 'Email Berhasil Diverifikasi! 🎉',
+        message: 'Selamat datang di BandarmoloNY! Akun Anda sudah aktif.',
       });
-      // Clear the flag
-      localStorage.removeItem('kickedByOtherDevice');
     }
+
+    // Check email verification error
+    const emailVerificationError = localStorage.getItem('emailVerificationError');
+    if (emailVerificationError === 'true') {
+      localStorage.removeItem('emailVerificationError');
+      showToast({
+        type: 'error',
+        title: 'Verifikasi Email Gagal',
+        message: 'Gagal menyelesaikan registrasi. Silakan coba login lagi.',
+      });
+    }
+
+    // Check if user was kicked by another device login
+    const checkKickedFlag = () => {
+      const kickedFlag = localStorage.getItem('kickedByOtherDevice');
+      if (kickedFlag === 'true') {
+        showToast({
+          type: 'warning',
+          title: 'Login di Perangkat Lain Terdeteksi',
+          message: 'Sesi di perangkat ini telah ditutup.',
+        });
+        localStorage.removeItem('kickedByOtherDevice');
+      }
+    };
+    
+    checkKickedFlag();
+    
+    const handleFocus = () => { checkKickedFlag(); };
+    window.addEventListener('focus', handleFocus);
+    
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'kickedByOtherDevice' && e.newValue === 'true') {
+        checkKickedFlag();
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    
+    const handleKickedCheck = () => {
+      console.log('AuthPage: Received kicked-check event');
+      checkKickedFlag();
+    };
+    window.addEventListener('kicked-check', handleKickedCheck);
+    
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('kicked-check', handleKickedCheck);
+    };
   }, [showToast]);
 
   // Redirect if already authenticated

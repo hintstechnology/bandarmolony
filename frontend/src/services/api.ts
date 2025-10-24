@@ -38,6 +38,22 @@ export interface AuthResponse {
 
 const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
 
+// Global 401 handler - emit event when 401 detected
+const emit401Event = () => {
+  console.log('🚨 API: 401 detected, emitting global-401 event');
+  window.dispatchEvent(new CustomEvent('global-401'));
+};
+
+// Helper function to check response and handle 401
+const checkResponse = async (response: Response, endpoint: string) => {
+  if (response.status === 401) {
+    console.log(`🚨 API: 401 from ${endpoint}`);
+    emit401Event();
+    throw new Error('Session expired. Please sign in again.');
+  }
+  return response;
+};
+
 export const api = {
   // Market Rotation Outputs (Azure-backed)
   async listMarketRotationOutputs(feature: 'rrc' | 'rrg' | 'seasonal' | 'trend'): Promise<{ success: boolean; data?: { prefix: string; files: string[] }; error?: string }> {
@@ -170,12 +186,10 @@ export const api = {
       
       clearTimeout(timeoutId);
       
+      // Check for 401 using global handler
+      await checkResponse(response, '/api/me');
+      
       if (!response.ok) {
-        if (response.status === 401) {
-          // Don't clear session here - let AuthContext handle it
-          throw new Error('Session expired. Please sign in again.');
-        }
-        
         const errorText = await response.text();
         throw new Error(`Failed to fetch profile: ${response.status} ${errorText}`);
       }
@@ -467,6 +481,51 @@ export const api = {
     }
   },
 
+  async changePassword(currentPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        throw new Error('No active session');
+      }
+
+      console.log('📤 API: Changing password...');
+      const response = await fetch(`${API_URL}/api/auth/change-password`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ currentPassword, newPassword })
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok) {
+        console.error('❌ API: Change password failed:', result);
+        throw new Error(result.error || result.message || 'Failed to change password');
+      }
+
+      console.log('✅ API: Password changed successfully');
+      
+      // After successful password change, we need to refresh the session
+      // This is important because Supabase might issue a new token
+      const { data: { session: newSession }, error: refreshError } = await supabase.auth.refreshSession();
+      
+      if (refreshError) {
+        console.warn('⚠️ API: Session refresh after password change failed:', refreshError);
+        // Don't throw - password was changed successfully, just session refresh failed
+      } else if (newSession) {
+        console.log('✅ API: Session refreshed successfully after password change');
+      }
+
+      return { success: true, message: result.message || 'Password changed successfully' };
+    } catch (error: any) {
+      console.error('❌ API: changePassword error:', error);
+      throw error;
+    }
+  },
+
   async login(email: string, password: string): Promise<AuthResponse> {
     try {
       // Use backend login to ensure session is created in database
@@ -600,21 +659,18 @@ export const api = {
         // Continue with frontend logout even if backend fails
       }
       
+      // Clear local storage FIRST (before signOut to prevent race conditions)
+      clearAuthState();
+      localStorage.removeItem('user');
+      localStorage.removeItem('supabase_session');
+      
       // Sign out from Supabase (this will trigger auth state change)
       // IMPORTANT: Supabase signOut() returns { error } instead of throwing
       const { error: signOutError } = await supabase.auth.signOut();
       
       if (signOutError) {
         console.error('Supabase signOut failed:', signOutError);
-        // Even if signOut fails, clear local storage
       }
-      
-      // Clear local storage
-      clearAuthState();
-      
-      // Clear any remaining session data
-      localStorage.removeItem('user');
-      localStorage.removeItem('supabase_session');
     } catch (error) {
       console.error('Logout error:', error);
       // Clear local storage anyway
@@ -639,21 +695,18 @@ export const api = {
         // Continue with frontend logout even if backend fails
       }
       
+      // Clear local storage FIRST (before signOut to prevent race conditions)
+      clearAuthState();
+      localStorage.removeItem('user');
+      localStorage.removeItem('supabase_session');
+      
       // Sign out from Supabase (global)
       // IMPORTANT: Supabase signOut() returns { error } instead of throwing
       const { error: signOutError } = await supabase.auth.signOut();
       
       if (signOutError) {
         console.error('Supabase signOut (all devices) failed:', signOutError);
-        // Even if signOut fails, clear local storage
       }
-      
-      // Clear local storage
-      clearAuthState();
-      
-      // Clear any remaining session data
-      localStorage.removeItem('user');
-      localStorage.removeItem('supabase_session');
     } catch (error) {
       // Clear local storage anyway
       clearAuthState();
@@ -1190,47 +1243,6 @@ export const api = {
       return { success: true, data: result.data };
     } catch (error: any) {
       return { success: false, error: error.message || 'Failed to update payment method' };
-    }
-  },
-
-  async changePassword(data: {
-    currentPassword: string;
-    newPassword: string;
-  }): Promise<{ success: boolean; error?: string; message?: string }> {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session?.access_token) {
-        throw new Error('No active session found');
-      }
-
-      const response = await fetch(`${API_URL}/api/auth/change-password`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
-        },
-        body: JSON.stringify(data)
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        return { 
-          success: false, 
-          error: result.error || 'Failed to change password'
-        };
-      }
-
-      return { 
-        success: true, 
-        message: result.message || 'Password changed successfully'
-      };
-    } catch (error: any) {
-      return { 
-        success: false, 
-        error: error.message || 'Failed to change password'
-      };
     }
   },
 
