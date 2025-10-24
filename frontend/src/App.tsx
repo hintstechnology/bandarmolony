@@ -340,6 +340,160 @@ function DashboardLayout() {
   );
 }
 
+// Navigation wrapper component for public routes
+function PublicRouteWrapper() {
+  const navigate = useNavigate();
+  
+  return (
+    <Routes>
+      {/* Landing page - public route */}
+      <Route 
+        path="/" 
+        element={
+          <LandingPage 
+            onStartTrial={() => navigate('/auth?mode=register')} 
+            onSignIn={() => navigate('/auth?mode=login')}
+            onRegister={() => navigate('/auth?mode=register')}
+          />
+        } 
+      />
+      <Route path="/features" element={<FeaturesPage />} />
+      <Route 
+        path="/pricing" 
+        element={
+          <PricingPage 
+            onSignIn={() => navigate('/auth?mode=login')}
+            onRegister={() => navigate('/auth?mode=register')}
+          />
+        } 
+      />
+      <Route path="/contact" element={<ContactPage />} />
+      <Route path="/terms" element={<TermsPage />} />
+      <Route path="/privacy" element={<PrivacyPage />} />
+      
+      {/* Email verification handler */}
+      <Route 
+        path="/auth/verify" 
+        element={<EmailVerificationHandler />} 
+      />
+      
+      {/* Supabase redirect handler for direct email verification */}
+      <Route 
+        path="/auth/callback" 
+        element={<SupabaseRedirectHandler />} 
+      />
+      
+      {/* Password reset page */}
+      <Route 
+        path="/auth/reset-password" 
+        element={<ResetPasswordPage key={window.location.search} />} 
+      />
+      
+      {/* Public routes - redirect to dashboard if authenticated */}
+      <Route 
+        path="/auth" 
+        element={
+          <PublicRoute children={<AuthPage />} />
+        } 
+      />
+      
+      {/* Protected routes - redirect to auth if not authenticated */}
+      <Route 
+        path="/dashboard/*" 
+        element={
+          <ProtectedRoute children={<DashboardLayout />} />
+        } 
+      />
+      
+      {/* Profile route - handled by dashboard layout */}
+      <Route 
+        path="/profile" 
+        element={
+          <ProtectedRoute children={<DashboardLayout />} />
+        } 
+      />
+      
+      {/* Subscription route - handled by dashboard layout */}
+      <Route 
+        path="/subscription" 
+        element={
+          <ProtectedRoute children={<DashboardLayout />} />
+        } 
+      />
+      
+      {/* Market Rotation routes */}
+      <Route 
+        path="/market-rotation/*" 
+        element={
+          <ProtectedRoute children={<DashboardLayout />} />
+        } 
+      />
+      
+      {/* Broker Activity routes */}
+      <Route 
+        path="/broker-activity/*" 
+        element={
+          <ProtectedRoute children={<DashboardLayout />} />
+        } 
+      />
+      
+      {/* Stock Transaction routes */}
+      <Route 
+        path="/stock-transaction/*" 
+        element={
+          <ProtectedRoute children={<DashboardLayout />} />
+        } 
+      />
+      
+      {/* Story routes */}
+      <Route 
+        path="/story/*" 
+        element={
+          <ProtectedRoute children={<DashboardLayout />} />
+        } 
+      />
+      
+      {/* Astrology routes */}
+      <Route 
+        path="/astrology/*" 
+        element={
+          <ProtectedRoute children={<DashboardLayout />} />
+        } 
+      />
+      
+      {/* Technical Analysis route */}
+      <Route 
+        path="/technical-analysis" 
+        element={
+          <ProtectedRoute children={<DashboardLayout />} />
+        } 
+      />
+      
+      {/* Admin route */}
+      <Route 
+        path="/admin" 
+        element={
+          <ProtectedRoute children={<DashboardLayout />} />
+        } 
+      />
+      
+      {/* Subscription callback routes */}
+      <Route 
+        path="/subscription/success" 
+        element={<SubscriptionSuccess />} 
+      />
+      <Route 
+        path="/subscription/error" 
+        element={<SubscriptionError />} 
+      />
+      <Route 
+        path="/subscription/pending" 
+        element={<SubscriptionPending />} 
+      />
+    </Routes>
+  );
+}
+
 export default function App() {
   return (
     <ThemeProvider>
@@ -349,188 +503,7 @@ export default function App() {
             <ProfileProvider>
               <Router>
                 <ErrorBoundary>
-                  <Routes>
-            {/* Landing page - public route */}
-            <Route 
-              path="/" 
-              element={
-                <LandingPage 
-                  onStartTrial={() => {
-                    // Use navigate instead of window.location.href
-                    const navigate = (window as any).navigate;
-                    if (navigate) {
-                      navigate('/auth?mode=register');
-                    } else {
-                      window.location.href = '/auth?mode=register';
-                    }
-                  }} 
-                  onSignIn={() => {
-                    const navigate = (window as any).navigate;
-                    if (navigate) {
-                      navigate('/auth?mode=login');
-                    } else {
-                      window.location.href = '/auth?mode=login';
-                    }
-                  }}
-                  onRegister={() => {
-                    const navigate = (window as any).navigate;
-                    if (navigate) {
-                      navigate('/auth?mode=register');
-                    } else {
-                      window.location.href = '/auth?mode=register';
-                    }
-                  }}
-                />
-              } 
-            />
-            <Route path="/features" element={<FeaturesPage />} />
-            <Route 
-              path="/pricing" 
-              element={
-                <PricingPage 
-                  onSignIn={() => {
-                    const navigate = (window as any).navigate;
-                    if (navigate) {
-                      navigate('/auth?mode=login');
-                    } else {
-                      window.location.href = '/auth?mode=login';
-                    }
-                  }}
-                  onRegister={() => {
-                    const navigate = (window as any).navigate;
-                    if (navigate) {
-                      navigate('/auth?mode=register');
-                    } else {
-                      window.location.href = '/auth?mode=register';
-                    }
-                  }}
-                />
-              } 
-            />
-            <Route path="/contact" element={<ContactPage />} />
-            <Route path="/terms" element={<TermsPage />} />
-            <Route path="/privacy" element={<PrivacyPage />} />
-            
-            {/* Email verification handler */}
-            <Route 
-              path="/auth/verify" 
-              element={<EmailVerificationHandler />} 
-            />
-            
-            {/* Supabase redirect handler for direct email verification */}
-            <Route 
-              path="/auth/callback" 
-              element={<SupabaseRedirectHandler />} 
-            />
-            
-            {/* Password reset page */}
-            <Route 
-              path="/auth/reset-password" 
-              element={<ResetPasswordPage key={window.location.search} />} 
-            />
-            
-            {/* Public routes - redirect to dashboard if authenticated */}
-            <Route 
-              path="/auth" 
-              element={
-                <PublicRoute children={<AuthPage />} />
-              } 
-            />
-            
-            {/* Protected routes - redirect to auth if not authenticated */}
-            <Route 
-              path="/dashboard/*" 
-              element={
-                <ProtectedRoute children={<DashboardLayout />} />
-              } 
-            />
-            
-            {/* Profile route - handled by dashboard layout */}
-            <Route 
-              path="/profile" 
-              element={
-                <ProtectedRoute children={<DashboardLayout />} />
-              } 
-            />
-            
-            {/* Subscription route - handled by dashboard layout */}
-            <Route 
-              path="/subscription" 
-              element={
-                <ProtectedRoute children={<DashboardLayout />} />
-              } 
-            />
-            
-            {/* Market Rotation routes */}
-            <Route 
-              path="/market-rotation/*" 
-              element={
-                <ProtectedRoute children={<DashboardLayout />} />
-              } 
-            />
-            
-            {/* Broker Activity routes */}
-            <Route 
-              path="/broker-activity/*" 
-              element={
-                <ProtectedRoute children={<DashboardLayout />} />
-              } 
-            />
-            
-            {/* Stock Transaction routes */}
-            <Route 
-              path="/stock-transaction/*" 
-              element={
-                <ProtectedRoute children={<DashboardLayout />} />
-              } 
-            />
-            
-            {/* Story routes */}
-            <Route 
-              path="/story/*" 
-              element={
-                <ProtectedRoute children={<DashboardLayout />} />
-              } 
-            />
-            
-            {/* Astrology routes */}
-            <Route 
-              path="/astrology/*" 
-              element={
-                <ProtectedRoute children={<DashboardLayout />} />
-              } 
-            />
-            
-            {/* Technical Analysis route */}
-            <Route 
-              path="/technical-analysis" 
-              element={
-                <ProtectedRoute children={<DashboardLayout />} />
-              } 
-            />
-            
-            {/* Admin route */}
-            <Route 
-              path="/admin" 
-              element={
-                <ProtectedRoute children={<DashboardLayout />} />
-              } 
-            />
-            
-            {/* Subscription callback routes */}
-            <Route 
-              path="/subscription/success" 
-              element={<SubscriptionSuccess />} 
-            />
-            <Route 
-              path="/subscription/error" 
-              element={<SubscriptionError />} 
-            />
-            <Route 
-              path="/subscription/pending" 
-              element={<SubscriptionPending />} 
-            />
-                  </Routes>
+                  <PublicRouteWrapper />
                 </ErrorBoundary>
               </Router>
             </ProfileProvider>
