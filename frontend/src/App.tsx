@@ -60,22 +60,28 @@ function DashboardLayout() {
 
   // Handle redirect in useEffect to avoid calling navigate during render
   useEffect(() => {
+    // Skip all dashboard logic if we're in password reset flow
+    const passwordResetSession = localStorage.getItem('passwordResetSession');
+    const currentPath = window.location.pathname;
+    const isResetPasswordPage = currentPath.includes('/auth/reset-password') || currentPath.includes('/auth/callback');
+    
+    // Don't do anything if password reset is active
+    if (passwordResetSession === 'true' || isResetPasswordPage) {
+      return;
+    }
+    
     // Reset redirect flag when user becomes authenticated with profile
     if (isAuthenticated && profile) {
       hasRedirected.current = false;
     }
     
-    // Skip redirect if we're in password reset flow
-    const passwordResetSession = localStorage.getItem('passwordResetSession');
-    const currentPath = window.location.pathname;
-    const isResetPasswordPage = currentPath.includes('/auth/reset-password');
-    
-    if (!isLoading && (!profile || !isAuthenticated) && !hasRedirected.current && !isResetPasswordPage && passwordResetSession !== 'true') {
+    if (!isLoading && (!profile || !isAuthenticated) && !hasRedirected.current) {
       console.log('DashboardLayout: No profile or not authenticated, redirecting to auth');
       hasRedirected.current = true;
       navigate('/auth', { replace: true });
     }
-  }, [isLoading, profile, isAuthenticated, navigate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, profile, isAuthenticated]); // Don't include navigate - causes loop!
 
   // Show loading while profile is being fetched
   if (isLoading) {

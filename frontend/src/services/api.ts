@@ -38,6 +38,22 @@ export interface AuthResponse {
 
 const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
 
+// Global 401 handler - emit event when 401 detected
+const emit401Event = () => {
+  console.log('🚨 API: 401 detected, emitting global-401 event');
+  window.dispatchEvent(new CustomEvent('global-401'));
+};
+
+// Helper function to check response and handle 401
+const checkResponse = async (response: Response, endpoint: string) => {
+  if (response.status === 401) {
+    console.log(`🚨 API: 401 from ${endpoint}`);
+    emit401Event();
+    throw new Error('Session expired. Please sign in again.');
+  }
+  return response;
+};
+
 export const api = {
   // Market Rotation Outputs (Azure-backed)
   async listMarketRotationOutputs(feature: 'rrc' | 'rrg' | 'seasonal' | 'trend'): Promise<{ success: boolean; data?: { prefix: string; files: string[] }; error?: string }> {
@@ -170,12 +186,10 @@ export const api = {
       
       clearTimeout(timeoutId);
       
+      // Check for 401 using global handler
+      await checkResponse(response, '/api/me');
+      
       if (!response.ok) {
-        if (response.status === 401) {
-          // Don't clear session here - let AuthContext handle it
-          throw new Error('Session expired. Please sign in again.');
-        }
-        
         const errorText = await response.text();
         throw new Error(`Failed to fetch profile: ${response.status} ${errorText}`);
       }
@@ -600,21 +614,18 @@ export const api = {
         // Continue with frontend logout even if backend fails
       }
       
+      // Clear local storage FIRST (before signOut to prevent race conditions)
+      clearAuthState();
+      localStorage.removeItem('user');
+      localStorage.removeItem('supabase_session');
+      
       // Sign out from Supabase (this will trigger auth state change)
       // IMPORTANT: Supabase signOut() returns { error } instead of throwing
       const { error: signOutError } = await supabase.auth.signOut();
       
       if (signOutError) {
         console.error('Supabase signOut failed:', signOutError);
-        // Even if signOut fails, clear local storage
       }
-      
-      // Clear local storage
-      clearAuthState();
-      
-      // Clear any remaining session data
-      localStorage.removeItem('user');
-      localStorage.removeItem('supabase_session');
     } catch (error) {
       console.error('Logout error:', error);
       // Clear local storage anyway
@@ -639,21 +650,18 @@ export const api = {
         // Continue with frontend logout even if backend fails
       }
       
+      // Clear local storage FIRST (before signOut to prevent race conditions)
+      clearAuthState();
+      localStorage.removeItem('user');
+      localStorage.removeItem('supabase_session');
+      
       // Sign out from Supabase (global)
       // IMPORTANT: Supabase signOut() returns { error } instead of throwing
       const { error: signOutError } = await supabase.auth.signOut();
       
       if (signOutError) {
         console.error('Supabase signOut (all devices) failed:', signOutError);
-        // Even if signOut fails, clear local storage
       }
-      
-      // Clear local storage
-      clearAuthState();
-      
-      // Clear any remaining session data
-      localStorage.removeItem('user');
-      localStorage.removeItem('supabase_session');
     } catch (error) {
       // Clear local storage anyway
       clearAuthState();

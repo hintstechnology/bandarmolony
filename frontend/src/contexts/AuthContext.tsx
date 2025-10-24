@@ -74,8 +74,25 @@ export function AuthProvider({ children }: AuthProviderProps) {
       console.log('AuthContext: Auth state change:', event, !!session?.user);
       
       if (event === 'SIGNED_IN') {
-        setUser(session?.user || null);
-        setIsLoading(false);
+        // Check if we have valid Supabase session in storage
+        // Look for Supabase auth token keys specifically
+        const allLocalStorageKeys = Object.keys(localStorage);
+        const hasSupabaseAuthToken = allLocalStorageKeys.some(key => 
+          // Check for Supabase auth token keys (not just any supabase key)
+          key.startsWith('sb-') && key.includes('auth-token')
+        );
+        
+        // Only set user if we have valid auth token in storage
+        // This prevents stale memory sessions from being used after logout
+        if (hasSupabaseAuthToken && session?.user) {
+          console.log('AuthContext: SIGNED_IN with valid auth token in storage');
+          setUser(session.user);
+          setIsLoading(false);
+        } else {
+          console.log('AuthContext: SIGNED_IN but no auth token in storage, ignoring (stale memory session)');
+          setUser(null);
+          setIsLoading(false);
+        }
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
         setIsLoading(false);

@@ -63,17 +63,53 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
 
   // Check if user was kicked by another device login
   useEffect(() => {
-    const kickedFlag = localStorage.getItem('kickedByOtherDevice');
-    if (kickedFlag === 'true') {
-      // Show toast notification
-      showToast({
-        type: 'warning',
-        title: 'Login di Perangkat Lain Terdeteksi',
-        message: 'Sesi di perangkat ini telah ditutup.',
-      });
-      // Clear the flag
-      localStorage.removeItem('kickedByOtherDevice');
-    }
+    // Check immediately on mount or when navigating to this page
+    const checkKickedFlag = () => {
+      const kickedFlag = localStorage.getItem('kickedByOtherDevice');
+      if (kickedFlag === 'true') {
+        // Show toast notification
+        showToast({
+          type: 'warning',
+          title: 'Login di Perangkat Lain Terdeteksi',
+          message: 'Sesi di perangkat ini telah ditutup.',
+        });
+        // Clear the flag
+        localStorage.removeItem('kickedByOtherDevice');
+      }
+    };
+    
+    // Check immediately
+    checkKickedFlag();
+    
+    // Also check when window gains focus (in case flag was set while tab was inactive)
+    const handleFocus = () => {
+      checkKickedFlag();
+    };
+    
+    window.addEventListener('focus', handleFocus);
+    
+    // Also listen for storage events (in case flag is set by another tab/window)
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'kickedByOtherDevice' && e.newValue === 'true') {
+        checkKickedFlag();
+      }
+    };
+    
+    window.addEventListener('storage', handleStorage);
+    
+    // Listen for kicked-check event (emitted by ProfileContext after logout)
+    const handleKickedCheck = () => {
+      console.log('AuthPage: Received kicked-check event');
+      checkKickedFlag();
+    };
+    
+    window.addEventListener('kicked-check', handleKickedCheck);
+    
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('kicked-check', handleKickedCheck);
+    };
   }, [showToast]);
 
   // Redirect if already authenticated
