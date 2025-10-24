@@ -655,7 +655,7 @@ router.post('/forgot-password', async (req, res) => {
     }
 
     const { error } = await supabaseAdmin.auth.resetPasswordForEmail(normalizedEmail, {
-      redirectTo: `${process.env['FRONTEND_URL'] || 'http://localhost:3000'}/auth/reset-password`
+      redirectTo: `${process.env['FRONTEND_URL'] || 'http://localhost:3000'}/auth/callback`
     });
 
     if (error) {
@@ -1100,7 +1100,7 @@ router.post('/resend-forgot-password', async (req, res) => {
     }
 
     const { error } = await supabaseAdmin.auth.resetPasswordForEmail(normalizedEmail, {
-      redirectTo: `${process.env['FRONTEND_URL'] || 'http://localhost:3000'}/auth/reset-password`
+      redirectTo: `${process.env['FRONTEND_URL'] || 'http://localhost:3000'}/auth/callback`
     });
 
     if (error) {

@@ -290,8 +290,6 @@ export function BrokerTransaction() {
       
       try {
         const newTransactionData = new Map<string, BrokerTransactionData[]>();
-        let hasAnyData = false;
-        let missingDates: string[] = [];
         
         // Load data for ALL selected dates
         for (const date of selectedDates) {
@@ -299,16 +297,13 @@ export function BrokerTransaction() {
           const data = await fetchBrokerTransactionData(selectedBroker, date);
             if (data.length > 0) {
           newTransactionData.set(date, data);
-              hasAnyData = true;
             } else {
               // Set empty array for dates with no data
               newTransactionData.set(date, []);
-              missingDates.push(date);
             }
           } catch (err) {
             // Set empty array for dates with errors
             newTransactionData.set(date, []);
-            missingDates.push(date);
             console.log(`No data available for ${selectedBroker} on ${date}`);
           }
         }

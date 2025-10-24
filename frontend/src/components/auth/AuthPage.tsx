@@ -25,11 +25,27 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
   const [verificationType, setVerificationType] = useState<'signup' | 'recovery'>('signup');
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  
+  const { isAuthenticated, isLoading } = useAuth();
+  const { showToast } = useToast();
 
   useEffect(() => {
     const mode = searchParams.get('mode');
+    const passwordReset = searchParams.get('password_reset');
+    
     if (mode === 'login') {
       setIsLogin(true);
+      
+      // Check if user just reset password
+      if (passwordReset === 'success') {
+        showToast({
+          type: 'success',
+          title: 'Password Berhasil Dirubah',
+          message: 'Silakan login dengan password baru Anda.',
+        });
+        // Remove the parameter from URL
+        navigate('/auth?mode=login', { replace: true });
+      }
     } else if (mode === 'register') {
       setIsLogin(false);
     } else if (mode === 'email-verification-success') {
@@ -43,10 +59,7 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
         }, 3000);
       }
     }
-  }, [searchParams]);
-
-  const { isAuthenticated, isLoading } = useAuth();
-  const { showToast } = useToast();
+  }, [searchParams, navigate, showToast]);
 
   // Check if user was kicked by another device login
   useEffect(() => {
