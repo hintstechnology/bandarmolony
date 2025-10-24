@@ -243,25 +243,25 @@ export function BrokerSummaryPage() {
           
           return (
       <div className="space-y-6">
-        {/* Buy Side Table */}
+        {/* Combined Buy & Sell Side Table */}
                 <Card>
                   <CardHeader>
-            <CardTitle className="text-green-600">
-              BUY SIDE - {selectedTicker}
+            <CardTitle>
+              BUY & SELL SIDE - {selectedTicker}
             </CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="overflow-x-auto rounded-md">
-              <table className="w-full min-w-[1000px] text-xs border-collapse">
+              <table className="w-full min-w-[1200px] text-xs border-collapse">
                         <thead className="bg-background">
                           <tr className="border-b border-border">
                     <th className="text-left py-2 px-2 font-medium sticky left-0 bg-background z-10 border border-border">Broker</th>
                     {selectedDates.map((date) => (
-                      <th key={date} className={`text-center py-2 px-2 font-medium text-green-600 border border-border`} colSpan={3}>
+                      <th key={date} className={`text-center py-2 px-2 font-medium border border-border`} colSpan={6}>
                         {formatDisplayDate(date)}
                       </th>
                     ))}
-                    <th className="text-center py-2 px-2 font-medium text-green-600 border border-border" colSpan={3}>
+                    <th className="text-center py-2 px-2 font-medium border border-border" colSpan={6}>
                       Total
                     </th>
                   </tr>
@@ -272,11 +272,17 @@ export function BrokerSummaryPage() {
                         <th className={`text-right py-2 px-2 font-medium text-green-600 border border-border`}>BLot</th>
                         <th className={`text-right py-2 px-2 font-medium text-green-600 border border-border`}>BVal</th>
                         <th className={`text-right py-2 px-2 font-medium border border-border`}>BAvg</th>
+                        <th className={`text-right py-2 px-2 font-medium text-red-600 border border-border`}>SLot</th>
+                        <th className={`text-right py-2 px-2 font-medium text-red-600 border border-border`}>SVal</th>
+                        <th className={`text-right py-2 px-2 font-medium border border-border`}>SAvg</th>
                       </React.Fragment>
                     ))}
                     <th className="text-right py-2 px-2 font-medium text-green-600 border border-border">BLot</th>
                     <th className="text-right py-2 px-2 font-medium text-green-600 border border-border">BVal</th>
                     <th className="text-right py-2 px-2 font-medium text-green-600 border border-border">BAvg</th>
+                    <th className="text-right py-2 px-2 font-medium text-red-600 border border-border">SLot</th>
+                    <th className="text-right py-2 px-2 font-medium text-red-600 border border-border">SVal</th>
+                    <th className="text-right py-2 px-2 font-medium text-red-600 border border-border">SAvg</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -300,71 +306,6 @@ export function BrokerSummaryPage() {
                       return sum + (brokerData?.bavg || 0);
                     }, 0);
                     
-                    return (
-                      <tr key={broker} className={`border-b border-border/50 hover:bg-accent/50 ${getBrokerRowClass(broker, allBrokerData[0]?.buyData[brokerIdx] || {} as BrokerSummaryData, isDarkMode)}`}>
-                        <td className="py-2 px-2 font-medium sticky left-0 bg-background z-10 border border-border">{broker}</td>
-                        {selectedDates.map((date) => {
-                          const dateData = allBrokerData.find(d => d.date === date);
-                          const brokerData = dateData?.buyData.find(b => b.broker === broker);
-                          return (
-                            <React.Fragment key={`b-${date}-${broker}`}>
-                              <td className={`text-right py-2 px-2 text-green-600 border border-border`}>{formatNumber(brokerData?.nblot || 0)}</td>
-                              <td className={`text-right py-2 px-2 text-green-600 border border-border`}>{formatNumber(brokerData?.nbval || 0)}</td>
-                              <td className={`text-right py-2 px-2 border border-border`}>{formatNumber(brokerData?.bavg || 0)}</td>
-                            </React.Fragment>
-                          );
-                        })}
-                        <td className="text-right py-2 px-2 font-bold text-green-600 border border-border">{formatNumber(totalBLot)}</td>
-                        <td className="text-right py-2 px-2 font-bold text-green-600 border border-border">{formatNumber(totalBVal)}</td>
-                        <td className="text-right py-2 px-2 font-bold text-green-600 border border-border">{formatNumber(totalBAvg)}</td>
-                            </tr>
-                    );
-                  })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
-
-        {/* Sell Side Table */}
-                <Card>
-                  <CardHeader>
-            <CardTitle className="text-red-600">
-              SELL SIDE - {selectedTicker}
-            </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto rounded-md">
-              <table className="w-full min-w-[1000px] text-xs border-collapse">
-                        <thead className="bg-background">
-                          <tr className="border-b border-border">
-                    <th className="text-left py-2 px-2 font-medium sticky left-0 bg-background z-10 border border-border">Broker</th>
-                    {selectedDates.map((date) => (
-                      <th key={date} className={`text-center py-2 px-2 font-medium text-red-600 border border-border`} colSpan={3}>
-                        {formatDisplayDate(date)}
-                      </th>
-                    ))}
-                    <th className="text-center py-2 px-2 font-medium text-red-600 border border-border" colSpan={3}>
-                      Total
-                    </th>
-                  </tr>
-                  <tr className="border-b border-border">
-                    <th className="text-left py-2 px-2 font-medium sticky left-0 bg-background z-10 border border-border"></th>
-                    {selectedDates.map((date) => (
-                      <React.Fragment key={`sell-sub-${date}`}>
-                        <th className={`text-right py-2 px-2 font-medium text-red-600 border border-border`}>SLot</th>
-                        <th className={`text-right py-2 px-2 font-medium text-red-600 border border-border`}>SVal</th>
-                        <th className={`text-right py-2 px-2 font-medium border border-border`}>SAvg</th>
-                      </React.Fragment>
-                    ))}
-                    <th className="text-right py-2 px-2 font-medium text-red-600 border border-border">SLot</th>
-                    <th className="text-right py-2 px-2 font-medium text-red-600 border border-border">SVal</th>
-                    <th className="text-right py-2 px-2 font-medium text-red-600 border border-border">SAvg</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                  {brokers.map((broker, brokerIdx) => {
-                    // Calculate totals for this broker across all dates
                     const totalSLot = selectedDates.reduce((sum, date) => {
                       const dateData = allBrokerData.find(d => d.date === date);
                       const brokerData = dateData?.sellData.find(b => b.broker === broker);
@@ -384,22 +325,109 @@ export function BrokerSummaryPage() {
                     }, 0);
                     
                     return (
-                      <tr key={broker} className={`border-b border-border/50 hover:bg-accent/50 ${getBrokerRowClass(broker, allBrokerData[0]?.sellData[brokerIdx] || {} as BrokerSummaryData, isDarkMode)}`}>
+                      <tr key={broker} className={`border-b border-border/50 hover:bg-accent/50 ${getBrokerRowClass(broker, allBrokerData[0]?.buyData[brokerIdx] || {} as BrokerSummaryData, isDarkMode)}`}>
                         <td className="py-2 px-2 font-medium sticky left-0 bg-background z-10 border border-border">{broker}</td>
                         {selectedDates.map((date) => {
                           const dateData = allBrokerData.find(d => d.date === date);
-                          const brokerData = dateData?.sellData.find(b => b.broker === broker);
+                          const buyData = dateData?.buyData.find(b => b.broker === broker);
+                          const sellData = dateData?.sellData.find(b => b.broker === broker);
                           return (
-                            <React.Fragment key={`s-${date}-${broker}`}>
-                              <td className={`text-right py-2 px-2 text-red-600 border border-border`}>{formatNumber(Math.abs(brokerData?.nslot || 0))}</td>
-                              <td className={`text-right py-2 px-2 text-red-600 border border-border`}>{formatNumber(Math.abs(brokerData?.nsval || 0))}</td>
-                              <td className={`text-right py-2 px-2 border border-border`}>{formatNumber(brokerData?.savg || 0)}</td>
+                            <React.Fragment key={`${date}-${broker}`}>
+                              <td className={`text-right py-2 px-2 text-green-600 border border-border`}>{formatNumber(buyData?.nblot || 0)}</td>
+                              <td className={`text-right py-2 px-2 text-green-600 border border-border`}>{formatNumber(buyData?.nbval || 0)}</td>
+                              <td className={`text-right py-2 px-2 border border-border`}>{formatNumber(buyData?.bavg || 0)}</td>
+                              <td className={`text-right py-2 px-2 text-red-600 border border-border`}>{formatNumber(Math.abs(sellData?.nslot || 0))}</td>
+                              <td className={`text-right py-2 px-2 text-red-600 border border-border`}>{formatNumber(Math.abs(sellData?.nsval || 0))}</td>
+                              <td className={`text-right py-2 px-2 border border-border`}>{formatNumber(sellData?.savg || 0)}</td>
                             </React.Fragment>
                           );
                         })}
+                        <td className="text-right py-2 px-2 font-bold text-green-600 border border-border">{formatNumber(totalBLot)}</td>
+                        <td className="text-right py-2 px-2 font-bold text-green-600 border border-border">{formatNumber(totalBVal)}</td>
+                        <td className="text-right py-2 px-2 font-bold text-green-600 border border-border">{formatNumber(totalBAvg)}</td>
                         <td className="text-right py-2 px-2 font-bold text-red-600 border border-border">{formatNumber(totalSLot)}</td>
                         <td className="text-right py-2 px-2 font-bold text-red-600 border border-border">{formatNumber(totalSVal)}</td>
                         <td className="text-right py-2 px-2 font-bold text-red-600 border border-border">{formatNumber(totalSAvg)}</td>
+                            </tr>
+                    );
+                  })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+
+        {/* Net Table */}
+                <Card>
+                  <CardHeader>
+            <CardTitle>
+              NET - {selectedTicker}
+            </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto rounded-md">
+              <table className="w-full min-w-[800px] text-xs border-collapse">
+                        <thead className="bg-background">
+                          <tr className="border-b border-border">
+                    <th className="text-left py-2 px-2 font-medium sticky left-0 bg-background z-10 border border-border">Broker</th>
+                    {selectedDates.map((date) => (
+                      <th key={date} className={`text-center py-2 px-2 font-medium border border-border`} colSpan={2}>
+                        {formatDisplayDate(date)}
+                      </th>
+                    ))}
+                    <th className="text-center py-2 px-2 font-medium border border-border" colSpan={2}>
+                      Total
+                    </th>
+                  </tr>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-2 px-2 font-medium sticky left-0 bg-background z-10 border border-border"></th>
+                    {selectedDates.map((date) => (
+                      <React.Fragment key={`net-sub-${date}`}>
+                        <th className={`text-right py-2 px-2 font-medium border border-border`}>NBLot</th>
+                        <th className={`text-right py-2 px-2 font-medium border border-border`}>NBVal</th>
+                      </React.Fragment>
+                    ))}
+                    <th className="text-right py-2 px-2 font-medium border border-border">NBLot</th>
+                    <th className="text-right py-2 px-2 font-medium border border-border">NBVal</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                  {brokers.map((broker, brokerIdx) => {
+                    // Calculate net totals for this broker across all dates
+                    const totalNBLot = selectedDates.reduce((sum, date) => {
+                      const dateData = allBrokerData.find(d => d.date === date);
+                      const buyData = dateData?.buyData.find(b => b.broker === broker);
+                      const sellData = dateData?.sellData.find(b => b.broker === broker);
+                      const netLot = (buyData?.nblot || 0) + (sellData?.nslot || 0); // nslot is already negative
+                      return sum + netLot;
+                    }, 0);
+                    
+                    const totalNBVal = selectedDates.reduce((sum, date) => {
+                      const dateData = allBrokerData.find(d => d.date === date);
+                      const buyData = dateData?.buyData.find(b => b.broker === broker);
+                      const sellData = dateData?.sellData.find(b => b.broker === broker);
+                      const netVal = (buyData?.nbval || 0) + (sellData?.nsval || 0); // nsval is already negative
+                      return sum + netVal;
+                    }, 0);
+                    
+                    return (
+                      <tr key={broker} className={`border-b border-border/50 hover:bg-accent/50 ${getBrokerRowClass(broker, allBrokerData[0]?.buyData[brokerIdx] || {} as BrokerSummaryData, isDarkMode)}`}>
+                        <td className="py-2 px-2 font-medium sticky left-0 bg-background z-10 border border-border">{broker}</td>
+                        {selectedDates.map((date) => {
+                          const dateData = allBrokerData.find(d => d.date === date);
+                          const buyData = dateData?.buyData.find(b => b.broker === broker);
+                          const sellData = dateData?.sellData.find(b => b.broker === broker);
+                          const netLot = (buyData?.nblot || 0) + (sellData?.nslot || 0);
+                          const netVal = (buyData?.nbval || 0) + (sellData?.nsval || 0);
+                          return (
+                            <React.Fragment key={`net-${date}-${broker}`}>
+                              <td className={`text-right py-2 px-2 border border-border ${netLot >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatNumber(netLot)}</td>
+                              <td className={`text-right py-2 px-2 border border-border ${netVal >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatNumber(netVal)}</td>
+                            </React.Fragment>
+                          );
+                        })}
+                        <td className={`text-right py-2 px-2 font-bold border border-border ${totalNBLot >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatNumber(totalNBLot)}</td>
+                        <td className={`text-right py-2 px-2 font-bold border border-border ${totalNBVal >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatNumber(totalNBVal)}</td>
                             </tr>
                     );
                   })}
