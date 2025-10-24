@@ -1321,8 +1321,8 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
           )}            
 
       {/* Top 10 Brokers Table */}
-      <Card>
-        <CardHeader>
+          <Card>
+            <CardHeader>
           <div className="flex items-center justify-between">
             <div>
               <CardTitle>Top Brokers by Date</CardTitle>
@@ -1345,21 +1345,21 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
               </select>
             </div>
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse">
-              <thead>
+                  <thead>
                 <tr className="border-b border-border bg-muted/50">
                   <th className="text-left py-2 px-3 font-medium">Rank</th>
                   {topBrokersData.map((dateData) => (
                     <th key={dateData.date} className="text-center py-2 px-2 font-medium">
                       {formatDisplayDate(dateData.date)}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
                 {Array.from({ length: topBrokersCount === 'all' ? 20 : topBrokersCount }, (_, rank) => (
                   <tr key={rank} className="border-b border-border/50 hover:bg-accent/50">
                     <td className="py-2 px-3 font-medium text-center">
@@ -1375,7 +1375,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                        const totalVolume = dateData.topBrokers.reduce((sum, broker) => sum + (broker.volume || 0), 0);
                        const barWidth = brokerData && totalVolume > 0 ? (brokerData.volume / totalVolume) * 100 : 0;
                        
-                       return (
+                      return (
                          <td 
                            key={`${dateData.date}-${rank}`} 
                            className={`text-center py-2 px-3 relative min-w-[120px] ${
@@ -1417,10 +1417,10 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                                  <span className="text-muted-foreground">-</span>
                                )}
                              </div>
-                           </div>
-                         </td>
-                       );
-                     })}
+                            </div>
+                          </td>
+                      );
+                    })}
                   </tr>
                 ))}
                   </tbody>
