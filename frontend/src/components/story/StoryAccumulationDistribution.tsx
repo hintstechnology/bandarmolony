@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Undo2, Search } from 'lucide-react';
+import { api } from '../../services/api';
 
 interface AccumulationData {
   symbol: string;
@@ -9,110 +10,94 @@ interface AccumulationData {
   volume: number;
   suspend: boolean;
   specialNotice: string;
-  dates: { [key: string]: number | null };
-  percent1d: number; // %1d column
+  dates: { [key: string]: number | null }; // W4, W3, W2, W1, D4, D3, D2, D1, D0
+  percent1d: number; // Percent1D column
   volumeChanges: { // Volume change columns
-    vol1d: number;
-    vol3d: number;
-    vol5d: number;
-    vol10d: number;
-    vol20d: number;
-    vol50d: number;
-    vol100d: number;
+    vol1d: number;    // VPercent1D
+    vol3d: number;    // VPercent3D
+    vol5d: number;    // VPercent5D
+    vol10d: number;   // VPercent10D
+    vol20d: number;   // VPercent20D
+    vol50d: number;   // VPercent50D
+    vol100d: number;  // VPercent100D
   };
   movingAverage: { [key: string]: number | null }; // Moving average data
   maIndicators: { // Moving average indicators (v/x)
-    ma5: string;
-    ma10: string;
-    ma20: string;
-    ma50: string;
-    ma100: string;
-    ma200: string;
+    ma5: string;     // AboveMA5
+    ma10: string;     // AboveMA10
+    ma20: string;     // AboveMA20
+    ma50: string;     // AboveMA50
+    ma100: string;    // AboveMA100
+    ma200: string;    // AboveMA200
   };
 }
 
-// Mock data berdasarkan ilustrasi Market Maker Analysis Summary
-const generateMockData = (): AccumulationData[] => {
-  const symbols = [
-    'SIMP', 'TNCA', 'COCO', 'TBIG', 'HALO', 'HRUM', 'ERAL', 'SULI', 'IMJS', 'MIKA',
-    'MTDL', 'MHKI', 'BBCA', 'BBNI', 'BBRI', 'BMRI', 'BRIS', 'BTPS', 'ACES', 'ADRO',
-    'AKRA', 'AMRT', 'ANTM', 'ASII', 'BALI', 'BBKP', 'BBTN', 'BCAP', 'BDMN', 'BFIN',
-    'BJTM', 'BMTR', 'BNGA', 'BRMS', 'BSDE', 'BTPN', 'BUKA', 'CTRA', 'DMAS', 'ERAA',
-    'ESSA', 'EXCL', 'GGRM', 'GOTO', 'ICBP', 'COMPOSITE', 'IMAS', 'INCO', 'INDF', 'INTP',
-    'ITMG', 'JPFA', 'JSMR', 'KLBF', 'LPKR', 'LPPF', 'MAPI', 'MDKA', 'MEDC', 'MNCN',
-    'MPPA', 'MYOR', 'NIRO', 'PGAS', 'PGJO', 'PTBA', 'PTPP', 'PWON', 'RAJA', 'SCMA',
-    'SIDO', 'SMGR', 'SRTG', 'TKIM', 'TLKM', 'TOBA', 'TOWR', 'UNTR', 'UNVR', 'WIKA', 'WSKT'
-  ];
+// Convert backend CSV data to frontend format
+const convertBackendToFrontend = (backendData: any[]): AccumulationData[] => {
+  return backendData.map(item => ({
+    symbol: item.Symbol || '',
+    price: Number(item.Price) || 0,
+    volume: Number(item.Volume) || 0,
+    suspend: false, // Not in CSV, default to false
+    specialNotice: '', // Not in CSV, default to empty
+    dates: {
+      'W-4': Number(item.W4) || null,
+      'W-3': Number(item.W3) || null,
+      'W-2': Number(item.W2) || null,
+      'W-1': Number(item.W1) || null,
+      'D-4': Number(item.D4) || null,
+      'D-3': Number(item.D3) || null,
+      'D-2': Number(item.D2) || null,
+      'D-1': Number(item.D1) || null,
+      'D0': Number(item.D0) || null,
+    },
+    percent1d: Number(item.Percent1D) || 0,
+    volumeChanges: {
+      vol1d: Number(item.VPercent1D) || 0,
+      vol3d: Number(item.VPercent3D) || 0,
+      vol5d: Number(item.VPercent5D) || 0,
+      vol10d: Number(item.VPercent10D) || 0,
+      vol20d: Number(item.VPercent20D) || 0,
+      vol50d: Number(item.VPercent50D) || 0,
+      vol100d: Number(item.VPercent100D) || 0,
+    },
+    movingAverage: {
+      'W-4': Number(item.W4) || null,
+      'W-3': Number(item.W3) || null,
+      'W-2': Number(item.W2) || null,
+      'W-1': Number(item.W1) || null,
+      'D-4': Number(item.D4) || null,
+      'D-3': Number(item.D3) || null,
+      'D-2': Number(item.D2) || null,
+      'D-1': Number(item.D1) || null,
+      'D0': Number(item.D0) || null,
+    },
+    maIndicators: {
+      ma5: item.AboveMA5 || 'x',
+      ma10: item.AboveMA10 || 'x',
+      ma20: item.AboveMA20 || 'x',
+      ma50: item.AboveMA50 || 'x',
+      ma100: item.AboveMA100 || 'x',
+      ma200: item.AboveMA200 || 'x',
+    }
+  }));
+};
 
-  // Columns sesuai dengan gambar: w-4, w-3, w-2, w-1, d-4, d-3, d-2, d-1, d-0
-  const dateColumns = [
-    'W-4', 'W-3', 'W-2', 'W-1', 'D-4', 'D-3', 'D-2', 'D-1', 'D0'
-  ];
-
-  const specialNotices = ['', 'Split', 'Dividend', 'Rights', 'Bonus', 'Suspend'];
-
-  return symbols.map(symbol => {
-    const data: { [key: string]: number | null } = {};
-    dateColumns.forEach(dateCol => {
-      // Generate random accumulation/distribution values (persentase terhadap total transaksi)
-      const rand = Math.random();
-      if (rand > 0.7) {
-        data[dateCol] = Math.floor(Math.random() * 5) + 1; // Strong accumulation (1-5%)
-      } else if (rand > 0.4) {
-        data[dateCol] = Math.floor(Math.random() * 2); // Weak accumulation/neutral (0-1%)
-      } else if (rand > 0.1) {
-        data[dateCol] = -Math.floor(Math.random() * 2); // Weak distribution (-1 to 0%)
-      } else {
-        data[dateCol] = -Math.floor(Math.random() * 5) - 1; // Strong distribution (-5 to -1%)
-      }
-    });
-    
-    // Generate %1d (percentage 1 day change)
-    const percent1d = (Math.random() - 0.5) * 20; // -10% to +10%
-    
-    // Generate volume changes (dummy data from CSV)
-    const volumeChanges = {
-      vol1d: (Math.random() - 0.5) * 200,   // -100% to +100%
-      vol3d: (Math.random() - 0.5) * 150,  // -75% to +75%
-      vol5d: (Math.random() - 0.5) * 120,  // -60% to +60%
-      vol10d: (Math.random() - 0.5) * 100, // -50% to +50%
-      vol20d: (Math.random() - 0.5) * 80,   // -40% to +40%
-      vol50d: (Math.random() - 0.5) * 60,   // -30% to +30%
-      vol100d: (Math.random() - 0.5) * 40   // -20% to +20%
-    };
-    
-    // Generate moving average data
-    const movingAverage: { [key: string]: number | null } = {};
-    dateColumns.forEach(dateCol => {
-      const baseValue = data[dateCol] || 0;
-      // Moving average is slightly smoothed version of original data
-      movingAverage[dateCol] = baseValue ? baseValue * (0.8 + Math.random() * 0.4) : null;
-    });
-    
-    // Generate moving average indicators (v/x based on price vs MA)
-    const price = Math.floor(Math.random() * 1000) + 100;
-    const maIndicators = {
-      ma5: Math.random() > 0.5 ? 'v' : 'x',
-      ma10: Math.random() > 0.5 ? 'v' : 'x',
-      ma20: Math.random() > 0.5 ? 'v' : 'x',
-      ma50: Math.random() > 0.5 ? 'v' : 'x',
-      ma100: Math.random() > 0.5 ? 'v' : 'x',
-      ma200: Math.random() > 0.5 ? 'v' : 'x'
-    };
-    
-    return { 
-      symbol, 
-      price: price, // Random price between 100-1100
-      volume: Math.floor(Math.random() * 1000000) + 10000, // 10,000-1,010,000
-      suspend: Math.random() > 0.95, // 5% chance of suspension
-      specialNotice: specialNotices[Math.floor(Math.random() * specialNotices.length)],
-      dates: data,
-      percent1d: percent1d,
-      volumeChanges: volumeChanges,
-      movingAverage: movingAverage,
-      maIndicators: maIndicators
-    };
-  });
+// Format number with K, M, B abbreviations
+const formatNumberWithAbbreviation = (num: number | null): string => {
+  if (num === null || num === 0) return '-';
+  const absNum = Math.abs(num);
+  const sign = num < 0 ? '-' : '';
+  
+  if (absNum >= 1e9) {
+    return sign + (absNum / 1e9).toFixed(1) + 'B';
+  } else if (absNum >= 1e6) {
+    return sign + (absNum / 1e6).toFixed(1) + 'M';
+  } else if (absNum >= 1e3) {
+    return sign + (absNum / 1e3).toFixed(1) + 'K';
+  } else {
+    return num.toFixed(1);
+  }
 };
 
 // Normalize function - scales values to 0-100 range
@@ -132,6 +117,16 @@ const getNormalizedColor = (value: number | null): string => {
   return 'bg-purple-100 dark:bg-purple-900/20';
 };
 
+// Format Moving Average indicators
+const formatMovingAverage = (value: string): { symbol: string; color: string } => {
+  if (value === '1' || value === 'v') {
+    return { symbol: 'v', color: 'text-green-600' };
+  } else if (value === '0' || value === 'x') {
+    return { symbol: 'x', color: 'text-red-600' };
+  }
+  return { symbol: value, color: 'text-muted-foreground' };
+};
+
 const getTextColor = (value: number | null): string => {
   if (value === null) return 'text-muted-foreground';
   if (value >= 0) return 'text-green-500 dark:text-green-400';
@@ -146,16 +141,63 @@ const getPercent1dColor = (value: number): string => {
 };
 
 export function StoryAccumulationDistribution() {
-  const [data] = useState<AccumulationData[]>(generateMockData());
+  const [data, setData] = useState<AccumulationData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [lastUpdate, setLastUpdate] = useState<string>('');
   const [normalize, setNormalize] = useState(false);
   const [movingAverage, setMovingAverage] = useState(false);
   const [volumeChange, setVolumeChange] = useState(false);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
-  const [tickerFilter, setTickerFilter] = useState('all');
   const [tickerInput, setTickerInput] = useState('');
+  const [selectedTickers, setSelectedTickers] = useState<string[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
+
+  // Load data from API
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        // Get available dates first
+        const datesResponse = await api.getAccumulationDistributionDates();
+        if (!datesResponse.success || !datesResponse.data?.dates || datesResponse.data.dates.length === 0) {
+          throw new Error('No accumulation distribution data available');
+        }
+        
+        // Get the latest date (most recent CSV file)
+        const latestDate = datesResponse.data.dates.sort().pop();
+        if (!latestDate) {
+          throw new Error('No valid dates found');
+        }
+        
+        // Set last update from filename
+        setLastUpdate(latestDate || '');
+        
+        // Get data for the latest date
+        const dataResponse = await api.getAccumulationDistributionData(latestDate);
+        if (!dataResponse.success || !dataResponse.data) {
+          throw new Error('Failed to load accumulation distribution data');
+        }
+        
+        // Convert backend data to frontend format
+        const convertedData = convertBackendToFrontend(dataResponse.data.accumulationData || []);
+        setData(convertedData);
+        
+      } catch (err: any) {
+        console.error('Error loading accumulation distribution data:', err);
+        setError(err.message || 'Failed to load data');
+        setData([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
 
   // Click outside handler
   useEffect(() => {
@@ -171,7 +213,7 @@ export function StoryAccumulationDistribution() {
     };
   }, []);
 
-  const dates = Object.keys(data[0]?.dates || {});
+  const dates = data.length > 0 ? Object.keys(data[0]?.dates || {}) : [];
   
   // Get all volume change columns
   const volumeColumns = ['vol1d', 'vol3d', 'vol5d', 'vol10d', 'vol20d', 'vol50d', 'vol100d'];
@@ -196,9 +238,9 @@ export function StoryAccumulationDistribution() {
     : []).slice(0, 10);
   
   // Filter data based on ticker selection
-  const filteredData = tickerFilter === 'all' 
+  const filteredData = selectedTickers.length === 0
     ? data 
-    : data.filter(item => item.symbol.toLowerCase().includes(tickerInput.toLowerCase()));
+    : data.filter(item => selectedTickers.includes(item.symbol));
   
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -261,17 +303,60 @@ export function StoryAccumulationDistribution() {
     setMovingAverage(false);
     setVolumeChange(false);
     setSortConfig(null);
-    setTickerFilter('all');
     setTickerInput('');
+    setSelectedTickers([]);
     setShowDropdown(false);
   };
+
+  const handleTickerSelect = (ticker: string) => {
+    if (selectedTickers.includes(ticker)) {
+      setSelectedTickers(selectedTickers.filter(t => t !== ticker));
+    } else {
+      setSelectedTickers([...selectedTickers, ticker]);
+    }
+  };
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <Card className="p-4">
+          <div className="flex items-center justify-center py-8">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+              <p className="text-muted-foreground">Loading accumulation distribution data...</p>
+            </div>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <Card className="p-4">
+          <div className="flex items-center justify-center py-8">
+            <div className="text-center">
+              <p className="text-red-500 mb-4">Error: {error}</p>
+              <Button onClick={() => window.location.reload()} variant="outline">
+                Retry
+              </Button>
+            </div>
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       {/* Top Control Bar */}
       <Card className="p-4">
-         <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-end justify-between">
-           <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-end w-full">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col sm:flex-row gap-4 items-end">
+            <div className="flex items-center gap-4">
             <div>
               <label htmlFor="tickerFilter" className="block text-sm font-medium mb-2">
                 Filter Ticker:
@@ -285,11 +370,9 @@ export function StoryAccumulationDistribution() {
                     onChange={(e) => {
                       setTickerInput(e.target.value);
                       if (e.target.value === '') {
-                        setTickerFilter('all');
                         setShowDropdown(false);
                         setHighlightedIndex(-1);
                       } else {
-                        setTickerFilter('custom');
                         setShowDropdown(true);
                       }
                     }}
@@ -312,8 +395,8 @@ export function StoryAccumulationDistribution() {
                         if (highlightedIndex >= 0) {
                           e.preventDefault();
                           const ticker = filteredTickers[highlightedIndex];
-                          setTickerInput(ticker);
-                          setTickerFilter('custom');
+                        handleTickerSelect(ticker || '');
+                        setTickerInput('');
                           setShowDropdown(false);
                           setHighlightedIndex(-1);
                         }
@@ -328,7 +411,6 @@ export function StoryAccumulationDistribution() {
                   <button
                     onClick={() => {
                       setTickerInput('');
-                      setTickerFilter('all');
                       setShowDropdown(false);
                     }}
                     className="absolute right-2 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
@@ -345,8 +427,8 @@ export function StoryAccumulationDistribution() {
                         onMouseEnter={() => setHighlightedIndex(idx)}
                         onMouseLeave={() => setHighlightedIndex(-1)}
                         onClick={() => {
-                          setTickerInput(ticker);
-                          setTickerFilter('custom');
+                          handleTickerSelect(ticker || '');
+                          setTickerInput('');
                           setShowDropdown(false);
                           setHighlightedIndex(-1);
                         }}
@@ -362,11 +444,12 @@ export function StoryAccumulationDistribution() {
                   </div>
                 )}
               </div>
+              </div>
             </div>
             
-             <div className="w-full sm:w-auto">
+            <div>
                <label className="block text-sm font-medium mb-2">Options:</label>
-               <div className="flex flex-wrap items-center gap-3 border border-border rounded-lg px-2 py-2 min-h-[40px] w-full sm:w-auto">
+              <div className="flex flex-wrap items-center gap-3 border border-border rounded-lg px-2 py-2 min-h-[40px]">
                  <div className="flex items-center gap-2">
                    <input
                      type="checkbox"
@@ -399,14 +482,39 @@ export function StoryAccumulationDistribution() {
                    />
                    <label htmlFor="volumeChange" className="text-sm font-medium">Volume Change</label>
                 </div>
+                
+                <Button onClick={resetSettings} variant="outline" size="sm" className="flex items-center gap-2 h-8">
+                  <Undo2 className="w-4 h-4 rotate-180" />
+                  Reset
+                </Button>
               </div>
         </div>
         </div>
           
-           <Button onClick={resetSettings} variant="outline" size="sm" className="flex items-center gap-2 h-10 w-full lg:w-auto">
-             <Undo2 className="w-4 h-4 rotate-180" />
-             Reset Settings
-           </Button>
+          {selectedTickers.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">Selected:</span>
+              <div className="flex flex-wrap gap-1">
+                {selectedTickers.map(ticker => (
+                  <span
+                    key={ticker}
+                    className="px-2 py-1 bg-primary/10 text-primary text-xs rounded-md cursor-pointer hover:bg-primary/20"
+                    onClick={() => handleTickerSelect(ticker)}
+                  >
+                    {ticker} ×
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {lastUpdate && (
+            <div className="text-right">
+              <p className="text-sm text-muted-foreground">
+                Last Update: <span className="font-medium text-foreground">{lastUpdate}</span>
+              </p>
+            </div>
+          )}
           </div>
         </Card>
 
@@ -427,7 +535,7 @@ export function StoryAccumulationDistribution() {
                     <span className={`text-[8px] ${sortConfig?.key === 'symbol' && sortConfig.direction === 'desc' ? 'text-primary' : 'text-muted-foreground'}`}>↓</span>
                 </div>
                 </div>
-                {dates.map((date, index) => (
+                {dates.map((date) => (
                   <div 
                     key={date} 
                     className={`flex-1 p-1 border-r border-border font-medium text-xs text-center bg-muted flex items-center justify-center cursor-pointer hover:bg-muted/80 min-w-[50px] ${
@@ -497,11 +605,11 @@ export function StoryAccumulationDistribution() {
             </div>
 
             {/* Data Rows */}
-              {sortedData.map((row, rowIndex) => {
-              // Calculate min/max for normalization
-              const allValues = Object.values(row.dates).filter(v => v !== null) as number[];
-              const minValue = Math.min(...allValues);
-              const maxValue = Math.max(...allValues);
+              {sortedData.map((row) => {
+              // Calculate min/max for normalization (general across all data)
+              const allValues = data.flatMap(item => Object.values(item.dates).filter(v => v !== null)) as number[];
+              const minValue = allValues.length > 0 ? Math.min(...allValues) : 0;
+              const maxValue = allValues.length > 0 ? Math.max(...allValues) : 0;
                 
                 return (
                 <div key={row.symbol} className={`flex w-full border-b border-border hover:bg-muted/20 ${
@@ -511,13 +619,11 @@ export function StoryAccumulationDistribution() {
                     <span>{row.symbol}</span>
                     </div>
                     {dates.map((date) => {
-                    let displayValue = row.dates[date];
-                    let displayData = row.dates;
+                    let displayValue: number | null = row.dates[date] ?? null;
                     
                     // Use moving average if enabled
                     if (movingAverage) {
-                      displayData = row.movingAverage;
-                      displayValue = row.movingAverage[date];
+                      displayValue = row.movingAverage[date] ?? null;
                     }
                     
                     // Normalize if enabled
@@ -535,7 +641,10 @@ export function StoryAccumulationDistribution() {
                           isHighlighted ? 'bg-red-500/20 dark:bg-red-500/30' : ''
                         }`}
                       >
-                        {displayValue !== null ? displayValue.toFixed(1) : '-'}
+                        {normalize 
+                          ? (displayValue !== null ? displayValue.toFixed(1) : '-')
+                          : formatNumberWithAbbreviation(displayValue)
+                        }
                         </div>
                       );
                     })}
@@ -550,14 +659,18 @@ export function StoryAccumulationDistribution() {
                       {(row.volumeChanges[volKey as keyof typeof row.volumeChanges] >= 0 ? '+' : '') + row.volumeChanges[volKey as keyof typeof row.volumeChanges].toFixed(1) + '%'}
                     </div>
                   ))}
-                  {movingAverage && maColumns.map((maKey) => (
+                  {movingAverage && maColumns.map((maKey) => {
+                    const maValue = row.maIndicators[maKey as keyof typeof row.maIndicators];
+                    const formatted = formatMovingAverage(maValue);
+                    return (
                     <div 
                       key={maKey}
-                      className={`flex-1 p-1 border-r border-border text-center text-xs font-bold min-w-[50px] ${row.maIndicators[maKey as keyof typeof row.maIndicators] === 'v' ? 'text-green-500 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}
+                        className={`flex-1 p-1 border-r border-border text-center text-xs font-bold min-w-[50px] ${formatted.color}`}
                     >
-                      {row.maIndicators[maKey as keyof typeof row.maIndicators]}
+                        {formatted.symbol}
                     </div>
-                  ))}
+                    );
+                  })}
                   <div className="flex-1 p-1 border-r border-border text-center text-xs bg-card min-w-[60px]">
                     {formatPrice(row.price)}
                   </div>

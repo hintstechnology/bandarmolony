@@ -466,9 +466,9 @@ export function StockTransactionDoneSummary() {
         const dayOfWeek = currentDate.getDay(); // 0 = Sunday, 6 = Saturday
         // Skip weekends (Saturday = 6, Sunday = 0)
         if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-          const dateString = currentDate.toISOString().split('T')[0];
+        const dateString = currentDate.toISOString().split('T')[0];
           if (dateString) {
-            dateArray.push(dateString);
+        dateArray.push(dateString);
           }
         }
         currentDate.setDate(currentDate.getDate() + 1);
