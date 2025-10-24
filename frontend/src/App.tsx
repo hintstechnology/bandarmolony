@@ -65,7 +65,12 @@ function DashboardLayout() {
       hasRedirected.current = false;
     }
     
-    if (!isLoading && (!profile || !isAuthenticated) && !hasRedirected.current) {
+    // Skip redirect if we're in password reset flow
+    const passwordResetSession = localStorage.getItem('passwordResetSession');
+    const currentPath = window.location.pathname;
+    const isResetPasswordPage = currentPath.includes('/auth/reset-password');
+    
+    if (!isLoading && (!profile || !isAuthenticated) && !hasRedirected.current && !isResetPasswordPage && passwordResetSession !== 'true') {
       console.log('DashboardLayout: No profile or not authenticated, redirecting to auth');
       hasRedirected.current = true;
       navigate('/auth', { replace: true });

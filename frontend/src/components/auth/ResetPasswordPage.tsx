@@ -17,6 +17,7 @@ export function ResetPasswordPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isValidating, setIsValidating] = useState(true);
+  const [isFatalError, setIsFatalError] = useState(false); // For validation errors (link expired, etc)
 
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -24,6 +25,40 @@ export function ResetPasswordPage() {
   // Handle password reset access on component mount
   useEffect(() => {
     const handlePasswordResetAccess = async () => {
+      // First check if we came from SupabaseRedirectHandler with a valid session
+      const passwordResetSession = localStorage.getItem('passwordResetSession');
+      if (passwordResetSession === 'true') {
+        console.log('ResetPasswordPage: Coming from SupabaseRedirectHandler with valid session');
+        
+        // Wait a bit for session to be fully established
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Verify session is still valid
+        try {
+          const { data: { session }, error } = await supabase.auth.getSession();
+          if (error || !session?.user) {
+            console.error('ResetPasswordPage: Session invalid, clearing flag');
+            localStorage.removeItem('passwordResetSession');
+            setError('Session expired. Please request a new password reset.');
+            setIsFatalError(true); // Fatal error - show full page error
+            setIsValidating(false);
+            return;
+          }
+          
+          console.log('ResetPasswordPage: Session verified, proceeding');
+          console.log('ResetPasswordPage: Current path:', window.location.pathname);
+          setIsValidating(false);
+          return;
+        } catch (error) {
+          console.error('ResetPasswordPage: Error verifying session:', error);
+          localStorage.removeItem('passwordResetSession');
+          setError('Session expired. Please request a new password reset.');
+          setIsFatalError(true); // Fatal error - show full page error
+          setIsValidating(false);
+          return;
+        }
+      }
+      
       const code = searchParams.get('code');
       const type = searchParams.get('type');
       const access_token = searchParams.get('access_token');
@@ -74,21 +109,28 @@ export function ResetPasswordPage() {
             }
           }
           
+          // Clear flag if failed to create session
+          localStorage.removeItem('passwordResetSession');
           setError('Failed to create session. Please try again.');
+          setIsFatalError(true); // Fatal error
           setIsValidating(false);
         } catch (err) {
           console.error('Password reset access error:', err);
+          // Clear flag on error
+          localStorage.removeItem('passwordResetSession');
           setError('Invalid or expired reset link. Please request a new password reset.');
+          setIsFatalError(true); // Fatal error
           setIsValidating(false);
         }
       } else if (type === 'recovery' || code || access_token) {
         // Allow access if we have any of these parameters
         setIsValidating(false);
       } else {
-        toast.error('Akses tidak diizinkan. Gunakan link dari email untuk reset password.');
-        setTimeout(() => {
-          navigate('/auth?mode=login', { replace: true });
-        }, 2000);
+        // Clear flag if no valid parameters
+        localStorage.removeItem('passwordResetSession');
+        setError('Akses tidak diizinkan. Gunakan link dari email untuk reset password.');
+        setIsFatalError(true); // Fatal error
+        setIsValidating(false);
       }
     };
 
@@ -117,25 +159,69 @@ export function ResetPasswordPage() {
         password: password 
       });
       
+      console.log('Password update result:', { error: error?.message });
+      
       if (error) {
-        if (error.message?.includes('same_password')) {
-          setError('New password must be different from current password');
+        if (error.message?.includes('same_password') || 
+            error.message?.includes('New password should be different') ||
+            error.message?.includes('Password dan konfirmasi')) {
+          // Don't clear flag - user can retry with different password
+          const errorMsg = 'Password baru harus berbeda dengan password lama';
+          setError(errorMsg);
+          toast.error(errorMsg);
         } else if (error.message?.includes('Password should be at least')) {
-          setError('Password must be at least 6 characters');
-        } else if (error.message?.includes('session_not_found')) {
+          // Don't clear flag - user can retry with longer password
+          const errorMsg = 'Password harus minimal 6 karakter';
+          setError(errorMsg);
+          toast.error(errorMsg);
+        } else if (error.message?.includes('session_not_found') || error.message?.includes('403')) {
+          // Clear flag for session errors
+          localStorage.removeItem('passwordResetSession');
           setError('Session expired. Please request a new password reset.');
+          setIsFatalError(true);
         } else {
-          setError(error.message || 'Gagal mengubah password');
+          // Don't clear flag for unknown errors - let user retry
+          console.error('Unknown password update error:', error);
+          const errorMsg = error.message || 'Gagal mengubah password';
+          setError(errorMsg);
+          toast.error(errorMsg);
         }
       } else {
         setSuccess(true);
-        toast.success('Password Anda berhasil diubah!');
-        setTimeout(() => {
-          navigate('/auth?mode=login', { replace: true });
-        }, 3000);
+        // Clear the password reset session flag
+        localStorage.removeItem('passwordResetSession');
+        
+        // Sign out user after password reset
+        const { error: signOutError } = await supabase.auth.signOut();
+        if (signOutError) {
+          console.error('Sign out error after password reset:', signOutError);
+        }
+        
+        toast.success('Password Anda berhasil diubah! Silakan login dengan password baru.');
+        
+        // Redirect to login immediately with success parameter
+        navigate('/auth?mode=login&password_reset=success', { replace: true });
       }
     } catch (err: any) {
-      setError(err.message || 'Terjadi kesalahan saat mengubah password');
+      // DON'T clear flag in catch - error might be retryable
+      console.error('Password reset catch error:', err);
+      
+      // Check if it's a known retryable error
+      if (err.message?.includes('same_password') || 
+          err.message?.includes('New password should be different') ||
+          err.message?.includes('Password dan konfirmasi')) {
+        const errorMsg = 'Password baru harus berbeda dengan password lama';
+        setError(errorMsg);
+        toast.error(errorMsg);
+      } else if (err.message?.includes('Password should be at least')) {
+        const errorMsg = 'Password harus minimal 6 karakter';
+        setError(errorMsg);
+        toast.error(errorMsg);
+      } else {
+        const errorMsg = err.message || 'Terjadi kesalahan saat mengubah password';
+        setError(errorMsg);
+        toast.error(errorMsg);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -160,8 +246,8 @@ export function ResetPasswordPage() {
     );
   }
 
-  // Error state
-  if (error && !isValidating) {
+  // Fatal error state (validation errors - show full page error)
+  if (isFatalError && error && !isValidating) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-red-50 via-white to-orange-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 flex items-center justify-center">
         <Card className="w-full max-w-md">
@@ -296,7 +382,11 @@ export function ResetPasswordPage() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => navigate('/auth?mode=login', { replace: true })}
+              onClick={() => {
+                // Clear the password reset session flag
+                localStorage.removeItem('passwordResetSession');
+                navigate('/auth?mode=login', { replace: true });
+              }}
               className="w-full"
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
