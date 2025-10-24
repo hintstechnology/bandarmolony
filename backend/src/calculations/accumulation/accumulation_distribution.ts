@@ -66,7 +66,7 @@ export class AccumulationDistributionCalculator {
   private async loadBidAskDataFromAzure(dateSuffix: string): Promise<BidAskData[]> {
     console.log(`Loading bid/ask data from Azure for date: ${dateSuffix}`);
     
-    const blobName = `bid_ask/bid_ask_${dateSuffix}/by_stock.csv`;
+    const blobName = `bid_ask/bid_ask_${dateSuffix}/ALL_STOCK.csv`;
     const content = await downloadText(blobName);
     
     const lines = content.trim().split('\n');
@@ -567,6 +567,7 @@ export class AccumulationDistributionCalculator {
           continue;
         }
         console.log(`\n===== Processing accumulation for date ${dateSuffix} (${di + 1}/${allDates.length}) =====`);
+
 
         // Load bid/ask data for current date
         const bidAskData = await this.loadBidAskDataFromAzure(dateSuffix);

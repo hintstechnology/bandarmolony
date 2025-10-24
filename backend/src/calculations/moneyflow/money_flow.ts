@@ -168,7 +168,7 @@ export class MoneyFlowCalculator {
       dataMap.set(item.Date, item);
     });
     
-    // Convert back to array and sort by date (oldest first)
+    // Convert back to array and sort by date (oldest first) - same as original file
     const mergedData = Array.from(dataMap.values());
     mergedData.sort((a, b) => a.Date.localeCompare(b.Date));
     
@@ -200,23 +200,22 @@ export class MoneyFlowCalculator {
 
   /**
    * Create or update individual CSV files for each stock/index's money flow data
-   * Using accurate classification based on source folder and index list
+   * Using flat structure like original file: money_flow/{code}.csv
    */
   private async createMoneyFlowCsvFiles(
-    moneyFlowData: Map<string, MoneyFlowData[]>,
-    indexList: string[]
+    moneyFlowData: Map<string, { code: string; type: 'stock' | 'index'; mfiData: MoneyFlowData[] }>
   ): Promise<string[]> {
     console.log("\nCreating/updating individual CSV files for each stock/index's money flow...");
     
     const createdFiles: string[] = [];
+    let stockCount = 0;
+    let indexCount = 0;
     
-    for (const [code, flowData] of moneyFlowData) {
-      // More accurate classification: check both index list AND common index patterns
-      const isIndex = await this.isIndexCode(code, indexList) || this.isIndexByPattern(code);
-      const subfolder = isIndex ? 'index' : 'stock';
-      const filename = `money_flow/${subfolder}/${code}.csv`;
+    for (const [_key, { code, type, mfiData: flowData }] of moneyFlowData) {
+      // Use flat structure like original: money_flow/{code}.csv
+      const filename = `money_flow/${code}.csv`;
       
-      console.log(`📁 Processing ${code} -> ${subfolder}/${code}.csv (${isIndex ? 'INDEX' : 'STOCK'})`);
+      console.log(`📁 Processing ${code} -> ${code}.csv (${type.toUpperCase()})`);
       
       try {
         // Check if file already exists (simplified error handling)
@@ -228,7 +227,7 @@ export class MoneyFlowCalculator {
           // Merge with new data
           const mergedData = this.mergeMoneyFlowData(existingData, flowData);
           
-          // Sort by date descending (newest first)
+          // Sort by date ascending (oldest first) - same as original file
           const sortedData = this.sortMoneyFlowDataByDate(mergedData);
           
           // Save merged and sorted data
@@ -237,66 +236,53 @@ export class MoneyFlowCalculator {
         } else {
           console.log(`📄 Creating new file: ${filename}`);
           
-          // Sort new data by date descending (newest first)
+          // Sort new data by date ascending (oldest first) - same as original file
           const sortedData = this.sortMoneyFlowDataByDate(flowData);
           
           await this.saveToAzure(filename, sortedData);
           console.log(`✅ Created ${filename} with ${sortedData.length} trading days`);
         }
+        
+        // Track counts
+        if (type === 'stock') {
+          stockCount++;
+        } else {
+          indexCount++;
+        }
       } catch (error) {
         // Simplified error handling - just log and continue
         console.log(`📄 File not found, creating new: ${filename}`);
         
-        // Sort new data by date descending (newest first)
+        // Sort new data by date ascending (oldest first) - same as original file
         const sortedData = this.sortMoneyFlowDataByDate(flowData);
         
         await this.saveToAzure(filename, sortedData);
         console.log(`✅ Created ${filename} with ${sortedData.length} trading days`);
+        
+        // Track counts
+        if (type === 'stock') {
+          stockCount++;
+        } else {
+          indexCount++;
+        }
       }
       
       createdFiles.push(filename);
     }
     
-    console.log(`\nProcessed ${createdFiles.length} money flow CSV files total`);
+    console.log(`\n📊 Processed ${createdFiles.length} money flow CSV files total:`);
+    console.log(`   - 📈 ${stockCount} stock files in money_flow/`);
+    console.log(`   - 📊 ${indexCount} index files in money_flow/`);
     return createdFiles;
   }
 
   /**
-   * Check if code is an index by common patterns
-   */
-  private isIndexByPattern(code: string): boolean {
-    const indexPatterns = [
-      /^IDX/i,           // IDX30, IDX80, etc.
-      /^LQ45$/i,         // LQ45
-      /^COMPOSITE$/i,    // COMPOSITE
-      /^JII/i,           // JII, JII70
-      /^ISSI$/i,         // ISSI
-      /^SRI/i,           // SRI-KEHATI
-      /^ESG/i,           // ESGQKEHATI, ESGSKEHATI
-      /^BISNIS/i,        // BISNIS-27
-      /^ECONOMIC/i,      // ECONOMIC30
-      /^I-GRADE$/i,      // I-GRADE
-      /^INFOBANK/i,      // INFOBANK15
-      /^Investor/i,      // Investor33
-      /^MBX$/i,          // MBX
-      /^MNC/i,           // MNC36
-      /^PRIMBANK/i,      // PRIMBANK10
-      /^SM/i,            // SMinfra18
-      /^KOMPAS/i         // KOMPAS100
-    ];
-    
-    return indexPatterns.some(pattern => pattern.test(code));
-  }
-
-  /**
-   * Sort money flow data by date descending (newest first)
+   * Sort money flow data by date ascending (oldest first) - same as original file
    */
   private sortMoneyFlowDataByDate(data: MoneyFlowData[]): MoneyFlowData[] {
     return data.sort((a, b) => {
-      // Parse dates and compare (newest first)
-      const dateA = new Date(a.Date);
-      const dateB = new Date(b.Date);
-      return dateB.getTime() - dateA.getTime();
+      // Parse dates and compare (oldest first) - same as original file
+      return a.Date.localeCompare(b.Date);
     });
   }
 
@@ -322,7 +308,7 @@ export class MoneyFlowCalculator {
   }
 
   /**
-   * Load index list from csv_input/index_list.csv
+   * Load index list from csv_input/index_list.csv (for validation/logging only)
    */
   private async loadIndexList(): Promise<string[]> {
     try {
@@ -344,30 +330,21 @@ export class MoneyFlowCalculator {
       console.log(`📋 Index list: ${indexList.join(', ')}`);
       return indexList;
     } catch (error) {
-      console.error('Error loading index list:', error);
+      console.error('⚠️ Error loading index list:', error);
+      console.log('⚠️ Continuing without index list validation (using source folder only)');
       return [];
     }
   }
 
   /**
-   * Determine if a code is an index code based on loaded index list
-   */
-  private async isIndexCode(code: string, indexList: string[]): Promise<boolean> {
-    const isIndex = indexList.includes(code.toUpperCase());
-    if (isIndex) {
-      console.log(`🔍 Code "${code}" classified as: INDEX`);
-    }
-    return isIndex;
-  }
-
-  /**
    * Process all files (both stock and index) separately to avoid mixing
+   * Returns Map with composite key: "type:code" to preserve source folder info
    */
-  private async processAllFiles(_indexList: string[]): Promise<Map<string, MoneyFlowData[]>> {
+  private async processAllFiles(_indexList: string[]): Promise<Map<string, { code: string; type: 'stock' | 'index'; mfiData: MoneyFlowData[] }>> {
     console.log("\nProcessing all files (stock and index) separately...");
     
-    const moneyFlowData = new Map<string, MoneyFlowData[]>();
-    const BATCH_SIZE = 10; // Reduced from 25 to prevent memory issues
+    const moneyFlowData = new Map<string, { code: string; type: 'stock' | 'index'; mfiData: MoneyFlowData[] }>();
+    const BATCH_SIZE = 5; // Further reduced to prevent OOM
     
     // Process stock files first
     console.log("\n📈 Processing STOCK files...");
@@ -389,12 +366,12 @@ export class MoneyFlowCalculator {
             const mfiData = this.calculateMFI(ohlcData);
             
             if (mfiData.length > 0) {
-              return { code, mfiData, success: true, type: 'stock' };
+              return { code, mfiData, success: true, type: 'stock' as const };
             }
-            return { code, mfiData: [], success: false, error: 'No MFI data', type: 'stock' };
+            return { code, mfiData: [], success: false, error: 'No MFI data', type: 'stock' as const };
           } catch (error) {
             console.error(`Error processing stock ${blobName}:`, error);
-            return { code, mfiData: [], success: false, error: error instanceof Error ? error.message : 'Unknown error', type: 'stock' };
+            return { code, mfiData: [], success: false, error: error instanceof Error ? error.message : 'Unknown error', type: 'stock' as const };
           }
         })
       );
@@ -405,9 +382,11 @@ export class MoneyFlowCalculator {
       
       batchResults.forEach((result) => {
         if (result.status === 'fulfilled') {
-          const { code, mfiData, success } = result.value;
+          const { code, mfiData, success, type } = result.value;
           if (success && mfiData.length > 0) {
-            moneyFlowData.set(code, mfiData);
+            // Use composite key to avoid collision
+            const key = `stock:${code}`;
+            moneyFlowData.set(key, { code, type, mfiData });
             batchSuccess++;
           } else {
             batchFailed++;
@@ -449,12 +428,12 @@ export class MoneyFlowCalculator {
             const mfiData = this.calculateMFI(ohlcData);
             
             if (mfiData.length > 0) {
-              return { code, mfiData, success: true, type: 'index' };
+              return { code, mfiData, success: true, type: 'index' as const };
             }
-            return { code, mfiData: [], success: false, error: 'No MFI data', type: 'index' };
+            return { code, mfiData: [], success: false, error: 'No MFI data', type: 'index' as const };
           } catch (error) {
             console.error(`Error processing index ${blobName}:`, error);
-            return { code, mfiData: [], success: false, error: error instanceof Error ? error.message : 'Unknown error', type: 'index' };
+            return { code, mfiData: [], success: false, error: error instanceof Error ? error.message : 'Unknown error', type: 'index' as const };
           }
         })
       );
@@ -465,9 +444,11 @@ export class MoneyFlowCalculator {
       
       batchResults.forEach((result) => {
         if (result.status === 'fulfilled') {
-          const { code, mfiData, success } = result.value;
+          const { code, mfiData, success, type } = result.value;
           if (success && mfiData.length > 0) {
-            moneyFlowData.set(code, mfiData);
+            // Use composite key to avoid collision
+            const key = `index:${code}`;
+            moneyFlowData.set(key, { code, type, mfiData });
             batchSuccess++;
           } else {
             batchFailed++;
@@ -500,16 +481,25 @@ export class MoneyFlowCalculator {
     try {
       console.log(`Starting money flow data extraction for date: ${dateSuffix}`);
       
-      // Load index list first
+      // Load index list first (for reference/validation only, source folder is authoritative)
       const indexList = await this.loadIndexList();
+      console.log(`📋 Index list loaded: ${indexList.length} indices`);
       
-      // Process ALL files (both stock and index) together
+      // Process ALL files (both stock and index) - type preserved from source folder
       const allMoneyFlowData = await this.processAllFiles(indexList);
       
-      // Create or update individual CSV files with index list
-      const createdFiles = await this.createMoneyFlowCsvFiles(allMoneyFlowData, indexList);
+      // Create or update individual CSV files (type from source folder)
+      const createdFiles = await this.createMoneyFlowCsvFiles(allMoneyFlowData);
       
-      console.log("Money flow data extraction completed successfully!");
+      console.log("✅ Money flow data extraction completed successfully!");
+      
+      // Count by type
+      let stockFiles = 0;
+      let indexFiles = 0;
+      for (const [_key, { type }] of allMoneyFlowData) {
+        if (type === 'stock') stockFiles++;
+        else indexFiles++;
+      }
       
       return {
         success: true,
@@ -517,12 +507,14 @@ export class MoneyFlowCalculator {
         data: {
           date: dateSuffix,
           totalFilesProcessed: allMoneyFlowData.size,
+          stockFilesProcessed: stockFiles,
+          indexFilesProcessed: indexFiles,
           outputFiles: createdFiles
         }
       };
       
     } catch (error) {
-      console.error('Error generating money flow data:', error);
+      console.error('❌ Error generating money flow data:', error);
       return {
         success: false,
         message: `Failed to generate money flow data: ${error instanceof Error ? error.message : 'Unknown error'}`

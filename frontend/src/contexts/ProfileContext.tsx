@@ -36,6 +36,13 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
   const hasInitialized = useRef(false);
 
   const refreshProfile = async (force = false) => {
+    // Skip profile refresh if we're in password reset flow
+    const passwordResetSession = localStorage.getItem('passwordResetSession');
+    if (passwordResetSession === 'true') {
+      console.log('ProfileContext: Password reset session active, skipping profile refresh');
+      return;
+    }
+
     if (!isAuthenticated || !user) {
       console.log('ProfileContext: No user, clearing profile');
       setProfile(null);
@@ -267,6 +274,13 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
     let timeoutId: NodeJS.Timeout;
 
     if (isAuthenticated && user) {
+      // Skip profile refresh if we're in password reset flow
+      const passwordResetSession = localStorage.getItem('passwordResetSession');
+      if (passwordResetSession === 'true') {
+        console.log('ProfileContext: Password reset session active, skipping profile refresh in useEffect');
+        return;
+      }
+      
       // Only refresh if we don't have profile data yet and not currently loading or validating
       if (!profile && !isLoading && !isValidating && !hasInitialized.current) {
         console.log('ProfileContext: No profile, fetching...');

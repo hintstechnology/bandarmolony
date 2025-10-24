@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { LoginForm } from './LoginForm';
 import { SignUpForm } from './SignUpForm';
@@ -9,8 +9,6 @@ import { AuthLayout } from './AuthLayout';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../services/api';
 import { toast } from 'sonner';
-import { getAuthError } from '../../utils/errorHandler';
-import { setAuthState } from '../../utils/auth';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 
@@ -27,11 +25,27 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
   const [verificationType, setVerificationType] = useState<'signup' | 'recovery'>('signup');
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  
+  const { isAuthenticated, isLoading } = useAuth();
+  const { showToast } = useToast();
 
   useEffect(() => {
     const mode = searchParams.get('mode');
+    const passwordReset = searchParams.get('password_reset');
+    
     if (mode === 'login') {
       setIsLogin(true);
+      
+      // Check if user just reset password
+      if (passwordReset === 'success') {
+        showToast({
+          type: 'success',
+          title: 'Password Berhasil Dirubah',
+          message: 'Silakan login dengan password baru Anda.',
+        });
+        // Remove the parameter from URL
+        navigate('/auth?mode=login', { replace: true });
+      }
     } else if (mode === 'register') {
       setIsLogin(false);
     } else if (mode === 'email-verification-success') {
@@ -45,10 +59,7 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
         }, 3000);
       }
     }
-  }, [searchParams]);
-
-  const { isAuthenticated, isLoading } = useAuth();
-  const { showToast } = useToast();
+  }, [searchParams, navigate, showToast]);
 
   // Check if user was kicked by another device login
   useEffect(() => {
@@ -82,13 +93,13 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
     navigate('/dashboard'); // Redirect to dashboard
   };
 
-  const handleLogin = (email: string, password: string) => {
+  const handleLogin = () => {
     // Login is now handled directly in LoginForm
     // This function is kept for compatibility but does nothing
     handleAuthSuccess();
   };
 
-  const handleSignUp = async (name: string, email: string, password: string) => {
+  const handleSignUp = async () => {
     // Signup is now handled directly in SignupForm
     // This function is kept for compatibility but does nothing
   };

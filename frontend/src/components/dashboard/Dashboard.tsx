@@ -1,11 +1,11 @@
 import { useState, useRef } from 'react';
 import { Watchlist } from './Watchlist';
 import { TechnicalAnalysisTradingView } from '../technical-analysis/TechnicalAnalysisTradingView';
-import { DoneSummary } from '../stock-transaction/DoneSummary';
-import { BrokerSummary } from '../broker-activity/BrokerSummary';
-import { MarketParticipant } from '../broker-activity/MarketParticipant';
-import { Ownership } from '../broker-activity/Ownership';
-import { ForeignFlow } from '../broker-activity/ForeignFlow';
+import { StockTransactionDoneSummary } from '../stock-transaction/StockTransactionDoneSummary';
+import { BrokerSummaryPage } from '../broker-activity/BrokerSummaryPage';
+import { StoryMarketParticipant } from '../story/StoryMarketParticipant';
+import { StoryOwnershipSummary } from '../story/StoryOwnershipSummary';
+import { StoryForeignFlowAnalysis } from '../story/StoryForeignFlowAnalysis';
 import { BrokerInventory } from '../broker-activity/BrokerInventory';
 import { CollapsibleSection } from './CollapsibleSection';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -135,7 +135,7 @@ export function Dashboard() {
             
             {/* Chart Loading Overlay */}
             {isChartLoading && (
-              <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-20 flex items-center justify-center">
+              <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-10 flex items-center justify-center">
                 <div className="text-center">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
                   <p className="text-sm text-muted-foreground">Loading chart data...</p>
@@ -156,7 +156,7 @@ export function Dashboard() {
           subtitle="Price analysis with buy/sell frequency and lot data"
           defaultExpanded={expandedSections['done-summary'] || false}
         >
-          <DoneSummary selectedStock={selectedStock} />
+          <StockTransactionDoneSummary selectedStock={selectedStock} />
         </CollapsibleSection>
       
         {/* Broker Summary Section */}
@@ -165,7 +165,7 @@ export function Dashboard() {
           subtitle="Top brokers trading activity and net positions"
           defaultExpanded={expandedSections['broker-summary'] || false}
         >
-          <BrokerSummary selectedStock={selectedStock} />
+          <BrokerSummaryPage selectedStock={selectedStock} />
         </CollapsibleSection>
         
         {/* Market Participant Section */}
@@ -174,7 +174,7 @@ export function Dashboard() {
           subtitle="Local vs Foreign market participation analysis"
           defaultExpanded={expandedSections['market-participant'] || false}
         >
-          <MarketParticipant selectedStock={selectedStock} />
+          <StoryMarketParticipant selectedStock={selectedStock} hideMarketAnalysis={true} hideForeignFlowAnalysis={true} />
         </CollapsibleSection>
         
         {/* Ownership and Foreign Flow Section */}
@@ -185,7 +185,7 @@ export function Dashboard() {
               subtitle="Shareholding composition and distribution"
               defaultExpanded={expandedSections['ownership-structure'] || false}
             >
-              <Ownership selectedStock={selectedStock} />
+              <StoryOwnershipSummary selectedStock={selectedStock} />
             </CollapsibleSection>
           </div>
           
@@ -195,7 +195,7 @@ export function Dashboard() {
               subtitle="Foreign investor buying and selling activity"
               defaultExpanded={expandedSections['foreign-flow'] || false}
             >
-              <ForeignFlow selectedStock={selectedStock} />
+              <StoryForeignFlowAnalysis selectedStock={selectedStock} />
             </CollapsibleSection>
           </div>
         </div>

@@ -1,59 +1,22 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart } from 'recharts';
+import { useState, useEffect, useRef } from 'react';
+import { Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
-import { Search } from 'lucide-react';
+import { Search, X, Calendar } from 'lucide-react';
 import {
   createChart,
   ColorType,
   CrosshairMode,
   LineSeries,
-  AreaSeries,
   CandlestickSeries,
   HistogramSeries,
   type IChartApi,
 } from 'lightweight-charts';
 import { useUserChartColors } from '../../hooks/useUserChartColors';
+import { api } from '../../services/api';
+import { toast } from 'sonner';
 
-// Mock data untuk candlestick chart - convert to TradingView format with proper dates
-const candlestickData = [
-  { time: '2024-01-01' as any, open: 4620, high: 4650, low: 4610, close: 4640, volume: 15000 },
-  { time: '2024-01-02' as any, open: 4640, high: 4680, low: 4630, close: 4670, volume: 18000 },
-  { time: '2024-01-03' as any, open: 4670, high: 4690, low: 4650, close: 4660, volume: 12000 },
-  { time: '2024-01-04' as any, open: 4660, high: 4675, low: 4640, close: 4655, volume: 14000 },
-  { time: '2024-01-05' as any, open: 4655, high: 4670, low: 4645, close: 4665, volume: 16000 },
-  { time: '2024-01-08' as any, open: 4665, high: 4690, low: 4660, close: 4685, volume: 20000 },
-  { time: '2024-01-09' as any, open: 4685, high: 4700, low: 4680, close: 4695, volume: 22000 },
-  { time: '2024-01-10' as any, open: 4695, high: 4720, low: 4690, close: 4710, volume: 25000 },
-  { time: '2024-01-11' as any, open: 4710, high: 4730, low: 4705, close: 4725, volume: 28000 },
-  { time: '2024-01-12' as any, open: 4725, high: 4740, low: 4720, close: 4735, volume: 30000 },
-  { time: '2024-01-15' as any, open: 4735, high: 4750, low: 4730, close: 4745, volume: 32000 },
-  { time: '2024-01-16' as any, open: 4745, high: 4760, low: 4740, close: 4755, volume: 35000 },
-];
-
-// Mock data untuk volume chart
-const volumeData = candlestickData.map(item => ({
-  time: item.time,
-  volume: item.volume,
-  buyVolume: item.volume * 0.6,
-  sellVolume: item.volume * 0.4,
-}));
-
-// Mock data untuk participant analysis
-const participantData = [
-  { date: '09:00', domestic: 60, foreign: 25, retail: 15 },
-  { date: '09:30', domestic: 58, foreign: 27, retail: 15 },
-  { date: '10:00', domestic: 62, foreign: 23, retail: 15 },
-  { date: '10:30', domestic: 59, foreign: 26, retail: 15 },
-  { date: '11:00', domestic: 61, foreign: 24, retail: 15 },
-  { date: '11:30', domestic: 57, foreign: 28, retail: 15 },
-  { date: '12:00', domestic: 63, foreign: 22, retail: 15 },
-  { date: '13:00', domestic: 55, foreign: 30, retail: 15 },
-  { date: '13:30', domestic: 64, foreign: 21, retail: 15 },
-  { date: '14:00', domestic: 56, foreign: 29, retail: 15 },
-  { date: '14:30', domestic: 60, foreign: 25, retail: 15 },
-  { date: '15:00', domestic: 58, foreign: 27, retail: 15 },
-];
+// Mock data removed - now using real data from API
 
 // Mock data untuk money flow - convert to TradingView format with proper dates
 const moneyFlowData = [
@@ -71,87 +34,17 @@ const moneyFlowData = [
   { time: '2024-01-16' as any, moneyFlow: 6500, inflow: 18000, outflow: 11500 },
 ];
 
-// Mock data untuk net flows
-const netFlowData = [
-  { date: '09:00', netFlow: 150, buyFlow: 800, sellFlow: 650 },
-  { date: '09:30', netFlow: 220, buyFlow: 950, sellFlow: 730 },
-  { date: '10:00', netFlow: -80, buyFlow: 600, sellFlow: 680 },
-  { date: '10:30', netFlow: 180, buyFlow: 850, sellFlow: 670 },
-  { date: '11:00', netFlow: 320, buyFlow: 1100, sellFlow: 780 },
-  { date: '11:30', netFlow: 450, buyFlow: 1300, sellFlow: 850 },
-  { date: '12:00', netFlow: 380, buyFlow: 1200, sellFlow: 820 },
-  { date: '13:00', netFlow: 520, buyFlow: 1400, sellFlow: 880 },
-  { date: '13:30', netFlow: 620, buyFlow: 1500, sellFlow: 880 },
-  { date: '14:00', netFlow: 680, buyFlow: 1600, sellFlow: 920 },
-  { date: '14:30', netFlow: 750, buyFlow: 1700, sellFlow: 950 },
-  { date: '15:00', netFlow: 820, buyFlow: 1800, sellFlow: 980 },
-];
-
-// Real data from BBCA.csv - using correct percentages from updated CSV
-const localStackedDataRaw = [
-  { date: '2025-06-30', Corporate: 1.64, FinancialInstitution: 0.33, Individual: 0.57, Insurance: 65.83, MutualFund: 17.53, Others: 10.06, PensionFund: 0.03, SecuritiesCompany: 3.13 },
-  { date: '2024-09-30', Corporate: 1.17, FinancialInstitution: 0.02, Individual: 0.58, Insurance: 62.61, MutualFund: 20.16, Others: 10.88, PensionFund: 0.02, SecuritiesCompany: 3.69 },
-  { date: '2025-02-28', Corporate: 1.62, FinancialInstitution: 0.37, Individual: 0.59, Insurance: 64.74, MutualFund: 17.78, Others: 10.55, PensionFund: 0.02, SecuritiesCompany: 3.38 },
-  { date: '2025-05-28', Corporate: 1.65, FinancialInstitution: 0.34, Individual: 0.56, Insurance: 65.73, MutualFund: 17.85, Others: 9.88, PensionFund: 0.03, SecuritiesCompany: 3.15 },
-  { date: '2025-03-27', Corporate: 1.86, FinancialInstitution: 0.03, Individual: 0.55, Insurance: 66.32, MutualFund: 17.26, Others: 9.96, PensionFund: 0.03, SecuritiesCompany: 3.09 },
-  { date: '2025-01-31', Corporate: 1.50, FinancialInstitution: 0.03, Individual: 0.60, Insurance: 64.31, MutualFund: 18.30, Others: 10.77, PensionFund: 0.03, SecuritiesCompany: 3.52 },
-  { date: '2024-11-29', Corporate: 1.23, FinancialInstitution: 0.02, Individual: 0.59, Insurance: 62.72, MutualFund: 19.70, Others: 11.19, PensionFund: 0.02, SecuritiesCompany: 3.64 },
-  { date: '2025-04-30', Corporate: 1.81, FinancialInstitution: 0.13, Individual: 0.55, Insurance: 66.04, MutualFund: 17.44, Others: 9.95, PensionFund: 0.03, SecuritiesCompany: 3.12 },
-  { date: '2024-08-30', Corporate: 1.14, FinancialInstitution: 0.02, Individual: 0.64, Insurance: 61.41, MutualFund: 20.37, Others: 11.69, PensionFund: 0.04, SecuritiesCompany: 3.81 },
-  { date: '2024-12-30', Corporate: 1.40, FinancialInstitution: 0.02, Individual: 0.60, Insurance: 62.86, MutualFund: 19.45, Others: 11.08, PensionFund: 0.02, SecuritiesCompany: 3.65 },
-  { date: '2025-08-29', Corporate: 1.70, FinancialInstitution: 0.31, Individual: 0.55, Insurance: 66.67, MutualFund: 17.92, Others: 8.97, PensionFund: 0.03, SecuritiesCompany: 2.98 },
-  { date: '2024-10-31', Corporate: 1.20, FinancialInstitution: 0.02, Individual: 0.61, Insurance: 62.70, MutualFund: 19.71, Others: 11.16, PensionFund: 0.03, SecuritiesCompany: 3.70 },
-  { date: '2025-07-31', Corporate: 1.69, FinancialInstitution: 0.32, Individual: 0.55, Insurance: 65.87, MutualFund: 17.87, Others: 9.69, PensionFund: 0.03, SecuritiesCompany: 3.07 },
-];
-
-const foreignStackedDataRaw = [
-  { date: '2025-06-30', Corporate: 4.60, FinancialInstitution: 5.76, Individual: 0.74, Insurance: 1.48, MutualFund: 45.83, Others: 22.38, PensionFund: 15.60, SecuritiesCompany: 2.31 },
-  { date: '2024-09-30', Corporate: 4.03, FinancialInstitution: 6.65, Individual: 0.70, Insurance: 1.39, MutualFund: 44.90, Others: 24.09, PensionFund: 14.43, SecuritiesCompany: 2.40 },
-  { date: '2025-02-28', Corporate: 4.08, FinancialInstitution: 5.55, Individual: 0.72, Insurance: 1.44, MutualFund: 45.53, Others: 24.06, PensionFund: 14.92, SecuritiesCompany: 2.29 },
-  { date: '2025-05-28', Corporate: 4.61, FinancialInstitution: 5.31, Individual: 0.73, Insurance: 1.43, MutualFund: 46.22, Others: 22.40, PensionFund: 15.74, SecuritiesCompany: 2.25 },
-  { date: '2025-03-27', Corporate: 4.58, FinancialInstitution: 5.71, Individual: 0.73, Insurance: 1.44, MutualFund: 45.41, Others: 23.21, PensionFund: 15.20, SecuritiesCompany: 2.30 },
-  { date: '2025-01-31', Corporate: 4.15, FinancialInstitution: 5.84, Individual: 0.72, Insurance: 1.42, MutualFund: 45.27, Others: 24.24, PensionFund: 14.71, SecuritiesCompany: 2.26 },
-  { date: '2024-11-29', Corporate: 4.17, FinancialInstitution: 6.33, Individual: 0.71, Insurance: 1.35, MutualFund: 44.67, Others: 24.26, PensionFund: 14.71, SecuritiesCompany: 2.41 },
-  { date: '2025-04-30', Corporate: 4.57, FinancialInstitution: 5.71, Individual: 0.74, Insurance: 1.40, MutualFund: 46.03, Others: 22.36, PensionFund: 15.40, SecuritiesCompany: 2.34 },
-  { date: '2024-08-30', Corporate: 4.03, FinancialInstitution: 6.70, Individual: 0.70, Insurance: 1.36, MutualFund: 44.92, Others: 23.89, PensionFund: 14.57, SecuritiesCompany: 2.39 },
-  { date: '2024-12-30', Corporate: 4.15, FinancialInstitution: 6.08, Individual: 0.71, Insurance: 1.38, MutualFund: 45.37, Others: 24.00, PensionFund: 14.62, SecuritiesCompany: 2.31 },
-  { date: '2025-08-29', Corporate: 4.70, FinancialInstitution: 6.24, Individual: 0.75, Insurance: 1.33, MutualFund: 44.97, Others: 22.51, PensionFund: 15.45, SecuritiesCompany: 2.57 },
-  { date: '2024-10-31', Corporate: 4.05, FinancialInstitution: 6.44, Individual: 0.70, Insurance: 1.34, MutualFund: 44.84, Others: 24.24, PensionFund: 14.62, SecuritiesCompany: 2.41 },
-  { date: '2025-07-31', Corporate: 4.72, FinancialInstitution: 5.99, Individual: 0.75, Insurance: 1.33, MutualFund: 45.33, Others: 22.49, PensionFund: 15.39, SecuritiesCompany: 2.55 },
-];
-
-const combinedStackedDataRaw = [
-  { date: '2025-06-30', Local: 17.94, Foreign: 82.06 },
-  { date: '2024-09-30', Local: 13.94, Foreign: 86.06 },
-  { date: '2025-02-28', Local: 16.52, Foreign: 83.48 },
-  { date: '2025-05-28', Local: 17.09, Foreign: 82.91 },
-  { date: '2025-03-27', Local: 17.63, Foreign: 82.37 },
-  { date: '2025-01-31', Local: 15.73, Foreign: 84.27 },
-  { date: '2024-11-29', Local: 14.91, Foreign: 85.09 },
-  { date: '2025-04-30', Local: 17.72, Foreign: 82.28 },
-  { date: '2024-08-30', Local: 14.36, Foreign: 85.64 },
-  { date: '2024-12-30', Local: 15.20, Foreign: 84.80 },
-  { date: '2025-08-29', Local: 19.48, Foreign: 80.52 },
-  { date: '2024-10-31', Local: 14.20, Foreign: 85.80 },
-  { date: '2025-07-31', Local: 18.99, Foreign: 81.01 },
-];
-
-// Sort data by date (oldest to newest)
-const localStackedData = localStackedDataRaw.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-const foreignStackedData = foreignStackedDataRaw.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-const combinedStackedData = combinedStackedDataRaw.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+// Mock data removed - now using real holding data from API
 
 // Individual chart component for split view
 const IndividualChart = ({ 
   data, 
   chartType, 
-  title, 
   color, 
   height = 200 
 }: { 
   data: any[], 
   chartType: 'candlestick' | 'histogram' | 'line', 
-  title: string,
   color?: string,
   height?: number
 }) => {
@@ -199,7 +92,7 @@ const IndividualChart = ({
         borderColor: colors.borderColor,
         timeVisible: true,
         secondsVisible: false,
-        tickMarkFormatter: (time: any, tickMarkType: any, locale: string) => {
+        tickMarkFormatter: (time: any) => {
           let date: Date;
           if (typeof time === 'string') {
             date = new Date(time);
@@ -208,7 +101,8 @@ const IndividualChart = ({
           }
           const day = date.getDate();
           const month = date.toLocaleDateString('en-US', { month: 'short' });
-          return `${day} ${month}`;
+          const year = date.getFullYear().toString().slice(-2); // Get last 2 digits
+          return `${day} ${month} ${year}`;
         }
       },
       crosshair: { mode: CrosshairMode.Normal },
@@ -370,7 +264,7 @@ const TradingViewMultiPaneChart = ({
         borderColor: colors.borderColor,
         timeVisible: true,
         secondsVisible: false,
-        tickMarkFormatter: (time: any, tickMarkType: any, locale: string) => {
+        tickMarkFormatter: (time: any) => {
           let date: Date;
           if (typeof time === 'string') {
             date = new Date(time);
@@ -379,7 +273,8 @@ const TradingViewMultiPaneChart = ({
           }
           const day = date.getDate();
           const month = date.toLocaleDateString('en-US', { month: 'short' });
-          return `${day} ${month}`;
+          const year = date.getFullYear().toString().slice(-2); // Get last 2 digits
+          return `${day} ${month} ${year}`;
         }
       },
         crosshair: { mode: CrosshairMode.Normal },
@@ -389,7 +284,7 @@ const TradingViewMultiPaneChart = ({
 
     try {
       // Pane 0 (Main): Price Action - Candlestick Chart
-      const candlestickSeries = chartRef.current.addSeries(CandlestickSeries, {
+      const candlestickSeries = chartRef.current?.addSeries(CandlestickSeries, {
         upColor: userColors.bullish,
         downColor: userColors.bearish,
         borderVisible: false,
@@ -397,7 +292,7 @@ const TradingViewMultiPaneChart = ({
         wickDownColor: userColors.bearish,
       }, 0); // Pane index 0
 
-      candlestickSeries.setData(candlestickData.map(d => ({
+      candlestickSeries?.setData(candlestickData.map(d => ({
         time: d.time,
         open: d.open,
         high: d.high,
@@ -406,24 +301,24 @@ const TradingViewMultiPaneChart = ({
       })));
 
       // Pane 1: Money Flow Analysis
-      const moneyFlowSeries = chartRef.current.addSeries(LineSeries, {
+      const moneyFlowSeries = chartRef.current?.addSeries(LineSeries, {
         color: '#3b82f6',
         lineWidth: 2,
         priceFormat: { type: 'volume' },
       }, 1); // Pane index 1
 
-      moneyFlowSeries.setData(moneyFlowData.map(d => ({
+      moneyFlowSeries?.setData(moneyFlowData.map(d => ({
         time: d.time,
         value: d.moneyFlow,
       })));
 
       // Pane 2: Volume Analysis
-      const volumeSeries = chartRef.current.addSeries(HistogramSeries, {
+      const volumeSeries = chartRef.current?.addSeries(HistogramSeries, {
         color: '#8b5cf6',
         priceFormat: { type: 'volume' },
       }, 2); // Pane index 2
 
-      volumeSeries.setData(volumeData.map(d => ({
+      volumeSeries?.setData(volumeData.map(d => ({
         time: d.time,
         value: d.volume,
         color: d.buyVolume > d.sellVolume ? userColors.bullish : userColors.bearish,
@@ -434,9 +329,9 @@ const TradingViewMultiPaneChart = ({
         const panes = chartRef.current?.panes();
         if (panes && panes.length >= 3) {
           // Set pane heights - 6:1:1 ratio (Price:Money Flow:Volume) - Fixed ratio
-          panes[0].setHeight(450); // Main price chart - 6 parts (64.3%)
-          panes[1].setHeight(125); // Money flow - 1 part (17.9%) - Tidak gepeng
-          panes[2].setHeight(125); // Volume - 1 part (17.9%) - Tidak gepeng
+          panes[0]?.setHeight(450); // Main price chart - 6 parts (64.3%)
+          panes[1]?.setHeight(125); // Money flow - 1 part (17.9%) - Tidak gepeng
+          panes[2]?.setHeight(125); // Volume - 1 part (17.9%) - Tidak gepeng
         }
       }, 200);
 
@@ -507,20 +402,42 @@ const TradingViewMultiPaneChart = ({
   );
 };
 
-export function StoryMarketParticipant() {
-  const [selectedStock, setSelectedStock] = useState('BBRI');
-  const [showHistory, setShowHistory] = useState(false);
-  const [stockInput, setStockInput] = useState('BBRI');
+interface StoryMarketParticipantProps {
+  selectedStock?: string;
+  hideMarketAnalysis?: boolean;
+  hideForeignFlowAnalysis?: boolean;
+}
+
+export function StoryMarketParticipant({ 
+  selectedStock: propSelectedStock, 
+  hideMarketAnalysis = false,
+  hideForeignFlowAnalysis = false 
+}: StoryMarketParticipantProps) {
+  const [selectedStock, setSelectedStock] = useState(propSelectedStock || 'BBRI');
+  const [stockInput, setStockInput] = useState(propSelectedStock || 'BBRI');
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [layoutMode, setLayoutMode] = useState<'split' | 'combined'>('combined');
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
 
-  const stocks = ['BBRI', 'BBCA', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM', 'ICBP', 'INDF', 'KLBF', 'ADRO', 'ANTM', 'ITMG', 'PTBA', 'SMGR', 'INTP', 'WIKA', 'WSKT', 'PGAS'];
+  // Real data state
+  const [candlestickDataReal, setCandlestickDataReal] = useState<any[]>([]);
+  const [moneyFlowDataReal, setMoneyFlowDataReal] = useState<any[]>([]);
+  const [volumeDataReal, setVolumeDataReal] = useState<any[]>([]);
+  const [foreignFlowDataReal, setForeignFlowDataReal] = useState<any[]>([]);
+  const [holdingDataReal, setHoldingDataReal] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  
+  // UI enhancements
+  const [availableStocks, setAvailableStocks] = useState<string[]>([]);
+  const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [tempDateRange, setTempDateRange] = useState({ start: '', end: '' });
+  const [dataLimit, setDataLimit] = useState(100);
+  
+  // Cache
+  const cacheRef = useRef<Map<string, { data: any; timestamp: number }>>(new Map());
+  const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
-  // Filter stocks based on input
-  const filteredStocks = stocks.filter(stock => 
-    stock.toLowerCase().includes(stockInput.toLowerCase())
-  );
+  const stocks = ['BBRI', 'BBCA', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM', 'ICBP', 'INDF', 'KLBF', 'ADRO', 'ANTM', 'ITMG', 'PTBA', 'SMGR', 'INTP', 'WIKA', 'WSKT', 'PGAS'];
 
   const handleStockSelect = (stock: string) => {
     setStockInput(stock);
@@ -537,6 +454,172 @@ export function StoryMarketParticipant() {
     }
   };
 
+  // Check cache
+  const getCachedData = (key: string) => {
+    const cached = cacheRef.current.get(key);
+    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+      return cached.data;
+    }
+    return null;
+  };
+
+  // Set cache
+  const setCachedData = (key: string, data: any) => {
+    cacheRef.current.set(key, { data, timestamp: Date.now() });
+  };
+
+  // Fetch real data from API with caching
+  const fetchStockData = async (stockCode: string) => {
+    try {
+      setLoading(true);
+      
+      // Check cache first
+      const cacheKey = `${stockCode}_${dateRange.start}_${dateRange.end}_${dataLimit}`;
+      const cachedData = getCachedData(cacheKey);
+      
+      if (cachedData) {
+        console.log('📦 Using cached data for', stockCode);
+        setCandlestickDataReal(cachedData.ohlcData);
+        setVolumeDataReal(cachedData.volumeData);
+        setMoneyFlowDataReal(cachedData.mfiData);
+        setForeignFlowDataReal(cachedData.foreignData);
+        setHoldingDataReal(cachedData.holdingData || []);
+        setLoading(false);
+        return;
+      }
+      
+      // Fetch OHLC data
+      const ohlcResponse = await api.getStockData(stockCode, dateRange.start, dateRange.end, dataLimit);
+      let ohlcData: any[] = [];
+      let volumeData: any[] = [];
+      
+      if (ohlcResponse.success && ohlcResponse.data?.data) {
+        ohlcData = ohlcResponse.data.data.map((row: any) => ({
+          time: row.Date as any, // Format: YYYY-MM-DD
+          open: row.Open,
+          high: row.High,
+          low: row.Low,
+          close: row.Close,
+          volume: row.Volume
+        }));
+        setCandlestickDataReal(ohlcData);
+        
+        // Extract volume data
+        volumeData = ohlcData.map((item: any) => ({
+          time: item.time,
+          volume: item.volume,
+          buyVolume: item.volume * 0.6, // Mock buy/sell split (we don't have this data yet)
+          sellVolume: item.volume * 0.4
+        }));
+        setVolumeDataReal(volumeData);
+      } else {
+        toast.error(`Failed to fetch OHLC data for ${stockCode}`);
+        setCandlestickDataReal([]);
+        setVolumeDataReal([]);
+      }
+      
+      // Fetch Money Flow data
+      const moneyFlowResponse = await api.getMoneyFlowData(stockCode, dataLimit);
+      let mfiData: any[] = [];
+      
+      if (moneyFlowResponse.success && moneyFlowResponse.data?.data) {
+        mfiData = moneyFlowResponse.data.data.map((row: any) => ({
+          time: row.Date as any,
+          moneyFlow: row.MFI, // MFI value (0-100)
+          inflow: row.MFI > 50 ? row.MFI * 100 : 0, // Mock inflow/outflow
+          outflow: row.MFI < 50 ? (100 - row.MFI) * 100 : 0
+        }));
+        setMoneyFlowDataReal(mfiData);
+      } else {
+        console.warn(`No money flow data for ${stockCode}`);
+        setMoneyFlowDataReal([]);
+      }
+      
+      // Fetch Foreign Flow data
+      const foreignFlowResponse = await api.getForeignFlowData(stockCode, dataLimit);
+      let foreignData: any[] = [];
+      
+      if (foreignFlowResponse.success && foreignFlowResponse.data?.data) {
+        foreignData = foreignFlowResponse.data.data.map((row: any) => ({
+          time: row.Date as any,
+          buyVol: row.BuyVol,
+          sellVol: row.SellVol,
+          netBuyVol: row.NetBuyVol
+        }));
+        setForeignFlowDataReal(foreignData);
+        console.log(`✅ Foreign flow data loaded: ${foreignData.length} records`);
+      } else {
+        console.warn(`No foreign flow data for ${stockCode}`);
+        setForeignFlowDataReal([]);
+      }
+      
+      // Fetch Holding/Shareholding data
+      const holdingResponse = await api.getHoldingData(stockCode, dataLimit);
+      let holdingData: any[] = [];
+      
+      if (holdingResponse.success && holdingResponse.data?.data) {
+        holdingData = holdingResponse.data.data;
+        setHoldingDataReal(holdingData);
+        console.log(`✅ Holding data loaded: ${holdingData.length} records`);
+      } else {
+        console.warn(`No holding data for ${stockCode}`);
+        setHoldingDataReal([]);
+      }
+      
+      // Cache the data
+      setCachedData(cacheKey, {
+        ohlcData,
+        volumeData,
+        mfiData,
+        foreignData,
+        holdingData
+      });
+      
+    } catch (error) {
+      console.error('Error fetching stock data:', error);
+      toast.error('Failed to fetch stock data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Update selectedStock when prop changes
+  useEffect(() => {
+    if (propSelectedStock && propSelectedStock !== selectedStock) {
+      setSelectedStock(propSelectedStock);
+      setStockInput(propSelectedStock);
+    }
+  }, [propSelectedStock, selectedStock]);
+
+  // Load available stocks on mount
+  useEffect(() => {
+    const loadStocks = async () => {
+      try {
+        const response = await api.getStockList();
+        if (response.success && response.data?.stocks) {
+          setAvailableStocks(response.data.stocks);
+        }
+      } catch (error) {
+        console.error('Failed to load stock list:', error);
+      }
+    };
+    loadStocks();
+  }, []);
+
+  // Fetch data when selected stock or limit changes (date range controlled by Apply button)
+  useEffect(() => {
+    if (selectedStock) {
+      fetchStockData(selectedStock);
+    }
+  }, [selectedStock, dataLimit]);
+  
+  // Separate effect for date range changes
+  useEffect(() => {
+    if (selectedStock && (dateRange.start || dateRange.end)) {
+      fetchStockData(selectedStock);
+    }
+  }, [dateRange.start, dateRange.end]);
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -550,17 +633,33 @@ export function StoryMarketParticipant() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Use available stocks from API or fallback to default
+  const stockList = availableStocks.length > 0 ? availableStocks : stocks;
+  const filteredStocksFromAPI = stockList.filter(stock => 
+    stock.toLowerCase().includes(stockInput.toLowerCase())
+  );
+  const MAX_DISPLAYED = 10;
+  const hasMore = filteredStocksFromAPI.length > MAX_DISPLAYED;
+  const displayedStocks = filteredStocksFromAPI.slice(0, MAX_DISPLAYED);
+  const moreCount = filteredStocksFromAPI.length - MAX_DISPLAYED;
+
   return (
     <div className="space-y-4">
       {/* Controls */}
       <Card>
         <CardContent className="p-4">
+          <div className="flex flex-col gap-4">
+            {/* Row 1: Stock Search & Layout */}
           <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-end justify-between">
-            <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-end w-full">
-              <div>
-                <label className="block text-sm font-medium mb-2">Stock:</label>
+              <div className="flex-1">
+                <label className="block text-sm font-medium mb-2">
+                  Stock Search:
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    Available stocks: {availableStocks.length > 0 ? availableStocks.length : stocks.length}
+                  </span>
+                </label>
                 <div className="relative stock-dropdown-container">
-                  <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground z-10" />
                   <input
                     type="text"
                     value={stockInput}
@@ -568,15 +667,15 @@ export function StoryMarketParticipant() {
                     onFocus={() => setShowStockSuggestions(true)}
                     onKeyDown={(e) => {
                       if (!showStockSuggestions) setShowStockSuggestions(true);
-                      if (e.key === 'ArrowDown' && filteredStocks.length) {
+                      if (e.key === 'ArrowDown' && displayedStocks.length) {
                         e.preventDefault();
-                        setHighlightedIndex((prev) => (prev + 1) % filteredStocks.length);
-                      } else if (e.key === 'ArrowUp' && filteredStocks.length) {
+                        setHighlightedIndex((prev) => (prev + 1) % displayedStocks.length);
+                      } else if (e.key === 'ArrowUp' && displayedStocks.length) {
                         e.preventDefault();
-                        setHighlightedIndex((prev) => (prev <= 0 ? filteredStocks.length - 1 : prev - 1));
+                        setHighlightedIndex((prev) => (prev <= 0 ? displayedStocks.length - 1 : prev - 1));
                       } else if (e.key === 'Enter') {
-                        if (highlightedIndex >= 0 && filteredStocks[highlightedIndex]) {
-                          handleStockSelect(filteredStocks[highlightedIndex]);
+                        if (highlightedIndex >= 0 && displayedStocks[highlightedIndex]) {
+                          handleStockSelect(displayedStocks[highlightedIndex]);
                           setHighlightedIndex(-1);
                         }
                       } else if (e.key === 'Escape') {
@@ -585,17 +684,29 @@ export function StoryMarketParticipant() {
                       }
                     }}
                     placeholder="Enter stock code..."
-                    className="pl-9 pr-3 py-1 h-10 border border-border rounded-md bg-background text-foreground w-full sm:w-64"
+                    className="pl-9 pr-10 py-1 h-10 border border-border rounded-md bg-background text-foreground w-full"
                   />
+                  {stockInput && (
+                    <button
+                      onClick={() => {
+                        setStockInput('');
+                        setShowStockSuggestions(true);
+                      }}
+                      className="absolute right-2 top-1/2 transform -translate-y-1/2 w-6 h-6 flex items-center justify-center hover:bg-muted rounded-full transition-colors z-10"
+                    >
+                      <X className="w-4 h-4 text-muted-foreground" />
+                    </button>
+                  )}
                   {showStockSuggestions && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-64 overflow-y-auto">
                       {stockInput === '' && (
                         <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
                           All Stocks
                         </div>
                       )}
-                      {filteredStocks.length > 0 ? (
-                        filteredStocks.map((stock, idx) => (
+                      {displayedStocks.length > 0 ? (
+                        <>
+                          {displayedStocks.map((stock, idx) => (
                           <div
                             key={stock}
                             onClick={() => handleStockSelect(stock)}
@@ -605,7 +716,13 @@ export function StoryMarketParticipant() {
                           >
                             {stock}
                           </div>
-                        ))
+                          ))}
+                          {hasMore && (
+                            <div className="px-3 py-2 text-xs text-muted-foreground border-t border-border">
+                              +{moreCount} more stocks available
+                            </div>
+                          )}
+                        </>
                       ) : (
                         <div className="px-3 py-2 text-sm text-muted-foreground">
                           No stocks found
@@ -613,7 +730,6 @@ export function StoryMarketParticipant() {
                       )}
                     </div>
                   )}
-                </div>
               </div>
             </div>
             
@@ -636,6 +752,59 @@ export function StoryMarketParticipant() {
                 >
                   Split
                 </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* Row 2: Date Range & Data Limit */}
+            <div className="flex flex-col sm:flex-row gap-4">
+              <div className="flex-1">
+                <label className="block text-sm font-medium mb-2">Date Range (optional):</label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type="date"
+                      value={tempDateRange.start}
+                      onChange={(e) => setTempDateRange(prev => ({ ...prev, start: e.target.value }))}
+                      className="pl-3 pr-9 py-1 h-10 border border-border rounded-md bg-background text-foreground w-full cursor-pointer"
+                      placeholder="Start date"
+                    />
+                    <Calendar className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                  </div>
+                  <span className="flex items-center text-muted-foreground">to</span>
+                  <div className="relative flex-1">
+                    <input
+                      type="date"
+                      value={tempDateRange.end}
+                      onChange={(e) => setTempDateRange(prev => ({ ...prev, end: e.target.value }))}
+                      className="pl-3 pr-9 py-1 h-10 border border-border rounded-md bg-background text-foreground w-full cursor-pointer"
+                      placeholder="End date"
+                    />
+                    <Calendar className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                  </div>
+                  <Button
+                    onClick={() => setDateRange(tempDateRange)}
+                    className="h-10 px-4"
+                    variant="default"
+                  >
+                    Apply Date
+                  </Button>
+                </div>
+              </div>
+              
+              <div className="w-full sm:w-48">
+                <label className="block text-sm font-medium mb-2">Data Points:</label>
+                <select
+                  value={dataLimit}
+                  onChange={(e) => setDataLimit(Number(e.target.value))}
+                  className="w-full h-10 px-3 border border-border rounded-md bg-background text-foreground"
+                >
+                  <option value={30}>Last 30 days</option>
+                  <option value={60}>Last 60 days</option>
+                  <option value={100}>Last 100 days</option>
+                  <option value={200}>Last 200 days</option>
+                  <option value={365}>Last 1 year</option>
+                </select>
               </div>
             </div>
           </div>
@@ -644,7 +813,22 @@ export function StoryMarketParticipant() {
 
       {/* Main Chart Layout */}
       <div className="space-y-4">
-        {layoutMode === 'combined' ? (
+        {loading ? (
+          <Card>
+            <CardContent className="p-12 text-center">
+              <div className="flex items-center justify-center gap-2">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                <p className="text-muted-foreground">Loading data for {selectedStock}...</p>
+              </div>
+            </CardContent>
+          </Card>
+        ) : candlestickDataReal.length === 0 ? (
+          <Card>
+            <CardContent className="p-12 text-center">
+              <p className="text-muted-foreground">No data available for {selectedStock}</p>
+            </CardContent>
+          </Card>
+        ) : layoutMode === 'combined' && !hideMarketAnalysis ? (
           /* Combined TradingView Chart with Multiple Panes */
           <Card>
             <CardHeader>
@@ -653,13 +837,13 @@ export function StoryMarketParticipant() {
             </CardHeader>
             <CardContent>
               <TradingViewMultiPaneChart 
-                candlestickData={candlestickData}
-                moneyFlowData={moneyFlowData}
-                volumeData={volumeData}
+                candlestickData={candlestickDataReal}
+                moneyFlowData={moneyFlowDataReal.length > 0 ? moneyFlowDataReal : moneyFlowData}
+                volumeData={volumeDataReal}
               />
             </CardContent>
           </Card>
-        ) : (
+        ) : !hideMarketAnalysis ? (
           /* Split View - Individual Charts */
           <div className="space-y-4">
             {/* Price Chart */}
@@ -670,9 +854,8 @@ export function StoryMarketParticipant() {
               </CardHeader>
               <CardContent>
                 <IndividualChart 
-                  data={candlestickData}
+                  data={candlestickDataReal}
                   chartType="candlestick"
-                  title="Price"
                   height={300}
                 />
               </CardContent>
@@ -681,17 +864,16 @@ export function StoryMarketParticipant() {
             {/* Money Flow Chart */}
         <Card>
           <CardHeader>
-                <CardTitle>{selectedStock} - Money Flow</CardTitle>
-                <p className="text-sm text-muted-foreground">Money flow analysis showing inflow and outflow</p>
+                <CardTitle>{selectedStock} - Money Flow Index (MFI)</CardTitle>
+                <p className="text-sm text-muted-foreground">MFI indicator (0-100): &lt;20 Oversold, &gt;80 Overbought</p>
           </CardHeader>
           <CardContent>
                 <IndividualChart 
-                  data={moneyFlowData.map(d => ({
+                  data={(moneyFlowDataReal.length > 0 ? moneyFlowDataReal : moneyFlowData).map(d => ({
                     time: d.time,
                     value: d.moneyFlow
                   }))}
                   chartType="line"
-                  title="Money Flow"
                   color="#3b82f6"
                   height={200}
                 />
@@ -706,32 +888,107 @@ export function StoryMarketParticipant() {
               </CardHeader>
               <CardContent>
                 <IndividualChart 
-                  data={volumeData.map(d => ({
+                  data={volumeDataReal.map(d => ({
                     time: d.time,
                     value: d.volume
                   }))}
                   chartType="histogram"
-                  title="Volume"
                   color="#8b5cf6"
                   height={200}
                 />
               </CardContent>
             </Card>
           </div>
-        )}
+        ) : null}
 
         {/* Stacked Bar Charts Section */}
         <div className="space-y-4">
+          {/* Foreign Flow Chart */}
+          {foreignFlowDataReal.length > 0 && !hideForeignFlowAnalysis && (
+            <Card>
+              <CardHeader>
+                <CardTitle>{selectedStock} - Foreign Flow Analysis</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Foreign investor buying and selling activity. Positive net = Foreign net buy (bullish), Negative net = Foreign net sell (bearish)
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={foreignFlowDataReal} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+                      <XAxis 
+                        dataKey="time" 
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                      />
+                      <YAxis 
+                        yAxisId="left"
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                        label={{ value: 'Volume', angle: -90, position: 'insideLeft', style: { fontSize: 12 } }}
+                      />
+                      <YAxis 
+                        yAxisId="right"
+                        orientation="right"
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                        label={{ value: 'Net Buy Volume', angle: 90, position: 'insideRight', style: { fontSize: 12 } }}
+                      />
+                      <Tooltip 
+                        contentStyle={{
+                          backgroundColor: 'hsl(var(--popover))',
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: '6px',
+                          fontSize: '12px'
+                        }}
+                      />
+                      <Legend />
+                      <Bar yAxisId="left" dataKey="buyVol" fill="#10b981" name="Foreign Buy" />
+                      <Bar yAxisId="left" dataKey="sellVol" fill="#ef4444" name="Foreign Sell" />
+                      <Line 
+                        yAxisId="right" 
+                        type="monotone" 
+                        dataKey="netBuyVol" 
+                        stroke="#3b82f6" 
+                        strokeWidth={2}
+                        name="Net Buy Volume"
+                        dot={false}
+                      />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Local Market Participants Stacked Chart */}
+        {holdingDataReal.length > 0 && (
         <Card>
           <CardHeader>
-              <CardTitle>Local Market Participants Breakdown</CardTitle>
-              <p className="text-sm text-muted-foreground">Local investor types distribution over time</p>
+              <CardTitle>{selectedStock} - Local Market Participants Breakdown</CardTitle>
+              <p className="text-sm text-muted-foreground">Local investor types distribution over time (percentage ownership)</p>
           </CardHeader>
           <CardContent>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={localStackedData} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
+                  <BarChart 
+                    data={holdingDataReal.map(row => ({
+                      date: row.date,
+                      Corporate: row['local_Corporate_inPercent'] || 0,
+                      'Financial Institution': row['local_Financial Institution_inPercent'] || 0,
+                      Individual: row['local_Individual_inPercent'] || 0,
+                      Insurance: row['local_Insurance_inPercent'] || 0,
+                      'Mutual Fund': row['local_Mutual Fund_inPercent'] || 0,
+                      Others: row['local_Others_inPercent'] || 0,
+                      'Pension Fund': row['local_Pension Fund_inPercent'] || 0,
+                      'Securities Company': row['local_Securities Company_inPercent'] || 0
+                    }))} 
+                    margin={{ top: 10, right: 10, left: 10, bottom: 10 }}
+                  >
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
                     <XAxis 
                       dataKey="date" 
@@ -751,32 +1008,47 @@ export function StoryMarketParticipant() {
                         borderRadius: '6px',
                         fontSize: '12px'
                       }}
-                      formatter={(value, name) => [`${value}%`, name]}
+                      formatter={(value: any) => [`${parseFloat(value).toFixed(2)}%`, '']}
                     />
                     <Bar dataKey="Corporate" stackId="local" fill="#3b82f6" name="Corporate" />
-                    <Bar dataKey="FinancialInstitution" stackId="local" fill="#8b5cf6" name="Financial Institution" />
+                    <Bar dataKey="Financial Institution" stackId="local" fill="#8b5cf6" name="Financial Institution" />
                     <Bar dataKey="Individual" stackId="local" fill="#10b981" name="Individual" />
                     <Bar dataKey="Insurance" stackId="local" fill="#f59e0b" name="Insurance" />
-                    <Bar dataKey="MutualFund" stackId="local" fill="#ef4444" name="Mutual Fund" />
+                    <Bar dataKey="Mutual Fund" stackId="local" fill="#ef4444" name="Mutual Fund" />
                     <Bar dataKey="Others" stackId="local" fill="#6b7280" name="Others" />
-                    <Bar dataKey="PensionFund" stackId="local" fill="#84cc16" name="Pension Fund" />
-                    <Bar dataKey="SecuritiesCompany" stackId="local" fill="#f97316" name="Securities Company" />
+                    <Bar dataKey="Pension Fund" stackId="local" fill="#84cc16" name="Pension Fund" />
+                    <Bar dataKey="Securities Company" stackId="local" fill="#f97316" name="Securities Company" />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
           </CardContent>
         </Card>
+        )}
 
           {/* Foreign Market Participants Stacked Chart */}
+        {holdingDataReal.length > 0 && (
         <Card>
           <CardHeader>
-              <CardTitle>Foreign Market Participants Breakdown</CardTitle>
-              <p className="text-sm text-muted-foreground">Foreign investor types distribution over time</p>
+              <CardTitle>{selectedStock} - Foreign Market Participants Breakdown</CardTitle>
+              <p className="text-sm text-muted-foreground">Foreign investor types distribution over time (percentage ownership)</p>
           </CardHeader>
           <CardContent>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={foreignStackedData} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
+                  <BarChart 
+                    data={holdingDataReal.map(row => ({
+                      date: row.date,
+                      Corporate: row['foreign_Corporate_inPercent'] || 0,
+                      'Financial Institution': row['foreign_Financial Institution_inPercent'] || 0,
+                      Individual: row['foreign_Individual_inPercent'] || 0,
+                      Insurance: row['foreign_Insurance_inPercent'] || 0,
+                      'Mutual Fund': row['foreign_Mutual Fund_inPercent'] || 0,
+                      Others: row['foreign_Others_inPercent'] || 0,
+                      'Pension Fund': row['foreign_Pension Fund_inPercent'] || 0,
+                      'Securities Company': row['foreign_Securities Company_inPercent'] || 0
+                    }))} 
+                    margin={{ top: 10, right: 10, left: 10, bottom: 10 }}
+                  >
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
                     <XAxis 
                       dataKey="date" 
@@ -796,32 +1068,41 @@ export function StoryMarketParticipant() {
                         borderRadius: '6px',
                         fontSize: '12px'
                       }}
-                      formatter={(value, name) => [`${value}%`, name]}
+                      formatter={(value: any) => [`${parseFloat(value).toFixed(2)}%`, '']}
                     />
                     <Bar dataKey="Corporate" stackId="foreign" fill="#3b82f6" name="Corporate" />
-                    <Bar dataKey="FinancialInstitution" stackId="foreign" fill="#8b5cf6" name="Financial Institution" />
+                    <Bar dataKey="Financial Institution" stackId="foreign" fill="#8b5cf6" name="Financial Institution" />
                     <Bar dataKey="Individual" stackId="foreign" fill="#10b981" name="Individual" />
                     <Bar dataKey="Insurance" stackId="foreign" fill="#f59e0b" name="Insurance" />
-                    <Bar dataKey="MutualFund" stackId="foreign" fill="#ef4444" name="Mutual Fund" />
+                    <Bar dataKey="Mutual Fund" stackId="foreign" fill="#ef4444" name="Mutual Fund" />
                     <Bar dataKey="Others" stackId="foreign" fill="#6b7280" name="Others" />
-                    <Bar dataKey="PensionFund" stackId="foreign" fill="#84cc16" name="Pension Fund" />
-                    <Bar dataKey="SecuritiesCompany" stackId="foreign" fill="#f97316" name="Securities Company" />
+                    <Bar dataKey="Pension Fund" stackId="foreign" fill="#84cc16" name="Pension Fund" />
+                    <Bar dataKey="Securities Company" stackId="foreign" fill="#f97316" name="Securities Company" />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
           </CardContent>
         </Card>
+        )}
 
           {/* Combined Local vs Foreign Chart */}
+          {holdingDataReal.length > 0 && (
           <Card>
             <CardHeader>
-              <CardTitle>Local vs Foreign Market Comparison</CardTitle>
-              <p className="text-sm text-muted-foreground">Total local vs foreign participation over time</p>
+                <CardTitle>{selectedStock} - Local vs Foreign Market Comparison</CardTitle>
+                <p className="text-sm text-muted-foreground">Total local vs foreign ownership over time (percentage)</p>
             </CardHeader>
             <CardContent>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={combinedStackedData} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
+                    <BarChart 
+                      data={holdingDataReal.map(row => ({
+                        date: row.date,
+                        Local: row['local_total_inPercent'] || 0,
+                        Foreign: row['foreign_total_inPercent'] || 0
+                      }))} 
+                      margin={{ top: 10, right: 10, left: 10, bottom: 10 }}
+                    >
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
                     <XAxis 
                       dataKey="date" 
@@ -841,7 +1122,7 @@ export function StoryMarketParticipant() {
                         borderRadius: '6px',
                         fontSize: '12px'
                       }}
-                      formatter={(value, name) => [`${value}%`, name]}
+                        formatter={(value: any) => [`${parseFloat(value).toFixed(2)}%`, '']}
                     />
                     <Bar dataKey="Local" stackId="combined" fill="#3b82f6" name="Local" />
                     <Bar dataKey="Foreign" stackId="combined" fill="#f59e0b" name="Foreign" />
@@ -850,6 +1131,7 @@ export function StoryMarketParticipant() {
               </div>
             </CardContent>
           </Card>
+          )}
         </div>
       </div>
     </div>

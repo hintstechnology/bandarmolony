@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { Calendar, Plus, X, ChevronDown, RotateCcw, TrendingUp, Search } from 'lucide-react';
+import { ChevronDown, TrendingUp, Calendar, Plus, X, Search, RotateCcw } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
+import { api } from '../../services/api';
+import { STOCK_LIST, searchStocks } from '../../data/stockList';
 
 interface PriceData {
   price: number;
@@ -13,6 +15,21 @@ interface PriceData {
   sFreq: number;
   tFreq: number;
   tLot: number;
+}
+
+// Backend bid/ask data interface
+interface BackendBidAskData {
+  StockCode: string;
+  Price: number;
+  BidVolume: number;
+  AskVolume: number;
+  NetVolume: number;
+  TotalVolume: number;
+  BidCount: number;
+  AskCount: number;
+  TotalCount: number;
+  UniqueBidBrokers: number;
+  UniqueAskBrokers: number;
 }
 
 interface BrokerBreakdownData {
@@ -26,13 +43,9 @@ interface BrokerBreakdownData {
   tLot: number;
 }
 
-// Available stocks from the data
-const AVAILABLE_STOCKS = [
-  'BBRI', 'BBCA', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM', 'ICBP', 'INDF', 
-  'KLBF', 'ADRO', 'ANTM', 'ITMG', 'PTBA', 'SMGR', 'INTP', 'WIKA', 'WSKT', 'PGAS'
-];
 
-// Generate realistic price data based on BBRI.csv structure
+// Generate realistic price data based on BBRI.csv structure (DEPRECATED - using real data now)
+/*
 const generatePriceData = (stock: string, date: string): PriceData[] => {
   const basePrice = stock === 'BBRI' ? 4150 : stock === 'BBCA' ? 2750 : stock === 'BMRI' ? 3200 : 1500;
   
@@ -67,6 +80,7 @@ const generatePriceData = (stock: string, date: string): PriceData[] => {
   
   return data.sort((a, b) => b.price - a.price); // Sort by price descending
 };
+*/
 
 // Generate broker breakdown data
 const generateBrokerBreakdownData = (stock: string, date: string): BrokerBreakdownData[] => {
@@ -122,17 +136,24 @@ const formatNumber = (num: number): string => {
   return num.toLocaleString();
 };
 
-// Helper function to find max values for highlighting
-const findMaxValues = (data: PriceData[]) => {
-  return {
-    maxBLot: Math.max(...data.map(d => d.bLot)),
-    maxSLot: Math.max(...data.map(d => d.sLot)),
-    maxBFreq: Math.max(...data.map(d => d.bFreq)),
-    maxSFreq: Math.max(...data.map(d => d.sFreq)),
-    maxTFreq: Math.max(...data.map(d => d.tFreq)),
-    maxTLot: Math.max(...data.map(d => d.tLot))
-  };
+// Format number with K, M, B abbreviations
+const formatNumberWithAbbreviation = (num: number): string => {
+  if (num === 0) return '0';
+  
+  const absNum = Math.abs(num);
+  const sign = num < 0 ? '-' : '';
+  
+  if (absNum >= 1e9) {
+    return sign + (absNum / 1e9).toFixed(1) + 'B';
+  } else if (absNum >= 1e6) {
+    return sign + (absNum / 1e6).toFixed(1) + 'M';
+  } else if (absNum >= 1e3) {
+    return sign + (absNum / 1e3).toFixed(1) + 'K';
+  } else {
+    return num.toLocaleString();
+  }
 };
+
 
 // Helper function to calculate totals
 const calculateTotals = (data: PriceData[]) => {
@@ -160,12 +181,12 @@ const calculateBrokerBreakdownTotals = (stock: string, date: string) => {
 };
 
 // Helper function to get all unique prices across all dates that have transactions (sorted ascending)
-const getAllUniquePrices = (stock: string, dates: string[]): number[] => {
+const getAllUniquePrices = (stock: string, dates: string[], priceDataByDate: { [date: string]: PriceData[] }): number[] => {
   const allPrices = new Set<number>();
   
   // First, collect all possible prices from all dates
   dates.forEach(date => {
-    const data = generatePriceData(stock, date);
+    const data = priceDataByDate[date] || [];
     data.forEach(item => allPrices.add(item.price));
   });
   
@@ -175,7 +196,7 @@ const getAllUniquePrices = (stock: string, dates: string[]): number[] => {
     let hasAnyTransaction = false;
     
     for (const date of dates) {
-      const data = getDataForPriceAndDate(stock, date, price);
+      const data = getDataForPriceAndDate(stock, date, price, priceDataByDate);
       if (data && (
         data.bFreq > 0 || data.bLot > 0 || data.sLot > 0 || 
         data.sFreq > 0 || data.tFreq > 0 || data.tLot > 0
@@ -193,7 +214,7 @@ const getAllUniquePrices = (stock: string, dates: string[]): number[] => {
     let totalTransactions = 0;
     
     for (const date of dates) {
-      const data = getDataForPriceAndDate(stock, date, price);
+      const data = getDataForPriceAndDate(stock, date, price, priceDataByDate);
       if (data) {
         totalTransactions += data.bFreq + data.bLot + data.sLot + data.sFreq + data.tFreq + data.tLot;
       }
@@ -206,17 +227,18 @@ const getAllUniquePrices = (stock: string, dates: string[]): number[] => {
 };
 
 // Helper function to get data for specific price and date
-const getDataForPriceAndDate = (stock: string, date: string, price: number): PriceData | null => {
-  const data = generatePriceData(stock, date);
+const getDataForPriceAndDate = (_stock: string, date: string, price: number, priceDataByDate: { [date: string]: PriceData[] }): PriceData | null => {
+  const data = priceDataByDate[date] || [];
   return data.find(item => item.price === price) || null;
 };
 
+
 // Helper function to find max values across all dates for horizontal layout
-const findMaxValuesHorizontal = (stock: string, dates: string[]) => {
+const findMaxValuesHorizontal = (_stock: string, dates: string[], priceDataByDate: { [date: string]: PriceData[] }) => {
   let maxBFreq = 0, maxBLot = 0, maxSLot = 0, maxSFreq = 0, maxTFreq = 0, maxTLot = 0;
   
   dates.forEach(date => {
-    const data = generatePriceData(stock, date);
+    const data = priceDataByDate[date] || [];
     data.forEach(item => {
       if (item.bFreq > maxBFreq) maxBFreq = item.bFreq;
       if (item.bLot > maxBLot) maxBLot = item.bLot;
@@ -311,18 +333,24 @@ const findMaxValuesBrokerHorizontal = (stock: string, dates: string[]) => {
   return { maxBFreq, maxBLot, maxSLot, maxSFreq, maxTFreq, maxTLot };
 };
 
-// Get trading days based on count
+// Get trading days based on count (excluding today)
 const getTradingDays = (count: number): string[] => {
   const dates: string[] = [];
   const today = new Date();
   let currentDate = new Date(today);
+  
+  // Start from yesterday (exclude today)
+  currentDate.setDate(currentDate.getDate() - 1);
   
   while (dates.length < count) {
     const dayOfWeek = currentDate.getDay();
     
     // Skip weekends (Saturday = 6, Sunday = 0)
     if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-      dates.push(currentDate.toISOString().split('T')[0]);
+      const dateStr = currentDate.toISOString().split('T')[0];
+      if (dateStr) {
+        dates.push(dateStr);
+      }
     }
     
     // Go to previous day
@@ -330,7 +358,10 @@ const getTradingDays = (count: number): string[] => {
     
     // Safety check
     if (dates.length === 0 && currentDate.getTime() < today.getTime() - (30 * 24 * 60 * 60 * 1000)) {
-      dates.push(today.toISOString().split('T')[0]);
+      const yesterdayStr = new Date(today.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      if (yesterdayStr) {
+        dates.push(yesterdayStr);
+      }
       break;
     }
   }
@@ -338,16 +369,36 @@ const getTradingDays = (count: number): string[] => {
   return dates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
 };
 
-// Helper function to get last 3 days including today (sorted newest first)
-const getLastThreeDays = (): string[] => {
+// Helper function to get last 3 trading days
+const getLastThreeTradingDays = (): string[] => {
   return getTradingDays(3);
 };
 
-export function StockTransactionDoneSummary() {
+interface StockTransactionDoneSummaryProps {
+  selectedStock?: string;
+}
+
+export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }: StockTransactionDoneSummaryProps) {
   const { showToast } = useToast();
-  const [selectedDates, setSelectedDates] = useState<string[]>(getLastThreeDays());
+  const [selectedDates, setSelectedDates] = useState<string[]>(getLastThreeTradingDays());
+  const [selectedStock, setSelectedStock] = useState(propSelectedStock || 'BBRI');
+  const [viewMode, setViewMode] = useState<'summary' | 'broker'>('summary');
+  
+  // Real data states
+  const [priceDataByDate, setPriceDataByDate] = useState<{ [date: string]: PriceData[] }>({});
+  const [_brokerDataByDate, setBrokerDataByDate] = useState<{ [date: string]: BrokerBreakdownData[] }>({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [availableStocks] = useState<string[]>(STOCK_LIST);
+  const [_availableDates] = useState<string[]>([]);
+  
+  // UI states
+  const [stockInput, setStockInput] = useState('BBRI');
+  const [showStockSuggestions, setShowStockSuggestions] = useState(false);
+  const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const [startDate, setStartDate] = useState(() => {
-    const threeDays = getLastThreeDays();
+    const threeDays = getLastThreeTradingDays();
     if (threeDays.length > 0) {
       const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
       return sortedDates[0];
@@ -355,20 +406,33 @@ export function StockTransactionDoneSummary() {
     return '';
   });
   const [endDate, setEndDate] = useState(() => {
-    const threeDays = getLastThreeDays();
+    const threeDays = getLastThreeTradingDays();
     if (threeDays.length > 0) {
       const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
       return sortedDates[sortedDates.length - 1];
     }
     return '';
   });
-  const [selectedStock, setSelectedStock] = useState('BBRI');
-  const [stockInput, setStockInput] = useState('BBRI');
-  const [showStockSuggestions, setShowStockSuggestions] = useState(false);
-  const [viewMode, setViewMode] = useState<'summary' | 'broker'>('summary');
-  const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical'>('horizontal');
   const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
-  const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
+
+  // Helper functions
+  const handleStockSelect = (stock: string) => {
+    setSelectedStock(stock);
+    setStockInput(stock);
+    setShowStockSuggestions(false);
+  };
+
+  const handleStockInputChange = (value: string) => {
+    setStockInput(value);
+    setShowStockSuggestions(true);
+
+    // If exact match, select it
+    if (STOCK_LIST.includes(value.toUpperCase())) {
+      setSelectedStock(value.toUpperCase());
+    }
+  };
+
+  const filteredStocks = searchStocks(stockInput);
 
   const addDateRange = () => {
     if (startDate && endDate) {
@@ -385,59 +449,65 @@ export function StockTransactionDoneSummary() {
         return;
       }
       
-      // Check if range is within 7 days
+      // Check if range is within 7 trading days (excluding weekends)
       const diffTime = Math.abs(end.getTime() - start.getTime());
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
       
-      if (diffDays > 7) {
+      if (diffDays > 14) { // Allow up to 14 calendar days to get 7 trading days
         showToast({
           type: 'warning',
           title: 'Rentang Tanggal Terlalu Panjang',
-          message: 'Maksimal rentang tanggal adalah 7 hari',
+          message: 'Maksimal rentang tanggal adalah 7 hari trading (tidak termasuk weekend)',
         });
         return;
       }
       
-      // Generate date array
+      // Generate date array (excluding weekends)
       const dateArray: string[] = [];
       const currentDate = new Date(start);
       
       while (currentDate <= end) {
-        const dateString = currentDate.toISOString().split('T')[0];
-        dateArray.push(dateString);
+        const dayOfWeek = currentDate.getDay(); // 0 = Sunday, 6 = Saturday
+        // Skip weekends (Saturday = 6, Sunday = 0)
+        if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+          const dateString = currentDate.toISOString().split('T')[0];
+          if (dateString) {
+            dateArray.push(dateString);
+          }
+        }
         currentDate.setDate(currentDate.getDate() + 1);
       }
       
       // Remove duplicates, sort by date (newest first), and set
       const uniqueDates = Array.from(new Set([...selectedDates, ...dateArray]));
       const sortedDates = uniqueDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+
+      // Check if total trading dates would exceed 7
+      if (sortedDates.length > 7) {
+        showToast({
+          type: 'warning',
+          title: 'Terlalu Banyak Tanggal',
+          message: 'Maksimal 7 hari trading yang bisa dipilih (tidak termasuk weekend)',
+        });
+        return;
+      }
+
       setSelectedDates(sortedDates);
-      // Switch to custom mode when user manually selects dates
       setDateRangeMode('custom');
-      setStartDate('');
-      setEndDate('');
     }
   };
 
   const removeDate = (dateToRemove: string) => {
     if (selectedDates.length > 1) {
       setSelectedDates(selectedDates.filter(date => date !== dateToRemove));
-      // Switch to custom mode when user manually removes dates
       setDateRangeMode('custom');
     }
   };
 
-  const formatDisplayDate = (dateString: string): string => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
-  };
-
-  // Handle date range mode change
   const handleDateRangeModeChange = (mode: '1day' | '3days' | '1week' | 'custom') => {
     setDateRangeMode(mode);
     
     if (mode === 'custom') {
-      // Don't change dates, just switch to custom mode
       return;
     }
     
@@ -465,7 +535,6 @@ export function StockTransactionDoneSummary() {
     }
   };
 
-  // Clear all dates and reset to 1 day
   const clearAllDates = () => {
     setSelectedDates(getTradingDays(1));
     setDateRangeMode('1day');
@@ -476,42 +545,189 @@ export function StockTransactionDoneSummary() {
     }
   };
 
-  // Filter stocks based on input
-  const filteredStocks = AVAILABLE_STOCKS.filter(stock => 
-    stock.toLowerCase().includes(stockInput.toLowerCase())
-  );
-
-  const handleStockSelect = (stock: string) => {
-    setStockInput(stock);
-    setSelectedStock(stock);
-    setShowStockSuggestions(false);
-  };
-
-  const handleStockInputChange = (value: string) => {
-    setStockInput(value.toUpperCase());
-    setShowStockSuggestions(true);
-    // Auto-select if exact match
-    if (AVAILABLE_STOCKS.includes(value.toUpperCase())) {
-      setSelectedStock(value.toUpperCase());
-    }
-  };
-
-  // Close dropdown when clicking outside
+  // Handle click outside to close dropdown
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Element;
-      if (!target.closest('.stock-dropdown-container')) {
-        setShowStockSuggestions(false);
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+    setShowStockSuggestions(false);
       }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
   }, []);
 
+
+  // Convert backend bid/ask data to frontend format
+  const convertBackendToFrontend = (backendData: BackendBidAskData[]): PriceData[] => {
+    return backendData.map(item => ({
+      price: Number(item.Price),
+      bLot: Number(item.BidVolume),      // BLot dari BidVolume
+      bFreq: Number(item.BidCount),      // BFreq dari BidCount
+      sLot: Number(item.AskVolume),      // SLot dari AskVolume
+      sFreq: Number(item.AskCount),       // SFreq dari AskCount
+      tLot: Number(item.TotalVolume),    // TLot dari TotalVolume
+      tFreq: parseInt(String(item.TotalCount), 10)     // TFreq dari TotalCount - ensure integer
+    }));
+  };
+
+  // No need to load stocks from API anymore - using static list
+
+  // Update selectedStock when prop changes
+  useEffect(() => {
+    if (propSelectedStock && propSelectedStock !== selectedStock) {
+      setSelectedStock(propSelectedStock);
+    }
+  }, [propSelectedStock, selectedStock]);
+
+  // Fetch data when selected stock or dates change
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!selectedStock || selectedDates.length === 0) {
+        console.log('Skipping fetch - missing stock or dates:', { selectedStock, selectedDates });
+        return;
+      }
+
+      console.log('Starting to fetch data for:', { selectedStock, selectedDates });
+      setLoading(true);
+      setError(null);
+
+      try {
+        // Fetch bid/ask data for all selected dates
+        console.log('Calling API getBidAskBatch...');
+        console.log('Selected dates:', selectedDates);
+        console.log('Selected stock:', selectedStock);
+        console.log('Date format check:', {
+          original: selectedDates[0],
+          formatted: selectedDates[0]?.replace(/-/g, ''),
+          expected: '20251022'
+        });
+        console.log('API URL would be:', `${(import.meta as any).env?.VITE_API_URL || 'http://localhost:3001'}/api/bidask/stock/${selectedStock}/${selectedDates[0]}`);
+        
+        // Test individual API call first
+        if (selectedDates.length > 0 && selectedDates[0]) {
+          console.log('Testing individual API call...');
+          try {
+            // Convert date format from YYYY-MM-DD to YYYYMMDD
+            const formattedDate = selectedDates[0].replace(/-/g, '');
+            console.log('Formatted date for API:', formattedDate);
+            const testResponse = await api.getBidAskData(selectedStock, formattedDate);
+            console.log('Individual API test response:', testResponse);
+          } catch (testError) {
+            console.error('Individual API test error:', testError);
+          }
+        }
+        
+        // Convert dates to YYYYMMDD format for API
+        const formattedDates = selectedDates.map(date => date.replace(/-/g, ''));
+        console.log('Formatted dates for batch API:', formattedDates);
+        const response = await api.getBidAskBatch(selectedStock, formattedDates);
+        
+        // Create a mapping from formatted dates back to original dates
+        const dateMapping: { [formatted: string]: string } = {};
+        selectedDates.forEach((original, index) => {
+          const formatted = formattedDates[index];
+          if (formatted) {
+            dateMapping[formatted] = original;
+          }
+        });
+        console.log('Date mapping:', dateMapping);
+        
+        console.log('API Response:', response);
+        console.log('Response success:', response.success);
+        console.log('Response data:', response.data);
+        console.log('Response error:', response.error);
+        
+        if (response.success && response.data?.dataByDate) {
+          console.log('Data by date:', response.data.dataByDate);
+          const newPriceDataByDate: { [date: string]: PriceData[] } = {};
+          const newBrokerDataByDate: { [date: string]: BrokerBreakdownData[] } = {};
+          
+          Object.entries(response.data.dataByDate).forEach(([formattedDate, dateData]: [string, any]) => {
+            const originalDate = dateMapping[formattedDate] || formattedDate;
+            console.log(`Processing formatted date ${formattedDate} -> original date ${originalDate}:`, dateData);
+            if (dateData.data && Array.isArray(dateData.data)) {
+              console.log(`Raw data for ${originalDate}:`, dateData.data);
+              console.log(`Raw data length:`, dateData.data.length);
+              console.log(`First raw item:`, dateData.data[0]);
+              // Convert backend data to frontend format
+              const convertedData = convertBackendToFrontend(dateData.data);
+              console.log(`Converted data for ${originalDate}:`, convertedData);
+              console.log(`Converted data length:`, convertedData.length);
+              console.log(`First converted item:`, convertedData[0]);
+              newPriceDataByDate[originalDate] = convertedData;
+              
+              // For broker breakdown, we'll use the same data but group by broker
+              // This is a simplified version - in real implementation, you might need separate broker data
+              const brokerData: BrokerBreakdownData[] = convertedData.map(item => ({
+                broker: 'ALL', // Simplified - in real implementation, you'd have broker-specific data
+                price: item.price,
+                bLot: item.bLot,
+                sLot: item.sLot,
+                bFreq: item.bFreq,
+                sFreq: item.sFreq,
+                tFreq: item.tFreq,
+                tLot: item.tLot
+              }));
+              newBrokerDataByDate[originalDate] = brokerData;
+            } else {
+              console.log(`No data for date ${originalDate}:`, dateData);
+            }
+          });
+          
+          console.log('Final priceDataByDate:', newPriceDataByDate);
+          console.log('Final priceDataByDate keys:', Object.keys(newPriceDataByDate));
+          console.log('Final priceDataByDate values:', Object.values(newPriceDataByDate));
+          setPriceDataByDate(newPriceDataByDate);
+          setBrokerDataByDate(newBrokerDataByDate);
+        } else {
+          console.log('No data received or API failed:', response);
+          
+          // No fallback data - let table be empty if no real data
+          console.log('No data available for selected dates');
+          setPriceDataByDate({});
+          setBrokerDataByDate({});
+        }
+
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        setError('Failed to load data');
+        showToast({
+          type: 'error',
+          title: 'Error',
+          message: 'Failed to load data. Please try again.'
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [selectedStock, selectedDates, showToast]);
+
+
+  const formatDisplayDate = (dateString: string): string => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
+  };
+
+
+
   const renderHorizontalSummaryView = () => {
-    const allPrices = getAllUniquePrices(selectedStock, selectedDates);
-    const maxValues = findMaxValuesHorizontal(selectedStock, selectedDates);
+    console.log('Rendering summary view with:', {
+      selectedStock,
+      selectedDates,
+      priceDataByDate,
+      priceDataByDateKeys: Object.keys(priceDataByDate)
+    });
+    
+    const allPrices = getAllUniquePrices(selectedStock, selectedDates, priceDataByDate);
+    console.log('All prices found:', allPrices);
+    
+    const maxValues = findMaxValuesHorizontal(selectedStock, selectedDates, priceDataByDate);
+    console.log('Max values:', maxValues);
     
     return (
       <Card>
@@ -534,19 +750,28 @@ export function StockTransactionDoneSummary() {
                       {formatDisplayDate(date)}
                     </th>
                   ))}
+                  <th colSpan={6} className="text-center py-2 px-1 font-medium border-l border-border bg-accent/30">
+                    Total
+                  </th>
                 </tr>
                 {/* Sub Header Row - Metrics */}
                 <tr className="border-b border-border bg-accent">
                   {selectedDates.map((date) => (
                     <React.Fragment key={date}>
-                      <th className="text-right py-1 px-1 font-medium text-[10px]">BFreq</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px]">BLot</th>
+                      <th className="text-right py-1 px-1 font-medium text-[10px]">BFreq</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px]">SLot</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px]">SFreq</th>
-                      <th className="text-right py-1 px-1 font-medium text-[10px]">TFreq</th>
-                      <th className="text-right py-1 px-1 font-medium text-[10px] border-r-2 border-border">TLot</th>
+                      <th className="text-right py-1 px-1 font-medium text-[10px]">TLot</th>
+                      <th className="text-right py-1 px-1 font-medium text-[10px] border-r-2 border-border">TFreq</th>
                     </React.Fragment>
                   ))}
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">BLot</th>
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">BFreq</th>
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">SLot</th>
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">SFreq</th>
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">TLot</th>
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30 border-r-2 border-border">TFreq</th>
                 </tr>
               </thead>
               <tbody>
@@ -556,160 +781,152 @@ export function StockTransactionDoneSummary() {
                       {formatNumber(price)}
                     </td>
                     {selectedDates.map((date) => {
-                      const data = getDataForPriceAndDate(selectedStock, date, price);
+                      const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                      console.log(`Data for price ${price} on ${date}:`, data);
                       return (
                         <React.Fragment key={date}>
-                          <td className={`text-right py-1.5 px-1 ${data && data.bFreq === maxValues.maxBFreq && data.bFreq > 0 ? 'font-bold text-blue-600' : 'text-blue-600'}`}>
-                            {data ? formatNumber(data.bFreq) : '-'}
-                          </td>
                           <td className={`text-right py-1.5 px-1 ${data && data.bLot === maxValues.maxBLot && data.bLot > 0 ? 'font-bold text-green-600' : 'text-green-600'}`}>
-                            {data ? formatNumber(data.bLot) : '-'}
+                            {data ? formatNumberWithAbbreviation(data.bLot) : '-'}
+                          </td>
+                          <td className={`text-right py-1.5 px-1 ${data && data.bFreq === maxValues.maxBFreq && data.bFreq > 0 ? 'font-bold text-blue-600' : 'text-blue-600'}`}>
+                            {data ? formatNumberWithAbbreviation(data.bFreq) : '-'}
                           </td>
                           <td className={`text-right py-1.5 px-1 ${data && data.sLot === maxValues.maxSLot && data.sLot > 0 ? 'font-bold text-red-600' : 'text-red-600'}`}>
-                            {data ? formatNumber(data.sLot) : '-'}
+                            {data ? formatNumberWithAbbreviation(data.sLot) : '-'}
                           </td>
                           <td className={`text-right py-1.5 px-1 ${data && data.sFreq === maxValues.maxSFreq && data.sFreq > 0 ? 'font-bold text-orange-600' : 'text-orange-600'}`}>
-                            {data ? formatNumber(data.sFreq) : '-'}
+                            {data ? formatNumberWithAbbreviation(data.sFreq) : '-'}
                           </td>
-                          <td className={`text-right py-1.5 px-1 ${data && data.tFreq === maxValues.maxTFreq && data.tFreq > 0 ? 'font-bold text-purple-600' : 'text-purple-600'}`}>
-                            {data ? formatNumber(data.tFreq) : '-'}
+                          <td className={`text-right py-1.5 px-1 ${data && data.tLot === maxValues.maxTLot && data.tLot > 0 ? 'font-bold text-indigo-600' : 'text-indigo-600'}`}>
+                            {data ? formatNumberWithAbbreviation(data.tLot) : '-'}
                           </td>
-                          <td className={`text-right py-1.5 px-1 border-r-2 border-border ${data && data.tLot === maxValues.maxTLot && data.tLot > 0 ? 'font-bold text-indigo-600' : 'text-indigo-600'}`}>
-                            {data ? formatNumber(data.tLot) : '-'}
+                          <td className={`text-right py-1.5 px-1 border-r-2 border-border ${data && data.tFreq === maxValues.maxTFreq && data.tFreq > 0 ? 'font-bold text-purple-600' : 'text-purple-600'}`}>
+                            {data ? formatNumberWithAbbreviation(data.tFreq) : '-'}
                           </td>
                         </React.Fragment>
                       );
                     })}
+                    {/* Grand Total Column for each row */}
+                    <td className="text-right py-1.5 px-1 text-green-600">
+                      {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                        const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                        return sum + (data?.bLot || 0);
+                      }, 0))}
+                    </td>
+                    <td className="text-right py-1.5 px-1 text-blue-600">
+                      {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                        const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                        return sum + (data?.bFreq || 0);
+                      }, 0))}
+                    </td>
+                    <td className="text-right py-1.5 px-1 text-red-600">
+                      {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                        const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                        return sum + (data?.sLot || 0);
+                      }, 0))}
+                    </td>
+                    <td className="text-right py-1.5 px-1 text-orange-600">
+                      {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                        const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                        return sum + (data?.sFreq || 0);
+                      }, 0))}
+                    </td>
+                    <td className="text-right py-1.5 px-1 text-indigo-600">
+                      {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                        const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                        return sum + (data?.tLot || 0);
+                      }, 0))}
+                    </td>
+                    <td className="text-right py-1.5 px-1 text-purple-600 border-r-2 border-border">
+                      {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                        const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                        return sum + (data?.tFreq || 0);
+                      }, 0))}
+                    </td>
                   </tr>
                 ))}
                 {/* Total Row */}
                 <tr className="border-t-2 border-border bg-accent/30 font-bold">
                   <td className="py-3 px-3 font-bold bg-accent/30 sticky left-0 z-30 border-r-2 border-border text-foreground min-w-[80px]">TOTAL</td>
                   {selectedDates.map((date) => {
-                    const dateData = generatePriceData(selectedStock, date);
+                    const dateData = priceDataByDate[date] || [];
                     const totals = calculateTotals(dateData);
                     return (
                       <React.Fragment key={date}>
-                        <td className="text-right py-3 px-1 font-bold text-blue-600">
-                          {formatNumber(totals.bFreq)}
-                        </td>
                         <td className="text-right py-3 px-1 font-bold text-green-600">
-                          {formatNumber(totals.bLot)}
+                          {formatNumberWithAbbreviation(totals.bLot)}
+                        </td>
+                        <td className="text-right py-3 px-1 font-bold text-blue-600">
+                          {formatNumberWithAbbreviation(totals.bFreq)}
                         </td>
                         <td className="text-right py-3 px-1 font-bold text-red-600">
-                          {formatNumber(totals.sLot)}
+                          {formatNumberWithAbbreviation(totals.sLot)}
                         </td>
                         <td className="text-right py-3 px-1 font-bold text-orange-600">
-                          {formatNumber(totals.sFreq)}
+                          {formatNumberWithAbbreviation(totals.sFreq)}
                         </td>
-                        <td className="text-right py-3 px-1 font-bold text-purple-600">
-                          {formatNumber(totals.tFreq)}
+                        <td className="text-right py-3 px-1 font-bold text-indigo-600">
+                          {formatNumberWithAbbreviation(totals.tLot)}
                         </td>
-                        <td className="text-right py-3 px-1 border-r-2 border-border font-bold text-indigo-600">
-                          {formatNumber(totals.tLot)}
+                        <td className="text-right py-3 px-1 border-r-2 border-border font-bold text-purple-600">
+                          {formatNumberWithAbbreviation(totals.tFreq)}
                         </td>
                       </React.Fragment>
                     );
                   })}
-                </tr>
-              </tbody>
-            </table>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  };
-
-  const renderVerticalSummaryView = () => {
-    return (
-      <div className="space-y-6">
-        {/* Done Summary Table for Each Date */}
-        {selectedDates.map((date) => {
-          const priceData = generatePriceData(selectedStock, date);
-          const maxValues = findMaxValues(priceData);
-          const totals = calculateTotals(priceData);
-          
-          return (
-            <Card key={date}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <ChevronDown className="w-5 h-5" />
-                  Done Summary - {selectedStock} ({formatDisplayDate(date)})
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-muted/50">
-                        <th className="text-left py-2 px-3 font-medium">Price</th>
-                        <th className="text-right py-2 px-3 font-medium">BFreq</th>
-                        <th className="text-right py-2 px-3 font-medium">BLot</th>
-                        <th className="text-right py-2 px-3 font-medium">SLot</th>
-                        <th className="text-right py-2 px-3 font-medium">SFreq</th>
-                        <th className="text-right py-2 px-3 font-medium">TFreq</th>
-                        <th className="text-right py-2 px-3 font-medium">TLot</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {priceData.map((row, idx) => (
-                        <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                          <td className="py-2 px-3 font-medium text-foreground">
-                            {formatNumber(row.price)}
+                  {/* Grand Total Column */}
+                  <td className="text-right py-3 px-1 font-bold text-green-600 bg-accent/50">
+                    {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                      const dateData = priceDataByDate[date] || [];
+                      const totals = calculateTotals(dateData);
+                      return sum + totals.bLot;
+                    }, 0))}
                           </td>
-                          <td className={`text-right py-2 px-3 ${row.bFreq === maxValues.maxBFreq && row.bFreq > 0 ? 'font-bold text-blue-600' : 'text-blue-600'}`}>
-                            {formatNumber(row.bFreq)}
+                  <td className="text-right py-3 px-1 font-bold text-blue-600 bg-accent/50">
+                    {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                      const dateData = priceDataByDate[date] || [];
+                      const totals = calculateTotals(dateData);
+                      return sum + totals.bFreq;
+                    }, 0))}
                           </td>
-                          <td className={`text-right py-2 px-3 ${row.bLot === maxValues.maxBLot && row.bLot > 0 ? 'font-bold text-green-600' : 'text-green-600'}`}>
-                            {formatNumber(row.bLot)}
+                  <td className="text-right py-3 px-1 font-bold text-red-600 bg-accent/50">
+                    {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                      const dateData = priceDataByDate[date] || [];
+                      const totals = calculateTotals(dateData);
+                      return sum + totals.sLot;
+                    }, 0))}
                           </td>
-                          <td className={`text-right py-2 px-3 ${row.sLot === maxValues.maxSLot && row.sLot > 0 ? 'font-bold text-red-600' : 'text-red-600'}`}>
-                            {formatNumber(row.sLot)}
+                  <td className="text-right py-3 px-1 font-bold text-orange-600 bg-accent/50">
+                    {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                      const dateData = priceDataByDate[date] || [];
+                      const totals = calculateTotals(dateData);
+                      return sum + totals.sFreq;
+                    }, 0))}
                           </td>
-                          <td className={`text-right py-2 px-3 ${row.sFreq === maxValues.maxSFreq && row.sFreq > 0 ? 'font-bold text-orange-600' : 'text-orange-600'}`}>
-                            {formatNumber(row.sFreq)}
+                  <td className="text-right py-3 px-1 font-bold text-indigo-600 bg-accent/50">
+                    {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                      const dateData = priceDataByDate[date] || [];
+                      const totals = calculateTotals(dateData);
+                      return sum + totals.tLot;
+                    }, 0))}
                           </td>
-                          <td className={`text-right py-2 px-3 ${row.tFreq === maxValues.maxTFreq && row.tFreq > 0 ? 'font-bold text-purple-600' : 'text-purple-600'}`}>
-                            {formatNumber(row.tFreq)}
-                          </td>
-                          <td className={`text-right py-2 px-3 ${row.tLot === maxValues.maxTLot && row.tLot > 0 ? 'font-bold text-indigo-600' : 'text-indigo-600'}`}>
-                            {formatNumber(row.tLot)}
-                          </td>
-                        </tr>
-                      ))}
-                      {/* Total Row */}
-                      <tr className="border-t-2 border-border bg-accent/30 font-bold">
-                        <td className="py-3 px-3 font-bold text-foreground">TOTAL</td>
-                        <td className="text-right py-3 px-3 font-bold text-blue-600">
-                          {formatNumber(totals.bFreq)}
-                        </td>
-                        <td className="text-right py-3 px-3 font-bold text-green-600">
-                          {formatNumber(totals.bLot)}
-                        </td>
-                        <td className="text-right py-3 px-3 font-bold text-red-600">
-                          {formatNumber(totals.sLot)}
-                        </td>
-                        <td className="text-right py-3 px-3 font-bold text-orange-600">
-                          {formatNumber(totals.sFreq)}
-                        </td>
-                        <td className="text-right py-3 px-3 font-bold text-purple-600">
-                          {formatNumber(totals.tFreq)}
-                        </td>
-                        <td className="text-right py-3 px-3 font-bold text-indigo-600">
-                          {formatNumber(totals.tLot)}
+                  <td className="text-right py-3 px-1 font-bold text-purple-600 bg-accent/50 border-r-2 border-border">
+                    {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                      const dateData = priceDataByDate[date] || [];
+                      const totals = calculateTotals(dateData);
+                      return sum + totals.tFreq;
+                    }, 0))}
                         </td>
                       </tr>
                     </tbody>
                   </table>
+            </div>
                 </div>
               </CardContent>
             </Card>
-          );
-        })}
-      </div>
     );
   };
+
 
   const renderHorizontalBrokerBreakdownView = () => {
     const priceBrokerCombinations = getAllUniquePriceBrokerCombinations(selectedStock, selectedDates);
@@ -737,23 +954,64 @@ export function StockTransactionDoneSummary() {
                       {formatDisplayDate(date)}
                     </th>
                   ))}
+                  <th colSpan={6} className="text-center py-2 px-1 font-medium border-l border-border bg-accent/30">
+                    Total
+                  </th>
                 </tr>
                 {/* Sub Header Row - Metrics */}
                 <tr className="border-b border-border bg-accent">
                   {selectedDates.map((date) => (
                     <React.Fragment key={date}>
-                      <th className="text-right py-1 px-1 font-medium text-[10px]">BFreq</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px]">BLot</th>
+                      <th className="text-right py-1 px-1 font-medium text-[10px]">BFreq</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px]">SLot</th>
                       <th className="text-right py-1 px-1 font-medium text-[10px]">SFreq</th>
-                      <th className="text-right py-1 px-1 font-medium text-[10px]">TFreq</th>
-                      <th className="text-right py-1 px-1 font-medium text-[10px] border-r-2 border-border">TLot</th>
+                      <th className="text-right py-1 px-1 font-medium text-[10px]">TLot</th>
+                      <th className="text-right py-1 px-1 font-medium text-[10px] border-r-2 border-border">TFreq</th>
                     </React.Fragment>
                   ))}
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">BLot</th>
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">BFreq</th>
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">SLot</th>
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">SFreq</th>
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">TLot</th>
+                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30 border-r-2 border-border">TFreq</th>
                 </tr>
               </thead>
               <tbody>
-                {priceBrokerCombinations.map((combination, idx) => (
+                {priceBrokerCombinations.map((combination, idx) => {
+                  // Calculate totals for this price-broker combination across all dates
+                  const totalBFreq = selectedDates.reduce((sum, date) => {
+                    const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
+                    return sum + (data?.bFreq || 0);
+                  }, 0);
+                  
+                  const totalBLot = selectedDates.reduce((sum, date) => {
+                    const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
+                    return sum + (data?.bLot || 0);
+                  }, 0);
+                  
+                  const totalSLot = selectedDates.reduce((sum, date) => {
+                    const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
+                    return sum + (data?.sLot || 0);
+                  }, 0);
+                  
+                  const totalSFreq = selectedDates.reduce((sum, date) => {
+                    const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
+                    return sum + (data?.sFreq || 0);
+                  }, 0);
+                  
+                  const totalTFreq = selectedDates.reduce((sum, date) => {
+                    const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
+                    return sum + (data?.tFreq || 0);
+                  }, 0);
+                  
+                  const totalTLot = selectedDates.reduce((sum, date) => {
+                    const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
+                    return sum + (data?.tLot || 0);
+                  }, 0);
+                  
+                  return (
                   <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
                     <td className="py-1.5 px-3 font-medium bg-background sticky left-0 z-30 border-r-2 border-border text-foreground min-w-[80px]">
                       {formatNumber(combination.price)}
@@ -765,11 +1023,11 @@ export function StockTransactionDoneSummary() {
                       const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
                       return (
                         <React.Fragment key={date}>
-                          <td className={`text-right py-1.5 px-1 ${data && data.bFreq === maxValues.maxBFreq && data.bFreq > 0 ? 'font-bold text-blue-600' : 'text-blue-600'}`}>
-                            {data ? formatNumber(data.bFreq) : '-'}
-                          </td>
                           <td className={`text-right py-1.5 px-1 ${data && data.bLot === maxValues.maxBLot && data.bLot > 0 ? 'font-bold text-green-600' : 'text-green-600'}`}>
                             {data ? formatNumber(data.bLot) : '-'}
+                          </td>
+                            <td className={`text-right py-1.5 px-1 ${data && data.bFreq === maxValues.maxBFreq && data.bFreq > 0 ? 'font-bold text-blue-600' : 'text-blue-600'}`}>
+                              {data ? formatNumber(data.bFreq) : '-'}
                           </td>
                           <td className={`text-right py-1.5 px-1 ${data && data.sLot === maxValues.maxSLot && data.sLot > 0 ? 'font-bold text-red-600' : 'text-red-600'}`}>
                             {data ? formatNumber(data.sLot) : '-'}
@@ -777,17 +1035,37 @@ export function StockTransactionDoneSummary() {
                           <td className={`text-right py-1.5 px-1 ${data && data.sFreq === maxValues.maxSFreq && data.sFreq > 0 ? 'font-bold text-orange-600' : 'text-orange-600'}`}>
                             {data ? formatNumber(data.sFreq) : '-'}
                           </td>
-                          <td className={`text-right py-1.5 px-1 ${data && data.tFreq === maxValues.maxTFreq && data.tFreq > 0 ? 'font-bold text-purple-600' : 'text-purple-600'}`}>
-                            {data ? formatNumber(data.tFreq) : '-'}
-                          </td>
-                          <td className={`text-right py-1.5 px-1 border-r-2 border-border ${data && data.tLot === maxValues.maxTLot && data.tLot > 0 ? 'font-bold text-indigo-600' : 'text-indigo-600'}`}>
+                          <td className={`text-right py-1.5 px-1 ${data && data.tLot === maxValues.maxTLot && data.tLot > 0 ? 'font-bold text-indigo-600' : 'text-indigo-600'}`}>
                             {data ? formatNumber(data.tLot) : '-'}
+                          </td>
+                          <td className={`text-right py-1.5 px-1 border-r-2 border-border ${data && data.tFreq === maxValues.maxTFreq && data.tFreq > 0 ? 'font-bold text-purple-600' : 'text-purple-600'}`}>
+                            {data ? formatNumber(data.tFreq) : '-'}
                           </td>
                         </React.Fragment>
                       );
                     })}
+                      {/* Total Column */}
+                      <td className="text-right py-1.5 px-1 font-bold text-green-600 bg-accent/30">
+                        {formatNumber(totalBLot)}
+                      </td>
+                      <td className="text-right py-1.5 px-1 font-bold text-blue-600 bg-accent/30">
+                        {formatNumber(totalBFreq)}
+                      </td>
+                      <td className="text-right py-1.5 px-1 font-bold text-red-600 bg-accent/30">
+                        {formatNumber(totalSLot)}
+                      </td>
+                      <td className="text-right py-1.5 px-1 font-bold text-orange-600 bg-accent/30">
+                        {formatNumber(totalSFreq)}
+                      </td>
+                      <td className="text-right py-1.5 px-1 font-bold text-purple-600 bg-accent/30">
+                        {formatNumber(totalTFreq)}
+                      </td>
+                      <td className="text-right py-1.5 px-1 font-bold text-indigo-600 bg-accent/30 border-r-2 border-border">
+                        {formatNumber(totalTLot)}
+                      </td>
                   </tr>
-                ))}
+                  );
+                })}
                 {/* Total Row */}
                 <tr className="border-t-2 border-border bg-accent/30 font-bold">
                   <td className="py-3 px-3 font-bold bg-accent/30 sticky left-0 z-30 border-r-2 border-border text-foreground min-w-[80px]">TOTAL</td>
@@ -796,156 +1074,93 @@ export function StockTransactionDoneSummary() {
                     const totals = calculateBrokerBreakdownTotals(selectedStock, date);
                     return (
                       <React.Fragment key={date}>
-                        <td className="text-right py-3 px-1 font-bold text-blue-600">
-                          {formatNumber(totals.bFreq)}
-                        </td>
                         <td className="text-right py-3 px-1 font-bold text-green-600">
-                          {formatNumber(totals.bLot)}
+                          {formatNumberWithAbbreviation(totals.bLot)}
+                        </td>
+                        <td className="text-right py-3 px-1 font-bold text-blue-600">
+                          {formatNumberWithAbbreviation(totals.bFreq)}
                         </td>
                         <td className="text-right py-3 px-1 font-bold text-red-600">
-                          {formatNumber(totals.sLot)}
+                          {formatNumberWithAbbreviation(totals.sLot)}
                         </td>
                         <td className="text-right py-3 px-1 font-bold text-orange-600">
-                          {formatNumber(totals.sFreq)}
+                          {formatNumberWithAbbreviation(totals.sFreq)}
                         </td>
-                        <td className="text-right py-3 px-1 font-bold text-purple-600">
-                          {formatNumber(totals.tFreq)}
+                        <td className="text-right py-3 px-1 font-bold text-indigo-600">
+                          {formatNumberWithAbbreviation(totals.tLot)}
                         </td>
-                        <td className="text-right py-3 px-1 border-r-2 border-border font-bold text-indigo-600">
-                          {formatNumber(totals.tLot)}
+                        <td className="text-right py-3 px-1 border-r-2 border-border font-bold text-purple-600">
+                          {formatNumberWithAbbreviation(totals.tFreq)}
                         </td>
                       </React.Fragment>
                     );
                   })}
-                </tr>
-              </tbody>
-            </table>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  };
-
-  const renderVerticalBrokerBreakdownView = () => {
-    return (
-      <div className="space-y-6">
-        {selectedDates.map((date) => {
-          const brokerData = generateBrokerBreakdownData(selectedStock, date);
-          const maxValues = {
-            maxBFreq: Math.max(...brokerData.map(d => d.bFreq)),
-            maxBLot: Math.max(...brokerData.map(d => d.bLot)),
-            maxSLot: Math.max(...brokerData.map(d => d.sLot)),
-            maxSFreq: Math.max(...brokerData.map(d => d.sFreq)),
-            maxTFreq: Math.max(...brokerData.map(d => d.tFreq)),
-            maxTLot: Math.max(...brokerData.map(d => d.tLot))
-          };
+                  {/* Grand Total Column */}
+                  <td className="text-right py-3 px-1 font-bold text-green-600 bg-accent/50">
+                    {formatNumber(selectedDates.reduce((sum, date) => {
           const totals = calculateBrokerBreakdownTotals(selectedStock, date);
-          
-          return (
-            <Card key={date}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <TrendingUp className="w-5 h-5" />
-                  Broker Breakdown - {selectedStock} ({formatDisplayDate(date)})
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-muted/50">
-                        <th className="text-left py-2 px-3 font-medium">Price</th>
-                        <th className="text-left py-2 px-3 font-medium">Broker</th>
-                        <th className="text-right py-2 px-3 font-medium">BFreq</th>
-                        <th className="text-right py-2 px-3 font-medium">BLot</th>
-                        <th className="text-right py-2 px-3 font-medium">SLot</th>
-                        <th className="text-right py-2 px-3 font-medium">SFreq</th>
-                        <th className="text-right py-2 px-3 font-medium">TFreq</th>
-                        <th className="text-right py-2 px-3 font-medium">TLot</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {brokerData.map((row, idx) => (
-                        <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                          <td className="py-2 px-3 font-medium text-foreground">
-                            {formatNumber(row.price)}
+                      return sum + totals.bLot;
+                    }, 0))}
                           </td>
-                          <td className="py-2 px-3 font-medium text-foreground">
-                            {row.broker}
+                  <td className="text-right py-3 px-1 font-bold text-blue-600 bg-accent/50">
+                    {formatNumber(selectedDates.reduce((sum, date) => {
+                      const totals = calculateBrokerBreakdownTotals(selectedStock, date);
+                      return sum + totals.bFreq;
+                    }, 0))}
                           </td>
-                          <td className={`text-right py-2 px-3 ${row.bFreq === maxValues.maxBFreq && row.bFreq > 0 ? 'font-bold text-blue-600' : 'text-blue-600'}`}>
-                            {formatNumber(row.bFreq)}
+                  <td className="text-right py-3 px-1 font-bold text-red-600 bg-accent/50">
+                    {formatNumber(selectedDates.reduce((sum, date) => {
+                      const totals = calculateBrokerBreakdownTotals(selectedStock, date);
+                      return sum + totals.sLot;
+                    }, 0))}
                           </td>
-                          <td className={`text-right py-2 px-3 ${row.bLot === maxValues.maxBLot && row.bLot > 0 ? 'font-bold text-green-600' : 'text-green-600'}`}>
-                            {formatNumber(row.bLot)}
+                  <td className="text-right py-3 px-1 font-bold text-orange-600 bg-accent/50">
+                    {formatNumber(selectedDates.reduce((sum, date) => {
+                      const totals = calculateBrokerBreakdownTotals(selectedStock, date);
+                      return sum + totals.sFreq;
+                    }, 0))}
                           </td>
-                          <td className={`text-right py-2 px-3 ${row.sLot === maxValues.maxSLot && row.sLot > 0 ? 'font-bold text-red-600' : 'text-red-600'}`}>
-                            {formatNumber(row.sLot)}
+                  <td className="text-right py-3 px-1 font-bold text-purple-600 bg-accent/50">
+                    {formatNumber(selectedDates.reduce((sum, date) => {
+                      const totals = calculateBrokerBreakdownTotals(selectedStock, date);
+                      return sum + totals.tFreq;
+                    }, 0))}
                           </td>
-                          <td className={`text-right py-2 px-3 ${row.sFreq === maxValues.maxSFreq && row.sFreq > 0 ? 'font-bold text-orange-600' : 'text-orange-600'}`}>
-                            {formatNumber(row.sFreq)}
-                          </td>
-                          <td className={`text-right py-2 px-3 ${row.tFreq === maxValues.maxTFreq && row.tFreq > 0 ? 'font-bold text-purple-600' : 'text-purple-600'}`}>
-                            {formatNumber(row.tFreq)}
-                          </td>
-                          <td className={`text-right py-2 px-3 ${row.tLot === maxValues.maxTLot && row.tLot > 0 ? 'font-bold text-indigo-600' : 'text-indigo-600'}`}>
-                            {formatNumber(row.tLot)}
-                          </td>
-                        </tr>
-                      ))}
-                      {/* Total Row */}
-                      <tr className="border-t-2 border-border bg-accent/30 font-bold">
-                        <td className="py-3 px-3 font-bold text-foreground">TOTAL</td>
-                        <td className="py-3 px-3 font-bold text-foreground">ALL</td>
-                        <td className="text-right py-3 px-3 font-bold text-blue-600">
-                          {formatNumber(totals.bFreq)}
-                        </td>
-                        <td className="text-right py-3 px-3 font-bold text-green-600">
-                          {formatNumber(totals.bLot)}
-                        </td>
-                        <td className="text-right py-3 px-3 font-bold text-red-600">
-                          {formatNumber(totals.sLot)}
-                        </td>
-                        <td className="text-right py-3 px-3 font-bold text-orange-600">
-                          {formatNumber(totals.sFreq)}
-                        </td>
-                        <td className="text-right py-3 px-3 font-bold text-purple-600">
-                          {formatNumber(totals.tFreq)}
-                        </td>
-                        <td className="text-right py-3 px-3 font-bold text-indigo-600">
-                          {formatNumber(totals.tLot)}
+                  <td className="text-right py-3 px-1 font-bold text-indigo-600 bg-accent/50 border-r-2 border-border">
+                    {formatNumber(selectedDates.reduce((sum, date) => {
+                      const totals = calculateBrokerBreakdownTotals(selectedStock, date);
+                      return sum + totals.tLot;
+                    }, 0))}
                         </td>
                       </tr>
                     </tbody>
                   </table>
+            </div>
                 </div>
               </CardContent>
             </Card>
-          );
-        })}
-      </div>
     );
   };
+
 
   return (
     <div className="min-h-screen space-y-4 sm:space-y-6 p-2 sm:p-4 lg:p-6 overflow-x-hidden">
       {/* Top Controls */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
+        <CardContent className="pt-6">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            {/* Title */}
+            <div className="flex items-center gap-2 text-sm sm:text-base font-medium">
             <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
             Stock Selection & Date Range (Max 7 Days)
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3 sm:space-y-4">
-            {/* Row 1: Stock, Date Range, Quick Select, View, Layout */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-center lg:items-end">
+            </div>
+            
+            {/* Menu Controls */}
+            <div className="flex flex-wrap items-center gap-4">
             {/* Stock Selection */}
-              <div className="flex-1 min-w-0 w-full">
-                <label className="block text-sm font-medium mb-2">Stock:</label>
-                <div className="relative stock-dropdown-container">
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium whitespace-nowrap">Stock:</label>
+                <div className="relative" ref={dropdownRef}>
                   <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                   <input
                     type="text"
@@ -953,7 +1168,7 @@ export function StockTransactionDoneSummary() {
                     onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
                     onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
                     onKeyDown={(e) => {
-                      const suggestions = (stockInput === '' ? AVAILABLE_STOCKS : filteredStocks).slice(0, 10);
+                      const suggestions = (stockInput === '' ? availableStocks : filteredStocks).slice(0, 10);
                       if (!suggestions.length) return;
                       if (e.key === 'ArrowDown') {
                         e.preventDefault();
@@ -972,61 +1187,106 @@ export function StockTransactionDoneSummary() {
                       }
                     }}
                     placeholder="Enter stock code..."
-                    className="w-full pl-10 pr-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
+                    className="w-32 pl-10 pr-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
                     role="combobox"
                     aria-expanded={showStockSuggestions}
                     aria-controls="stock-suggestions"
                     aria-autocomplete="list"
                   />
                   {showStockSuggestions && (
-                    (() => {
-                      const suggestions = (stockInput === '' ? AVAILABLE_STOCKS : filteredStocks).slice(0, 10);
-                      return (
-                        <div id="stock-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
-                          {stockInput === '' && (
-                            <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">All Stocks</div>
-                          )}
-                          {suggestions.map((stock, idx) => (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                      {stockInput === '' ? (
+                        <>
+                          <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
+                            Available Stocks ({STOCK_LIST.length})
+                          </div>
+                          {STOCK_LIST.slice(0, 20).map(stock => (
                             <div
                               key={stock}
-                              role="option"
-                              aria-selected={idx === highlightedStockIndex}
-                              onMouseEnter={() => setHighlightedStockIndex(idx)}
-                              onMouseDown={(e) => e.preventDefault()}
                               onClick={() => handleStockSelect(stock)}
-                              className={`px-3 py-2 cursor-pointer text-sm ${idx === highlightedStockIndex ? 'bg-accent' : 'hover:bg-muted'}`}
+                              className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
                             >
                               {stock}
                             </div>
                           ))}
-                          {suggestions.length === 0 && (
-                            <div className="px-3 py-2 text-sm text-muted-foreground">No stocks found</div>
+                          {STOCK_LIST.length > 20 && (
+                            <div className="px-3 py-2 text-xs text-muted-foreground border-t border-border">
+                              ... and {STOCK_LIST.length - 20} more stocks
+                            </div>
                           )}
+                        </>
+                      ) : filteredStocks.length > 0 ? (
+                        <>
+                          <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
+                            {filteredStocks.length} stocks found
+                          </div>
+                          {filteredStocks.slice(0, 20).map(stock => (
+                            <div
+                              key={stock}
+                              onClick={() => handleStockSelect(stock)}
+                              className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
+                            >
+                              {stock}
+                            </div>
+                          ))}
+                          {filteredStocks.length > 20 && (
+                            <div className="px-3 py-2 text-xs text-muted-foreground border-t border-border">
+                              ... and {filteredStocks.length - 20} more results
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">
+                          No stocks found
                         </div>
-                      );
-                    })()
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
 
               {/* Date Range */}
-              <div className="flex-1 min-w-0 w-full md:col-span-2">
-                <label className="block text-sm font-medium mb-2">Date Range:</label>
-                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2 w-full">
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
+                <div className="flex items-center gap-2">
                   <input
                     type="date"
                     value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
+                    onChange={(e) => {
+                      const selectedDate = new Date(e.target.value);
+                      const dayOfWeek = selectedDate.getDay();
+                      if (dayOfWeek === 0 || dayOfWeek === 6) {
+                        showToast({
+                          type: 'warning',
+                          title: 'Tanggal Weekend',
+                          message: 'Pasar saham tutup pada hari Sabtu dan Minggu. Pilih hari kerja saja.',
+                        });
+                        return;
+                      }
+                      setStartDate(e.target.value);
+                    }}
+                    className="w-36 px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
                   />
-                  <span className="text-sm text-muted-foreground text-center whitespace-nowrap px-2">to</span>
+                  <span className="text-sm text-muted-foreground whitespace-nowrap">to</span>
                   <input
                     type="date"
                     value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
+                    onChange={(e) => {
+                      const selectedDate = new Date(e.target.value);
+                      const dayOfWeek = selectedDate.getDay();
+                      if (dayOfWeek === 0 || dayOfWeek === 6) {
+                        showToast({
+                          type: 'warning',
+                          title: 'Tanggal Weekend',
+                          message: 'Pasar saham tutup pada hari Sabtu dan Minggu. Pilih hari kerja saja.',
+                        });
+                        return;
+                      }
+                      setEndDate(e.target.value);
+                    }}
+                    className="w-36 px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
                   />
-                  <Button onClick={addDateRange} size="sm" className="w-auto justify-self-center">
+                  <Button onClick={addDateRange} size="sm" className="w-auto">
                     <Plus className="w-4 h-4" />
                     <span className="ml-1">Add</span>
                   </Button>
@@ -1034,11 +1294,11 @@ export function StockTransactionDoneSummary() {
               </div>
 
               {/* Quick Select */}
-              <div className="flex-1 min-w-0 w-full">
-                <label className="block text-sm font-medium mb-2">Quick Select:</label>
-                <div className="flex flex-col sm:flex-row gap-2">
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium whitespace-nowrap">Quick Select:</label>
+                <div className="flex items-center gap-2">
                 <select 
-                    className="w-full xl:flex-1 px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
+                    className="w-24 px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
                     value={dateRangeMode}
                     onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
                   >
@@ -1048,19 +1308,18 @@ export function StockTransactionDoneSummary() {
                     <option value="custom">Custom</option>
                 </select>
                   {dateRangeMode === 'custom' && (
-                    <Button onClick={clearAllDates} variant="outline" size="sm" className="w-auto justify-self-center">
+                    <Button onClick={clearAllDates} variant="outline" size="sm" className="w-auto">
                       <RotateCcw className="w-4 h-4 mr-1" />
-                      <span className="text-xs sm:text-sm">Clear</span>
+                      <span className="text-xs">Clear</span>
                     </Button>
                   )}
                 </div>
               </div>
 
               {/* View Mode Toggle */}
-              <div className="flex-1 min-w-0 w-full lg:w-auto lg:flex-none">
-                <label className="block text-sm font-medium mb-2">View:</label>
-                <div className="flex sm:inline-flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto w-full sm:w-auto lg:w-auto justify-center sm:justify-start">
-                  <div className="grid grid-cols-2 gap-1 w-full max-w-xs mx-auto sm:flex sm:items-center sm:gap-1 sm:max-w-none sm:mx-0">
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium whitespace-nowrap">View:</label>
+                <div className="flex items-center gap-1 border border-border rounded-lg p-1">
                     <Button
                       variant={viewMode === 'summary' ? 'default' : 'ghost'}
                       size="sm"
@@ -1080,35 +1339,10 @@ export function StockTransactionDoneSummary() {
                   </div>
                 </div>
               </div>
-
-              {/* Layout Mode Toggle */}
-              <div className="flex-1 min-w-0 w-full lg:w-auto lg:flex-none">
-                <label className="block text-sm font-medium mb-2">Layout:</label>
-                <div className="flex sm:inline-flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto w-full sm:w-auto lg:w-auto justify-center sm:justify-start">
-                  <div className="grid grid-cols-2 gap-1 w-full max-w-xs mx-auto sm:flex sm:items-center sm:gap-1 sm:max-w-none sm:mx-0">
-                    <Button
-                      variant={layoutMode === 'horizontal' ? 'default' : 'ghost'}
-                      size="sm"
-                      onClick={() => setLayoutMode('horizontal')}
-                      className="px-3 py-1 h-8 text-xs"
-                    >
-                      Horizontal
-                    </Button>
-                    <Button
-                      variant={layoutMode === 'vertical' ? 'default' : 'ghost'}
-                      size="sm"
-                      onClick={() => setLayoutMode('vertical')}
-                      className="px-3 py-1 h-8 text-xs"
-                    >
-                      Vertical
-                    </Button>
-                  </div>
-                </div>
-              </div>
             </div>
 
-            {/* Row 2: Selected Dates */}
-            <div>
+          {/* Selected Dates */}
+          <div className="mt-4">
               <label className="text-sm font-medium">Selected Dates:</label>
               <div className="flex flex-wrap gap-2 mt-2">
                 {selectedDates.map((date) => (
@@ -1126,15 +1360,36 @@ export function StockTransactionDoneSummary() {
                 ))}
               </div>
             </div>
-          </div>
         </CardContent>
       </Card>
 
+      {/* Loading State */}
+      {loading && (
+        <Card>
+          <CardContent className="flex items-center justify-center py-8">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+              <p className="text-muted-foreground">Loading bid/ask data...</p>
+          </div>
+        </CardContent>
+      </Card>
+      )}
+
+      {/* Error State */}
+      {error && (
+        <Card>
+          <CardContent className="flex items-center justify-center py-8">
+            <div className="text-center">
+              <p className="text-destructive mb-2">Error loading data</p>
+              <p className="text-muted-foreground text-sm">{error}</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Main Data Display */}
-      {viewMode === 'summary' ? (
-        layoutMode === 'horizontal' ? renderHorizontalSummaryView() : renderVerticalSummaryView()
-      ) : (
-        layoutMode === 'horizontal' ? renderHorizontalBrokerBreakdownView() : renderVerticalBrokerBreakdownView()
+      {!loading && !error && (
+        viewMode === 'summary' ? renderHorizontalSummaryView() : renderHorizontalBrokerBreakdownView()
       )}
     </div>
   );

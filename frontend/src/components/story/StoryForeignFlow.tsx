@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
-import { Calendar, TrendingUp, TrendingDown, Users, Globe, Building2, Briefcase, ArrowUpDown, ChevronDown, X, Search } from 'lucide-react';
-import { createChart, IChartApi, ISeriesApi, ColorType, LineStyle, CandlestickData, HistogramData, CandlestickSeries, HistogramSeries, CrosshairMode, PriceScaleMode } from 'lightweight-charts';
+import { X, Search } from 'lucide-react';
+import { createChart, IChartApi, ColorType, CandlestickSeries, HistogramSeries, CrosshairMode } from 'lightweight-charts';
 import { useUserChartColors } from '../../hooks/useUserChartColors';
+import { api } from '../../services/api';
+import { useToast } from '../../contexts/ToastContext';
 
 // Data interfaces
 interface PriceData {
@@ -25,205 +26,30 @@ interface ForeignFlowData {
   flowStrength: number;
 }
 
+// Backend foreign flow data interface
+interface BackendForeignFlowData {
+  Date: string;
+  BuyVol: number;
+  SellVol: number;
+  NetBuyVol: number;
+}
+
 interface VolumeData {
   time: string;
   volume: number;
   value: number;
 }
 
-// Mock data generation functions
-const generatePriceData = (ticker: string, timeframe: string): PriceData[] => {
-  const data: PriceData[] = [];
-  const now = new Date();
-  
-  // Calculate number of candles based on timeframe
-  let numCandles: number;
-  let candleInterval: number; // days per candle
-  
-  switch (timeframe) {
-    case '1D':
-      numCandles = 30; // 30 days of daily candles
-      candleInterval = 1;
-      break;
-    case '5D':
-      numCandles = 24; // 24 weeks of 5-day candles
-      candleInterval = 5;
-      break;
-    case '1M':
-      numCandles = 12; // 12 months of monthly candles
-      candleInterval = 30;
-      break;
-    case '3M':
-      numCandles = 8; // 8 quarters of 3-month candles
-      candleInterval = 90;
-      break;
-    case '6M':
-      numCandles = 4; // 4 half-years of 6-month candles
-      candleInterval = 180;
-      break;
-    case '1Y':
-      numCandles = 3; // 3 years of yearly candles
-      candleInterval = 365;
-      break;
-    default:
-      numCandles = 30;
-      candleInterval = 1;
-  }
-  
-  let basePrice = 1000;
-  
-  for (let i = numCandles - 1; i >= 0; i--) {
-    const date = new Date(now);
-    date.setDate(date.getDate() - (i * candleInterval));
-    
-    // Generate realistic OHLC data
-    const volatility = 0.02 * Math.sqrt(candleInterval); // Higher volatility for longer timeframes
-    const trend = Math.sin(i * 0.1) * 0.01; // Slight trend
-    
-    const open = basePrice;
-    const high = open + Math.random() * volatility * open + trend * open;
-    const low = open - Math.random() * volatility * open + trend * open;
-    const close = low + Math.random() * (high - low);
-    
-    // Update base price for next candle
-    basePrice = close;
-    
-    data.push({
-      time: date.toISOString().split('T')[0],
-      open: Math.round(open * 100) / 100,
-      high: Math.round(high * 100) / 100,
-      low: Math.round(low * 100) / 100,
-      close: Math.round(close * 100) / 100,
-      volume: Math.floor(Math.random() * 1000000 * candleInterval) + 100000,
-    });
-  }
-  
-  return data;
-};
-
-const generateForeignFlowData = (ticker: string, timeframe: string): ForeignFlowData[] => {
-  const data: ForeignFlowData[] = [];
-  const now = new Date();
-  
-  // Calculate number of data points based on timeframe
-  let numPoints: number;
-  let interval: number; // days per data point
-  
-  switch (timeframe) {
-    case '1D':
-      numPoints = 30;
-      interval = 1;
-      break;
-    case '5D':
-      numPoints = 24;
-      interval = 5;
-      break;
-    case '1M':
-      numPoints = 12;
-      interval = 30;
-      break;
-    case '3M':
-      numPoints = 8;
-      interval = 90;
-      break;
-    case '6M':
-      numPoints = 4;
-      interval = 180;
-      break;
-    case '1Y':
-      numPoints = 3;
-      interval = 365;
-      break;
-    default:
-      numPoints = 30;
-      interval = 1;
-  }
-  
-  for (let i = numPoints - 1; i >= 0; i--) {
-    const date = new Date(now);
-    date.setDate(date.getDate() - (i * interval));
-    
-    // Generate foreign flow data with some correlation to price movement
-    const netBuy = (Math.random() - 0.5) * 2000000 * Math.sqrt(interval);
-    const buyVolume = Math.floor(Math.random() * 1000000 * interval) + 100000;
-    const sellVolume = Math.floor(Math.random() * 1000000 * interval) + 100000;
-    
-    data.push({
-      time: date.toISOString().split('T')[0],
-      netBuy: Math.round(netBuy),
-      netValue: Math.round(netBuy * (1000 + Math.random() * 200)),
-      buyVolume: buyVolume,
-      sellVolume: sellVolume,
-      flowStrength: Math.random() * 100,
-    });
-  }
-  
-  return data;
-};
-
-const generateVolumeData = (ticker: string, timeframe: string): VolumeData[] => {
-  const data: VolumeData[] = [];
-  const now = new Date();
-  
-  // Calculate number of data points based on timeframe
-  let numPoints: number;
-  let interval: number; // days per data point
-  
-  switch (timeframe) {
-    case '1D':
-      numPoints = 30;
-      interval = 1;
-      break;
-    case '5D':
-      numPoints = 24;
-      interval = 5;
-      break;
-    case '1M':
-      numPoints = 12;
-      interval = 30;
-      break;
-    case '3M':
-      numPoints = 8;
-      interval = 90;
-      break;
-    case '6M':
-      numPoints = 4;
-      interval = 180;
-      break;
-    case '1Y':
-      numPoints = 3;
-      interval = 365;
-      break;
-    default:
-      numPoints = 30;
-      interval = 1;
-  }
-  
-  for (let i = numPoints - 1; i >= 0; i--) {
-    const date = new Date(now);
-    date.setDate(date.getDate() - (i * interval));
-    
-    data.push({
-      time: date.toISOString().split('T')[0],
-      volume: Math.floor(Math.random() * 2000000 * interval) + 200000,
-      value: Math.floor(Math.random() * 1000000000 * interval) + 100000000,
-    });
-  }
-  
-  return data;
-};
 
 // Individual chart component for split view
 const IndividualChart = ({ 
   data, 
   chartType, 
-  title, 
   color, 
   height = 200 
 }: { 
   data: any[], 
   chartType: 'candlestick' | 'histogram', 
-  title: string,
   color?: string,
   height?: number
 }) => {
@@ -271,7 +97,7 @@ const IndividualChart = ({
         borderColor: colors.borderColor,
         timeVisible: true,
         secondsVisible: false,
-        tickMarkFormatter: (time: any, tickMarkType: any, locale: string) => {
+        tickMarkFormatter: (time: any) => {
           let date: Date;
           if (typeof time === 'string') {
             date = new Date(time);
@@ -426,7 +252,7 @@ const TradingViewMultiPaneChart = ({
         borderColor: colors.borderColor,
         timeVisible: true,
         secondsVisible: false,
-        tickMarkFormatter: (time: any, tickMarkType: any, locale: string) => {
+        tickMarkFormatter: (time: any) => {
           let date: Date;
           if (typeof time === 'string') {
             date = new Date(time);
@@ -490,9 +316,9 @@ const TradingViewMultiPaneChart = ({
         const panes = chartRef.current?.panes();
         if (panes && panes.length >= 3) {
           // Set pane heights - 5:1:1 ratio (Price:Foreign Flow:Volume) - Price lebih tinggi
-          panes[0].setHeight(450); // Main price chart - 5 parts (75%)
-          panes[1].setHeight(75); // Foreign flow - 1 part (12.5%)
-          panes[2].setHeight(75); // Volume - 1 part (12.5%)
+          panes[0]?.setHeight(450); // Main price chart - 5 parts (75%)
+          panes[1]?.setHeight(75); // Foreign flow - 1 part (12.5%)
+          panes[2]?.setHeight(75); // Volume - 1 part (12.5%)
         }
       }, 200);
 
@@ -564,40 +390,154 @@ const TradingViewMultiPaneChart = ({
 };
 
 export function StoryForeignFlow() {
-  const [tickerInput, setTickerInput] = useState('BBCA');
+  const { showToast } = useToast();
   const [selectedTicker, setSelectedTicker] = useState('BBCA');
-  const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [layoutMode, setLayoutMode] = useState<'split' | 'combined'>('combined');
-  const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
+  
+  // Real data states
+  const [priceData, setPriceData] = useState<PriceData[]>([]);
+  const [foreignFlowData, setForeignFlowData] = useState<ForeignFlowData[]>([]);
+  const [volumeData, setVolumeData] = useState<VolumeData[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const stocks = ['BBCA', 'BBRI', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM', 'ICBP', 'INDF', 'KLBF', 'ADRO', 'ANTM', 'ITMG', 'PTBA', 'SMGR', 'INTP', 'WIKA', 'WSKT', 'PGAS'];
+  // Real stocks from API
+  const [availableStocks, setAvailableStocks] = useState<string[]>([]);
+  const [stockInput, setStockInput] = useState('BBCA');
+  const [showStockSuggestions, setShowStockSuggestions] = useState(false);
+  const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Fallback stocks if API fails
+  const FALLBACK_STOCKS = [
+    'BBRI', 'BBCA', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM', 'ICBP', 'INDF',
+    'KLBF', 'ADRO', 'ANTM', 'ITMG', 'PTBA', 'SMGR', 'INTP', 'WIKA', 'WSKT', 'PGAS',
+    'YUPI', 'ZYRX', 'ZONE'
+  ];
+
+  // Convert backend foreign flow data to frontend format
+  const convertBackendToFrontend = (backendData: BackendForeignFlowData[]): ForeignFlowData[] => {
+    return backendData.map(item => ({
+      time: item.Date,
+      netBuy: item.NetBuyVol,
+      netValue: item.NetBuyVol * 1000, // Estimate value (NetBuyVol * average price)
+      buyVolume: item.BuyVol,
+      sellVolume: item.SellVol,
+      flowStrength: Math.abs(item.NetBuyVol) / (item.BuyVol + item.SellVol) * 100 || 0
+    }));
+  };
+
+  // Load available stocks on component mount
+  useEffect(() => {
+    const loadAvailableStocks = async () => {
+      try {
+        // Use the same API as StoryMarketParticipant to get all available stocks
+        const response = await api.getStockList();
+        if (response.success && response.data?.stocks) {
+          setAvailableStocks(response.data.stocks);
+        } else {
+          setAvailableStocks(FALLBACK_STOCKS);
+        }
+      } catch (error) {
+        console.error('Error loading available stocks:', error);
+        setAvailableStocks(FALLBACK_STOCKS);
+      }
+    };
+
+    loadAvailableStocks();
+  }, []);
+
+  // Fetch real data when selected ticker changes
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!selectedTicker) return;
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        // Fetch stock data (OHLC)
+        const stockResponse = await api.getStockData(selectedTicker, undefined, undefined, 30);
+        if (stockResponse.success && stockResponse.data?.data) {
+          const stockData = stockResponse.data.data.map((item: any) => ({
+            time: item.Date,
+            open: item.Open,
+            high: item.High,
+            low: item.Low,
+            close: item.Close,
+            volume: item.Volume
+          }));
+          setPriceData(stockData);
+        }
+
+        // Fetch foreign flow data
+        const foreignFlowResponse = await api.getForeignFlowData(selectedTicker, 30);
+        if (foreignFlowResponse.success && foreignFlowResponse.data?.data) {
+          const convertedData = convertBackendToFrontend(foreignFlowResponse.data.data);
+          setForeignFlowData(convertedData);
+        }
+
+        // Generate volume data from stock data
+        if (stockResponse.success && stockResponse.data?.data) {
+          const volumeData = stockResponse.data.data.map((item: any) => ({
+            time: item.Date,
+            volume: item.Volume,
+            value: item.Volume * item.Close
+          }));
+          setVolumeData(volumeData);
+        }
+
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        setError('Failed to load data');
+        showToast({
+          type: 'error',
+          title: 'Error',
+          message: 'Failed to load data. Please try again.'
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [selectedTicker, showToast]);
 
   // Filter stocks based on input
-  const filteredStocks = stocks.filter(stock => 
-    stock.toLowerCase().includes(tickerInput.toLowerCase())
+  const filteredStocks = (availableStocks || []).filter(stock => 
+    stock.toLowerCase().includes(stockInput.toLowerCase())
   );
 
   const handleStockSelect = (stock: string) => {
-    setTickerInput(stock);
+    setStockInput(stock);
     setSelectedTicker(stock);
     setShowStockSuggestions(false);
+    setHighlightedStockIndex(-1);
   };
 
   const handleStockInputChange = (value: string) => {
-    setTickerInput(value.toUpperCase());
+    setStockInput(value.toUpperCase());
     setShowStockSuggestions(true);
+    setHighlightedStockIndex(-1);
     // Auto-select if exact match
-    if (stocks.includes(value.toUpperCase())) {
+    if (availableStocks.includes(value.toUpperCase())) {
       setSelectedTicker(value.toUpperCase());
     }
+  };
+
+  const clearStockInput = () => {
+    setStockInput('');
+    setShowStockSuggestions(false);
+    setHighlightedStockIndex(-1);
   };
 
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Element;
-      if (!target.closest('.stock-dropdown-container')) {
+      if (dropdownRef.current && !dropdownRef.current.contains(target)) {
         setShowStockSuggestions(false);
+        setHighlightedStockIndex(-1);
       }
     };
 
@@ -605,10 +545,7 @@ export function StoryForeignFlow() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Generate data based on selected ticker and timeframe
-  const priceData = generatePriceData(selectedTicker, '1D');
-  const foreignFlowData = generateForeignFlowData(selectedTicker, '1D');
-  const volumeData = generateVolumeData(selectedTicker, '1D');
+  // Use real data from state
 
   // Convert to candlestick format for TradingView chart
   const candlestickData = priceData.map(d => ({
@@ -641,87 +578,129 @@ export function StoryForeignFlow() {
 
   return (
     <div className="space-y-4">
+      {/* Loading State */}
+      {loading && (
+        <Card>
+          <CardContent className="flex items-center justify-center py-8">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+              <p className="text-muted-foreground">Loading foreign flow data...</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Error State */}
+      {error && (
+        <Card>
+          <CardContent className="flex items-center justify-center py-8">
+            <div className="text-center">
+              <p className="text-destructive mb-2">Error loading data</p>
+              <p className="text-muted-foreground text-sm">{error}</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Controls */}
       <Card>
         <CardContent className="p-4">
-          <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-end justify-between">
-            <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-end w-full">
-              <div>
-                <label className="block text-sm font-medium mb-2">Stock:</label>
-                <div className="relative stock-dropdown-container">
-                  <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <div className="flex flex-col gap-4">
+            {/* Row 1: Stock Search & Layout */}
+            <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-end justify-between">
+              <div className="flex-1">
+                <label className="block text-sm font-medium mb-2">
+                  Stock Search:
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    Available stocks: {availableStocks.length > 0 ? availableStocks.length : FALLBACK_STOCKS.length}
+                  </span>
+                </label>
+                <div className="relative stock-dropdown-container" ref={dropdownRef}>
+                  <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground z-10" />
                   <input
                     type="text"
-                    value={tickerInput}
+                    value={stockInput}
                     onChange={(e) => handleStockInputChange(e.target.value)}
                     onFocus={() => setShowStockSuggestions(true)}
                     onKeyDown={(e) => {
                       if (!showStockSuggestions) setShowStockSuggestions(true);
                       if (e.key === 'ArrowDown' && filteredStocks.length) {
                         e.preventDefault();
-                        setHighlightedIndex((prev) => (prev + 1) % filteredStocks.length);
+                        setHighlightedStockIndex((prev) => (prev + 1) % filteredStocks.length);
                       } else if (e.key === 'ArrowUp' && filteredStocks.length) {
                         e.preventDefault();
-                        setHighlightedIndex((prev) => (prev <= 0 ? filteredStocks.length - 1 : prev - 1));
+                        setHighlightedStockIndex((prev) => (prev <= 0 ? filteredStocks.length - 1 : prev - 1));
                       } else if (e.key === 'Enter') {
-                        if (highlightedIndex >= 0 && filteredStocks[highlightedIndex]) {
-                          handleStockSelect(filteredStocks[highlightedIndex]);
-                          setHighlightedIndex(-1);
+                        if (highlightedStockIndex >= 0 && filteredStocks[highlightedStockIndex]) {
+                          handleStockSelect(filteredStocks[highlightedStockIndex]);
+                          setHighlightedStockIndex(-1);
                         }
                       } else if (e.key === 'Escape') {
                         setShowStockSuggestions(false);
-                        setHighlightedIndex(-1);
+                        setHighlightedStockIndex(-1);
                       }
                     }}
                     placeholder="Enter stock code..."
-                    className="pl-9 pr-3 py-1 h-10 border border-border rounded-md bg-background text-foreground w-full sm:w-64"
+                    className="pl-9 pr-10 py-1 h-10 border border-border rounded-md bg-background text-foreground w-full"
                   />
+                  {stockInput && (
+                    <button
+                      onClick={clearStockInput}
+                      className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground hover:text-foreground z-10"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
                   {showStockSuggestions && (
                     <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
-                      {tickerInput === '' && (
+                      {stockInput === '' && (
                         <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
                           All Stocks
                         </div>
                       )}
-                      {(filteredStocks.length ? filteredStocks : stocks).map((stock, idx) => (
+                      {filteredStocks.slice(0, 10).map((stock, idx) => (
                         <div
                           key={`${stock}-${idx}`}
                           onClick={() => handleStockSelect(stock)}
-                          onMouseEnter={() => setHighlightedIndex(idx)}
-                          onMouseLeave={() => setHighlightedIndex(-1)}
-                          className={`px-3 py-2 cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-muted' : 'hover:bg-muted'}`}
+                          onMouseEnter={() => setHighlightedStockIndex(idx)}
+                          className={`px-3 py-2 cursor-pointer text-sm ${idx === highlightedStockIndex ? 'bg-muted' : 'hover:bg-muted'}`}
                         >
                           {stock}
                         </div>
                       ))}
-                      {filteredStocks.length === 0 && tickerInput !== '' && (
+                      {filteredStocks.length > 10 && (
+                        <div className="px-3 py-2 text-xs text-muted-foreground border-t border-border">
+                          +{filteredStocks.length - 10} more
+                        </div>
+                      )}
+                      {filteredStocks.length === 0 && stockInput !== '' && (
                         <div className="px-3 py-2 text-sm text-muted-foreground">No stocks found</div>
                       )}
                     </div>
                   )}
                 </div>
               </div>
-            </div>
-            
-            <div className="w-full sm:w-auto">
-              <label className="block text-sm font-medium mb-2">Layout:</label>
-              <div className="flex gap-1 border border-border rounded-lg p-1 h-10 w-full sm:w-auto">
-                <Button
-                  variant={layoutMode === 'combined' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => setLayoutMode('combined')}
-                  className="flex-1 h-8"
-                >
-                  Combine
-                </Button>
-                <Button
-                  variant={layoutMode === 'split' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => setLayoutMode('split')}
-                  className="flex-1 h-8"
-                >
-                  Split
-                </Button>
+              
+              <div className="w-full lg:w-auto">
+                <label className="block text-sm font-medium mb-2">Layout:</label>
+                <div className="flex gap-1 border border-border rounded-lg p-1 h-10 w-full lg:w-auto">
+                  <Button
+                    variant={layoutMode === 'combined' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setLayoutMode('combined')}
+                    className="flex-1 h-8"
+                  >
+                    Combine
+                  </Button>
+                  <Button
+                    variant={layoutMode === 'split' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setLayoutMode('split')}
+                    className="flex-1 h-8"
+                  >
+                    Split
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
@@ -729,23 +708,24 @@ export function StoryForeignFlow() {
       </Card>
 
       {/* Main Chart Layout */}
-      <div className="space-y-4">
-        {layoutMode === 'combined' ? (
-          /* Combined TradingView Chart with Multiple Panes */
-            <Card>
-              <CardHeader>
-              <CardTitle>{selectedTicker} - Foreign Flow Analysis</CardTitle>
-              <p className="text-sm text-muted-foreground">Price action, foreign flow, and volume analysis</p>
-              </CardHeader>
-              <CardContent>
-              <TradingViewMultiPaneChart 
-                candlestickData={candlestickData}
-                foreignFlowData={foreignFlowChartData}
-                volumeData={volumeChartData}
-              />
-              </CardContent>
-            </Card>
-        ) : (
+      {!loading && !error && (
+        <div className="space-y-4">
+          {layoutMode === 'combined' ? (
+            /* Combined TradingView Chart with Multiple Panes */
+              <Card>
+                <CardHeader>
+                <CardTitle>{selectedTicker} - Foreign Flow Analysis</CardTitle>
+                <p className="text-sm text-muted-foreground">Price action, foreign flow, and volume analysis</p>
+                </CardHeader>
+                <CardContent>
+                <TradingViewMultiPaneChart 
+                  candlestickData={candlestickData}
+                  foreignFlowData={foreignFlowChartData}
+                  volumeData={volumeChartData}
+                />
+                </CardContent>
+              </Card>
+          ) : (
           /* Split View - Individual Charts */
           <div className="space-y-4">
             {/* Price Chart */}
@@ -758,7 +738,6 @@ export function StoryForeignFlow() {
                 <IndividualChart 
                   data={candlestickData}
                   chartType="candlestick"
-                  title="Price"
                   height={300}
                 />
             </CardContent>
@@ -777,7 +756,6 @@ export function StoryForeignFlow() {
                     value: d.netBuy
                   }))}
                   chartType="histogram"
-                  title="Foreign Flow"
                   color="#3b82f6"
                   height={200}
                 />
@@ -797,15 +775,15 @@ export function StoryForeignFlow() {
                     value: d.volume
                   }))}
                   chartType="histogram"
-                  title="Volume"
                   color="#8b5cf6"
                   height={200}
                 />
             </CardContent>
           </Card>
+          </div>
+          )}
         </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }
