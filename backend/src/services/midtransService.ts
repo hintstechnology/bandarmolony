@@ -429,11 +429,18 @@ export class MidtransService {
   private mapPaymentMethodToMidtrans(paymentMethod: string): string[] {
     const methodMap: { [key: string]: string[] } = {
       'credit_card': ['credit_card'],
-      'bank_transfer': ['bca_va', 'bni_va', 'mandiri_va', 'permata_va'],
+      'bank_transfer': ['bca_va', 'bni_va', 'mandiri_va', 'permata_va', 'bri_va', 'other_va'],
       'bca': ['bca_va'],
       'bni': ['bni_va'],
+      'bri': ['bri_va'],
       'mandiri': ['mandiri_va'],
       'permata': ['permata_va'],
+      'bca_va': ['bca_va'],
+      'bni_va': ['bni_va'],
+      'bri_va': ['bri_va'],
+      'mandiri_va': ['mandiri_va'],
+      'permata_va': ['permata_va'],
+      'other_va': ['other_va'],
       'gopay': ['gopay'],
       'dana': ['dana'],
       'ovo': ['shopeepay'],
@@ -442,13 +449,14 @@ export class MidtransService {
       'qris': ['qris'],
       'indomaret': ['indomaret'],
       'alfamart': ['alfamart'],
-      'echannel': ['echannel'],
-      'bri_va': ['bri_va'],
-      'other_va': ['other_va']
+      'cstore': ['indomaret', 'alfamart'], // Convenience store - both Indomaret and Alfamart
+      'echannel': ['echannel'], // Mandiri Bill Payment
+      'akulaku': ['akulaku']
     };
 
-    const result = methodMap[paymentMethod] || [paymentMethod];
-    console.log(`Mapped payment method '${paymentMethod}' to:`, result);
+    const paymentLower = paymentMethod.toLowerCase();
+    const result = methodMap[paymentLower] || [paymentMethod];
+    console.log(`✅ Mapped payment method '${paymentMethod}' to Midtrans enabled_payments:`, result);
     return result;
   }
 

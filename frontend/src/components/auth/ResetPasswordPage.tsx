@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -18,12 +18,19 @@ export function ResetPasswordPage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isValidating, setIsValidating] = useState(true);
   const [isFatalError, setIsFatalError] = useState(false); // For validation errors (link expired, etc)
+  const hasValidated = useRef(false); // Prevent multiple validation
 
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   // Handle password reset access on component mount
   useEffect(() => {
+    // Prevent duplicate execution
+    if (hasValidated.current) {
+      return;
+    }
+    hasValidated.current = true;
+    
     const handlePasswordResetAccess = async () => {
       // First check if we came from SupabaseRedirectHandler with a valid session
       const passwordResetSession = localStorage.getItem('passwordResetSession');
@@ -135,7 +142,13 @@ export function ResetPasswordPage() {
     };
 
     handlePasswordResetAccess();
-  }, [navigate, searchParams]);
+    
+    // Cleanup: reset validation flag on unmount
+    return () => {
+      hasValidated.current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run once on mount
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -197,9 +210,12 @@ export function ResetPasswordPage() {
           console.error('Sign out error after password reset:', signOutError);
         }
         
+        // Wait a bit for sign out to complete
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
         toast.success('Password Anda berhasil diubah! Silakan login dengan password baru.');
         
-        // Redirect to login immediately with success parameter
+        // Redirect to login with success parameter
         navigate('/auth?mode=login&password_reset=success', { replace: true });
       }
     } catch (err: any) {
@@ -382,9 +398,14 @@ export function ResetPasswordPage() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => {
+              onClick={async () => {
                 // Clear the password reset session flag
                 localStorage.removeItem('passwordResetSession');
+                
+                // Sign out to clear the password reset session
+                await supabase.auth.signOut();
+                
+                // Navigate to login
                 navigate('/auth?mode=login', { replace: true });
               }}
               className="w-full"
