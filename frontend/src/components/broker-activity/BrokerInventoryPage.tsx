@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { X, Plus, RotateCcw, Calendar } from 'lucide-react';
+import { X, Calendar } from 'lucide-react';
 // Removed unused Recharts imports
 import { getBrokerBackgroundClass, getBrokerTextClass, useDarkMode } from '../../utils/brokerColors';
 import { api } from '../../services/api';
@@ -144,36 +144,66 @@ const generateVolumeData = (_ticker: string, startDate: string, endDate: string)
 // Generate broker gross/net data for horizontal bar chart
 // Removed unused data generation functions to improve performance
 
-// Generate Big 5 Gross & Net table data
-const generateBig5TableData = (_ticker: string) => {
-const topBrokers = ['LG', 'MG', 'BR', 'RG', 'CC'];
-
-  // Generate data for all brokers first
-  const allBrokerData = topBrokers.map(broker => {
-    const nblot = Math.floor(Math.random() * 100000 + 20000);
-    const nbval = Math.floor(Math.random() * 20 + 5); // Billions
-    const bavg = Math.floor(Math.random() * 100 + 2700); // Price around 2700-2800
-    
-    return {
-      broker,
-      nblot,
-      nbval,
-      bavg,
-      color: getBrokerColor(broker)
-    };
+// Generate Top Brokers data for each date (general, not per ticker)
+const generateTopBrokersData = (dates: string[], count: 5 | 10 | 15 | 20 | 'all') => {
+  const allBrokers = ['LG', 'MG', 'BR', 'RG', 'CC', 'AK', 'BK', 'DH', 'KZ', 'YU', 'ZP', 'AG', 'NI', 'PD', 'SQ', 'SS', 'CIMB', 'UOB', 'COIN', 'NH'];
+  
+  // First, determine the color mapping based on the first date's top 5
+  const firstDate = dates[0];
+  const firstDateSeed = firstDate.split('-').reduce((acc, part) => acc + parseInt(part), 0);
+  
+  const firstDateBrokerVolumes = allBrokers.map(broker => {
+    const brokerSeed = firstDateSeed + broker.charCodeAt(0) + broker.charCodeAt(1);
+    const volume = Math.floor((brokerSeed * 9301 + 49297) % 233280 / 233280 * 1000000 + 10000);
+    return { broker, volume };
   });
   
-  // Calculate total NBLot for proportion calculation
-  const totalNblot = allBrokerData.reduce((sum, data) => sum + data.nblot, 0);
+  // Get top 5 from first date to establish color mapping
+  const firstDateTop5 = firstDateBrokerVolumes
+    .sort((a, b) => b.volume - a.volume)
+    .slice(0, 5);
   
-  // Sort by NBLot descending (largest to smallest) and add totalNblot
-  return allBrokerData
-    .sort((a, b) => b.nblot - a.nblot) // Sort by NBLot descending
-    .map(data => ({
-      ...data,
-      totalNblot
-  }));
+  // Create color mapping for all brokers based on first date's top 5
+  const brokerColorMap = new Map();
+  firstDateTop5.forEach((brokerData, index) => {
+    brokerColorMap.set(brokerData.broker, getBrokerColor(brokerData.broker));
+  });
+  
+  // Assign colors to remaining brokers
+  allBrokers.forEach((broker) => {
+    if (!brokerColorMap.has(broker)) {
+      brokerColorMap.set(broker, getBrokerColor(broker));
+    }
+  });
+  
+  return dates.map(date => {
+    // Create deterministic seed based on date only (not ticker)
+    const seed = date.split('-').reduce((acc, part) => acc + parseInt(part), 0);
+    
+    // Generate random volume for each broker
+    const brokerVolumes = allBrokers.map(broker => {
+      const brokerSeed = seed + broker.charCodeAt(0) + broker.charCodeAt(1);
+      const volume = Math.floor((brokerSeed * 9301 + 49297) % 233280 / 233280 * 1000000 + 10000);
+      return { broker, volume };
+    });
+    
+    // Sort by volume descending and take top N based on count
+    const topN = brokerVolumes
+      .sort((a, b) => b.volume - a.volume)
+      .slice(0, count === 'all' ? allBrokers.length : count)
+      .map(item => ({
+        broker: item.broker,
+        volume: item.volume,
+        color: brokerColorMap.get(item.broker) // Use color from first date mapping
+      }));
+    
+    return {
+      date,
+      topBrokers: topN
+    };
+  });
 };
+
 
 
 // TradingView-style chart component with dual Y-axis
@@ -854,27 +884,6 @@ const InventoryChart = ({ inventoryData, selectedBrokers }: { inventoryData: Inv
 
 // Removed unused chart components to improve performance
 
-// Broker Footprint Overlay Component
-const BrokerFootprintOverlay = ({ nblot, totalNblot, brokerColor }: { nblot: number, totalNblot: number, brokerColor: string }) => {
-  // Calculate percentage of this broker's NBLot vs total NBLot
-  const percentage = totalNblot > 0 ? (nblot / totalNblot) * 100 : 0;
-  
-  return (
-    <div className="absolute inset-0 pointer-events-none flex flex-col justify-center px-3">
-      {/* Single NBLot Proportion Bar - Full height of row */}
-      <div className="relative h-full">
-        <div
-          className="absolute top-0 left-0 h-full rounded"
-          style={{
-            width: `${percentage}%`,
-            backgroundColor: brokerColor,
-            opacity: 0.3 // More transparent
-          }}
-        />
-      </div>
-    </div>
-  );
-};
 
 export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
   const { showToast } = useToast();
@@ -896,121 +905,23 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
   const [showTickerSuggestions, setShowTickerSuggestions] = useState(false);
   const [splitVisualization, setSplitVisualization] = useState(false);
   const [highlightedTickerIndex, setHighlightedTickerIndex] = useState<number>(-1);
-  const [highlightedBrokerIndex, setHighlightedBrokerIndex] = useState<number>(-1);
-  
-  // New states for consistent UI
-  const [selectedDates, setSelectedDates] = useState<string[]>([]);
-  const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
+  const [topBrokersCount, setTopBrokersCount] = useState<5 | 10 | 15 | 20 | 'all'>('all');
   const [availableStocks, setAvailableStocks] = useState<string[]>([]);
   // Note: isLoading and error states are managed by the chart components
 
-  // Helper functions for date management
-  const getTradingDays = (count: number): string[] => {
-    const dates: string[] = [];
-    const today = new Date();
-    let currentDate = new Date(today);
-    
-    while (dates.length < count) {
-      const dayOfWeek = currentDate.getDay();
-      
-      // Skip weekends (Saturday = 6, Sunday = 0)
-      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-        const dateStr = currentDate.toISOString().split('T')[0];
-        if (dateStr) {
-          dates.push(dateStr);
-        }
-      }
-      
-      // Go to previous day
-      currentDate.setDate(currentDate.getDate() - 1);
-      
-      // Safety check
-      if (dates.length === 0 && currentDate.getTime() < today.getTime() - (30 * 24 * 60 * 60 * 1000)) {
-        const todayStr = today.toISOString().split('T')[0];
-        if (todayStr) {
-          dates.push(todayStr);
-        }
-        break;
-      }
-    }
-    
-    return dates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
-  };
 
-  const getLastThreeDays = (): string[] => {
-    return getTradingDays(3);
-  };
 
   const formatDisplayDate = (dateString: string): string => {
     const date = new Date(dateString);
+    const isNewYear = date.getMonth() === 0 && date.getDate() === 1; // January 1st
+    
     return date.toLocaleDateString('id-ID', {
       day: '2-digit',
       month: 'short',
-      year: 'numeric'
+      year: isNewYear ? 'numeric' : undefined
     });
   };
 
-  const addDateRange = () => {
-    if (startDate && endDate) {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      
-      // Check if range is valid
-      if (start <= end) {
-        const newDates: string[] = [];
-        const current = new Date(start);
-        
-        while (current <= end) {
-          newDates.push(current.toISOString().split('T')[0] ?? '');
-          current.setDate(current.getDate() + 1);
-        }
-        
-        setSelectedDates(prev => {
-          const combined = [...prev, ...newDates];
-          return [...new Set(combined)].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-        });
-      }
-    }
-  };
-
-  const removeDate = (dateToRemove: string) => {
-    setSelectedDates(prev => prev.filter(date => date !== dateToRemove));
-  };
-
-  const handleDateRangeModeChange = (mode: '1day' | '3days' | '1week' | 'custom') => {
-    setDateRangeMode(mode);
-    
-    // Only auto-set dates for quick select modes, not custom
-    if (mode === '1day') {
-      const oneDay = getLastThreeDays().slice(0, 1);
-      setSelectedDates(oneDay);
-      setStartDate(oneDay[0] ?? '');
-      setEndDate(oneDay[0] ?? '');
-    } else if (mode === '3days') {
-      const threeDays = getLastThreeDays();
-      setSelectedDates(threeDays);
-      const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-      setStartDate(sortedDates[0] ?? '');
-      setEndDate(sortedDates[sortedDates.length - 1] ?? '');
-    } else if (mode === '1week') {
-      const oneWeek = getLastThreeDays().slice(0, 7);
-      setSelectedDates(oneWeek);
-      const sortedDates = [...oneWeek].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-      setStartDate(sortedDates[0] ?? '');
-      setEndDate(sortedDates[sortedDates.length - 1] ?? '');
-    } else if (mode === 'custom') {
-      // For custom mode, don't auto-set dates, let user input manually
-      // Keep current selectedDates, but clear start/end dates for fresh input
-      setStartDate('');
-      setEndDate('');
-    }
-  };
-
-  const clearAllDates = () => {
-    setSelectedDates([]);
-    setStartDate('');
-    setEndDate('');
-  };
 
   // Load available stocks and initialize dates on component mount
   useEffect(() => {
@@ -1022,12 +933,6 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
           setAvailableStocks(response.data.stocks);
         }
         
-        // Initialize with last 3 days
-        const threeDays = getLastThreeDays();
-        setSelectedDates(threeDays);
-        const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-        setStartDate(sortedDates[0] ?? '');
-        setEndDate(sortedDates[sortedDates.length - 1] ?? '');
       } catch (error) {
         console.error('Error loading initial data:', error);
         showToast({
@@ -1116,10 +1021,22 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
 
   // Removed unused data generation functions to improve performance
 
-  const big5TableData = useMemo(() =>
-    generateBig5TableData(selectedTicker),
-    [selectedTicker]
-  );
+
+  const topBrokersData = useMemo(() => {
+    if (!startDate || !endDate) return [];
+    // Generate dates between startDate and endDate
+    const dates: string[] = [];
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const current = new Date(start);
+    
+    while (current <= end) {
+      dates.push(current.toISOString().split('T')[0] ?? '');
+      current.setDate(current.getDate() + 1);
+    }
+    
+    return generateTopBrokersData(dates, topBrokersCount);
+  }, [startDate, endDate, topBrokersCount]);
 
 
   return (
@@ -1132,15 +1049,15 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Calendar className="w-5 h-5" />
-            Date Range Selection (Max 7 Days)
+            Broker Inventory Analysis Controls
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {/* Row 1: Ticker, Quick Select, Layout */}
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
+            {/* Row 1: Ticker, Broker, Date Range, Visualization */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Ticker Selection */}
-              <div className="flex-1 min-w-0 w-full lg:w-2/3">
+              <div>
                 <label className="block text-sm font-medium mb-2">Ticker:</label>
                 <div className="relative">
                   <input
@@ -1224,217 +1141,81 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                 </div>
               </div>
 
-              {/* Quick Select */}
-              <div className="w-full lg:w-1/3">
-                <label className="block text-sm font-medium mb-2">Quick Select:</label>
-                <div className="flex gap-2">
-                  <select 
-                    className="flex-1 px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
-                    value={dateRangeMode}
-                    onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
-                  >
-                    <option value="1day">1 Day</option>
-                    <option value="3days">3 Days</option>
-                    <option value="1week">1 Week</option>
-                    <option value="custom">Custom</option>
-                  </select>
-                  {dateRangeMode === 'custom' && (
-                    <Button onClick={clearAllDates} variant="outline" size="sm">
-                      <RotateCcw className="w-4 h-4 mr-1" />
-                      Clear
-                    </Button>
+              {/* Broker Selection */}
+              <div>
+                <label className="block text-sm font-medium mb-2">Broker:</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Broker..."
+                    value={brokerSearch}
+                    onChange={(e) => { handleBrokerSearchChange(e); }}
+                    onFocus={() => { setShowBrokerSuggestions(true); }}
+                    className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                  />
+                  {showBrokerSuggestions && (
+                    <div className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
+                      {filteredBrokers.slice(0, 10).map((broker) => (
+                        <button
+                          key={broker}
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-accent"
+                          onClick={() => { handleBrokerSelect(broker); setShowBrokerSuggestions(false); }}
+                        >
+                          {broker}
+                        </button>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>
 
-              {/* Layout Mode Toggle */}
-              <div className="w-full lg:w-auto lg:flex-none">
-                <label className="block text-sm font-medium mb-2">Layout:</label>
-                <div className="flex sm:inline-flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto w-full sm:w-auto lg:w-auto justify-center sm:justify-start">
-                  <div className="grid grid-cols-2 gap-1 w-full max-w-xs mx-auto sm:flex sm:items-center sm:gap-1 sm:max-w-none sm:mx-0">
-                    <Button
-                      variant={!splitVisualization ? "default" : "ghost"}
-                      onClick={() => setSplitVisualization(false)}
-                      size="sm"
-                      className="px-3 py-1 h-8 text-xs"
-                    >
-                      Combined
-                    </Button>
-                    <Button
-                      variant={splitVisualization ? "default" : "ghost"}
-                      onClick={() => setSplitVisualization(true)}
-                      size="sm"
-                      className="px-3 py-1 h-8 text-xs"
-                    >
-                      Split
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Custom Date Range - Only show when custom is selected */}
-            {dateRangeMode === 'custom' && (
-              <div className="space-y-4">
-                <div className="flex flex-col gap-4">
-                  <div className="flex-1 min-w-0 w-full">
+              {/* Date Range */}
+              <div>
                     <label className="block text-sm font-medium mb-2">Date Range:</label>
-                    <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_auto] items-center gap-2 w-full">
+                <div className="flex items-center gap-2">
                       <input
                         type="date"
                         value={startDate}
                         onChange={(e) => setStartDate(e.target.value)}
-                        className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                    className="flex-1 px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
                       />
-                      <span className="text-sm text-muted-foreground text-center whitespace-nowrap sm:px-2">to</span>
+                  <span className="text-sm text-muted-foreground">to</span>
                       <input
                         type="date"
                         value={endDate}
                         onChange={(e) => setEndDate(e.target.value)}
-                        className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
-                      />
-                      <Button onClick={addDateRange} size="sm" className="w-auto justify-self-center">
-                        <Plus className="w-4 h-4" />
-                      </Button>
-                      <Button onClick={clearAllDates} variant="outline" size="sm" className="w-auto">
-                        <RotateCcw className="w-4 h-4 mr-1" />
-                        Clear
-                      </Button>
+                    className="flex-1 px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                  />
                     </div>
                   </div>
-                </div>
-              </div>
-            )}
 
-            {/* Row 2: Selected Dates */}
+              {/* Visualization Mode Toggle */}
             <div>
-              <label className="text-sm font-medium">Selected Dates:</label>
-              <div className="flex flex-wrap gap-2 mt-2">
-                {selectedDates.map((date) => (
-                  <Badge key={date} variant="secondary" className="px-3 py-1">
-                    {formatDisplayDate(date)}
-                    {selectedDates.length > 1 && (
-                      <button
-                        onClick={() => removeDate(date)}
-                        className="ml-2 hover:text-destructive"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    )}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Broker Selection */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Broker Selection</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {/* Broker Selection */}
-            <div className="flex-1 min-w-0">
-              <label className="block text-sm font-medium mb-2">Broker:</label>
-              <div className="relative broker-dropdown">
-                <input
-                  type="text"
-                  placeholder="Broker..."
-                  value={brokerSearch}
-                  onChange={(e) => { handleBrokerSearchChange(e); setHighlightedBrokerIndex(0); }}
-                  onFocus={() => { setShowBrokerSuggestions(true); setHighlightedBrokerIndex(0); }}
-                  onKeyDown={(e) => {
-                    const baseList = brokerSearch.length === 0
-                      ? AVAILABLE_BROKERS.filter(b => !selectedBrokers.includes(b))
-                      : filteredBrokers;
-                    const suggestions = baseList.slice(0, 10);
-                    if (!suggestions.length) return;
-                    if (e.key === 'ArrowDown') {
-                      e.preventDefault();
-                      setHighlightedBrokerIndex(prev => {
-                        const next = prev + 1;
-                        return next >= suggestions.length ? 0 : next;
-                      });
-                    } else if (e.key === 'ArrowUp') {
-                      e.preventDefault();
-                      setHighlightedBrokerIndex(prev => {
-                        const next = prev - 1;
-                        return next < 0 ? suggestions.length - 1 : next;
-                      });
-                    } else if (e.key === 'Enter' && showBrokerSuggestions) {
-                      e.preventDefault();
-                      const idx = highlightedBrokerIndex >= 0 ? highlightedBrokerIndex : 0;
-                      const choice = suggestions[idx];
-                      if (choice) {
-                        handleBrokerSelect(choice);
-                        setShowBrokerSuggestions(false);
-                        setHighlightedBrokerIndex(-1);
-                      }
-                    } else if (e.key === 'Escape') {
-                      setShowBrokerSuggestions(false);
-                      setHighlightedBrokerIndex(-1);
-                    }
-                  }}
-                  className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
-                  role="combobox"
-                  aria-expanded={showBrokerSuggestions}
-                  aria-controls="inv-broker-suggestions"
-                  aria-autocomplete="list"
-                />
-                
-                {!!brokerSearch && (
-                  <button
-                    className="absolute right-2 top-2.5 text-muted-foreground"
-                    onClick={() => { setBrokerSearch(''); setShowBrokerSuggestions(false); }}
+                <label className="block text-sm font-medium mb-2">Visualization:</label>
+                <div className="flex items-center gap-1 border border-border rounded-lg p-1">
+                  <Button
+                    variant={!splitVisualization ? "default" : "ghost"}
+                    onClick={() => setSplitVisualization(false)}
+                    size="sm"
+                    className="px-3 py-1 h-8 text-xs flex-1"
                   >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-                
-                {showBrokerSuggestions && (
-                  (() => {
-                    const baseList = brokerSearch.length === 0
-                      ? AVAILABLE_BROKERS.filter(b => !selectedBrokers.includes(b))
-                      : filteredBrokers;
-                    const suggestions = baseList.slice(0, 10);
-                    return (
-                      <div id="inv-broker-suggestions" role="listbox" className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
-                        <div className="p-2">
-                          {brokerSearch.length === 0 && (
-                            <div className="text-xs text-muted-foreground mb-2">All Brokers:</div>
-                          )}
-                          {suggestions.map((broker, idx) => (
-                            <div
-                              key={broker}
-                              role="option"
-                              aria-selected={idx === highlightedBrokerIndex}
-                              onMouseEnter={() => setHighlightedBrokerIndex(idx)}
-                              onMouseDown={(e) => { e.preventDefault(); }}
-                              onClick={() => { handleBrokerSelect(broker); setShowBrokerSuggestions(false); setHighlightedBrokerIndex(-1); }}
-                              className={`flex items-center space-x-2 p-2 rounded cursor-pointer ${idx === highlightedBrokerIndex ? 'bg-accent' : 'hover:bg-muted'}`}
-                            >
-                              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getBrokerColor(broker) }} />
-                              <span className="text-sm">{broker}</span>
-                            </div>
-                          ))}
-                          {suggestions.length === 0 && (
-                            <div className="p-2 text-sm text-muted-foreground">No brokers found</div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })()
-                )}
+                    Combined
+                  </Button>
+                  <Button
+                    variant={splitVisualization ? "default" : "ghost"}
+                    onClick={() => setSplitVisualization(true)}
+                    size="sm"
+                    className="px-3 py-1 h-8 text-xs flex-1"
+                  >
+                    Split
+                  </Button>
               </div>
             </div>
           </div>
 
           {/* Selected Brokers Display */}
           {selectedBrokers.length > 0 && (
-            <div className="mt-4">
+              <div>
               <label className="text-sm font-medium">Selected Brokers:</label>
               <div className="flex flex-wrap gap-2 mt-2">
                 {selectedBrokers.map(broker => (
@@ -1463,8 +1244,11 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
               </div>
             </div>
           )}
+
+          </div>
         </CardContent>
       </Card>
+
 
           {/* Conditional Chart Rendering */}
           {splitVisualization ? (
@@ -1535,62 +1319,115 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
               </Card>
             </>
           )}            
-          {/* Big 5 Gross & Net Table */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Big 5 Gross & Net Analysis</CardTitle>
+
+      {/* Top 10 Brokers Table */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Top Brokers by Date</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Top 5 brokers by trading volume for {selectedTicker}
+                Top brokers across selected dates (general market data)
               </p>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm border-collapse">
-                  <thead>
-                    <tr className="border-b border-border bg-accent/30">
-                      <th className="text-left py-2 px-3 font-medium">NBY</th>
-                      <th className="text-right py-2 px-3 font-medium">NBLot</th>
-                      <th className="text-right py-2 px-3 font-medium">NBVal</th>
-                      <th className="text-right py-2 px-3 font-medium">BAvg</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {big5TableData.map((row, _index) => {
-                      const isDarkMode = useDarkMode();
-                      return (
-                        <tr key={row.broker} className={`border-b border-border/50 hover:opacity-80 relative ${getBrokerBackgroundClass(row.broker, isDarkMode)}`}>
-                          <td className={`py-3 px-3 font-medium relative z-10 ${getBrokerTextClass(row.broker, isDarkMode)}`}>
-                          <div className="flex items-center gap-2">
-                            <div 
-                              className="w-3 h-3 rounded-full" 
-                              style={{ backgroundColor: row.color }}
-                            />
-                            {row.broker}
             </div>
-                        </td>
-                        <td className="text-right py-3 px-3 text-green-600 font-medium relative z-10">
-                          {row.nblot.toLocaleString()}
-                        </td>
-                        <td className="text-right py-3 px-3 text-green-600 font-medium relative z-10">
-                          {row.nbval}B
-                        </td>
-                        <td className="text-right py-3 px-3 font-medium relative z-10">
-                          {row.bavg.toLocaleString()}
-                        </td>
-                        {/* Footprint Overlay */}
-                        <BrokerFootprintOverlay 
-                          nblot={row.nblot}
-                          totalNblot={row.totalNblot}
-                          brokerColor={row.color}
-                        />
-                      </tr>
-                      );
-                    })}
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium">Show:</label>
+              <select 
+                value={topBrokersCount} 
+                onChange={(e) => setTopBrokersCount(e.target.value as 5 | 10 | 15 | 20 | 'all')}
+                className="px-3 py-1 border border-border rounded-md bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+              >
+                <option value={5} className="bg-background text-foreground">Top 5</option>
+                <option value={10} className="bg-background text-foreground">Top 10</option>
+                <option value={15} className="bg-background text-foreground">Top 15</option>
+                <option value={20} className="bg-background text-foreground">Top 20</option>
+                <option value="all" className="bg-background text-foreground">All</option>
+              </select>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="border-b border-border bg-muted/50">
+                  <th className="text-left py-2 px-3 font-medium">Rank</th>
+                  {topBrokersData.map((dateData) => (
+                    <th key={dateData.date} className="text-center py-2 px-2 font-medium">
+                      {formatDisplayDate(dateData.date)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from({ length: topBrokersCount === 'all' ? 20 : topBrokersCount }, (_, rank) => (
+                  <tr key={rank} className="border-b border-border/50 hover:bg-accent/50">
+                    <td className="py-2 px-3 font-medium text-center">
+                      {rank + 1}
+                          </td>
+                     {topBrokersData.map((dateData) => {
+                       const brokerData = dateData.topBrokers[rank];
+                       // Check if this broker was in top 5 of the first date
+                       const firstDateTop5Brokers = topBrokersData[0]?.topBrokers.slice(0, 5).map(b => b.broker) || [];
+                       const isTop5FromFirstDate = brokerData && firstDateTop5Brokers.includes(brokerData.broker);
+                       
+                       // Calculate total volume for this date to determine bar width
+                       const totalVolume = dateData.topBrokers.reduce((sum, broker) => sum + (broker.volume || 0), 0);
+                       const barWidth = brokerData && totalVolume > 0 ? (brokerData.volume / totalVolume) * 100 : 0;
+                       
+                       return (
+                         <td 
+                           key={`${dateData.date}-${rank}`} 
+                           className={`text-center py-2 px-3 relative min-w-[120px] ${
+                             brokerData && isTop5FromFirstDate 
+                               ? 'text-white' 
+                               : 'text-foreground'
+                           }`}
+                           style={{
+                             backgroundColor: brokerData && isTop5FromFirstDate 
+                               ? brokerData.color 
+                               : 'transparent'
+                           }}
+                         >
+                           <div className="relative w-full h-8 flex items-center justify-center">
+                             {/* Transparent horizontal bar chart for non-top5 brokers */}
+                             {brokerData && !isTop5FromFirstDate && (
+                               <div 
+                                 className="absolute left-0 top-0 h-full rounded-r"
+                                 style={{ 
+                                   width: `${barWidth}%`,
+                                   backgroundColor: brokerData.color,
+                                   opacity: 0.3
+                                 }}
+                               />
+                             )}
+                             
+                             {/* Broker code and volume overlay */}
+                             <div className="relative z-10 flex items-center gap-2">
+                               {brokerData ? (
+                                 <>
+                                   <span className="font-medium text-xs">
+                                     {brokerData.broker}
+                                   </span>
+                                   <span className="text-xs opacity-80">
+                                     {brokerData.volume.toLocaleString()}
+                                   </span>
+                                 </>
+                               ) : (
+                                 <span className="text-muted-foreground">-</span>
+                               )}
+                             </div>
+                           </div>
+                         </td>
+                       );
+                     })}
+                  </tr>
+                ))}
                   </tbody>
                 </table>
-          </div>
-        </CardContent>
-      </Card>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>
