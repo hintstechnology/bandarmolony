@@ -1039,50 +1039,20 @@ router.post('/regenerate-snap-token', requireSupabaseUser, async (req: any, res)
     // Check if payment method is already selected
     const hasPaymentMethod = transaction.payment_method && transaction.payment_method !== 'snap';
     
-    if (hasPaymentMethod) {
-      // If payment method is already selected, try to use existing transaction first
-      try {
-        const existingOrderId = transaction.midtrans_order_id;
-        const midtransStatus = await midtransService.getTransactionStatus(existingOrderId);
-        
-        if (midtransStatus.transaction_status === 'pending') {
-          // Use existing transaction with selected payment method
-          const midtransTransaction = await midtransService.createSubscriptionTransaction({
-            orderId: existingOrderId,
-            planId: plan.id,
-            planName: plan.name,
-            planDuration: plan.duration,
-            price: plan.price,
-            customer: {
-              name: req.user.user_metadata?.['full_name'] || 'User',
-              email: req.user.email
-            },
-            callbacks: {
-              finish: config.SUCCESS_URL,
-              error: config.ERROR_URL,
-              pending: config.PENDING_URL
-            },
-            paymentMethod: transaction.payment_method
-          });
-
-          const snapToken = await midtransService.createSnapToken(midtransTransaction);
-          const paymentUrl = await midtransService.createSnapRedirectUrl(midtransTransaction);
-
-          res.json(createSuccessResponse({
-            snapToken,
-            orderId: existingOrderId,
-            paymentUrl: paymentUrl,
-            transactionId: transaction.id
-          }, 'Snap token retrieved successfully'));
-          return;
-        }
-      } catch (error) {
-        console.log('Existing transaction not found, creating new one');
-      }
-    }
-
-    // Create new transaction if no payment method selected or existing transaction not found
+    console.log('📋 Regenerate Snap Token - Transaction Info:', {
+      transactionId: transaction.id,
+      orderId: transaction.midtrans_order_id,
+      paymentMethod: transaction.payment_method,
+      hasPaymentMethod,
+      amount: transaction.amount
+    });
+    
+    // Always create a new order with fresh snap token
+    // The old order might not exist in Midtrans yet (payment method selected but not completed)
     const newOrderId = `SUB-${Date.now()}-${userId.substring(0, 8)}-R${Math.random().toString(36).substr(2, 4)}`;
+    
+    console.log(`🆕 Creating new Midtrans transaction with order ID: ${newOrderId}`);
+    console.log(`💳 Payment method: ${hasPaymentMethod ? transaction.payment_method : 'ALL (no specific method selected)'}`);
     
     try {
       const midtransTransaction = await midtransService.createSubscriptionTransaction({
@@ -1103,11 +1073,17 @@ router.post('/regenerate-snap-token', requireSupabaseUser, async (req: any, res)
         paymentMethod: hasPaymentMethod ? transaction.payment_method : undefined
       });
 
+      console.log('🎫 Generated Midtrans transaction with enabled_payments:', midtransTransaction.enabled_payments);
+
       // Get new snap token
       const snapToken = await midtransService.createSnapToken(midtransTransaction);
+      console.log('✅ Snap token created successfully');
 
-      // Update payment URL and order ID in database
+      // Get payment URL
       const paymentUrl = await midtransService.createSnapRedirectUrl(midtransTransaction);
+      console.log('✅ Payment URL generated:', paymentUrl);
+      
+      // Update transaction in database with new order ID
       await supabaseAdmin
         .from('transactions')
         .update({
@@ -1117,6 +1093,8 @@ router.post('/regenerate-snap-token', requireSupabaseUser, async (req: any, res)
         })
         .eq('id', transaction.id);
 
+      console.log('✅ Transaction updated in database with new order ID:', newOrderId);
+
       return res.json(createSuccessResponse({
         snapToken,
         orderId: newOrderId,
@@ -1125,7 +1103,7 @@ router.post('/regenerate-snap-token', requireSupabaseUser, async (req: any, res)
       }, 'Snap token regenerated successfully'));
 
     } catch (error) {
-      console.error('Error creating new transaction:', error);
+      console.error('❌ Error creating new transaction:', error);
       throw new Error('Failed to create new payment transaction');
     }
 

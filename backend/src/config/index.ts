@@ -26,10 +26,19 @@ export const config = {
   RECURRING_WEBHOOK_URL: process.env['MIDTRANS_RECURRING_NOTIFICATION_URL'] || '',
   PAY_ACCOUNT_WEBHOOK_URL: process.env['MIDTRANS_PAY_ACCOUNT_NOTIFICATION_URL'] || '',
   
-  // Midtrans Callback URLs
-  SUCCESS_URL: process.env['MIDTRANS_FINISH_REDIRECT_URL'] || '',
-  ERROR_URL: process.env['MIDTRANS_ERROR_REDIRECT_URL'] || '',
-  PENDING_URL: process.env['MIDTRANS_UNFINISH_REDIRECT_URL'] || '',
+  // Midtrans Callback URLs - Add https:// if not present
+  SUCCESS_URL: (() => {
+    const url = process.env['MIDTRANS_FINISH_REDIRECT_URL'] || '';
+    return url && !url.startsWith('http') ? `https://${url}` : url;
+  })(),
+  ERROR_URL: (() => {
+    const url = process.env['MIDTRANS_ERROR_REDIRECT_URL'] || '';
+    return url && !url.startsWith('http') ? `https://${url}` : url;
+  })(),
+  PENDING_URL: (() => {
+    const url = process.env['MIDTRANS_UNFINISH_REDIRECT_URL'] || '';
+    return url && !url.startsWith('http') ? `https://${url}` : url;
+  })(),
   
   // CORS
   CORS_ORIGIN: process.env['CORS_ORIGIN'] || '',
