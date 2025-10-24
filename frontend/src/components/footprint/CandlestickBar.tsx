@@ -14,6 +14,7 @@ interface CandlestickBarProps {
   zoom: number;
   verticalScale: number;
   horizontalScale: number;
+  barHeight?: number;
 }
 
 export const CandlestickBar: React.FC<CandlestickBarProps> = memo(({
@@ -27,21 +28,22 @@ export const CandlestickBar: React.FC<CandlestickBarProps> = memo(({
   showDelta,
   zoom,
   verticalScale,
-  horizontalScale
+  horizontalScale,
+  barHeight = 16
 }) => {
   const priceRange = maxPrice - minPrice;
   
-  // Calculate candlestick positions using provided height to match Y axis
-  const CHART_HEIGHT = height;
+  // Calculate Y position with fixed spacing - only relative position changes with scaling
   const getYPosition = (price: number) => {
-    // True center-based scaling: expand equally up and down from center
-    const centerY = CHART_HEIGHT / 2;
-    // Calculate position relative to center of price range
-    const midPrice = (maxPrice + minPrice) / 2;
-    const priceOffset = (price - midPrice) / priceRange;
-    // Scale from center: expand equally in both directions
-    const halfScaledRange = (CHART_HEIGHT * verticalScale) / 2;
-    return centerY - priceOffset * halfScaledRange;
+    // Fixed spacing calculation - volume bars maintain consistent spacing
+    // Invert Y-axis: higher prices should be at top (lower Y), lower prices at bottom (higher Y)
+    const priceOffset = (maxPrice - price) / priceRange;
+    const baseY = priceOffset * height;
+    
+    // Apply scaling only to relative position, not spacing
+    const scaledY = baseY * verticalScale;
+    
+    return scaledY;
   };
   
   // Calculate actual price range from volume levels
@@ -50,24 +52,25 @@ export const CandlestickBar: React.FC<CandlestickBarProps> = memo(({
   const actualMaxPrice = Math.max(...volumePrices);
   const actualPriceRange = actualMaxPrice - actualMinPrice;
   
-  // Use volume-based positioning for candlestick - use CHART_HEIGHT to match Y axis
+  // Use volume-based positioning for candlestick with fixed spacing
   const getVolumeBasedYPosition = (price: number) => {
-    // True center-based scaling for volume-based positioning
-    const centerY = CHART_HEIGHT / 2;
-    // Calculate position relative to center of actual price range
-    const midPrice = (actualMaxPrice + actualMinPrice) / 2;
-    const priceOffset = (price - midPrice) / actualPriceRange;
-    // Scale from center: expand equally in both directions
-    const halfScaledRange = (CHART_HEIGHT * verticalScale) / 2;
-    return centerY - priceOffset * halfScaledRange;
+    // Fixed spacing calculation - maintain consistent spacing
+    // Invert Y-axis: higher prices should be at top (lower Y), lower prices at bottom (higher Y)
+    const priceOffset = (actualMaxPrice - price) / actualPriceRange;
+    const baseY = priceOffset * height;
+    
+    // Apply scaling only to relative position, not spacing
+    const scaledY = baseY * verticalScale;
+    
+    return scaledY;
   };
   
-  // Get volume bars height range - use CHART_HEIGHT to match Y axis
+  // Get volume bars height range - use height to match Y axis
   const volumeBarTop = Math.min(...data.volumeLevels.map(level => getYPosition(level.price)));
   const volumeBarBottom = Math.max(...data.volumeLevels.map(level => getYPosition(level.price)));
   const volumeBarHeight = volumeBarBottom - volumeBarTop;
   
-  // Calculate candlestick positions but limit to volume bars height - use CHART_HEIGHT to match Y axis
+  // Calculate candlestick positions but limit to volume bars height - use height to match Y axis
   const openY = Math.max(volumeBarTop, Math.min(volumeBarBottom, getVolumeBasedYPosition(data.open)));
   const closeY = Math.max(volumeBarTop, Math.min(volumeBarBottom, getVolumeBasedYPosition(data.close)));
   const highY = Math.max(volumeBarTop, Math.min(volumeBarBottom, getVolumeBasedYPosition(data.high)));
@@ -109,11 +112,10 @@ export const CandlestickBar: React.FC<CandlestickBarProps> = memo(({
             minPrice,
             priceRange,
             height,
-            CHART_HEIGHT,
             zoom,
             verticalScale,
             calculatedY: y,
-            expectedY: ((maxPrice - level.price) / priceRange) * CHART_HEIGHT * zoom * verticalScale
+            expectedY: ((maxPrice - level.price) / priceRange) * height * zoom * verticalScale
           });
         }
         
@@ -129,6 +131,7 @@ export const CandlestickBar: React.FC<CandlestickBarProps> = memo(({
             isPOCBid={isPOCBid}
             isPOCAsk={isPOCAsk}
             showDelta={showDelta}
+            barHeight={barHeight}
           />
         );
       })}

@@ -1,5 +1,5 @@
 import React, { memo } from 'react';
-import { VolumeLevel } from './FootprintChart';
+import { VolumeLevel, formatVolume } from './FootprintChart';
 
 interface VolumeBarProps {
   level: VolumeLevel;
@@ -11,6 +11,7 @@ interface VolumeBarProps {
   isPOCBid: boolean;
   isPOCAsk: boolean;
   showDelta: boolean;
+  barHeight?: number;
 }
 
 export const VolumeBar: React.FC<VolumeBarProps> = memo(({
@@ -22,9 +23,9 @@ export const VolumeBar: React.FC<VolumeBarProps> = memo(({
   bodyWidth,
   isPOCBid,
   isPOCAsk,
-  showDelta
+  showDelta,
+  barHeight = 16
 }) => {
-  const barHeight = 16;
   const centerX = width / 2;
   const bodyHalfWidth = bodyWidth / 2;
   
@@ -69,7 +70,7 @@ export const VolumeBar: React.FC<VolumeBarProps> = memo(({
         height: barHeight
       }}
     >
-      {/* Bid Bar (Left side) */}
+      {/* Ask Bar (Left side) - Penjual */}
       <div
         className="flex items-center justify-end"
         style={{
@@ -80,16 +81,16 @@ export const VolumeBar: React.FC<VolumeBarProps> = memo(({
       >
         <div
           className={`h-full flex items-center justify-end pr-1 ${
-            isPOCBid ? 'bg-[#A58B00] border border-[#A58B00]' : 'bg-[#FF6B6B] border border-[#FF4444]'
+            isPOCAsk ? 'bg-[#A58B00] border border-[#A58B00]' : 'bg-[#FF6B6B] border border-[#FF4444]'
           }`}
           style={{ 
-            width: bidBarWidth,
-            minWidth: level.bidVolume > 0 ? 20 : 0,
-            ...pocBidStyle
+            width: askBarWidth,
+            minWidth: level.askVolume > 0 ? 20 : 0,
+            ...pocAskStyle
           }}
         >
           <span className="font-medium text-white" style={{ fontSize: '0.6rem' }}>
-            {level.bidVolume}
+            {formatVolume(level.askVolume)}
           </span>
         </div>
       </div>
@@ -105,7 +106,7 @@ export const VolumeBar: React.FC<VolumeBarProps> = memo(({
         {/* Empty space for candlestick */}
       </div>
       
-      {/* Ask Bar (Right side) */}
+      {/* Bid Bar (Right side) - Pembeli */}
       <div
         className="flex items-center justify-start"
         style={{
@@ -116,16 +117,16 @@ export const VolumeBar: React.FC<VolumeBarProps> = memo(({
       >
         <div
           className={`h-full flex items-center justify-start pl-1 ${
-            isPOCAsk ? 'bg-[#A58B00] border border-[#A58B00]' : 'bg-[#4CAF50] border border-[#2E7D32]'
+            isPOCBid ? 'bg-[#A58B00] border border-[#A58B00]' : 'bg-[#4CAF50] border border-[#2E7D32]'
           }`}
           style={{ 
-            width: askBarWidth,
-            minWidth: level.askVolume > 0 ? 20 : 0,
-            ...pocAskStyle
+            width: bidBarWidth,
+            minWidth: level.bidVolume > 0 ? 20 : 0,
+            ...pocBidStyle
           }}
         >
           <span className="font-medium text-white" style={{ fontSize: '0.6rem' }}>
-            {level.askVolume}
+            {formatVolume(level.bidVolume)}
           </span>
         </div>
       </div>
@@ -137,7 +138,7 @@ export const VolumeBar: React.FC<VolumeBarProps> = memo(({
           style={{ color: deltaColor }}
         >
           <span className="font-bold" style={{ fontSize: '0.6rem' }}>
-            {delta >= 0 ? '+' : ''}{delta}
+            {delta >= 0 ? '+' : ''}{formatVolume(delta)}
           </span>
         </div>
       )}

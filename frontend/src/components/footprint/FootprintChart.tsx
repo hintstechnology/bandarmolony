@@ -10,6 +10,7 @@ export interface VolumeLevel {
   bidVolume: number;
   askVolume: number;
   totalVolume: number;
+  originalPrices?: number[]; // For debugging - shows which prices were grouped into this bucket
 }
 
 export interface CandleData {
@@ -43,48 +44,272 @@ export interface CrosshairData {
   visible: boolean;
 }
 
+// Format volume with appropriate prefix (K/M/B/T)
+export const formatVolume = (volume: number): string => {
+  if (volume === 0) return '0';
+  
+  const absVolume = Math.abs(volume);
+  
+  if (absVolume >= 1e12) {
+    return (volume / 1e12).toFixed(1) + 'T';
+  } else if (absVolume >= 1e9) {
+    return (volume / 1e9).toFixed(1) + 'B';
+  } else if (absVolume >= 1e6) {
+    return (volume / 1e6).toFixed(1) + 'M';
+  } else if (absVolume >= 1e3) {
+    return (volume / 1e3).toFixed(1) + 'K';
+  } else {
+    return volume.toString();
+  }
+};
+
 // Convert API footprint data to CandleData format
-const convertFootprintDataToCandleData = (footprintData: Array<{price: number; bFreq: number; sFreq: number}>, ohlc?: OhlcInputCandle[]): CandleData[] => {
+const convertFootprintDataToCandleData = (footprintData: Array<{Price: number; BLot?: number; SLot?: number; BidVolume?: number; AskVolume?: number; date?: string}>, ohlc?: OhlcInputCandle[]): CandleData[] => {
   if (!ohlc || ohlc.length === 0) {
-    // If no OHLC data, create a simple candle from footprint data
-    const prices = footprintData.map(d => d.price);
+    // If no OHLC data, group by date and create candles from footprint data
+    const dataByDate: { [date: string]: Array<{Price: number; bidVolume: number; askVolume: number}> } = {};
+    
+    footprintData.forEach(record => {
+      const date = record.date || 'unknown';
+      if (!dataByDate[date]) {
+        dataByDate[date] = [];
+      }
+      
+      // Use BLot/SLot if available, otherwise fallback to BidVolume/AskVolume
+      const bidVolume = record.BLot ?? record.BidVolume ?? 0;
+      const askVolume = record.SLot ?? record.AskVolume ?? 0;
+      
+      dataByDate[date].push({
+        Price: record.Price,
+        bidVolume,
+        askVolume
+      });
+    });
+    
+    const result: CandleData[] = [];
+    
+    Object.entries(dataByDate).forEach(([date, dayData]) => {
+      if (dayData.length === 0) return;
+      
+      // Step 1: Detect dominant price interval
+      const prices = dayData.map(d => d.Price).filter(p => p !== undefined).sort((a, b) => a - b);
+      const intervals: number[] = [];
+      for (let i = 1; i < prices.length; i++) {
+        const diff = prices[i]! - prices[i - 1]!;
+        if (diff > 0) intervals.push(diff);
+      }
+      
+      // Find most common interval (dominant tick size)
+      const intervalCounts: { [key: number]: number } = {};
+      intervals.forEach(interval => {
+        intervalCounts[interval] = (intervalCounts[interval] || 0) + 1;
+      });
+      
+      // Get dominant interval (most frequent)
+      let dominantInterval = 25; // Default
+      let maxCount = 0;
+      Object.entries(intervalCounts).forEach(([interval, count]) => {
+        if (count > maxCount) {
+          maxCount = count;
+          dominantInterval = parseFloat(interval);
+        }
+      });
+      
+      // Step 2: Create price buckets based on dominant interval
     const minPrice = Math.min(...prices);
     const maxPrice = Math.max(...prices);
+      const basePrice = Math.floor(minPrice / dominantInterval) * dominantInterval;
+      
+      // Step 3: Group data into buckets
+      const buckets: { [bucketPrice: number]: { bidVolume: number; askVolume: number; prices: number[] } } = {};
+      
+      dayData.forEach(d => {
+        const price = d.Price;
+        const bidVolume = d.bidVolume;
+        const askVolume = d.askVolume;
+        
+        // Calculate which bucket this price belongs to
+        const bucketIndex = Math.round((price - basePrice) / dominantInterval);
+        const bucketPrice = basePrice + (bucketIndex * dominantInterval);
+        
+        if (!buckets[bucketPrice]) {
+          buckets[bucketPrice] = { bidVolume: 0, askVolume: 0, prices: [] };
+        }
+        
+        buckets[bucketPrice].bidVolume += bidVolume;
+        buckets[bucketPrice].askVolume += askVolume;
+        buckets[bucketPrice].prices.push(price);
+      });
+      
+      // Step 4: Convert buckets to volume levels
+      const volumeLevels = Object.entries(buckets)
+        .map(([bucketPrice, data]) => ({
+          price: parseFloat(bucketPrice),
+          bidVolume: data.bidVolume,
+          askVolume: data.askVolume,
+          totalVolume: data.bidVolume + data.askVolume,
+          originalPrices: data.prices
+        }))
+        .sort((a, b) => a.price - b.price);
+      
     const avgPrice = (minPrice + maxPrice) / 2;
     
-    return [{
-      timestamp: new Date().toISOString(),
+      // Calculate POC safely
+      let pocBid = avgPrice;
+      let pocAsk = avgPrice;
+      if (volumeLevels.length > 0) {
+        let maxBidVolume = volumeLevels[0]!.bidVolume;
+        pocBid = volumeLevels[0]!.price;
+        for (const level of volumeLevels) {
+          if (level.bidVolume > maxBidVolume) {
+            maxBidVolume = level.bidVolume;
+            pocBid = level.price;
+          }
+        }
+        let maxAskVolume = volumeLevels[0]!.askVolume;
+        pocAsk = volumeLevels[0]!.price;
+        for (const level of volumeLevels) {
+          if (level.askVolume > maxAskVolume) {
+            maxAskVolume = level.askVolume;
+            pocAsk = level.price;
+          }
+        }
+      }
+      
+      console.log(`📊 No OHLC: Created ${volumeLevels.length} volume levels for ${date}, dominant interval: ${dominantInterval}`);
+    
+      result.push({
+        timestamp: new Date(date.slice(0, 4) + '-' + date.slice(4, 6) + '-' + date.slice(6, 8)).toISOString(),
       open: avgPrice,
       high: maxPrice,
       low: minPrice,
       close: avgPrice,
-      volumeLevels: footprintData.map(d => ({
-        price: d.price,
-        bidVolume: d.bFreq,
-        askVolume: d.sFreq,
-        totalVolume: d.bFreq + d.sFreq
-      })),
-      pocBid: footprintData.reduce((max, d) => d.bFreq > max.bFreq ? d : max, footprintData[0]).price,
-      pocAsk: footprintData.reduce((max, d) => d.sFreq > max.sFreq ? d : max, footprintData[0]).price
-    }];
+        volumeLevels,
+        pocBid,
+        pocAsk
+      });
+    });
+    
+    return result.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }
   
   // Convert OHLC data to CandleData with footprint volume levels
   return ohlc.map(candle => {
-    const candleFootprint = footprintData.filter(d => 
-      d.price >= candle.low && d.price <= candle.high
-    );
+    // Extract date from candle timestamp (YYYY-MM-DD -> YYYYMMDD)
+    const candleDate = candle.timestamp.slice(0, 10).replace(/-/g, '');
     
-    const volumeLevels: VolumeLevel[] = candleFootprint.map(d => ({
-      price: d.price,
-      bidVolume: d.bFreq,
-      askVolume: d.sFreq,
-      totalVolume: d.bFreq + d.sFreq
-    }));
+    // Filter footprint data by BOTH date AND price range
+    const candleFootprint = footprintData.filter(d => {
+      // Match date first
+      const matchesDate = d.date === candleDate;
+      // Then match price range
+      const matchesPrice = d.Price >= candle.low && d.Price <= candle.high;
+      
+      return matchesDate && matchesPrice;
+    });
     
-    const pocBid = candleFootprint.reduce((max, d) => d.bFreq > max.bFreq ? d : max, candleFootprint[0])?.price || candle.close;
-    const pocAsk = candleFootprint.reduce((max, d) => d.sFreq > max.sFreq ? d : max, candleFootprint[0])?.price || candle.close;
+    if (candleFootprint.length === 0) {
+      console.log(`📊 No bidask data for candle date ${candleDate}`);
+    return {
+      timestamp: candle.timestamp,
+      open: candle.open,
+      high: candle.high,
+      low: candle.low,
+      close: candle.close,
+        volumeLevels: [],
+        pocBid: candle.close,
+        pocAsk: candle.close
+      };
+    }
     
+    // Step 1: Detect dominant price interval
+    const prices = candleFootprint.map(d => d.Price).filter(p => p !== undefined).sort((a, b) => a - b);
+    const intervals: number[] = [];
+    for (let i = 1; i < prices.length; i++) {
+      const diff = prices[i]! - prices[i - 1]!;
+      if (diff > 0) intervals.push(diff);
+    }
+    
+    // Find most common interval (dominant tick size)
+    const intervalCounts: { [key: number]: number } = {};
+    intervals.forEach(interval => {
+      intervalCounts[interval] = (intervalCounts[interval] || 0) + 1;
+    });
+    
+    // Get dominant interval (most frequent)
+    let dominantInterval = 25; // Default for BBCA
+    let maxCount = 0;
+    Object.entries(intervalCounts).forEach(([interval, count]) => {
+      if (count > maxCount) {
+        maxCount = count;
+        dominantInterval = parseFloat(interval);
+      }
+    });
+    
+    console.log(`📊 Detected dominant interval: ${dominantInterval} for ${candleDate}, intervals:`, intervalCounts);
+    
+    // Step 2: Create price buckets based on dominant interval
+    // Find the base price (closest to candle.low that aligns with interval)
+    const minPrice = Math.min(...prices);
+    const basePrice = Math.floor(minPrice / dominantInterval) * dominantInterval;
+    
+    // Step 3: Group data into buckets
+    const buckets: { [bucketPrice: number]: { bidVolume: number; askVolume: number; prices: number[] } } = {};
+    
+    candleFootprint.forEach(d => {
+      const price = d.Price;
+      const bidVolume = d.BLot ?? d.BidVolume ?? 0;
+      const askVolume = d.SLot ?? d.AskVolume ?? 0;
+      
+      // Calculate which bucket this price belongs to
+      const bucketIndex = Math.round((price - basePrice) / dominantInterval);
+      const bucketPrice = basePrice + (bucketIndex * dominantInterval);
+      
+      if (!buckets[bucketPrice]) {
+        buckets[bucketPrice] = { bidVolume: 0, askVolume: 0, prices: [] };
+      }
+      
+      buckets[bucketPrice].bidVolume += bidVolume;
+      buckets[bucketPrice].askVolume += askVolume;
+      buckets[bucketPrice].prices.push(price);
+    });
+    
+    // Step 4: Convert buckets to volume levels
+    const volumeLevels: VolumeLevel[] = Object.entries(buckets)
+      .map(([bucketPrice, data]) => ({
+        price: parseFloat(bucketPrice),
+        bidVolume: data.bidVolume,
+        askVolume: data.askVolume,
+        totalVolume: data.bidVolume + data.askVolume,
+        // Store original prices for debugging
+        originalPrices: data.prices
+      }))
+      .sort((a, b) => a.price - b.price);
+    
+    // Calculate POC safely
+    let pocBid = candle.close;
+    let pocAsk = candle.close;
+    if (volumeLevels.length > 0) {
+      let maxBidVolume = volumeLevels[0]!.bidVolume;
+      pocBid = volumeLevels[0]!.price;
+      for (const level of volumeLevels) {
+        if (level.bidVolume > maxBidVolume) {
+          maxBidVolume = level.bidVolume;
+          pocBid = level.price;
+        }
+      }
+      let maxAskVolume = volumeLevels[0]!.askVolume;
+      pocAsk = volumeLevels[0]!.price;
+      for (const level of volumeLevels) {
+        if (level.askVolume > maxAskVolume) {
+          maxAskVolume = level.askVolume;
+          pocAsk = level.price;
+        }
+      }
+    }
+    
+    console.log(`📊 Created ${volumeLevels.length} volume levels (from ${candleFootprint.length} records) for ${candleDate}, interval: ${dominantInterval}`);
+
     return {
       timestamp: candle.timestamp,
       open: candle.open,
@@ -98,145 +323,7 @@ const convertFootprintDataToCandleData = (footprintData: Array<{price: number; b
   });
 };
 
-// Generate dummy OHLC data that mimics MOCK data used by other chart styles
-const generateDummyData = (): CandleData[] => {
-  const data: CandleData[] = [];
-  // Create 15-minute timestamps (09:00 - 16:00)
-  const times: string[] = [];
-  for (let hour = 9; hour <= 16; hour++) {
-    for (let minute = 0; minute < 60; minute += 15) {
-      times.push(`${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`);
-    }
-  }
-
-  // Use identical MOCK price path formula as TechnicalAnalysisTradingView
-  // base = 4500 + sin(i*0.15)*60 + random*20
-  for (let i = 0; i < times.length; i++) {
-    const base = 4500 + Math.sin(i * 0.15) * 60 + Math.random() * 20;
-    const open = base + (Math.random() - 0.5) * 20;
-    const close = base + (Math.random() - 0.5) * 20;
-    const high = Math.max(open, close) + Math.random() * 25;
-    const low = Math.min(open, close) - Math.random() * 25;
-
-    // Build footprint volume levels around OHLC range
-    const volumeLevels: VolumeLevel[] = [];
-    const priceStep = 1; // 1 unit step for better performance with large price values
-    const minPrice = Math.min(open, close, low) - 5;
-    const maxPrice = Math.max(open, close, high) + 5;
-
-    let maxBidVolume = 0;
-    let maxAskVolume = 0;
-    let pocBidPrice = 0;
-    let pocAskPrice = 0;
-
-    for (let price = minPrice; price <= maxPrice; price += priceStep) {
-      const roundedPrice = Math.round(price);
-
-      // Heavier volume near OHLC and mid-price
-      const mid = (open + close) / 2;
-      const dist = Math.min(
-        Math.abs(roundedPrice - open),
-        Math.abs(roundedPrice - close),
-        Math.abs(roundedPrice - high),
-        Math.abs(roundedPrice - low),
-        Math.abs(roundedPrice - mid)
-      );
-      const volumeMultiplier = dist < 5 ? 3 : dist < 10 ? 2 : 1;
-
-      const bidVolume = Math.floor(Math.random() * 600 * volumeMultiplier) + 50;
-      const askVolume = Math.floor(Math.random() * 600 * volumeMultiplier) + 50;
-
-      if (bidVolume > maxBidVolume) {
-        maxBidVolume = bidVolume;
-        pocBidPrice = roundedPrice;
-      }
-      if (askVolume > maxAskVolume) {
-        maxAskVolume = askVolume;
-        pocAskPrice = roundedPrice;
-      }
-
-      volumeLevels.push({
-        price: roundedPrice,
-        bidVolume,
-        askVolume,
-        totalVolume: bidVolume + askVolume,
-      });
-    }
-
-    data.push({
-      timestamp: times[i] || '',
-      open: Math.round(open),
-      high: Math.round(high),
-      low: Math.round(low),
-      close: Math.round(close),
-      volumeLevels,
-      pocBid: pocBidPrice,
-      pocAsk: pocAskPrice,
-    });
-  }
-
-  return data;
-};
-
-// Generate CandleData (with mock volume levels) from external OHLC input
-const generateDataFromOHLC = (ohlc: OhlcInputCandle[]): CandleData[] => {
-  return ohlc.map((c) => {
-    const open = Math.round(c.open);
-    const close = Math.round(c.close);
-    const high = Math.round(c.high);
-    const low = Math.round(c.low);
-
-    const minPriceRaw = Math.min(open, close, low);
-    const maxPriceRaw = Math.max(open, close, high);
-
-    // Step every 2 price points
-    const step = 2;
-    const start = Math.floor(minPriceRaw / step) * step;
-    const end = Math.ceil(maxPriceRaw / step) * step;
-
-    const volumeLevels: VolumeLevel[] = [];
-    let maxBidVolume = 0;
-    let maxAskVolume = 0;
-    let pocBidPrice = start;
-    let pocAskPrice = start;
-
-    const mid = (open + close) / 2;
-    for (let price = start; price <= end; price += step) {
-      const dist = Math.abs(price - mid);
-      const volumeMultiplier = dist < 4 ? 3 : dist < 8 ? 2 : 1;
-
-      const bidVolume = Math.floor(Math.random() * 600 * volumeMultiplier) + 50;
-      const askVolume = Math.floor(Math.random() * 600 * volumeMultiplier) + 50;
-
-      if (bidVolume > maxBidVolume) {
-        maxBidVolume = bidVolume;
-        pocBidPrice = price;
-      }
-      if (askVolume > maxAskVolume) {
-        maxAskVolume = askVolume;
-        pocAskPrice = price;
-      }
-
-      volumeLevels.push({
-        price,
-        bidVolume,
-        askVolume,
-        totalVolume: bidVolume + askVolume,
-      });
-    }
-
-    return {
-      timestamp: c.timestamp,
-      open,
-      high,
-      low,
-      close,
-      volumeLevels,
-      pocBid: pocBidPrice,
-      pocAsk: pocAskPrice,
-    };
-  });
-};
+// Note: Removed generateDataFromOHLC function - chart now only uses actual bidask data
 
 interface FootprintChartProps {
   showCrosshair?: boolean;
@@ -249,16 +336,28 @@ interface FootprintChartProps {
   date?: string; // Date for API data
 }
 
+type DateRangeOption = '7' | '14' | '30' | '60' | '90' | 'all';
+
 interface FootprintApiResponse {
   success: boolean;
   data?: {
-    stockCode: string;
+    code: string;
     date: string;
-    footprintData: Array<{
-      price: number;
-      bFreq: number;
-      sFreq: number;
+    data: Array<{
+      Price: number;
+      BLot?: number;
+      SLot?: number;
+      BidVolume?: number;
+      AskVolume?: number;
+      NetVolume: number;
+      TotalVolume: number;
+      BidCount: number;
+      AskCount: number;
+      UniqueBidBrokers: number;
+      UniqueAskBrokers: number;
     }>;
+    total: number;
+    generated_at: string;
   };
   error?: string;
 }
@@ -274,11 +373,24 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
   date
 }) => {
   const [data, setData] = useState<CandleData[]>([]);
+  const previousDataLengthRef = useRef<number>(0);
   const [crosshair, setCrosshair] = useState<CrosshairData>({
     x: 0, y: 0, price: 0, time: '', bidVol: 0, askVol: 0, delta: 0, visible: false
   });
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Lazy loading state
+  const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
+  const [currentDate, setCurrentDate] = useState<string>(date || '');
+  const [loadedDates, setLoadedDates] = useState<string[]>([]);
+  const [allBidAskData, setAllBidAskData] = useState<any[]>([]);
+  const [isUserScrolling, setIsUserScrolling] = useState<boolean>(false);
+  const [isInitialLoad, setIsInitialLoad] = useState<boolean>(true);
+  
+  // Date range selector state
+  const [dateRange, setDateRange] = useState<DateRangeOption>('14');
+  
   // Chart dimensions and layout - responsive
   // Use measured container height instead of a fixed window-based constant
   // const PRICE_LEVEL_HEIGHT = 16;
@@ -289,41 +401,127 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
   // const [timeframe, setTimeframe] = useState(propTimeframe ?? '15m');
   const [zoom, setZoom] = useState(propZoom ?? 1.1);
 
-  // Load footprint data from API
+  // Chart scroll state - moved up to avoid initialization error
+  const [scrollX, setScrollX] = useState(0);
+
+  // Initial load - load first 14 candles worth of data starting from today
   useEffect(() => {
-    const loadFootprintData = async () => {
-      if (!stockCode || !date) {
-        // Fallback to dummy data if no stockCode or date provided
-        setData(generateDummyData());
+    const loadInitialData = async () => {
+      if (!stockCode) {
+        // No stock code provided, show empty chart
+        setData([]);
         return;
       }
       
       setIsLoading(true);
       setError(null);
+      setIsInitialLoad(true); // Reset initial load flag for new stock
+      
+      // Start from today's date instead of provided date
+      const today = new Date();
+      const todayString = today.toISOString().slice(0, 10).replace(/-/g, '');
+      setCurrentDate(todayString);
+      setLoadedDates([]);
+      setAllBidAskData([]);
       
       try {
-        const response = await api.getFootprintData(stockCode, date);
-        if (response.success && response.data?.footprintData) {
-          // Convert API data to CandleData format
-          const apiData = response.data.footprintData;
-          const convertedData = convertFootprintDataToCandleData(apiData, ohlc);
-          setData(convertedData);
-        } else {
-          // Fallback to dummy data if API fails
-          setData(generateDummyData());
-        }
+        console.log(`📊 Loading initial bid/ask data for ${stockCode} starting from today (${todayString})`);
+        await loadNextBatch();
       } catch (err) {
+        console.error('Error loading initial footprint data:', err);
         setError('Failed to load footprint data');
-        console.error('Error loading footprint data:', err);
-        // Fallback to dummy data
-        setData(generateDummyData());
+        setData([]);
       } finally {
         setIsLoading(false);
       }
     };
 
-    loadFootprintData();
-  }, [stockCode, date, ohlc]);
+    loadInitialData();
+  }, [stockCode, ohlc, dateRange]); // Added dateRange dependency
+
+  // Load next batch of data based on date range
+  const loadNextBatch = async () => {
+    if (!stockCode || !currentDate || isLoadingMore) return;
+    
+    setIsLoadingMore(true);
+    
+    try {
+      // Determine max attempts based on date range selector
+      const maxAttempts = dateRange === 'all' ? 90 : parseInt(dateRange);
+      let attempts = 0;
+      let currentDateToLoad = currentDate;
+      let newBidAskData: any[] = [];
+      let foundData = false;
+      
+      console.log(`📊 Loading ${maxAttempts} days of data (date range: ${dateRange})`);
+      
+      while (attempts < maxAttempts) {
+        // Skip if we already loaded this date
+        if (loadedDates.includes(currentDateToLoad)) {
+          const currentDateObj = new Date(currentDateToLoad.slice(0, 4) + '-' + currentDateToLoad.slice(4, 6) + '-' + currentDateToLoad.slice(6, 8));
+          currentDateObj.setDate(currentDateObj.getDate() - 1);
+          currentDateToLoad = currentDateObj.toISOString().slice(0, 10).replace(/-/g, '');
+          attempts++;
+          continue;
+        }
+        
+        const response = await api.getBidAskData(stockCode, currentDateToLoad);
+        
+        if (response.success && response.data?.data && response.data.data.length > 0) {
+          const apiData = response.data.data;
+          console.log(`📊 Retrieved ${apiData.length} bid/ask records for ${stockCode} on ${currentDateToLoad}`);
+          
+          const dataWithDate = apiData.map((record: any) => ({
+            ...record,
+            date: currentDateToLoad
+          }));
+          
+          newBidAskData = [...newBidAskData, ...dataWithDate];
+          setLoadedDates(prev => [...prev, currentDateToLoad]);
+          foundData = true;
+        }
+        
+        // Move to previous day
+        attempts++;
+        const currentDateObj = new Date(currentDateToLoad.slice(0, 4) + '-' + currentDateToLoad.slice(4, 6) + '-' + currentDateToLoad.slice(6, 8));
+        currentDateObj.setDate(currentDateObj.getDate() - 1);
+        currentDateToLoad = currentDateObj.toISOString().slice(0, 10).replace(/-/g, '');
+        
+        // Add small delay
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      
+      if (foundData && newBidAskData.length > 0) {
+        // Update data atomically to prevent race conditions
+        setAllBidAskData(prev => {
+          const updatedData = [...prev, ...newBidAskData];
+          console.log(`📊 Loaded batch: ${newBidAskData.length} records, total: ${updatedData.length}`);
+          
+          // Convert all data to CandleData format and sort by date (newest first)
+          const convertedData = convertFootprintDataToCandleData(updatedData, ohlc);
+          
+          // Use setTimeout to ensure state update happens after current render cycle
+          setTimeout(() => {
+            setData(convertedData);
+            console.log(`📊 Data updated: ${convertedData.length} candles`);
+          }, 0);
+          
+          return updatedData;
+        });
+        
+        // Update current date for next batch (continue loading)
+        setCurrentDate(currentDateToLoad);
+        console.log(`📊 Ready for next batch from ${currentDateToLoad}`);
+      } else {
+        console.log(`📊 No bid/ask data found for ${stockCode} in this batch`);
+      }
+      
+    } catch (err) {
+      console.error('Error loading next batch:', err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
   
   // Theme detection
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
@@ -334,22 +532,17 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [dragMode, setDragMode] = useState<'none' | 'pan' | 'zoom'>('none');
-  const [verticalScale, setVerticalScale] = useState(5); // Default scale to 5
+  const [verticalScale, setVerticalScale] = useState(10); // Increased default scale for better spacing
   const [horizontalScale, setHorizontalScale] = useState(1.5); // Default 150%
+  
+  // Chart dimensions with scaling
+  const CANDLE_WIDTH = 120 * horizontalScale; // Apply horizontal scaling
+  
   // const [containerHeight, setContainerHeight] = useState(400);
   // const [isDoubleClicking, setIsDoubleClicking] = useState(false);
   const [lastPinchDistance, setLastPinchDistance] = useState(0);
   // const [isPinching, setIsPinching] = useState(false);
   const [showPanIndicator, setShowPanIndicator] = useState(false);
-
-  // Build CandleData from external OHLC when provided; fallback to dummy
-  useEffect(() => {
-    if (ohlc && ohlc.length > 0) {
-      setData(generateDataFromOHLC(ohlc));
-    } else {
-      setData(generateDummyData());
-    }
-  }, [ohlc]);
 
   // Sync props with state
   useEffect(() => {
@@ -391,19 +584,63 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
     return () => window.removeEventListener('resize', updateDimensions);
   }, []);
 
-  // Auto scroll to last bar when data changes or component mounts
+  // Auto scroll to first bar (most recent) ONLY on initial load
   useEffect(() => {
-    if (data.length > 0) {
+    if (data.length > 0 && isInitialLoad) {
       const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
-      // const visibleBars = Math.floor(screenWidth / CANDLE_WIDTH); // Removed unused variable
-      const rightMargin = screenWidth * 0.1; // 10% of screen width for better margin
-      const totalBars = data.length;
+      const rightMargin = CANDLE_WIDTH * 1; // 1 bar width margin to prevent rightmost bar from being too close to Y-axis
       
-      // Calculate scroll position to show the last bar
-      const lastCandlePosition = Math.max(0, totalBars * CANDLE_WIDTH - screenWidth + rightMargin);
-      setScrollX(lastCandlePosition);
+      // To show the first bar (most recent) on the RIGHT side of the screen:
+      // We need to scroll to the RIGHTMOST position with 1 bar margin
+      // Calculate total width of all bars
+      const totalBarsWidth = data.length * CANDLE_WIDTH;
+      
+      // Calculate scroll position to show the rightmost part (first bar on the right) with 1 bar spacing
+      const rightmostPosition = Math.max(0, totalBarsWidth - screenWidth + rightMargin);
+      
+      // Temporarily disable user scrolling flag to prevent auto-loading
+      setIsUserScrolling(false);
+      setScrollX(rightmostPosition);
+      setIsInitialLoad(false); // Mark initial load as complete
+      previousDataLengthRef.current = data.length; // Update ref
+      
+      console.log(`📊 Initial scroll to RIGHTMOST position: ${rightmostPosition} (total width: ${totalBarsWidth}, screen: ${screenWidth}, margin: ${rightMargin}px = 1 bar)`);
     }
-  }, [data.length]);
+  }, [data.length, CANDLE_WIDTH, isInitialLoad]);
+
+  // Adjust scroll position when data length changes (for lazy loading)
+  useEffect(() => {
+    if (!isInitialLoad && data.length > previousDataLengthRef.current && previousDataLengthRef.current > 0) {
+      const addedBars = data.length - previousDataLengthRef.current;
+      const scrollAdjustment = addedBars * CANDLE_WIDTH;
+      
+      setScrollX(prev => {
+        const newScrollX = prev + scrollAdjustment;
+        console.log(`📊 Scroll preserved: ${prev} → ${newScrollX} (+${addedBars} bars)`);
+        return newScrollX;
+      });
+    }
+    
+    // Update ref for next time
+    previousDataLengthRef.current = data.length;
+  }, [data.length, CANDLE_WIDTH, isInitialLoad]);
+
+  // Set initial horizontal scale to match double-click reset value (1.5)
+  useEffect(() => {
+    if (data.length > 0 && isInitialLoad) {
+      const defaultScale = 1.5; // Same as double-click reset
+      setHorizontalScale(defaultScale);
+      console.log(`📊 Initial horizontal scale set to reset value: ${defaultScale} (${Math.round(defaultScale * 100)}%)`);
+    }
+  }, [data.length, isInitialLoad]);
+
+
+  // Scroll-based lazy loading trigger - disabled when using date range selector
+  // Data is loaded once based on selected range
+  useEffect(() => {
+    // Disabled lazy loading - all data loaded based on date range selector
+    return undefined;
+  }, [scrollX, isLoadingMore, data.length, CANDLE_WIDTH, isUserScrolling]);
 
   // Get theme colors from the main app (unused for now)
   // const getThemeColors = () => {
@@ -434,9 +671,6 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
   //   return () => window.removeEventListener('resize', updateHeight);
   // }, []);
   
-  // Chart dimensions with scaling
-  const CANDLE_WIDTH = 120 * horizontalScale; // Apply horizontal scaling
-  
   // Auto-scroll to show the last candles by default with 5% right margin
   const totalBars = data.length;
   const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
@@ -445,7 +679,6 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
   // Calculate position to show the very last bar with margin
   const lastCandlePosition = Math.max(0, totalBars * CANDLE_WIDTH - screenWidth + rightMargin);
   
-  const [scrollX, setScrollX] = useState(lastCandlePosition);
   // Start with scrollY to center bars
   const [scrollY, setScrollY] = useState(0);
   
@@ -453,9 +686,72 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
   const allPrices = data.flatMap(candle => 
     candle.volumeLevels.map(level => level.price)
   );
-  const minPrice = Math.min(...allPrices);
-  const maxPrice = Math.max(...allPrices);
+  const minPrice = allPrices.length > 0 ? Math.min(...allPrices) : 0;
+  const maxPrice = allPrices.length > 0 ? Math.max(...allPrices) : 1000;
   const priceRange = maxPrice - minPrice;
+  
+  // Set initial vertical scale to optimal density (no overlap) and center Y-axis
+  useEffect(() => {
+    if (data.length === 0 || !isInitialLoad || chartHeight === 0) return; // Only run on initial load
+    
+    // Calculate optimal vertical scale based on data density
+    const allPricesFromData: number[] = [];
+    data.forEach(candle => {
+      allPricesFromData.push(candle.high, candle.low);
+      candle.volumeLevels.forEach(level => allPricesFromData.push(level.price));
+    });
+    
+    if (allPricesFromData.length > 0) {
+      const dataMinPrice = Math.min(...allPricesFromData);
+      const dataMaxPrice = Math.max(...allPricesFromData);
+      
+      // Calculate total volume levels across all candles
+      const totalVolumeLevels = data.reduce((sum, candle) => sum + candle.volumeLevels.length, 0);
+      const averageLevelsPerCandle = totalVolumeLevels / data.length;
+      
+      // Calculate optimal scale for maximum density without overlap
+      // Each volume bar is 20px tall, we want them to be as close as possible without overlapping
+      const barHeight = 20; // Fixed volume bar height
+      const maxBarsPerScreen = Math.floor(chartHeight / barHeight);
+      
+      // Calculate minimum scale needed to fit all bars without overlap
+      const minScaleForNoOverlap = maxBarsPerScreen / Math.max(1, averageLevelsPerCandle);
+      
+      // Use default scale instead of calculated optimal
+      const defaultScale = 2.4;
+      
+      console.log(`📊 Using default vertical scale: ${defaultScale} (${averageLevelsPerCandle.toFixed(1)} levels/candle, ${maxBarsPerScreen} bars fit)`);
+      setVerticalScale(defaultScale);
+      
+      // Center Y-axis based on actual price range
+      const middlePrice = (dataMinPrice + dataMaxPrice) / 2;
+      const totalContentHeight = chartHeight * defaultScale;
+      const centerPosition = (totalContentHeight - chartHeight) / 2;
+      
+      setScrollY(centerPosition);
+      console.log(`📊 Initial Y-axis centered: scrollY=${centerPosition.toFixed(0)}, price range: ${dataMinPrice}-${dataMaxPrice} (middle: ${middlePrice})`);
+    } else {
+      // Fallback to default scale
+      const defaultScale = 2.4;
+      console.log(`📊 Using fallback vertical scale: ${defaultScale}`);
+      setVerticalScale(defaultScale);
+    }
+  }, [data.length, isInitialLoad, chartHeight]);
+  
+  // Debug effect to track data changes and ensure rendering
+  useEffect(() => {
+    if (data.length > 0) {
+      console.log(`📊 Data state updated: ${data.length} candles, volume levels: ${data.reduce((sum, candle) => sum + candle.volumeLevels.length, 0)}`);
+      
+      // Force re-render by updating a dummy state if needed
+      if (data.some(candle => candle.volumeLevels.length === 0)) {
+        console.warn(`📊 Warning: Some candles have no volume levels!`);
+      }
+    }
+  }, [data]);
+  
+  // Fixed bar height - volume bars always 20px tall regardless of scaling
+  const dynamicBarHeight = 20;
   
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (!chartRef.current || !showCrosshair) return;
@@ -526,11 +822,16 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
   }, []);
   
   const handleScroll = useCallback((deltaX: number, deltaY: number) => {
+    // Mark that user is scrolling
+    setIsUserScrolling(true);
+    
     setScrollX(prev => {
       const newScrollX = prev + deltaX;
       const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
-      const maxScrollX = Math.max(0, data.length * CANDLE_WIDTH - screenWidth);
-      return Math.max(0, Math.min(maxScrollX, newScrollX));
+      const leftMargin = CANDLE_WIDTH * 5; // Allow scrolling 5 bars to the left
+      const rightMargin = CANDLE_WIDTH * 5; // Allow scrolling 5 bars to the right
+      const maxScrollX = data.length * CANDLE_WIDTH - screenWidth + rightMargin; // Allow extra space on right
+      return Math.max(-leftMargin, Math.min(maxScrollX, newScrollX));
     });
     setScrollY(prev => {
       const newScrollY = prev + deltaY;
@@ -540,6 +841,9 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
       const minScrollY = -extraSpace; // Allow negative scroll to pan above
       return Math.max(minScrollY, Math.min(maxScrollY, newScrollY));
     });
+    
+    // Reset user scrolling flag after a short delay
+    setTimeout(() => setIsUserScrolling(false), 1000);
   }, [data.length, CANDLE_WIDTH, chartHeight, zoom, verticalScale]);
   
   const handleZoom = useCallback((delta: number) => {
@@ -557,8 +861,13 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
   const handleYAxisDrag = useCallback((deltaY: number) => {
     const scaleDelta = deltaY * -0.0008; // Less sensitive scaling for Y-axis drag
     setVerticalScale(prev => {
-      const newScale = Math.max(0.3, Math.min(5, prev + scaleDelta));
-      console.log('Vertical Scale (Y-axis Drag):', { from: prev, to: newScale, percentage: Math.round(newScale * 100) + '%' });
+      // No minimum limit - allow user to zoom out as much as they want
+      const newScale = Math.max(0.01, Math.min(100, prev + scaleDelta));
+      console.log('Vertical Scale (Y-axis Drag):', { 
+        from: prev, 
+        to: newScale, 
+        percentage: Math.round(newScale * 100) + '%' 
+      });
       return newScale;
     });
   }, []);
@@ -586,8 +895,10 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
       // Adjust scroll to keep anchor point fixed
       setScrollX(prevScroll => {
         const newScrollX = prevScroll - anchorOffset;
-        const maxScrollX = Math.max(0, data.length * newCandleWidth - screenWidth);
-        return Math.max(0, Math.min(maxScrollX, newScrollX));
+        const leftMargin = newCandleWidth * 5; // Allow scrolling 5 bars to the left
+        const rightMargin = newCandleWidth * 5; // Allow scrolling 5 bars to the right
+        const maxScrollX = data.length * newCandleWidth - screenWidth + rightMargin; // Allow extra space on right
+        return Math.max(-leftMargin, Math.min(maxScrollX, newScrollX));
       });
       
       console.log('Horizontal Scale:', { 
@@ -718,11 +1029,22 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
     const deltaY = y - dragStart.y;
     
     if (dragMode === 'pan') {
+      // Check if dragging in Y-axis area (left side of chart) for vertical scaling
+      if (x < 100) { // Left edge - Y-axis area for vertical scaling
+        handleYAxisDrag(deltaY);
+        setDragStart({ x, y });
+      } else {
+        // Normal pan behavior
+        // Mark that user is scrolling via drag
+        setIsUserScrolling(true);
+        
       // Pan with boundaries
       setScrollX(prev => {
         const newScrollX = prev - deltaX;
-        const maxScrollX = Math.max(0, data.length * CANDLE_WIDTH - rect.width);
-        return Math.max(0, Math.min(maxScrollX, newScrollX));
+        const leftMargin = CANDLE_WIDTH * 5; // Allow scrolling 5 bars to the left
+        const rightMargin = CANDLE_WIDTH * 5; // Allow scrolling 5 bars to the right
+        const maxScrollX = data.length * CANDLE_WIDTH - rect.width + rightMargin; // Allow extra space on right
+        return Math.max(-leftMargin, Math.min(maxScrollX, newScrollX));
       });
       setScrollY(prev => {
         const newScrollY = prev - deltaY;
@@ -733,6 +1055,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
         return Math.max(minScrollY, Math.min(maxScrollY, newScrollY));
       });
       setDragStart({ x, y });
+      }
     } else if (dragMode === 'zoom') {
       if (x > rect.width - 100) { // Right edge - vertical scaling
         handleYAxisDrag(deltaY);
@@ -777,14 +1100,18 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
       if (e.key === 'ArrowLeft') {
         setScrollX(prev => {
           const newScrollX = prev - panAmount;
-          const maxScrollX = Math.max(0, data.length * CANDLE_WIDTH - (typeof window !== 'undefined' ? window.innerWidth : 1200));
-          return Math.max(0, Math.min(maxScrollX, newScrollX));
+          const leftMargin = CANDLE_WIDTH * 5; // Allow scrolling 5 bars to the left
+          const rightMargin = CANDLE_WIDTH * 5; // Allow scrolling 5 bars to the right
+          const maxScrollX = data.length * CANDLE_WIDTH - (typeof window !== 'undefined' ? window.innerWidth : 1200) + rightMargin;
+          return Math.max(-leftMargin, Math.min(maxScrollX, newScrollX));
         });
       } else if (e.key === 'ArrowRight') {
         setScrollX(prev => {
           const newScrollX = prev + panAmount;
-          const maxScrollX = Math.max(0, data.length * CANDLE_WIDTH - (typeof window !== 'undefined' ? window.innerWidth : 1200));
-          return Math.max(0, Math.min(maxScrollX, newScrollX));
+          const leftMargin = CANDLE_WIDTH * 5; // Allow scrolling 5 bars to the left
+          const rightMargin = CANDLE_WIDTH * 5; // Allow scrolling 5 bars to the right
+          const maxScrollX = data.length * CANDLE_WIDTH - (typeof window !== 'undefined' ? window.innerWidth : 1200) + rightMargin;
+          return Math.max(-leftMargin, Math.min(maxScrollX, newScrollX));
         });
       } else if (e.key === 'ArrowUp') {
         setScrollY(prev => {
@@ -816,10 +1143,10 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
   // Loading state
   if (isLoading) {
     return (
-      <div className="w-full h-full flex items-center justify-center bg-card text-card-foreground">
-        <div className="flex items-center gap-2">
-          <Loader2 className="w-6 h-6 animate-spin" />
-          <span>Loading footprint data...</span>
+      <div className="w-full h-full flex items-center justify-center bg-background text-foreground">
+        <div className="flex items-center gap-2 bg-background/90 border border-border px-4 py-3 rounded-lg shadow-lg backdrop-blur-sm">
+          <Loader2 className="w-6 h-6 animate-spin text-primary" />
+          <span className="font-medium">Loading initial footprint data...</span>
         </div>
       </div>
     );
@@ -836,6 +1163,9 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
     );
   }
 
+  // Debug: Log data state before rendering
+  console.log(`📊 Rendering chart with ${data.length} candles, isLoading: ${isLoading}, isLoadingMore: ${isLoadingMore}`);
+
   return (
     <div 
       className="w-full h-full relative overflow-hidden bg-card text-card-foreground" 
@@ -849,6 +1179,33 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
         msUserSelect: 'none'
       }}
     >
+      {/* Date Range Selector - Top Right */}
+      <div className="absolute top-4 right-20 z-10 flex items-center gap-2 bg-background/90 border border-border px-3 py-2 rounded-lg shadow-lg backdrop-blur-sm">
+        <span className="text-xs font-medium text-foreground">Range:</span>
+        <select
+          value={dateRange}
+          onChange={(e) => {
+            const newRange = e.target.value as DateRangeOption;
+            setDateRange(newRange);
+            // Reset and reload with new range
+            setLoadedDates([]);
+            setAllBidAskData([]);
+            setData([]);
+            setIsInitialLoad(true);
+            const today = new Date();
+            const todayString = today.toISOString().slice(0, 10).replace(/-/g, '');
+            setCurrentDate(todayString);
+          }}
+          className="bg-background text-foreground border border-border rounded px-2 py-1 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary cursor-pointer"
+        >
+          <option value="7">7 Hari</option>
+          <option value="14">14 Hari</option>
+          <option value="30">30 Hari</option>
+          <option value="60">60 Hari</option>
+          <option value="90">90 Hari</option>
+          <option value="all">Semua</option>
+        </select>
+      </div>
 
       {/* Main Chart Area */}
       <div 
@@ -918,9 +1275,15 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
                 return null;
               }
               
+              // Ensure candle has volume levels before rendering
+              if (!candle.volumeLevels || candle.volumeLevels.length === 0) {
+                console.warn(`📊 Candle ${index} has no volume levels:`, candle);
+                return null;
+              }
+              
               return (
                 <CandlestickBar
-                  key={`candle-${index}`}
+                  key={`candle-${candle.timestamp}-${index}`} // More stable key
                   data={candle}
                   index={index}
                   width={CANDLE_WIDTH}
@@ -932,6 +1295,7 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
                   zoom={zoom}
                   verticalScale={verticalScale}
                   horizontalScale={horizontalScale}
+                  barHeight={dynamicBarHeight}
                 />
               );
             })}
@@ -946,6 +1310,14 @@ export const FootprintChart: React.FC<FootprintChartProps> = React.memo(({
           {false && showPanIndicator && (
             <div className="absolute top-4 left-4 bg-primary text-primary-foreground px-3 py-2 rounded-md text-sm font-medium shadow-lg">
               {dragMode === 'pan' ? 'Pan Mode - Drag to move' : 'Zoom Mode - Drag to scale'}
+            </div>
+          )}
+          
+          {/* Loading More Indicator - Bottom Right */}
+          {isLoadingMore && (
+            <div className="absolute bottom-4 right-4 bg-background/90 text-foreground border border-border px-3 py-2 rounded-md text-sm font-medium shadow-lg flex items-center gap-2 backdrop-blur-sm">
+              <Loader2 className="w-4 h-4 animate-spin text-primary" />
+              <span>Loading more data...</span>
             </div>
           )}
         </div>

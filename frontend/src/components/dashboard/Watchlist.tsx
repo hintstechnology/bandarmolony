@@ -2,10 +2,21 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { TrendingUp, TrendingDown, Star, Search, X } from 'lucide-react';
+import { TrendingUp, TrendingDown, Star, Search, X, Loader2 } from 'lucide-react';
+import { api } from '../../services/api';
 
-// Extended stock data with more companies
-const allStocksData = [
+// Interface for stock data from backend
+interface StockData {
+  symbol: string;
+  name: string;
+  price: number;
+  change: number;
+  changePercent: number;
+  lastUpdate?: string;
+}
+
+// Extended stock data with more companies (fallback data)
+const fallbackStocksData = [
   {
     symbol: "BBRI",
     name: "Bank Rakyat Indonesia",
@@ -163,11 +174,62 @@ export function Watchlist({ selectedStock, onStockSelect, showFavoritesOnly: pro
   });
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(propShowFavoritesOnly || false);
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
+  
+  // Backend data state
+  const [stocksData, setStocksData] = useState<StockData[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Save favorites to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem('watchlist-favorites', JSON.stringify(favorites));
   }, [favorites]);
+
+  // Fetch stock list from backend (symbols only, no OHLC data)
+  useEffect(() => {
+    const fetchStockList = async () => {
+      setIsLoading(true);
+      setError(null);
+      
+      try {
+        // Get stock list from backend (only symbols, no price data)
+        console.log('📊 Fetching stock list from backend...');
+        const stockListResponse = await api.getStockList();
+        console.log('📊 Stock list response:', stockListResponse);
+        
+        if (stockListResponse.success && stockListResponse.data) {
+          const stockSymbols = stockListResponse.data.stocks; // Get ALL stocks from backend
+          console.log('📊 Raw stock symbols from backend:', stockSymbols.slice(0, 10), '...');
+          
+          // Convert to StockData format with placeholder prices
+          const stocksList: StockData[] = stockSymbols.map((symbol: string) => ({
+            symbol: symbol,
+            name: symbol,
+            price: 0, // Placeholder, will be loaded when selected
+            change: 0,
+            changePercent: 0,
+            lastUpdate: undefined
+          }));
+          
+          setStocksData(stocksList);
+          console.log(`📊 Loaded ${stocksList.length} stock symbols from backend (without price data)`);
+        } else {
+          console.error('📊 Backend response failed:', stockListResponse);
+          throw new Error('Failed to get stock list from backend');
+        }
+      } catch (err) {
+        console.error('Error fetching stock list:', err);
+        setError('Failed to load stock list from backend');
+        // Fallback to static data
+        console.log('📊 Using fallback data due to backend error');
+        setStocksData(fallbackStocksData);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchStockList();
+  }, []);
 
   const toggleFavorite = (symbol: string, e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent stock selection when clicking star
@@ -202,14 +264,14 @@ export function Watchlist({ selectedStock, onStockSelect, showFavoritesOnly: pro
   };
 
   // For search dropdown - show all stocks that match search
-  const searchResults = allStocksData.filter(stock => {
+  const searchResults = stocksData.filter(stock => {
     const matchesSearch = stock.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          stock.name.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesSearch;
   });
 
   // For main watchlist - show only favorites when propShowFavoritesOnly is true, but hide when dropdown is open
-  const filteredStocks = showSearchDropdown ? [] : allStocksData.filter(stock => {
+  const filteredStocks = showSearchDropdown ? [] : stocksData.filter(stock => {
     const matchesSearch = stock.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          stock.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesFavorites = (propShowFavoritesOnly || showFavoritesOnly) ? favorites.includes(stock.symbol) : true;
@@ -275,42 +337,24 @@ export function Watchlist({ selectedStock, onStockSelect, showFavoritesOnly: pro
                       <span className="font-medium text-card-foreground">
                         {stock.symbol}
                       </span>
-                      <Badge variant={stock.changePercent > 0 ? 'default' : 'destructive'} className="text-xs flex items-center gap-1">
-                        {stock.changePercent > 0 ? (
-                          <TrendingUp className="w-3 h-3" />
-                        ) : (
-                          <TrendingDown className="w-3 h-3" />
-                        )}
-                        {Math.abs(stock.changePercent)}%
-                      </Badge>
                     </div>
                     <p className="text-sm text-muted-foreground truncate">{stock.name}</p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="text-right">
-                      <p className="font-medium text-card-foreground">
-                        {stock.price.toLocaleString()}
-                      </p>
-                      <p className={`text-sm ${stock.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {stock.change >= 0 ? '+' : ''}{stock.change}
-                      </p>
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleFavorite(stock.symbol, e);
-                      }}
-                      className="hover:scale-110 transition-transform p-1"
-                    >
-                      <Star 
-                        className={`w-4 h-4 ${
-                          favorites.includes(stock.symbol) 
-                            ? 'fill-yellow-400 text-yellow-400' 
-                            : 'text-muted-foreground hover:text-yellow-400'
-                        }`} 
-                      />
-                    </button>
-                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleFavorite(stock.symbol, e);
+                    }}
+                    className="hover:scale-110 transition-transform p-1"
+                  >
+                    <Star 
+                      className={`w-4 h-4 ${
+                        favorites.includes(stock.symbol) 
+                          ? 'fill-yellow-400 text-yellow-400' 
+                          : 'text-muted-foreground hover:text-yellow-400'
+                      }`} 
+                    />
+                  </button>
                 </div>
               ))}
             </div>
@@ -320,7 +364,17 @@ export function Watchlist({ selectedStock, onStockSelect, showFavoritesOnly: pro
       
       <CardContent className="flex-1 overflow-y-auto pb-4">
         <div className="space-y-2">
-          {showSearchDropdown ? (
+          {isLoading ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
+              <p>Loading stock data...</p>
+            </div>
+          ) : error ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <p className="text-red-600 mb-2">{error}</p>
+              <p className="text-sm">Using fallback data</p>
+            </div>
+          ) : showSearchDropdown ? (
             <div className="text-center py-8 text-muted-foreground">
               <p>Search results appear in dropdown above</p>
               <p className="text-sm">Click on a stock to select it</p>
@@ -362,25 +416,29 @@ export function Watchlist({ selectedStock, onStockSelect, showFavoritesOnly: pro
                     <span className={`font-medium ${selectedStock === stock.symbol ? 'text-primary' : 'text-card-foreground'}`}>
                       {stock.symbol}
                     </span>
-                    <Badge variant={stock.changePercent > 0 ? 'default' : 'destructive'} className="text-xs flex items-center gap-1">
-                      {stock.changePercent > 0 ? (
-                        <TrendingUp className="w-3 h-3" />
-                      ) : (
-                        <TrendingDown className="w-3 h-3" />
-                      )}
-                      {Math.abs(stock.changePercent)}%
-                    </Badge>
+                    {stock.price > 0 && (
+                      <Badge variant={stock.changePercent > 0 ? 'default' : 'destructive'} className="text-xs flex items-center gap-1">
+                        {stock.changePercent > 0 ? (
+                          <TrendingUp className="w-3 h-3" />
+                        ) : (
+                          <TrendingDown className="w-3 h-3" />
+                        )}
+                        {Math.abs(stock.changePercent).toFixed(2)}%
+                      </Badge>
+                    )}
                   </div>
                   <p className="text-sm text-muted-foreground truncate">{stock.name}</p>
                 </div>
-                <div className="text-right">
-                  <p className={`font-medium ${selectedStock === stock.symbol ? 'text-primary' : 'text-card-foreground'}`}>
-                    {stock.price.toLocaleString()}
-                  </p>
-                  <p className={`text-sm ${stock.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {stock.change >= 0 ? '+' : ''}{stock.change}
-                  </p>
-                </div>
+                {stock.price > 0 && (
+                  <div className="text-right">
+                    <p className={`font-medium ${selectedStock === stock.symbol ? 'text-primary' : 'text-card-foreground'}`}>
+                      {stock.price.toLocaleString()}
+                    </p>
+                    <p className={`text-sm ${stock.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {stock.change >= 0 ? '+' : ''}{stock.change.toFixed(0)}
+                    </p>
+                  </div>
+                )}
               </div>
             ))
           )}

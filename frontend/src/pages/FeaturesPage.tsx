@@ -1,6 +1,7 @@
 import React from "react";
 import { Helmet } from "react-helmet-async";
 import { motion } from "motion/react";
+import { useNavigate } from "react-router-dom";
 import {
   TrendingUp,
   Activity,
@@ -107,6 +108,8 @@ const featureSections = [
 ];
 
 export function FeaturesPage() {
+  const navigate = useNavigate();
+  
   return (
     <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-background via-muted/20 to-background text-foreground">
       <Helmet>
@@ -189,14 +192,7 @@ export function FeaturesPage() {
             <Button
               size="lg"
               className="rounded-2xl px-8 py-6 text-base font-semibold shadow-lg hover:-translate-y-1 hover:shadow-primary/40 transition-transform"
-              onClick={() => {
-                const navigate = (window as any).navigate;
-                if (navigate) {
-                  navigate("/auth?mode=register");
-                } else {
-                  window.location.href = "/auth?mode=register";
-                }
-              }}
+              onClick={() => navigate("/auth?mode=register")}
             >
               Mulai Free Trial
             </Button>
@@ -204,14 +200,7 @@ export function FeaturesPage() {
               variant="outline"
               size="lg"
               className="rounded-2xl px-8 py-6 text-base font-semibold border-primary/50 text-primary hover:-translate-y-1 hover:bg-primary/10 transition-transform"
-              onClick={() => {
-                const navigate = (window as any).navigate;
-                if (navigate) {
-                  navigate("/contact");
-                } else {
-                  window.location.href = "/contact";
-                }
-              }}
+              onClick={() => navigate("/contact")}
             >
               Hubungi Tim
             </Button>

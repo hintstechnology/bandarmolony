@@ -10,17 +10,22 @@ import { BrokerInventory } from '../broker-activity/BrokerInventory';
 import { CollapsibleSection } from './CollapsibleSection';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
-import { TrendingUp, Calendar, BarChart3, Sparkles, ChartLine, ChartCandlestick, ChartGantt } from 'lucide-react';
+import { TrendingUp, Calendar, BarChart3, Sparkles, ChartCandlestick } from 'lucide-react';
 
 export function Dashboard() {
   const [selectedStock, setSelectedStock] = useState('BBRI');
-  const [chartStyle, setChartStyle] = useState<'line' | 'candles' | 'footprint'>('candles');
   const [timeframe, setTimeframe] = useState('1D');
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
+  const [isChartLoading, setIsChartLoading] = useState(false);
   const analysisSectionRef = useRef<HTMLDivElement>(null);
 
   const handleStockSelect = (symbol: string) => {
-    setSelectedStock(symbol);
+    if (symbol !== selectedStock) {
+      setIsChartLoading(true);
+      setSelectedStock(symbol);
+      // Reset loading state after a delay to allow chart to load
+      setTimeout(() => setIsChartLoading(false), 2000);
+    }
   };
 
   const handleBandarmologyClick = () => {
@@ -109,30 +114,8 @@ export function Dashboard() {
                 {selectedStock}
               </div>
               <div className="flex items-center gap-1 p-1 rounded border border-border bg-background/70 backdrop-blur-sm">
-                <button
-                  onClick={() => setChartStyle('line')}
-                  className={`p-1.5 rounded-md transition-colors ${chartStyle === 'line' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
-                  title="Line"
-                  aria-label="Line chart"
-                >
-                  <ChartLine className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setChartStyle('candles')}
-                  className={`p-1.5 rounded-md transition-colors ${chartStyle === 'candles' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
-                  title="Candles"
-                  aria-label="Candlestick chart"
-                >
-                  <ChartCandlestick className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setChartStyle('footprint')}
-                  className={`p-1.5 rounded-md transition-colors ${chartStyle === 'footprint' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
-                  title="Footprint"
-                  aria-label="Footprint chart"
-                >
-                  <ChartGantt className="w-4 h-4" />
-                </button>
+                <ChartCandlestick className="w-4 h-4 text-primary" />
+                <span className="text-xs text-muted-foreground">OHLC</span>
               </div>
               {/* Timeframe dropdown */}
               <div className="p-1 rounded border border-border bg-background/70 backdrop-blur-sm">
@@ -149,7 +132,18 @@ export function Dashboard() {
                 </select>
               </div>
             </div>
-            <TechnicalAnalysisTradingView selectedStock={selectedStock} hideControls={true} styleProp={chartStyle} timeframeProp={timeframe} />
+            
+            {/* Chart Loading Overlay */}
+            {isChartLoading && (
+              <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-20 flex items-center justify-center">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-2"></div>
+                  <p className="text-sm text-muted-foreground">Loading chart data...</p>
+                </div>
+              </div>
+            )}
+            
+            <TechnicalAnalysisTradingView selectedStock={selectedStock} hideControls={true} styleProp="candles" timeframeProp={timeframe} />
           </div>
         </div>
       </div>
