@@ -4,7 +4,7 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { X, Calendar } from 'lucide-react';
 // Removed unused Recharts imports
-import { getBrokerBackgroundClass, getBrokerTextClass, useDarkMode } from '../../utils/brokerColors';
+// Removed unused imports
 import { api } from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
 import {
@@ -150,6 +150,8 @@ const generateTopBrokersData = (dates: string[], count: 5 | 10 | 15 | 20 | 'all'
   
   // First, determine the color mapping based on the first date's top 5
   const firstDate = dates[0];
+  if (!firstDate) return [];
+  
   const firstDateSeed = firstDate.split('-').reduce((acc, part) => acc + parseInt(part), 0);
   
   const firstDateBrokerVolumes = allBrokers.map(broker => {
@@ -165,7 +167,7 @@ const generateTopBrokersData = (dates: string[], count: 5 | 10 | 15 | 20 | 'all'
   
   // Create color mapping for all brokers based on first date's top 5
   const brokerColorMap = new Map();
-  firstDateTop5.forEach((brokerData, index) => {
+  firstDateTop5.forEach((brokerData) => {
     brokerColorMap.set(brokerData.broker, getBrokerColor(brokerData.broker));
   });
   
