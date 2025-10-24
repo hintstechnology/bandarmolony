@@ -481,6 +481,51 @@ export const api = {
     }
   },
 
+  async changePassword(currentPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        throw new Error('No active session');
+      }
+
+      console.log('📤 API: Changing password...');
+      const response = await fetch(`${API_URL}/api/auth/change-password`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ currentPassword, newPassword })
+      });
+
+      const result = await response.json();
+      
+      if (!response.ok) {
+        console.error('❌ API: Change password failed:', result);
+        throw new Error(result.error || result.message || 'Failed to change password');
+      }
+
+      console.log('✅ API: Password changed successfully');
+      
+      // After successful password change, we need to refresh the session
+      // This is important because Supabase might issue a new token
+      const { data: { session: newSession }, error: refreshError } = await supabase.auth.refreshSession();
+      
+      if (refreshError) {
+        console.warn('⚠️ API: Session refresh after password change failed:', refreshError);
+        // Don't throw - password was changed successfully, just session refresh failed
+      } else if (newSession) {
+        console.log('✅ API: Session refreshed successfully after password change');
+      }
+
+      return { success: true, message: result.message || 'Password changed successfully' };
+    } catch (error: any) {
+      console.error('❌ API: changePassword error:', error);
+      throw error;
+    }
+  },
+
   async login(email: string, password: string): Promise<AuthResponse> {
     try {
       // Use backend login to ensure session is created in database
@@ -1198,47 +1243,6 @@ export const api = {
       return { success: true, data: result.data };
     } catch (error: any) {
       return { success: false, error: error.message || 'Failed to update payment method' };
-    }
-  },
-
-  async changePassword(data: {
-    currentPassword: string;
-    newPassword: string;
-  }): Promise<{ success: boolean; error?: string; message?: string }> {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session?.access_token) {
-        throw new Error('No active session found');
-      }
-
-      const response = await fetch(`${API_URL}/api/auth/change-password`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
-        },
-        body: JSON.stringify(data)
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        return { 
-          success: false, 
-          error: result.error || 'Failed to change password'
-        };
-      }
-
-      return { 
-        success: true, 
-        message: result.message || 'Password changed successfully'
-      };
-    } catch (error: any) {
-      return { 
-        success: false, 
-        error: error.message || 'Failed to change password'
-      };
     }
   },
 

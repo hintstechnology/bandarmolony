@@ -93,39 +93,36 @@ export function ProfilePage() {
 
   const handleChangePassword = async (data: { currentPassword: string; newPassword: string }) => {
     try {
+      console.log('ProfilePage: Starting password change...');
+      
       if (!profile?.email) {
         throw new Error('Profile email not found');
       }
 
-      // Use Supabase direct password change
-      const { error } = await supabase.auth.updateUser({
-        password: data.newPassword
-      });
+      // Use proper API endpoint with current password verification
+      const result = await api.changePassword(data.currentPassword, data.newPassword);
       
-      if (error) {
-        if (error.message?.includes('same_password')) {
-          throw new Error('New password must be different from current password');
-        } else if (error.message?.includes('Password should be at least')) {
-          throw new Error('Password must be at least 6 characters');
-        } else if (error.message?.includes('session_not_found')) {
-          throw new Error('Session expired. Please sign in again.');
-        } else {
-          throw new Error(error.message || 'Failed to change password');
-        }
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to change password');
       }
 
-      toast.success('Password updated successfully!');
+      console.log('✅ ProfilePage: Password changed successfully');
+      
+      // Show success toast
+      showToast({
+        type: 'success',
+        title: 'Password Berhasil Diubah!',
+        message: 'Silahkan login kembali dengan password baru.',
+      });
+      
+      // Close modal ONLY on success
       setIsEditPasswordOpen(false);
       
-      // Refresh profile after password change to ensure UI is updated
-      try {
-        await refreshProfile();
-      } catch (error) {
-        console.warn('Profile refresh failed after password change:', error);
-      }
+      // No need to refresh profile - session already refreshed in API call
     } catch (error: any) {
-      console.error('ProfilePage: Failed to change password:', error);
-      toast.error(error.message || 'Failed to change password');
+      console.error('❌ ProfilePage: Failed to change password:', error);
+      
+      // Re-throw error to let EditPassword component handle it
       throw error;
     }
   };

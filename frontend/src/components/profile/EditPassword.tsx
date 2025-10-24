@@ -22,6 +22,16 @@ export function EditPassword({ isOpen, onClose, email, onSubmit }: Props) {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [error, setError] = useState("");
 
+  // Reset form when modal closes
+  const handleClose = () => {
+    setCurrentPassword("");
+    setNewPassword("");
+    setError("");
+    setShowCurrentPassword(false);
+    setShowNewPassword(false);
+    onClose();
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -43,25 +53,48 @@ export function EditPassword({ isOpen, onClose, email, onSubmit }: Props) {
     try {
       setLoading(true);
       setError("");
+      
       await onSubmit?.({ currentPassword, newPassword });
       
-      showToast({
-        type: 'success',
-        title: 'Password Berhasil Diubah!',
-        message: 'Password Anda telah berhasil diubah.',
-      });
+      // If we reach here, password was changed successfully
+      // Parent will show toast and close modal
+      // Reset form state
+      setCurrentPassword("");
+      setNewPassword("");
+      setShowCurrentPassword(false);
+      setShowNewPassword(false);
       
-      // Don't close automatically - let the parent handle success/error
     } catch (error: any) {
-      setError(error.message || "Failed to change password");
       console.error('EditPassword: Submit error:', error);
+      
+      // Handle specific error messages from backend
+      let errorMessage = error.message || "Failed to change password";
+      
+      if (errorMessage.includes('Current password is incorrect')) {
+        setError("Current password is incorrect");
+      } else if (errorMessage.includes('same password') || errorMessage.includes('different from current')) {
+        setError("New password must be different from current password");
+      } else if (errorMessage.includes('at least 6 characters')) {
+        setError("Password must be at least 6 characters");
+      } else if (errorMessage.includes('Session expired')) {
+        setError("Session expired. Please sign in again.");
+        showToast({
+          type: 'error',
+          title: 'Session Expired',
+          message: 'Please sign in again.',
+        });
+        // Close modal and let user re-login
+        setTimeout(() => handleClose(), 2000);
+      } else {
+        setError(errorMessage);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="w-[95vw] max-w-lg mx-auto p-6">
         <DialogHeader className="pb-6">
           <DialogTitle className="text-xl font-semibold">Change Password</DialogTitle>
@@ -100,6 +133,7 @@ export function EditPassword({ isOpen, onClose, email, onSubmit }: Props) {
                   setError("");
                 }}
                 className="pr-10 h-12 px-4 py-3"
+                disabled={loading}
               />
               <Button
                 type="button"
@@ -107,6 +141,7 @@ export function EditPassword({ isOpen, onClose, email, onSubmit }: Props) {
                 size="sm"
                 className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                 onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                disabled={loading}
               >
                 {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </Button>
@@ -127,6 +162,7 @@ export function EditPassword({ isOpen, onClose, email, onSubmit }: Props) {
                   setError("");
                 }}
                 className="pr-10 h-12 px-4 py-3"
+                disabled={loading}
               />
               <Button
                 type="button"
@@ -134,6 +170,7 @@ export function EditPassword({ isOpen, onClose, email, onSubmit }: Props) {
                 size="sm"
                 className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                 onClick={() => setShowNewPassword(!showNewPassword)}
+                disabled={loading}
               >
                 {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </Button>
@@ -145,7 +182,7 @@ export function EditPassword({ isOpen, onClose, email, onSubmit }: Props) {
             <Button 
               type="button"
               variant="outline" 
-              onClick={onClose} 
+              onClick={handleClose} 
               disabled={loading}
               className="px-6 py-2.5 min-w-[80px]"
             >
