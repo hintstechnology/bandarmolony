@@ -1,11 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { XCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '../../services/api';
 import { ResetPasswordForm } from './ResetPasswordForm';
 import { EmailVerificationSuccess } from './EmailVerificationSuccess';
-import { setAuthState } from '../../utils/auth';
 
 export function EmailVerificationHandler() {
   const [searchParams] = useSearchParams();
@@ -49,6 +48,8 @@ export function EmailVerificationHandler() {
         if (!finalToken) {
           setStatus('error');
           setMessage('Invalid verification link. Token is missing.');
+          // Clear any kickedByOtherDevice flag since this is email verification, not device login
+          localStorage.removeItem('kickedByOtherDevice');
           return;
         }
 
@@ -77,12 +78,16 @@ export function EmailVerificationHandler() {
         } else {
           setStatus('error');
           setMessage(result.error || 'Email verification failed');
+          // Clear any kickedByOtherDevice flag since this is email verification, not device login
+          localStorage.removeItem('kickedByOtherDevice');
         }
 
       } catch (error: any) {
         console.error('Email verification error:', error);
         setStatus('error');
         setMessage('An error occurred during verification. Please try again.');
+        // Clear any kickedByOtherDevice flag since this is email verification, not device login
+        localStorage.removeItem('kickedByOtherDevice');
       }
     };
 

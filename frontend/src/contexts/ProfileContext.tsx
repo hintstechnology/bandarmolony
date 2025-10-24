@@ -74,9 +74,111 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
     } catch (error: any) {
       console.error('ProfileContext: Error refreshing profile:', error);
       
-      // Handle session expired
+      // Handle session expired or 401
       if (error.message?.includes('Session expired') || error.message?.includes('401')) {
-        console.log('ProfileContext: Session expired error caught in refreshProfile');
+        console.log('ProfileContext: Session expired/401 error caught in refreshProfile');
+        
+        // Check if this is a fresh email verification (user just signed up)
+        const emailVerificationSuccess = localStorage.getItem('emailVerificationSuccess');
+        if (emailVerificationSuccess === 'true') {
+          console.log('ProfileContext: Fresh email verification detected. Profile should be created by backend.');
+          console.log('ProfileContext: Will retry fetching profile with exponential backoff...');
+          
+          // DON'T remove flag yet - needed by 401 handlers to skip logout
+          // Will be removed after retry completes (success or failure)
+          
+          // KEEP loading state TRUE while retrying
+          // This prevents redirect loops
+          setIsLoading(true);
+          setIsValidating(true);
+          
+          // Helper function to retry with exponential backoff
+          const retryProfileFetch = async (attempt: number = 1, maxAttempts: number = 4): Promise<void> => {
+            const delay = Math.min(1000 * Math.pow(2, attempt - 1), 8000); // 1s, 2s, 4s, 8s
+            console.log(`ProfileContext: Retry attempt ${attempt}/${maxAttempts} after ${delay}ms...`);
+            
+            await new Promise(resolve => setTimeout(resolve, delay));
+            
+            try {
+              const retryResponse = await api.getProfile();
+              if (retryResponse) {
+                console.log(`ProfileContext: Profile fetch successful on attempt ${attempt}!`);
+                console.log('ProfileContext: Current auth state:', { isAuthenticated, userId: user?.id, userEmail: user?.email });
+                
+                // Remove email verification flag now that we succeeded
+                localStorage.removeItem('emailVerificationSuccess');
+                
+                setProfile(retryResponse);
+                hasInitialized.current = true;
+                setIsLoading(false);
+                setIsValidating(false);
+                
+                // Set flag to show welcome toast in Dashboard after auto-login
+                localStorage.setItem('showEmailVerificationSuccessToast', 'true');
+                
+                console.log('ProfileContext: ✅ Profile set successfully:', {
+                  profileEmail: retryResponse.email,
+                  profileId: retryResponse.id
+                });
+                console.log('ProfileContext: Email verification complete, user auto-logged in to dashboard');
+                
+                return;
+              }
+            } catch (retryError: any) {
+              console.warn(`ProfileContext: Attempt ${attempt} failed:`, retryError.message);
+            }
+            
+            // If not last attempt, retry
+            if (attempt < maxAttempts) {
+              return retryProfileFetch(attempt + 1, maxAttempts);
+            } else {
+              // All retries failed
+              console.error('ProfileContext: All profile fetch retries failed. User needs to login again.');
+              setIsLoading(false);
+              setIsValidating(false);
+              
+              // Clear storage synchronously to prevent race conditions
+              console.log('ProfileContext: Clearing all auth-related storage...');
+              const allLocalStorageKeys = Object.keys(localStorage);
+              allLocalStorageKeys.forEach(key => {
+                if (key.startsWith('sb-') || 
+                    key.includes('supabase') || 
+                    key === 'user' || 
+                    key === 'supabase_session' ||
+                    key === 'kickedByOtherDevice' ||
+                    key === 'emailVerificationSuccess') {
+                  localStorage.removeItem(key);
+                }
+              });
+              
+              const allSessionStorageKeys = Object.keys(sessionStorage);
+              allSessionStorageKeys.forEach(key => {
+                if (key.startsWith('sb-') || key.includes('supabase')) {
+                  sessionStorage.removeItem(key);
+                }
+              });
+              
+              // Set flag for AuthPage to show error toast (AFTER clearing everything)
+              localStorage.setItem('emailVerificationError', 'true');
+              
+              // Logout
+              await supabase.auth.signOut({ scope: 'local' });
+              setProfile(null);
+              hasInitialized.current = false;
+              
+              // Force reload to ensure completely clean state
+              console.log('ProfileContext: Forcing page reload to ensure clean state...');
+              setTimeout(() => {
+                window.location.replace('/auth?mode=login');
+              }, 100);
+            }
+          };
+          
+          // Start retry process
+          retryProfileFetch();
+          
+          return;
+        }
         
         // If we don't have profile yet, it means global-401 handler skipped it
         // So we need to handle logout here
@@ -109,24 +211,30 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
             });
             
             // Set kicked flag AFTER clearing if this is a kicked scenario
-            if (isKickedScenario) {
+            // Skip this if email verification (will be handled by retry logic)
+            const isEmailVerificationFlow = localStorage.getItem('emailVerificationSuccess') === 'true';
+            if (isKickedScenario && !isEmailVerificationFlow) {
               console.log('ProfileContext: Setting kicked flag (authenticated but 401)');
               localStorage.setItem('kickedByOtherDevice', 'true');
+              
+              // Force reload after setting kicked flag
+              console.log('ProfileContext: Forcing page reload to ensure clean logout');
+              setTimeout(() => {
+                window.location.replace('/auth?mode=login');
+              }, 100);
+            } else if (isEmailVerificationFlow) {
+              console.log('ProfileContext: Email verification flow - skipping logout, will retry');
+              // Don't proceed with logout/reload for email verification
+              setProfile(null);
+              hasInitialized.current = false;
+              setIsLoggingOut(false);
+              return; // Let retry logic handle it
             }
             
             console.log('ProfileContext: Storage cleared in refreshProfile');
           } catch (cleanupError) {
             console.error('ProfileContext: Error during storage cleanup:', cleanupError);
           }
-          
-          // RADICAL FIX: Don't call signOut() - Supabase can re-create session from cache
-          // Instead, force reload immediately to ensure clean state
-          console.log('ProfileContext: Forcing page reload to ensure clean logout');
-          
-          // Wait a tiny bit for storage to flush
-          setTimeout(() => {
-            window.location.replace('/auth?mode=login');
-          }, 100);
         } else {
           // If we have profile, global handler already took care of it
           console.log('ProfileContext: Profile exists, global handler already handled logout');
@@ -293,9 +401,17 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
           });
           
           // Set the kicked flag AFTER clearing (so it persists)
-          localStorage.setItem('kickedByOtherDevice', 'true');
-          
-          console.log('ProfileContext: Storage cleared, flag set');
+          // BUT NOT if this is email verification flow (will be handled by retry)
+          const isEmailVerificationFlow = localStorage.getItem('emailVerificationSuccess') === 'true';
+          if (!isEmailVerificationFlow) {
+            localStorage.setItem('kickedByOtherDevice', 'true');
+            console.log('ProfileContext: Storage cleared, kicked flag set');
+          } else {
+            console.log('ProfileContext: Email verification flow - skipping logout, will retry');
+            // Don't proceed with reload for email verification
+            setIsLoggingOut(false);
+            return; // Let retry logic handle it
+          }
         } catch (cleanupError) {
           console.error('ProfileContext: Error during storage cleanup:', cleanupError);
         }
