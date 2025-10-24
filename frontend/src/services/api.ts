@@ -1672,6 +1672,21 @@ export const api = {
   },
 
 
+  // Get broker list from csv_input/broker_list.csv
+  async getBrokerList(): Promise<{ success: boolean; data?: { brokers: string[] }; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/broker/list`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get broker list');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get broker list' };
+    }
+  },
+
   // Broker Transaction Data
   async getBrokerTransactionData(brokerCode: string, date: string): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
@@ -2049,6 +2064,18 @@ export const api = {
       return data;
     } catch (err: any) {
       return { success: false, error: err.message || 'Failed to get broker summary stocks' };
+    }
+  },
+
+  // Get available dates for broker transaction data
+  async getBrokerTransactionDates(): Promise<{ success: boolean; data?: { dates: string[] }; error?: string }> {
+    try {
+      const response = await fetch(`${API_URL}/api/broker/transaction/dates`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to get available dates');
+      return { success: true, data: data.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get available dates' };
     }
   },
 
