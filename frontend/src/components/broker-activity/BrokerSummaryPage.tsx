@@ -72,7 +72,7 @@ const getLastTradingDays = (count: number): string[] => {
     
     // Skip weekends (Saturday = 6, Sunday = 0)
     if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-      dates.push(date.toISOString().split('T')[0] ?? '');
+    dates.push(date.toISOString().split('T')[0] ?? '');
     }
     daysBack++;
   }
@@ -228,33 +228,33 @@ export function BrokerSummaryPage() {
       date,
       buyData: generateBrokerSummaryData(date, selectedTicker),
       sellData: generateBrokerSummaryData(date, selectedTicker).map(broker => ({
-        ...broker,
-        nblot: Math.abs(broker.nslot),
-        nbval: Math.abs(broker.nsval),
-        bavg: broker.savg,
-        nslot: broker.nslot,
-        nsval: broker.nsval,
-        savg: broker.savg
+            ...broker,
+            nblot: Math.abs(broker.nslot),
+            nbval: Math.abs(broker.nsval),
+            bavg: broker.savg,
+            nslot: broker.nslot,
+            nsval: broker.nsval,
+            savg: broker.savg
       }))
-    }));
+          }));
 
     // Get unique brokers
     const brokers = allBrokerData[0]?.buyData.map(b => b.broker) || [];
-    
-    return (
+          
+          return (
       <div className="space-y-6">
         {/* Buy Side Table */}
-        <Card>
-          <CardHeader>
+                <Card>
+                  <CardHeader>
             <CardTitle className="text-green-600">
               BUY SIDE - {selectedTicker}
             </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto rounded-md">
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto rounded-md">
               <table className="w-full min-w-[1000px] text-xs border-collapse">
-                <thead className="bg-background">
-                  <tr className="border-b border-border">
+                        <thead className="bg-background">
+                          <tr className="border-b border-border">
                     <th className="text-left py-2 px-2 font-medium sticky left-0 bg-background z-10 border border-border">Broker</th>
                     {selectedDates.map((date) => (
                       <th key={date} className={`text-center py-2 px-2 font-medium text-green-600 border border-border`} colSpan={3}>
@@ -277,9 +277,9 @@ export function BrokerSummaryPage() {
                     <th className="text-right py-2 px-2 font-medium text-green-600 border border-border">BLot</th>
                     <th className="text-right py-2 px-2 font-medium text-green-600 border border-border">BVal</th>
                     <th className="text-right py-2 px-2 font-medium text-green-600 border border-border">BAvg</th>
-                  </tr>
-                </thead>
-                <tbody>
+                          </tr>
+                        </thead>
+                        <tbody>
                   {brokers.map((broker, brokerIdx) => {
                     // Calculate totals for this broker across all dates
                     const totalBLot = selectedDates.reduce((sum, date) => {
@@ -317,27 +317,27 @@ export function BrokerSummaryPage() {
                         <td className="text-right py-2 px-2 font-bold text-green-600 border border-border">{formatNumber(totalBLot)}</td>
                         <td className="text-right py-2 px-2 font-bold text-green-600 border border-border">{formatNumber(totalBVal)}</td>
                         <td className="text-right py-2 px-2 font-bold text-green-600 border border-border">{formatNumber(totalBAvg)}</td>
-                      </tr>
+                            </tr>
                     );
                   })}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
 
         {/* Sell Side Table */}
-        <Card>
-          <CardHeader>
+                <Card>
+                  <CardHeader>
             <CardTitle className="text-red-600">
               SELL SIDE - {selectedTicker}
             </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto rounded-md">
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto rounded-md">
               <table className="w-full min-w-[1000px] text-xs border-collapse">
-                <thead className="bg-background">
-                  <tr className="border-b border-border">
+                        <thead className="bg-background">
+                          <tr className="border-b border-border">
                     <th className="text-left py-2 px-2 font-medium sticky left-0 bg-background z-10 border border-border">Broker</th>
                     {selectedDates.map((date) => (
                       <th key={date} className={`text-center py-2 px-2 font-medium text-red-600 border border-border`} colSpan={3}>
@@ -360,9 +360,9 @@ export function BrokerSummaryPage() {
                     <th className="text-right py-2 px-2 font-medium text-red-600 border border-border">SLot</th>
                     <th className="text-right py-2 px-2 font-medium text-red-600 border border-border">SVal</th>
                     <th className="text-right py-2 px-2 font-medium text-red-600 border border-border">SAvg</th>
-                  </tr>
-                </thead>
-                <tbody>
+                          </tr>
+                        </thead>
+                        <tbody>
                   {brokers.map((broker, brokerIdx) => {
                     // Calculate totals for this broker across all dates
                     const totalSLot = selectedDates.reduce((sum, date) => {
@@ -400,14 +400,14 @@ export function BrokerSummaryPage() {
                         <td className="text-right py-2 px-2 font-bold text-red-600 border border-border">{formatNumber(totalSLot)}</td>
                         <td className="text-right py-2 px-2 font-bold text-red-600 border border-border">{formatNumber(totalSVal)}</td>
                         <td className="text-right py-2 px-2 font-bold text-red-600 border border-border">{formatNumber(totalSAvg)}</td>
-                      </tr>
+                            </tr>
                     );
                   })}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
       </div>
     );
   };
@@ -564,10 +564,10 @@ export function BrokerSummaryPage() {
                     <option value="1week">1 Week</option>
                     <option value="custom">Custom</option>
                   </select>
-                  <Button onClick={clearAllDates} variant="outline" size="sm">
-                    <RotateCcw className="w-4 h-4 mr-1" />
+                    <Button onClick={clearAllDates} variant="outline" size="sm">
+                      <RotateCcw className="w-4 h-4 mr-1" />
                     Reset
-                  </Button>
+                    </Button>
                 </div>
               </div>
 
