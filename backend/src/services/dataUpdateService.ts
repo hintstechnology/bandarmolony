@@ -12,7 +12,7 @@ const RETRY_ATTEMPTS = 3;
 const RETRY_DELAY = 1000;
 
 // Memory Management
-const BATCH_SIZE = 50;
+const BATCH_SIZE = 150;
 const MEMORY_CLEANUP_INTERVAL = 100;
 
 // Azure Storage Service with Connection Pooling

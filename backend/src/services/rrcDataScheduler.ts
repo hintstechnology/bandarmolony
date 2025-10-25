@@ -144,7 +144,7 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
     let filesCreated = 0, filesUpdated = 0, filesSkipped = 0, filesFailed = 0;
 
     // Process sectors in BATCHES (parallel) for better performance
-    const BATCH_SIZE = 10; // Process 10 sectors at a time (increased for speed)
+    const BATCH_SIZE = 150; // Process 150 sectors at a time (increased for speed)
     console.log(`📦 Processing sectors in batches of ${BATCH_SIZE}...`);
     
     for (let i = 0; i < sectors.length; i += BATCH_SIZE) {
@@ -283,7 +283,7 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
     }
 
     // Process ALL individual stocks from each sector in BATCHES (parallel)
-    const STOCK_BATCH_SIZE = 25; // Process 25 stocks at a time (increased for speed)
+    const STOCK_BATCH_SIZE = 150; // Process 150 stocks at a time (increased for speed)
     console.log(`📦 Processing stocks in batches of ${STOCK_BATCH_SIZE}...`);
     
     for (const sector of sectors) {

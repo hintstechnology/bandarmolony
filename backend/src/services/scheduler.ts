@@ -2,12 +2,10 @@
 // Scheduled tasks for data updates and calculations
 
 import cron from 'node-cron';
-import { forceRegenerate, getGenerationStatus } from './rrcDataScheduler';
-import { forceRegenerate as forceRegenerateRRG, getGenerationStatus as getGenerationStatusRRG } from './rrgDataScheduler';
-import { forceRegenerate as forceRegenerateSeasonal, getGenerationStatus as getGenerationStatusSeasonal } from './seasonalityDataScheduler';
+import { forceRegenerate } from './rrcDataScheduler';
+import { forceRegenerate as forceRegenerateRRG } from './rrgDataScheduler';
+import { forceRegenerate as forceRegenerateSeasonal } from './seasonalityDataScheduler';
 import TrendFilterDataScheduler from './trendFilterDataScheduler';
-import { generateRrgStockScanner } from '../calculations/rrg/rrg_scanner_stock';
-import { generateRrgSectorScanner } from '../calculations/rrg/rrg_scanner_sector';
 import AccumulationDataScheduler from './accumulationDataScheduler';
 import BidAskDataScheduler from './bidAskDataScheduler';
 import BrokerDataScheduler from './brokerDataScheduler';
@@ -28,36 +26,29 @@ import { initializeAzureLogging } from './azureLoggingService';
 // ======================
 // All scheduler times are configured here for easy maintenance
 const SCHEDULER_CONFIG = {
-  // Data Update Times
-  STOCK_UPDATE_TIME: '11:17',
-  INDEX_UPDATE_TIME: '11:17', 
-  DONE_SUMMARY_UPDATE_TIME: '11:17',
-  SHAREHOLDERS_UPDATE_TIME: '00:00', // Monthly (last day)
-  HOLDING_UPDATE_TIME: '00:00', // Monthly (last day)
+  // Phase-based Calculation Times - OPTIMIZED FOR 8GB RAM
+  PHASE1_DATA_COLLECTION_TIME: '19:35',    // Data collection (Stock, Index, Done Summary)
+  PHASE1_SHAREHOLDERS_TIME: '00:00',       // Shareholders & Holding (if last month)
+  PHASE2_MARKET_ROTATION_TIME: '19:35',   // Market rotation (RRC, RRG, Seasonal, Trend Filter)
+  PHASE3_LIGHT_TIME: '19:35',              // Light calculations (Money Flow, Foreign Flow, Break Done Trade)
+  // Phase 4 (medium) will run automatically after previous phase completes (Bid/ask)
+  // Phase 5 (heavy) will run automatically after previous phase completes (Broker Data)
+  // Phase 6 (very heavy) will run automatically after previous phase completes (Broker Inventory, Accumulation Distribution)
   
-  // Calculation Times
-  RRC_UPDATE_TIME: '12:31',
-  RRG_UPDATE_TIME: '12:31',
-  SEASONAL_UPDATE_TIME: '12:31',
-  TREND_FILTER_UPDATE_TIME: '12:31',
-  
-  // Phase-based Calculation Times
-  PHASE1_UPDATE_TIME: '14:46', // Broker Data, Bid/Ask, Money Flow, Foreign Flow, Break Done Trade
-  // Phase 2 is triggered automatically when Phase 1 completes
+  // Memory Management
+  MEMORY_CLEANUP_INTERVAL: 5000,  // 5 seconds
+  FORCE_GC_INTERVAL: 10000,       // 10 seconds
+  MEMORY_THRESHOLD: 12 * 1024 * 1024 * 1024, // 12GB threshold
   
   // Timezone
   TIMEZONE: 'Asia/Jakarta'
 };
 
 // Extract times for backward compatibility
-const STOCK_UPDATE_TIME = SCHEDULER_CONFIG.STOCK_UPDATE_TIME;
-const INDEX_UPDATE_TIME = SCHEDULER_CONFIG.INDEX_UPDATE_TIME;
-const DONE_SUMMARY_UPDATE_TIME = SCHEDULER_CONFIG.DONE_SUMMARY_UPDATE_TIME;
-const RRC_UPDATE_TIME = SCHEDULER_CONFIG.RRC_UPDATE_TIME;
-const RRG_UPDATE_TIME = SCHEDULER_CONFIG.RRG_UPDATE_TIME;
-const SEASONAL_UPDATE_TIME = SCHEDULER_CONFIG.SEASONAL_UPDATE_TIME;
-const TREND_FILTER_UPDATE_TIME = SCHEDULER_CONFIG.TREND_FILTER_UPDATE_TIME;
-const PHASE1_UPDATE_TIME = SCHEDULER_CONFIG.PHASE1_UPDATE_TIME;
+const PHASE1_DATA_COLLECTION_TIME = SCHEDULER_CONFIG.PHASE1_DATA_COLLECTION_TIME;
+const PHASE1_SHAREHOLDERS_TIME = SCHEDULER_CONFIG.PHASE1_SHAREHOLDERS_TIME;
+const PHASE2_MARKET_ROTATION_TIME = SCHEDULER_CONFIG.PHASE2_MARKET_ROTATION_TIME;
+const PHASE3_LIGHT_TIME = SCHEDULER_CONFIG.PHASE3_LIGHT_TIME;
 const TIMEZONE = SCHEDULER_CONFIG.TIMEZONE;
 
 // Convert time to cron format (HH:MM -> MM HH * * *)
@@ -66,17 +57,18 @@ function timeToCron(time: string): string {
   return `${minutes} ${hours} * * *`;
 }
 
+// Check if today is weekend (Saturday = 6, Sunday = 0)
+function isWeekend(): boolean {
+  const today = new Date();
+  const dayOfWeek = today.getDay();
+  return dayOfWeek === 0 || dayOfWeek === 6; // Sunday or Saturday
+}
+
 // Generate cron schedules from configuration
-const STOCK_UPDATE_SCHEDULE = timeToCron(STOCK_UPDATE_TIME);
-const INDEX_UPDATE_SCHEDULE = timeToCron(INDEX_UPDATE_TIME);
-const DONE_SUMMARY_UPDATE_SCHEDULE = timeToCron(DONE_SUMMARY_UPDATE_TIME);
-const SHAREHOLDERS_UPDATE_SCHEDULE = timeToCron(SCHEDULER_CONFIG.SHAREHOLDERS_UPDATE_TIME);
-const HOLDING_UPDATE_SCHEDULE = timeToCron(SCHEDULER_CONFIG.HOLDING_UPDATE_TIME);
-const RRC_UPDATE_SCHEDULE = timeToCron(RRC_UPDATE_TIME);
-const RRG_UPDATE_SCHEDULE = timeToCron(RRG_UPDATE_TIME);
-const SEASONAL_UPDATE_SCHEDULE = timeToCron(SEASONAL_UPDATE_TIME);
-const TREND_FILTER_UPDATE_SCHEDULE = timeToCron(TREND_FILTER_UPDATE_TIME);
-const PHASE1_UPDATE_SCHEDULE = timeToCron(PHASE1_UPDATE_TIME);
+const PHASE1_DATA_COLLECTION_SCHEDULE = timeToCron(PHASE1_DATA_COLLECTION_TIME);
+const PHASE1_SHAREHOLDERS_SCHEDULE = timeToCron(PHASE1_SHAREHOLDERS_TIME);
+const PHASE2_MARKET_ROTATION_SCHEDULE = timeToCron(PHASE2_MARKET_ROTATION_TIME);
+const PHASE3_LIGHT_SCHEDULE = timeToCron(PHASE3_LIGHT_TIME);
 
 let schedulerRunning = false;
 let scheduledTasks: any[] = [];
@@ -89,6 +81,386 @@ const foreignFlowService = new ForeignFlowDataScheduler();
 const moneyFlowService = new MoneyFlowDataScheduler();
 const breakDoneTradeService = new BreakDoneTradeDataScheduler();
 
+// Memory monitoring variables
+let memoryMonitorInterval: NodeJS.Timeout | null = null;
+
+/**
+ * Start memory monitoring
+ */
+function startMemoryMonitoring(): void {
+  if (memoryMonitorInterval) {
+    clearInterval(memoryMonitorInterval);
+  }
+  
+  memoryMonitorInterval = setInterval(async () => {
+    await monitorMemoryUsage();
+  }, SCHEDULER_CONFIG.MEMORY_CLEANUP_INTERVAL);
+}
+
+/**
+ * Stop memory monitoring
+ */
+function stopMemoryMonitoring(): void {
+  if (memoryMonitorInterval) {
+    clearInterval(memoryMonitorInterval);
+    memoryMonitorInterval = null;
+  }
+}
+
+/**
+ * Monitor memory usage and force cleanup if needed
+ */
+async function monitorMemoryUsage(): Promise<boolean> {
+  const memUsage = process.memoryUsage();
+  const usedMB = memUsage.heapUsed / 1024 / 1024;
+  const totalMB = memUsage.heapTotal / 1024 / 1024;
+  const usedGB = usedMB / 1024;
+  const totalGB = totalMB / 1024;
+  
+  // Get Node.js memory limit (8GB from NODE_OPTIONS)
+  const maxOldSpaceSize = process.env['NODE_OPTIONS']?.includes('--max-old-space-size=') 
+    ? parseInt(process.env['NODE_OPTIONS'].split('--max-old-space-size=')[1]?.split(' ')[0] || '0') 
+    : 0;
+  const maxGB = maxOldSpaceSize / 1024;
+  
+  console.log(`📊 Memory Usage: ${usedMB.toFixed(2)}MB / ${totalMB.toFixed(2)}MB (${usedGB.toFixed(2)}GB / ${totalGB.toFixed(2)}GB allocated)`);
+  console.log(`🔧 Node.js Memory Limit: ${maxOldSpaceSize}MB (${maxGB.toFixed(1)}GB)`);
+  
+  // If memory usage > 12GB, force cleanup
+  if (usedMB > 12000) {
+    console.log('⚠️ High memory usage detected, forcing aggressive cleanup...');
+    await aggressiveMemoryCleanup();
+    return false; // Skip next calculation
+  }
+  
+  return true;
+}
+
+/**
+ * Aggressive memory cleanup
+ */
+async function aggressiveMemoryCleanup(): Promise<void> {
+  console.log('🧹 Starting aggressive memory cleanup...');
+  
+  // Force garbage collection multiple times
+  for (let i = 0; i < 5; i++) {
+    if (global.gc) {
+      global.gc();
+    }
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  
+  // Clear any cached data
+  if (global.gc) {
+    global.gc();
+  }
+  
+  console.log('✅ Aggressive memory cleanup completed');
+}
+
+/**
+ * Run Phase 4 - Medium Calculations (Bid/Ask Footprint)
+ */
+async function runPhase4MediumCalculations(): Promise<void> {
+  const phaseStartTime = new Date();
+  console.log(`\n🚀 ===== PHASE 4 MEDIUM CALCULATIONS STARTED =====`);
+  console.log(`🕐 Start Time: ${phaseStartTime.toISOString()}`);
+  console.log(`📋 Phase: Medium Calculations (Bid/Ask Footprint)`);
+  
+  // Start memory monitoring for this phase
+  startMemoryMonitoring();
+  
+  let logEntry: SchedulerLog | null = null;
+  
+  try {
+    // Check memory before starting
+    const memoryOk = await monitorMemoryUsage();
+    if (!memoryOk) {
+      console.log('⚠️ Skipping Phase 4 Medium due to high memory usage');
+      stopMemoryMonitoring();
+      return;
+    }
+    
+    // Create database log entry
+    const logData: Partial<SchedulerLog> = {
+      feature_name: 'phase4_medium_calculations',
+      trigger_type: 'scheduled',
+      triggered_by: 'phase3',
+      status: 'running',
+      started_at: new Date().toISOString(),
+      environment: process.env['NODE_ENV'] || 'development'
+    };
+    
+    logEntry = await SchedulerLogService.createLog(logData);
+    if (logEntry) {
+      console.log('📊 Phase 4 Medium database log created:', logEntry.id);
+    }
+    
+    console.log('🔄 Starting Bid/Ask Footprint calculation...');
+    
+    const result = await bidAskService.generateBidAskData('all');
+    
+    const phaseEndTime = new Date();
+    const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime.getTime()) / 1000);
+    
+    console.log(`\n📊 ===== PHASE 4 MEDIUM COMPLETED =====`);
+    console.log(`✅ Success: ${result.success ? '1/1' : '0/1'} calculations`);
+    console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
+    console.log(`⏱️ Total Duration: ${totalDuration}s`);
+    
+    // Update database log
+    if (logEntry) {
+      await SchedulerLogService.updateLog(logEntry.id!, {
+        status: result.success ? 'completed' : 'failed',
+        completed_at: new Date().toISOString(),
+        total_files_processed: 1,
+        files_created: result.success ? 1 : 0,
+        files_failed: result.success ? 0 : 1,
+        progress_percentage: 100,
+        current_processing: `Phase 4 Medium complete: Bid/Ask Footprint ${result.success ? 'successful' : 'failed'} in ${totalDuration}s`
+      });
+    }
+    
+    // Cleanup after Phase 4
+    await aggressiveMemoryCleanup();
+    
+    // Stop memory monitoring for this phase
+    stopMemoryMonitoring();
+    
+    // Trigger Phase 5 automatically if Phase 4 succeeded
+    if (result.success) {
+      console.log('🔄 Triggering Phase 5 Heavy calculations...');
+      await runPhase5HeavyCalculations();
+    } else {
+      console.log('⚠️ Skipping Phase 5 due to Phase 4 failure');
+    }
+    
+    git add backend/src/services/scheduler.ts  } catch (error) {
+    console.error('❌ Error during Phase 4 Medium calculations:', error);
+    
+    // Stop memory monitoring on error
+    stopMemoryMonitoring();
+    
+    if (logEntry) {
+      await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
+    }
+  }
+}
+
+/**
+ * Run Phase 5 - Heavy Calculations (Broker Data)
+ */
+async function runPhase5HeavyCalculations(): Promise<void> {
+  const phaseStartTime = new Date();
+  console.log(`\n🚀 ===== PHASE 5 HEAVY CALCULATIONS STARTED =====`);
+  console.log(`🕐 Start Time: ${phaseStartTime.toISOString()}`);
+  console.log(`📋 Phase: Heavy Calculations (Broker Data)`);
+  
+  // Start memory monitoring for this phase
+  startMemoryMonitoring();
+  
+  let logEntry: SchedulerLog | null = null;
+  
+  try {
+    // Check memory before starting
+    const memoryOk = await monitorMemoryUsage();
+    if (!memoryOk) {
+      console.log('⚠️ Skipping Phase 5 Heavy due to high memory usage');
+      stopMemoryMonitoring();
+      return;
+    }
+    
+    // Create database log entry
+    const logData: Partial<SchedulerLog> = {
+      feature_name: 'phase5_heavy_calculations',
+      trigger_type: 'scheduled',
+      triggered_by: 'phase4',
+      status: 'running',
+      started_at: new Date().toISOString(),
+      environment: process.env['NODE_ENV'] || 'development'
+    };
+    
+    logEntry = await SchedulerLogService.createLog(logData);
+    if (logEntry) {
+      console.log('📊 Phase 5 Heavy database log created:', logEntry.id);
+    }
+    
+    console.log('🔄 Starting Broker Data calculation...');
+    
+    const result = await brokerDataService.generateBrokerData('all');
+    
+    const phaseEndTime = new Date();
+    const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime.getTime()) / 1000);
+    
+    console.log(`\n📊 ===== PHASE 5 HEAVY COMPLETED =====`);
+    console.log(`✅ Success: ${result.success ? '1/1' : '0/1'} calculations`);
+    console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
+    console.log(`⏱️ Total Duration: ${totalDuration}s`);
+    
+    // Update database log
+    if (logEntry) {
+      await SchedulerLogService.updateLog(logEntry.id!, {
+        status: result.success ? 'completed' : 'failed',
+        completed_at: new Date().toISOString(),
+        total_files_processed: 1,
+        files_created: result.success ? 1 : 0,
+        files_failed: result.success ? 0 : 1,
+        progress_percentage: 100,
+        current_processing: `Phase 5 Heavy complete: Broker Data ${result.success ? 'successful' : 'failed'} in ${totalDuration}s`
+      });
+    }
+    
+    // Cleanup after Phase 5
+    await aggressiveMemoryCleanup();
+    
+    // Stop memory monitoring for this phase
+    stopMemoryMonitoring();
+    
+    // Trigger Phase 6 automatically if Phase 5 succeeded
+    if (result.success) {
+      console.log('🔄 Triggering Phase 6 Very Heavy calculations...');
+      await runPhase6VeryHeavyCalculations();
+    } else {
+      console.log('⚠️ Skipping Phase 6 due to Phase 5 failure');
+    }
+    
+  } catch (error) {
+    console.error('❌ Error during Phase 5 Heavy calculations:', error);
+    
+    // Stop memory monitoring on error
+    stopMemoryMonitoring();
+    
+    if (logEntry) {
+      await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
+    }
+  }
+}
+
+/**
+ * Run Phase 6 - Very Heavy Calculations (Broker Inventory, Accumulation Distribution)
+ */
+async function runPhase6VeryHeavyCalculations(): Promise<void> {
+  const phaseStartTime = new Date();
+  console.log(`\n🚀 ===== PHASE 6 VERY HEAVY CALCULATIONS STARTED =====`);
+  console.log(`🕐 Start Time: ${phaseStartTime.toISOString()}`);
+  console.log(`📋 Phase: Very Heavy Calculations (Broker Inventory, Accumulation Distribution)`);
+  
+  // Start memory monitoring for this phase
+  startMemoryMonitoring();
+  
+  let logEntry: SchedulerLog | null = null;
+  
+  try {
+    // Check memory before starting
+    const memoryOk = await monitorMemoryUsage();
+    if (!memoryOk) {
+      console.log('⚠️ Skipping Phase 6 Very Heavy due to high memory usage');
+      stopMemoryMonitoring();
+      return;
+    }
+    
+    // Create database log entry
+    const logData: Partial<SchedulerLog> = {
+      feature_name: 'phase6_very_heavy_calculations',
+      trigger_type: 'scheduled',
+      triggered_by: 'phase5',
+      status: 'running',
+      started_at: new Date().toISOString(),
+      environment: process.env['NODE_ENV'] || 'development'
+    };
+    
+    logEntry = await SchedulerLogService.createLog(logData);
+    if (logEntry) {
+      console.log('📊 Phase 6 Very Heavy database log created:', logEntry.id);
+    }
+    
+    console.log('🔄 Starting Very Heavy calculations (SEQUENTIAL)...');
+    
+    const veryHeavyCalculations = [
+      { name: 'Broker Inventory', service: brokerInventoryService, method: 'generateBrokerInventoryData' },
+      { name: 'Accumulation Distribution', service: accumulationService, method: 'generateAccumulationData' }
+    ];
+    
+    let totalSuccessCount = 0;
+    let totalCalculations = 0;
+    
+    for (const calc of veryHeavyCalculations) {
+      console.log(`\n🔄 Starting ${calc.name} (${totalCalculations + 1}/${veryHeavyCalculations.length})...`);
+      
+      // Check memory before each calculation
+      const memoryOk = await monitorMemoryUsage();
+      if (!memoryOk) {
+        console.log('⚠️ Skipping remaining calculations due to high memory usage');
+        break;
+      }
+      
+      const calcStartTime = Date.now();
+      try {
+        const result = await (calc.service as any)[calc.method]('all');
+        const calcDuration = Math.round((Date.now() - calcStartTime) / 1000);
+        
+        if (result.success) {
+          totalSuccessCount++;
+          console.log(`✅ ${calc.name} completed in ${calcDuration}s`);
+        } else {
+          console.error(`❌ ${calc.name} failed:`, result.message);
+        }
+      } catch (error) {
+        const calcDuration = Math.round((Date.now() - calcStartTime) / 1000);
+        console.error(`❌ ${calc.name} error in ${calcDuration}s:`, error);
+      }
+      
+      totalCalculations++;
+      
+      // Force aggressive garbage collection after each calculation
+      await aggressiveMemoryCleanup();
+      
+      // Longer delay between calculations for very heavy operations
+      if (totalCalculations < veryHeavyCalculations.length) {
+        console.log('⏳ Waiting 10s before next calculation...');
+        await new Promise(resolve => setTimeout(resolve, 10000));
+      }
+    }
+    
+    const phaseEndTime = new Date();
+    const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime.getTime()) / 1000);
+    
+    console.log(`\n📊 ===== PHASE 6 VERY HEAVY COMPLETED =====`);
+    console.log(`✅ Success: ${totalSuccessCount}/${totalCalculations} calculations`);
+    console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
+    console.log(`⏱️ Total Duration: ${totalDuration}s`);
+    
+    // Update database log
+    if (logEntry) {
+      await SchedulerLogService.updateLog(logEntry.id!, {
+        status: totalSuccessCount === totalCalculations ? 'completed' : 'failed',
+        completed_at: new Date().toISOString(),
+        total_files_processed: totalCalculations,
+        files_created: totalSuccessCount,
+        files_failed: totalCalculations - totalSuccessCount,
+        progress_percentage: 100,
+        current_processing: `Phase 6 Very Heavy complete: ${totalSuccessCount}/${totalCalculations} calculations successful in ${totalDuration}s`
+      });
+    }
+    
+    console.log(`\n🎉 ===== ALL PHASES COMPLETED =====`);
+    console.log(`📊 Total time from Phase 1 start: Check individual phase logs`);
+    
+    // Stop memory monitoring after all phases complete
+    stopMemoryMonitoring();
+    
+  } catch (error) {
+    console.error('❌ Error during Phase 6 Very Heavy calculations:', error);
+    
+    // Stop memory monitoring on error
+    stopMemoryMonitoring();
+    
+    if (logEntry) {
+      await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
+    }
+  }
+}
+
 /**
  * Start the scheduler
  */
@@ -100,219 +472,34 @@ export function startScheduler(): void {
 
   console.log('🕐 Starting scheduler...');
 
-  // 1. Schedule Stock Data Update
-  const stockTask = cron.schedule(STOCK_UPDATE_SCHEDULE, async () => {
-    console.log(`🕐 Scheduled stock data update triggered at ${STOCK_UPDATE_TIME}`);
+  // Phase 1, 2, 3 will be scheduled manually, Phase 4, 5, 6 will be auto-triggered
+
+  // 1. Schedule Phase 1 - Data Collection (Stock, Index, Done Summary)
+  const phase1DataCollectionTask = cron.schedule(PHASE1_DATA_COLLECTION_SCHEDULE, async () => {
+    const phaseStartTime = new Date();
+    console.log(`\n🚀 ===== PHASE 1 DATA COLLECTION STARTED =====`);
+    console.log(`🕐 Start Time: ${phaseStartTime.toISOString()}`);
+    console.log(`📋 Phase: Data Collection (Stock, Index, Done Summary) - 7 days`);
     
-    try {
-      console.log('🔄 Starting scheduled stock data update...');
-      await updateStockData();
-      console.log('✅ Scheduled stock data update completed');
-    } catch (error) {
-      console.error('❌ Error during scheduled stock update:', error);
+    // Skip if weekend
+    if (isWeekend()) {
+      console.log('📅 Weekend detected - skipping Phase 1 Data Collection (no market data available)');
+      return;
     }
-  }, {
-    timezone: TIMEZONE
-  });
-  scheduledTasks.push(stockTask);
-
-  // 2. Schedule Index Data Update
-  const indexTask = cron.schedule(INDEX_UPDATE_SCHEDULE, async () => {
-    console.log(`🕐 Scheduled index data update triggered at ${INDEX_UPDATE_TIME}`);
-    
-    try {
-      console.log('🔄 Starting scheduled index data update...');
-      await updateIndexData();
-      console.log('✅ Scheduled index data update completed');
-    } catch (error) {
-      console.error('❌ Error during scheduled index update:', error);
-    }
-  }, {
-    timezone: TIMEZONE
-  });
-  scheduledTasks.push(indexTask);
-
-  // 3. Schedule Done Summary Data Update
-  const doneSummaryTask = cron.schedule(DONE_SUMMARY_UPDATE_SCHEDULE, async () => {
-    console.log(`🕐 Scheduled done summary data update triggered at ${DONE_SUMMARY_UPDATE_TIME}`);
-    
-    try {
-      console.log('🔄 Starting scheduled done summary data update...');
-      await updateDoneSummaryData();
-      console.log('✅ Scheduled done summary data update completed');
-    } catch (error) {
-      console.error('❌ Error during scheduled done summary update:', error);
-    }
-  }, {
-    timezone: TIMEZONE
-  });
-  scheduledTasks.push(doneSummaryTask);
-
-  // 4. Schedule Shareholders Data Update (Monthly - last day of month)
-  const shareholdersTask = cron.schedule(SHAREHOLDERS_UPDATE_SCHEDULE, async () => {
-    // Check if today is the last day of the month
-    const today = new Date();
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    
-    if (today.getMonth() !== tomorrow.getMonth()) {
-      console.log(`🕐 Scheduled shareholders data update triggered (last day of month)`);
-      
-      try {
-        console.log('🔄 Starting scheduled shareholders data update...');
-        await updateShareholdersData();
-        console.log('✅ Scheduled shareholders data update completed');
-      } catch (error) {
-        console.error('❌ Error during scheduled shareholders update:', error);
-      }
-    }
-  }, {
-    timezone: TIMEZONE
-  });
-  scheduledTasks.push(shareholdersTask);
-
-  // 5. Schedule Holding Data Update (Monthly - last day of month)
-  const holdingTask = cron.schedule(HOLDING_UPDATE_SCHEDULE, async () => {
-    // Check if today is the last day of the month
-    const today = new Date();
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    
-    if (today.getMonth() !== tomorrow.getMonth()) {
-      console.log(`🕐 Scheduled holding data update triggered (last day of month)`);
-      
-      try {
-        console.log('🔄 Starting scheduled holding data update...');
-        await updateHoldingData();
-        console.log('✅ Scheduled holding data update completed');
-      } catch (error) {
-        console.error('❌ Error during scheduled holding update:', error);
-      }
-    }
-  }, {
-    timezone: TIMEZONE
-  });
-  scheduledTasks.push(holdingTask);
-
-  // 6. Schedule RRC calculation
-  const rrcTask = cron.schedule(RRC_UPDATE_SCHEDULE, async () => {
-    console.log(`🕐 Scheduled RRC calculation triggered at ${RRC_UPDATE_TIME}`);
-    
-    try {
-      const status = getGenerationStatus();
-      if (status.isGenerating) {
-        console.log('⚠️ RRC generation already in progress, skipping');
-        return;
-      }
-
-      console.log('🔄 Starting scheduled RRC calculation...');
-      await forceRegenerate();
-      console.log('✅ Scheduled RRC calculation completed');
-    } catch (error) {
-      console.error('❌ Error during scheduled RRC calculation:', error);
-    }
-  }, {
-    timezone: TIMEZONE
-  });
-  scheduledTasks.push(rrcTask);
-
-  // 7. Schedule RRG calculation and scanners
-  const rrgTask = cron.schedule(RRG_UPDATE_SCHEDULE, async () => {
-    console.log(`🕐 Scheduled RRG calculation triggered at ${RRG_UPDATE_TIME}`);
-    
-    try {
-      const status = getGenerationStatusRRG();
-      if (status.isGenerating) {
-        console.log('⚠️ RRG generation already in progress, skipping');
-        return;
-      }
-
-      console.log('🔄 Starting scheduled RRG calculation...');
-      await forceRegenerateRRG();
-      console.log('✅ Scheduled RRG calculation completed');
-      
-      // Run scanners after RRG calculation
-      console.log('🔄 Starting RRG Stock Scanner...');
-      await generateRrgStockScanner();
-      console.log('✅ RRG Stock Scanner completed');
-      
-      console.log('🔄 Starting RRG Sector Scanner...');
-      await generateRrgSectorScanner();
-      console.log('✅ RRG Sector Scanner completed');
-      
-    } catch (error) {
-      console.error('❌ Error during scheduled RRG calculation:', error);
-    }
-  }, {
-    timezone: TIMEZONE
-  });
-  scheduledTasks.push(rrgTask);
-
-  // 8. Schedule Seasonality calculation
-  const seasonalTask = cron.schedule(SEASONAL_UPDATE_SCHEDULE, async () => {
-    console.log(`🕐 Scheduled Seasonality calculation triggered at ${SEASONAL_UPDATE_TIME}`);
-    
-    try {
-      const status = getGenerationStatusSeasonal();
-      if (status.isGenerating) {
-        console.log('⚠️ Seasonality generation already in progress, skipping');
-        return;
-      }
-
-      console.log('🔄 Starting scheduled Seasonality calculation...');
-      await forceRegenerateSeasonal('scheduled');
-      console.log('✅ Scheduled Seasonality calculation completed');
-    } catch (error) {
-      console.error('❌ Error during scheduled Seasonality calculation:', error);
-    }
-  }, {
-    timezone: TIMEZONE
-  });
-  scheduledTasks.push(seasonalTask);
-
-  // 9. Schedule Trend Filter calculation
-  const trendFilterTask = cron.schedule(TREND_FILTER_UPDATE_SCHEDULE, async () => {
-    console.log(`🕐 Scheduled Trend Filter calculation triggered at ${TREND_FILTER_UPDATE_TIME}`);
-    
-    try {
-      const status = trendFilterService.getStatus();
-      if (status.isGenerating) {
-        console.log('⚠️ Trend Filter generation already in progress, skipping');
-        return;
-      }
-
-      console.log('🔄 Starting scheduled Trend Filter calculation...');
-      await trendFilterService.generateTrendFilterData();
-      console.log('✅ Scheduled Trend Filter calculation completed');
-    } catch (error) {
-      console.error('❌ Error during scheduled Trend Filter calculation:', error);
-    }
-  }, {
-    timezone: TIMEZONE
-  });
-  scheduledTasks.push(trendFilterTask);
-
-  // 10. Schedule Phase 1 calculations (optimized parallel execution)
-  const phase1Task = cron.schedule(PHASE1_UPDATE_SCHEDULE, async () => {
-    console.log(`🕐 Scheduled Phase 1 calculations triggered at ${PHASE1_UPDATE_TIME}`);
     
     let logEntry: SchedulerLog | null = null;
     
     try {
-      // Pre-flight checks - get all available dates
-      console.log('🔍 Running pre-flight checks...');
-      const preflightResults = await runPreflightChecks();
-      if (!preflightResults.success) {
-        console.error('❌ Pre-flight checks failed:', preflightResults.message);
+      // Check memory before starting
+      const memoryOk = await monitorMemoryUsage();
+      if (!memoryOk) {
+        console.log('⚠️ Skipping Phase 1 Data Collection due to high memory usage');
         return;
       }
       
-      const availableDates = preflightResults.availableDates || [];
-      console.log(`📅 Processing ${availableDates.length} available dates for Phase 1 calculations`);
-      
       // Create database log entry
       const logData: Partial<SchedulerLog> = {
-        feature_name: 'phase1_calculations',
+        feature_name: 'phase1_data_collection',
         trigger_type: 'scheduled',
         triggered_by: 'scheduler',
         status: 'running',
@@ -322,88 +509,98 @@ export function startScheduler(): void {
       
       logEntry = await SchedulerLogService.createLog(logData);
       if (logEntry) {
-        console.log('📊 Phase 1 database log created:', logEntry.id);
+        console.log('📊 Phase 1 Data Collection database log created:', logEntry.id);
       }
       
-      console.log('🔄 Starting Phase 1 calculations (SEQUENTIAL MODE to prevent memory overflow)...');
+      console.log('🔄 Starting Phase 1 Data Collection (PARALLEL MODE)...');
       
-      // Run Break Done Trade calculation first (processes all DT files - lightest)
-      console.log('🔄 Starting Break Done Trade calculation (1/5)...');
-      const breakDoneTradeResult = await breakDoneTradeService.generateBreakDoneTradeData();
+      // Run data collection in parallel
+      const dataCollectionTasks = [
+        { name: 'Stock Data', service: updateStockData, method: null },
+        { name: 'Index Data', service: updateIndexData, method: null },
+        { name: 'Done Summary Data', service: updateDoneSummaryData, method: null }
+      ];
       
-      let breakDoneTradeSuccess = 0;
-      if (breakDoneTradeResult.success) {
-        breakDoneTradeSuccess = 1;
-        console.log('✅ Break Done Trade calculation completed successfully');
+      const dataCollectionPromises = dataCollectionTasks.map(async (task, index) => {
+        const startTime = Date.now();
         
-        // Force garbage collection after Break Done Trade
-        if (global.gc) {
-          global.gc();
-          console.log('🧹 Forced garbage collection after Break Done Trade');
+        try {
+          console.log(`🔄 Starting ${task.name} (${index + 1}/3)...`);
+          
+          // Update progress in database
+          if (logEntry) {
+            await SchedulerLogService.updateLog(logEntry.id!, {
+              progress_percentage: Math.round((index / 3) * 100),
+              current_processing: `Running ${task.name}...`
+            });
+          }
+          
+          // Run calculation
+          const result = await (task.service as any)();
+          
+          const duration = Date.now() - startTime;
+          
+          if (result.success) {
+            console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
+            return { name: task.name, success: true, duration };
+          } else {
+            console.error(`❌ ${task.name} failed:`, result.message);
+            return { name: task.name, success: false, error: result.message, duration };
+          }
+          
+        } catch (error) {
+          const duration = Date.now() - startTime;
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          console.error(`❌ ${task.name} failed:`, errorMessage);
+          return { name: task.name, success: false, error: errorMessage, duration };
         }
-      } else {
-        console.error('❌ Break Done Trade calculation failed:', breakDoneTradeResult.message);
-      }
+      });
       
-      // Process all available dates for other calculations
-      let totalSuccessCount = breakDoneTradeSuccess;
-      let totalCalculations = 1; // Break Done Trade
+      // Wait for all calculations to complete
+      const dataCollectionResults = await Promise.allSettled(dataCollectionPromises);
       
-      for (const dateSuffix of availableDates) {
-        console.log(`📅 Processing date: ${dateSuffix} (SEQUENTIAL MODE)...`);
-        
-        // Force garbage collection before processing each date
-        if (global.gc) {
-          global.gc();
-          console.log('🧹 Forced garbage collection before processing date:', dateSuffix);
+      // Process results
+      const results: Array<{ name: string; success: boolean; error?: string; duration?: number }> = [];
+      dataCollectionResults.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          results.push(result.value);
+        } else {
+          results.push({
+            name: dataCollectionTasks[index]?.name || 'Unknown',
+            success: false,
+            error: result.reason instanceof Error ? result.reason.message : 'Unknown error'
+          });
         }
-        
-        // Run calculations with sequential execution and progress tracking
-        const phase1Results = await runOptimizedPhase1Calculations(dateSuffix, logEntry);
-        
-        const successCount = phase1Results.filter(r => r.success).length;
-        totalSuccessCount += successCount;
-        totalCalculations += 4; // 4 calculations per date
-        
-        console.log(`📊 Date ${dateSuffix}: ${successCount}/4 calculations successful`);
-        
-        // Force garbage collection after processing each date
-        if (global.gc) {
-          global.gc();
-          console.log('🧹 Forced garbage collection after processing date:', dateSuffix);
-        }
-        
-        // Small delay to allow memory cleanup between dates
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
+      });
       
-      console.log(`📊 Phase 1 complete: ${totalSuccessCount}/${totalCalculations} calculations successful across ${availableDates.length} dates`);
+      const successCount = results.filter(r => r.success).length;
+      const phaseEndTime = new Date();
+      const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime.getTime()) / 1000);
+      
+      console.log(`\n📊 ===== PHASE 1 DATA COLLECTION COMPLETED =====`);
+      console.log(`✅ Success: ${successCount}/3 calculations`);
+      console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
+      console.log(`⏱️ Total Duration: ${totalDuration}s`);
       
       // Update database log
       if (logEntry) {
         await SchedulerLogService.updateLog(logEntry.id!, {
-          status: totalSuccessCount === totalCalculations ? 'completed' : 'failed',
+          status: successCount === 3 ? 'completed' : 'failed',
           completed_at: new Date().toISOString(),
-          total_files_processed: totalCalculations,
-          files_created: totalSuccessCount,
-          files_failed: totalCalculations - totalSuccessCount,
+          total_files_processed: 3,
+          files_created: successCount,
+          files_failed: 3 - successCount,
           progress_percentage: 100,
-          current_processing: `Phase 1 complete: ${totalSuccessCount}/${totalCalculations} calculations successful across ${availableDates.length} dates`
+          current_processing: `Phase 1 Data Collection complete: ${successCount}/3 calculations successful in ${totalDuration}s`
         });
       }
-
-      // Trigger Phase 2 immediately after Phase 1 completes
-      if (totalSuccessCount >= totalCalculations * 0.75) { // Trigger Phase 2 if at least 75% succeed
-        console.log('🔄 Triggering Phase 2 calculations (Broker Inventory, Accumulation Distribution)...');
-        await runPhase2Calculations(availableDates);
-      } else {
-        console.log('⚠️ Skipping Phase 2 due to insufficient Phase 1 success rate');
-      }
+      
+      // Cleanup after Phase 1 Data Collection
+      await aggressiveMemoryCleanup();
       
     } catch (error) {
-      console.error('❌ Error during Phase 1 calculations:', error);
+      console.error('❌ Error during Phase 1 Data Collection:', error);
       
-      // Mark as failed in database
       if (logEntry) {
         await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
       }
@@ -411,26 +608,451 @@ export function startScheduler(): void {
   }, {
     timezone: TIMEZONE
   });
-  scheduledTasks.push(phase1Task);
+  scheduledTasks.push(phase1DataCollectionTask);
 
-  // Phase 2 calculations are now triggered automatically when Phase 1 completes
+  // 2. Schedule Phase 1 - Shareholders & Holding (Monthly check)
+  const phase1ShareholdersTask = cron.schedule(PHASE1_SHAREHOLDERS_SCHEDULE, async () => {
+    const phaseStartTime = new Date();
+    console.log(`\n🚀 ===== PHASE 1 SHAREHOLDERS & HOLDING STARTED =====`);
+    console.log(`🕐 Start Time: ${phaseStartTime.toISOString()}`);
+    console.log(`📋 Phase: Shareholders & Holding (Monthly check)`);
+    
+    // Skip if weekend
+    if (isWeekend()) {
+      console.log('📅 Weekend detected - skipping Phase 1 Shareholders & Holding (no market data available)');
+      return;
+    }
+    
+    let logEntry: SchedulerLog | null = null;
+    
+    try {
+    // Check if today is the last day of the month
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    if (today.getMonth() !== tomorrow.getMonth()) {
+        console.log('📅 Last day of month detected - running Shareholders & Holding updates');
+        
+        // Check memory before starting
+        const memoryOk = await monitorMemoryUsage();
+        if (!memoryOk) {
+          console.log('⚠️ Skipping Phase 1 Shareholders & Holding due to high memory usage');
+          return;
+        }
+        
+        // Create database log entry
+        const logData: Partial<SchedulerLog> = {
+          feature_name: 'phase1_shareholders_holding',
+          trigger_type: 'scheduled',
+          triggered_by: 'scheduler',
+          status: 'running',
+          started_at: new Date().toISOString(),
+          environment: process.env['NODE_ENV'] || 'development'
+        };
+        
+        logEntry = await SchedulerLogService.createLog(logData);
+        if (logEntry) {
+          console.log('📊 Phase 1 Shareholders & Holding database log created:', logEntry.id);
+        }
+        
+        console.log('🔄 Starting Phase 1 Shareholders & Holding (PARALLEL MODE)...');
+        
+        // Run shareholders and holding updates in parallel
+        const shareholdersHoldingTasks = [
+          { name: 'Shareholders Data', service: updateShareholdersData, method: null },
+          { name: 'Holding Data', service: updateHoldingData, method: null }
+        ];
+        
+        const shareholdersHoldingPromises = shareholdersHoldingTasks.map(async (task, index) => {
+          const startTime = Date.now();
+          
+          try {
+            console.log(`🔄 Starting ${task.name} (${index + 1}/2)...`);
+            
+            // Update progress in database
+            if (logEntry) {
+              await SchedulerLogService.updateLog(logEntry.id!, {
+                progress_percentage: Math.round((index / 2) * 100),
+                current_processing: `Running ${task.name}...`
+              });
+            }
+            
+            // Run calculation
+            const result = await (task.service as any)();
+            
+            const duration = Date.now() - startTime;
+            
+            if (result.success) {
+              console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
+              return { name: task.name, success: true, duration };
+            } else {
+              console.error(`❌ ${task.name} failed:`, result.message);
+              return { name: task.name, success: false, error: result.message, duration };
+            }
+            
+          } catch (error) {
+            const duration = Date.now() - startTime;
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            console.error(`❌ ${task.name} failed:`, errorMessage);
+            return { name: task.name, success: false, error: errorMessage, duration };
+          }
+        });
+        
+        // Wait for all calculations to complete
+        const shareholdersHoldingResults = await Promise.allSettled(shareholdersHoldingPromises);
+        
+        // Process results
+        const results: Array<{ name: string; success: boolean; error?: string; duration?: number }> = [];
+        shareholdersHoldingResults.forEach((result, index) => {
+          if (result.status === 'fulfilled') {
+            results.push(result.value);
+          } else {
+            results.push({
+              name: shareholdersHoldingTasks[index]?.name || 'Unknown',
+              success: false,
+              error: result.reason instanceof Error ? result.reason.message : 'Unknown error'
+            });
+          }
+        });
+        
+        const successCount = results.filter(r => r.success).length;
+        const phaseEndTime = new Date();
+        const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime.getTime()) / 1000);
+        
+        console.log(`\n📊 ===== PHASE 1 SHAREHOLDERS & HOLDING COMPLETED =====`);
+        console.log(`✅ Success: ${successCount}/2 calculations`);
+        console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
+        console.log(`⏱️ Total Duration: ${totalDuration}s`);
+        
+        // Update database log
+        if (logEntry) {
+          await SchedulerLogService.updateLog(logEntry.id!, {
+            status: successCount === 2 ? 'completed' : 'failed',
+            completed_at: new Date().toISOString(),
+            total_files_processed: 2,
+            files_created: successCount,
+            files_failed: 2 - successCount,
+            progress_percentage: 100,
+            current_processing: `Phase 1 Shareholders & Holding complete: ${successCount}/2 calculations successful in ${totalDuration}s`
+          });
+        }
+        
+        // Cleanup after Phase 1 Shareholders & Holding
+        await aggressiveMemoryCleanup();
+        
+      } else {
+        console.log('📅 Not the last day of month - skipping Shareholders & Holding updates');
+      }
+      
+    } catch (error) {
+      console.error('❌ Error during Phase 1 Shareholders & Holding:', error);
+      
+      if (logEntry) {
+        await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
+      }
+    }
+  }, {
+    timezone: TIMEZONE
+  });
+  scheduledTasks.push(phase1ShareholdersTask);
+
+  // 3. Schedule Phase 2 - Market Rotation (RRC, RRG, Seasonal, Trend Filter)
+  const phase2MarketRotationTask = cron.schedule(PHASE2_MARKET_ROTATION_SCHEDULE, async () => {
+    const phaseStartTime = new Date();
+    console.log(`\n🚀 ===== PHASE 2 MARKET ROTATION STARTED =====`);
+    console.log(`🕐 Start Time: ${phaseStartTime.toISOString()}`);
+    console.log(`📋 Phase: Market Rotation (RRC, RRG, Seasonal, Trend Filter)`);
+    
+    // Skip if weekend
+    if (isWeekend()) {
+      console.log('📅 Weekend detected - skipping Phase 2 Market Rotation (no market data available)');
+      return;
+    }
+    
+    let logEntry: SchedulerLog | null = null;
+    
+    try {
+      // Check memory before starting
+      const memoryOk = await monitorMemoryUsage();
+      if (!memoryOk) {
+        console.log('⚠️ Skipping Phase 2 Market Rotation due to high memory usage');
+        return;
+      }
+
+      // Create database log entry
+      const logData: Partial<SchedulerLog> = {
+        feature_name: 'phase2_market_rotation',
+        trigger_type: 'scheduled',
+        triggered_by: 'scheduler',
+        status: 'running',
+        started_at: new Date().toISOString(),
+        environment: process.env['NODE_ENV'] || 'development'
+      };
+      
+      logEntry = await SchedulerLogService.createLog(logData);
+      if (logEntry) {
+        console.log('📊 Phase 2 Market Rotation database log created:', logEntry.id);
+      }
+      
+      console.log('🔄 Starting Phase 2 Market Rotation (PARALLEL MODE)...');
+      
+      // Run market rotation calculations in parallel
+      const marketRotationTasks = [
+        { name: 'RRC Calculation', service: forceRegenerate, method: null },
+        { name: 'RRG Calculation', service: forceRegenerateRRG, method: null },
+        { name: 'Seasonal Calculation', service: forceRegenerateSeasonal, method: null },
+        { name: 'Trend Filter Calculation', service: trendFilterService, method: 'generateTrendFilterData' }
+      ];
+      
+      const marketRotationPromises = marketRotationTasks.map(async (task, index) => {
+        const startTime = Date.now();
+        
+        try {
+          console.log(`🔄 Starting ${task.name} (${index + 1}/4)...`);
+          
+          // Update progress in database
+          if (logEntry) {
+            await SchedulerLogService.updateLog(logEntry.id!, {
+              progress_percentage: Math.round((index / 4) * 100),
+              current_processing: `Running ${task.name}...`
+            });
+          }
+          
+          // Run calculation
+          const result = await (task.service as any)();
+          
+          const duration = Date.now() - startTime;
+          
+          if (result.success) {
+            console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
+            return { name: task.name, success: true, duration };
+          } else {
+            console.error(`❌ ${task.name} failed:`, result.message);
+            return { name: task.name, success: false, error: result.message, duration };
+          }
+          
+        } catch (error) {
+          const duration = Date.now() - startTime;
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          console.error(`❌ ${task.name} failed:`, errorMessage);
+          return { name: task.name, success: false, error: errorMessage, duration };
+        }
+      });
+      
+      // Wait for all calculations to complete
+      const marketRotationResults = await Promise.allSettled(marketRotationPromises);
+      
+      // Process results
+      const results: Array<{ name: string; success: boolean; error?: string; duration?: number }> = [];
+      marketRotationResults.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          results.push(result.value);
+        } else {
+          results.push({
+            name: marketRotationTasks[index]?.name || 'Unknown',
+            success: false,
+            error: result.reason instanceof Error ? result.reason.message : 'Unknown error'
+          });
+        }
+      });
+      
+      const successCount = results.filter(r => r.success).length;
+      const phaseEndTime = new Date();
+      const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime.getTime()) / 1000);
+      
+      console.log(`\n📊 ===== PHASE 2 MARKET ROTATION COMPLETED =====`);
+      console.log(`✅ Success: ${successCount}/4 calculations`);
+      console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
+      console.log(`⏱️ Total Duration: ${totalDuration}s`);
+      
+      // Update database log
+      if (logEntry) {
+        await SchedulerLogService.updateLog(logEntry.id!, {
+          status: successCount === 4 ? 'completed' : 'failed',
+          completed_at: new Date().toISOString(),
+          total_files_processed: 4,
+          files_created: successCount,
+          files_failed: 4 - successCount,
+          progress_percentage: 100,
+          current_processing: `Phase 2 Market Rotation complete: ${successCount}/4 calculations successful in ${totalDuration}s`
+        });
+      }
+      
+      // Cleanup after Phase 2 Market Rotation
+      await aggressiveMemoryCleanup();
+      
+    } catch (error) {
+      console.error('❌ Error during Phase 2 Market Rotation:', error);
+      
+      if (logEntry) {
+        await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
+      }
+    }
+  }, {
+    timezone: TIMEZONE
+  });
+  scheduledTasks.push(phase2MarketRotationTask);
+
+  // 4. Schedule Phase 3 - Light Calculations (Money Flow, Foreign Flow, Break Done Trade)
+  const phase3LightTask = cron.schedule(PHASE3_LIGHT_SCHEDULE, async () => {
+    const phaseStartTime = new Date();
+    console.log(`\n🚀 ===== PHASE 3 LIGHT CALCULATIONS STARTED =====`);
+    console.log(`🕐 Start Time: ${phaseStartTime.toISOString()}`);
+    console.log(`📋 Phase: Light Calculations (Money Flow, Foreign Flow, Break Done Trade)`);
+    
+    let logEntry: SchedulerLog | null = null;
+    
+    try {
+      // Check memory before starting
+      const memoryOk = await monitorMemoryUsage();
+      if (!memoryOk) {
+        console.log('⚠️ Skipping Phase 3 Light due to high memory usage');
+        return;
+      }
+      
+      // Create database log entry
+      const logData: Partial<SchedulerLog> = {
+        feature_name: 'phase3_light_calculations',
+        trigger_type: 'scheduled',
+        triggered_by: 'scheduler',
+        status: 'running',
+        started_at: new Date().toISOString(),
+        environment: process.env['NODE_ENV'] || 'development'
+      };
+      
+      logEntry = await SchedulerLogService.createLog(logData);
+      if (logEntry) {
+        console.log('📊 Phase 3 Light database log created:', logEntry.id);
+      }
+      
+      console.log('🔄 Starting Phase 3 Light calculations (PARALLEL MODE)...');
+      
+      // Run light calculations in parallel
+      const lightCalculations = [
+        { name: 'Money Flow', service: moneyFlowService, method: 'generateMoneyFlowData' },
+        { name: 'Foreign Flow', service: foreignFlowService, method: 'generateForeignFlowData' },
+        { name: 'Break Done Trade', service: breakDoneTradeService, method: 'generateBreakDoneTradeData' }
+      ];
+      
+      const lightCalculationPromises = lightCalculations.map(async (task, index) => {
+        const startTime = Date.now();
+        
+        try {
+          console.log(`🔄 Starting ${task.name} (${index + 1}/3)...`);
+          
+          // Update progress in database
+          if (logEntry) {
+            await SchedulerLogService.updateLog(logEntry.id!, {
+              progress_percentage: Math.round((index / 3) * 100),
+              current_processing: `Running ${task.name}...`
+            });
+          }
+          
+          // Run calculation
+          const result = await (task.service as any)[task.method]('all');
+          
+          const duration = Date.now() - startTime;
+          
+          if (result.success) {
+            console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
+            return { name: task.name, success: true, duration };
+          } else {
+            console.error(`❌ ${task.name} failed:`, result.message);
+            return { name: task.name, success: false, error: result.message, duration };
+          }
+          
+        } catch (error) {
+          const duration = Date.now() - startTime;
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          console.error(`❌ ${task.name} failed:`, errorMessage);
+          return { name: task.name, success: false, error: errorMessage, duration };
+        }
+      });
+      
+      // Wait for all calculations to complete
+      const lightCalculationResults = await Promise.allSettled(lightCalculationPromises);
+      
+      // Process results
+      const results: Array<{ name: string; success: boolean; error?: string; duration?: number }> = [];
+      lightCalculationResults.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          results.push(result.value);
+        } else {
+          results.push({
+            name: lightCalculations[index]?.name || 'Unknown',
+            success: false,
+            error: result.reason instanceof Error ? result.reason.message : 'Unknown error'
+          });
+        }
+      });
+      
+      const successCount = results.filter(r => r.success).length;
+      const phaseEndTime = new Date();
+      const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime.getTime()) / 1000);
+      
+      console.log(`\n📊 ===== PHASE 3 LIGHT COMPLETED =====`);
+      console.log(`✅ Success: ${successCount}/3 calculations`);
+      console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
+      console.log(`⏱️ Total Duration: ${totalDuration}s`);
+      
+      // Update database log
+      if (logEntry) {
+        await SchedulerLogService.updateLog(logEntry.id!, {
+          status: successCount === 3 ? 'completed' : 'failed',
+          completed_at: new Date().toISOString(),
+          total_files_processed: 3,
+          files_created: successCount,
+          files_failed: 3 - successCount,
+          progress_percentage: 100,
+          current_processing: `Phase 3 Light complete: ${successCount}/3 calculations successful in ${totalDuration}s`
+        });
+      }
+      
+      // Cleanup after Phase 3 Light
+      await aggressiveMemoryCleanup();
+      
+      // Trigger Phase 4 automatically if Phase 3 succeeded
+      if (successCount >= 2) { // Trigger Phase 4 if at least 2/3 succeed
+        console.log('🔄 Triggering Phase 4 Medium calculations...');
+        await runPhase4MediumCalculations();
+      } else {
+        console.log('⚠️ Skipping Phase 4 due to insufficient Phase 3 success rate');
+      }
+      
+    } catch (error) {
+      console.error('❌ Error during Phase 3 Light calculations:', error);
+      
+      if (logEntry) {
+        await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
+      }
+    }
+  }, {
+    timezone: TIMEZONE
+  });
+  scheduledTasks.push(phase3LightTask);
 
   // Initialize Azure logging
   initializeAzureLogging().catch(console.error);
   
   // Log scheduler configuration
-  console.log(`\n📅 Scheduler Configuration (${TIMEZONE}):`);
-  console.log(`  📊 Stock Data Update: ${STOCK_UPDATE_TIME} daily`);
-  console.log(`  📈 Index Data Update: ${INDEX_UPDATE_TIME} daily`);
-  console.log(`  📋 Done Summary Data Update: ${DONE_SUMMARY_UPDATE_TIME} daily`);
-  console.log(`  👥 Shareholders Data Update: Monthly (last day at ${SCHEDULER_CONFIG.SHAREHOLDERS_UPDATE_TIME})`);
-  console.log(`  💼 Holding Data Update: Monthly (last day at ${SCHEDULER_CONFIG.HOLDING_UPDATE_TIME})`);
-  console.log(`  🔄 RRC Calculation: ${RRC_UPDATE_TIME} daily`);
-  console.log(`  🔄 RRG Calculation + Scanners: ${RRG_UPDATE_TIME} daily`);
-  console.log(`  🔄 Seasonality Calculation: ${SEASONAL_UPDATE_TIME} daily`);
-  console.log(`  🔄 Trend Filter Calculation: ${TREND_FILTER_UPDATE_TIME} daily`);
-  console.log(`  🔄 Phase 1 (Broker Data, Bid/Ask, Money Flow, Foreign Flow, Break Done Trade): ${PHASE1_UPDATE_TIME} daily`);
-  console.log(`  🔄 Phase 2 (Broker Inventory, Accumulation Distribution): Triggered when Phase 1 completes`);
+  console.log(`\n📅 Scheduler Configuration (${TIMEZONE}) - OPTIMIZED FOR 8GB RAM:`);
+  console.log(`  🚀 Phase 1 Data Collection (PARALLEL): ${PHASE1_DATA_COLLECTION_TIME} daily (SCHEDULED)`);
+  console.log(`    └─ Stock Data, Index Data, Done Summary Data (7 days)`);
+  console.log(`  🚀 Phase 1 Shareholders & Holding (PARALLEL): ${PHASE1_SHAREHOLDERS_TIME} daily (SCHEDULED)`);
+  console.log(`    └─ Shareholders Data, Holding Data (Monthly check)`);
+  console.log(`  🚀 Phase 2 Market Rotation (PARALLEL): ${PHASE2_MARKET_ROTATION_TIME} daily (SCHEDULED)`);
+  console.log(`    └─ RRC, RRG, Seasonal, Trend Filter`);
+  console.log(`  🚀 Phase 3 Light (PARALLEL): ${PHASE3_LIGHT_TIME} daily (SCHEDULED)`);
+  console.log(`    └─ Money Flow, Foreign Flow, Break Done Trade`);
+  console.log(`  🚀 Phase 4 Medium (SEQUENTIAL): Auto-triggered after Phase 3`);
+  console.log(`    └─ Bid/Ask Footprint (all dates)`);
+  console.log(`  🚀 Phase 5 Heavy (SEQUENTIAL): Auto-triggered after Phase 4`);
+  console.log(`    └─ Broker Data (all dates)`);
+  console.log(`  🚀 Phase 6 Very Heavy (SEQUENTIAL): Auto-triggered after Phase 5`);
+  console.log(`    └─ Broker Inventory, Accumulation Distribution (sequential)`);
+  console.log(`  🧠 Memory Monitoring: ENABLED (12GB threshold)`);
+  console.log(`  🧹 Aggressive Cleanup: After each calculation`);
   console.log(`  ⏭️  Weekend updates: ENABLED (Sat/Sun)\n`);
 
   schedulerRunning = true;
@@ -457,330 +1079,6 @@ export function stopScheduler(): void {
   console.log('✅ Scheduler stopped');
 }
 
-/**
- * Run pre-flight checks to ensure data availability
- */
-async function runPreflightChecks(): Promise<{ success: boolean; message: string; availableDates?: string[] }> {
-  try {
-    console.log('🔍 Checking data availability...');
-    
-    // Check if DT files exist (any date)
-    const { listPaths } = await import('../utils/azureBlob');
-    const dtFiles = await listPaths({ prefix: 'done-summary' });
-    
-    // Look for DT files in any date folder, not just today
-    const dtFilePattern = /DT\d{6}\.csv$/;
-    const availableDtFiles = dtFiles.filter(file => dtFilePattern.test(file));
-    
-    if (availableDtFiles.length === 0) {
-      return {
-        success: false,
-        message: `No DT files found. Available files: ${dtFiles.slice(0, 5).join(', ')}...`
-      };
-    }
-    
-    // Check if OHLC data exists
-    const ohlcFiles = await listPaths({ prefix: 'stock' });
-    if (ohlcFiles.length === 0) {
-      return {
-        success: false,
-        message: 'No OHLC data available for calculations'
-      };
-    }
-    
-    // Extract available dates from DT files and convert to full format
-    const availableDates = availableDtFiles.map(file => {
-      const match = file.match(/DT(\d{6})\.csv$/);
-      if (match) {
-        const yyMMdd = match[1];
-        // Convert YYMMDD to YYYYMMDD (assume 20xx)
-        return `20${yyMMdd}`;
-      }
-      return null;
-    }).filter(date => date !== null) as string[];
-    
-    console.log(`✅ Pre-flight checks passed - Found ${availableDtFiles.length} DT files and ${ohlcFiles.length} OHLC files`);
-    console.log(`📅 Available dates: ${availableDates.slice(0, 5).join(', ')}${availableDates.length > 5 ? '...' : ''}`);
-    
-    return { 
-      success: true, 
-      message: 'All pre-flight checks passed',
-      availableDates: availableDates
-    };
-    
-  } catch (error) {
-    console.error('❌ Pre-flight check error:', error);
-    return {
-      success: false,
-      message: `Pre-flight check failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-    };
-  }
-}
-
-/**
- * Run optimized Phase 1 calculations with progress tracking and resource management
- */
-async function runOptimizedPhase1Calculations(
-  dateSuffix: string, 
-  logEntry: SchedulerLog | null
-): Promise<Array<{ name: string; success: boolean; error?: string; duration?: number }>> {
-  // Sequential execution to prevent memory overflow
-  // Order: Lightest to heaviest memory usage
-  const calculations = [
-    { name: 'Foreign Flow', service: foreignFlowService, method: 'generateForeignFlowData' },
-    { name: 'Money Flow', service: moneyFlowService, method: 'generateMoneyFlowData' },
-    { name: 'Bid/Ask Footprint', service: bidAskService, method: 'generateBidAskData' },
-    { name: 'Broker Data', service: brokerDataService, method: 'generateBrokerData' }
-  ];
-  
-  const results: Array<{ name: string; success: boolean; error?: string; duration?: number }> = [];
-  
-  // Run calculations sequentially to prevent memory overflow
-  for (let index = 0; index < calculations.length; index++) {
-    const calc = calculations[index];
-    if (!calc) {
-      console.error(`❌ Calculation at index ${index} is undefined`);
-      continue;
-    }
-    const startTime = Date.now();
-    
-    try {
-      console.log(`🔄 Starting ${calc.name} calculation (${index + 1}/4) - SEQUENTIAL MODE...`);
-      
-      // Update progress in database
-      if (logEntry) {
-        await SchedulerLogService.updateLog(logEntry.id!, {
-          progress_percentage: Math.round((index / 4) * 100),
-          current_processing: `Running ${calc.name} calculation (sequential)...`
-        });
-      }
-      
-      // Force garbage collection before each calculation
-      if (global.gc) {
-        global.gc();
-        console.log('🧹 Forced garbage collection before', calc.name);
-      }
-      
-      // Run calculation with timeout
-      const result = await Promise.race([
-        (calc.service as any)[calc.method](dateSuffix),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error(`${calc.name} calculation timeout`)), 15 * 60 * 1000) // 15 minutes timeout
-        )
-      ]);
-      
-      const duration = Date.now() - startTime;
-      
-      if (result.success) {
-        console.log(`✅ ${calc.name} calculation completed in ${Math.round(duration / 1000)}s`);
-        results.push({ name: calc.name, success: true, duration });
-      } else {
-        console.error(`❌ ${calc.name} calculation failed:`, result.message);
-        results.push({ name: calc.name, success: false, error: result.message, duration });
-      }
-      
-      // Force garbage collection after each calculation
-      if (global.gc) {
-        global.gc();
-        console.log('🧹 Forced garbage collection after', calc.name);
-      }
-      
-      // Small delay to allow memory cleanup
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error(`❌ ${calc.name} calculation failed:`, errorMessage);
-      results.push({ name: calc.name, success: false, error: errorMessage, duration });
-      
-      // Force garbage collection after error
-      if (global.gc) {
-        global.gc();
-        console.log('🧹 Forced garbage collection after', calc.name, 'error');
-      }
-    }
-  }
-  
-  // Force garbage collection after calculations
-  if (global.gc) {
-    global.gc();
-  }
-  
-  return results;
-}
-
-/**
- * Run optimized Phase 2 calculations with progress tracking and resource management
- */
-async function runOptimizedPhase2Calculations(
-  dateSuffix: string, 
-  logEntry: SchedulerLog | null
-): Promise<Array<{ name: string; success: boolean; error?: string; duration?: number }>> {
-  const calculations = [
-    { name: 'Broker Inventory', service: brokerInventoryService, method: 'generateBrokerInventoryData' },
-    { name: 'Accumulation Distribution', service: accumulationService, method: 'generateAccumulationData' }
-  ];
-  
-  const results: Array<{ name: string; success: boolean; error?: string; duration?: number }> = [];
-  
-  // Run calculations with timeout and progress tracking
-  const calculationPromises = calculations.map(async (calc, index) => {
-    const startTime = Date.now();
-    
-    try {
-      console.log(`🔄 Starting ${calc.name} calculation (${index + 1}/2)...`);
-      
-      // Update progress in database
-      if (logEntry) {
-        await SchedulerLogService.updateLog(logEntry.id!, {
-          progress_percentage: Math.round((index / 2) * 100),
-          current_processing: `Running ${calc.name} calculation...`
-        });
-      }
-      
-      // Run calculation with timeout
-      const result = await Promise.race([
-        (calc.service as any)[calc.method](dateSuffix),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error(`${calc.name} calculation timeout`)), 20 * 60 * 1000) // 20 minutes timeout
-        )
-      ]);
-      
-      const duration = Date.now() - startTime;
-      
-      if (result.success) {
-        console.log(`✅ ${calc.name} calculation completed in ${Math.round(duration / 1000)}s`);
-        return { name: calc.name, success: true, duration };
-      } else {
-        console.error(`❌ ${calc.name} calculation failed:`, result.message);
-        return { name: calc.name, success: false, error: result.message, duration };
-      }
-      
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error(`❌ ${calc.name} calculation failed:`, errorMessage);
-      return { name: calc.name, success: false, error: errorMessage, duration };
-    }
-  });
-  
-  // Wait for all calculations to complete
-  const calculationResults = await Promise.allSettled(calculationPromises);
-  
-  // Process results
-  calculationResults.forEach((result, index) => {
-    if (result.status === 'fulfilled') {
-      results.push(result.value);
-    } else {
-      results.push({
-        name: calculations[index]?.name || 'Unknown',
-        success: false,
-        error: result.reason instanceof Error ? result.reason.message : 'Unknown error'
-      });
-    }
-  });
-  
-  // Force garbage collection after calculations
-  if (global.gc) {
-    global.gc();
-  }
-  
-  return results;
-}
-
-/**
- * Run Phase 2 calculations (called after Phase 1 completes)
- */
-async function runPhase2Calculations(availableDates: string[]): Promise<void> {
-  let logEntry: SchedulerLog | null = null;
-  
-  try {
-    // Create database log entry for Phase 2
-    const logData: Partial<SchedulerLog> = {
-      feature_name: 'phase2_calculations',
-      trigger_type: 'scheduled',
-      triggered_by: 'scheduler',
-      status: 'running',
-      started_at: new Date().toISOString(),
-      environment: process.env['NODE_ENV'] || 'development'
-    };
-    
-    logEntry = await SchedulerLogService.createLog(logData);
-    if (logEntry) {
-      console.log('📊 Phase 2 database log created:', logEntry.id);
-    }
-    
-    console.log('🔄 Starting Phase 2 calculations (Broker Inventory, Accumulation Distribution) - SEQUENTIAL MODE...');
-    
-    // Force garbage collection before Phase 2
-    if (global.gc) {
-      global.gc();
-      console.log('🧹 Forced garbage collection before Phase 2');
-    }
-    
-    // Process all available dates
-    let totalSuccessCount = 0;
-    let totalCalculations = 0;
-    
-    for (const dateSuffix of availableDates) {
-      console.log(`📅 Processing date: ${dateSuffix} (SEQUENTIAL MODE)...`);
-      
-      // Force garbage collection before processing each date
-      if (global.gc) {
-        global.gc();
-        console.log('🧹 Forced garbage collection before processing date:', dateSuffix);
-      }
-      
-      // Run optimized Phase 2 calculations
-      const phase2Results = await runOptimizedPhase2Calculations(dateSuffix, logEntry);
-      
-      const successCount = phase2Results.filter(r => r.success).length;
-      totalSuccessCount += successCount;
-      totalCalculations += 2; // 2 calculations per date
-      
-      console.log(`📊 Date ${dateSuffix}: ${successCount}/2 calculations successful`);
-      
-      // Force garbage collection after processing each date
-      if (global.gc) {
-        global.gc();
-        console.log('🧹 Forced garbage collection after processing date:', dateSuffix);
-      }
-      
-      // Small delay to allow memory cleanup between dates
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    }
-    
-    // Force garbage collection after Phase 2
-    if (global.gc) {
-      global.gc();
-      console.log('🧹 Forced garbage collection after Phase 2');
-    }
-    
-    console.log(`📊 Phase 2 complete: ${totalSuccessCount}/${totalCalculations} calculations successful across ${availableDates.length} dates`);
-    
-    // Update database log
-    if (logEntry) {
-      await SchedulerLogService.updateLog(logEntry.id!, {
-        status: totalSuccessCount === totalCalculations ? 'completed' : 'failed',
-        completed_at: new Date().toISOString(),
-        total_files_processed: totalCalculations,
-        files_created: totalSuccessCount,
-        files_failed: totalCalculations - totalSuccessCount,
-        progress_percentage: 100,
-        current_processing: `Phase 2 complete: ${totalSuccessCount}/${totalCalculations} calculations successful across ${availableDates.length} dates`
-      });
-    }
-    
-  } catch (error) {
-    console.error('❌ Error during Phase 2 calculations:', error);
-    
-    // Mark as failed in database
-    if (logEntry) {
-      await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
-    }
-  }
-}
 
 /**
  * Get scheduler status
@@ -790,16 +1088,15 @@ export function getSchedulerStatus() {
     running: schedulerRunning,
     timezone: TIMEZONE,
     schedules: {
-      stockUpdate: STOCK_UPDATE_TIME,
-      indexUpdate: INDEX_UPDATE_TIME,
-      doneSummaryUpdate: DONE_SUMMARY_UPDATE_TIME,
-      shareholdersUpdate: 'Monthly (last day at 00:00)',
-      holdingUpdate: 'Monthly (last day at 00:00)',
-      rrcCalculation: RRC_UPDATE_TIME,
-      rrgCalculation: RRG_UPDATE_TIME,
-      phase1Calculation: PHASE1_UPDATE_TIME,
-      phase2Calculation: 'Auto-triggered after Phase 1'
+      phase1DataCollection: PHASE1_DATA_COLLECTION_TIME,
+      phase1Shareholders: PHASE1_SHAREHOLDERS_TIME,
+      phase2MarketRotation: PHASE2_MARKET_ROTATION_TIME,
+      phase3Light: PHASE3_LIGHT_TIME,
+      phase4Medium: 'Auto-triggered after Phase 3',
+      phase5Heavy: 'Auto-triggered after Phase 4',
+      phase6VeryHeavy: 'Auto-triggered after Phase 5'
     },
+    memoryThreshold: '12GB',
     weekendSkip: false
   };
 }

@@ -295,7 +295,7 @@ export class BreakDoneTradeCalculator {
       this.logMemoryUsage('Start processing');
       
       // Process files in batches for speed (2 files at a time to prevent OOM)
-      const BATCH_SIZE = 2;
+      const BATCH_SIZE = 5;
       const allResults: { success: boolean; dateSuffix: string; files: string[] }[] = [];
       let processed = 0;
       let successful = 0;
