@@ -100,11 +100,10 @@ class AzureLoggingService {
 // Singleton instance
 const azureLogging = new AzureLoggingService();
 
-// Helper function to format timestamp (WIB - Asia/Jakarta)
+// Helper function to format timestamp
 function getTimestamp(): string {
   const now = new Date();
-  const jakartaTime = new Date(now.getTime() + (7 * 60 * 60 * 1000)); // UTC + 7
-  return jakartaTime.toISOString().replace('T', ' ').replace('Z', '');
+  return now.toISOString().replace('T', ' ').replace('Z', '');
 }
 
 // Helper function to get log filename with date

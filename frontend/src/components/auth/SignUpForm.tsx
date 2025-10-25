@@ -11,9 +11,10 @@ import { api } from '../../services/api';
 interface SignUpFormProps {
   onSwitchToLogin: () => void;
   onSwitchToEmailVerification: (email: string, type: 'signup') => void;
+  onSignUp: (name: string, email: string, password: string) => void;
 }
 
-export function SignUpForm({ onSwitchToLogin, onSwitchToEmailVerification }: SignUpFormProps) {
+export function SignUpForm({ onSwitchToLogin, onSwitchToEmailVerification, onSignUp }: SignUpFormProps) {
   const { showToast } = useToast();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -69,57 +70,57 @@ export function SignUpForm({ onSwitchToLogin, onSwitchToEmailVerification }: Sig
     const newErrors: {[key: string]: string} = {};
 
     // First name validation
-    if (!formData['firstName'].trim()) {
-      newErrors['firstName'] = 'First name is required';
-    } else if (formData['firstName'].trim().length < 2) {
-      newErrors['firstName'] = 'First name must be at least 2 characters';
+    if (!formData.firstName.trim()) {
+      newErrors.firstName = 'First name is required';
+    } else if (formData.firstName.trim().length < 2) {
+      newErrors.firstName = 'First name must be at least 2 characters';
     }
 
     // Last name validation
-    if (!formData['lastName'].trim()) {
-      newErrors['lastName'] = 'Last name is required';
-    } else if (formData['lastName'].trim().length < 2) {
-      newErrors['lastName'] = 'Last name must be at least 2 characters';
+    if (!formData.lastName.trim()) {
+      newErrors.lastName = 'Last name is required';
+    } else if (formData.lastName.trim().length < 2) {
+      newErrors.lastName = 'Last name must be at least 2 characters';
     }
 
     // Email validation
-    if (!formData['email'].trim()) {
-      newErrors['email'] = 'Email is required';
-    } else if (!formData['email'].includes('@')) {
-      newErrors['email'] = 'Please enter a valid email address';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData['email'])) {
-      newErrors['email'] = 'Please enter a valid email address';
+    if (!formData.email.trim()) {
+      newErrors.email = 'Email is required';
+    } else if (!formData.email.includes('@')) {
+      newErrors.email = 'Please enter a valid email address';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      newErrors.email = 'Please enter a valid email address';
     } else if (emailExists === true) {
-      newErrors['email'] = 'An account with this email already exists';
+      newErrors.email = 'An account with this email already exists';
     } else if (emailChecking) {
-      newErrors['email'] = 'Please wait while we check email availability';
+      newErrors.email = 'Please wait while we check email availability';
     }
 
     // Password validation
-    if (!formData['password']) {
-      newErrors['password'] = 'Password is required';
-    } else if (formData['password'].length < 6) {
-      newErrors['password'] = 'Password must be at least 6 characters';
-    } else if (formData['password'].length > 128) {
-      newErrors['password'] = 'Password must be less than 128 characters';
-    } else if (!/(?=.*[a-z])/.test(formData['password'])) {
-      newErrors['password'] = 'Password must contain at least one lowercase letter';
-    } else if (!/(?=.*[A-Z])/.test(formData['password'])) {
-      newErrors['password'] = 'Password must contain at least one uppercase letter';
-    } else if (!/(?=.*\d)/.test(formData['password'])) {
-      newErrors['password'] = 'Password must contain at least one number';
+    if (!formData.password) {
+      newErrors.password = 'Password is required';
+    } else if (formData.password.length < 6) {
+      newErrors.password = 'Password must be at least 6 characters';
+    } else if (formData.password.length > 128) {
+      newErrors.password = 'Password must be less than 128 characters';
+    } else if (!/(?=.*[a-z])/.test(formData.password)) {
+      newErrors.password = 'Password must contain at least one lowercase letter';
+    } else if (!/(?=.*[A-Z])/.test(formData.password)) {
+      newErrors.password = 'Password must contain at least one uppercase letter';
+    } else if (!/(?=.*\d)/.test(formData.password)) {
+      newErrors.password = 'Password must contain at least one number';
     }
 
     // Confirm password validation
-    if (!formData['confirmPassword']) {
-      newErrors['confirmPassword'] = 'Please confirm your password';
-    } else if (formData['password'] !== formData['confirmPassword']) {
-      newErrors['confirmPassword'] = 'Passwords do not match';
+    if (!formData.confirmPassword) {
+      newErrors.confirmPassword = 'Please confirm your password';
+    } else if (formData.password !== formData.confirmPassword) {
+      newErrors.confirmPassword = 'Passwords do not match';
     }
 
     // Terms agreement validation
-    if (!formData['agreeToTerms']) {
-      newErrors['agreeToTerms'] = 'You must agree to the terms and conditions';
+    if (!formData.agreeToTerms) {
+      newErrors.agreeToTerms = 'You must agree to the terms and conditions';
     }
 
     setErrors(newErrors);
@@ -203,11 +204,11 @@ export function SignUpForm({ onSwitchToLogin, onSwitchToEmailVerification }: Sig
               id="firstName"
               type="text"
               placeholder="John"
-              value={formData['firstName']}
+              value={formData.firstName}
               onChange={(e) => handleInputChange('firstName', e.target.value)}
               className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 focus:border-blue-400 dark:focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-600 dark:placeholder:text-gray-400 focus:placeholder:opacity-0"
             />
-            {errors['firstName'] && <p className="text-sm text-red-500">{errors['firstName']}</p>}
+            {errors.firstName && <p className="text-sm text-red-500">{errors.firstName}</p>}
           </div>
           <div className="space-y-2">
             <Label htmlFor="lastName">Last Name</Label>
@@ -215,11 +216,11 @@ export function SignUpForm({ onSwitchToLogin, onSwitchToEmailVerification }: Sig
               id="lastName"
               type="text"
               placeholder="Doe"
-              value={formData['lastName']}
+              value={formData.lastName}
               onChange={(e) => handleInputChange('lastName', e.target.value)}
               className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 focus:border-blue-400 dark:focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-600 dark:placeholder:text-gray-400 focus:placeholder:opacity-0"
             />
-            {errors['lastName'] && <p className="text-sm text-red-500">{errors['lastName']}</p>}
+            {errors.lastName && <p className="text-sm text-red-500">{errors.lastName}</p>}
           </div>
         </div>
 
@@ -230,7 +231,7 @@ export function SignUpForm({ onSwitchToLogin, onSwitchToEmailVerification }: Sig
               id="email"
               type="email"
               placeholder="john.doe@example.com"
-              value={formData['email']}
+              value={formData.email}
               onChange={(e) => handleInputChange('email', e.target.value)}
               className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 focus:border-blue-400 dark:focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-600 dark:placeholder:text-gray-400 focus:placeholder:opacity-0"
             />
@@ -239,7 +240,7 @@ export function SignUpForm({ onSwitchToLogin, onSwitchToEmailVerification }: Sig
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
               </div>
             )}
-            {emailExists === false && !emailChecking && formData['email'] && (
+            {emailExists === false && !emailChecking && formData.email && (
               <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
                 <div className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
                   <svg className="w-2 h-2 text-white" fill="currentColor" viewBox="0 0 20 20">
@@ -249,8 +250,8 @@ export function SignUpForm({ onSwitchToLogin, onSwitchToEmailVerification }: Sig
               </div>
             )}
           </div>
-          {errors['email'] && <p className="text-sm text-red-500">{errors['email']}</p>}
-          {emailExists === false && !emailChecking && formData['email'] && !errors['email'] && (
+          {errors.email && <p className="text-sm text-red-500">{errors.email}</p>}
+          {emailExists === false && !emailChecking && formData.email && !errors.email && (
             <p className="text-sm text-green-600">Email is available</p>
           )}
         </div>
@@ -262,7 +263,7 @@ export function SignUpForm({ onSwitchToLogin, onSwitchToEmailVerification }: Sig
               id="password"
               type={showPassword ? 'text' : 'password'}
               placeholder="Create a strong password"
-              value={formData['password']}
+              value={formData.password}
               onChange={(e) => handleInputChange('password', e.target.value)}
               className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 focus:border-blue-400 dark:focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-600 dark:placeholder:text-gray-400 focus:placeholder:opacity-0 pr-10 pl-3"
             />
@@ -274,7 +275,7 @@ export function SignUpForm({ onSwitchToLogin, onSwitchToEmailVerification }: Sig
               {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
-          {errors['password'] && <p className="text-sm text-red-500">{errors['password']}</p>}
+          {errors.password && <p className="text-sm text-red-500">{errors.password}</p>}
         </div>
 
         <div className="space-y-2">
@@ -284,7 +285,7 @@ export function SignUpForm({ onSwitchToLogin, onSwitchToEmailVerification }: Sig
               id="confirmPassword"
               type={showConfirmPassword ? 'text' : 'password'}
               placeholder="Confirm your password"
-              value={formData['confirmPassword']}
+              value={formData.confirmPassword}
               onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
               className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 focus:border-blue-400 dark:focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-600 dark:placeholder:text-gray-400 focus:placeholder:opacity-0 pr-10 pl-3"
             />
@@ -296,14 +297,14 @@ export function SignUpForm({ onSwitchToLogin, onSwitchToEmailVerification }: Sig
               {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
-          {errors['confirmPassword'] && <p className="text-sm text-red-500">{errors['confirmPassword']}</p>}
+          {errors.confirmPassword && <p className="text-sm text-red-500">{errors.confirmPassword}</p>}
         </div>
 
         <div className="space-y-2">
           <div className="flex items-center space-x-2">
             <Checkbox
               id="terms"
-              checked={formData['agreeToTerms']}
+              checked={formData.agreeToTerms}
               onCheckedChange={(checked) => handleInputChange('agreeToTerms', checked as boolean)}
             />
             <Label htmlFor="terms" className="text-sm font-normal leading-tight flex-1">
@@ -319,7 +320,7 @@ export function SignUpForm({ onSwitchToLogin, onSwitchToEmailVerification }: Sig
               </span>
             </Label>
           </div>
-          {errors['agreeToTerms'] && <p className="text-sm text-red-500">{errors['agreeToTerms']}</p>}
+          {errors.agreeToTerms && <p className="text-sm text-red-500">{errors.agreeToTerms}</p>}
         </div>
 
         <Button 

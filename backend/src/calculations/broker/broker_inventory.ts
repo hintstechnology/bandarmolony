@@ -1,5 +1,4 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
-import { AzureLogger } from '../../services/azureLoggingService';
 
 // Type definitions for broker inventory data
 interface BrokerInventoryData {
@@ -246,18 +245,10 @@ export class BrokerInventoryCalculator {
     console.log(`Found ${brokerEmitenCombinations.size} brokers with emiten data`);
     
     const createdFiles: string[] = [];
-    let totalCombinations = 0;
-    brokerEmitenCombinations.forEach(emitenSet => totalCombinations += emitenSet.size);
-    let processed = 0;
     
     // Create inventory data for each broker-emiten combination
     for (const [brokerCode, emitenSet] of brokerEmitenCombinations) {
       for (const emitenCode of emitenSet) {
-        processed++;
-        if (processed % 100 === 0 || processed === 1) {
-          await AzureLogger.logProgress('broker-inventory', processed, totalCombinations, `Processing ${brokerCode}-${emitenCode}`);
-        }
-        
         // Create inventory data for this broker-emiten combination
         const inventoryData = this.createBrokerInventoryData(brokerCode, emitenCode, dateRange, allBrokerData);
         

@@ -8,14 +8,13 @@ export class BidAskDataScheduler {
   }
 
   /**
-   * Generate bid/ask footprint data for all available dates
+   * Generate bid/ask footprint data
    */
   async generateBidAskData(dateSuffix?: string): Promise<{ success: boolean; message: string; data?: any }> {
     try {
-      const targetDate = dateSuffix || 'all';
-      console.log(`🔄 Starting Bid/Ask Footprint calculation for: ${targetDate}`);
+      const targetDate = dateSuffix || this.getCurrentDateSuffix();
+      console.log(`🔄 Starting Bid/Ask Footprint calculation for date: ${targetDate}`);
       
-      // Bid/Ask calculator processes all available dates
       const result = await this.calculator.generateBidAskData(targetDate);
       
       if (result.success) {
@@ -34,7 +33,13 @@ export class BidAskDataScheduler {
     }
   }
 
-  // Removed unused getCurrentDateSuffix method
+  /**
+   * Get current date suffix in YYMMDD format
+   */
+  private getCurrentDateSuffix(): string {
+    const today = new Date();
+    return today.toISOString().slice(2, 10).replace(/-/g, '');
+  }
 
   /**
    * Get generation status
