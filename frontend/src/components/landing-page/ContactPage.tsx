@@ -1,9 +1,8 @@
-import React from "react";
 import { Helmet } from "react-helmet-async";
 import { motion } from "motion/react";
 import { Mail, MessageCircle, Phone } from "lucide-react";
-import { Navbar } from "../components/Navbar";
-import { Footer } from "../components/Footer";
+import { Navbar } from "./Navbar";
+import { Footer } from "./Footer";
 
 const contactChannels = [
   {

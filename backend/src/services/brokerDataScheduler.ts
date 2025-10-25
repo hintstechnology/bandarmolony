@@ -8,13 +8,14 @@ export class BrokerDataScheduler {
   }
 
   /**
-   * Generate broker data
+   * Generate broker data for all available dates
    */
   async generateBrokerData(dateSuffix?: string): Promise<{ success: boolean; message: string; data?: any }> {
     try {
-      const targetDate = dateSuffix || this.getCurrentDateSuffix();
-      console.log(`🔄 Starting Broker Data calculation for date: ${targetDate}`);
+      const targetDate = dateSuffix || 'all';
+      console.log(`🔄 Starting Broker Data calculation for: ${targetDate}`);
       
+      // Broker data calculator processes all available dates
       const result = await this.calculator.generateBrokerData(targetDate);
       
       if (result.success) {
@@ -33,13 +34,7 @@ export class BrokerDataScheduler {
     }
   }
 
-  /**
-   * Get current date suffix in YYMMDD format
-   */
-  private getCurrentDateSuffix(): string {
-    const today = new Date();
-    return today.toISOString().slice(2, 10).replace(/-/g, '');
-  }
+  // Removed unused getCurrentDateSuffix method
 
   /**
    * Get generation status

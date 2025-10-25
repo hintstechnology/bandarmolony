@@ -1,13 +1,10 @@
-import React from "react";
 import { Helmet } from "react-helmet-async";
 import { motion } from "motion/react";
 import { Button } from "../ui/button";
 // JS components, add TS ignore to satisfy type checker
-// @ts-ignore
-import { Navbar } from "../../components/Navbar";
-// @ts-ignore
-import { Footer } from "../../components/Footer";
-import Logo from "./Logo";
+import { Navbar } from "./Navbar";
+import { Footer } from "./Footer";
+import Logo from "../dashboard/Logo";
 
 interface LandingPageProps {
   onStartTrial?: () => void;
@@ -55,7 +52,10 @@ export function LandingPage({ onStartTrial, onSignIn, onRegister }: LandingPageP
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(0,0,0,0.1),transparent_50%)] dark:bg-[radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.1),transparent_50%)]" />
       </div>
 
-      <Navbar onSignIn={onSignIn} onRegister={onRegister} />
+      <Navbar 
+        {...(onSignIn && { onSignIn })}
+        {...(onRegister && { onRegister })}
+      />
 
       <main className="relative z-10 flex min-h-[calc(100vh-200px)] flex-col items-center justify-center px-6 text-center">
         <motion.div

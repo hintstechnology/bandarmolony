@@ -1,4 +1,5 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
+import { AzureLogger } from '../../services/azureLoggingService';
 
 // Type definitions untuk Foreign Flow
 interface TransactionData {
@@ -417,6 +418,7 @@ export class ForeignFlowCalculator {
         });
         
         console.log(`📊 Batch complete: ${successful}/${processed} successful`);
+        await AzureLogger.logProgress('foreign-flow', processed, dtFiles.length, `Processing done-summary`);
         
         // Small delay between batches
         if (i + BATCH_SIZE < dtFiles.length) {

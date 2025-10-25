@@ -1,7 +1,7 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Menu, X } from "lucide-react";
-import Logo from "./dashboard/Logo";
+import Logo from "../dashboard/Logo";
 
 const NAV_LINKS = [
   { label: "Home", to: "/" },
@@ -10,7 +10,12 @@ const NAV_LINKS = [
   { label: "Contact Us", to: "/contact" },
 ];
 
-export function Navbar({ onSignIn, onRegister } = {}) {
+interface NavbarProps {
+  onSignIn?: () => void;
+  onRegister?: () => void;
+}
+
+export function Navbar({ onSignIn, onRegister }: NavbarProps = {}) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   
   const toggleMenu = () => {

@@ -8,13 +8,14 @@ export class ForeignFlowDataScheduler {
   }
 
   /**
-   * Generate foreign flow data
+   * Generate foreign flow data for all available dates
    */
   async generateForeignFlowData(dateSuffix?: string): Promise<{ success: boolean; message: string; data?: any }> {
     try {
-      const targetDate = dateSuffix || this.getCurrentDateSuffix();
-      console.log(`🔄 Starting Foreign Flow calculation for date: ${targetDate}`);
+      const targetDate = dateSuffix || 'all';
+      console.log(`🔄 Starting Foreign Flow calculation for: ${targetDate}`);
       
+      // Foreign flow calculator processes all available dates
       const result = await this.calculator.generateForeignFlowData(targetDate);
       
       if (result.success) {
@@ -33,13 +34,7 @@ export class ForeignFlowDataScheduler {
     }
   }
 
-  /**
-   * Get current date suffix in YYMMDD format
-   */
-  private getCurrentDateSuffix(): string {
-    const today = new Date();
-    return today.toISOString().slice(2, 10).replace(/-/g, '');
-  }
+  // Removed unused getCurrentDateSuffix method
 
   /**
    * Get generation status

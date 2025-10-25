@@ -1,9 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Mail, RefreshCw, CheckCircle, AlertCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ArrowLeft, Mail, RefreshCw, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../ui/button';
-import { Input } from '../ui/input';
-import { Label } from '../ui/label';
 import { api } from '../../services/api';
 
 interface EmailVerificationFormProps {
@@ -44,6 +42,7 @@ export function EmailVerificationForm({
       const timer = setTimeout(() => setResendCooldown(resendCooldown - 1), 1000);
       return () => clearTimeout(timer);
     }
+    return undefined;
   }, [resendCooldown]);
 
   const handleVerify = async (verificationToken: string, verificationType: 'signup' | 'recovery') => {

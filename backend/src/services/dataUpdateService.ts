@@ -215,22 +215,31 @@ class ParallelProcessor {
     maxConcurrency: number
   ): Promise<T[]> {
     const results: T[] = [];
-    const executing: Promise<void>[] = [];
+    const executing: Promise<T>[] = [];
     
     for (const promise of promises) {
-      const p = promise.then(result => {
-        results.push(result);
-      });
-      
-      executing.push(p);
+      executing.push(promise);
       
       if (executing.length >= maxConcurrency) {
-        await Promise.race(executing);
-        executing.splice(executing.findIndex(p => p === p), 1);
+        // Wait for at least one promise to complete
+        const completedResult = await Promise.race(executing);
+        results.push(completedResult);
+        
+        // Remove the completed promise from executing array
+        const completedIndex = executing.findIndex(p => {
+          // Check if this promise has resolved to the completed result
+          return p === Promise.resolve(completedResult);
+        });
+        if (completedIndex !== -1) {
+          executing.splice(completedIndex, 1);
+        }
       }
     }
     
-    await Promise.all(executing);
+    // Wait for all remaining promises and collect results
+    const remainingResults = await Promise.all(executing);
+    results.push(...remainingResults);
+    
     return results;
   }
   
