@@ -1664,12 +1664,13 @@ export const api = {
     }
   },
 
-  async getStockData(stockCode: string, startDate?: string, endDate?: string, limit?: number): Promise<{ success: boolean; data?: any; error?: string }> {
+  // Get OHLC data for a specific stock
+  async getStockData(stockCode: string, options?: { startDate?: string; endDate?: string; limit?: number }): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       const params = new URLSearchParams();
-      if (startDate) params.append('startDate', startDate);
-      if (endDate) params.append('endDate', endDate);
-      if (limit) params.append('limit', limit.toString());
+      if (options?.startDate) params.append('startDate', options.startDate);
+      if (options?.endDate) params.append('endDate', options.endDate);
+      if (options?.limit) params.append('limit', options.limit.toString());
       
       const res = await fetch(`${API_URL}/api/stock/data/${stockCode}?${params}`, {
         method: 'GET',
@@ -1680,6 +1681,51 @@ export const api = {
       return { success: true, data: json.data };
     } catch (err: any) {
       return { success: false, error: err.message || 'Failed to get stock data' };
+    }
+  },
+
+  // Broker Summary API
+  async getBrokerSummaryData(stockCode: string, date: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/broker/summary/${stockCode}?date=${date}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get broker summary data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get broker summary data' };
+    }
+  },
+
+  // Get available dates for broker summary
+  async getBrokerSummaryDates(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/broker/dates`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get broker summary dates');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get broker summary dates' };
+    }
+  },
+
+  // Get available stocks for broker summary on specific date
+  async getBrokerSummaryStocks(date: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/broker/stocks?date=${date}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get broker summary stocks');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get broker summary stocks' };
     }
   },
 
@@ -2066,43 +2112,6 @@ export const api = {
       };
     } catch (err: any) {
       return { success: false, error: err.message || 'Failed to get batch bid/ask data' };
-    }
-  },
-
-  // Broker Summary API
-  getBrokerSummaryData: async (stockCode: string, date: string) => {
-    try {
-      // Convert YYYY-MM-DD to YYYYMMDD format
-      const dateStr = date.includes('-') ? date.replace(/-/g, '') : date;
-      const response = await fetch(`${API_URL}/api/broker/summary/${stockCode}?date=${dateStr}`);
-      const data = await response.json();
-      return data;
-    } catch (err: any) {
-      return { success: false, error: err.message || 'Failed to get broker summary data' };
-    }
-  },
-
-  // Get available dates for broker summary
-  getBrokerSummaryDates: async () => {
-    try {
-      const response = await fetch(`${API_URL}/api/broker/dates`);
-      const data = await response.json();
-      return data;
-    } catch (err: any) {
-      return { success: false, error: err.message || 'Failed to get broker summary dates' };
-    }
-  },
-
-  // Get available stocks for broker summary on specific date
-  getBrokerSummaryStocks: async (date: string) => {
-    try {
-      // Convert YYYY-MM-DD to YYYYMMDD format
-      const dateStr = date.includes('-') ? date.replace(/-/g, '') : date;
-      const response = await fetch(`${API_URL}/api/broker/stocks?date=${dateStr}`);
-      const data = await response.json();
-      return data;
-    } catch (err: any) {
-      return { success: false, error: err.message || 'Failed to get broker summary stocks' };
     }
   },
 

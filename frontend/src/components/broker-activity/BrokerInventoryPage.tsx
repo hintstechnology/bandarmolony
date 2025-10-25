@@ -32,12 +32,6 @@ interface InventoryTimeSeries {
 //   'CPIN', 'JPFA', 'INCO', 'TPIA', 'TKIM', 'INKP', 'BRIS', 'SIDO', 'ERAA', 'ESSA'
 // ];
 
-// Available brokers
-const AVAILABLE_BROKERS = [
-  'LG', 'MG', 'BR', 'RG', 'CC', 'AK', 'BK', 'DH', 'KZ', 'YU', 'ZP',
-  'AG', 'NI', 'PD', 'SQ', 'SS', 'CIMB', 'UOB', 'COIN', 'NH', 'RG'
-];
-
 // Broker colors
 const getBrokerColor = (broker: string): string => {
   const colors = {
@@ -47,98 +41,6 @@ const getBrokerColor = (broker: string): string => {
     SS: '#DC2626', CIMB: '#059669', UOB: '#7C3AED', COIN: '#EA580C', NH: '#BE185D'
   };
   return colors[broker as keyof typeof colors] || '#6B7280';
-};
-
-// Generate inventory data for selected brokers and date range
-const generateInventoryData = (_ticker: string, selectedBrokers: string[], startDate: string, endDate: string) => {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-
-  const data: InventoryTimeSeries[] = [];
-
-  for (let i = 0; i <= days; i++) {
-    const currentDate = new Date(start);
-    currentDate.setDate(start.getDate() + i);
-    const timeStr = currentDate.toISOString().split('T')[0] ?? '';
-
-    const dayData: InventoryTimeSeries = { time: timeStr };
-
-    selectedBrokers.forEach(broker => {
-      // Start from 0, simulate cumulative net flow changes
-      const baseValue = i === 0 ? 0 : (Math.random() - 0.5) * 20;
-      const trend = Math.sin(i * 0.1) * 10; // Some trend
-      const noise = (Math.random() - 0.5) * 5; // Random noise
-
-      dayData[broker] = Math.round(baseValue + trend + noise);
-    });
-
-    data.push(dayData);
-  }
-
-  return data;
-};
-
-// Generate candlestick data for price chart
-const generateCandlestickData = (_ticker: string, startDate: string, endDate: string) => {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-
-  const data: any[] = [];
-  let basePrice = 2700 + Math.random() * 200; // Base price around 2700-2900
-
-  for (let i = 0; i <= days; i++) {
-    const currentDate = new Date(start);
-    currentDate.setDate(start.getDate() + i);
-    const timeStr = currentDate.toISOString().split('T')[0] ?? '';
-
-    const open = basePrice;
-    const change = (Math.random() - 0.5) * 20;
-    const close = open + change;
-    const high = Math.max(open, close) + Math.random() * 10;
-    const low = Math.min(open, close) - Math.random() * 10;
-
-    data.push({
-      time: timeStr,
-      open: Math.round(open),
-      high: Math.round(high),
-      low: Math.round(low),
-      close: Math.round(close),
-      volume: Math.floor(Math.random() * 1000000 + 100000)
-    });
-
-    basePrice = close; // Next day starts from previous close
-  }
-
-  return data;
-};
-
-// Generate volume data
-const generateVolumeData = (_ticker: string, startDate: string, endDate: string) => {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-
-  const data: any[] = [];
-
-  for (let i = 0; i <= days; i++) {
-    const currentDate = new Date(start);
-    currentDate.setDate(start.getDate() + i);
-    const timeStr = currentDate.toISOString().split('T')[0] ?? '';
-
-    // Generate volume with some correlation to price movement
-    const baseVolume = Math.floor(Math.random() * 2000000 + 500000);
-    const volumeVariation = Math.random() * 0.4 + 0.8; // 0.8 to 1.2 multiplier
-
-    data.push({
-      time: timeStr,
-      value: Math.floor(baseVolume * volumeVariation),
-      color: Math.random() > 0.5 ? '#16a34a' : '#dc2626' // Green or red based on random
-    });
-  }
-
-  return data;
 };
 
 // Generate broker gross/net data for horizontal bar chart
@@ -313,17 +215,29 @@ const TradingViewChart = ({
 
       // Add inventory lines for each selected broker (left Y-axis - Net Flow) to Pane 0
       selectedBrokers.forEach(broker => {
-        const lineSeries = chart.addSeries(LineSeries, {
-          color: getBrokerColor(broker),
-          lineWidth: 2,
-          title: broker,
-          priceScaleId: 'left', // Use left price scale
-        }, 0);
-
-        lineSeries.setData(inventoryData.map(d => ({
+        const brokerData = inventoryData.map(d => ({
           time: d.time,
           value: d[broker] as number,
-        })));
+        })).filter(d => d.value !== undefined && d.value !== null);
+        
+        console.log(`📊 Adding series for broker ${broker}:`, {
+          brokerDataLength: brokerData.length,
+          sampleData: brokerData.slice(0, 3),
+          hasData: brokerData.length > 0
+        });
+        
+        if (brokerData.length > 0) {
+          const lineSeries = chart.addSeries(LineSeries, {
+            color: getBrokerColor(broker),
+            lineWidth: 2,
+            title: broker,
+            priceScaleId: 'left', // Use left price scale
+          }, 0);
+
+          lineSeries.setData(brokerData);
+        } else {
+          console.warn(`⚠️ No data found for broker ${broker}`);
+        }
       });
 
       // Add volume series to separate pane (Pane 1) if volumeData is provided
@@ -810,17 +724,29 @@ const InventoryChart = ({ inventoryData, selectedBrokers }: { inventoryData: Inv
 
     try {
       selectedBrokers.forEach(broker => {
-        const lineSeries = chart.addSeries(LineSeries, {
-          color: getBrokerColor(broker),
-          lineWidth: 2,
-          title: broker,
-          priceScaleId: 'right',
-        });
-
-        lineSeries.setData(inventoryData.map(d => ({
+        const brokerData = inventoryData.map(d => ({
           time: d.time,
           value: d[broker] as number,
-        })));
+        })).filter(d => d.value !== undefined && d.value !== null);
+        
+        console.log(`📊 InventoryChart: Adding series for broker ${broker}:`, {
+          brokerDataLength: brokerData.length,
+          sampleData: brokerData.slice(0, 3),
+          hasData: brokerData.length > 0
+        });
+        
+        if (brokerData.length > 0) {
+          const lineSeries = chart.addSeries(LineSeries, {
+            color: getBrokerColor(broker),
+            lineWidth: 2,
+            title: broker,
+            priceScaleId: 'right',
+          });
+
+          lineSeries.setData(brokerData);
+        } else {
+          console.warn(`⚠️ InventoryChart: No data found for broker ${broker}`);
+        }
       });
 
       chart.timeScale().fitContent();
@@ -892,7 +818,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
   
   // State management
   const [selectedTicker, setSelectedTicker] = useState('BBCA');
-  const [selectedBrokers, setSelectedBrokers] = useState<string[]>(['LG', 'MG', 'BR']);
+  const [selectedBrokers, setSelectedBrokers] = useState<string[]>([]);
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
     date.setMonth(date.getMonth() - 1);
@@ -903,13 +829,23 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
   });
   const [brokerSearch, setBrokerSearch] = useState('');
   const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false);
+  const [highlightedBrokerIndex, setHighlightedBrokerIndex] = useState(-1);
   const [tickerSearch, setTickerSearch] = useState('');
   const [showTickerSuggestions, setShowTickerSuggestions] = useState(false);
   const [splitVisualization, setSplitVisualization] = useState(false);
   const [highlightedTickerIndex, setHighlightedTickerIndex] = useState<number>(-1);
   const [topBrokersCount, setTopBrokersCount] = useState<5 | 10 | 15 | 20 | 'all'>('all');
   const [availableStocks, setAvailableStocks] = useState<string[]>([]);
-  // Note: isLoading and error states are managed by the chart components
+  const [isLoadingStocks, setIsLoadingStocks] = useState(false);
+  const [isLoadingData, setIsLoadingData] = useState(false);
+  const [isLoadingBrokerData, setIsLoadingBrokerData] = useState(false);
+  const [dataError, setDataError] = useState<string | null>(null);
+  const [brokerDataError, setBrokerDataError] = useState<string | null>(null);
+  const [ohlcData, setOhlcData] = useState<any[]>([]);
+  const [volumeData, setVolumeData] = useState<any[]>([]);
+  const [brokerSummaryData, setBrokerSummaryData] = useState<any[]>([]);
+  const [availableBrokersForStock, setAvailableBrokersForStock] = useState<string[]>([]);
+  const [isLoadingBrokersForStock, setIsLoadingBrokersForStock] = useState(false);
 
 
 
@@ -925,14 +861,19 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
   };
 
 
-  // Load available stocks and initialize dates on component mount
+  // Load available stocks and broker dates on component mount
   useEffect(() => {
     const loadInitialData = async () => {
       try {
+        setIsLoadingStocks(true);
+        
         // Load available stocks
         const response = await api.getStockList();
         if (response.success && response.data?.stocks) {
           setAvailableStocks(response.data.stocks);
+          console.log(`📊 Loaded ${response.data.stocks.length} stocks from API`);
+        } else {
+          console.warn('⚠️ No stocks data received from API');
         }
         
       } catch (error) {
@@ -942,33 +883,412 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
           title: 'Error Memuat Data',
           message: 'Gagal memuat data awal.'
         });
+      } finally {
+        setIsLoadingStocks(false);
       }
     };
     
     loadInitialData();
   }, [showToast]);
 
+  // Load OHLC and volume data when ticker or date range changes
+  useEffect(() => {
+    const loadStockData = async () => {
+      if (!selectedTicker || !startDate || !endDate) return;
+      
+      setIsLoadingData(true);
+      setDataError(null);
+      
+      try {
+        console.log(`📊 Loading stock data for ${selectedTicker} from ${startDate} to ${endDate}`);
+        
+        // Call stock API to get OHLC data
+        const response = await api.getStockData(selectedTicker, {
+          startDate,
+          endDate,
+          limit: 1000 // Get up to 1000 records
+        });
+        
+        if (response.success && response.data?.data) {
+          const stockData = response.data.data;
+          console.log(`📊 Received ${stockData.length} records for ${selectedTicker}`);
+          
+          // Convert to candlestick format for charts
+          const candlestickData = stockData.map((row: any) => ({
+            time: row.Date,
+            open: row.Open || 0,
+            high: row.High || 0,
+            low: row.Low || 0,
+            close: row.Close || 0,
+            volume: row.Volume || 0
+          }));
+          
+          // Convert to volume format for charts
+          const volumeChartData = stockData.map((row: any) => ({
+            time: row.Date,
+            value: row.Volume || 0,
+            color: (row.Close || 0) >= (row.Open || 0) ? '#16a34a' : '#dc2626'
+          }));
+          
+          setOhlcData(candlestickData);
+          setVolumeData(volumeChartData);
+          
+          console.log(`📊 Processed data: ${candlestickData.length} OHLC records, ${volumeChartData.length} volume records`);
+          
+        } else {
+          throw new Error(response.error || 'Failed to load stock data');
+        }
+        
+      } catch (error) {
+        console.error('Error loading stock data:', error);
+        setDataError(error instanceof Error ? error.message : 'Failed to load stock data');
+        showToast({
+          type: 'error',
+          title: 'Error Memuat Data',
+          message: 'Gagal memuat data OHLC dan volume.'
+        });
+      } finally {
+        setIsLoadingData(false);
+      }
+    };
+    
+    loadStockData();
+  }, [selectedTicker, startDate, endDate, showToast]);
+
+  // Load broker summary data when ticker, date range, or selected brokers change
+  useEffect(() => {
+    const loadBrokerData = async () => {
+      if (!selectedTicker || !startDate || !endDate || selectedBrokers.length === 0 || ohlcData.length === 0) return;
+      
+      setIsLoadingBrokerData(true);
+      setBrokerDataError(null);
+      
+      try {
+        console.log(`📊 Loading broker summary data for ${selectedTicker} from ${startDate} to ${endDate}`);
+        console.log(`📊 OHLC data available: ${ohlcData.length} records`);
+        
+        // Get dates from OHLC data instead of generating them
+        const ohlcDates = ohlcData.map(d => d.time).sort();
+        console.log(`📊 Using ${ohlcDates.length} dates from OHLC data:`, ohlcDates.slice(0, 5), '...');
+        
+        if (ohlcDates.length === 0) {
+          console.log('⚠️ No OHLC dates available');
+          setBrokerSummaryData([]);
+          return;
+        }
+        
+        // Load broker data for each OHLC date
+        const allBrokerData: any[] = [];
+        let successfulDates = 0;
+        
+        for (const dateStr of ohlcDates.slice(0, 30)) { // Limit to 30 days for performance
+          try {
+            // Convert date from YYYY-MM-DD to YYYYMMDD format for broker API
+            const brokerDateStr = dateStr.replace(/-/g, '');
+            
+            const response = await api.getBrokerSummaryData(selectedTicker, brokerDateStr);
+            
+            console.log(`📊 Broker API response for ${dateStr} (${brokerDateStr}):`, {
+              success: response.success,
+              hasData: !!response.data?.brokerData,
+              dataLength: response.data?.brokerData?.length || 0
+            });
+            
+            if (response.success && response.data?.brokerData) {
+              const brokerData = response.data.brokerData;
+              
+              // Filter for selected brokers only
+              const filteredBrokerData = brokerData.filter((broker: any) => 
+                selectedBrokers.includes(broker.broker)
+              );
+              
+              console.log(`📊 Broker filtering for ${dateStr}:`, {
+                totalBrokers: brokerData.length,
+                selectedBrokers: selectedBrokers,
+                filteredBrokers: filteredBrokerData.length,
+                brokerNames: brokerData.map((b: any) => b.broker).slice(0, 5)
+              });
+              
+              // Only add data if we have brokers for this date
+              if (filteredBrokerData.length > 0) {
+                // Add date to each broker record
+                filteredBrokerData.forEach((broker: any) => {
+                  allBrokerData.push({
+                    ...broker,
+                    date: dateStr, // Use original OHLC date format
+                    time: dateStr // For chart compatibility
+                  });
+                });
+                
+                successfulDates++;
+                console.log(`✅ Broker data loaded for ${dateStr}: ${filteredBrokerData.length} brokers (${filteredBrokerData.map((b: any) => b.broker).join(', ')})`);
+              } else {
+                console.log(`⚠️ No selected brokers found for ${selectedTicker} on ${dateStr} - skipping`);
+              }
+            } else {
+              console.log(`⚠️ No broker data for ${selectedTicker} on ${dateStr} - skipping`);
+            }
+          } catch (error) {
+            console.warn(`⚠️ Error loading broker data for ${dateStr}:`, error);
+            // Continue to next date instead of stopping
+          }
+        }
+        
+        console.log(`📊 Total broker data loaded: ${allBrokerData.length} records across ${successfulDates} successful dates`);
+        console.log(`📊 Sample broker data:`, allBrokerData.slice(0, 3));
+        
+        if (allBrokerData.length === 0) {
+          console.log(`⚠️ No broker data found for selected brokers: ${selectedBrokers.join(', ')}`);
+          setBrokerDataError(`No broker data found for selected brokers: ${selectedBrokers.join(', ')}`);
+        } else {
+          setBrokerDataError(null);
+        }
+        
+        setBrokerSummaryData(allBrokerData);
+        
+        console.log(`📊 Broker summary data set: ${allBrokerData.length} records`);
+        
+      } catch (error) {
+        console.error('Error loading broker data:', error);
+        setBrokerDataError(error instanceof Error ? error.message : 'Failed to load broker data');
+        showToast({
+          type: 'error',
+          title: 'Error Memuat Data Broker',
+          message: 'Gagal memuat data broker summary.'
+        });
+      } finally {
+        setIsLoadingBrokerData(false);
+      }
+    };
+    
+    loadBrokerData();
+  }, [selectedTicker, startDate, endDate, selectedBrokers, ohlcData, showToast]);
+
+  // Load available brokers for selected stock code
+  useEffect(() => {
+    const loadBrokersForStock = async () => {
+      if (!selectedTicker || ohlcData.length === 0) {
+        setAvailableBrokersForStock([]);
+        return;
+      }
+      
+      try {
+        console.log(`📊 Loading available brokers for stock: ${selectedTicker}`);
+        setIsLoadingBrokersForStock(true);
+        
+        // Get the most recent date from OHLC data
+        const mostRecentDate = ohlcData[ohlcData.length - 1]?.time; // OHLC data is sorted oldest first
+        
+        if (mostRecentDate) {
+          // Convert date from YYYY-MM-DD to YYYYMMDD format for broker API
+          const brokerDateStr = mostRecentDate.replace(/-/g, '');
+          
+          const response = await api.getBrokerSummaryData(selectedTicker, brokerDateStr);
+          
+          if (response.success && response.data?.brokerData) {
+            const brokers = response.data.brokerData.map((broker: any) => broker.broker).filter(Boolean);
+            const uniqueBrokers = [...new Set(brokers)].sort() as string[];
+            
+            console.log(`📊 Found ${uniqueBrokers.length} brokers for ${selectedTicker} on ${mostRecentDate}:`, uniqueBrokers);
+            setAvailableBrokersForStock(uniqueBrokers);
+            
+            // Auto-select first 3 brokers if none are selected
+            if (selectedBrokers.length === 0 && uniqueBrokers.length > 0) {
+              const autoSelectedBrokers = uniqueBrokers.slice(0, 3) as string[];
+              console.log(`📊 Auto-selecting brokers:`, autoSelectedBrokers);
+              setSelectedBrokers(autoSelectedBrokers);
+            } else {
+              // Update selected brokers to only include those available for this stock
+              const validSelectedBrokers = selectedBrokers.filter(broker => uniqueBrokers.includes(broker));
+              if (validSelectedBrokers.length !== selectedBrokers.length) {
+                console.log(`📊 Updating selected brokers to match available brokers:`, validSelectedBrokers);
+                setSelectedBrokers(validSelectedBrokers);
+              }
+            }
+          } else {
+            console.log(`⚠️ No broker data found for ${selectedTicker} on ${mostRecentDate}`);
+            setAvailableBrokersForStock([]);
+            setSelectedBrokers([]);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading brokers for stock:', error);
+        setAvailableBrokersForStock([]);
+      } finally {
+        setIsLoadingBrokersForStock(false);
+      }
+    };
+    
+    loadBrokersForStock();
+  }, [selectedTicker, ohlcData, selectedBrokers]);
+
   // Broker search handlers
   const handleBrokerSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!selectedTicker || isLoadingBrokersForStock) return; // Don't allow search if no stock selected or loading
+    
     const value = e.target.value.toUpperCase();
     setBrokerSearch(value);
     setShowBrokerSuggestions(true);
+    setHighlightedBrokerIndex(-1); // Reset highlighted index when search changes
   };
 
   const handleBrokerSelect = (broker: string) => {
+    // Only allow brokers that are available for the selected stock
+    if (!availableBrokersForStock.includes(broker)) {
+      console.warn(`⚠️ Broker ${broker} is not available for stock ${selectedTicker}`);
+      return;
+    }
+    
     if (!selectedBrokers.includes(broker)) {
       setSelectedBrokers([...selectedBrokers, broker]);
+      console.log(`📊 Added broker ${broker} to selection`);
     }
     setBrokerSearch('');
     setShowBrokerSuggestions(false);
+    setHighlightedBrokerIndex(-1);
   };
 
   const removeBroker = (broker: string) => {
-    setSelectedBrokers(selectedBrokers.filter(b => b !== broker));
+    // Only remove brokers that are currently selected
+    if (selectedBrokers.includes(broker)) {
+      setSelectedBrokers(selectedBrokers.filter(b => b !== broker));
+      console.log(`📊 Removed broker ${broker} from selection`);
+    }
   };
+
+  const handleBrokerKeyDown = (e: React.KeyboardEvent) => {
+    if (!showBrokerSuggestions || filteredBrokers.length === 0) return;
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setHighlightedBrokerIndex(prev => 
+          prev < filteredBrokers.length - 1 ? prev + 1 : 0
+        );
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setHighlightedBrokerIndex(prev => 
+          prev > 0 ? prev - 1 : filteredBrokers.length - 1
+        );
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (highlightedBrokerIndex >= 0 && highlightedBrokerIndex < filteredBrokers.length) {
+          const selectedBroker = filteredBrokers[highlightedBrokerIndex];
+          if (selectedBroker && selectedBrokers.includes(selectedBroker)) {
+            removeBroker(selectedBroker);
+          } else if (selectedBroker) {
+            handleBrokerSelect(selectedBroker);
+          }
+        }
+        break;
+      case ' ':
+        e.preventDefault();
+        if (highlightedBrokerIndex >= 0 && highlightedBrokerIndex < filteredBrokers.length) {
+          const selectedBroker = filteredBrokers[highlightedBrokerIndex];
+          if (selectedBroker && selectedBrokers.includes(selectedBroker)) {
+            removeBroker(selectedBroker);
+          } else if (selectedBroker) {
+            handleBrokerSelect(selectedBroker);
+          }
+        }
+        break;
+      case 'Escape':
+        e.preventDefault();
+        setShowBrokerSuggestions(false);
+        setHighlightedBrokerIndex(-1);
+        break;
+      case 'Tab':
+        // Allow default tab behavior but close dropdown
+        setShowBrokerSuggestions(false);
+        setHighlightedBrokerIndex(-1);
+        break;
+      case 'Home':
+        e.preventDefault();
+        setHighlightedBrokerIndex(0);
+        break;
+      case 'End':
+        e.preventDefault();
+        setHighlightedBrokerIndex(filteredBrokers.length - 1);
+        break;
+      case 'PageUp':
+        e.preventDefault();
+        setHighlightedBrokerIndex(prev => Math.max(0, prev - 5));
+        break;
+      case 'PageDown':
+        e.preventDefault();
+        setHighlightedBrokerIndex(prev => Math.min(filteredBrokers.length - 1, prev + 5));
+        break;
+      case 'Delete':
+        e.preventDefault();
+        if (highlightedBrokerIndex >= 0 && highlightedBrokerIndex < filteredBrokers.length) {
+          const selectedBroker = filteredBrokers[highlightedBrokerIndex];
+          if (selectedBroker && selectedBrokers.includes(selectedBroker)) {
+            removeBroker(selectedBroker);
+          }
+        }
+        break;
+      case 'Backspace':
+        // Allow default backspace behavior for input field
+        break;
+      case 'ArrowLeft':
+      case 'ArrowRight':
+        // Allow default arrow behavior for input field
+        break;
+    }
+  };
+
+  const handleBrokerMouseEnter = (index: number) => {
+    setHighlightedBrokerIndex(index);
+  };
+
+  const handleBrokerMouseLeave = () => {
+    setHighlightedBrokerIndex(-1);
+  };
+
+  const handleBrokerFocus = () => {
+    if (selectedTicker && !isLoadingBrokersForStock) {
+      setShowBrokerSuggestions(true);
+      setHighlightedBrokerIndex(-1);
+    }
+  };
+
+  const handleBrokerBlur = () => {
+    // Delay hiding suggestions to allow for click events
+    setTimeout(() => {
+      setShowBrokerSuggestions(false);
+      setHighlightedBrokerIndex(-1);
+    }, 150);
+  };
+
+  const handleBrokerDropdownClose = () => {
+    setShowBrokerSuggestions(false);
+    setHighlightedBrokerIndex(-1);
+  };
+
+  // Handle click outside to close dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest('.broker-dropdown-container')) {
+        handleBrokerDropdownClose();
+      }
+    };
+
+    if (showBrokerSuggestions) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showBrokerSuggestions]);
 
   // Ticker search handlers
   const handleTickerSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isLoadingStocks) return; // Don't allow search if stocks are loading
+    
     const value = e.target.value.toUpperCase();
     setTickerSearch(value);
     setShowTickerSuggestions(true);
@@ -978,9 +1298,22 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
     setSelectedTicker(ticker);
     setTickerSearch('');
     setShowTickerSuggestions(false);
+    setHighlightedTickerIndex(-1);
+    // Reset broker search when ticker changes
+    setBrokerSearch('');
+    setShowBrokerSuggestions(false);
+    setHighlightedBrokerIndex(-1);
+    setAvailableBrokersForStock([]);
+    setIsLoadingBrokersForStock(false);
+    setSelectedBrokers([]);
+    setBrokerSummaryData([]);
+    setBrokerDataError(null);
+    setOhlcData([]);
+    setVolumeData([]);
+    setDataError(null);
   };
 
-  const filteredBrokers = AVAILABLE_BROKERS.filter(broker =>
+  const filteredBrokers = availableBrokersForStock.filter(broker =>
     broker.toLowerCase().includes(brokerSearch.toLowerCase()) &&
     !selectedBrokers.includes(broker)
   );
@@ -1005,21 +1338,82 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Generate data based on current selections
+  // Use real data from API instead of mock data
   const candlestickData = useMemo(() => {
-    if (!selectedTicker || !startDate || !endDate) return [];
-    return generateCandlestickData(selectedTicker, startDate, endDate);
-  }, [selectedTicker, startDate, endDate]);
+    return ohlcData;
+  }, [ohlcData]);
 
+  // Convert broker summary data to cumulative net flow series
   const inventoryData = useMemo(() => {
-    if (!selectedTicker || !startDate || !endDate) return [];
-    return generateInventoryData(selectedTicker, selectedBrokers, startDate, endDate);
-  }, [selectedTicker, selectedBrokers, startDate, endDate]);
+    if (!brokerSummaryData || brokerSummaryData.length === 0) return [];
+    
+    console.log(`📊 Converting ${brokerSummaryData.length} broker records to cumulative series`);
+    
+    // Group data by date
+    const dataByDate: { [date: string]: any[] } = {};
+    brokerSummaryData.forEach(record => {
+      const date = record.date || record.time;
+      if (!dataByDate[date]) {
+        dataByDate[date] = [];
+      }
+      dataByDate[date].push(record);
+    });
+    
+    // Create cumulative series for each broker
+    const brokerCumulative: { [broker: string]: number } = {};
+    const inventorySeries: InventoryTimeSeries[] = [];
+    
+    // Sort dates chronologically
+    const sortedDates = Object.keys(dataByDate).sort();
+    
+    sortedDates.forEach(date => {
+      const dayData: InventoryTimeSeries = { time: date };
+      
+      // Initialize all selected brokers for this date
+      selectedBrokers.forEach(broker => {
+        if (!brokerCumulative[broker]) {
+          brokerCumulative[broker] = 0;
+        }
+        // Set current cumulative value for this broker
+        dayData[broker] = brokerCumulative[broker];
+      });
+      
+      // Process each broker record for this date
+      dataByDate[date]?.forEach(record => {
+        const broker = record.broker;
+        const netBuyVol = record.nblot || 0; // NetBuyVol from API
+        
+        // Only process brokers that are in selectedBrokers
+        if (selectedBrokers.includes(broker)) {
+          // Add to cumulative
+          brokerCumulative[broker] += netBuyVol;
+          
+          // Update day data with new cumulative value
+          dayData[broker] = brokerCumulative[broker] || 0;
+        }
+      });
+      
+      inventorySeries.push(dayData);
+    });
+    
+    console.log(`📊 Generated ${inventorySeries.length} cumulative series points`);
+    console.log(`📊 Broker cumulative totals for selected brokers:`, Object.entries(brokerCumulative).filter(([broker]) => selectedBrokers.includes(broker)));
+    
+    // Debug: Log sample data structure
+    if (inventorySeries.length > 0) {
+      console.log(`📊 Sample inventory data structure:`, {
+        firstRecord: inventorySeries[0],
+        selectedBrokers: selectedBrokers,
+        availableBrokers: Object.keys(inventorySeries[0] || {}).filter(key => key !== 'time')
+      });
+    }
+    
+    return inventorySeries;
+  }, [brokerSummaryData, selectedBrokers]);
 
-  const volumeData = useMemo(() => {
-    if (!selectedTicker || !startDate || !endDate) return [];
-    return generateVolumeData(selectedTicker, startDate, endDate);
-  }, [selectedTicker, startDate, endDate]);
+  const volumeDataForCharts = useMemo(() => {
+    return volumeData;
+  }, [volumeData]);
 
   // Removed unused data generation functions to improve performance
 
@@ -1066,7 +1460,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                     type="text"
                     value={tickerSearch || selectedTicker}
                     onChange={(e) => { handleTickerSearchChange(e); setHighlightedTickerIndex(0); }}
-                    onFocus={() => { setShowTickerSuggestions(true); setHighlightedTickerIndex(0); }}
+                    onFocus={() => { if (!isLoadingStocks) { setShowTickerSuggestions(true); setHighlightedTickerIndex(0); } }}
                     onKeyDown={(e) => {
                       const suggestions = filteredTickers.slice(0, 10);
                       if (!suggestions.length) return;
@@ -1096,8 +1490,9 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                         setHighlightedTickerIndex(-1);
                       }
                     }}
-                    placeholder="Enter ticker code..."
-                    className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                    placeholder={isLoadingStocks ? "Loading stocks..." : "Enter ticker code..."}
+                    disabled={isLoadingStocks}
+                    className={`w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm ${isLoadingStocks ? 'opacity-50 cursor-not-allowed' : ''}`}
                     role="combobox"
                     aria-expanded={showTickerSuggestions}
                     aria-controls="ticker-suggestions"
@@ -1111,7 +1506,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                       <X className="w-4 h-4" />
                     </button>
                   )}
-                  {showTickerSuggestions && (
+                  {showTickerSuggestions && !isLoadingStocks && (
                     (() => {
                       const suggestions = filteredTickers.slice(0, 10);
                       return (
@@ -1133,42 +1528,115 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                               {t}
                             </button>
                           ))}
-                          {suggestions.length === 0 && (
-                            <div className="px-3 py-2 text-sm text-muted-foreground">No results</div>
+                          {suggestions.length === 0 && !isLoadingStocks && (
+                            <div className="px-3 py-2 text-sm text-muted-foreground">
+                              {availableStocks.length === 0 ? 'No stocks available' : 'No results'}
+                            </div>
                           )}
                         </div>
                       );
                     })()
                   )}
                 </div>
+                
+                {/* Ticker loading info */}
+                {isLoadingStocks ? (
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    <span>Loading stocks from API...</span>
+                  </div>
+                ) : availableStocks.length > 0 ? (
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    <span>
+                      {availableStocks.length} stocks available
+                    </span>
+                  </div>
+                ) : (
+                  <div className="mt-2 text-xs text-warning">
+                    <span>No stocks available from API</span>
+                  </div>
+                )}
               </div>
 
               {/* Broker Selection */}
               <div>
                 <label className="block text-sm font-medium mb-2">Broker:</label>
-                <div className="relative">
+                <div className="relative broker-dropdown-container">
                   <input
                     type="text"
-                    placeholder="Broker..."
+                    placeholder={isLoadingBrokersForStock ? "Loading brokers..." : selectedTicker ? `Broker for ${selectedTicker}...` : "Select stock first..."}
                     value={brokerSearch}
+                    disabled={!selectedTicker || isLoadingBrokersForStock}
+                    className={`w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm ${!selectedTicker || isLoadingBrokersForStock ? 'opacity-50 cursor-not-allowed' : ''}`}
                     onChange={(e) => { handleBrokerSearchChange(e); }}
-                    onFocus={() => { setShowBrokerSuggestions(true); }}
-                    className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                    onFocus={handleBrokerFocus}
+                    onBlur={handleBrokerBlur}
+                    onKeyDown={handleBrokerKeyDown}
                   />
-                  {showBrokerSuggestions && (
+                  {showBrokerSuggestions && selectedTicker && !isLoadingBrokersForStock && (
                     <div className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-md border border-border bg-background shadow">
-                      {filteredBrokers.slice(0, 10).map((broker) => (
-                        <button
-                          key={broker}
-                          className="w-full text-left px-3 py-2 text-sm hover:bg-accent"
-                          onClick={() => { handleBrokerSelect(broker); setShowBrokerSuggestions(false); }}
-                        >
-                          {broker}
-                        </button>
-                      ))}
+                      {filteredBrokers.length > 0 ? (
+                        filteredBrokers.slice(0, 10).map((broker, index) => (
+                          <button
+                            key={broker}
+                            className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+                              index === highlightedBrokerIndex 
+                                ? 'bg-accent text-accent-foreground' 
+                                : 'hover:bg-accent hover:text-accent-foreground'
+                            } ${selectedBrokers.includes(broker) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                            onClick={() => { 
+                              if (!selectedBrokers.includes(broker)) {
+                                handleBrokerSelect(broker); 
+                                setShowBrokerSuggestions(false); 
+                              }
+                            }}
+                            onDoubleClick={() => {
+                              if (selectedBrokers.includes(broker)) {
+                                removeBroker(broker);
+                              }
+                            }}
+                            onMouseEnter={() => handleBrokerMouseEnter(index)}
+                            onMouseLeave={handleBrokerMouseLeave}
+                            disabled={selectedBrokers.includes(broker)}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center">
+                                <div
+                                  className="w-2 h-2 rounded-full mr-2"
+                                  style={{ backgroundColor: getBrokerColor(broker) }}
+                                />
+                                {broker}
+                              </div>
+                              {selectedBrokers.includes(broker) && (
+                                <span className="text-xs text-muted-foreground">✓ Selected</span>
+                              )}
+                            </div>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">
+                          No brokers available for {selectedTicker}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
+                
+                {/* Broker availability info */}
+                {selectedTicker && (
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    {isLoadingBrokersForStock ? (
+                      <span>Loading brokers for {selectedTicker}...</span>
+                    ) : availableBrokersForStock.length > 0 ? (
+                      <span>
+                        {availableBrokersForStock.length} broker{availableBrokersForStock.length !== 1 ? 's' : ''} available for {selectedTicker}
+                      </span>
+                    ) : (
+                      <span className="text-warning">
+                        No brokers available for {selectedTicker}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Date Range */}
@@ -1216,7 +1684,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
           </div>
 
           {/* Selected Brokers Display */}
-          {selectedBrokers.length > 0 && (
+          {selectedBrokers.length > 0 ? (
               <div>
               <label className="text-sm font-medium">Selected Brokers:</label>
               <div className="flex flex-wrap gap-2 mt-2">
@@ -1245,7 +1713,15 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                 ))}
               </div>
             </div>
-          )}
+          ) : selectedTicker ? (
+            <div className="text-sm text-muted-foreground">
+              No brokers selected. Select brokers above to view cumulative net flow.
+            </div>
+                ) : (
+                  <div className="mt-2 text-xs text-warning">
+                    <span>No stocks available from API</span>
+                  </div>
+                )}
 
           </div>
         </CardContent>
@@ -1264,7 +1740,18 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                     Candlestick chart showing price movements
                   </p>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="relative">
+                  {/* Loading overlay */}
+                  {(isLoadingData || isLoadingBrokerData) && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                        <div className="text-xs text-muted-foreground">
+                          {isLoadingData ? 'Loading stock...' : 'Loading broker...'}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <PriceChart candlestickData={candlestickData} />
                 </CardContent>
               </Card>
@@ -1277,7 +1764,18 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                     Broker inventory accumulation starting from 0
                   </p>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="relative">
+                  {/* Loading overlay */}
+                  {(isLoadingData || isLoadingBrokerData) && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                        <div className="text-xs text-muted-foreground">
+                          {isLoadingData ? 'Loading stock...' : 'Loading broker...'}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <InventoryChart
                     inventoryData={inventoryData}
                     selectedBrokers={selectedBrokers}
@@ -1293,8 +1791,19 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                     Trading volume for {selectedTicker}
                   </p>
                 </CardHeader>
-                <CardContent>
-                  <VolumeChart volumeData={volumeData} candlestickData={candlestickData} showLabel={true} />
+                <CardContent className="relative">
+                  {/* Loading overlay */}
+                  {(isLoadingData || isLoadingBrokerData) && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                        <div className="text-xs text-muted-foreground">
+                          {isLoadingData ? 'Loading stock...' : 'Loading broker...'}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <VolumeChart volumeData={volumeDataForCharts} candlestickData={candlestickData} showLabel={true} />
                 </CardContent>
               </Card>
             </>
@@ -1309,13 +1818,44 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage() {
                     Price action (right Y-axis) with broker cumulative net flow (left Y-axis, starting from 0)
                   </p>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="relative">
+                  {/* Loading overlay */}
+                  {(isLoadingData || isLoadingBrokerData) && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                        <div className="text-sm text-muted-foreground">
+                          {isLoadingData ? 'Loading stock data...' : 'Loading broker data...'}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Error overlay */}
+                  {(dataError || brokerDataError) && !isLoadingData && !isLoadingBrokerData && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+                      <div className="flex flex-col items-center gap-3 text-center p-6">
+                        <div className="text-4xl">⚠️</div>
+                        <div className="text-sm text-muted-foreground">
+                          {dataError || brokerDataError}
+                        </div>
+                        <Button 
+                          onClick={() => window.location.reload()} 
+                          variant="outline" 
+                          size="sm"
+                        >
+                          Retry
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  
                   <TradingViewChart
                     candlestickData={candlestickData}
                     inventoryData={inventoryData}
                     selectedBrokers={selectedBrokers}
                     title={`${selectedTicker} Inventory Analysis`}
-                    volumeData={volumeData}
+                    volumeData={volumeDataForCharts}
                   />
                 </CardContent>
               </Card>
