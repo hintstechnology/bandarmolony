@@ -8,13 +8,14 @@ export class BrokerInventoryDataScheduler {
   }
 
   /**
-   * Generate broker inventory data
+   * Generate broker inventory data for all available dates
    */
   async generateBrokerInventoryData(dateSuffix?: string): Promise<{ success: boolean; message: string; data?: any }> {
     try {
-      const targetDate = dateSuffix || this.getCurrentDateSuffix();
-      console.log(`🔄 Starting Broker Inventory calculation for date: ${targetDate}`);
+      const targetDate = dateSuffix || 'all';
+      console.log(`🔄 Starting Broker Inventory calculation for: ${targetDate}`);
       
+      // Broker inventory calculator processes all available dates
       await this.calculator.generateBrokerInventoryData(targetDate);
       console.log('✅ Broker Inventory calculation completed successfully');
       
@@ -35,13 +36,6 @@ export class BrokerInventoryDataScheduler {
     }
   }
 
-  /**
-   * Get current date suffix in YYMMDD format
-   */
-  private getCurrentDateSuffix(): string {
-    const today = new Date();
-    return today.toISOString().slice(2, 10).replace(/-/g, '');
-  }
 
   /**
    * Get generation status

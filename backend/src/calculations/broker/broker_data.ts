@@ -1,4 +1,5 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
+import { AzureLogger } from '../../services/azureLoggingService';
 
 // Type definitions
 interface TransactionData {
@@ -665,33 +666,21 @@ export class BrokerDataCalculator {
         Promise.resolve(this.createComprehensiveTopBroker(data))
       ]);
       
-      // Create data maps for ALLSUM and top_broker files
-      const brokerSummaryData = new Map<string, BrokerSummary[]>();
-      const brokerTransactionData = new Map<string, BrokerTransactionData[]>();
+      // REMOVED: ALLSUM files creation - not needed per original structure
+      // Original only creates ALLSUM-broker_summary.csv in broker_summary folder
       
-      // Note: ALLSUM files require actual data content, not just file names
-      // For now, we'll skip ALLSUM creation in this simplified version
-      
-      // Create ALLSUM and top_broker files
-      const [allsumFiles, topBrokerFiles] = await Promise.all([
-        this.createAllsumFiles(dateSuffix, brokerSummaryData, brokerTransactionData),
-        this.createTopBrokerFiles(dateSuffix, brokerSummaryData)
-      ]);
-      
-      // Save main summary files in parallel
+      // Save main summary files in parallel (SESUAI ORIGINAL STRUCTURE)
       await Promise.all([
-        this.saveToAzure(`broker_summary/broker_summary_${dateSuffix}.csv`, detailedSummary),
-        this.saveToAzure(`top_broker/top_broker_${dateSuffix}.csv`, comprehensiveSummary),
+        this.saveToAzure(`broker_summary/broker_summary_${dateSuffix}/ALLSUM-broker_summary.csv`, detailedSummary),
+        this.saveToAzure(`top_broker/top_broker_${dateSuffix}/top_broker.csv`, comprehensiveSummary),
         this.saveToAzure(`top_broker/top_broker_${dateSuffix}/top_broker_by_stock.csv`, topBroker)
       ]);
       
       const allFiles = [
         ...brokerSummaryFiles,
         ...brokerTransactionFiles,
-        ...allsumFiles,
-        ...topBrokerFiles,
-        `broker_summary/broker_summary_${dateSuffix}.csv`,
-        `top_broker/top_broker_${dateSuffix}.csv`,
+        `broker_summary/broker_summary_${dateSuffix}/ALLSUM-broker_summary.csv`,
+        `top_broker/top_broker_${dateSuffix}/top_broker.csv`,
         `top_broker/top_broker_${dateSuffix}/top_broker_by_stock.csv`
       ];
       
@@ -760,6 +749,7 @@ export class BrokerDataCalculator {
         });
         
         console.log(`📊 Batch complete: ${successful}/${processed} successful`);
+        await AzureLogger.logProgress('broker-data', processed, dtFiles.length, `Processing done-summary`);
         
         // Small delay between batches
         if (i + BATCH_SIZE < dtFiles.length) {
@@ -796,159 +786,14 @@ export class BrokerDataCalculator {
   }
 
   /**
-   * Create ALLSUM files for broker_summary and broker_transaction
+   * REMOVED: ALLSUM files creation - not needed per original structure
+   * Original only creates ALLSUM-broker_summary.csv in broker_summary folder
    */
-  private async createAllsumFiles(
-    dateSuffix: string,
-    brokerSummaryData: Map<string, BrokerSummary[]>,
-    brokerTransactionData: Map<string, BrokerTransactionData[]>
-  ): Promise<string[]> {
-    const createdFiles: string[] = [];
-
-    try {
-      // Create ALLSUM-broker_summary.csv
-      const allBrokerSummary: BrokerSummary[] = [];
-      for (const [, summaries] of brokerSummaryData) {
-        allBrokerSummary.push(...summaries);
-      }
-      
-      if (allBrokerSummary.length > 0) {
-        const allsumSummaryFilename = `broker_summary/broker_summary_${dateSuffix}/ALLSUM-broker_summary.csv`;
-        await this.saveToAzure(allsumSummaryFilename, allBrokerSummary);
-        createdFiles.push(allsumSummaryFilename);
-        console.log(`Created ${allsumSummaryFilename} with ${allBrokerSummary.length} rows`);
-      }
-
-      // Create ALLSUM-broker_transaction.csv
-      const allBrokerTransaction: BrokerTransactionData[] = [];
-      for (const [, transactions] of brokerTransactionData) {
-        allBrokerTransaction.push(...transactions);
-      }
-      
-      if (allBrokerTransaction.length > 0) {
-        const allsumTransactionFilename = `broker_transaction/broker_transaction_${dateSuffix}/ALLSUM-broker_transaction.csv`;
-        await this.saveToAzure(allsumTransactionFilename, allBrokerTransaction);
-        createdFiles.push(allsumTransactionFilename);
-        console.log(`Created ${allsumTransactionFilename} with ${allBrokerTransaction.length} rows`);
-      }
-
-    } catch (error) {
-      console.error('Error creating ALLSUM files:', error);
-    }
-
-    return createdFiles;
-  }
 
   /**
-   * Create top_broker files
+   * REMOVED: createTopBrokerFiles - not needed per original structure
+   * Original creates top_broker files directly in main processing
    */
-  private async createTopBrokerFiles(
-    dateSuffix: string,
-    brokerSummaryData: Map<string, BrokerSummary[]>
-  ): Promise<string[]> {
-    const createdFiles: string[] = [];
-
-    try {
-      // Aggregate all broker data across all stocks
-      const brokerAggregated = new Map<string, {
-        BrokerCode: string;
-        TotalBuyerVol: number;
-        TotalBuyerValue: number;
-        TotalSellerVol: number;
-        TotalSellerValue: number;
-        TotalNetBuyVol: number;
-        TotalNetBuyValue: number;
-        StockCount: number;
-        AvgBuyerPrice: number;
-        AvgSellerPrice: number;
-      }>();
-
-      // Process each stock's broker data
-      for (const [, summaries] of brokerSummaryData) {
-        for (const summary of summaries) {
-          const existing = brokerAggregated.get(summary.BrokerCode);
-          if (existing) {
-            existing.TotalBuyerVol += summary.BuyerVol;
-            existing.TotalBuyerValue += summary.BuyerValue;
-            existing.TotalSellerVol += summary.SellerVol;
-            existing.TotalSellerValue += summary.SellerValue;
-            existing.TotalNetBuyVol += summary.NetBuyVol;
-            existing.TotalNetBuyValue += summary.NetBuyValue;
-            existing.StockCount += 1;
-            existing.AvgBuyerPrice = existing.TotalBuyerValue / existing.TotalBuyerVol;
-            existing.AvgSellerPrice = existing.TotalSellerValue / existing.TotalSellerVol;
-          } else {
-            brokerAggregated.set(summary.BrokerCode, {
-              BrokerCode: summary.BrokerCode,
-              TotalBuyerVol: summary.BuyerVol,
-              TotalBuyerValue: summary.BuyerValue,
-              TotalSellerVol: summary.SellerVol,
-              TotalSellerValue: summary.SellerValue,
-              TotalNetBuyVol: summary.NetBuyVol,
-              TotalNetBuyValue: summary.NetBuyValue,
-              StockCount: 1,
-              AvgBuyerPrice: summary.BuyerAvg,
-              AvgSellerPrice: summary.SellerAvg
-            });
-          }
-        }
-      }
-
-      // Convert to array and sort by total net buy value
-      const topBrokerData = Array.from(brokerAggregated.values())
-        .sort((a, b) => b.TotalNetBuyValue - a.TotalNetBuyValue);
-
-      // Create top_broker.csv
-      const topBrokerFilename = `top_broker/top_broker_${dateSuffix}/top_broker.csv`;
-      await this.saveToAzure(topBrokerFilename, topBrokerData);
-      createdFiles.push(topBrokerFilename);
-      console.log(`Created ${topBrokerFilename} with ${topBrokerData.length} brokers`);
-
-      // Create top_broker_by_stock.csv (top brokers for each stock)
-      const topBrokerByStockData: Array<{
-        Emiten: string;
-        BrokerCode: string;
-        BuyerVol: number;
-        BuyerValue: number;
-        SellerVol: number;
-        SellerValue: number;
-        NetBuyVol: number;
-        NetBuyValue: number;
-        BuyerAvg: number;
-        SellerAvg: number;
-        Rank: number;
-      }> = [];
-
-      for (const [emiten, summaries] of brokerSummaryData) {
-        const sortedSummaries = summaries.sort((a, b) => b.NetBuyValue - a.NetBuyValue);
-        sortedSummaries.forEach((summary, index) => {
-          topBrokerByStockData.push({
-            Emiten: emiten,
-            BrokerCode: summary.BrokerCode,
-            BuyerVol: summary.BuyerVol,
-            BuyerValue: summary.BuyerValue,
-            SellerVol: summary.SellerVol,
-            SellerValue: summary.SellerValue,
-            NetBuyVol: summary.NetBuyVol,
-            NetBuyValue: summary.NetBuyValue,
-            BuyerAvg: summary.BuyerAvg,
-            SellerAvg: summary.SellerAvg,
-            Rank: index + 1
-          });
-        });
-      }
-
-      const topBrokerByStockFilename = `top_broker/top_broker_${dateSuffix}/top_broker_by_stock.csv`;
-      await this.saveToAzure(topBrokerByStockFilename, topBrokerByStockData);
-      createdFiles.push(topBrokerByStockFilename);
-      console.log(`Created ${topBrokerByStockFilename} with ${topBrokerByStockData.length} rows`);
-
-    } catch (error) {
-      console.error('Error creating top_broker files:', error);
-    }
-
-    return createdFiles;
-  }
 }
 
 export default BrokerDataCalculator;
