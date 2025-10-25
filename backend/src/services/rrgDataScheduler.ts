@@ -119,7 +119,7 @@ export async function preGenerateAllRRG(forceOverride: boolean = false, triggerT
     let filesCreated = 0, filesUpdated = 0, filesSkipped = 0, filesFailed = 0;
 
     // Process stocks in BATCHES (parallel) for better performance
-    const STOCK_BATCH_SIZE = 25; // Increased for speed
+    const STOCK_BATCH_SIZE = 150; // Increased for speed
     console.log(`📦 Processing ${stocks.length} stocks in batches of ${STOCK_BATCH_SIZE}...`);
     
     for (let i = 0; i < stocks.length; i += STOCK_BATCH_SIZE) {

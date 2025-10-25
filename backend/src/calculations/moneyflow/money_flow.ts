@@ -344,7 +344,7 @@ export class MoneyFlowCalculator {
     console.log("\nProcessing all files (stock and index) separately...");
     
     const moneyFlowData = new Map<string, { code: string; type: 'stock' | 'index'; mfiData: MoneyFlowData[] }>();
-    const BATCH_SIZE = 5; // Further reduced to prevent OOM
+    const BATCH_SIZE = 5; // Optimal batch size for 12GB threshold
     
     // Process stock files first
     console.log("\n📈 Processing STOCK files...");
