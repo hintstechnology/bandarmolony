@@ -40,15 +40,15 @@ import { ProfilePage } from "./components/profile/ProfilePage";
 import { SubscriptionPage } from "./components/subscription/SubscriptionPage";
 import { AdminPage } from "./components/admin/AdminPage";
 import { Dashboard } from "./components/dashboard/Dashboard";
-import { LandingPage } from "./components/dashboard/LandingPage";
-import { PricingPage } from "./components/dashboard/PricingPage";
+import { LandingPage } from "./components/landing-page/LandingPage";
+import { PricingPage } from "./components/landing-page/PricingPage";
 import { SubscriptionSuccess } from "./components/subscription/SubscriptionSuccess";
 import { SubscriptionError } from "./components/subscription/SubscriptionError";
 import { SubscriptionPending } from "./components/subscription/SubscriptionPending";
-import { FeaturesPage } from "./pages/FeaturesPage";
-import { ContactPage } from "./pages/ContactPage";
-import { TermsPage } from "./pages/TermsPage";
-import { PrivacyPage } from "./pages/PrivacyPage";
+import { FeaturesPage } from "./components/landing-page/FeaturesPage";
+import { ContactPage } from "./components/landing-page/ContactPage";
+import { TermsPage } from "./components/landing-page/TermsPage";
+import { PrivacyPage } from "./components/landing-page/PrivacyPage";
 
 // Dashboard Layout Component
 function DashboardLayout() {
