@@ -1,5 +1,4 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
-import { AzureLogger } from '../../services/azureLoggingService';
 
 // Type definitions untuk Money Flow
 interface OHLCData {
@@ -211,17 +210,10 @@ export class MoneyFlowCalculator {
     const createdFiles: string[] = [];
     let stockCount = 0;
     let indexCount = 0;
-    let processed = 0;
-    const totalFiles = moneyFlowData.size;
     
     for (const [_key, { code, type, mfiData: flowData }] of moneyFlowData) {
       // Use flat structure like original: money_flow/{code}.csv
       const filename = `money_flow/${code}.csv`;
-      
-      processed++;
-      if (processed % 50 === 0 || processed === 1) {
-        await AzureLogger.logProgress('money-flow', processed, totalFiles, `Saving ${code}`);
-      }
       
       console.log(`📁 Processing ${code} -> ${code}.csv (${type.toUpperCase()})`);
       
@@ -406,7 +398,6 @@ export class MoneyFlowCalculator {
       });
       
       console.log(`📊 Stock batch complete: ✅ ${batchSuccess} success, ❌ ${batchFailed} failed (${processed}/${allStockFiles.length} total)`);
-      await AzureLogger.logProgress('money-flow', processed, allStockFiles.length, `Processing stocks`);
       
       // Force garbage collection after each batch
       if (global.gc) {
@@ -469,7 +460,6 @@ export class MoneyFlowCalculator {
       });
       
       console.log(`📊 Index batch complete: ✅ ${batchSuccess} success, ❌ ${batchFailed} failed (${processed}/${allIndexFiles.length} total)`);
-      await AzureLogger.logProgress('money-flow', processed, allIndexFiles.length, `Processing indices`);
       
       // Force garbage collection after each batch
       if (global.gc) {

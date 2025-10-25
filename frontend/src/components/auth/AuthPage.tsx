@@ -151,6 +151,10 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
     handleAuthSuccess();
   };
 
+  const handleSignUp = async () => {
+    // Signup is now handled directly in SignupForm
+    // This function is kept for compatibility but does nothing
+  };
 
   const handleSwitchToForgotPassword = () => {
     setIsForgotPassword(true);
@@ -243,6 +247,7 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
           <SignUpForm
             onSwitchToLogin={() => setIsLogin(true)}
             onSwitchToEmailVerification={handleSwitchToEmailVerification}
+            onSignUp={handleSignUp}
           />
         )}
       </div>

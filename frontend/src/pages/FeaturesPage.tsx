@@ -1,3 +1,4 @@
+import React from "react";
 import { Helmet } from "react-helmet-async";
 import { motion } from "motion/react";
 import { useNavigate } from "react-router-dom";
@@ -11,9 +12,9 @@ import {
   Users,
   ShieldCheck,
 } from "lucide-react";
-import { Navbar } from "./Navbar";
-import { Footer } from "./Footer";
-import { Button } from "../ui/button";
+import { Navbar } from "../components/Navbar";
+import { Footer } from "../components/Footer";
+import { Button } from "../components/ui/button";
 
 const featureSections = [
   {

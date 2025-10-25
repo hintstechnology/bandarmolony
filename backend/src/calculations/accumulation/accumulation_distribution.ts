@@ -1,5 +1,4 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
-import { AzureLogger } from '../../services/azureLoggingService';
 
 // Type definitions untuk Accumulation Distribution
 interface BidAskData {
@@ -568,7 +567,6 @@ export class AccumulationDistributionCalculator {
           continue;
         }
         console.log(`\n===== Processing accumulation for date ${dateSuffix} (${di + 1}/${allDates.length}) =====`);
-        await AzureLogger.logProgress('accumulation', di + 1, allDates.length, `Processing date ${dateSuffix}`);
 
 
         // Load bid/ask data for current date

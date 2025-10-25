@@ -1,7 +1,8 @@
+import React from "react";
 import { Helmet } from "react-helmet-async";
 import { motion } from "motion/react";
-import { Navbar } from "./Navbar";
-import { Footer } from "./Footer";
+import { Navbar } from "../components/Navbar";
+import { Footer } from "../components/Footer";
 
 const privacySections = [
   {

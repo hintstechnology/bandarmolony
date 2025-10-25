@@ -25,7 +25,6 @@ export function ForgotPasswordForm({ onSwitchToLogin, onForgotPassword }: Forgot
       const timer = setTimeout(() => setResendCooldown(resendCooldown - 1), 1000);
       return () => clearTimeout(timer);
     }
-    return undefined;
   }, [resendCooldown]);
 
   const handleSubmit = async (e: React.FormEvent) => {

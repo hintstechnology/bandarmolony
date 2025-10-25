@@ -4,8 +4,10 @@ import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Badge } from "../ui/badge";
 import { Check, Star, Zap } from "lucide-react";
-import { Navbar } from "../landing-page/Navbar";
-import { Footer } from "../landing-page/Footer";
+// @ts-ignore
+import { Navbar } from "../../components/Navbar";
+// @ts-ignore
+import { Footer } from "../../components/Footer";
 
 const pricingPlans = [
   {
@@ -121,10 +123,7 @@ export function PricingPage({ onSignIn, onRegister }: PricingPageProps) {
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(0,0,0,0.1),transparent_50%)] dark:bg-[radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.1),transparent_50%)]" />
       </div>
 
-      <Navbar 
-        {...(onSignIn && { onSignIn })}
-        {...(onRegister && { onRegister })}
-      />
+      <Navbar onSignIn={onSignIn} onRegister={onRegister} />
 
       <main className="relative z-10">
         {/* Hero Section */}
