@@ -235,7 +235,7 @@ async function runPhase4MediumCalculations(): Promise<void> {
       console.log('⚠️ Skipping Phase 5 due to Phase 4 failure');
     }
     
-    git add backend/src/services/scheduler.ts  } catch (error) {
+  } catch (error) {
     console.error('❌ Error during Phase 4 Medium calculations:', error);
     
     // Stop memory monitoring on error
