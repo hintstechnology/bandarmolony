@@ -366,7 +366,7 @@ const getTradingDays = (count: number): string[] => {
     }
   }
   
-  return dates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+  return dates.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
 };
 
 // Helper function to get last 3 trading days
@@ -478,9 +478,9 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
         currentDate.setDate(currentDate.getDate() + 1);
       }
       
-      // Remove duplicates, sort by date (newest first), and set
+      // Remove duplicates, sort by date (oldest first), and set
       const uniqueDates = Array.from(new Set([...selectedDates, ...dateArray]));
-      const sortedDates = uniqueDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+      const sortedDates = uniqueDates.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
 
       // Check if total trading dates would exceed 7
       if (sortedDates.length > 7) {

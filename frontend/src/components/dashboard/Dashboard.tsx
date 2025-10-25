@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { Watchlist } from './Watchlist';
 import { TechnicalAnalysisTradingView } from '../technical-analysis/TechnicalAnalysisTradingView';
 import { StockTransactionDoneSummary } from '../stock-transaction/StockTransactionDoneSummary';
@@ -6,36 +6,18 @@ import { BrokerSummaryPage } from '../broker-activity/BrokerSummaryPage';
 import { StoryMarketParticipant } from '../story/StoryMarketParticipant';
 import { StoryOwnershipSummary } from '../story/StoryOwnershipSummary';
 import { StoryForeignFlowAnalysis } from '../story/StoryForeignFlowAnalysis';
-import { BrokerInventory } from '../broker-activity/BrokerInventory';
+import { BrokerInventoryPage } from '../broker-activity/BrokerInventoryPage';
 import { CollapsibleSection } from './CollapsibleSection';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { TrendingUp, Calendar, BarChart3, Sparkles, ChartCandlestick } from 'lucide-react';
-import { useToast } from '../../contexts/ToastContext';
 
 export function Dashboard() {
-  const { showToast } = useToast();
   const [selectedStock, setSelectedStock] = useState('BBRI');
   const [timeframe, setTimeframe] = useState('1D');
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   const [isChartLoading, setIsChartLoading] = useState(false);
   const analysisSectionRef = useRef<HTMLDivElement>(null);
-
-  // Check for email verification success toast
-  useEffect(() => {
-    const showVerificationToast = localStorage.getItem('showEmailVerificationSuccessToast');
-    if (showVerificationToast === 'true') {
-      // Remove flag immediately
-      localStorage.removeItem('showEmailVerificationSuccessToast');
-      
-      // Show welcome toast
-      showToast({
-        type: 'success',
-        title: 'Email Berhasil Diverifikasi! 🎉',
-        message: 'Selamat datang di BandarmoloNY! Akun Anda sudah aktif.',
-      });
-    }
-  }, [showToast]);
 
   const handleStockSelect = (symbol: string) => {
     if (symbol !== selectedStock) {
@@ -221,10 +203,14 @@ export function Dashboard() {
         {/* Broker Inventory Section */}
         <CollapsibleSection 
           title={`Broker Inventory Analysis - ${selectedStock}`}
-          subtitle="Cumulative net flow for top brokers"
+          subtitle="Cumulative net flow for selected brokers"
           defaultExpanded={expandedSections['broker-inventory'] || false}
         >
-          <BrokerInventory selectedStock={selectedStock} />
+          <BrokerInventoryPage 
+            selectedStock={selectedStock}
+            defaultSplitView={true}
+            hideControls={true}
+          />
         </CollapsibleSection>
       </div>
       
