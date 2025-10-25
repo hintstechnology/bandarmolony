@@ -16,7 +16,6 @@ import accumulationRoutes from './routes/accumulation';
 import bidAskRoutes from './routes/bidask';
 import brokerRoutes from './routes/broker';
 import brokerInventoryRoutes from './routes/broker_inventory';
-import brokerOptimizedRoutes from './routes/broker-optimized';
 import foreignRoutes from './routes/foreign';
 import moneyFlowRoutes from './routes/moneyflow';
 import stockRoutes from './routes/stock';
@@ -24,6 +23,7 @@ import holdingRoutes from './routes/holding';
 import shareholdersRoutes from './routes/shareholders';
 import doneSummaryRoutes from './routes/done-summary';
 import breakDoneTradeRoutes from './routes/break-done-trade';
+import topBrokerRoutes from './routes/top-broker';
 import { requireSupabaseUser } from './middleware/requireSupabaseUser';
 import { securityHeaders, sanitizeInput } from './middleware/security';
 import { createErrorResponse, ERROR_CODES, HTTP_STATUS } from './utils/responseUtils';
@@ -89,7 +89,6 @@ app.use('/api/accumulation', accumulationRoutes);
 app.use('/api/bidask', bidAskRoutes);
 app.use('/api/broker', brokerRoutes);
 app.use('/api/broker-inventory', brokerInventoryRoutes);
-app.use('/api/broker-optimized', brokerOptimizedRoutes);
 app.use('/api/foreign', foreignRoutes);
 app.use('/api/moneyflow', moneyFlowRoutes);
 app.use('/api/stock', stockRoutes);
@@ -97,6 +96,7 @@ app.use('/api/holding', holdingRoutes);
 app.use('/api/shareholders', shareholdersRoutes);
 app.use('/api/done-summary', doneSummaryRoutes);
 app.use('/api/break-done-trade', breakDoneTradeRoutes);
+app.use('/api/top-broker', topBrokerRoutes);
 
 // contoh protected route pakai Supabase Auth token
 app.get('/me', requireSupabaseUser, (req: any, res) => {
