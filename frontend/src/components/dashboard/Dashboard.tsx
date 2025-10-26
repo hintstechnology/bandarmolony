@@ -7,10 +7,11 @@ import { StoryMarketParticipant } from '../story/StoryMarketParticipant';
 import { StoryOwnershipSummary } from '../story/StoryOwnershipSummary';
 import { StoryForeignFlowAnalysis } from '../story/StoryForeignFlowAnalysis';
 import { BrokerInventory } from '../broker-activity/BrokerInventory';
+import { BrokerInventoryPage } from '../broker-activity/BrokerInventoryPage';
 import { CollapsibleSection } from './CollapsibleSection';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
-import { TrendingUp, Calendar, BarChart3, Sparkles, ChartCandlestick } from 'lucide-react';
+import { TrendingUp, Calendar, BarChart3, Sparkles } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 
 export function Dashboard() {
@@ -70,7 +71,7 @@ export function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen space-y-4 sm:space-y-6 p-2 sm:p-4 lg:p-6 overflow-x-hidden">
+    <div className="min-h-screen space-y-3 sm:space-y-4 md:space-y-6 p-2 sm:p-3 md:p-4 lg:p-6 overflow-x-hidden">
       {/* Shortcut Section */}
       <Card className="bg-gradient-to-r from-primary/5 to-secondary/5 border-primary/20">
         <CardHeader className="pb-3">
@@ -115,9 +116,9 @@ export function Dashboard() {
       </Card>
 
       {/* Top Section - Watchlist and Main Chart */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-6" data-watchlist-section>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 sm:gap-4 md:gap-6" data-watchlist-section>
         <div className="xl:col-span-1 order-2 xl:order-1">
-          <div className="h-[400px] md:h-[620px]">
+          <div className="h-[300px] sm:h-[400px] md:h-[500px] xl:h-[620px]">
             <Watchlist 
               selectedStock={selectedStock}
               onStockSelect={handleStockSelect}
@@ -126,31 +127,7 @@ export function Dashboard() {
           </div>
         </div>
          <div className="xl:col-span-2 order-1 xl:order-2">
-          <div className="relative h-[400px] md:h-[620px]">
-            <div className="absolute top-2 left-2 z-10 flex items-center gap-2">
-              <div className="h-9 w-20 flex items-center justify-center px-3 rounded bg-background/70 backdrop-blur-sm border border-border text-card-foreground text-sm font-medium font-sans uppercase tracking-wide text-center whitespace-nowrap">
-                {selectedStock}
-              </div>
-              <div className="flex items-center gap-1 p-1 rounded border border-border bg-background/70 backdrop-blur-sm">
-                <ChartCandlestick className="w-4 h-4 text-primary" />
-                <span className="text-xs text-muted-foreground">OHLC</span>
-              </div>
-              {/* Timeframe dropdown */}
-              <div className="p-1 rounded border border-border bg-background/70 backdrop-blur-sm">
-                <select
-                  value={timeframe}
-                  onChange={(e) => setTimeframe(e.target.value)}
-                  className="px-2 py-1 text-xs rounded bg-background text-foreground focus:outline-none"
-                  title="Timeframe"
-                  aria-label="Timeframe"
-                >
-                  {['1D','3D','5D','1W','2W','3W','1M','3M','6M','1Y'].map(tf => (
-                    <option key={tf} value={tf}>{tf}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            
+          <div className="relative h-[300px] sm:h-[400px] md:h-[500px] xl:h-[620px]">
             {/* Chart Loading Overlay */}
             {isChartLoading && (
               <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-10 flex items-center justify-center">
@@ -161,13 +138,21 @@ export function Dashboard() {
               </div>
             )}
             
-            <TechnicalAnalysisTradingView selectedStock={selectedStock} hideControls={true} styleProp="candles" timeframeProp={timeframe} />
+            <TechnicalAnalysisTradingView 
+              selectedStock={selectedStock} 
+              hideControls={true} 
+              styleProp="candles" 
+              timeframeProp={timeframe} 
+              showStockSymbol={true}
+              timeframeOptions={['1D','3D','5D','1W','2W','3W','1M','3M','6M','1Y']}
+              onTimeframeChange={(tf) => setTimeframe(tf)}
+            />
           </div>
         </div>
       </div>
       
       {/* Analysis Sections */}
-      <div ref={analysisSectionRef} className="space-y-6">
+      <div ref={analysisSectionRef} className="space-y-4 sm:space-y-6">
         {/* Done Summary Section */}
         <CollapsibleSection 
           title={`Done Summary - ${selectedStock}`}
@@ -196,7 +181,7 @@ export function Dashboard() {
         </CollapsibleSection>
         
         {/* Ownership and Foreign Flow Section */}
-        <div className="flex flex-col xl:flex-row gap-4 md:gap-6">
+        <div className="flex flex-col xl:flex-row gap-3 sm:gap-4 md:gap-6">
           <div className="flex-1">
             <CollapsibleSection 
               title={`Ownership Structure - ${selectedStock}`}
@@ -224,7 +209,12 @@ export function Dashboard() {
           subtitle="Cumulative net flow for top brokers"
           defaultExpanded={expandedSections['broker-inventory'] || false}
         >
-          <BrokerInventory selectedStock={selectedStock} />
+          <BrokerInventoryPage 
+            selectedStock={selectedStock} 
+            defaultSplitView={true}
+            hideControls={false}
+            onlyShowInventoryChart={true}
+          />
         </CollapsibleSection>
       </div>
       

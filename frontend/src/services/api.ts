@@ -1664,6 +1664,36 @@ export const api = {
     }
   },
 
+  // Get stock list with company names from emiten_detail_list.csv
+  async getStockListWithCompanyNames(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/stock-list`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get stock list with company names');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get stock list with company names' };
+    }
+  },
+
+  // Get stock detail for specific stock code
+  async getStockDetail(stockCode: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/stock-list/${stockCode}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get stock detail');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get stock detail' };
+    }
+  },
+
   async getStockData(stockCode: string, startDate?: string, endDate?: string, limit?: number): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       const params = new URLSearchParams();

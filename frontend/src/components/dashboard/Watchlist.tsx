@@ -185,26 +185,26 @@ export function Watchlist({ selectedStock, onStockSelect, showFavoritesOnly: pro
     localStorage.setItem('watchlist-favorites', JSON.stringify(favorites));
   }, [favorites]);
 
-  // Fetch stock list from backend (symbols only, no OHLC data)
+  // Fetch stock list from backend with company names
   useEffect(() => {
     const fetchStockList = async () => {
       setIsLoading(true);
       setError(null);
       
       try {
-        // Get stock list from backend (only symbols, no price data)
-        console.log('📊 Fetching stock list from backend...');
-        const stockListResponse = await api.getStockList();
+        // Get stock list with company names from backend
+        console.log('📊 Fetching stock list with company names from backend...');
+        const stockListResponse = await api.getStockListWithCompanyNames();
         console.log('📊 Stock list response:', stockListResponse);
         
         if (stockListResponse.success && stockListResponse.data) {
-          const stockSymbols = stockListResponse.data.stocks; // Get ALL stocks from backend
-          console.log('📊 Raw stock symbols from backend:', stockSymbols.slice(0, 10), '...');
+          const stockDetails = stockListResponse.data.stocks; // Get ALL stocks with company names
+          console.log('📊 Raw stock details from backend:', stockDetails.slice(0, 10), '...');
           
-          // Convert to StockData format with placeholder prices
-          const stocksList: StockData[] = stockSymbols.map((symbol: string) => ({
-            symbol: symbol,
-            name: symbol,
+          // Convert to StockData format with company names
+          const stocksList: StockData[] = stockDetails.map((stock: any) => ({
+            symbol: stock.code,
+            name: stock.companyName || stock.code, // Use company name if available, fallback to code
             price: 0, // Placeholder, will be loaded when selected
             change: 0,
             changePercent: 0,
@@ -212,10 +212,29 @@ export function Watchlist({ selectedStock, onStockSelect, showFavoritesOnly: pro
           }));
           
           setStocksData(stocksList);
-          console.log(`📊 Loaded ${stocksList.length} stock symbols from backend (without price data)`);
+          console.log(`📊 Loaded ${stocksList.length} stocks with company names from backend`);
         } else {
           console.error('📊 Backend response failed:', stockListResponse);
-          throw new Error('Failed to get stock list from backend');
+          // Fallback to stock list without company names
+          console.log('📊 Falling back to stock list without company names...');
+          const fallbackStockListResponse = await api.getStockList();
+          
+          if (fallbackStockListResponse.success && fallbackStockListResponse.data) {
+            const stockSymbols = fallbackStockListResponse.data.stocks;
+            const stocksList: StockData[] = stockSymbols.map((symbol: string) => ({
+              symbol: symbol,
+              name: symbol,
+              price: 0,
+              change: 0,
+              changePercent: 0,
+              lastUpdate: undefined
+            }));
+            
+            setStocksData(stocksList);
+            console.log(`📊 Loaded ${stocksList.length} stock symbols from backend (without company names)`);
+          } else {
+            throw new Error('Failed to get stock list from backend');
+          }
         }
       } catch (err) {
         console.error('Error fetching stock list:', err);

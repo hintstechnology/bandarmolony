@@ -455,9 +455,12 @@ interface TechnicalAnalysisTradingViewProps {
   hideControls?: boolean;
   styleProp?: ChartStyle;
   timeframeProp?: string;
+  showStockSymbol?: boolean;
+  timeframeOptions?: string[];
+  onTimeframeChange?: (timeframe: string) => void;
 }
 
-export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysisTradingView({ selectedStock, hideControls = false, styleProp, timeframeProp }: TechnicalAnalysisTradingViewProps) {
+export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysisTradingView({ selectedStock, hideControls = false, styleProp, timeframeProp, showStockSymbol = false, timeframeOptions, onTimeframeChange }: TechnicalAnalysisTradingViewProps) {
   const [symbol, setSymbol] = useState<string>(selectedStock || 'BBCA');
   const [timeframe, setTimeframe] = useState<Timeframe>('1D');
   const [style, setStyle] = useState<ChartStyle>('candles');
@@ -2271,12 +2274,14 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
     }
   }, [styleProp, style]);
 
-  // Sync timeframe from parent when provided
+  // Sync timeframe from parent when provided (but don't override user changes)
+  const [isUserControlled, setIsUserControlled] = useState(false);
+  
   useEffect(() => {
-    if (timeframeProp && timeframeProp !== timeframe) {
+    if (!isUserControlled && timeframeProp && timeframeProp !== timeframe) {
       setTimeframe(timeframeProp as Timeframe);
     }
-  }, [timeframeProp, timeframe]);
+  }, [timeframeProp, timeframe, isUserControlled]);
 
   return (
     <div className="flex flex-col space-y-2 h-full">
@@ -2539,6 +2544,33 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         {/* Price overlay (top-left) for better focus on mobile/desktop */}
         {!isLoadingData && rows.length > 0 && (
           <div className="absolute top-2 left-2 z-10 bg-background/80 backdrop-blur-sm border border-border rounded px-2 py-1">
+            {/* Stock Symbol and Timeframe Row */}
+            {showStockSymbol && (
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <div className="text-xs sm:text-sm font-bold text-card-foreground uppercase tracking-wide" style={{ fontSize: '1.15em' }}>
+                  {symbol}
+                </div>
+                                 {timeframeOptions && timeframeOptions.length > 0 && onTimeframeChange && (
+                   <select
+                     value={timeframe}
+                     onChange={(e) => {
+                       const newTimeframe = e.target.value;
+                       setIsUserControlled(true);
+                       setTimeframe(newTimeframe as Timeframe);
+                       onTimeframeChange(newTimeframe);
+                     }}
+                     className="text-xs sm:text-sm bg-transparent text-foreground focus:outline-none focus:ring-2 focus:ring-primary rounded"
+                     title="Timeframe"
+                     aria-label="Timeframe"
+                   >
+                     {timeframeOptions.map(tf => (
+                       <option key={tf} value={tf}>{tf}</option>
+                     ))}
+                   </select>
+                 )}
+              </div>
+            )}
+            {/* Price Info */}
             <div className="font-mono text-xs sm:text-sm font-medium">{latest ? latest.close.toLocaleString() : '-'}</div>
             <div className={`text-xs sm:text-sm font-medium ${chg >= 0 ? 'text-green-600' : 'text-red-600'}`}>
               {chg >= 0 ? '+' : ''}{chg.toFixed(0)} ({chgPct.toFixed(2)}%)

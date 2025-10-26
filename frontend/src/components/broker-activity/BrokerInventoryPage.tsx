@@ -809,11 +809,13 @@ const InventoryChart = ({ inventoryData, selectedBrokers }: { inventoryData: Inv
 export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({ 
   selectedStock: propSelectedStock,
   defaultSplitView = false,
-  hideControls = false
+  hideControls = false,
+  onlyShowInventoryChart = false
 }: { 
   selectedStock?: string;
   defaultSplitView?: boolean;
   hideControls?: boolean;
+  onlyShowInventoryChart?: boolean;
 }) {
   const { showToast } = useToast();
   
@@ -1981,7 +1983,35 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
 
 
           {/* Conditional Chart Rendering */}
-          {splitVisualization ? (
+          {onlyShowInventoryChart ? (
+            // Only show Broker Inventory Chart
+            <Card>
+              <CardHeader>
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                  <div>
+                    <CardTitle>Broker Cumulative Net Flow</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      Broker inventory accumulation starting from 0
+                    </p>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="relative">
+                {(isLoadingData || isLoadingBrokerData) && (
+                  <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                      <div className="text-xs text-muted-foreground">Loading broker...</div>
+                    </div>
+                  </div>
+                )}
+                <InventoryChart
+                  inventoryData={inventoryData}
+                  selectedBrokers={selectedBrokers}
+                />
+              </CardContent>
+            </Card>
+          ) : splitVisualization ? (
             // Split View - Separate Charts
             <>
               {/* Price Chart */}
