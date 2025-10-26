@@ -56,6 +56,33 @@ export function IndicatorEditor({
       case 'stochastic':
         return <StochasticSettings editedIndicator={editedIndicator} setEditedIndicator={setEditedIndicator} />;
 
+      case 'daily_shio':
+      case 'daily_element':
+        return (
+          <div className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium mb-2">Day Limit</label>
+              <input
+                type="number"
+                min="1"
+                max="365"
+                value={editedIndicator.dayLimit || 30}
+                onChange={(e) => {
+                  const value = parseInt(e.target.value);
+                  setEditedIndicator(prev => ({ 
+                    ...prev, 
+                    dayLimit: isNaN(value) ? 30 : Math.max(1, Math.min(365, value))
+                  }));
+                }}
+                className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Number of days to display (1-365). Default: 30 days
+              </p>
+            </div>
+          </div>
+        );
+
       default:
         return <div>Unknown indicator type</div>;
     }

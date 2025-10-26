@@ -12,6 +12,8 @@ import {
   calculateStochastic, 
   calculateVolumeHistogram, 
   calculateBuySellFrequency,
+  calculateDailyShio,
+  calculateDailyElement,
   IndicatorEditor,
   type OhlcRow
 } from './indicators';
@@ -102,12 +104,13 @@ export type IndicatorData = {
 type Indicator = {
   id: string;
   name: string;
-  type: 'ma' | 'sma' | 'ema' | 'rsi' | 'macd' | 'stochastic' | 'volume_histogram' | 'buy_sell_frequency';
+  type: 'ma' | 'sma' | 'ema' | 'rsi' | 'macd' | 'stochastic' | 'volume_histogram' | 'buy_sell_frequency' | 'daily_shio' | 'daily_element';
   period: number;
   color: string;
   enabled: boolean;
   separateScale?: boolean; // For indicators that need separate scale like RSI
   maMode?: 'simple' | 'exponential'; // for Moving Average (MA) indicator
+  dayLimit?: number; // For Daily Shio and Daily Element - number of days to display
 };
 
 
@@ -477,6 +480,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   const [searchDropdownIndex, setSearchDropdownIndex] = useState<number>(-1);
   const [availableSymbols, setAvailableSymbols] = useState<string[]>([]);
   const [isLoadingSymbols, setIsLoadingSymbols] = useState<boolean>(true);
+  const [companyName, setCompanyName] = useState<string>('');
   const searchRef = useRef<HTMLDivElement>(null);
   const [chartColors, setChartColors] = useState({
       line: '#2563eb',
@@ -589,6 +593,27 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       setSymbol(selectedStock);
     }
   }, [selectedStock, symbol]);
+
+  // Fetch company name when symbol changes
+  useEffect(() => {
+    const fetchCompanyName = async () => {
+      try {
+        const result = await api.getStockDetail(symbol);
+        if (result.success && result.data) {
+          setCompanyName(result.data.companyName || symbol);
+        } else {
+          setCompanyName(symbol);
+        }
+      } catch (error) {
+        console.error('Error fetching company name:', error);
+        setCompanyName(symbol);
+      }
+    };
+
+    if (symbol) {
+      fetchCompanyName();
+    }
+  }, [symbol]);
   
   // Footprint chart settings
   const [footprintSettings, setFootprintSettings] = useState({
@@ -683,7 +708,9 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       'macd': 12,
       'stochastic': 14,
       'volume_histogram': 1,
-      'buy_sell_frequency': 14
+      'buy_sell_frequency': 14,
+      'daily_shio': 1,
+      'daily_element': 1
     };
     
     const newIndicator: Indicator = {
@@ -691,24 +718,48 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       name: type === 'ma' ? `MA (${maMode === 'exponential' ? 'Exponential' : 'Simple'})` :
             type === 'stochastic' ? '%K (Stochastic)' : 
             type === 'buy_sell_frequency' ? 'Buy / Sell Frequency' : 
+            type === 'daily_shio' ? 'Daily Shio' :
+            type === 'daily_element' ? 'Daily Element' :
             `${type.toUpperCase()}`,
       type,
       period: (defaultPeriods as any)[type],
       color,
       enabled: true,
       separateScale,
-      ...(type === 'ma' && { maMode })
+      ...(type === 'ma' && { maMode }),
+      ...(type === 'daily_shio' || type === 'daily_element' ? { dayLimit: 30 } : {})
     };
     setIndicators(prev => [...prev, newIndicator]);
   };
 
   const removeIndicator = (id: string) => {
+    // Get indicator to check type
+    const indicator = indicators.find(ind => ind.id === id);
+    
     setIndicators(prev => prev.filter(ind => ind.id !== id));
     
-    // Remove from main chart
-    if (indicatorRefs.current[id] && chartRef.current) {
-      chartRef.current.removeSeries(indicatorRefs.current[id]);
-      delete indicatorRefs.current[id];
+    // Remove from main chart - handle Daily Shio/Element specially
+    if (chartRef.current) {
+      if (indicator && (indicator.type === 'daily_shio' || indicator.type === 'daily_element')) {
+        // For Daily Shio/Element, remove ALL series for this indicator
+        // These are stored in indicatorAuxRefs
+        if (indicatorAuxRefs.current[id]) {
+          indicatorAuxRefs.current[id].forEach(series => {
+            try {
+              chartRef.current?.removeSeries(series);
+            } catch (e) {
+              console.error('Error removing series:', e);
+            }
+          });
+          indicatorAuxRefs.current[id] = [];
+        }
+      }
+      
+      // Remove main series
+      if (indicatorRefs.current[id]) {
+        chartRef.current.removeSeries(indicatorRefs.current[id]);
+        delete indicatorRefs.current[id];
+      }
     }
 
     // Remove separate chart if exists
@@ -1441,6 +1492,22 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             // Use buy frequency as main indicator data
             indicatorData = buySellData.buyFreq;
             break;
+          case 'daily_shio':
+            // Daily Shio returns data, labels, and colors
+            const shioResult = calculateDailyShio(filteredRows);
+            indicatorData = shioResult.data;
+            // Store labels and colors for overlay display
+            (indicator as any).labels = shioResult.labels;
+            (indicator as any).colors = shioResult.colors;
+            break;
+          case 'daily_element':
+            // Daily Element returns data, labels, and colors
+            const elementResult = calculateDailyElement(filteredRows);
+            indicatorData = elementResult.data;
+            // Store labels and colors for overlay display
+            (indicator as any).labels = elementResult.labels;
+            (indicator as any).colors = elementResult.colors;
+            break;
         }
         
         console.log(`📊 Indicator ${indicator.type} data check:`, {
@@ -1490,13 +1557,106 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               value: d.volume ?? 0,
               color: d.close >= d.open ? volumeHistogramSettings.upColor : volumeHistogramSettings.downColor,
             })));
+          } else if (indicator.type === 'daily_shio' || indicator.type === 'daily_element') {
+            // For Daily Shio and Daily Element, limit to last N days (default 30)
+            const dayLimit = indicator.dayLimit || 30;
+            const colors = (indicator as any).colors || [];
+            const labels = (indicator as any).labels || [];
+            
+            // Get unique dates and sort them
+            const uniqueDates = Array.from(new Set(filteredRows.map(r => {
+              const d = new Date(r.time * 1000);
+              return d.toDateString();
+            }))).sort();
+            
+            // Get last N days
+            const recentDays = uniqueDates.slice(-dayLimit);
+            
+            // Group data points by value (element number or shio number)
+            const groupedByValue = new Map<number, Array<{ time: any; color: string; label: string; low: number; high: number }>>();
+            
+            indicatorData.forEach((d, idx) => {
+              const ohlcPoint = filteredRows.find(r => r.time === d.time);
+              if (ohlcPoint) {
+                const date = new Date(d.time * 1000);
+                const dayKey = date.toDateString();
+                
+                // Only include if within the day limit
+                if (recentDays.includes(dayKey)) {
+                  const value = d.value;
+                  const color = colors[idx] || indicator.color;
+                  const label = labels[idx] || '';
+                  
+                  if (!groupedByValue.has(value)) {
+                    groupedByValue.set(value, []);
+                  }
+                  groupedByValue.get(value)!.push({
+                    time: d.time as any,
+                    color: color,
+                    label: label,
+                    low: ohlcPoint.low || ohlcPoint.close || 0,
+                    high: ohlcPoint.high || ohlcPoint.close || 0,
+                  });
+                }
+              }
+            });
+            
+            // For Daily Shio: follow low, For Daily Element: follow high
+            const priceType = indicator.type === 'daily_shio' ? 'low' : 'high';
+            
+            // Initialize the aux refs array for this indicator
+            if (!indicatorAuxRefs.current[indicator.id]) {
+              indicatorAuxRefs.current[indicator.id] = [];
+            }
+            
+            // Create separate LineSeries for each element/shio
+            // Each series will have disconnected segments (one per day)
+            groupedByValue.forEach((dataPoints, value) => {
+              if (dataPoints.length > 0) {
+                const firstPoint = dataPoints[0];
+                
+                // Sort by time
+                const sortedPoints = dataPoints.sort((a, b) => a.time - b.time);
+                
+                // Create ONE series for this element/shio with ALL points
+                // The line will automatically connect points within the same day
+                const seriesData = sortedPoints.map(p => ({
+                  time: p.time,
+                  value: priceType === 'low' ? p.low : p.high
+                }));
+                
+                const elementSeries = chart.addSeries(LineSeries, {
+                  color: firstPoint.color,
+                  lineWidth: 2,
+                  title: firstPoint.label,
+                  priceFormat: {
+                    type: 'price',
+                    precision: 0,
+                    minMove: 1,
+                  },
+                }) as any;
+                
+                elementSeries.setData(seriesData);
+                
+                // Store ALL series in aux refs for later removal
+                indicatorAuxRefs.current[indicator.id].push(elementSeries);
+                
+                // Store the first series as indicatorSeries for reference
+                if (!indicatorSeries) {
+                  indicatorSeries = elementSeries;
+                }
+              }
+            });
+            
+            console.log(`📊 Created ${groupedByValue.size} series for ${indicator.type} following ${priceType} (last ${dayLimit} days)`);
           } else {
             // Use LineSeries for other indicators
             indicatorSeries = chart.addSeries(LineSeries, {
-              color: indicator.type === 'buy_sell_frequency' ? '#10b981' : indicator.color, // Green for bid frequency
+              color: indicator.type === 'buy_sell_frequency' ? '#10b981' : indicator.color,
               lineWidth: 2,
               title: indicator.type === 'buy_sell_frequency' ? 'Bid Frequency' : indicator.name
             });
+            
             indicatorSeries.setData(indicatorData.map(d => ({
               time: d.time as any,
               value: d.value
@@ -1604,27 +1764,59 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         }
       });
       
-      // Sync crosshair from main chart to indicator charts
+      // Sync crosshair from main chart to indicator charts (two-way sync)
+      // Helper function to get crosshair data point (based on TradingView example)
+      const getCrosshairDataPoint = (series: any, param: any) => {
+        if (!param.time || !param.seriesData) {
+          return null;
+        }
+        const dataPoint = param.seriesData.get(series);
+        return dataPoint || null;
+      };
+
+      // Helper function to sync crosshair between charts
+      const syncCrosshair = (targetChart: any, targetSeries: any, dataPoint: any) => {
+        if (dataPoint && targetChart) {
+          try {
+            targetChart.setCrosshairPosition(dataPoint.value, dataPoint.time, targetSeries);
+          } catch (e) {
+            // Silent fail
+          }
+        } else {
+          try {
+            targetChart?.clearCrosshairPosition();
+          } catch (e) {
+            // Silent fail
+          }
+        }
+      };
+
       const unsubscribeCrosshair = chart.subscribeCrosshairMove((param) => {
-        if (param && param.time) {
-          // Sync with all indicator charts using direct crosshair positioning
-          Object.values(indicatorChartRefs.current).forEach((indicatorChart, _index) => {
+        if (param && param.time && priceRef.current) {
+          // Get data point from main chart price series
+          const dataPoint = getCrosshairDataPoint(priceRef.current, param);
+          
+          // Sync with all indicator charts
+          Object.entries(indicatorChartRefs.current).forEach(([id, indicatorChart]) => {
             if (indicatorChart) {
-              try {
-                // Try both time and logical positioning
-                if ((indicatorChart as any).setCrosshairPosition) {
+              // Get all series from indicator chart and sync with the first one
+              const series = (indicatorChart as any).series();
+              if (series && series.length > 0) {
+                const indicatorSeries = series[0];
+                // Use the same data point for all indicator charts
+                if (dataPoint) {
                   try {
-                    (indicatorChart as any).setCrosshairPosition(param.time, param.seriesData || {});
-                  } catch (timeError) {
-                    try {
-                      (indicatorChart as any).setCrosshairPosition(param.logical, param.seriesData || {});
-                    } catch (logicalError) {
-                      // Silent fail
-                    }
+                    indicatorChart.setCrosshairPosition(dataPoint.value, dataPoint.time, indicatorSeries);
+                  } catch (e) {
+                    // Silent fail
+                  }
+                } else {
+                  try {
+                    indicatorChart.clearCrosshairPosition();
+                  } catch (e) {
+                    // Silent fail
                   }
                 }
-              } catch (error) {
-                // Silent fail
               }
             }
           });
@@ -2029,65 +2221,58 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             }
           });
           
-          // Sync crosshair/hover cursor
-          indicatorChart.subscribeCrosshairMove((param) => {
-            if (param && param.time && chartRef.current) {
-              console.log(`Indicator chart ${indicator.id} crosshair move:`, {
-                time: param.time,
-                logical: param.logical,
-                seriesData: param.seriesData
-              });
-              
-              // Sync main chart crosshair with same time
+          // Sync crosshair/hover cursor (two-way sync)
+          // Helper function to get crosshair data point (based on TradingView example)
+          const getCrosshairDataPoint = (series: any, param: any) => {
+            if (!param.time || !param.seriesData) {
+              return null;
+            }
+            const dataPoint = param.seriesData.get(series);
+            return dataPoint || null;
+          };
+
+          // Helper function to sync crosshair between charts
+          const syncCrosshair = (targetChart: any, targetSeries: any, dataPoint: any) => {
+            if (dataPoint && targetChart) {
               try {
-                console.log(`Syncing to main chart from ${indicator.id}:`, param.logical);
-                
-                // Try both time and logical positioning
-                if (chartRef.current.setCrosshairPosition) {
-                  try {
-                    chartRef.current.setCrosshairPosition(param.time as any, param.seriesData as any, param.time as any);
-                  } catch (timeError) {
-                    console.log('Time positioning failed on main chart, trying logical:', timeError);
-                    try {
-                      chartRef.current.setCrosshairPosition(param.logical as any, param.seriesData as any, param.logical as any);
-                    } catch (logicalError) {
-                      console.log('Logical positioning also failed on main chart:', logicalError);
-                    }
-                  }
-                }
-              } catch (error) {
-                console.log('Error syncing crosshair to main chart:', error);
+                targetChart.setCrosshairPosition(dataPoint.value, dataPoint.time, targetSeries);
+              } catch (e) {
+                // Silent fail
+              }
+            } else {
+              try {
+                targetChart?.clearCrosshairPosition();
+              } catch (e) {
+                // Silent fail
+              }
+            }
+          };
+
+          const unsubscribeCrosshairIndicator = indicatorChart.subscribeCrosshairMove((param) => {
+            if (param && param.time && chartRef.current && indicatorSeries) {
+              // Get data point from indicator series
+              const dataPoint = getCrosshairDataPoint(indicatorSeries, param);
+              
+              // Sync main chart crosshair
+              if (priceRef.current) {
+                syncCrosshair(chartRef.current, priceRef.current, dataPoint);
               }
               
               // Sync other indicator charts crosshair
               Object.entries(indicatorChartRefs.current).forEach(([id, otherChart]) => {
                 if (id !== indicator.id && otherChart && otherChart !== indicatorChart) {
-                  try {
-                    console.log(`Syncing to other indicator chart ${id} from ${indicator.id}:`, param.logical);
-                    
-                    // Try both time and logical positioning
-                    if ((otherChart as any).setCrosshairPosition) {
-                      try {
-                        (otherChart as any).setCrosshairPosition(param.time, param.seriesData || {});
-                      } catch (timeError) {
-                        console.log('Time positioning failed on other chart, trying logical:', timeError);
-                        try {
-                          (otherChart as any).setCrosshairPosition(param.logical, param.seriesData || {});
-                        } catch (logicalError) {
-                          console.log('Logical positioning also failed on other chart:', logicalError);
-                        }
-                      }
-                    }
-                  } catch (error) {
-                    console.log('Error syncing crosshair to other indicator chart:', error);
+                  const otherIndicatorSeries = (otherChart as any).series()[0];
+                  if (otherIndicatorSeries) {
+                    syncCrosshair(otherChart, otherIndicatorSeries, dataPoint);
                   }
                 }
               });
             }
           });
           
-          // Store unsubscribe function for cleanup
+          // Store unsubscribe functions for cleanup
           (indicatorChart as any)._timeScaleUnsubscribe = unsubscribeMain;
+          (indicatorChart as any)._crosshairUnsubscribe = unsubscribeCrosshairIndicator;
         }
       }
     });
@@ -2101,6 +2286,10 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             // Unsubscribe from time scale changes
             if ((chart as any)._timeScaleUnsubscribe) {
               (chart as any)._timeScaleUnsubscribe();
+            }
+            // Unsubscribe from crosshair changes
+            if ((chart as any)._crosshairUnsubscribe) {
+              (chart as any)._crosshairUnsubscribe();
             }
             // Remove chart
             chart.remove();
@@ -2541,35 +2730,102 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           </div>
         )}
 
-        {/* Price overlay (top-left) for better focus on mobile/desktop */}
-        {!isLoadingData && rows.length > 0 && (
+        {/* Price overlay (top-left) - only show in Technical Analysis page (not Dashboard) */}
+        {!hideControls && !isLoadingData && rows.length > 0 && (
           <div className="absolute top-2 left-2 z-10 bg-background/80 backdrop-blur-sm border border-border rounded px-2 py-1">
-            {/* Stock Symbol and Timeframe Row */}
-            {showStockSymbol && (
-              <div className="flex items-center justify-between gap-2 mb-1">
-                <div className="text-xs sm:text-sm font-bold text-card-foreground uppercase tracking-wide" style={{ fontSize: '1.15em' }}>
-                  {symbol}
+            {/* Stock Symbol and Company Name */}
+            <div className="flex flex-col gap-1">
+              <div className="font-bold text-card-foreground uppercase tracking-wide" style={{ fontSize: '1.15em' }}>
+                {symbol}
+              </div>
+              {companyName && companyName !== symbol && (
+                <div className="text-xs sm:text-sm text-muted-foreground truncate" style={{ maxWidth: '200px' }}>
+                  {companyName}
                 </div>
-                                 {timeframeOptions && timeframeOptions.length > 0 && onTimeframeChange && (
-                   <select
-                     value={timeframe}
-                     onChange={(e) => {
-                       const newTimeframe = e.target.value;
-                       setIsUserControlled(true);
-                       setTimeframe(newTimeframe as Timeframe);
-                       onTimeframeChange(newTimeframe);
-                     }}
-                     className="text-xs sm:text-sm bg-transparent text-foreground focus:outline-none focus:ring-2 focus:ring-primary rounded"
-                     title="Timeframe"
-                     aria-label="Timeframe"
-                   >
-                     {timeframeOptions.map(tf => (
-                       <option key={tf} value={tf}>{tf}</option>
-                     ))}
-                   </select>
-                 )}
+              )}
+            </div>
+            
+            {/* Timeframe Selector */}
+            {timeframeOptions && timeframeOptions.length > 0 && onTimeframeChange && (
+              <div className="mt-2">
+                <select
+                  value={timeframe}
+                  onChange={(e) => {
+                    const newTimeframe = e.target.value;
+                    setIsUserControlled(true);
+                    setTimeframe(newTimeframe as Timeframe);
+                    onTimeframeChange(newTimeframe);
+                  }}
+                  className="text-xs sm:text-sm bg-transparent text-foreground focus:outline-none focus:ring-2 focus:ring-primary rounded"
+                  title="Timeframe"
+                  aria-label="Timeframe"
+                >
+                  {timeframeOptions.map(tf => (
+                    <option key={tf} value={tf}>{tf}</option>
+                  ))}
+                </select>
               </div>
             )}
+            
+            {/* Price Info */}
+            <div className="mt-2 pt-2 border-t border-border">
+              <div className="font-mono text-xs sm:text-sm font-medium">{latest ? latest.close.toLocaleString() : '-'}</div>
+              <div className={`text-xs sm:text-sm font-medium ${chg >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {chg >= 0 ? '+' : ''}{chg.toFixed(0)} ({chgPct.toFixed(2)}%)
+              </div>
+            </div>
+            
+            {/* Active Overlay Indicators List */}
+            {indicators.filter(ind => ind.enabled && !ind.separateScale).length > 0 && (
+              <div className="mt-2 pt-2 border-t border-border">
+                <div className="text-xs text-muted-foreground mb-1">Overlays:</div>
+                <div className="flex flex-wrap gap-1">
+                  {indicators.filter(ind => ind.enabled && !ind.separateScale).map(ind => (
+                    <div
+                      key={ind.id}
+                      className="px-1.5 py-0.5 rounded text-xs"
+                      style={{ 
+                        backgroundColor: `${ind.color}20`,
+                        border: `1px solid ${ind.color}`,
+                        color: ind.color
+                      }}
+                    >
+                      {ind.name}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Price overlay for Dashboard - minimal version */}
+        {hideControls && !isLoadingData && rows.length > 0 && showStockSymbol && (
+          <div className="absolute top-2 left-2 z-10 bg-background/80 backdrop-blur-sm border border-border rounded px-2 py-1">
+            {/* Stock Symbol and Timeframe Row */}
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <div className="font-bold text-card-foreground uppercase tracking-wide" style={{ fontSize: '1.15em' }}>
+                {symbol}
+              </div>
+              {timeframeOptions && timeframeOptions.length > 0 && onTimeframeChange && (
+                <select
+                  value={timeframe}
+                  onChange={(e) => {
+                    const newTimeframe = e.target.value;
+                    setIsUserControlled(true);
+                    setTimeframe(newTimeframe as Timeframe);
+                    onTimeframeChange(newTimeframe);
+                  }}
+                  className="text-xs sm:text-sm bg-transparent text-foreground focus:outline-none focus:ring-2 focus:ring-primary rounded"
+                  title="Timeframe"
+                  aria-label="Timeframe"
+                >
+                  {timeframeOptions.map(tf => (
+                    <option key={tf} value={tf}>{tf}</option>
+                  ))}
+                </select>
+              )}
+            </div>
             {/* Price Info */}
             <div className="font-mono text-xs sm:text-sm font-medium">{latest ? latest.close.toLocaleString() : '-'}</div>
             <div className={`text-xs sm:text-sm font-medium ${chg >= 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -2964,6 +3220,18 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                     className="w-full px-3 py-2 text-xs border border-border rounded hover:bg-accent text-left"
                   >
                     Buy / Sell Frequency
+                  </button>
+                  <button
+                    onClick={() => addIndicator('daily_shio', '#7c3aed', false)}
+                    className="w-full px-3 py-2 text-xs border border-border rounded hover:bg-accent text-left"
+                  >
+                    Daily Shio (Overlay Only)
+                  </button>
+                  <button
+                    onClick={() => addIndicator('daily_element', '#059669', false)}
+                    className="w-full px-3 py-2 text-xs border border-border rounded hover:bg-accent text-left"
+                  >
+                    Daily Element (Overlay Only)
                   </button>
                 </div>
               </div>

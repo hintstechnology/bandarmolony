@@ -6,6 +6,8 @@ export { calculateMACD } from './MACD';
 export { calculateStochastic } from './Stochastic';
 export { calculateVolumeHistogram } from './VolumeHistogram';
 export { calculateBuySellFrequency } from './BuySellFrequency';
+export { calculateDailyShio } from './DailyShio';
+export { calculateDailyElement } from './DailyElement';
 
 // Export indicator editor
 export { IndicatorEditor } from './IndicatorEditor';
