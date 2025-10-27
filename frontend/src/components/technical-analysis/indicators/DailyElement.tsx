@@ -1,11 +1,9 @@
 import { IndicatorData } from '../TechnicalAnalysisTradingView';
 import { OhlcRow } from './SMA';
 
-// Exact BaZi calculation constants from BaZiCycleAnalysis.tsx
-const TZ_DEFAULT = "Asia/Jakarta" as const;
-const stemsCN = ["甲","乙","丙","丁","戊","己","庚","辛","壬","癸"] as const;
+// Element based on 60-day Ganzhi cycle (5 elements x 12 days = 60)
 
-// Mapping unsur & yin-yang utk stem CN
+// STEM_ELEMENT mapping
 const STEM_ELEMENT: Record<string, { element: string; yy: "Yin"|"Yang" }> = {
   "甲":{element:"Wood",yy:"Yang"},"乙":{element:"Wood",yy:"Yin"},
   "丙":{element:"Fire",yy:"Yang"},"丁":{element:"Fire",yy:"Yin"},
@@ -29,22 +27,17 @@ const BRANCH_META_FULL: Record<string,{ shio:string; element:string; yy:"Yin"|"Y
   "亥":{shio:"Pig",   element:"Water",yy:"Yin"},
 };
 
-// Month calculation using solar longitude (BaZiCycleAnalysis.tsx method)
-const MONTH_BRANCHES_CN = ["寅","卯","辰","巳","午","未","申","酉","戌","亥","子","丑"] as const;
-const MONTH_STEM_MAP: Record<string, readonly string[]> = {
-  "甲":["丙","丁","戊","己","庚","辛","壬","癸","甲","乙","丙","丁"],
-  "乙":["丁","戊","己","庚","辛","壬","癸","甲","乙","丙","丁","戊"],
-  "丙":["戊","己","庚","辛","壬","癸","甲","乙","丙","丁","戊","己"],
-  "丁":["己","庚","辛","壬","癸","甲","乙","丙","丁","戊","己","庚"],
-  "戊":["庚","辛","壬","癸","甲","乙","丙","丁","戊","己","庚","辛"],
-  "己":["辛","壬","癸","甲","乙","丙","丁","戊","己","庚","辛","壬"],
-  "庚":["壬","癸","甲","乙","丙","丁","戊","己","庚","辛","壬","癸"],
-  "辛":["癸","甲","乙","丙","丁","戊","己","庚","辛","壬","癸","甲"],
-  "壬":["甲","乙","丙","丁","戊","己","庚","辛","壬","癸","甲","乙"],
-  "癸":["乙","丙","丁","戊","己","庚","辛","壬","癸","甲","乙","丙"],
-};
+// 60-hari pasangan stem-branch (Jia-Zi)
+const JIA_ZI = [
+  "甲子","乙丑","丙寅","丁卯","戊辰","己巳","庚午","辛未","壬申","癸酉",
+  "甲戌","乙亥","丙子","丁丑","戊寅","己卯","庚辰","辛巳","壬午","癸未",
+  "甲申","乙酉","丙戌","丁亥","戊子","己丑","庚寅","辛卯","壬辰","癸巳",
+  "甲午","乙未","丙申","丁酉","戊戌","己亥","庚子","辛丑","壬寅","癸卯",
+  "甲辰","乙巳","丙午","丁未","戊申","己酉","庚戌","辛亥","壬子","癸丑",
+  "甲寅","乙卯","丙辰","丁巳","戊午","己未","庚申","辛酉","壬戌","癸亥",
+] as const;
 
-const normalize360 = (x:number)=> ((x%360)+360)%360;
+const JIAZI_ANCHOR_UTC = new Date(Date.UTC(1900,0,31,0,0,0)); // 甲子
 
 function toJulianDayUTC(dt: Date): number {
   const y = dt.getUTCFullYear(); let m = dt.getUTCMonth()+1;
@@ -54,47 +47,6 @@ function toJulianDayUTC(dt: Date): number {
   return Math.floor(365.25*(Y+4716)) + Math.floor(30.6001*(m+1)) + D + B - 1524.5;
 }
 
-function julianCenturiesTT(JD:number): number {
-  return (JD - 2451545.0)/36525.0;
-}
-
-function solarAppLongitudeDeg(dtUTC: Date): number {
-  const JD = toJulianDayUTC(dtUTC); const T  = julianCenturiesTT(JD);
-  const L0 = normalize360(280.46646 + 36000.76983*T + 0.0003032*T*T);
-  const M  = normalize360(357.52911 + 35999.05029*T - 0.0001537*T*T);
-  const C  = (1.914602 - 0.004817*T - 0.000014*T*T)*Math.sin(M*Math.PI/180)
-           + (0.019993 - 0.000101*T)*Math.sin(2*M*Math.PI/180)
-           + 0.000289*Math.sin(3*M*Math.PI/180);
-  const trueLong = L0 + C;
-  const omega = normalize360(125.04 - 1934.136*T);
-  const lam = trueLong - 0.00569 - 0.00478*Math.sin(omega*Math.PI/180);
-  return normalize360(lam);
-}
-
-function monthIndexFromLongitude(lam:number): number {
-  const d = normalize360(lam - 315); return Math.floor(d/30) % 12; // 0..11, 0=寅
-}
-
-// Year pillar to get year stem
-function yearPillarExact(localDate: Date, tz:string=TZ_DEFAULT){
-  // Simplified year calculation - for month pillar we only need the stem
-  const solarYear = localDate.getFullYear();
-  const n = solarYear - 1984; // 1984 = 甲子
-  const stemCN = stemsCN[((n%10)+10)%10];
-  return { stemCN: stemCN || '甲' };
-}
-
-// Month pillar exact (BaZiCycleAnalysis.tsx method) - simplified to return only element
-function monthPillarExact(localDate: Date){
-  const yearInfo = yearPillarExact(localDate);
-  const lam = solarAppLongitudeDeg(new Date(localDate.toLocaleString("en-US",{ timeZone: "UTC" })));
-  const idx = monthIndexFromLongitude(lam); // 0..11
-  const branchCN = MONTH_BRANCHES_CN[idx] || '寅'; 
-  const stemCN = MONTH_STEM_MAP[yearInfo.stemCN || '甲']?.[idx] || '甲';
-  const se = STEM_ELEMENT[stemCN] || { element: 'Wood', yy: 'Yang' as const };
-  // Return only element, no need for yinyang
-  return { element: se.element };
-}
 
 // Element to number mapping
 const elementToNumber: Record<string, number> = {
@@ -105,6 +57,7 @@ const elementToNumber: Record<string, number> = {
   "Water": 5
 };
 
+// Element color mapping
 const elementColors: Record<string, string> = {
   "Wood": "#16a34a",    // Green
   "Fire": "#dc2626",    // Red
@@ -112,6 +65,59 @@ const elementColors: Record<string, string> = {
   "Metal": "#6b7280",   // Gray
   "Water": "#2563eb"    // Blue
 };
+
+// Get element emoji
+const getElementEmoji = (element: string): string => {
+  const emojiMap: Record<string, string> = {
+    "Wood": "🌳",
+    "Fire": "🔥",
+    "Earth": "⛰️",
+    "Metal": "⚒️",
+    "Water": "🌊"
+  };
+  return emojiMap[element] || "⭐";
+};
+
+// Export function to get daily element info
+export function getDailyElementInfo(date: Date): { element: string; color: string; emoji: string } {
+  const pillarData = dayPillarExact(date);
+  const element = pillarData.element;
+  return {
+    element,
+    color: elementColors[element] || "#6B7280",
+    emoji: getElementEmoji(element)
+  };
+}
+
+// Export element info for legend
+export const ELEMENT_INFO = Object.keys(elementColors).map(element => ({
+  name: element,
+  emoji: getElementEmoji(element),
+  color: elementColors[element]
+}));
+
+// Use BaZiCycleAnalysis method exactly (copied from BaZiCycleAnalysis.tsx line 273-281)
+function dayPillarExact(localDate: Date){
+  const dayStartLocal = new Date(new Date(localDate).setHours(0,0,0,0));
+  const dayStartUTC = new Date(dayStartLocal.toLocaleString("en-US",{ timeZone: "UTC" }));
+  const JD = toJulianDayUTC(dayStartUTC); 
+  const JD0 = toJulianDayUTC(JIAZI_ANCHOR_UTC);
+  const delta = Math.round(JD - JD0); 
+  const idx = ((delta % 60) + 60) % 60;
+  const pair = JIA_ZI[idx]; 
+  const stem = pair?.[0] || '甲';
+  const branch = pair?.[1] || '子';
+  const se = STEM_ELEMENT[stem]; 
+  const bm = BRANCH_META_FULL[branch];
+  return { 
+    pillarCN: pair || '甲子', 
+    stemCN: stem, 
+    branchCN: branch, 
+    element: se?.element || 'Wood', 
+    yinyang: se?.yy || 'Yang', 
+    shio: bm?.shio || 'Rat' 
+  };
+}
 
 export function calculateDailyElement(data: OhlcRow[]): { 
   data: IndicatorData[]; 
@@ -122,25 +128,20 @@ export function calculateDailyElement(data: OhlcRow[]): {
   const labels: string[] = [];
   const colors: string[] = [];
   
-  // Track the last element to avoid duplicates within the same day
-  let lastElement: string | null = null;
-  let lastDay = '';
+  let lastDate = '';
   
   for (const row of data) {
     const date = new Date(row.time * 1000);
     
     // Get date string in YYYY-MM-DD format to check if it's a new day
     const dateStr = date.toISOString().split('T')[0] || '';
-    const isNewDay = dateStr !== lastDay;
+    const isNewDay = dateStr !== lastDate;
     
-    const monthInfo = monthPillarExact(date);
-    const element = monthInfo.element;
-    const elementNum = elementToNumber[element] || 0;
-    
-    // Only add if it's a new element or a new day
-    const shouldAdd = isNewDay || element !== lastElement;
-    
-    if (shouldAdd) {
+    if (isNewDay) {
+      const pillarData = dayPillarExact(date);
+      const element = pillarData.element;
+      const elementNum = elementToNumber[element] || 0;
+      
       result.push({
         time: row.time,
         value: elementNum
@@ -149,18 +150,16 @@ export function calculateDailyElement(data: OhlcRow[]): {
       labels.push(element);
       colors.push(elementColors[element] || "#6B7280");
       
-      lastElement = element;
-      lastDay = dateStr;
+      lastDate = dateStr;
     } else {
-      // Skip duplicate element on the same day
-      // But still add the data point to maintain the time series
+      // For same day, use the last calculated value
       result.push({
         time: row.time,
-        value: elementNum
+        value: result[result.length - 1]?.value || 1
       });
       
-      labels.push(element);
-      colors.push(elementColors[element] || "#6B7280");
+      labels.push(labels[labels.length - 1] || "Wood");
+      colors.push(colors[colors.length - 1] || "#6B7280");
     }
   }
   

@@ -39,8 +39,10 @@ const Logo: React.FC<LogoProps> = ({
       >
         <img
           src={getLogoUrl()}
-          alt="Bandarmolony Logo"
+          alt="BandarmoloNY"
           className={`h-full w-full object-contain ${iconClassName}`}
+          loading="lazy"
+          decoding="async"
           style={{ 
             objectFit: 'contain',
             maxWidth: '100%',

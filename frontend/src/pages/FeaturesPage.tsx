@@ -9,8 +9,6 @@ import {
   BookOpen,
   Star,
   BarChart3,
-  Users,
-  ShieldCheck,
 } from "lucide-react";
 import { Navbar } from "../components/Navbar";
 import { Footer } from "../components/Footer";
@@ -83,28 +81,6 @@ const featureSections = [
       "Integrasi data real-time dari Supabase backend.",
     ],
   },
-  {
-    icon: Users,
-    title: "Profile & Collaboration Ready",
-    description:
-      "Kelola profil, subscription, dan aktivitas tim dari satu tempat dengan alur onboarding yang nyaman.",
-    bullets: [
-      "Sistem autentikasi terintegrasi Supabase.",
-      "Subscription dashboard dengan riwayat pembayaran lengkap.",
-      "Admin panel untuk mengelola pengguna dan konten.",
-    ],
-  },
-  {
-    icon: ShieldCheck,
-    title: "Reliability & Security",
-    description:
-      "Dibangun dengan arsitektur modern berbasis Vite + React 18 untuk performa, keamanan, dan skalabilitas.",
-    bullets: [
-      "Supabase sebagai backend service yang aman dan terukur.",
-      "Toast & confirmation context menjaga pengalaman pengguna.",
-      "Error boundary melindungi aplikasi dari crash tak terduga.",
-    ],
-  },
 ];
 
 export function FeaturesPage() {
@@ -113,11 +89,20 @@ export function FeaturesPage() {
   return (
     <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-background via-muted/20 to-background text-foreground">
       <Helmet>
-        <title>{`BandarmoloNY \u2014 Features`}</title>
+        <title>BandarmoloNY - Features & Platform Capabilities</title>
         <meta
           name="description"
-          content="Discover the capabilities inside BandarmoloNY \u2014 from market rotation to broker intelligence and more."
+          content="BandarmoloNY offers comprehensive trading analysis tools including Market Rotation (RRG, RRC, Seasonality), Broker Activity Intelligence, Technical Analysis with TradingView integration, Astrology insights, and advanced stock transaction tracking for Indonesian market."
         />
+        <meta name="keywords" content="trading analysis, market rotation, broker activity, technical analysis, indonesian stock market, RRG, RRC, seasonality, trading tools" />
+        <link rel="canonical" href="https://bandarmolony.com/features" />
+        <meta property="og:title" content="BandarmoloNY - Features & Trading Platform Capabilities" />
+        <meta property="og:description" content="Discover comprehensive trading analysis tools for Indonesian stock market including Market Rotation, Broker Intelligence, Technical Analysis, and more." />
+        <meta property="og:url" content="https://bandarmolony.com/features" />
+        <meta property="og:type" content="website" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="BandarmoloNY - Features & Trading Platform" />
+        <meta name="twitter:description" content="Advanced trading analysis tools for Indonesian stock market." />
       </Helmet>
 
       <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
@@ -207,6 +192,20 @@ export function FeaturesPage() {
           </div>
         </motion.section>
       </main>
+
+      {/* SEO Backlinks Hidden Section */}
+      <div className="sr-only">
+        <h2>Market Analysis Platform by Hints Technology</h2>
+        <nav>
+          <ul>
+            <li><a href="https://www.hintstechnology.com/" rel="nofollow noopener noreferrer">Hints Technology - Software Development</a></li>
+            <li><a href="https://bandarmolony.com/" rel="nofollow noopener noreferrer">BandarmoloNY Home</a></li>
+            <li><a href="https://bandarmolony.com/pricing" rel="nofollow noopener noreferrer">BandarmoloNY Pricing</a></li>
+            <li><a href="https://bandarmolony.com/contact" rel="nofollow noopener noreferrer">Contact BandarmoloNY</a></li>
+          </ul>
+        </nav>
+        <p>Trading analysis platform developed by Hints Technology. Advanced market insights and data analytics for Indonesian stock market.</p>
+      </div>
 
       <Footer />
     </div>

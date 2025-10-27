@@ -41,7 +41,7 @@ export function Navbar({ onSignIn, onRegister } = {}) {
   };
 
   return (
-    <header className="sticky top-0 z-50 bg-transparent backdrop-blur-md shadow-lg">
+    <header className="fixed top-0 left-0 right-0 z-50 w-full bg-background/95 backdrop-blur-md shadow-lg">
       <nav
         role="navigation"
         aria-label="Main navigation"

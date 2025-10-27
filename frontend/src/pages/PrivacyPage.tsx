@@ -41,8 +41,16 @@ export function PrivacyPage() {
   return (
     <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-background via-muted/20 to-background text-foreground">
       <Helmet>
-        <title>{`BandarmoloNY \u2014 Privacy Policy`}</title>
-        <meta name="description" content="Pelajari bagaimana BandarmoloNY mengelola dan melindungi data pribadi Anda." />
+        <title>BandarmoloNY - Privacy Policy</title>
+        <meta name="description" content="Learn how BandarmoloNY manages and protects your personal data. Our privacy policy covers data collection, usage, security measures, user rights, and information sharing practices for the trading analysis platform." />
+        <meta name="keywords" content="privacy policy, data protection, user privacy, trading platform privacy, data security, GDPR compliance" />
+        <link rel="canonical" href="https://bandarmolony.com/privacy" />
+        <meta property="og:title" content="BandarmoloNY - Privacy Policy" />
+        <meta property="og:description" content="Privacy policy explaining how BandarmoloNY protects and manages your personal data on our trading analysis platform." />
+        <meta property="og:url" content="https://bandarmolony.com/privacy" />
+        <meta property="og:type" content="website" />
+        <meta name="twitter:card" content="summary" />
+        <meta name="twitter:title" content="Privacy Policy - BandarmoloNY" />
       </Helmet>
 
       <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
@@ -105,6 +113,20 @@ export function PrivacyPage() {
           </p>
         </motion.section>
       </main>
+
+      {/* SEO Backlinks Hidden Section */}
+      <div className="sr-only">
+        <h2>Privacy Policy - BandarmoloNY</h2>
+        <nav>
+          <ul>
+            <li><a href="https://www.hintstechnology.com/" rel="nofollow noopener noreferrer">Hints Technology Privacy</a></li>
+            <li><a href="https://bandarmolony.com/" rel="nofollow noopener noreferrer">BandarmoloNY Platform</a></li>
+            <li><a href="https://bandarmolony.com/terms" rel="nofollow noopener noreferrer">Terms & Conditions</a></li>
+            <li><a href="https://bandarmolony.com/contact" rel="nofollow noopener noreferrer">Contact Privacy Officer</a></li>
+          </ul>
+        </nav>
+        <p>Privacy policy for BandarmoloNY data protection practices by Hints Technology. How we collect and protect your trading data.</p>
+      </div>
 
       <Footer />
     </div>
