@@ -252,14 +252,20 @@ const findMaxValuesHorizontal = (_stock: string, dates: string[], priceDataByDat
   return { maxBFreq, maxBLot, maxSLot, maxSFreq, maxTFreq, maxTLot };
 };
 
-// Helper function to get broker data for specific price, broker and date
-const getBrokerDataForPriceBrokerAndDate = (stock: string, date: string, price: number, broker: string): BrokerBreakdownData | null => {
-  const data = generateBrokerBreakdownData(stock, date);
-  return data.find(item => item.price === price && item.broker === broker) || null;
-};
+// Helper function to get broker data for specific price, broker and date (DEPRECATED - moved inside component)
+// const getBrokerDataForPriceBrokerAndDate = (stock: string, date: string, price: number, broker: string, brokerDataByDate: { [date: string]: BrokerBreakdownData[] }): BrokerBreakdownData | null => {
+//   const data = brokerDataByDate[date] || [];
+//   return data.find(item => item.price === price && item.broker === broker) || null;
+// };
 
-// Helper function to get all unique price-broker combinations that have transactions
-const getAllUniquePriceBrokerCombinations = (stock: string, dates: string[]): Array<{price: number, broker: string}> => {
+// Helper function to get-broker data for specific price, broker and date (DEPRECATED)
+/*const getBrokerDataForPriceBrokerAndDate = (stock: string, date: string, price: number, broker: string): BrokerBreakdownData | null => {
+  // This function is deprecated and will be replaced with in-component function
+  return null;
+};*/
+
+// Helper function to get all unique price-broker combinations that have transactions (DEPRECATED - not used anymore)
+/*const getAllUniquePriceBrokerCombinations = (stock: string, dates: string[]): Array<{price: number, broker: string}> => {
   const combinations = new Map<string, {price: number, broker: string}>();
   
   // First, collect all possible combinations from all dates
@@ -279,7 +285,7 @@ const getAllUniquePriceBrokerCombinations = (stock: string, dates: string[]): Ar
     let hasAnyTransaction = false;
     
     for (const date of dates) {
-      const data = getBrokerDataForPriceBrokerAndDate(stock, date, combination.price, combination.broker);
+      const data = null; // Deprecated function
       if (data && (
         data.bFreq > 0 || data.bLot > 0 || data.sLot > 0 || 
         data.sFreq > 0 || data.tFreq > 0 || data.tLot > 0
@@ -298,7 +304,7 @@ const getAllUniquePriceBrokerCombinations = (stock: string, dates: string[]): Ar
     let totalTransactions = 0;
     
     for (const date of dates) {
-      const data = getBrokerDataForPriceBrokerAndDate(stock, date, combination.price, combination.broker);
+      const data = null; // Deprecated function
       if (data) {
         totalTransactions += data.bFreq + data.bLot + data.sLot + data.sFreq + data.tFreq + data.tLot;
       }
@@ -312,10 +318,10 @@ const getAllUniquePriceBrokerCombinations = (stock: string, dates: string[]): Ar
     if (a.price !== b.price) return a.price - b.price;
     return a.broker.localeCompare(b.broker);
   });
-};
+};*/
 
-// Helper function to find max values for broker breakdown horizontal layout
-const findMaxValuesBrokerHorizontal = (stock: string, dates: string[]) => {
+// Helper function to find max values for broker breakdown horizontal layout (DEPRECATED)
+/*const findMaxValuesBrokerHorizontal = (stock: string, dates: string[]) => {
   let maxBFreq = 0, maxBLot = 0, maxSLot = 0, maxSFreq = 0, maxTFreq = 0, maxTLot = 0;
   
   dates.forEach(date => {
@@ -331,7 +337,7 @@ const findMaxValuesBrokerHorizontal = (stock: string, dates: string[]) => {
   });
   
   return { maxBFreq, maxBLot, maxSLot, maxSFreq, maxTFreq, maxTLot };
-};
+};*/
 
 // Get trading days based on count (excluding today)
 const getTradingDays = (count: number): string[] => {
@@ -386,7 +392,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
   
   // Real data states
   const [priceDataByDate, setPriceDataByDate] = useState<{ [date: string]: PriceData[] }>({});
-  const [_brokerDataByDate, setBrokerDataByDate] = useState<{ [date: string]: BrokerBreakdownData[] }>({});
+  const [brokerDataByDate, setBrokerDataByDate] = useState<{ [date: string]: BrokerBreakdownData[] }>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [availableStocks] = useState<string[]>(STOCK_LIST);
@@ -573,6 +579,20 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
     }));
   };
 
+  // Convert backend broker breakdown data to frontend format
+  const convertBackendBrokerToFrontend = (backendData: any[]): BrokerBreakdownData[] => {
+    return backendData.map(item => ({
+      price: Number(item.Price),
+      broker: String(item.Broker),
+      bLot: Number(item.BLot) || 0,
+      bFreq: Number(item.BFreq) || 0,
+      sLot: Number(item.SLot) || 0,
+      sFreq: Number(item.SFreq) || 0,
+      tLot: Number(item.TLot) || 0,
+      tFreq: Number(item.TFreq) || 0
+    }));
+  };
+
   // No need to load stocks from API anymore - using static list
 
   // Update selectedStock when prop changes
@@ -623,7 +643,12 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
         // Convert dates to YYYYMMDD format for API
         const formattedDates = selectedDates.map(date => date.replace(/-/g, ''));
         console.log('Formatted dates for batch API:', formattedDates);
-        const response = await api.getBidAskBatch(selectedStock, formattedDates);
+        
+        // Fetch both bid/ask data and broker breakdown data in parallel
+        const [response, brokerResponse] = await Promise.all([
+          api.getBidAskBatch(selectedStock, formattedDates),
+          api.getBrokerBreakdownBatch(selectedStock, formattedDates)
+        ]);
         
         // Create a mapping from formatted dates back to original dates
         const dateMapping: { [formatted: string]: string } = {};
@@ -658,28 +683,27 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
               console.log(`Converted data length:`, convertedData.length);
               console.log(`First converted item:`, convertedData[0]);
               newPriceDataByDate[originalDate] = convertedData;
-              
-              // For broker breakdown, we'll use the same data but group by broker
-              // This is a simplified version - in real implementation, you might need separate broker data
-              const brokerData: BrokerBreakdownData[] = convertedData.map(item => ({
-                broker: 'ALL', // Simplified - in real implementation, you'd have broker-specific data
-                price: item.price,
-                bLot: item.bLot,
-                sLot: item.sLot,
-                bFreq: item.bFreq,
-                sFreq: item.sFreq,
-                tFreq: item.tFreq,
-                tLot: item.tLot
-              }));
-              newBrokerDataByDate[originalDate] = brokerData;
             } else {
               console.log(`No data for date ${originalDate}:`, dateData);
             }
           });
           
+          // Process broker breakdown data if available
+          if (brokerResponse.success && brokerResponse.data?.dataByDate) {
+            console.log('Broker breakdown data by date:', brokerResponse.data.dataByDate);
+            Object.entries(brokerResponse.data.dataByDate).forEach(([formattedDate, dateData]: [string, any]) => {
+              const originalDate = dateMapping[formattedDate] || formattedDate;
+              console.log(`Processing broker breakdown for ${formattedDate} -> ${originalDate}:`, dateData);
+              if (dateData.brokerBreakdownData && Array.isArray(dateData.brokerBreakdownData)) {
+                const convertedBrokerData = convertBackendBrokerToFrontend(dateData.brokerBreakdownData);
+                console.log(`Converted broker data for ${originalDate}:`, convertedBrokerData);
+                newBrokerDataByDate[originalDate] = convertedBrokerData;
+              }
+            });
+          }
+          
           console.log('Final priceDataByDate:', newPriceDataByDate);
-          console.log('Final priceDataByDate keys:', Object.keys(newPriceDataByDate));
-          console.log('Final priceDataByDate values:', Object.values(newPriceDataByDate));
+          console.log('Final brokerDataByDate:', newBrokerDataByDate);
           setPriceDataByDate(newPriceDataByDate);
           setBrokerDataByDate(newBrokerDataByDate);
         } else {
@@ -929,8 +953,42 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
 
 
   const renderHorizontalBrokerBreakdownView = () => {
-    const priceBrokerCombinations = getAllUniquePriceBrokerCombinations(selectedStock, selectedDates);
-    const maxValues = findMaxValuesBrokerHorizontal(selectedStock, selectedDates);
+    // Helper function to get all unique price-broker combinations from brokerDataByDate
+    const getAllUniqueCombinations = (): Array<{price: number, broker: string}> => {
+      const combinations = new Map<string, {price: number, broker: string}>();
+      
+      selectedDates.forEach(date => {
+        const data = brokerDataByDate[date] || [];
+        data.forEach(item => {
+          const key = `${item.price}-${item.broker}`;
+          if (!combinations.has(key)) {
+            combinations.set(key, { price: item.price, broker: item.broker });
+          }
+        });
+      });
+      
+      return Array.from(combinations.values()).sort((a, b) => {
+        if (a.price !== b.price) return a.price - b.price;
+        return a.broker.localeCompare(b.broker);
+      });
+    };
+    
+    const priceBrokerCombinations = getAllUniqueCombinations();
+    
+    // Calculate max values from brokerDataByDate
+    let maxBFreq = 0, maxBLot = 0, maxSLot = 0, maxSFreq = 0, maxTFreq = 0, maxTLot = 0;
+    selectedDates.forEach(date => {
+      const data = brokerDataByDate[date] || [];
+      data.forEach(item => {
+        if (item.bFreq > maxBFreq) maxBFreq = item.bFreq;
+        if (item.bLot > maxBLot) maxBLot = item.bLot;
+        if (item.sLot > maxSLot) maxSLot = item.sLot;
+        if (item.sFreq > maxSFreq) maxSFreq = item.sFreq;
+        if (item.tFreq > maxTFreq) maxTFreq = item.tFreq;
+        if (item.tLot > maxTLot) maxTLot = item.tLot;
+      });
+    });
+    const maxValues = { maxBFreq, maxBLot, maxSLot, maxSFreq, maxTFreq, maxTLot };
     
     return (
       <Card>
@@ -981,33 +1039,39 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
               <tbody>
                 {priceBrokerCombinations.map((combination, idx) => {
                   // Calculate totals for this price-broker combination across all dates
+                  // Helper function to get broker data for specific price, broker and date
+                  const getBrokerData = (date: string): BrokerBreakdownData | null => {
+                    const data = brokerDataByDate[date] || [];
+                    return data.find(item => item.price === combination.price && item.broker === combination.broker) || null;
+                  };
+                  
                   const totalBFreq = selectedDates.reduce((sum, date) => {
-                    const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
+                    const data = getBrokerData(date);
                     return sum + (data?.bFreq || 0);
                   }, 0);
                   
                   const totalBLot = selectedDates.reduce((sum, date) => {
-                    const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
+                    const data = getBrokerData(date);
                     return sum + (data?.bLot || 0);
                   }, 0);
                   
                   const totalSLot = selectedDates.reduce((sum, date) => {
-                    const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
+                    const data = getBrokerData(date);
                     return sum + (data?.sLot || 0);
                   }, 0);
                   
                   const totalSFreq = selectedDates.reduce((sum, date) => {
-                    const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
+                    const data = getBrokerData(date);
                     return sum + (data?.sFreq || 0);
                   }, 0);
                   
                   const totalTFreq = selectedDates.reduce((sum, date) => {
-                    const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
+                    const data = getBrokerData(date);
                     return sum + (data?.tFreq || 0);
                   }, 0);
                   
                   const totalTLot = selectedDates.reduce((sum, date) => {
-                    const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
+                    const data = getBrokerData(date);
                     return sum + (data?.tLot || 0);
                   }, 0);
                   
@@ -1020,7 +1084,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                       {combination.broker}
                     </td>
                     {selectedDates.map((date) => {
-                      const data = getBrokerDataForPriceBrokerAndDate(selectedStock, date, combination.price, combination.broker);
+                      const data = getBrokerData(date);
                       return (
                         <React.Fragment key={date}>
                           <td className={`text-right py-1.5 px-1 ${data && data.bLot === maxValues.maxBLot && data.bLot > 0 ? 'font-bold text-green-600' : 'text-green-600'}`}>
@@ -1071,7 +1135,16 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                   <td className="py-3 px-3 font-bold bg-accent/30 sticky left-0 z-30 border-r-2 border-border text-foreground min-w-[80px]">TOTAL</td>
                   <td className="py-3 px-3 font-bold bg-accent/30 sticky left-[80px] z-30 border-r-2 border-border text-foreground min-w-[80px]">ALL</td>
                   {selectedDates.map((date) => {
-                    const totals = calculateBrokerBreakdownTotals(selectedStock, date);
+                    // Calculate totals from brokerDataByDate
+                    const data = brokerDataByDate[date] || [];
+                    const totals = data.reduce((acc, row) => ({
+                      bLot: acc.bLot + row.bLot,
+                      sLot: acc.sLot + row.sLot,
+                      bFreq: acc.bFreq + row.bFreq,
+                      sFreq: acc.sFreq + row.sFreq,
+                      tFreq: acc.tFreq + row.tFreq,
+                      tLot: acc.tLot + row.tLot
+                    }), { bLot: 0, sLot: 0, bFreq: 0, sFreq: 0, tFreq: 0, tLot: 0 });
                     return (
                       <React.Fragment key={date}>
                         <td className="text-right py-3 px-1 font-bold text-green-600">
@@ -1098,7 +1171,15 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                   {/* Grand Total Column */}
                   <td className="text-right py-3 px-1 font-bold text-green-600 bg-accent/50">
                     {formatNumber(selectedDates.reduce((sum, date) => {
-          const totals = calculateBrokerBreakdownTotals(selectedStock, date);
+                      const data = brokerDataByDate[date] || [];
+                      const totals = data.reduce((acc, row) => ({
+                        bLot: acc.bLot + row.bLot,
+                        sLot: acc.sLot + row.sLot,
+                        bFreq: acc.bFreq + row.bFreq,
+                        sFreq: acc.sFreq + row.sFreq,
+                        tFreq: acc.tFreq + row.tFreq,
+                        tLot: acc.tLot + row.tLot
+                      }), { bLot: 0, sLot: 0, bFreq: 0, sFreq: 0, tFreq: 0, tLot: 0 });
                       return sum + totals.bLot;
                     }, 0))}
                           </td>
