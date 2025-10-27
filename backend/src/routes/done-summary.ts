@@ -55,6 +55,38 @@ function parseCsvContent(csvContent: string): any[] {
   return data;
 }
 
+/**
+ * Parse CSV content for broker breakdown to array of objects
+ */
+function parseBrokerBreakdownCsvContent(csvContent: string): any[] {
+  const lines = csvContent.split('\n').filter(line => line.trim());
+  if (lines.length < 2) return [];
+  
+  const headers = lines[0]?.split(',').map(h => h.trim()) || [];
+  const data: any[] = [];
+  
+  for (let i = 1; i < lines.length; i++) {
+    const values = lines[i]?.split(',').map(v => v.trim()) || [];
+    const row: any = {};
+    
+    headers.forEach((header, index) => {
+      const value = values[index] || '';
+      
+      // Convert numeric fields to numbers
+      if (header === 'Price' || header === 'BLot' || header === 'BFreq' || 
+          header === 'SLot' || header === 'SFreq' || header === 'TFreq' || header === 'TLot') {
+        row[header] = parseFloat(value) || 0;
+      } else {
+        row[header] = value;
+      }
+    });
+    
+    data.push(row);
+  }
+  
+  return data;
+}
+
 // Get done summary status
 router.get('/status', async (_req, res) => {
   try {
@@ -173,6 +205,62 @@ router.get('/data/:date', async (req, res) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to get done summary data'
+    });
+  }
+});
+
+// Get broker breakdown data for specific stock and date
+router.get('/broker-breakdown/:stockCode/:date', async (req, res) => {
+  try {
+    const { stockCode, date } = req.params;
+    const cacheKey = `done-summary-broker-breakdown-${stockCode}-${date}`;
+    const cachedData = getCachedData(cacheKey);
+    if (cachedData) {
+      return res.json(cachedData);
+    }
+
+    console.log(`📊 Getting broker breakdown data for ${stockCode} on ${date}`);
+    
+    const dateFormatted = date.replace(/-/g, '');
+    const filePath = `done_summary_broker_breakdown/${dateFormatted}/${stockCode}.csv`;
+    
+    try {
+      const csvContent = await downloadText(filePath);
+      const data = parseBrokerBreakdownCsvContent(csvContent);
+      
+      const response = {
+        success: true,
+        data: {
+          stockCode: stockCode,
+          date: date,
+          brokerBreakdownData: data,
+          total: data.length
+        }
+      };
+      
+      setCachedData(cacheKey, response);
+      return res.json(response);
+      
+    } catch (error: any) {
+      if (error.message.includes('Blob not found')) {
+        return res.json({
+          success: true,
+          data: {
+            stockCode: stockCode,
+            date: date,
+            brokerBreakdownData: [],
+            total: 0
+          }
+        });
+      }
+      throw error;
+    }
+    
+  } catch (error) {
+    console.error('❌ Error getting broker breakdown data:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get broker breakdown data'
     });
   }
 });

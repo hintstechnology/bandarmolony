@@ -1882,6 +1882,55 @@ export const api = {
     }
   },
 
+  // Get broker breakdown data for specific stock and date
+  async getBrokerBreakdownData(stockCode: string, date: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/done-summary/broker-breakdown/${stockCode}/${date}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get broker breakdown data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get broker breakdown data' };
+    }
+  },
+
+  // Batch get broker breakdown data for multiple dates
+  async getBrokerBreakdownBatch(stockCode: string, dates: string[]): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const promises = dates.map(date => this.getBrokerBreakdownData(stockCode, date));
+      const results = await Promise.allSettled(promises);
+      
+      const dataByDate: { [date: string]: any } = {};
+      let successCount = 0;
+      
+      results.forEach((result, index) => {
+        const date = dates[index];
+        if (date) {
+          if (result.status === 'fulfilled' && result.value.success) {
+            dataByDate[date] = result.value.data;
+            successCount++;
+          } else {
+            dataByDate[date] = { brokerBreakdownData: [], total: 0 };
+          }
+        }
+      });
+      
+      return { 
+        success: successCount > 0, 
+        data: { 
+          dataByDate, 
+          successCount, 
+          totalDates: dates.length 
+        } 
+      };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get batch broker breakdown data' };
+    }
+  },
+
   // Batch get done summary data for multiple dates - much faster
   async getDoneSummaryBatch(stockCode: string, dates: string[]): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
