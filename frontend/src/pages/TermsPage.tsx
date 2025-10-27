@@ -41,8 +41,16 @@ export function TermsPage() {
   return (
     <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-background via-muted/20 to-background text-foreground">
       <Helmet>
-        <title>{`BandarmoloNY \u2014 Terms & Conditions`}</title>
-        <meta name="description" content="Syarat dan Ketentuan penggunaan platform BandarmoloNY." />
+        <title>BandarmoloNY - Terms & Conditions</title>
+        <meta name="description" content="Read BandarmoloNY's Terms & Conditions covering service usage, payment terms, data ownership, liability limitations, and user responsibilities for our trading analysis platform." />
+        <meta name="keywords" content="terms and conditions, trading platform terms, bandarmolony legal, user agreement, subscription terms" />
+        <link rel="canonical" href="https://bandarmolony.com/terms" />
+        <meta property="og:title" content="BandarmoloNY - Terms & Conditions" />
+        <meta property="og:description" content="Terms and conditions for using BandarmoloNY trading analysis platform. Service usage, payments, and user responsibilities." />
+        <meta property="og:url" content="https://bandarmolony.com/terms" />
+        <meta property="og:type" content="website" />
+        <meta name="twitter:card" content="summary" />
+        <meta name="twitter:title" content="Terms & Conditions - BandarmoloNY" />
       </Helmet>
 
       <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
@@ -108,6 +116,20 @@ export function TermsPage() {
           </p>
         </motion.section>
       </main>
+
+      {/* SEO Backlinks Hidden Section */}
+      <div className="sr-only">
+        <h2>Terms and Conditions - BandarmoloNY</h2>
+        <nav>
+          <ul>
+            <li><a href="https://www.hintstechnology.com/" rel="nofollow noopener noreferrer">Hints Technology Terms</a></li>
+            <li><a href="https://bandarmolony.com/" rel="nofollow noopener noreferrer">BandarmoloNY Home</a></li>
+            <li><a href="https://bandarmolony.com/privacy" rel="nofollow noopener noreferrer">Privacy Policy</a></li>
+            <li><a href="https://bandarmolony.com/contact" rel="nofollow noopener noreferrer">Contact Legal Team</a></li>
+          </ul>
+        </nav>
+        <p>Legal terms for BandarmoloNY platform developed by Hints Technology. Read our terms of service for trading analysis platform.</p>
+      </div>
 
       <Footer />
     </div>

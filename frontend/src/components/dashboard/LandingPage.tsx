@@ -1,4 +1,3 @@
-import React from "react";
 import { Helmet } from "react-helmet-async";
 import { motion } from "motion/react";
 import { Button } from "../ui/button";
@@ -57,12 +56,12 @@ export function LandingPage({ onStartTrial, onSignIn, onRegister }: LandingPageP
 
       <Navbar onSignIn={onSignIn} onRegister={onRegister} />
 
-      <main className="relative z-10 flex min-h-[calc(100vh-200px)] flex-col items-center justify-center px-6 text-center">
+      <main className="relative z-10 flex h-[calc(100vh-200px)] flex-col items-center justify-center px-6 text-center">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.2 }}
-          className="mb-8"
+          className="mb-8 mt-32"
         >
           <div className="mb-8 flex items-center justify-center gap-6">
             <Logo
@@ -97,6 +96,22 @@ export function LandingPage({ onStartTrial, onSignIn, onRegister }: LandingPageP
           </motion.div>
         </motion.div>
       </main>
+
+      {/* SEO Backlinks Hidden Section */}
+      <div className="sr-only">
+        <h1>BandarmoloNY - Intelligent Market Analysis Platform</h1>
+        <h2>Developed by Hints Technology</h2>
+        <nav>
+          <ul>
+            <li><a href="https://www.hintstechnology.com/" rel="nofollow noopener noreferrer">Hints Technology - Software Development Company</a></li>
+            <li><a href="https://bandarmolony.com/features" rel="nofollow noopener noreferrer">Trading Platform Features</a></li>
+            <li><a href="https://bandarmolony.com/pricing" rel="nofollow noopener noreferrer">Subscription Pricing Plans</a></li>
+            <li><a href="https://bandarmolony.com/contact" rel="nofollow noopener noreferrer">Contact Trading Platform Team</a></li>
+          </ul>
+        </nav>
+        <p>BandarmoloNY is an advanced trading analysis platform for Indonesian stock market, developed by Hints Technology. Transform your trading strategy with intelligent market analysis and real-time insights.</p>
+        <p>Professional stock market analysis tools including market rotation, broker activity tracking, technical analysis, and more. Get started with a free trial today.</p>
+      </div>
 
       <Footer />
     </div>

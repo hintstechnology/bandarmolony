@@ -14,6 +14,10 @@ import {
   calculateBuySellFrequency,
   calculateDailyShio,
   calculateDailyElement,
+  getDailyShioInfo,
+  getDailyElementInfo,
+  SHIO_INFO,
+  ELEMENT_INFO,
   IndicatorEditor,
   type OhlcRow
 } from './indicators';
@@ -66,6 +70,7 @@ class ChartErrorBoundary extends React.Component<
 }
 import {
   createChart,
+  createSeriesMarkers,
   ColorType,
   CrosshairMode,
   LineSeries,
@@ -73,6 +78,7 @@ import {
   CandlestickSeries,
   HistogramSeries,
   type IChartApi,
+  type SeriesMarker,
 } from 'lightweight-charts';
 
 // Type declaration for import.meta.glob
@@ -513,6 +519,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   const [showIndicatorEditor, setShowIndicatorEditor] = useState(false);
   const [showIndividualSettings, setShowIndividualSettings] = useState(false);
   const [selectedIndicatorForSettings, setSelectedIndicatorForSettings] = useState<Indicator | null>(null);
+  const [isLegendMinimized, setIsLegendMinimized] = useState(true);
   
   // New: measure controls height and compute available viewport height for the chart
   const controlsContainerRef = useRef<HTMLDivElement | null>(null);
@@ -1130,10 +1137,6 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   // Get available timeframes based on data frequency
   const availableTimeframes = useMemo(() => {
     const allTimeframes: { value: Timeframe; label: string; minFreq: string }[] = [
-      { value: '1M', label: '1 Minute', minFreq: '1min' },
-      { value: '5M', label: '5 Minutes', minFreq: '5min' },
-      { value: '15M', label: '15 Minutes', minFreq: '15min' },
-      { value: '30M', label: '30 Minutes', minFreq: '30min' },
       { value: '1H', label: '1 Hour', minFreq: '1hour' },
       { value: '1D', label: '1 Day', minFreq: '1day' },
       { value: '1W', label: '1 Week', minFreq: '1day' },
@@ -1412,6 +1415,9 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         bidAskDataAvailable: bidAskData.length > 0
       });
       
+      // Collect all markers for Daily Shio and Element first
+      const allMarkers: SeriesMarker[] = [];
+      
       indicators.forEach(indicator => {
         console.log(`📊 Processing indicator: ${indicator.type} (${indicator.id})`, {
           enabled: indicator.enabled,
@@ -1558,98 +1564,61 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               color: d.close >= d.open ? volumeHistogramSettings.upColor : volumeHistogramSettings.downColor,
             })));
           } else if (indicator.type === 'daily_shio' || indicator.type === 'daily_element') {
-            // For Daily Shio and Daily Element, limit to last N days (default 30)
-            const dayLimit = indicator.dayLimit || 30;
-            const colors = (indicator as any).colors || [];
-            const labels = (indicator as any).labels || [];
-            
-            // Get unique dates and sort them
-            const uniqueDates = Array.from(new Set(filteredRows.map(r => {
-              const d = new Date(r.time * 1000);
-              return d.toDateString();
-            }))).sort();
-            
-            // Get last N days
-            const recentDays = uniqueDates.slice(-dayLimit);
-            
-            // Group data points by value (element number or shio number)
-            const groupedByValue = new Map<number, Array<{ time: any; color: string; label: string; low: number; high: number }>>();
-            
-            indicatorData.forEach((d, idx) => {
-              const ohlcPoint = filteredRows.find(r => r.time === d.time);
-              if (ohlcPoint) {
-                const date = new Date(d.time * 1000);
-                const dayKey = date.toDateString();
-                
-                // Only include if within the day limit
-                if (recentDays.includes(dayKey)) {
-                  const value = d.value;
-                  const color = colors[idx] || indicator.color;
-                  const label = labels[idx] || '';
-                  
-                  if (!groupedByValue.has(value)) {
-                    groupedByValue.set(value, []);
-                  }
-                  groupedByValue.get(value)!.push({
-                    time: d.time as any,
-                    color: color,
-                    label: label,
-                    low: ohlcPoint.low || ohlcPoint.close || 0,
-                    high: ohlcPoint.high || ohlcPoint.close || 0,
-                  });
-                }
-              }
-            });
-            
-            // For Daily Shio: follow low, For Daily Element: follow high
-            const priceType = indicator.type === 'daily_shio' ? 'low' : 'high';
-            
-            // Initialize the aux refs array for this indicator
-            if (!indicatorAuxRefs.current[indicator.id]) {
-              indicatorAuxRefs.current[indicator.id] = [];
+            // For Daily Shio and Daily Element, collect markers to apply later
+            if (!indicator.enabled) {
+              return;
             }
             
-            // Create separate LineSeries for each element/shio
-            // Each series will have disconnected segments (one per day)
-            groupedByValue.forEach((dataPoints, value) => {
-              if (dataPoints.length > 0) {
-                const firstPoint = dataPoints[0];
+            // Create markers for daily shio/element - calculate once per unique day from REAL data
+            const processedDays = new Set<string>();
+            
+            // First, get first row for each unique day to ensure precise timing
+            const dayToFirstRow = new Map<string, { row: any; time: number }>();
+            
+            filteredRows.forEach(row => {
+              const date = new Date(row.time * 1000);
+                const dayKey = date.toDateString();
                 
-                // Sort by time
-                const sortedPoints = dataPoints.sort((a, b) => a.time - b.time);
-                
-                // Create ONE series for this element/shio with ALL points
-                // The line will automatically connect points within the same day
-                const seriesData = sortedPoints.map(p => ({
-                  time: p.time,
-                  value: priceType === 'low' ? p.low : p.high
-                }));
-                
-                const elementSeries = chart.addSeries(LineSeries, {
-                  color: firstPoint.color,
-                  lineWidth: 2,
-                  title: firstPoint.label,
-                  priceFormat: {
-                    type: 'price',
-                    precision: 0,
-                    minMove: 1,
-                  },
-                }) as any;
-                
-                elementSeries.setData(seriesData);
-                
-                // Store ALL series in aux refs for later removal
-                indicatorAuxRefs.current[indicator.id].push(elementSeries);
-                
-                // Store the first series as indicatorSeries for reference
-                if (!indicatorSeries) {
-                  indicatorSeries = elementSeries;
-                }
+              // Store first occurrence of each day
+              if (!dayToFirstRow.has(dayKey)) {
+                dayToFirstRow.set(dayKey, { row, time: row.time });
               }
             });
             
-            console.log(`📊 Created ${groupedByValue.size} series for ${indicator.type} following ${priceType} (last ${dayLimit} days)`);
-          } else {
+            // Now create markers only once per unique day using the first row's timestamp
+            let collectedCount = 0;
+            
+            for (const [dayKey, { row, time }] of dayToFirstRow.entries()) {
+              const date = new Date(time * 1000);
+              
+              // Calculate for this day using BaZi method from BaZiCycleAnalysis
+              let info;
+              if (indicator.type === 'daily_shio') {
+                info = getDailyShioInfo(date);
+              } else {
+                info = getDailyElementInfo(date);
+              }
+              
+              // Create marker for this day using the first row's timestamp
+              allMarkers.push({
+                time: time,
+                position: indicator.type === 'daily_shio' ? 'belowBar' : 'aboveBar',
+                color: info.color,
+                shape: indicator.type === 'daily_shio' ? undefined : 'square',
+                text: info.emoji,
+                size: 2,
+                id: `${indicator.type}_${dayKey}`,
+              } as SeriesMarker);
+              collectedCount++;
+            }
+            
+            // Log only total, not per-indicator to avoid spam
+            console.log(`✅ Collected ${collectedCount} markers for ${indicator.type}`);
+            
+            // Skip adding series for daily shio/element - we use markers instead
+            indicatorRefs.current[indicator.id] = null;
+            setIndicatorSeriesReady(prev => ({ ...prev, [indicator.id]: true }));
+          } else if (indicatorData.length > 0) {
             // Use LineSeries for other indicators
             indicatorSeries = chart.addSeries(LineSeries, {
               color: indicator.type === 'buy_sell_frequency' ? '#10b981' : indicator.color,
@@ -1730,6 +1699,55 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           indicatorRefs.current[indicator.id] = indicatorSeries;
         }
       });
+
+      // Apply all collected markers to the price series after all indicators are processed
+      if (priceRef.current && allMarkers.length > 0) {
+        const shioCount = allMarkers.filter(m => m.position === 'belowBar').length;
+        const elementCount = allMarkers.filter(m => m.position === 'aboveBar').length;
+        
+        console.log('📊 MARKERS DEBUG:', {
+          total: allMarkers.length,
+          shio: shioCount,
+          element: elementCount,
+          enabledIndicators: indicators
+            .filter(ind => ind.enabled && (ind.type === 'daily_shio' || ind.type === 'daily_element'))
+            .map(ind => ind.type)
+        });
+        
+        try {
+          // Separate markers by position to avoid conflicts
+          const belowBarMarkers = allMarkers.filter(m => m.position === 'belowBar');
+          const aboveBarMarkers = allMarkers.filter(m => m.position === 'aboveBar');
+          
+          console.log('🔍 Markers breakdown:', {
+            belowBar: belowBarMarkers.length,
+            aboveBar: aboveBarMarkers.length,
+            sampleBelow: belowBarMarkers[0],
+            sampleAbove: aboveBarMarkers[0]
+          });
+          
+          // Sort markers by time to ensure proper rendering
+          const sortedMarkers = [...allMarkers].sort((a, b) => (a.time as number) - (b.time as number));
+          
+          // Apply all markers at once (TradingView should handle mixed positions)
+          createSeriesMarkers(priceRef.current as any, sortedMarkers);
+          console.log('✅ Markers applied successfully', {
+            totalMarkers: sortedMarkers.length,
+            firstMarker: sortedMarkers[0],
+            lastMarker: sortedMarkers[sortedMarkers.length - 1]
+          });
+        } catch (error) {
+          console.error('❌ Error applying markers:', error, error);
+        }
+      } else {
+        console.log('📊 No markers to apply', { 
+          priceRef: !!priceRef.current, 
+          markersCount: allMarkers.length,
+          enabledDailyIndicators: indicators
+            .filter(ind => ind.enabled && (ind.type === 'daily_shio' || ind.type === 'daily_element'))
+            .map(ind => ind.type)
+        });
+      }
 
       chart.timeScale().fitContent();
       console.log(`📊 Chart fitContent called, plotted ${filteredRows.length} rows`);
@@ -2417,17 +2435,38 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
 
     const el = containerRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
+    
+    const updateChartSize = () => {
+      if (!chartRef.current || !el) return;
+      const cr = el.getBoundingClientRect();
+      const newWidth = Math.max(1, Math.floor(cr.width));
+      const newHeight = Math.max(1, Math.floor(cr.height));
+      chartRef.current.applyOptions({
+        width: newWidth,
+        height: newHeight,
+      });
+    };
+    
+    // Force resize immediately when effect runs
+    if (chartRef.current) {
+      updateChartSize();
+    }
+    
     const ro = new ResizeObserver((entries) => {
       const cr = entries[0]?.contentRect;
-      if (!cr || !chartRef.current) return;
+      if (!cr || !chartRef.current || !el) return;
+      
+      const newWidth = Math.max(1, Math.floor(el.getBoundingClientRect().width));
+      const newHeight = Math.max(1, Math.floor(el.getBoundingClientRect().height));
+      
       chartRef.current.applyOptions({
-        width: Math.max(1, Math.floor(cr.width)),
-        height: Math.max(1, Math.floor(cr.height)),
+        width: newWidth,
+        height: newHeight,
       });
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [style]);
+  }, [style, filteredRows.length]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -2472,6 +2511,44 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
     }
   }, [timeframeProp, timeframe, isUserControlled]);
 
+  // Refresh chart on orientation change and window resize
+  useEffect(() => {
+    const handleResize = () => {
+      if (!chartRef.current || !containerRef.current) return;
+      
+      const cr = containerRef.current.getBoundingClientRect();
+      const newWidth = Math.max(1, Math.floor(cr.width));
+      const newHeight = Math.max(1, Math.floor(cr.height));
+      
+      // Force resize
+      chartRef.current.applyOptions({
+        width: newWidth,
+        height: newHeight,
+      });
+      
+      // Force layout update
+      setTimeout(() => {
+        chartRef.current?.timeScale().fitContent();
+      }, 150);
+    };
+
+    // Debounce resize to avoid performance issues
+    let timeoutId: NodeJS.Timeout;
+    const debouncedResize = () => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(handleResize, 100);
+    };
+
+    window.addEventListener('orientationchange', handleResize);
+    window.addEventListener('resize', debouncedResize);
+
+    return () => {
+      window.removeEventListener('orientationchange', handleResize);
+      window.removeEventListener('resize', debouncedResize);
+      clearTimeout(timeoutId);
+    };
+  }, [style]);
+
   return (
     <div className="flex flex-col space-y-2 h-full">
       <style>{`
@@ -2502,11 +2579,11 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       
       {!hideControls && (
         <Card className="p-3 sm:p-4" ref={controlsContainerRef}>
-        <div className="flex flex-col lg:flex-row gap-2 sm:gap-3 items-start lg:items-center justify-between">
-          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 items-start sm:items-center w-full lg:w-auto">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 items-start sm:items-center w-full">
             {/* Symbol/Ticker selector styled like BrokerInventoryPage */}
-            <div className="flex-1 min-w-0 sm:min-w-[200px]">
-              <label className="block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Symbol:</label>
+            <div className="w-full sm:w-auto sm:flex-1 sm:max-w-[200px]">
+              <label className="hidden sm:block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Symbol:</label>
               <div className="relative" ref={searchRef}>
                 <div className="relative">
                   <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-muted-foreground" />
@@ -2521,7 +2598,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                     onFocus={() => setShowSearchDropdown(true)}
                     onKeyDown={handleSearchKeyDown}
                     placeholder="Search and select stocks..."
-                    className="w-full pl-7 pr-8 py-1.5 sm:py-2 text-xs sm:text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors"
+                    className="w-full pl-7 pr-8 h-10 text-xs sm:text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors"
                   />
                   {searchQuery && (
                     <button
@@ -2627,12 +2704,12 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               </div>
             </div>
 
-            <div className="flex-1 min-w-0 sm:min-w-[140px]">
-              <label className="block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Timeframe:</label>
+            <div className="w-full sm:w-auto sm:min-w-[140px]">
+              <label className="hidden sm:block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Timeframe:</label>
               <select
                 value={timeframe}
                 onChange={(e) => setTimeframe(e.target.value as Timeframe)}
-                className="w-full px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                className="w-full h-10 px-2 sm:px-3 text-xs sm:text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
               >
                 {availableTimeframes.map(tf => (
                   <option key={tf.value} value={tf.value}>
@@ -2642,54 +2719,40 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               </select>
             </div>
 
-            <div className="flex-1 min-w-0 sm:min-w-[200px]">
-              <label className="block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Chart Style:</label>
-              <div className="flex flex-col sm:flex-row gap-2">
+            <div className="w-full sm:w-auto">
+              <label className="hidden sm:block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Chart Style:</label>
+              <div className="flex flex-col sm:grid sm:grid-cols-3 gap-2">
                 <select
                   value={style}
                   onChange={(e) => setStyle(e.target.value as ChartStyle)}
-                  className="w-full sm:w-auto px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                  className="w-full h-10 px-2 sm:px-3 text-xs sm:text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                 >
                   <option value="line">Line</option>
                   <option value="candles">Candles</option>
                   <option value="footprint">Footprint</option>
                 </select>
               <button
-                onClick={() => setShowSettings(true)}
-                className="hidden w-full sm:w-auto px-2 sm:px-3 py-1 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground hover:bg-accent"
+                onClick={() => setShowIndicatorSettings(true)}
+                className="w-full sm:w-auto h-10 px-2 sm:px-3 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground hover:bg-accent inline-flex items-center justify-center gap-2"
               >
-                ⚙️ Settings
+                <BarChart2 className="w-4 h-4" />
+                <span>Indicators</span>
               </button>
              <button
                onClick={() => setShowSettings(true)}
-               className="w-full sm:w-auto px-2 sm:px-3 py-1 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground hover:bg-accent inline-flex items-center gap-2"
+               className="w-full sm:w-auto h-10 px-2 sm:px-3 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground hover:bg-accent inline-flex items-center justify-center gap-2"
              >
                <SettingsIcon className="w-4 h-4" />
-               <span>Settings</span>
-             </button>
-              <button
-                onClick={() => setShowIndicatorSettings(true)}
-                className="hidden w-full sm:w-auto px-2 sm:px-3 py-1 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground hover:bg-accent"
-              >
-                📊 Indicators
-              </button>
-             <button
-               onClick={() => setShowIndicatorSettings(true)}
-               className="w-full sm:w-auto px-2 sm:px-3 py-1 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground hover:bg-accent inline-flex items-center gap-2"
-             >
-               <BarChart2 className="w-4 h-4" />
-               <span>Indicators</span>
+                <span>Settings</span>
              </button>
             </div>
           </div>
-
-          {/* Right-side space previously used for price is removed; price moved onto chart overlay */}
         </div>
         </div>
         </Card>
       )}
 
-      <Card className="flex-1 p-0 relative" style={{ padding: 0, margin: 0, height: chartViewportHeight }}>
+      <Card className="flex-1 p-0 relative overflow-hidden" style={{ padding: 0, margin: 0, height: chartViewportHeight }}>
         {/* Debug info */}
         {/* <div className="absolute top-2 right-2 z-20 bg-background/80 backdrop-blur-sm border border-border rounded px-2 py-1 text-xs">
           <div>Viewport: {chartViewportHeight}px</div>
@@ -2778,19 +2841,35 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             {/* Active Overlay Indicators List */}
             {indicators.filter(ind => ind.enabled && !ind.separateScale).length > 0 && (
               <div className="mt-2 pt-2 border-t border-border">
-                <div className="text-xs text-muted-foreground mb-1">Overlays:</div>
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-col gap-1">
                   {indicators.filter(ind => ind.enabled && !ind.separateScale).map(ind => (
                     <div
                       key={ind.id}
-                      className="px-1.5 py-0.5 rounded text-xs"
+                      className="flex items-center justify-between gap-2 px-2 py-1 rounded-md bg-muted/50 border border-border/50 w-full"
                       style={{ 
-                        backgroundColor: `${ind.color}20`,
-                        border: `1px solid ${ind.color}`,
-                        color: ind.color
+                        backgroundColor: `${ind.color}15`,
+                        borderColor: `${ind.color}40`
                       }}
                     >
+                      <span className="text-xs font-medium" style={{ color: ind.color }}>
                       {ind.name}
+                      </span>
+                      <button
+                        onClick={() => {
+                          const indIndex = indicators.findIndex(i => i.id === ind.id);
+                          if (indIndex !== -1) {
+                            const newIndicators = [...indicators];
+                            newIndicators[indIndex] = { ...newIndicators[indIndex], enabled: false };
+                            setIndicators(newIndicators);
+                          }
+                        }}
+                        className="text-muted-foreground hover:text-destructive transition-colors"
+                        title="Close"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -2832,6 +2911,71 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               {chg >= 0 ? '+' : ''}{chg.toFixed(0)} ({chgPct.toFixed(2)}%)
             </div>
           </div>
+        )}
+
+        {/* Legend for Daily Shio and Element - Right Top */}
+        {!hideControls && !isLoadingData && rows.length > 0 && (
+          <>
+            {(indicators.some(ind => ind.enabled && ind.type === 'daily_shio') || 
+              indicators.some(ind => ind.enabled && ind.type === 'daily_element')) && (
+              <div className="absolute bottom-[50px] left-2 sm:top-2 sm:bottom-auto sm:left-auto sm:right-[90px] z-10 bg-background/95 backdrop-blur-sm border border-border rounded-md px-3 py-2.5 shadow-lg max-h-[70vh] overflow-y-auto sm:scale-100 sm:max-w-[200px]" style={{ maxWidth: 'calc(100% - 16px)', transform: 'scale(0.68) sm:scale-100', transformOrigin: 'bottom left' }}>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-semibold text-foreground">
+                    {indicators.some(ind => ind.enabled && ind.type === 'daily_shio') && indicators.some(ind => ind.enabled && ind.type === 'daily_element') 
+                      ? 'Daily Shio & Element' 
+                      : indicators.some(ind => ind.enabled && ind.type === 'daily_shio') 
+                        ? 'Daily Shio' 
+                        : 'Daily Element'}
+                  </h3>
+                  <button
+                    onClick={() => setIsLegendMinimized(!isLegendMinimized)}
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label={isLegendMinimized ? 'Expand legend' : 'Minimize legend'}
+                  >
+                    {isLegendMinimized ? (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
+                      </svg>
+                    ) : (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+                {!isLegendMinimized && (
+                  <div className="space-y-3">
+                    {indicators.some(ind => ind.enabled && ind.type === 'daily_shio') && (
+                      <div>
+                        <h4 className="text-[10px] font-semibold mb-1.5 text-muted-foreground">Daily Shio</h4>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {SHIO_INFO.map(shio => (
+                            <div key={shio.name} className="flex items-center gap-1.5">
+                              <span style={{ fontSize: '14px' }}>{shio.emoji}</span>
+                              <span className="text-muted-foreground text-xs">{shio.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {indicators.some(ind => ind.enabled && ind.type === 'daily_element') && (
+                      <div className={indicators.some(ind => ind.enabled && ind.type === 'daily_shio') ? 'border-t border-border pt-3' : ''}>
+                        <h4 className="text-[10px] font-semibold mb-1.5 text-muted-foreground">Daily Element</h4>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {ELEMENT_INFO.map(element => (
+                            <div key={element.name} className="flex items-center gap-1.5">
+                              <span style={{ fontSize: '14px' }}>{element.emoji}</span>
+                              <span className="text-muted-foreground text-xs">{element.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         )}
 
         <ChartErrorBoundary>
@@ -3434,6 +3578,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
     </div>
   );
 });
+
 
 
 
