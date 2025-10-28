@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { RotateCcw, Search, Loader2 } from 'lucide-react';
 import { getBrokerTextClass, useDarkMode } from '../../utils/brokerColors';
@@ -214,13 +213,13 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
 
   const clearAllDates = () => {
     // Reset to last 3 trading days
-    const threeDays = getLastThreeDays();
-    const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+      const threeDays = getLastThreeDays();
+      const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
     
     // Always create new array reference to force useEffect trigger
     setSelectedDates([...sortedDates]);
-    setStartDate(sortedDates[0] ?? '');
-    setEndDate(sortedDates[sortedDates.length - 1] ?? '');
+      setStartDate(sortedDates[0] ?? '');
+      setEndDate(sortedDates[sortedDates.length - 1] ?? '');
   };
 
   // Handle click outside to close dropdown
@@ -312,24 +311,22 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         sellData: rows
       };
     });
-
+    
     return (
-      <div className="space-y-6">
+      <div className="w-full">
         {isLoading && (
-          <div className="text-sm text-muted-foreground">Loading broker summary...</div>
+          <div className="text-sm text-muted-foreground px-4 py-1">Loading broker summary...</div>
         )}
         {error && (
-          <div className="text-sm text-destructive">{error}</div>
+          <div className="text-sm text-destructive px-4 py-1">{error}</div>
         )}
         {/* Combined Buy & Sell Side Table */}
-                <Card>
-                  <CardHeader>
-            <CardTitle>
-              VALUE - {selectedTicker}
-            </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto rounded-md max-h-[600px] overflow-y-auto">
+        <div className="w-full">
+          <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
+            <h3 className="font-semibold text-sm">VALUE - {selectedTicker}</h3>
+          </div>
+          <div className="w-full">
+            <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
               <table className={`w-full min-w-[1000px] ${getFontSizeClass()} border-collapse`}>
                         <thead className="bg-background">
                           <tr className="border-b border-border">
@@ -520,40 +517,37 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                         </tbody>
                       </table>
                     </div>
-                  </CardContent>
-                </Card>
+                </div>
+              </div>
 
         {/* Net Table */}
-                <Card>
-                  <CardHeader>
-            <CardTitle>
-              NET - {selectedTicker}
-            </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto rounded-md max-h-[600px] overflow-y-auto">
+        <div className="w-full mt-1">
+          <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
+            <h3 className="font-semibold text-sm">NET - {selectedTicker}</h3>
+          </div>
+          <div className="w-full">
+                    <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
               <table className={`w-full min-w-[1000px] ${getFontSizeClass()} border-collapse`}>
                         <thead className="bg-background">
                           <tr className="border-b border-border">
                     {selectedDates.map((date) => (
-                      <th key={date} className={`text-center py-1 px-1 font-medium border border-border`} colSpan={10}>
+                      <th key={date} className={`text-center py-1 px-1 font-medium border border-border`} colSpan={9}>
                         {formatDisplayDate(date)}
                       </th>
                     ))}
-                    <th className="text-center py-1 px-1 font-medium border border-border" colSpan={8}>
+                    <th className="text-center py-1 px-1 font-medium border border-border" colSpan={7}>
                       Total
                     </th>
                   </tr>
                   <tr className="border-b border-border">
                     {selectedDates.map((date) => (
                       <React.Fragment key={`detail-${date}`}>
-                        {/* Net Buy Columns */}
-                        <th className={`text-center py-1 px-1 font-medium text-green-600 border border-border`}>#</th>
+                        {/* Net Buy Columns - No # */}
                         <th className={`text-left py-1 px-1 font-medium text-green-600 border border-border`}>NBY</th>
                         <th className={`text-right py-1 px-1 font-medium text-green-600 border border-border`}>NBLot</th>
                         <th className={`text-right py-1 px-1 font-medium text-green-600 border border-border`}>NBVal</th>
                         <th className={`text-right py-1 px-1 font-medium border border-border`}>NBAvg</th>
-                        {/* Net Sell Columns */}
+                        {/* Net Sell Columns - Keep # */}
                         <th className={`text-center py-1 px-1 font-medium text-red-600 border border-border`}>#</th>
                         <th className={`text-left py-1 px-1 font-medium text-red-600 border border-border`}>NSL</th>
                         <th className={`text-right py-1 px-1 font-medium text-red-600 border border-border`}>NSLot</th>
@@ -561,8 +555,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                         <th className={`text-right py-1 px-1 font-medium border border-border`}>NSAvg</th>
                       </React.Fragment>
                     ))}
-                    {/* Total Columns - No Avg */}
-                    <th className={`text-center py-1 px-1 font-medium text-green-600 border border-border`}>#</th>
+                    {/* Total Columns - No Avg, No # for Buy */}
                     <th className={`text-left py-1 px-1 font-medium text-green-600 border border-border`}>NBY</th>
                     <th className={`text-right py-1 px-1 font-medium text-green-600 border border-border`}>NBLot</th>
                     <th className={`text-right py-1 px-1 font-medium text-green-600 border border-border`}>NBVal</th>
@@ -704,8 +697,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                           
                           return (
                             <React.Fragment key={`${date}-${rowIdx}`}>
-                              {/* Net Buy Columns */}
-                              <td className={`text-center py-1 px-1 text-green-600 border border-border ${netBuyBg}`}>{netBuyData ? rowIdx + 1 : '-'}</td>
+                              {/* Net Buy Columns - No # */}
                               <td className={`py-1 px-1 border border-border ${netBuyBg} ${netBuyData ? getBrokerColorClass(netBuyData.broker) : ''}`}>
                                 {netBuyData?.broker || '-'}
                               </td>
@@ -718,7 +710,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                               <td className={`text-right py-1 px-1 border border-border ${netBuyBg}`}>
                                 {netBuyData ? formatAverage(nbAvg) : '-'}
                               </td>
-                              {/* Net Sell Columns */}
+                              {/* Net Sell Columns - Keep # */}
                               <td className={`text-center py-1 px-1 text-red-600 border border-border ${netSellBg}`}>{netSellData ? rowIdx + 1 : '-'}</td>
                               <td className={`py-1 px-1 border border-border ${netSellBg} ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`}>
                                 {netSellData?.broker || '-'}
@@ -746,7 +738,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                           
                           return (
                             <React.Fragment>
-                              <td className={`text-center py-1 px-1 text-green-600 border border-border ${totalNetBuyBg}`}>{totalNetBuy ? rowIdx + 1 : '-'}</td>
                               <td className={`py-1 px-1 border border-border ${totalNetBuyBg} ${totalNetBuy ? getBrokerColorClass(totalNetBuy.broker) : ''}`}>
                                 {totalNetBuy?.broker || '-'}
                               </td>
@@ -775,111 +766,110 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                         </tbody>
                       </table>
                     </div>
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
       </div>
     );
   };
 
   return (
-    <div className="space-y-6">
-      {/* Top Controls */}
-      <Card>
-        <CardContent className="pt-6 pb-6">
-          <div className="flex flex-wrap items-center gap-4">
-            {/* Ticker Selection */}
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
-              <div className="relative" ref={dropdownRef}>
-                <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
-                <input
-                  type="text"
-                  value={tickerInput}
-                  onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
-                  onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
-                  onKeyDown={(e) => {
-                    const suggestions = (tickerInput === '' ? availableStocks : filteredStocks).slice(0, 10);
-                    if (!suggestions.length) return;
-                    if (e.key === 'ArrowDown') {
-                      e.preventDefault();
-                      setHighlightedStockIndex((prev) => (prev + 1) % suggestions.length);
-                    } else if (e.key === 'ArrowUp') {
-                      e.preventDefault();
-                      setHighlightedStockIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
-                    } else if (e.key === 'Enter' && showStockSuggestions) {
-                      e.preventDefault();
-                      const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
-                      const choice = suggestions[idx];
-                      if (choice) handleStockSelect(choice);
-                    } else if (e.key === 'Escape') {
-                      setShowStockSuggestions(false);
-                      setHighlightedStockIndex(-1);
-                    }
-                  }}
-                  placeholder="Code"
-                  className="w-24 pl-10 pr-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
-                />
-                {showStockSuggestions && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
-                    {availableStocks.length === 0 ? (
-                      <div className="px-3 py-2 text-sm text-muted-foreground flex items-center">
-                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                        Loading stocks...
-                      </div>
-                    ) : tickerInput === '' ? (
-                      <>
-                        <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
-                          Available Stocks ({availableStocks.length})
+    <div className="w-full">
+      {/* Top Controls - Compact without Card */}
+      <div className="bg-background border-b border-border px-4 py-1.5">
+            <div className="flex flex-wrap items-center gap-4">
+              {/* Ticker Selection */}
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
+                <div className="relative" ref={dropdownRef}>
+                  <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+                  <input
+                    type="text"
+                    value={tickerInput}
+                    onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
+                    onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
+                    onKeyDown={(e) => {
+                      const suggestions = (tickerInput === '' ? availableStocks : filteredStocks).slice(0, 10);
+                      if (!suggestions.length) return;
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        setHighlightedStockIndex((prev) => (prev + 1) % suggestions.length);
+                      } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setHighlightedStockIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+                      } else if (e.key === 'Enter' && showStockSuggestions) {
+                        e.preventDefault();
+                        const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
+                        const choice = suggestions[idx];
+                        if (choice) handleStockSelect(choice);
+                      } else if (e.key === 'Escape') {
+                        setShowStockSuggestions(false);
+                        setHighlightedStockIndex(-1);
+                      }
+                    }}
+                    placeholder="Code"
+                    className="w-24 pl-10 pr-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
+                  />
+                  {showStockSuggestions && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                      {availableStocks.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-muted-foreground flex items-center">
+                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                          Loading stocks...
                         </div>
-                        {availableStocks.map(stock => (
-                          <div
-                            key={stock}
-                            onClick={() => handleStockSelect(stock)}
-                            className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
-                          >
-                            {stock}
+                      ) : tickerInput === '' ? (
+                        <>
+                          <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
+                            Available Stocks ({availableStocks.length})
                           </div>
-                        ))}
-                      </>
-                    ) : filteredStocks.length > 0 ? (
-                      <>
-                        <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
-                          {filteredStocks.length} stocks found
+                          {availableStocks.map(stock => (
+                            <div
+                              key={stock}
+                              onClick={() => handleStockSelect(stock)}
+                              className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
+                            >
+                              {stock}
+                            </div>
+                          ))}
+                        </>
+                      ) : filteredStocks.length > 0 ? (
+                        <>
+                          <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
+                            {filteredStocks.length} stocks found
+                          </div>
+                          {filteredStocks.map(stock => (
+                            <div
+                              key={stock}
+                              onClick={() => handleStockSelect(stock)}
+                              className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
+                            >
+                              {stock}
+                            </div>
+                          ))}
+                        </>
+                      ) : (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">
+                          No stocks found
                         </div>
-                        {filteredStocks.map(stock => (
-                          <div
-                            key={stock}
-                            onClick={() => handleStockSelect(stock)}
-                            className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
-                          >
-                            {stock}
-                          </div>
-                        ))}
-                      </>
-                    ) : (
-                      <div className="px-3 py-2 text-sm text-muted-foreground">
-                        No stocks found
-                      </div>
-                        )}
-                      </div>
-                )}
+                          )}
+                        </div>
+                  )}
+                </div>
               </div>
-            </div>
 
-            {/* Date Range */}
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => {
-                  const selectedDate = new Date(e.target.value);
-                  const dayOfWeek = selectedDate.getDay();
-                  if (dayOfWeek === 0 || dayOfWeek === 6) {
-                    alert('Tidak bisa memilih hari Sabtu atau Minggu');
-                    return;
-                  }
-                  setStartDate(e.target.value);
+              {/* Date Range */}
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => {
+                      const selectedDate = new Date(e.target.value);
+                      const dayOfWeek = selectedDate.getDay();
+                      if (dayOfWeek === 0 || dayOfWeek === 6) {
+                        alert('Tidak bisa memilih hari Sabtu atau Minggu');
+                        return;
+                      }
+                      setStartDate(e.target.value);
                   // Auto update end date if not set or if start > end
                   if (!endDate || new Date(e.target.value) > new Date(endDate)) {
                     setEndDate(e.target.value);
@@ -901,20 +891,20 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     setSelectedDates(newDates);
                   }
                 }}
-                className="px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
-              />
-              <span className="text-sm text-muted-foreground">to</span>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => {
-                  const selectedDate = new Date(e.target.value);
-                  const dayOfWeek = selectedDate.getDay();
-                  if (dayOfWeek === 0 || dayOfWeek === 6) {
-                    alert('Tidak bisa memilih hari Sabtu atau Minggu');
-                    return;
-                  }
-                  setEndDate(e.target.value);
+                className="w-40 px-3 py-1.5 border border-border rounded-md bg-input text-foreground text-sm"
+                  />
+                  <span className="text-sm text-muted-foreground">to</span>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => {
+                      const selectedDate = new Date(e.target.value);
+                      const dayOfWeek = selectedDate.getDay();
+                      if (dayOfWeek === 0 || dayOfWeek === 6) {
+                        alert('Tidak bisa memilih hari Sabtu atau Minggu');
+                        return;
+                      }
+                      setEndDate(e.target.value);
                   // Auto apply the date range
                   const start = new Date(startDate);
                   const end = new Date(e.target.value);
@@ -936,35 +926,35 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     setSelectedDates(newDates);
                   }
                 }}
-                className="px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                className="w-40 px-3 py-1.5 border border-border rounded-md bg-input text-foreground text-sm"
               />
-            </div>
+              </div>
 
             {/* Font Size */}
-            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
               <label className="text-sm font-medium whitespace-nowrap">Font Size:</label>
-              <select
+                  <select 
                 value={fontSize}
                 onChange={(e) => setFontSize(e.target.value as 'small' | 'normal' | 'large')}
-                className="px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                className="px-3 py-1.5 border border-border rounded-md bg-background text-foreground text-sm"
               >
                 <option value="small">Small</option>
                 <option value="normal">Normal</option>
                 <option value="large">Large</option>
-              </select>
-            </div>
+                </select>
+              </div>
 
-            {/* Reset Button */}
-            <Button onClick={clearAllDates} variant="outline" size="sm">
-              <RotateCcw className="w-4 h-4 mr-1" />
-              Reset
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+              {/* Reset Button */}
+                    <Button onClick={clearAllDates} variant="outline" size="sm">
+                      <RotateCcw className="w-4 h-4 mr-1" />
+                  Reset
+                    </Button>
+              </div>
+            </div>
 
       {/* Main Data Display */}
       {renderHorizontalView()}
     </div>
   );
 }
+
