@@ -19,8 +19,7 @@ const pricingPlans = [
     description: "Sempurna untuk trader yang ingin mencoba fitur kami",
     features: [
       "Berlaku selama 1 bulan",
-      "Akses penuh ke semua fitur analisis",
-      "Akses penuh ke data done summary market",
+      "Akses ke fitur analisis dasar",
       "Technical analysis chart",
       "Mobile & desktop access"
     ],
@@ -37,8 +36,8 @@ const pricingPlans = [
     description: "Pilihan paling populer bagi para trader yang serius",
     features: [
       "Berlaku selama 3 bulan",
-      "Akses penuh ke semua fitur analisis",
-      "Akses penuh ke data done summary market",
+      "Akses penuh ke semua fitur analisis institusional",
+      "Akses penuh ke data transaksi pasar saham",
       "Technical analysis chart",
       "Mobile & desktop access"
     ],
@@ -55,9 +54,9 @@ const pricingPlans = [
     description: "Untuk para trader profesional dan institusi trading",
     features: [
       "Berlaku selama 6 bulan",
-      "Akses penuh ke semua fitur analisis",
-      "Akses penuh ke data done summary market",
-      "Akses semua fitur analisis pasar",
+      "Akses penuh ke semua fitur analisis institusional",
+      "Akses penuh ke data transaksi pasar saham detail",
+      "Akses semua fitur analisis statistik pasar saham",
       "Technical analysis chart",
       "Mobile & desktop access",
       "Dukungan prioritas"
