@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '../ui/button';
-import { RotateCcw, Search, Loader2 } from 'lucide-react';
+import { RotateCcw, Search, Loader2, Calendar } from 'lucide-react';
 import { getBrokerTextClass, useDarkMode } from '../../utils/brokerColors';
 import { api } from '../../services/api';
 
@@ -127,6 +127,8 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
   const [stockSearchTimeout, setStockSearchTimeout] = useState<NodeJS.Timeout | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const startDateRef = useRef<HTMLInputElement>(null);
+  const endDateRef = useRef<HTMLInputElement>(null);
 
   // dark mode hook used here once per component
   const isDarkMode = useDarkMode();
@@ -286,6 +288,18 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   const filteredStocks = (availableStocks || []).filter(stock =>
     stock.toLowerCase().includes(tickerInput.toLowerCase())
   );
+
+  // Helper function to trigger date picker
+  const triggerDatePicker = (inputRef: React.RefObject<HTMLInputElement>) => {
+    if (inputRef.current) {
+      inputRef.current.showPicker();
+    }
+  };
+
+  // Helper function to format date for input (YYYY-MM-DD)
+  const formatDateForInput = (date: string) => {
+    return date; // Already in YYYY-MM-DD format
+  };
 
   // Get font size class based on selected fontSize
   const getFontSizeClass = () => {
@@ -856,79 +870,131 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                 </div>
               </div>
 
-              {/* Date Range */}
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => {
-                      const selectedDate = new Date(e.target.value);
-                      const dayOfWeek = selectedDate.getDay();
-                      if (dayOfWeek === 0 || dayOfWeek === 6) {
-                        alert('Tidak bisa memilih hari Sabtu atau Minggu');
-                        return;
-                      }
-                      setStartDate(e.target.value);
-                  // Auto update end date if not set or if start > end
-                  if (!endDate || new Date(e.target.value) > new Date(endDate)) {
-                    setEndDate(e.target.value);
-                  }
-                  // Auto apply the date range
-                  const start = new Date(e.target.value);
-                  const end = new Date(endDate || e.target.value);
-                  if (start <= end) {
-                    const newDates: string[] = [];
+            {/* Date Range */}
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
+              <div 
+                className="relative h-9 w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                onClick={() => triggerDatePicker(startDateRef)}
+              >
+                <input
+                  ref={startDateRef}
+                  type="date"
+                  value={formatDateForInput(startDate)}
+                  onChange={(e) => {
+                    const selectedDate = new Date(e.target.value);
+                    const dayOfWeek = selectedDate.getDay();
+                    if (dayOfWeek === 0 || dayOfWeek === 6) {
+                      alert('Tidak bisa memilih hari Sabtu atau Minggu');
+                      return;
+                    }
+                    
+                    // Calculate trading days in the new range
+                    const start = new Date(e.target.value);
+                    const end = new Date(endDate || e.target.value);
+                    const tradingDays: string[] = [];
                     const current = new Date(start);
-                    while (current <= end && newDates.length < 7) {
+                    
+                    while (current <= end) {
                       const dayOfWeek = current.getDay();
                       if (dayOfWeek !== 0 && dayOfWeek !== 6) {
                         const dateString = current.toISOString().split('T')[0];
-                        if (dateString) newDates.push(dateString);
+                        if (dateString) tradingDays.push(dateString);
                       }
                       current.setDate(current.getDate() + 1);
                     }
-                    setSelectedDates(newDates);
-                  }
-                }}
-                className="w-40 px-3 py-1.5 border border-border rounded-md bg-input text-foreground text-sm"
-                  />
-                  <span className="text-sm text-muted-foreground">to</span>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => {
-                      const selectedDate = new Date(e.target.value);
-                      const dayOfWeek = selectedDate.getDay();
-                      if (dayOfWeek === 0 || dayOfWeek === 6) {
-                        alert('Tidak bisa memilih hari Sabtu atau Minggu');
-                        return;
-                      }
-                      setEndDate(e.target.value);
-                  // Auto apply the date range
-                  const start = new Date(startDate);
-                  const end = new Date(e.target.value);
-                  if (start <= end) {
-                    const newDates: string[] = [];
-                    const current = new Date(start);
-                    while (current <= end && newDates.length < 7) {
-                      const dayOfWeek = current.getDay();
-                      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-                        const dateString = current.toISOString().split('T')[0];
-                        if (dateString) newDates.push(dateString);
-                      }
-                      current.setDate(current.getDate() + 1);
-                    }
-                    if (newDates.length > 7) {
+                    
+                    // Check if trading days exceed 7
+                    if (tradingDays.length > 7) {
                       alert('Maksimal 7 hari kerja yang bisa dipilih');
                       return;
                     }
-                    setSelectedDates(newDates);
-                  }
-                }}
-                className="w-40 px-3 py-1.5 border border-border rounded-md bg-input text-foreground text-sm"
-              />
+                    
+                    setStartDate(e.target.value);
+                    // Auto update end date if not set or if start > end
+                    if (!endDate || new Date(e.target.value) > new Date(endDate)) {
+                      setEndDate(e.target.value);
+                    }
+                    setSelectedDates(tradingDays);
+                  }}
+                  onKeyDown={(e) => e.preventDefault()}
+                  onPaste={(e) => e.preventDefault()}
+                  onInput={(e) => e.preventDefault()}
+                  max={formatDateForInput(endDate)}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  style={{ caretColor: 'transparent' }}
+                />
+                <div className="flex items-center justify-between h-full px-3 py-2">
+                  <span className="text-sm text-foreground">
+                    {new Date(startDate).toLocaleDateString('en-GB', { 
+                      day: '2-digit', 
+                      month: '2-digit', 
+                      year: 'numeric' 
+                    })}
+                  </span>
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
+                </div>
               </div>
+              <span className="text-sm text-muted-foreground">to</span>
+              <div 
+                className="relative h-9 w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                onClick={() => triggerDatePicker(endDateRef)}
+              >
+                <input
+                  ref={endDateRef}
+                  type="date"
+                  value={formatDateForInput(endDate)}
+                  onChange={(e) => {
+                    const selectedDate = new Date(e.target.value);
+                    const dayOfWeek = selectedDate.getDay();
+                    if (dayOfWeek === 0 || dayOfWeek === 6) {
+                      alert('Tidak bisa memilih hari Sabtu atau Minggu');
+                      return;
+                    }
+                    
+                    // Calculate trading days in the new range
+                    const start = new Date(startDate);
+                    const end = new Date(e.target.value);
+                    const tradingDays: string[] = [];
+                    const current = new Date(start);
+                    
+                    while (current <= end) {
+                      const dayOfWeek = current.getDay();
+                      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+                        const dateString = current.toISOString().split('T')[0];
+                        if (dateString) tradingDays.push(dateString);
+                      }
+                      current.setDate(current.getDate() + 1);
+                    }
+                    
+                    // Check if trading days exceed 7
+                    if (tradingDays.length > 7) {
+                      alert('Maksimal 7 hari kerja yang bisa dipilih');
+                      return;
+                    }
+                    
+                    setEndDate(e.target.value);
+                    setSelectedDates(tradingDays);
+                  }}
+                  onKeyDown={(e) => e.preventDefault()}
+                  onPaste={(e) => e.preventDefault()}
+                  onInput={(e) => e.preventDefault()}
+                  min={formatDateForInput(startDate)}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  style={{ caretColor: 'transparent' }}
+                />
+                <div className="flex items-center justify-between h-full px-3 py-2">
+                  <span className="text-sm text-foreground">
+                    {new Date(endDate).toLocaleDateString('en-GB', { 
+                      day: '2-digit', 
+                      month: '2-digit', 
+                      year: 'numeric' 
+                    })}
+                  </span>
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
+                </div>
+              </div>
+            </div>
 
             {/* Font Size */}
               <div className="flex items-center gap-2">
