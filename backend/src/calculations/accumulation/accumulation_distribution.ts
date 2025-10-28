@@ -1,4 +1,5 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
+import { BATCH_SIZE_PHASE_6 } from '../../services/dataUpdateService';
 
 // Type definitions untuk Accumulation Distribution
 interface BidAskData {
@@ -8,10 +9,6 @@ interface BidAskData {
   AskVolume: number;
   NetVolume: number;
   TotalVolume: number;
-  BidCount: number;
-  AskCount: number;
-  UniqueBidBrokers: number;
-  UniqueAskBrokers: number;
 }
 
 interface StockData {
@@ -77,18 +74,14 @@ export class AccumulationDistributionCalculator {
       if (!line) continue;
       
       const values = line.split(',');
-      if (values.length >= 10) {
+      if (values.length >= 6) {
         data.push({
           StockCode: values[0]?.trim() || '',
           Price: parseFloat(values[1]?.trim() || '0'),
           BidVolume: parseFloat(values[2]?.trim() || '0'),
           AskVolume: parseFloat(values[3]?.trim() || '0'),
           NetVolume: parseFloat(values[4]?.trim() || '0'),
-          TotalVolume: parseFloat(values[5]?.trim() || '0'),
-          BidCount: parseFloat(values[6]?.trim() || '0'),
-          AskCount: parseFloat(values[7]?.trim() || '0'),
-          UniqueBidBrokers: parseFloat(values[8]?.trim() || '0'),
-          UniqueAskBrokers: parseFloat(values[9]?.trim() || '0')
+          TotalVolume: parseFloat(values[5]?.trim() || '0')
         });
       }
     }
@@ -100,34 +93,29 @@ export class AccumulationDistributionCalculator {
   /**
    * Load stock data from Azure Blob Storage
    */
-  private async loadStockDataFromAzure(stockCode: string): Promise<StockData[]> {
-    // Try to find stock in sector subfolders
-    const sectors = ['Technology', 'Finance', 'Consumer', 'Industrial', 'Energy', 'Healthcare', 'Materials', 'Utilities', 'Real Estate', 'Communication'];
-    let blobName = `stock/${stockCode}.csv`;
-    let content = '';
-    
-    // First try direct path
+  private async loadStockDataFromAzure(stockCode: string, stockFiles?: string[]): Promise<StockData[] | null> {
     try {
-      content = await downloadText(blobName);
-    } catch (error) {
-      // Try sector subfolders
-      let found = false;
-      for (const sector of sectors) {
-        try {
-          blobName = `stock/${sector}/${stockCode}.csv`;
-          content = await downloadText(blobName);
-          found = true;
-          break;
-        } catch (sectorError) {
-          // Continue to next sector
-        }
+      // Get all files under stock/ prefix (only if not provided)
+      let files: string[];
+      if (stockFiles) {
+        files = stockFiles;
+      } else {
+        const { listPaths } = await import('../../utils/azureBlob');
+        files = await listPaths({ prefix: 'stock/' });
       }
-      if (!found) {
-        throw new Error(`Stock ${stockCode} not found in any sector folder`);
+      
+      // Find the specific stock file (same logic as RRC)
+      const stockFile = files.find((file: string) => 
+        file.endsWith(`/${stockCode}.csv`) && file.startsWith('stock/')
+      );
+      
+      if (!stockFile) {
+        console.warn(`⚠️ Stock ${stockCode} not found in any sector folder - skipping this stock`);
+        return null;
       }
-    }
-    
-    try {
+      
+      console.log(`🔍 Found stock ${stockCode} at: ${stockFile}`);
+      const content = await downloadText(stockFile);
     
     const lines = content.trim().split('\n');
     const data: StockData[] = [];
@@ -558,6 +546,11 @@ export class AccumulationDistributionCalculator {
         };
       }
 
+      // Load stock files list ONCE to avoid calling listPaths repeatedly
+      console.log("📁 Loading stock files list from Azure (one-time operation)...");
+      const stockFilesList = await listPaths({ prefix: 'stock/' });
+      console.log(`📊 Found ${stockFilesList.length} stock files in Azure`);
+      
       const createdFilesSummary: { date: string; file: string; count: number }[] = [];
 
       for (let di = 0; di < allDates.length; di++) {
@@ -613,13 +606,47 @@ export class AccumulationDistributionCalculator {
           }
         }
 
-        // Load stock data for all stocks
+        // Load stock data for all stocks in batches (Phase 6: 1 stock at a time)
         const stockDataMap = new Map<string, StockData[]>();
-        for (const stockCode of stockCodes) {
-          const stockData = await this.loadStockDataFromAzure(stockCode);
-          if (stockData.length > 0) {
-            stockDataMap.set(stockCode, stockData);
+        const STOCK_BATCH_SIZE = BATCH_SIZE_PHASE_6; // Phase 6: 1 stock at a time
+        let missingStocksCount = 0;
+        const totalStocks = stockCodes.length;
+        
+        for (let i = 0; i < stockCodes.length; i += STOCK_BATCH_SIZE) {
+          const batch = stockCodes.slice(i, i + STOCK_BATCH_SIZE);
+          
+          for (const stockCode of batch) {
+            try {
+              const stockData = await this.loadStockDataFromAzure(stockCode, stockFilesList);
+              if (stockData && stockData.length > 0) {
+                stockDataMap.set(stockCode, stockData);
+              } else {
+                missingStocksCount++;
+                console.warn(`⚠️ No data found for stock ${stockCode}`);
+              }
+            } catch (error) {
+              missingStocksCount++;
+              console.warn(`⚠️ Failed to load data for stock ${stockCode}:`, error instanceof Error ? error.message : 'Unknown error');
+            }
           }
+          
+          // Memory cleanup after each batch
+          if (global.gc) {
+            global.gc();
+            console.log(`🧹 Memory cleanup after processing ${Math.min(i + STOCK_BATCH_SIZE, stockCodes.length)}/${stockCodes.length} stocks`);
+          }
+        }
+        
+        // Check if too many stocks are missing (fail if > 10% missing)
+        const missingPercentage = (missingStocksCount / totalStocks) * 100;
+        if (missingPercentage > 10) {
+          console.error(`❌ Too many stocks missing: ${missingStocksCount}/${totalStocks} (${missingPercentage.toFixed(1)}%)`);
+          return {
+            success: false,
+            message: `Accumulation distribution failed: ${missingStocksCount}/${totalStocks} stocks missing (${missingPercentage.toFixed(1)}%)`
+          };
+        } else if (missingStocksCount > 0) {
+          console.warn(`⚠️ Some stocks missing: ${missingStocksCount}/${totalStocks} (${missingPercentage.toFixed(1)}%) - continuing with available data`);
         }
 
         // Calculate all metrics

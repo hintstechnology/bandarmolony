@@ -11,6 +11,7 @@ import {
 import { exists } from '../utils/azureBlob';
 import { SchedulerLogService, SchedulerLog } from './schedulerLogService';
 import { AzureLogger } from './azureLoggingService';
+import { BATCH_SIZE_PHASE_1_2 } from './dataUpdateService';
 
 // Global state for tracking generation status
 let isGenerating = false;
@@ -144,7 +145,7 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
     let filesCreated = 0, filesUpdated = 0, filesSkipped = 0, filesFailed = 0;
 
     // Process sectors in BATCHES (parallel) for better performance
-    const BATCH_SIZE = 150; // Process 150 sectors at a time (increased for speed)
+    const BATCH_SIZE = BATCH_SIZE_PHASE_1_2; // Phase 1-2: 250 sectors at a time
     console.log(`📦 Processing sectors in batches of ${BATCH_SIZE}...`);
     
     for (let i = 0; i < sectors.length; i += BATCH_SIZE) {
@@ -283,7 +284,7 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
     }
 
     // Process ALL individual stocks from each sector in BATCHES (parallel)
-    const STOCK_BATCH_SIZE = 150; // Process 150 stocks at a time (increased for speed)
+    const STOCK_BATCH_SIZE = BATCH_SIZE_PHASE_1_2; // Phase 1-2: 250 stocks at a time
     console.log(`📦 Processing stocks in batches of ${STOCK_BATCH_SIZE}...`);
     
     for (const sector of sectors) {

@@ -10,7 +10,7 @@ import {
   removeDuplicates,
   convertToCsv,
   parseCsvString,
-  BATCH_SIZE,
+  BATCH_SIZE_PHASE_1_2,
   MAX_CONCURRENT_REQUESTS
 } from './dataUpdateService';
 import { SchedulerLogService } from './schedulerLogService';
@@ -268,7 +268,7 @@ export async function updateIndexData(): Promise<void> {
           logId
         );
       },
-      BATCH_SIZE,
+      BATCH_SIZE_PHASE_1_2,
       MAX_CONCURRENT_REQUESTS
     );
 

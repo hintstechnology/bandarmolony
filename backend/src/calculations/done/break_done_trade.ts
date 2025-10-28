@@ -1,16 +1,17 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
+import { BATCH_SIZE_PHASE_3_5 } from '../../services/dataUpdateService';
 
 // Type definitions untuk Done Trade Data
 interface DoneTradeData {
   STK_CODE: string;
-  BRK_COD1: string;  // Buyer broker
-  BRK_COD2: string;  // Seller broker
+  BRK_COD1: string;  // Seller broker
+  BRK_COD2: string;  // Buyer broker
   STK_VOLM: number;
   STK_PRIC: number;
   TRX_DATE: string;
   TRX_TIME: number;  // Changed to number for frontend compatibility
-  INV_TYP1: string;  // Investor type buyer
-  INV_TYP2: string;  // Investor type seller
+  INV_TYP1: string;  // Investor type seller
+  INV_TYP2: string;  // Investor type buyer
   TYP: string;       // Transaction type
   TRX_CODE: number;  // Transaction code
   TRX_SESS: number;  // Transaction session
@@ -259,6 +260,14 @@ export class BreakDoneTradeCalculator {
         totalRecords += stockData.length;
         
         console.log(`Created ${filename} with ${stockData.length} records`);
+        
+        // Memory cleanup after each stock (every 50 stocks)
+        if (createdFiles.length % 50 === 0) {
+          if (global.gc) {
+            global.gc();
+            console.log(`🧹 Memory cleanup after ${createdFiles.length} stocks`);
+          }
+        }
       }
       
       console.log(`✅ Completed processing ${blobName} - ${createdFiles.length} files created`);
@@ -294,13 +303,29 @@ export class BreakDoneTradeCalculator {
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       this.logMemoryUsage('Start processing');
       
-      // Process files in batches for speed (2 files at a time to prevent OOM)
-      const BATCH_SIZE = 5;
+      // Process files in batches for speed (Phase 3-5: 5 files at a time)
+      const BATCH_SIZE = BATCH_SIZE_PHASE_3_5; // Phase 3-5: 5 files
       const allResults: { success: boolean; dateSuffix: string; files: string[] }[] = [];
       let processed = 0;
       let successful = 0;
       
       for (let i = 0; i < dtFiles.length; i += BATCH_SIZE) {
+        // Check memory before each batch
+        const memUsage = process.memoryUsage();
+        const usedMB = memUsage.heapUsed / 1024 / 1024;
+        console.log(`🔍 Memory before batch ${Math.floor(i / BATCH_SIZE) + 1}: ${usedMB.toFixed(2)}MB`);
+        
+        // If memory usage is high, force cleanup
+        if (usedMB > 4000) {
+          console.log(`⚠️ High memory usage detected, forcing cleanup before batch...`);
+          if (global.gc) {
+            for (let j = 0; j < 5; j++) {
+              global.gc();
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+          }
+        }
+        
         const batch = dtFiles.slice(i, i + BATCH_SIZE);
         console.log(`📦 Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`);
         

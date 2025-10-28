@@ -21,6 +21,7 @@ interface PriceLevelData {
   TotalVolume: number; // BidVolume + AskVolume
   BidCount: number;   // Jumlah transaksi bid
   AskCount: number;   // Jumlah transaksi ask
+  TotalCount: number; // BidCount + AskCount
   UniqueBidBrokers: number; // Jumlah broker unik yang bid
   UniqueAskBrokers: number; // Jumlah broker unik yang ask
 }
@@ -35,6 +36,7 @@ interface StockFootprintData {
   TotalVolume: number;
   BidCount: number;
   AskCount: number;
+  TotalCount: number; // BidCount + AskCount
   UniqueBidBrokers: number; // Jumlah broker unik yang bid
   UniqueAskBrokers: number; // Jumlah broker unik yang ask
 }
@@ -219,6 +221,7 @@ export class BidAskCalculator {
           TotalVolume: priceData.bidVolume + priceData.askVolume,
           BidCount: priceData.bidCount,
           AskCount: priceData.askCount,
+          TotalCount: priceData.bidCount + priceData.askCount,
           UniqueBidBrokers: priceData.bidBrokers.size,
           UniqueAskBrokers: priceData.askBrokers.size
         });
@@ -322,6 +325,7 @@ export class BidAskCalculator {
           TotalVolume: priceData.bidVolume + priceData.askVolume,
           BidCount: priceData.bidCount,
           AskCount: priceData.askCount,
+          TotalCount: priceData.bidCount + priceData.askCount,
           UniqueBidBrokers: priceData.uniqueBidBrokers.size,
           UniqueAskBrokers: priceData.uniqueAskBrokers.size
         });
@@ -380,6 +384,7 @@ export class BidAskCalculator {
           TotalVolume: row.TotalVolume,
           BidCount: row.BidCount,
           AskCount: row.AskCount,
+          TotalCount: row.TotalCount,
           UniqueBidBrokers: row.UniqueBidBrokers,
           UniqueAskBrokers: row.UniqueAskBrokers
         }));
@@ -406,6 +411,7 @@ export class BidAskCalculator {
    * Main function to generate bid/ask footprint data for all DT files
    */
   public async generateBidAskData(_dateSuffix: string): Promise<{ success: boolean; message: string; data?: any }> {
+    const startTime = Date.now();
     try {
       console.log(`Starting bid/ask footprint analysis for all DT files...`);
       
@@ -424,7 +430,7 @@ export class BidAskCalculator {
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
       // Process files in batches for speed (2 files at a time to prevent OOM)
-      const BATCH_SIZE = 5;
+      const BATCH_SIZE = 10;
       const allResults: { success: boolean; dateSuffix: string; files: string[] }[] = [];
       let processed = 0;
       let successful = 0;
@@ -466,11 +472,14 @@ export class BidAskCalculator {
       }
       
       const totalFiles = allResults.reduce((sum, result) => sum + result.files.length, 0);
+      const totalDuration = Math.round((Date.now() - startTime) / 1000);
       
       console.log(`✅ Bid/Ask footprint analysis completed!`);
       console.log(`📊 Processed: ${processed}/${dtFiles.length} DT files`);
       console.log(`📊 Successful: ${successful}/${processed} files`);
       console.log(`📊 Total output files: ${totalFiles}`);
+      console.log(`✅ Bid/Ask Footprint calculation completed successfully`);
+      console.log(`✅ Bid/Ask Footprint completed in ${totalDuration}s`);
       
       return {
         success: true,
@@ -480,6 +489,7 @@ export class BidAskCalculator {
           processedFiles: processed,
           successfulFiles: successful,
           totalOutputFiles: totalFiles,
+          duration: totalDuration,
           results: allResults.filter(r => r.success)
         }
       };

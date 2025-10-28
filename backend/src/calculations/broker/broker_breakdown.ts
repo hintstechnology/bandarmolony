@@ -1,26 +1,31 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
+import { BATCH_SIZE_PHASE_6 } from '../../services/dataUpdateService';
 
-// Type definitions untuk Foreign Flow
+// Type definitions for broker breakdown data
 interface TransactionData {
   STK_CODE: string;
-  BRK_COD1: string;  // Seller broker
-  BRK_COD2: string;  // Buyer broker
+  BRK_COD1: string; // Seller broker
+  BRK_COD2: string; // Buyer broker
   STK_VOLM: number;
   STK_PRIC: number;
-  TRX_DATE: string;
+  TRX_CODE: string;
   TRX_TIME: string;
-  INV_TYP1: string;  // Investor type seller: 'A' = Foreign, 'D' = Domestic
-  INV_TYP2: string;  // Investor type buyer: 'A' = Foreign, 'D' = Domestic
+  TRX_ORD1: number; // Order reference 1
+  TRX_ORD2: number; // Order reference 2
 }
 
-interface ForeignFlowData {
-  Date: string;
-  BuyVol: number;      // Volume beli foreign
-  SellVol: number;    // Volume jual foreign
-  NetBuyVol: number;  // Net volume beli foreign (BuyVol - SellVol)
+interface BrokerBreakdownData {
+  Price: number;
+  Broker: string;
+  BLot: number;      // Buy Lot
+  BFreq: number;    // Buy Frequency
+  SLot: number;      // Sell Lot
+  SFreq: number;     // Sell Frequency
+  TFreq: number;     // Total Frequency
+  TLot: number;      // Total Lot
 }
 
-export class ForeignFlowCalculator {
+export class BrokerBreakdownCalculator {
   constructor() {
     // No need for Azure client initialization - using azureBlob utility
   }
@@ -92,14 +97,15 @@ export class ForeignFlowCalculator {
     const brkCod2Index = getColumnIndex('BRK_COD2');
     const stkVolmIndex = getColumnIndex('STK_VOLM');
     const stkPricIndex = getColumnIndex('STK_PRIC');
-    const trxDateIndex = getColumnIndex('TRX_DATE');
+    const trxCodeIndex = getColumnIndex('TRX_CODE');
     const trxTimeIndex = getColumnIndex('TRX_TIME');
-    const invTyp1Index = getColumnIndex('INV_TYP1');
-    const invTyp2Index = getColumnIndex('INV_TYP2');
+    const trxOrd1Index = getColumnIndex('TRX_ORD1');
+    const trxOrd2Index = getColumnIndex('TRX_ORD2');
     
     // Validate required columns exist
     if (stkCodeIndex === -1 || brkCod1Index === -1 || brkCod2Index === -1 || 
-        stkVolmIndex === -1 || stkPricIndex === -1) {
+        stkVolmIndex === -1 || stkPricIndex === -1 || trxCodeIndex === -1 ||
+        trxTimeIndex === -1 || trxOrd1Index === -1 || trxOrd2Index === -1) {
       console.error('❌ Required columns not found in CSV header');
       return data;
     }
@@ -121,10 +127,10 @@ export class ForeignFlowCalculator {
           BRK_COD2: values[brkCod2Index]?.trim() || '',
           STK_VOLM: parseFloat(values[stkVolmIndex]?.trim() || '0') || 0,
           STK_PRIC: parseFloat(values[stkPricIndex]?.trim() || '0') || 0,
-          TRX_DATE: trxDateIndex !== -1 ? values[trxDateIndex]?.trim() || '' : '',
-          TRX_TIME: trxTimeIndex !== -1 ? values[trxTimeIndex]?.trim() || '' : '',
-          INV_TYP1: invTyp1Index !== -1 ? values[invTyp1Index]?.trim() || '' : '',
-          INV_TYP2: invTyp2Index !== -1 ? values[invTyp2Index]?.trim() || '' : ''
+          TRX_CODE: values[trxCodeIndex]?.trim() || '',
+          TRX_TIME: values[trxTimeIndex]?.trim() || '',
+          TRX_ORD1: parseFloat(values[trxOrd1Index]?.trim() || '0') || 0,
+          TRX_ORD2: parseFloat(values[trxOrd2Index]?.trim() || '0') || 0
         };
         
         data.push(transaction);
@@ -136,198 +142,126 @@ export class ForeignFlowCalculator {
   }
 
   /**
-   * Check if transaction involves foreign investors
+   * Create broker breakdown data grouped by stock code
+   * Same logic as original file
    */
-  // private isForeignTransaction(transaction: TransactionData): boolean {
-  //   return transaction.INV_TYP1 === 'A' || transaction.INV_TYP2 === 'A';
-  // }
-
-  /**
-   * Create foreign flow data for each stock
-   */
-  private createForeignFlowData(data: TransactionData[]): Map<string, ForeignFlowData[]> {
-    console.log("\nCreating foreign flow data...");
+  private createBrokerBreakdownData(data: TransactionData[]): Map<string, BrokerBreakdownData[]> {
+    console.log("Creating broker breakdown data by stock...");
     
-    // Group by stock code and date
-    const stockDateGroups = new Map<string, Map<string, TransactionData[]>>();
+    const stockBrokerMap = new Map<string, Map<string, Map<number, {
+      buyLot: number;
+      buyFreq: number;
+      sellLot: number;
+      sellFreq: number;
+    }>>>();
     
     data.forEach(row => {
       const stock = row.STK_CODE;
-      const date = row.TRX_DATE;
+      const price = row.STK_PRIC;
+      const volume = row.STK_VOLM;
+      const isBid = row.TRX_ORD1 > row.TRX_ORD2; // HAKA -> BID, HAKI -> ASK
       
-      if (!stockDateGroups.has(stock)) {
-        stockDateGroups.set(stock, new Map());
+      // Get broker code based on HAKA/HAKI logic - same as original file
+      const brokerCode = isBid ? row.BRK_COD1 : row.BRK_COD2;
+      
+      if (!stockBrokerMap.has(stock)) {
+        stockBrokerMap.set(stock, new Map());
       }
+      const stockMap = stockBrokerMap.get(stock)!;
       
-      const dateGroups = stockDateGroups.get(stock)!;
-      if (!dateGroups.has(date)) {
-        dateGroups.set(date, []);
+      if (!stockMap.has(brokerCode)) {
+        stockMap.set(brokerCode, new Map());
       }
+      const brokerMap = stockMap.get(brokerCode)!;
       
-      dateGroups.get(date)!.push(row);
+      if (!brokerMap.has(price)) {
+        brokerMap.set(price, {
+          buyLot: 0,
+          buyFreq: 0,
+          sellLot: 0,
+          sellFreq: 0
+        });
+      }
+      const priceData = brokerMap.get(price)!;
+      
+      // Klasifikasi BID/ASK berdasarkan HAKA/HAKI - same as original file
+      if (isBid) {
+        priceData.buyLot += volume;
+        priceData.buyFreq += 1;
+      } else {
+        priceData.sellLot += volume;
+        priceData.sellFreq += 1;
+      }
     });
     
-    const foreignFlowData = new Map<string, ForeignFlowData[]>();
+    // Convert to array format - same as original file
+    const breakdownData = new Map<string, BrokerBreakdownData[]>();
     
-    stockDateGroups.forEach((dateGroups, stock) => {
-      const stockForeignFlow: ForeignFlowData[] = [];
+    stockBrokerMap.forEach((brokerMap, stock) => {
+      const stockData: BrokerBreakdownData[] = [];
       
-      dateGroups.forEach((transactions, date) => {
-        let buyVol = 0;
-        let sellVol = 0;
-        
-        transactions.forEach(transaction => {
-          const volume = transaction.STK_VOLM;
-          
-          // Check if foreign is buyer (INV_TYP2 = 'A')
-          if (transaction.INV_TYP2 === 'A') {
-            buyVol += volume;
-          }
-          
-          // Check if foreign is seller (INV_TYP1 = 'A')
-          if (transaction.INV_TYP1 === 'A') {
-            sellVol += volume;
-          }
-        });
-        
-        const netBuyVol = buyVol - sellVol;
-        
-        stockForeignFlow.push({
-          Date: date,
-          BuyVol: buyVol,
-          SellVol: sellVol,
-          NetBuyVol: netBuyVol
+      brokerMap.forEach((priceMap, broker) => {
+        priceMap.forEach((priceData, price) => {
+          stockData.push({
+            Price: price,
+            Broker: broker,
+            BLot: priceData.buyLot,
+            BFreq: priceData.buyFreq,
+            SLot: priceData.sellLot,
+            SFreq: priceData.sellFreq,
+            TFreq: priceData.buyFreq + priceData.sellFreq,
+            TLot: priceData.buyLot + priceData.sellLot
+          });
         });
       });
       
-      // Sort by date
-      stockForeignFlow.sort((a, b) => a.Date.localeCompare(b.Date));
+      // Sort by price ascending (low to high), then by broker - same as original file
+      stockData.sort((a, b) => {
+        if (a.Price !== b.Price) {
+          return a.Price - b.Price;
+        }
+        return a.Broker.localeCompare(b.Broker);
+      });
       
-      foreignFlowData.set(stock, stockForeignFlow);
+      breakdownData.set(stock, stockData);
     });
     
-    console.log(`Foreign flow data created for ${foreignFlowData.size} stocks`);
-    return foreignFlowData;
+    console.log(`Created broker breakdown data for ${breakdownData.size} stocks`);
+    return breakdownData;
   }
 
   /**
-   * Read existing CSV data from Azure
+   * Save broker breakdown data to Azure Blob Storage
    */
-  private async readExistingCsvDataFromAzure(filename: string): Promise<ForeignFlowData[]> {
-    try {
-      const content = await downloadText(filename);
-    
-    const lines = content.trim().split('\n');
-    const data: ForeignFlowData[] = [];
-    
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i];
-      if (!line) continue;
-      
-      const values = line.split(',');
-      if (values.length >= 4) {
-        data.push({
-          Date: values[0]?.trim() || '',
-          BuyVol: parseFloat(values[1]?.trim() || '0'),
-          SellVol: parseFloat(values[2]?.trim() || '0'),
-          NetBuyVol: parseFloat(values[3]?.trim() || '0')
-        });
-      }
-    }
-    
-    return data;
-    } catch (error) {
-      console.error(`Error reading existing CSV data from ${filename}:`, error);
-      return [];
-    }
-  }
-
-  /**
-   * Merge existing data with new data and sort by date
-   */
-  private mergeForeignFlowData(existingData: ForeignFlowData[], newData: ForeignFlowData[]): ForeignFlowData[] {
-    // Create a map to avoid duplicates
-    const dataMap = new Map<string, ForeignFlowData>();
-    
-    // Add existing data
-    existingData.forEach(item => {
-      dataMap.set(item.Date, item);
-    });
-    
-    // Add/update with new data
-    newData.forEach(item => {
-      dataMap.set(item.Date, item);
-    });
-    
-    // Convert back to array and sort by date
-    const mergedData = Array.from(dataMap.values());
-    mergedData.sort((a, b) => a.Date.localeCompare(b.Date));
-    
-    return mergedData;
-  }
-
-  /**
-   * Save data to Azure Blob Storage
-   */
-  private async saveToAzure(filename: string, data: ForeignFlowData[]): Promise<void> {
+  private async saveToAzure(filename: string, data: BrokerBreakdownData[]): Promise<string> {
     if (data.length === 0) {
       console.log(`No data to save for ${filename}`);
-      return;
+      return filename;
     }
     
-    // Convert to CSV format
-    const headers = ['Date', 'BuyVol', 'SellVol', 'NetBuyVol'];
+    // Convert to CSV format - same as original file
+    const headers = ['Price', 'Broker', 'BLot', 'BFreq', 'SLot', 'SFreq', 'TFreq', 'TLot'];
     const csvContent = [
       headers.join(','),
-      ...data.map(row => [row.Date, row.BuyVol, row.SellVol, row.NetBuyVol].join(','))
+      ...data.map(row => [
+        row.Price,
+        row.Broker,
+        row.BLot,
+        row.BFreq,
+        row.SLot,
+        row.SFreq,
+        row.TFreq,
+        row.TLot
+      ].join(','))
     ].join('\n');
     
     await uploadText(filename, csvContent, 'text/csv');
-    console.log(`Saved ${data.length} records to ${filename}`);
-  }
-
-
-  /**
-   * Create or update individual CSV files for each stock's foreign flow data
-   */
-  private async createForeignFlowCsvFiles(
-    foreignFlowData: Map<string, ForeignFlowData[]>, 
-    _dateSuffix: string
-  ): Promise<string[]> {
-    console.log("\nCreating/updating individual CSV files for each stock's foreign flow...");
-    
-    const createdFiles: string[] = [];
-    
-    for (const [stockCode, flowData] of foreignFlowData) {
-      const filename = `foreign_flow/${stockCode}.csv`;
-      
-      // Check if file already exists
-      const existingData = await this.readExistingCsvDataFromAzure(filename);
-      
-      if (existingData.length > 0) {
-        console.log(`Updating existing file: ${filename}`);
-        
-        // Merge with new data
-        const mergedData = this.mergeForeignFlowData(existingData, flowData);
-        
-        // Save merged and sorted data
-        await this.saveToAzure(filename, mergedData);
-        console.log(`Updated ${filename} with ${mergedData.length} total trading days`);
-      } else {
-        console.log(`Creating new file: ${filename}`);
-        await this.saveToAzure(filename, flowData);
-        console.log(`Created ${filename} with ${flowData.length} trading days`);
-      }
-      
-      createdFiles.push(filename);
-    }
-    
-    console.log(`\nProcessed ${createdFiles.length} foreign flow CSV files`);
-    return createdFiles;
+    console.log(`Saved ${data.length} broker breakdown records to ${filename}`);
+    return filename;
   }
 
   /**
-   * Process a single DT file with all foreign flow analysis
+   * Process a single DT file with broker breakdown analysis
    */
   private async processSingleDtFile(blobName: string): Promise<{ success: boolean; dateSuffix: string; files: string[] }> {
     const result = await this.loadAndProcessSingleDtFile(blobName);
@@ -343,14 +277,35 @@ export class ForeignFlowCalculator {
       return { success: false, dateSuffix, files: [] };
     }
     
+    // Validate that we have valid transaction data
+    const validTransactions = data.filter(t => 
+      t.STK_CODE && t.STK_CODE.length === 4 && 
+      t.BRK_COD1 && t.BRK_COD2 && 
+      t.STK_VOLM > 0 && t.STK_PRIC > 0
+    );
+    
+    if (validTransactions.length === 0) {
+      console.log(`⚠️ No valid transaction data in ${blobName} - skipping`);
+      return { success: false, dateSuffix, files: [] };
+    }
+    
+    console.log(`📊 Valid transactions: ${validTransactions.length}/${data.length}`);
+    
     console.log(`🔄 Processing ${blobName} (${data.length} transactions)...`);
     
     try {
-      // Create foreign flow data
-      const foreignFlowData = this.createForeignFlowData(data);
+      // Create broker breakdown data - same logic as original file
+      const breakdownData = this.createBrokerBreakdownData(validTransactions);
       
-      // Create or update individual CSV files for each stock
-      const createdFiles = await this.createForeignFlowCsvFiles(foreignFlowData, dateSuffix);
+      // Save CSV files for each stock - same structure as original file
+      const createdFiles: string[] = [];
+      
+      for (const [stockCode, stockData] of breakdownData) {
+        const filename = `done_summary_broker_breakdown/${dateSuffix}/${stockCode}.csv`;
+        await this.saveToAzure(filename, stockData);
+        createdFiles.push(filename);
+        console.log(`Created ${filename} with ${stockData.length} broker breakdown records`);
+      }
       
       console.log(`✅ Completed processing ${blobName} - ${createdFiles.length} files created`);
       return { success: true, dateSuffix, files: createdFiles };
@@ -362,11 +317,12 @@ export class ForeignFlowCalculator {
   }
 
   /**
-   * Main function to generate foreign flow data for all DT files
+   * Main function to generate broker breakdown data for all DT files
    */
-  public async generateForeignFlowData(_dateSuffix: string): Promise<{ success: boolean; message: string; data?: any }> {
+  public async generateBrokerBreakdownData(_dateSuffix: string): Promise<{ success: boolean; message: string; data?: any }> {
+    const startTime = Date.now();
     try {
-      console.log(`Starting foreign flow data extraction for all DT files...`);
+      console.log(`Starting broker breakdown analysis for all DT files...`);
       
       // Find all DT files
       const dtFiles = await this.findAllDtFiles();
@@ -375,15 +331,15 @@ export class ForeignFlowCalculator {
         console.log(`⚠️ No DT files found in done-summary folder`);
         return {
           success: true,
-          message: `No DT files found - skipped foreign flow calculation`,
+          message: `No DT files found - skipped broker breakdown generation`,
           data: { skipped: true, reason: 'No DT files found' }
         };
       }
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
-      // Process files in batches for speed (2 files at a time to prevent OOM)
-      const BATCH_SIZE = 10;
+      // Process files in batches for speed (10 files at a time to prevent OOM)
+      const BATCH_SIZE = BATCH_SIZE_PHASE_6; // Phase 6: 1 file at a time
       const allResults: { success: boolean; dateSuffix: string; files: string[] }[] = [];
       let processed = 0;
       let successful = 0;
@@ -425,32 +381,36 @@ export class ForeignFlowCalculator {
       }
       
       const totalFiles = allResults.reduce((sum, result) => sum + result.files.length, 0);
+      const totalDuration = Math.round((Date.now() - startTime) / 1000);
       
-      console.log(`✅ Foreign flow data extraction completed!`);
+      console.log(`✅ Broker breakdown analysis completed!`);
       console.log(`📊 Processed: ${processed}/${dtFiles.length} DT files`);
       console.log(`📊 Successful: ${successful}/${processed} files`);
       console.log(`📊 Total output files: ${totalFiles}`);
+      console.log(`✅ Broker Breakdown calculation completed successfully`);
+      console.log(`✅ Broker Breakdown completed in ${totalDuration}s`);
       
       return {
         success: true,
-        message: `Foreign flow data generated successfully for ${successful}/${processed} DT files`,
+        message: `Broker breakdown data generated successfully for ${successful}/${processed} DT files`,
         data: {
           totalDtFiles: dtFiles.length,
           processedFiles: processed,
           successfulFiles: successful,
           totalOutputFiles: totalFiles,
+          duration: totalDuration,
           results: allResults.filter(r => r.success)
         }
       };
       
     } catch (error) {
-      console.error('Error generating foreign flow data:', error);
+      console.error('Error generating broker breakdown data:', error);
       return {
         success: false,
-        message: `Failed to generate foreign flow data: ${error instanceof Error ? error.message : 'Unknown error'}`
+        message: `Failed to generate broker breakdown data: ${error instanceof Error ? error.message : 'Unknown error'}`
       };
     }
   }
 }
 
-export default ForeignFlowCalculator;
+export default BrokerBreakdownCalculator;
