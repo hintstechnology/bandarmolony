@@ -9,6 +9,10 @@ interface BidAskData {
   AskVolume: number;
   NetVolume: number;
   TotalVolume: number;
+  BidCount: number;
+  AskCount: number;
+  UniqueBidBrokers: number;
+  UniqueAskBrokers: number;
 }
 
 interface StockData {
@@ -74,14 +78,18 @@ export class AccumulationDistributionCalculator {
       if (!line) continue;
       
       const values = line.split(',');
-      if (values.length >= 6) {
+      if (values.length >= 10) {
         data.push({
           StockCode: values[0]?.trim() || '',
           Price: parseFloat(values[1]?.trim() || '0'),
           BidVolume: parseFloat(values[2]?.trim() || '0'),
           AskVolume: parseFloat(values[3]?.trim() || '0'),
           NetVolume: parseFloat(values[4]?.trim() || '0'),
-          TotalVolume: parseFloat(values[5]?.trim() || '0')
+          TotalVolume: parseFloat(values[5]?.trim() || '0'),
+          BidCount: parseFloat(values[6]?.trim() || '0'),
+          AskCount: parseFloat(values[7]?.trim() || '0'),
+          UniqueBidBrokers: parseFloat(values[8]?.trim() || '0'),
+          UniqueAskBrokers: parseFloat(values[9]?.trim() || '0')
         });
       }
     }
