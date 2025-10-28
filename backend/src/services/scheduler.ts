@@ -28,7 +28,7 @@ import { initializeAzureLogging } from './azureLoggingService';
 // All scheduler times are configured here for easy maintenance
 const SCHEDULER_CONFIG = {
   // Scheduled Calculation Times - Only Phase 1 runs on schedule
-  PHASE1_DATA_COLLECTION_TIME: '19:06',    // Data collection (Stock, Index, Done Summary)
+  PHASE1_DATA_COLLECTION_TIME: '19:01',    // Data collection (Stock, Index, Done Summary)
   PHASE1_SHAREHOLDERS_TIME: '00:00',       // Shareholders & Holding (if last month)
   
   // Phase 2-6 are auto-triggered sequentially after Phase 1 completes
