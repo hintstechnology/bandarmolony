@@ -11,8 +11,10 @@ const REQUEST_TIMEOUT = 30000;
 const RETRY_ATTEMPTS = 3;
 const RETRY_DELAY = 1000;
 
-// Memory Management
-const BATCH_SIZE = 150;
+// Memory Management - Batch sizes per phase
+const BATCH_SIZE_PHASE_1_2 = 250; // Phase 1-2: 250
+const BATCH_SIZE_PHASE_3_5 = 5;   // Phase 3-5: 5
+const BATCH_SIZE_PHASE_6 = 1;     // Phase 6: 1
 const MEMORY_CLEANUP_INTERVAL = 100;
 
 // Azure Storage Service with Connection Pooling
@@ -184,7 +186,7 @@ class ParallelProcessor {
   static async processInBatches<T, R>(
     items: T[],
     processor: (item: T, index: number) => Promise<R>,
-    batchSize: number = BATCH_SIZE,
+    batchSize: number = BATCH_SIZE_PHASE_1_2,
     maxConcurrency: number = MAX_CONCURRENT_REQUESTS
   ): Promise<R[]> {
     const results: R[] = [];
@@ -371,6 +373,8 @@ export {
   removeDuplicates,
   convertToCsv,
   parseCsvString,
-  BATCH_SIZE,
+  BATCH_SIZE_PHASE_1_2,
+  BATCH_SIZE_PHASE_3_5,
+  BATCH_SIZE_PHASE_6,
   MAX_CONCURRENT_REQUESTS
 };

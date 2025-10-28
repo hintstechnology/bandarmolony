@@ -1,5 +1,4 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
-import { BATCH_SIZE_PHASE_6 } from '../../services/dataUpdateService';
 
 // Type definitions
 interface TransactionData {
@@ -640,7 +639,7 @@ export class BrokerDataCalculator {
   /**
    * Process a single DT file with all broker analysis
    */
-  private async processSingleDtFile(blobName: string): Promise<{ success: boolean; dateSuffix: string; files: string[]; timing?: any }> {
+  private async processSingleDtFile(blobName: string): Promise<{ success: boolean; dateSuffix: string; files: string[] }> {
     const result = await this.loadAndProcessSingleDtFile(blobName);
     
     if (!result) {
@@ -657,17 +656,7 @@ export class BrokerDataCalculator {
     console.log(`🔄 Processing ${blobName} (${data.length} transactions)...`);
     
     try {
-      // Track timing for each output type
-      const timing = {
-        brokerSummary: 0,
-        brokerTransaction: 0,
-        topBroker: 0,
-        allsum: 0,
-        mainSummary: 0
-      };
-      
       // Create all analysis types in parallel for speed
-      const startTime = Date.now();
       const [brokerSummaryFiles, brokerTransactionFiles, topBroker, detailedSummary, comprehensiveSummary] = await Promise.all([
         this.createBrokerSummaryPerEmiten(data, dateSuffix),
         this.createBrokerTransactionPerBroker(data, dateSuffix),
@@ -675,7 +664,6 @@ export class BrokerDataCalculator {
         Promise.resolve(this.createDetailedBrokerSummary(data)),
         Promise.resolve(this.createComprehensiveTopBroker(data))
       ]);
-      timing.brokerSummary = Math.round((Date.now() - startTime) / 1000);
       
       // Create data maps for ALLSUM and top_broker files
       const brokerSummaryData = new Map<string, BrokerSummary[]>();
@@ -685,34 +673,30 @@ export class BrokerDataCalculator {
       // For now, we'll skip ALLSUM creation in this simplified version
       
       // Create ALLSUM and top_broker files
-      const allsumStartTime = Date.now();
       const [allsumFiles, topBrokerFiles] = await Promise.all([
         this.createAllsumFiles(dateSuffix, brokerSummaryData, brokerTransactionData),
         this.createTopBrokerFiles(dateSuffix, brokerSummaryData)
       ]);
-      timing.allsum = Math.round((Date.now() - allsumStartTime) / 1000);
       
-      // Save main summary files in parallel (same structure as original file)
-      const mainSummaryStartTime = Date.now();
+      // Save main summary files in parallel
       await Promise.all([
-        this.saveToAzure(`broker_summary/broker_summary_${dateSuffix}/ALLSUM-broker_summary.csv`, detailedSummary),
-        this.saveToAzure(`top_broker/top_broker_${dateSuffix}/top_broker.csv`, comprehensiveSummary),
+        this.saveToAzure(`broker_summary/broker_summary_${dateSuffix}.csv`, detailedSummary),
+        this.saveToAzure(`top_broker/top_broker_${dateSuffix}.csv`, comprehensiveSummary),
         this.saveToAzure(`top_broker/top_broker_${dateSuffix}/top_broker_by_stock.csv`, topBroker)
       ]);
-      timing.mainSummary = Math.round((Date.now() - mainSummaryStartTime) / 1000);
       
       const allFiles = [
         ...brokerSummaryFiles,
         ...brokerTransactionFiles,
         ...allsumFiles,
         ...topBrokerFiles,
-        `broker_summary/broker_summary_${dateSuffix}/ALLSUM-broker_summary.csv`,
-        `top_broker/top_broker_${dateSuffix}/top_broker.csv`,
+        `broker_summary/broker_summary_${dateSuffix}.csv`,
+        `top_broker/top_broker_${dateSuffix}.csv`,
         `top_broker/top_broker_${dateSuffix}/top_broker_by_stock.csv`
       ];
       
       console.log(`✅ Completed processing ${blobName} - ${allFiles.length} files created`);
-      return { success: true, dateSuffix, files: allFiles, timing };
+      return { success: true, dateSuffix, files: allFiles };
       
     } catch (error) {
       console.error(`Error processing ${blobName}:`, error);
@@ -724,7 +708,6 @@ export class BrokerDataCalculator {
    * Main function to generate broker data for all DT files
    */
   public async generateBrokerData(_dateSuffix: string): Promise<{ success: boolean; message: string; data?: any }> {
-    const startTime = Date.now();
     try {
       console.log(`Starting broker data analysis for all DT files...`);
       
@@ -743,8 +726,8 @@ export class BrokerDataCalculator {
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
       // Process files in batches for speed (2 files at a time to prevent OOM)
-      const BATCH_SIZE = BATCH_SIZE_PHASE_6; // Phase 6: 1 file at a time
-      const allResults: { success: boolean; dateSuffix: string; files: string[]; timing?: any }[] = [];
+      const BATCH_SIZE = 4;
+      const allResults: { success: boolean; dateSuffix: string; files: string[] }[] = [];
       let processed = 0;
       let successful = 0;
       
@@ -785,59 +768,11 @@ export class BrokerDataCalculator {
       }
       
       const totalFiles = allResults.reduce((sum, result) => sum + result.files.length, 0);
-      const totalDuration = Math.round((Date.now() - startTime) / 1000);
-      
-      // Calculate breakdown of output files by type and aggregate timing
-      let brokerSummaryFiles = 0;
-      let brokerTransactionFiles = 0;
-      let topBrokerFiles = 0;
-      let allsumFiles = 0;
-      
-      const totalTiming = {
-        brokerSummary: 0,
-        brokerTransaction: 0,
-        topBroker: 0,
-        allsum: 0,
-        mainSummary: 0
-      };
-      
-      allResults.forEach(result => {
-        if (result.success) {
-          result.files.forEach(file => {
-            if (file.includes('broker_summary/') && !file.includes('ALLSUM')) {
-              brokerSummaryFiles++;
-            } else if (file.includes('broker_transaction/') && !file.includes('ALLSUM')) {
-              brokerTransactionFiles++;
-            } else if (file.includes('top_broker/')) {
-              topBrokerFiles++;
-            } else if (file.includes('ALLSUM')) {
-              allsumFiles++;
-            }
-          });
-          
-          // Aggregate timing if available
-          if (result.timing) {
-            totalTiming.brokerSummary += result.timing.brokerSummary || 0;
-            totalTiming.brokerTransaction += result.timing.brokerTransaction || 0;
-            totalTiming.topBroker += result.timing.topBroker || 0;
-            totalTiming.allsum += result.timing.allsum || 0;
-            totalTiming.mainSummary += result.timing.mainSummary || 0;
-          }
-        }
-      });
       
       console.log(`✅ Broker data analysis completed!`);
       console.log(`📊 Processed: ${processed}/${dtFiles.length} DT files`);
       console.log(`📊 Successful: ${successful}/${processed} files`);
       console.log(`📊 Total output files: ${totalFiles}`);
-      console.log(`📊 Output breakdown:`);
-      console.log(`   📈 Broker Summary files: ${brokerSummaryFiles} (${totalTiming.brokerSummary}s)`);
-      console.log(`   📊 Broker Transaction files: ${brokerTransactionFiles} (${totalTiming.brokerTransaction}s)`);
-      console.log(`   🏆 Top Broker files: ${topBrokerFiles} (${totalTiming.topBroker}s)`);
-      console.log(`   📋 ALLSUM files: ${allsumFiles} (${totalTiming.allsum}s)`);
-      console.log(`   📄 Main Summary files: 3 (${totalTiming.mainSummary}s)`);
-      console.log(`✅ Broker Data calculation completed successfully`);
-      console.log(`✅ Broker Data completed in ${totalDuration}s`);
       
       return {
         success: true,
@@ -847,14 +782,6 @@ export class BrokerDataCalculator {
           processedFiles: processed,
           successfulFiles: successful,
           totalOutputFiles: totalFiles,
-          duration: totalDuration,
-          outputBreakdown: {
-            brokerSummaryFiles,
-            brokerTransactionFiles,
-            topBrokerFiles,
-            allsumFiles
-          },
-          timingBreakdown: totalTiming,
           results: allResults.filter(r => r.success)
         }
       };
@@ -869,18 +796,30 @@ export class BrokerDataCalculator {
   }
 
   /**
-   * Create ALLSUM files for broker_transaction only
-   * Note: ALLSUM-broker_summary.csv is created in main summary files
+   * Create ALLSUM files for broker_summary and broker_transaction
    */
   private async createAllsumFiles(
     dateSuffix: string,
-    _brokerSummaryData: Map<string, BrokerSummary[]>,
+    brokerSummaryData: Map<string, BrokerSummary[]>,
     brokerTransactionData: Map<string, BrokerTransactionData[]>
   ): Promise<string[]> {
     const createdFiles: string[] = [];
 
     try {
-      // Create ALLSUM-broker_transaction.csv only (same as original file)
+      // Create ALLSUM-broker_summary.csv
+      const allBrokerSummary: BrokerSummary[] = [];
+      for (const [, summaries] of brokerSummaryData) {
+        allBrokerSummary.push(...summaries);
+      }
+      
+      if (allBrokerSummary.length > 0) {
+        const allsumSummaryFilename = `broker_summary/broker_summary_${dateSuffix}/ALLSUM-broker_summary.csv`;
+        await this.saveToAzure(allsumSummaryFilename, allBrokerSummary);
+        createdFiles.push(allsumSummaryFilename);
+        console.log(`Created ${allsumSummaryFilename} with ${allBrokerSummary.length} rows`);
+      }
+
+      // Create ALLSUM-broker_transaction.csv
       const allBrokerTransaction: BrokerTransactionData[] = [];
       for (const [, transactions] of brokerTransactionData) {
         allBrokerTransaction.push(...transactions);
@@ -901,19 +840,108 @@ export class BrokerDataCalculator {
   }
 
   /**
-   * Create top_broker files (same structure as original file)
-   * Note: top_broker.csv and top_broker_by_stock.csv are created in main summary files
+   * Create top_broker files
    */
   private async createTopBrokerFiles(
-    _dateSuffix: string,
-    _brokerSummaryData: Map<string, BrokerSummary[]>
+    dateSuffix: string,
+    brokerSummaryData: Map<string, BrokerSummary[]>
   ): Promise<string[]> {
     const createdFiles: string[] = [];
 
     try {
-      // Note: top_broker files are created in main summary files to match original structure
-      // This function is kept for compatibility but doesn't create additional files
-      console.log(`Top broker files will be created in main summary files (same as original)`);
+      // Aggregate all broker data across all stocks
+      const brokerAggregated = new Map<string, {
+        BrokerCode: string;
+        TotalBuyerVol: number;
+        TotalBuyerValue: number;
+        TotalSellerVol: number;
+        TotalSellerValue: number;
+        TotalNetBuyVol: number;
+        TotalNetBuyValue: number;
+        StockCount: number;
+        AvgBuyerPrice: number;
+        AvgSellerPrice: number;
+      }>();
+
+      // Process each stock's broker data
+      for (const [, summaries] of brokerSummaryData) {
+        for (const summary of summaries) {
+          const existing = brokerAggregated.get(summary.BrokerCode);
+          if (existing) {
+            existing.TotalBuyerVol += summary.BuyerVol;
+            existing.TotalBuyerValue += summary.BuyerValue;
+            existing.TotalSellerVol += summary.SellerVol;
+            existing.TotalSellerValue += summary.SellerValue;
+            existing.TotalNetBuyVol += summary.NetBuyVol;
+            existing.TotalNetBuyValue += summary.NetBuyValue;
+            existing.StockCount += 1;
+            existing.AvgBuyerPrice = existing.TotalBuyerValue / existing.TotalBuyerVol;
+            existing.AvgSellerPrice = existing.TotalSellerValue / existing.TotalSellerVol;
+          } else {
+            brokerAggregated.set(summary.BrokerCode, {
+              BrokerCode: summary.BrokerCode,
+              TotalBuyerVol: summary.BuyerVol,
+              TotalBuyerValue: summary.BuyerValue,
+              TotalSellerVol: summary.SellerVol,
+              TotalSellerValue: summary.SellerValue,
+              TotalNetBuyVol: summary.NetBuyVol,
+              TotalNetBuyValue: summary.NetBuyValue,
+              StockCount: 1,
+              AvgBuyerPrice: summary.BuyerAvg,
+              AvgSellerPrice: summary.SellerAvg
+            });
+          }
+        }
+      }
+
+      // Convert to array and sort by total net buy value
+      const topBrokerData = Array.from(brokerAggregated.values())
+        .sort((a, b) => b.TotalNetBuyValue - a.TotalNetBuyValue);
+
+      // Create top_broker.csv
+      const topBrokerFilename = `top_broker/top_broker_${dateSuffix}/top_broker.csv`;
+      await this.saveToAzure(topBrokerFilename, topBrokerData);
+      createdFiles.push(topBrokerFilename);
+      console.log(`Created ${topBrokerFilename} with ${topBrokerData.length} brokers`);
+
+      // Create top_broker_by_stock.csv (top brokers for each stock)
+      const topBrokerByStockData: Array<{
+        Emiten: string;
+        BrokerCode: string;
+        BuyerVol: number;
+        BuyerValue: number;
+        SellerVol: number;
+        SellerValue: number;
+        NetBuyVol: number;
+        NetBuyValue: number;
+        BuyerAvg: number;
+        SellerAvg: number;
+        Rank: number;
+      }> = [];
+
+      for (const [emiten, summaries] of brokerSummaryData) {
+        const sortedSummaries = summaries.sort((a, b) => b.NetBuyValue - a.NetBuyValue);
+        sortedSummaries.forEach((summary, index) => {
+          topBrokerByStockData.push({
+            Emiten: emiten,
+            BrokerCode: summary.BrokerCode,
+            BuyerVol: summary.BuyerVol,
+            BuyerValue: summary.BuyerValue,
+            SellerVol: summary.SellerVol,
+            SellerValue: summary.SellerValue,
+            NetBuyVol: summary.NetBuyVol,
+            NetBuyValue: summary.NetBuyValue,
+            BuyerAvg: summary.BuyerAvg,
+            SellerAvg: summary.SellerAvg,
+            Rank: index + 1
+          });
+        });
+      }
+
+      const topBrokerByStockFilename = `top_broker/top_broker_${dateSuffix}/top_broker_by_stock.csv`;
+      await this.saveToAzure(topBrokerByStockFilename, topBrokerByStockData);
+      createdFiles.push(topBrokerByStockFilename);
+      console.log(`Created ${topBrokerByStockFilename} with ${topBrokerByStockData.length} rows`);
 
     } catch (error) {
       console.error('Error creating top_broker files:', error);

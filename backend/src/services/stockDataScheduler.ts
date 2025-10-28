@@ -10,7 +10,7 @@ import {
   removeDuplicates,
   convertToCsv,
   parseCsvString,
-  BATCH_SIZE,
+  BATCH_SIZE_PHASE_1_2,
   MAX_CONCURRENT_REQUESTS
 } from './dataUpdateService';
 import { SchedulerLogService } from './schedulerLogService';
@@ -23,20 +23,8 @@ function getJakartaTime(): string {
   return jakartaTime.toISOString();
 }
 
-// Sector mapping cache
-const SECTOR_MAPPING: { [key: string]: string[] } = {
-  'Basic Materials': [],
-  'Consumer Cyclicals': [],
-  'Consumer Non-Cyclicals': [],
-  'Energy': [],
-  'Financials': [],
-  'Healthcare': [],
-  'Industrials': [],
-  'Infrastructures': [],
-  'Properties & Real Estate': [],
-  'Technology': [],
-  'Transportation & Logistic': []
-};
+// Sector mapping cache - loaded from csv_input/sector_mapping.csv
+const SECTOR_MAPPING: { [key: string]: string[] } = {};
 
 function getSectorForEmiten(emiten: string): string {
   // Check if emiten already exists in mapping
@@ -46,56 +34,74 @@ function getSectorForEmiten(emiten: string): string {
     }
   }
   
-  // If not found, distribute based on hash
-  const sectors = Object.keys(SECTOR_MAPPING);
-  if (sectors.length === 0) {
-    return 'Financials'; // Default fallback
-  }
-  
-  const hash = emiten.split('').reduce((a, b) => {
-    a = ((a << 5) - a) + b.charCodeAt(0);
-    return a & a;
-  }, 0);
-  const sectorIndex = Math.abs(hash) % sectors.length;
-  const selectedSector = sectors[sectorIndex];
-  
-  if (!selectedSector) {
-    return 'Financials'; // Default fallback
-  }
-  
-  if (!SECTOR_MAPPING[selectedSector]) {
-    SECTOR_MAPPING[selectedSector] = [];
-  }
-  SECTOR_MAPPING[selectedSector].push(emiten);
-  
-  return selectedSector;
+  // If not found, use default fallback
+  return 'Financials'; // Default fallback
 }
 
-async function buildSectorMappingFromAzure(azureStorage: OptimizedAzureStorageService): Promise<void> {
-  console.log('🔍 Building sector mapping from Azure Storage...');
+async function buildSectorMappingFromCsv(azureStorage: OptimizedAzureStorageService): Promise<void> {
+  console.log('🔍 Building sector mapping from csv_input/sector_mapping.csv...');
   
   try {
-    const stockBlobs = await azureStorage.listBlobs('stock/');
+    // Load sector mapping from CSV
+    const sectorMappingCsvData = await azureStorage.downloadCsvData('csv_input/sector_mapping.csv');
+    const sectorMappingLines = sectorMappingCsvData.split('\n')
+      .map(line => line.trim())
+      .filter(line => line && line.length > 0);
     
+    // Clear existing mapping
     Object.keys(SECTOR_MAPPING).forEach(sector => {
       SECTOR_MAPPING[sector] = [];
     });
     
-    for (const blobName of stockBlobs) {
-      const pathParts = blobName.replace('stock/', '').split('/');
-      if (pathParts.length === 2 && pathParts[0] && pathParts[1]) {
-        const sector = pathParts[0];
-        const emiten = pathParts[1].replace('.csv', '');
+    // Parse CSV data (skip header)
+    for (let i = 1; i < sectorMappingLines.length; i++) {
+      const line = sectorMappingLines[i];
+      if (!line) continue;
+      
+      const values = line.split(',');
+      if (values.length >= 2) {
+        const sector = values[0]?.trim() || '';
+        const emiten = values[1]?.trim() || '';
         
-        if (SECTOR_MAPPING[sector]) {
+        if (sector && emiten) {
+          if (!SECTOR_MAPPING[sector]) {
+            SECTOR_MAPPING[sector] = [];
+          }
           SECTOR_MAPPING[sector].push(emiten);
         }
       }
     }
     
-    console.log('📊 Sector mapping built successfully');
+    console.log('📊 Sector mapping built successfully from CSV');
+    console.log(`📊 Found ${Object.keys(SECTOR_MAPPING).length} sectors with total ${Object.values(SECTOR_MAPPING).flat().length} emitens`);
+    
+    // Log sector breakdown
+    Object.entries(SECTOR_MAPPING).forEach(([sector, emitens]) => {
+      console.log(`📊 ${sector}: ${emitens.length} emitens`);
+    });
+    
   } catch (error) {
-    console.warn('⚠️ Could not build sector mapping from Azure, using default');
+    console.warn('⚠️ Could not build sector mapping from CSV:', error);
+    console.log('⚠️ Using default sector mapping');
+    
+    // Initialize with default sectors
+    const defaultSectors = [
+      'Basic Materials',
+      'Consumer Cyclicals', 
+      'Consumer Non-Cyclicals',
+      'Energy',
+      'Financials',
+      'Healthcare',
+      'Industrials',
+      'Infrastructures',
+      'Properties & Real Estate',
+      'Technology',
+      'Transportation & Logistic'
+    ];
+    
+    defaultSectors.forEach(sector => {
+      SECTOR_MAPPING[sector] = [];
+    });
   }
 }
 
@@ -313,16 +319,13 @@ export async function updateStockData(): Promise<void> {
     await azureStorage.ensureContainerExists();
     await AzureLogger.logInfo(SCHEDULER_TYPE, 'Azure Storage initialized');
 
-    await buildSectorMappingFromAzure(azureStorage);
-    await AzureLogger.logInfo(SCHEDULER_TYPE, 'Sector mapping built from Azure');
+    await buildSectorMappingFromCsv(azureStorage);
+    await AzureLogger.logInfo(SCHEDULER_TYPE, 'Sector mapping built from CSV');
 
-    // Get list of emitens from CSV input
-    const emitensCsvData = await azureStorage.downloadCsvData('csv_input/emiten_list.csv');
-    const emitenList = emitensCsvData.split('\n')
-      .map(line => line.trim())
-      .filter(line => line && line.length > 0);
-
-    await AzureLogger.logInfo(SCHEDULER_TYPE, `Found ${emitenList.length} emitens to update`);
+    // Get list of emitens from sector mapping (all emitens from all sectors)
+    const emitenList = Object.values(SECTOR_MAPPING).flat();
+    
+    await AzureLogger.logInfo(SCHEDULER_TYPE, `Found ${emitenList.length} emitens from sector mapping`);
 
     const jwtToken = process.env['TICMI_JWT_TOKEN'] || '';
     const baseUrl = `${process.env['TICMI_API_BASE_URL'] || ''}/dp/eq/`;
@@ -350,7 +353,7 @@ export async function updateStockData(): Promise<void> {
           logId
         );
       },
-      BATCH_SIZE,
+      BATCH_SIZE_PHASE_1_2,
       MAX_CONCURRENT_REQUESTS
     );
 

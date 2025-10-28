@@ -200,7 +200,7 @@ export class MoneyFlowCalculator {
 
   /**
    * Create or update individual CSV files for each stock/index's money flow data
-   * Using flat structure like original file: money_flow/{code}.csv
+   * Using subfolder structure: money_flow/stock/{code}.csv and money_flow/index/{code}.csv
    */
   private async createMoneyFlowCsvFiles(
     moneyFlowData: Map<string, { code: string; type: 'stock' | 'index'; mfiData: MoneyFlowData[] }>
@@ -212,8 +212,8 @@ export class MoneyFlowCalculator {
     let indexCount = 0;
     
     for (const [_key, { code, type, mfiData: flowData }] of moneyFlowData) {
-      // Use flat structure like original: money_flow/{code}.csv
-      const filename = `money_flow/${code}.csv`;
+      // Use subfolder structure: money_flow/{type}/{code}.csv
+      const filename = `money_flow/${type}/${code}.csv`;
       
       console.log(`📁 Processing ${code} -> ${code}.csv (${type.toUpperCase()})`);
       
@@ -271,8 +271,8 @@ export class MoneyFlowCalculator {
     }
     
     console.log(`\n📊 Processed ${createdFiles.length} money flow CSV files total:`);
-    console.log(`   - 📈 ${stockCount} stock files in money_flow/`);
-    console.log(`   - 📊 ${indexCount} index files in money_flow/`);
+    console.log(`   - 📈 ${stockCount} stock files in money_flow/stock/`);
+    console.log(`   - 📊 ${indexCount} index files in money_flow/index/`);
     return createdFiles;
   }
 
@@ -300,10 +300,12 @@ export class MoneyFlowCalculator {
   }
 
   /**
-   * Extract stock code from file path (like rrc_stock.ts)
+   * Extract stock code from file path (handles stock/{sector}/{code}.csv and index/{code}.csv)
    */
   private extractStockCode(filePath: string): string {
-    const fileName = filePath.split('/').pop()?.replace('.csv', '') || '';
+    // Handle structure: stock/{sector}/{code}.csv or index/{code}.csv
+    const pathParts = filePath.split('/');
+    const fileName = pathParts[pathParts.length - 1]?.replace('.csv', '') || '';
     return fileName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
   }
 
@@ -344,7 +346,7 @@ export class MoneyFlowCalculator {
     console.log("\nProcessing all files (stock and index) separately...");
     
     const moneyFlowData = new Map<string, { code: string; type: 'stock' | 'index'; mfiData: MoneyFlowData[] }>();
-    const BATCH_SIZE = 5; // Optimal batch size for 12GB threshold
+    const BATCH_SIZE = 10; // Optimal batch size for 12GB threshold
     
     // Process stock files first
     console.log("\n📈 Processing STOCK files...");

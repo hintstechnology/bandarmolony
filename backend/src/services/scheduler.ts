@@ -10,6 +10,7 @@ import AccumulationDataScheduler from './accumulationDataScheduler';
 import BidAskDataScheduler from './bidAskDataScheduler';
 import BrokerDataScheduler from './brokerDataScheduler';
 import BrokerInventoryDataScheduler from './brokerInventoryDataScheduler';
+import BrokerBreakdownDataScheduler from './brokerBreakdownDataScheduler';
 import ForeignFlowDataScheduler from './foreignFlowDataScheduler';
 import MoneyFlowDataScheduler from './moneyFlowDataScheduler';
 import BreakDoneTradeDataScheduler from './breakDoneTradeDataScheduler';
@@ -26,14 +27,16 @@ import { initializeAzureLogging } from './azureLoggingService';
 // ======================
 // All scheduler times are configured here for easy maintenance
 const SCHEDULER_CONFIG = {
-  // Phase-based Calculation Times - OPTIMIZED FOR 8GB RAM
-  PHASE1_DATA_COLLECTION_TIME: '19:35',    // Data collection (Stock, Index, Done Summary)
+  // Scheduled Calculation Times - Only Phase 1 runs on schedule
+  PHASE1_DATA_COLLECTION_TIME: '19:06',    // Data collection (Stock, Index, Done Summary)
   PHASE1_SHAREHOLDERS_TIME: '00:00',       // Shareholders & Holding (if last month)
-  PHASE2_MARKET_ROTATION_TIME: '19:35',   // Market rotation (RRC, RRG, Seasonal, Trend Filter)
-  PHASE3_LIGHT_TIME: '19:35',              // Light calculations (Money Flow, Foreign Flow, Break Done Trade)
-  // Phase 4 (medium) will run automatically after previous phase completes (Bid/ask)
-  // Phase 5 (heavy) will run automatically after previous phase completes (Broker Data)
-  // Phase 6 (very heavy) will run automatically after previous phase completes (Broker Inventory, Accumulation Distribution)
+  
+  // Phase 2-6 are auto-triggered sequentially after Phase 1 completes
+  // Phase 2: Market rotation (RRC, RRG, Seasonal, Trend Filter)
+  // Phase 3: Light calculations (Money Flow, Foreign Flow, Break Done Trade)
+  // Phase 4: Medium calculations (Bid/Ask Footprint, Broker Breakdown)
+  // Phase 5: Heavy calculations (Broker Data)
+  // Phase 6: Very Heavy calculations (Broker Inventory, Accumulation Distribution)
   
   // Memory Management
   MEMORY_CLEANUP_INTERVAL: 5000,  // 5 seconds
@@ -44,11 +47,9 @@ const SCHEDULER_CONFIG = {
   TIMEZONE: 'Asia/Jakarta'
 };
 
-// Extract times for backward compatibility
+// Extract times for scheduler
 const PHASE1_DATA_COLLECTION_TIME = SCHEDULER_CONFIG.PHASE1_DATA_COLLECTION_TIME;
 const PHASE1_SHAREHOLDERS_TIME = SCHEDULER_CONFIG.PHASE1_SHAREHOLDERS_TIME;
-const PHASE2_MARKET_ROTATION_TIME = SCHEDULER_CONFIG.PHASE2_MARKET_ROTATION_TIME;
-const PHASE3_LIGHT_TIME = SCHEDULER_CONFIG.PHASE3_LIGHT_TIME;
 const TIMEZONE = SCHEDULER_CONFIG.TIMEZONE;
 
 // Convert time to cron format (HH:MM -> MM HH * * *)
@@ -67,8 +68,6 @@ function isWeekend(): boolean {
 // Generate cron schedules from configuration
 const PHASE1_DATA_COLLECTION_SCHEDULE = timeToCron(PHASE1_DATA_COLLECTION_TIME);
 const PHASE1_SHAREHOLDERS_SCHEDULE = timeToCron(PHASE1_SHAREHOLDERS_TIME);
-const PHASE2_MARKET_ROTATION_SCHEDULE = timeToCron(PHASE2_MARKET_ROTATION_TIME);
-const PHASE3_LIGHT_SCHEDULE = timeToCron(PHASE3_LIGHT_TIME);
 
 let schedulerRunning = false;
 let scheduledTasks: any[] = [];
@@ -77,12 +76,23 @@ const accumulationService = new AccumulationDataScheduler();
 const bidAskService = new BidAskDataScheduler();
 const brokerDataService = new BrokerDataScheduler();
 const brokerInventoryService = new BrokerInventoryDataScheduler();
+const brokerBreakdownService = new BrokerBreakdownDataScheduler();
 const foreignFlowService = new ForeignFlowDataScheduler();
 const moneyFlowService = new MoneyFlowDataScheduler();
 const breakDoneTradeService = new BreakDoneTradeDataScheduler();
 
 // Memory monitoring variables
 let memoryMonitorInterval: NodeJS.Timeout | null = null;
+
+// Performance monitoring variables
+let performanceMetrics = {
+  batchCount: 0,
+  totalMemoryUsed: 0,
+  gcCount: 0,
+  errorCount: 0,
+  startTime: Date.now(),
+  batchTimes: [] as number[]
+};
 
 /**
  * Start memory monitoring
@@ -108,6 +118,44 @@ function stopMemoryMonitoring(): void {
 }
 
 /**
+ * Track batch performance
+ */
+function trackBatchPerformance(batchStartTime: number, batchName: string): void {
+  const batchDuration = Math.round((Date.now() - batchStartTime) / 1000);
+  performanceMetrics.batchTimes.push(batchDuration);
+  
+  console.log(`⏱️ Batch Performance: ${batchName} completed in ${batchDuration}s`);
+  
+  // Calculate average batch time
+  const avgBatchTime = performanceMetrics.batchTimes.reduce((sum, time) => sum + time, 0) / performanceMetrics.batchTimes.length;
+  console.log(`📊 Average Batch Time: ${avgBatchTime.toFixed(2)}s`);
+}
+
+/**
+ * Track error rate
+ */
+function trackError(error: any, context: string): void {
+  performanceMetrics.errorCount++;
+  console.error(`❌ Error in ${context}:`, error instanceof Error ? error.message : 'Unknown error');
+  console.log(`📊 Total Errors: ${performanceMetrics.errorCount}`);
+}
+
+/**
+ * Reset performance metrics
+ */
+function resetPerformanceMetrics(): void {
+  performanceMetrics = {
+    batchCount: 0,
+    totalMemoryUsed: 0,
+    gcCount: 0,
+    errorCount: 0,
+    startTime: Date.now(),
+    batchTimes: []
+  };
+  console.log('🔄 Performance metrics reset');
+}
+
+/**
  * Monitor memory usage and force cleanup if needed
  */
 async function monitorMemoryUsage(): Promise<boolean> {
@@ -117,7 +165,11 @@ async function monitorMemoryUsage(): Promise<boolean> {
   const usedGB = usedMB / 1024;
   const totalGB = totalMB / 1024;
   
-  // Get Node.js memory limit (8GB from NODE_OPTIONS)
+  // Update performance metrics
+  performanceMetrics.totalMemoryUsed += usedMB;
+  performanceMetrics.batchCount++;
+  
+  // Get Node.js memory limit (16GB from NODE_OPTIONS)
   const maxOldSpaceSize = process.env['NODE_OPTIONS']?.includes('--max-old-space-size=') 
     ? parseInt(process.env['NODE_OPTIONS'].split('--max-old-space-size=')[1]?.split(' ')[0] || '0') 
     : 0;
@@ -126,10 +178,15 @@ async function monitorMemoryUsage(): Promise<boolean> {
   console.log(`📊 Memory Usage: ${usedMB.toFixed(2)}MB / ${totalMB.toFixed(2)}MB (${usedGB.toFixed(2)}GB / ${totalGB.toFixed(2)}GB allocated)`);
   console.log(`🔧 Node.js Memory Limit: ${maxOldSpaceSize}MB (${maxGB.toFixed(1)}GB)`);
   
-  // If memory usage > 12GB, force cleanup
+  // Performance tracking
+  const avgMemory = performanceMetrics.totalMemoryUsed / performanceMetrics.batchCount;
+  console.log(`📈 Performance Metrics: Batches: ${performanceMetrics.batchCount}, Avg Memory: ${avgMemory.toFixed(2)}MB, GC Count: ${performanceMetrics.gcCount}, Errors: ${performanceMetrics.errorCount}`);
+  
+  // If memory usage > 6GB, force cleanup
   if (usedMB > 12000) {
     console.log('⚠️ High memory usage detected, forcing aggressive cleanup...');
     await aggressiveMemoryCleanup();
+    performanceMetrics.gcCount++;
     return false; // Skip next calculation
   }
   
@@ -142,15 +199,21 @@ async function monitorMemoryUsage(): Promise<boolean> {
 async function aggressiveMemoryCleanup(): Promise<void> {
   console.log('🧹 Starting aggressive memory cleanup...');
   
-  // Force garbage collection multiple times
-  for (let i = 0; i < 5; i++) {
+  // Force garbage collection multiple times with longer intervals
+  for (let i = 0; i < 10; i++) {
     if (global.gc) {
       global.gc();
     }
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, 2000)); // Longer wait between GC
   }
   
-  // Clear any cached data
+  // Additional cleanup - clear any cached data
+  if (global.gc) {
+    global.gc();
+  }
+  
+  // Force another round after clearing
+  await new Promise(resolve => setTimeout(resolve, 3000));
   if (global.gc) {
     global.gc();
   }
@@ -159,16 +222,351 @@ async function aggressiveMemoryCleanup(): Promise<void> {
 }
 
 /**
- * Run Phase 4 - Medium Calculations (Bid/Ask Footprint)
+ * Check memory before starting large operations
  */
-async function runPhase4MediumCalculations(): Promise<void> {
-  const phaseStartTime = new Date();
-  console.log(`\n🚀 ===== PHASE 4 MEDIUM CALCULATIONS STARTED =====`);
-  console.log(`🕐 Start Time: ${phaseStartTime.toISOString()}`);
-  console.log(`📋 Phase: Medium Calculations (Bid/Ask Footprint)`);
+async function checkMemoryBeforeLargeOperation(operationName: string): Promise<boolean> {
+  const memUsage = process.memoryUsage();
+  const usedMB = memUsage.heapUsed / 1024 / 1024;
+  
+  console.log(`🔍 Pre-operation Memory Check for ${operationName}: ${usedMB.toFixed(2)}MB`);
+  
+  // If already using more than 10GB, force cleanup first
+  if (usedMB > 10000) {
+    console.log(`⚠️ High memory usage before ${operationName}, forcing cleanup...`);
+    await aggressiveMemoryCleanup();
+    
+    // Check again after cleanup
+    const newMemUsage = process.memoryUsage();
+    const newUsedMB = newMemUsage.heapUsed / 1024 / 1024;
+    console.log(`🔍 Post-cleanup Memory: ${newUsedMB.toFixed(2)}MB`);
+    
+    // If still high, skip this operation
+    if (newUsedMB > 11000) {
+      console.log(`❌ Skipping ${operationName} due to high memory usage`);
+      return false;
+    }
+  }
+  
+  return true;
+}
+/**
+ * Run Phase 2 - Market Rotation Calculations (RRC, RRG, Seasonal, Trend Filter)
+ */
+async function runPhase2MarketRotationCalculations(): Promise<void> {
+  const phaseStartTime = Date.now();
+  console.log(`\n🚀 ===== PHASE 2 MARKET ROTATION STARTED =====`);
+  console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
+  console.log(`📋 Phase: Market Rotation (RRC, RRG, Seasonal, Trend Filter)`);
   
   // Start memory monitoring for this phase
   startMemoryMonitoring();
+  resetPerformanceMetrics();
+  
+  let logEntry: SchedulerLog | null = null;
+  
+  try {
+    // Check memory before starting
+    const memoryOk = await monitorMemoryUsage();
+    if (!memoryOk) {
+      console.log('⚠️ Skipping Phase 2 Market Rotation due to high memory usage');
+      stopMemoryMonitoring();
+      return;
+    }
+
+    // Create database log entry
+    const logData: Partial<SchedulerLog> = {
+      feature_name: 'phase2_market_rotation',
+      trigger_type: 'scheduled',
+      triggered_by: 'phase1',
+      status: 'running',
+      started_at: new Date().toISOString(),
+      environment: process.env['NODE_ENV'] || 'development'
+    };
+    
+    logEntry = await SchedulerLogService.createLog(logData);
+    if (logEntry) {
+      console.log('📊 Phase 2 Market Rotation database log created:', logEntry.id);
+    }
+    
+    console.log('🔄 Starting Phase 2 Market Rotation (PARALLEL MODE)...');
+    
+    // Track batch performance
+    trackBatchPerformance(phaseStartTime, 'Phase 2 Market Rotation Start');
+    
+    // Run market rotation calculations in parallel
+    const marketRotationTasks = [
+      { name: 'RRC Calculation', service: forceRegenerate, method: null },
+      { name: 'RRG Calculation', service: forceRegenerateRRG, method: null },
+      { name: 'Seasonal Calculation', service: forceRegenerateSeasonal, method: null },
+      { name: 'Trend Filter Calculation', service: trendFilterService, method: 'generateTrendFilterData' }
+    ];
+    
+    const marketRotationPromises = marketRotationTasks.map(async (task, index) => {
+      const startTime = Date.now();
+      
+      try {
+        console.log(`🔄 Starting ${task.name} (${index + 1}/4)...`);
+        
+        // Update progress in database
+        if (logEntry) {
+          await SchedulerLogService.updateLog(logEntry.id!, {
+            progress_percentage: Math.round((index / 4) * 100),
+            current_processing: `Running ${task.name}...`
+          });
+        }
+        
+        // Run calculation
+        const result = await (task.service as any)();
+        
+        const duration = Date.now() - startTime;
+        
+        if (result.success) {
+          console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
+          return { name: task.name, success: true, duration };
+        } else {
+          console.error(`❌ ${task.name} failed:`, result.message);
+          return { name: task.name, success: false, error: result.message, duration };
+        }
+        
+      } catch (error) {
+        const duration = Date.now() - startTime;
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.error(`❌ ${task.name} failed:`, errorMessage);
+        return { name: task.name, success: false, error: errorMessage, duration };
+      }
+    });
+    
+    // Wait for all calculations to complete
+    const marketRotationResults = await Promise.allSettled(marketRotationPromises);
+    
+    // Process results
+    const results: Array<{ name: string; success: boolean; error?: string; duration?: number }> = [];
+    marketRotationResults.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        results.push(result.value);
+      } else {
+        results.push({
+          name: marketRotationTasks[index]?.name || 'Unknown',
+          success: false,
+          error: result.reason instanceof Error ? result.reason.message : 'Unknown error'
+        });
+      }
+    });
+    
+    const successCount = results.filter(r => r.success).length;
+    const phaseEndTime = new Date();
+    const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
+    
+    console.log(`\n📊 ===== PHASE 2 MARKET ROTATION COMPLETED =====`);
+    console.log(`✅ Success: ${successCount}/4 calculations`);
+    console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
+    console.log(`⏱️ Total Duration: ${totalDuration}s`);
+    
+    // Update database log
+    if (logEntry) {
+      await SchedulerLogService.updateLog(logEntry.id!, {
+        status: successCount === 4 ? 'completed' : 'failed',
+        completed_at: new Date().toISOString(),
+        total_files_processed: 4,
+        files_created: successCount,
+        files_failed: 4 - successCount,
+        progress_percentage: 100,
+        current_processing: `Phase 2 Market Rotation complete: ${successCount}/4 calculations successful in ${totalDuration}s`
+      });
+    }
+    
+    // Cleanup after Phase 2 Market Rotation
+    await aggressiveMemoryCleanup();
+    
+    // Stop memory monitoring for this phase
+    stopMemoryMonitoring();
+    
+    // Trigger Phase 3 automatically if Phase 2 succeeded
+    if (successCount >= 3) { // Trigger Phase 3 if at least 3/4 succeed
+      console.log('🔄 Triggering Phase 3 Light calculations...');
+      await runPhase3LightCalculations();
+    } else {
+      console.log('⚠️ Skipping Phase 3 due to insufficient Phase 2 success rate');
+    }
+    
+  } catch (error) {
+    trackError(error, 'Phase 2 Market Rotation Calculations');
+    console.error('❌ Error during Phase 2 Market Rotation calculations:', error);
+    
+    // Stop memory monitoring on error
+    stopMemoryMonitoring();
+    
+    if (logEntry) {
+      await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
+    }
+  }
+}
+
+/**
+ * Run Phase 3 - Light Calculations (Money Flow, Foreign Flow, Break Done Trade)
+ */
+async function runPhase3LightCalculations(): Promise<void> {
+  const phaseStartTime = Date.now();
+  console.log(`\n🚀 ===== PHASE 3 LIGHT CALCULATIONS STARTED =====`);
+  console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
+  console.log(`📋 Phase: Light Calculations (Money Flow, Foreign Flow, Break Done Trade)`);
+  
+  // Start memory monitoring for this phase
+  startMemoryMonitoring();
+  resetPerformanceMetrics();
+  
+  let logEntry: SchedulerLog | null = null;
+  
+  try {
+    // Check memory before starting
+    const canProceed = await checkMemoryBeforeLargeOperation('Phase 3 Light Calculations');
+    if (!canProceed) {
+      console.log('⚠️ Skipping Phase 3 Light due to high memory usage');
+      stopMemoryMonitoring();
+      return;
+    }
+    
+    const memoryOk = await monitorMemoryUsage();
+    if (!memoryOk) {
+      console.log('⚠️ Skipping Phase 3 Light due to high memory usage');
+      stopMemoryMonitoring();
+      return;
+    }
+    
+    // Create database log entry
+    const logData: Partial<SchedulerLog> = {
+      feature_name: 'phase3_light_calculations',
+      trigger_type: 'scheduled',
+      triggered_by: 'phase2',
+      status: 'running',
+      started_at: new Date().toISOString(),
+      environment: process.env['NODE_ENV'] || 'development'
+    };
+    
+    logEntry = await SchedulerLogService.createLog(logData);
+    if (logEntry) {
+      console.log('📊 Phase 3 Light database log created:', logEntry.id);
+    }
+    
+    console.log('🔄 Starting Phase 3 Light calculations (PARALLEL MODE)...');
+    
+    // Run light calculations in parallel
+    const lightCalculations = [
+      { name: 'Money Flow', service: moneyFlowService, method: 'generateMoneyFlowData' },
+      { name: 'Foreign Flow', service: foreignFlowService, method: 'generateForeignFlowData' },
+      { name: 'Break Done Trade', service: breakDoneTradeService, method: 'generateBreakDoneTradeData' }
+    ];
+    
+    const lightCalculationPromises = lightCalculations.map(async (task, index) => {
+      const startTime = Date.now();
+      
+      try {
+        console.log(`🔄 Starting ${task.name} (${index + 1}/3)...`);
+        
+        // Update progress in database
+        if (logEntry) {
+          await SchedulerLogService.updateLog(logEntry.id!, {
+            progress_percentage: Math.round((index / 3) * 100),
+            current_processing: `Running ${task.name}...`
+          });
+        }
+        
+        // Run calculation
+        const result = await (task.service as any)[task.method]('all');
+        
+        const duration = Date.now() - startTime;
+        
+        if (result.success) {
+          console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
+          return { name: task.name, success: true, duration };
+        } else {
+          console.error(`❌ ${task.name} failed:`, result.message);
+          return { name: task.name, success: false, error: result.message, duration };
+        }
+        
+      } catch (error) {
+        const duration = Date.now() - startTime;
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.error(`❌ ${task.name} failed:`, errorMessage);
+        return { name: task.name, success: false, error: errorMessage, duration };
+      }
+    });
+    
+    // Wait for all calculations to complete
+    const lightCalculationResults = await Promise.allSettled(lightCalculationPromises);
+    
+    // Process results
+    const results: Array<{ name: string; success: boolean; error?: string; duration?: number }> = [];
+    lightCalculationResults.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        results.push(result.value);
+      } else {
+        results.push({
+          name: lightCalculations[index]?.name || 'Unknown',
+          success: false,
+          error: result.reason instanceof Error ? result.reason.message : 'Unknown error'
+        });
+      }
+    });
+    
+    const successCount = results.filter(r => r.success).length;
+    const phaseEndTime = new Date();
+    const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
+    
+    console.log(`\n📊 ===== PHASE 3 LIGHT COMPLETED =====`);
+    console.log(`✅ Success: ${successCount}/3 calculations`);
+    console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
+    console.log(`⏱️ Total Duration: ${totalDuration}s`);
+    
+    // Update database log
+    if (logEntry) {
+      await SchedulerLogService.updateLog(logEntry.id!, {
+        status: successCount === 3 ? 'completed' : 'failed',
+        completed_at: new Date().toISOString(),
+        total_files_processed: 3,
+        files_created: successCount,
+        files_failed: 3 - successCount,
+        progress_percentage: 100,
+        current_processing: `Phase 3 Light complete: ${successCount}/3 calculations successful in ${totalDuration}s`
+      });
+    }
+    
+    // Cleanup after Phase 3 Light
+    await aggressiveMemoryCleanup();
+    
+    // Stop memory monitoring for this phase
+    stopMemoryMonitoring();
+    
+    // Trigger Phase 4 automatically if Phase 3 succeeded
+    if (successCount >= 2) { // Trigger Phase 4 if at least 2/3 succeed
+      console.log('🔄 Triggering Phase 4 Medium calculations...');
+      await runPhase4MediumCalculations();
+    } else {
+      console.log('⚠️ Skipping Phase 4 due to insufficient Phase 3 success rate');
+    }
+    
+  } catch (error) {
+    trackError(error, 'Phase 3 Light Calculations');
+    console.error('❌ Error during Phase 3 Light calculations:', error);
+    
+    // Stop memory monitoring on error
+    stopMemoryMonitoring();
+    
+    if (logEntry) {
+      await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
+    }
+  }
+}
+
+async function runPhase4MediumCalculations(): Promise<void> {
+  const phaseStartTime = Date.now();
+  console.log(`\n🚀 ===== PHASE 4 MEDIUM CALCULATIONS STARTED =====`);
+  console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
+  console.log(`📋 Phase: Medium Calculations (Bid/Ask Footprint, Broker Breakdown)`);
+  
+  // Start memory monitoring for this phase
+  startMemoryMonitoring();
+  resetPerformanceMetrics();
   
   let logEntry: SchedulerLog | null = null;
   
@@ -178,9 +576,9 @@ async function runPhase4MediumCalculations(): Promise<void> {
     if (!memoryOk) {
       console.log('⚠️ Skipping Phase 4 Medium due to high memory usage');
       stopMemoryMonitoring();
-      return;
-    }
-    
+        return;
+      }
+
     // Create database log entry
     const logData: Partial<SchedulerLog> = {
       feature_name: 'phase4_medium_calculations',
@@ -198,26 +596,43 @@ async function runPhase4MediumCalculations(): Promise<void> {
     
     console.log('🔄 Starting Bid/Ask Footprint calculation...');
     
-    const result = await bidAskService.generateBidAskData('all');
+    const bidAskStartTime = Date.now();
+    const bidAskResult = await bidAskService.generateBidAskData('all');
+    const bidAskDuration = Math.round((Date.now() - bidAskStartTime) / 1000);
+    
+    console.log(`📊 Bid/Ask Footprint completed in ${bidAskDuration}s`);
+    
+    console.log('🔄 Starting Broker Breakdown calculation...');
+    
+    const brokerBreakdownStartTime = Date.now();
+    const brokerBreakdownResult = await brokerBreakdownService.generateBrokerBreakdownData('all');
+    const brokerBreakdownDuration = Math.round((Date.now() - brokerBreakdownStartTime) / 1000);
+    
+    console.log(`📊 Broker Breakdown completed in ${brokerBreakdownDuration}s`);
     
     const phaseEndTime = new Date();
-    const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime.getTime()) / 1000);
+    const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
+    
+    const successCount = (bidAskResult.success ? 1 : 0) + (brokerBreakdownResult.success ? 1 : 0);
+    const totalCalculations = 2;
     
     console.log(`\n📊 ===== PHASE 4 MEDIUM COMPLETED =====`);
-    console.log(`✅ Success: ${result.success ? '1/1' : '0/1'} calculations`);
+    console.log(`✅ Success: ${successCount}/${totalCalculations} calculations`);
+    console.log(`📊 Bid/Ask Footprint: ${bidAskResult.success ? 'SUCCESS' : 'FAILED'} (${bidAskDuration}s)`);
+    console.log(`📊 Broker Breakdown: ${brokerBreakdownResult.success ? 'SUCCESS' : 'FAILED'} (${brokerBreakdownDuration}s)`);
     console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
     console.log(`⏱️ Total Duration: ${totalDuration}s`);
     
     // Update database log
     if (logEntry) {
       await SchedulerLogService.updateLog(logEntry.id!, {
-        status: result.success ? 'completed' : 'failed',
+        status: successCount >= 1 ? 'completed' : 'failed',
         completed_at: new Date().toISOString(),
-        total_files_processed: 1,
-        files_created: result.success ? 1 : 0,
-        files_failed: result.success ? 0 : 1,
+        total_files_processed: totalCalculations,
+        files_created: successCount,
+        files_failed: totalCalculations - successCount,
         progress_percentage: 100,
-        current_processing: `Phase 4 Medium complete: Bid/Ask Footprint ${result.success ? 'successful' : 'failed'} in ${totalDuration}s`
+        current_processing: `Phase 4 Medium complete: ${successCount}/${totalCalculations} calculations successful in ${totalDuration}s`
       });
     }
     
@@ -228,15 +643,16 @@ async function runPhase4MediumCalculations(): Promise<void> {
     stopMemoryMonitoring();
     
     // Trigger Phase 5 automatically if Phase 4 succeeded
-    if (result.success) {
+    if (successCount >= 1) { // Trigger Phase 5 if at least 1/2 succeed
       console.log('🔄 Triggering Phase 5 Heavy calculations...');
       await runPhase5HeavyCalculations();
     } else {
       console.log('⚠️ Skipping Phase 5 due to Phase 4 failure');
     }
     
-  } catch (error) {
-    console.error('❌ Error during Phase 4 Medium calculations:', error);
+    } catch (error) {
+      trackError(error, 'Phase 4 Medium Calculations');
+      console.error('❌ Error during Phase 4 Medium calculations:', error);
     
     // Stop memory monitoring on error
     stopMemoryMonitoring();
@@ -251,37 +667,37 @@ async function runPhase4MediumCalculations(): Promise<void> {
  * Run Phase 5 - Heavy Calculations (Broker Data)
  */
 async function runPhase5HeavyCalculations(): Promise<void> {
-  const phaseStartTime = new Date();
+  const phaseStartTime = Date.now();
   console.log(`\n🚀 ===== PHASE 5 HEAVY CALCULATIONS STARTED =====`);
-  console.log(`🕐 Start Time: ${phaseStartTime.toISOString()}`);
+  console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
   console.log(`📋 Phase: Heavy Calculations (Broker Data)`);
   
   // Start memory monitoring for this phase
   startMemoryMonitoring();
-  
-  let logEntry: SchedulerLog | null = null;
-  
-  try {
+    
+    let logEntry: SchedulerLog | null = null;
+    
+    try {
     // Check memory before starting
     const memoryOk = await monitorMemoryUsage();
     if (!memoryOk) {
       console.log('⚠️ Skipping Phase 5 Heavy due to high memory usage');
       stopMemoryMonitoring();
-      return;
-    }
-    
-    // Create database log entry
-    const logData: Partial<SchedulerLog> = {
+        return;
+      }
+      
+      // Create database log entry
+      const logData: Partial<SchedulerLog> = {
       feature_name: 'phase5_heavy_calculations',
-      trigger_type: 'scheduled',
+        trigger_type: 'scheduled',
       triggered_by: 'phase4',
-      status: 'running',
-      started_at: new Date().toISOString(),
-      environment: process.env['NODE_ENV'] || 'development'
-    };
-    
-    logEntry = await SchedulerLogService.createLog(logData);
-    if (logEntry) {
+        status: 'running',
+        started_at: new Date().toISOString(),
+        environment: process.env['NODE_ENV'] || 'development'
+      };
+      
+      logEntry = await SchedulerLogService.createLog(logData);
+      if (logEntry) {
       console.log('📊 Phase 5 Heavy database log created:', logEntry.id);
     }
     
@@ -290,7 +706,7 @@ async function runPhase5HeavyCalculations(): Promise<void> {
     const result = await brokerDataService.generateBrokerData('all');
     
     const phaseEndTime = new Date();
-    const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime.getTime()) / 1000);
+    const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
     
     console.log(`\n📊 ===== PHASE 5 HEAVY COMPLETED =====`);
     console.log(`✅ Success: ${result.success ? '1/1' : '0/1'} calculations`);
@@ -320,11 +736,12 @@ async function runPhase5HeavyCalculations(): Promise<void> {
     if (result.success) {
       console.log('🔄 Triggering Phase 6 Very Heavy calculations...');
       await runPhase6VeryHeavyCalculations();
-    } else {
+      } else {
       console.log('⚠️ Skipping Phase 6 due to Phase 5 failure');
     }
     
   } catch (error) {
+    trackError(error, 'Phase 5 Heavy Calculations');
     console.error('❌ Error during Phase 5 Heavy calculations:', error);
     
     // Stop memory monitoring on error
@@ -340,13 +757,14 @@ async function runPhase5HeavyCalculations(): Promise<void> {
  * Run Phase 6 - Very Heavy Calculations (Broker Inventory, Accumulation Distribution)
  */
 async function runPhase6VeryHeavyCalculations(): Promise<void> {
-  const phaseStartTime = new Date();
+  const phaseStartTime = Date.now();
   console.log(`\n🚀 ===== PHASE 6 VERY HEAVY CALCULATIONS STARTED =====`);
-  console.log(`🕐 Start Time: ${phaseStartTime.toISOString()}`);
+  console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
   console.log(`📋 Phase: Very Heavy Calculations (Broker Inventory, Accumulation Distribution)`);
   
   // Start memory monitoring for this phase
   startMemoryMonitoring();
+  resetPerformanceMetrics();
   
   let logEntry: SchedulerLog | null = null;
   
@@ -402,12 +820,16 @@ async function runPhase6VeryHeavyCalculations(): Promise<void> {
         if (result.success) {
           totalSuccessCount++;
           console.log(`✅ ${calc.name} completed in ${calcDuration}s`);
-        } else {
+          } else {
           console.error(`❌ ${calc.name} failed:`, result.message);
+          console.error(`❌ Stopping Phase 6 due to critical calculation failure`);
+          break; // Stop processing remaining calculations
         }
       } catch (error) {
         const calcDuration = Math.round((Date.now() - calcStartTime) / 1000);
         console.error(`❌ ${calc.name} error in ${calcDuration}s:`, error);
+        console.error(`❌ Stopping Phase 6 due to critical calculation error`);
+        break; // Stop processing remaining calculations
       }
       
       totalCalculations++;
@@ -423,23 +845,29 @@ async function runPhase6VeryHeavyCalculations(): Promise<void> {
     }
     
     const phaseEndTime = new Date();
-    const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime.getTime()) / 1000);
+    const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
     
-    console.log(`\n📊 ===== PHASE 6 VERY HEAVY COMPLETED =====`);
+    const allCalculationsSuccessful = totalSuccessCount === totalCalculations && totalCalculations > 0;
+    
+    console.log(`\n📊 ===== PHASE 6 VERY HEAVY ${allCalculationsSuccessful ? 'COMPLETED' : 'FAILED'} =====`);
     console.log(`✅ Success: ${totalSuccessCount}/${totalCalculations} calculations`);
     console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
     console.log(`⏱️ Total Duration: ${totalDuration}s`);
     
-    // Update database log
-    if (logEntry) {
-      await SchedulerLogService.updateLog(logEntry.id!, {
-        status: totalSuccessCount === totalCalculations ? 'completed' : 'failed',
-        completed_at: new Date().toISOString(),
-        total_files_processed: totalCalculations,
-        files_created: totalSuccessCount,
-        files_failed: totalCalculations - totalSuccessCount,
-        progress_percentage: 100,
-        current_processing: `Phase 6 Very Heavy complete: ${totalSuccessCount}/${totalCalculations} calculations successful in ${totalDuration}s`
+    if (!allCalculationsSuccessful) {
+      console.error(`❌ Phase 6 failed: ${totalCalculations - totalSuccessCount} calculations failed`);
+    }
+      
+      // Update database log
+      if (logEntry) {
+        await SchedulerLogService.updateLog(logEntry.id!, {
+        status: allCalculationsSuccessful ? 'completed' : 'failed',
+          completed_at: new Date().toISOString(),
+          total_files_processed: totalCalculations,
+          files_created: totalSuccessCount,
+          files_failed: totalCalculations - totalSuccessCount,
+          progress_percentage: 100,
+        current_processing: `Phase 6 Very Heavy ${allCalculationsSuccessful ? 'complete' : 'failed'}: ${totalSuccessCount}/${totalCalculations} calculations successful in ${totalDuration}s`
       });
     }
     
@@ -448,17 +876,18 @@ async function runPhase6VeryHeavyCalculations(): Promise<void> {
     
     // Stop memory monitoring after all phases complete
     stopMemoryMonitoring();
-    
-  } catch (error) {
-    console.error('❌ Error during Phase 6 Very Heavy calculations:', error);
-    
+      
+    } catch (error) {
+      trackError(error, 'Phase 6 Very Heavy Calculations');
+      console.error('❌ Error during Phase 6 Very Heavy calculations:', error);
+      
     // Stop memory monitoring on error
     stopMemoryMonitoring();
     
-    if (logEntry) {
-      await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
+      if (logEntry) {
+        await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
+      }
     }
-  }
 }
 
 /**
@@ -476,9 +905,9 @@ export function startScheduler(): void {
 
   // 1. Schedule Phase 1 - Data Collection (Stock, Index, Done Summary)
   const phase1DataCollectionTask = cron.schedule(PHASE1_DATA_COLLECTION_SCHEDULE, async () => {
-    const phaseStartTime = new Date();
+    const phaseStartTime = Date.now();
     console.log(`\n🚀 ===== PHASE 1 DATA COLLECTION STARTED =====`);
-    console.log(`🕐 Start Time: ${phaseStartTime.toISOString()}`);
+    console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
     console.log(`📋 Phase: Data Collection (Stock, Index, Done Summary) - 7 days`);
     
     // Skip if weekend
@@ -512,7 +941,11 @@ export function startScheduler(): void {
         console.log('📊 Phase 1 Data Collection database log created:', logEntry.id);
       }
       
+      const phaseStartTime = Date.now();
       console.log('🔄 Starting Phase 1 Data Collection (PARALLEL MODE)...');
+      
+      // Track batch performance
+      trackBatchPerformance(phaseStartTime, 'Phase 1 Data Collection Start');
       
       // Run data collection in parallel
       const dataCollectionTasks = [
@@ -528,8 +961,8 @@ export function startScheduler(): void {
           console.log(`🔄 Starting ${task.name} (${index + 1}/3)...`);
           
           // Update progress in database
-          if (logEntry) {
-            await SchedulerLogService.updateLog(logEntry.id!, {
+  if (logEntry) {
+    await SchedulerLogService.updateLog(logEntry.id!, {
               progress_percentage: Math.round((index / 3) * 100),
               current_processing: `Running ${task.name}...`
             });
@@ -538,19 +971,19 @@ export function startScheduler(): void {
           // Run calculation
           const result = await (task.service as any)();
           
-          const duration = Date.now() - startTime;
-          
-          if (result.success) {
+        const duration = Date.now() - startTime;
+        
+        if (result.success) {
             console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
             return { name: task.name, success: true, duration };
-          } else {
+        } else {
             console.error(`❌ ${task.name} failed:`, result.message);
             return { name: task.name, success: false, error: result.message, duration };
-          }
+        }
           
-        } catch (error) {
-          const duration = Date.now() - startTime;
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      } catch (error) {
+        const duration = Date.now() - startTime;
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
           console.error(`❌ ${task.name} failed:`, errorMessage);
           return { name: task.name, success: false, error: errorMessage, duration };
         }
@@ -562,20 +995,20 @@ export function startScheduler(): void {
       // Process results
       const results: Array<{ name: string; success: boolean; error?: string; duration?: number }> = [];
       dataCollectionResults.forEach((result, index) => {
-        if (result.status === 'fulfilled') {
-          results.push(result.value);
-        } else {
-          results.push({
+    if (result.status === 'fulfilled') {
+      results.push(result.value);
+    } else {
+      results.push({
             name: dataCollectionTasks[index]?.name || 'Unknown',
-            success: false,
-            error: result.reason instanceof Error ? result.reason.message : 'Unknown error'
-          });
-        }
+        success: false,
+        error: result.reason instanceof Error ? result.reason.message : 'Unknown error'
       });
-      
+    }
+  });
+  
       const successCount = results.filter(r => r.success).length;
       const phaseEndTime = new Date();
-      const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime.getTime()) / 1000);
+      const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
       
       console.log(`\n📊 ===== PHASE 1 DATA COLLECTION COMPLETED =====`);
       console.log(`✅ Success: ${successCount}/3 calculations`);
@@ -583,8 +1016,8 @@ export function startScheduler(): void {
       console.log(`⏱️ Total Duration: ${totalDuration}s`);
       
       // Update database log
-      if (logEntry) {
-        await SchedulerLogService.updateLog(logEntry.id!, {
+  if (logEntry) {
+    await SchedulerLogService.updateLog(logEntry.id!, {
           status: successCount === 3 ? 'completed' : 'failed',
           completed_at: new Date().toISOString(),
           total_files_processed: 3,
@@ -597,6 +1030,14 @@ export function startScheduler(): void {
       
       // Cleanup after Phase 1 Data Collection
       await aggressiveMemoryCleanup();
+      
+      // Trigger Phase 2 automatically if Phase 1 succeeded
+      if (successCount >= 2) { // Trigger Phase 2 if at least 2/3 succeed
+        console.log('🔄 Triggering Phase 2 Market Rotation calculations...');
+        await runPhase2MarketRotationCalculations();
+      } else {
+        console.log('⚠️ Skipping Phase 2 due to insufficient Phase 1 success rate');
+      }
       
     } catch (error) {
       console.error('❌ Error during Phase 1 Data Collection:', error);
@@ -612,9 +1053,9 @@ export function startScheduler(): void {
 
   // 2. Schedule Phase 1 - Shareholders & Holding (Monthly check)
   const phase1ShareholdersTask = cron.schedule(PHASE1_SHAREHOLDERS_SCHEDULE, async () => {
-    const phaseStartTime = new Date();
+    const phaseStartTime = Date.now();
     console.log(`\n🚀 ===== PHASE 1 SHAREHOLDERS & HOLDING STARTED =====`);
-    console.log(`🕐 Start Time: ${phaseStartTime.toISOString()}`);
+    console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
     console.log(`📋 Phase: Shareholders & Holding (Monthly check)`);
     
     // Skip if weekend
@@ -665,14 +1106,14 @@ export function startScheduler(): void {
         ];
         
         const shareholdersHoldingPromises = shareholdersHoldingTasks.map(async (task, index) => {
-          const startTime = Date.now();
-          
-          try {
+    const startTime = Date.now();
+    
+    try {
             console.log(`🔄 Starting ${task.name} (${index + 1}/2)...`);
-            
-            // Update progress in database
-            if (logEntry) {
-              await SchedulerLogService.updateLog(logEntry.id!, {
+      
+      // Update progress in database
+      if (logEntry) {
+        await SchedulerLogService.updateLog(logEntry.id!, {
                 progress_percentage: Math.round((index / 2) * 100),
                 current_processing: `Running ${task.name}...`
               });
@@ -680,13 +1121,13 @@ export function startScheduler(): void {
             
             // Run calculation
             const result = await (task.service as any)();
-            
-            const duration = Date.now() - startTime;
-            
-            if (result.success) {
+      
+      const duration = Date.now() - startTime;
+      
+      if (result.success) {
               console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
               return { name: task.name, success: true, duration };
-            } else {
+      } else {
               console.error(`❌ ${task.name} failed:`, result.message);
               return { name: task.name, success: false, error: result.message, duration };
             }
@@ -718,7 +1159,7 @@ export function startScheduler(): void {
         
         const successCount = results.filter(r => r.success).length;
         const phaseEndTime = new Date();
-        const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime.getTime()) / 1000);
+        const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
         
         console.log(`\n📊 ===== PHASE 1 SHAREHOLDERS & HOLDING COMPLETED =====`);
         console.log(`✅ Success: ${successCount}/2 calculations`);
@@ -757,303 +1198,30 @@ export function startScheduler(): void {
   });
   scheduledTasks.push(phase1ShareholdersTask);
 
-  // 3. Schedule Phase 2 - Market Rotation (RRC, RRG, Seasonal, Trend Filter)
-  const phase2MarketRotationTask = cron.schedule(PHASE2_MARKET_ROTATION_SCHEDULE, async () => {
-    const phaseStartTime = new Date();
-    console.log(`\n🚀 ===== PHASE 2 MARKET ROTATION STARTED =====`);
-    console.log(`🕐 Start Time: ${phaseStartTime.toISOString()}`);
-    console.log(`📋 Phase: Market Rotation (RRC, RRG, Seasonal, Trend Filter)`);
-    
-    // Skip if weekend
-    if (isWeekend()) {
-      console.log('📅 Weekend detected - skipping Phase 2 Market Rotation (no market data available)');
-      return;
-    }
-    
-    let logEntry: SchedulerLog | null = null;
-    
-    try {
-      // Check memory before starting
-      const memoryOk = await monitorMemoryUsage();
-      if (!memoryOk) {
-        console.log('⚠️ Skipping Phase 2 Market Rotation due to high memory usage');
-        return;
-      }
-
-      // Create database log entry
-      const logData: Partial<SchedulerLog> = {
-        feature_name: 'phase2_market_rotation',
-        trigger_type: 'scheduled',
-        triggered_by: 'scheduler',
-        status: 'running',
-        started_at: new Date().toISOString(),
-        environment: process.env['NODE_ENV'] || 'development'
-      };
-      
-      logEntry = await SchedulerLogService.createLog(logData);
-      if (logEntry) {
-        console.log('📊 Phase 2 Market Rotation database log created:', logEntry.id);
-      }
-      
-      console.log('🔄 Starting Phase 2 Market Rotation (PARALLEL MODE)...');
-      
-      // Run market rotation calculations in parallel
-      const marketRotationTasks = [
-        { name: 'RRC Calculation', service: forceRegenerate, method: null },
-        { name: 'RRG Calculation', service: forceRegenerateRRG, method: null },
-        { name: 'Seasonal Calculation', service: forceRegenerateSeasonal, method: null },
-        { name: 'Trend Filter Calculation', service: trendFilterService, method: 'generateTrendFilterData' }
-      ];
-      
-      const marketRotationPromises = marketRotationTasks.map(async (task, index) => {
-        const startTime = Date.now();
-        
-        try {
-          console.log(`🔄 Starting ${task.name} (${index + 1}/4)...`);
-          
-          // Update progress in database
-          if (logEntry) {
-            await SchedulerLogService.updateLog(logEntry.id!, {
-              progress_percentage: Math.round((index / 4) * 100),
-              current_processing: `Running ${task.name}...`
-            });
-          }
-          
-          // Run calculation
-          const result = await (task.service as any)();
-          
-          const duration = Date.now() - startTime;
-          
-          if (result.success) {
-            console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
-            return { name: task.name, success: true, duration };
-          } else {
-            console.error(`❌ ${task.name} failed:`, result.message);
-            return { name: task.name, success: false, error: result.message, duration };
-          }
-          
-        } catch (error) {
-          const duration = Date.now() - startTime;
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-          console.error(`❌ ${task.name} failed:`, errorMessage);
-          return { name: task.name, success: false, error: errorMessage, duration };
-        }
-      });
-      
-      // Wait for all calculations to complete
-      const marketRotationResults = await Promise.allSettled(marketRotationPromises);
-      
-      // Process results
-      const results: Array<{ name: string; success: boolean; error?: string; duration?: number }> = [];
-      marketRotationResults.forEach((result, index) => {
-        if (result.status === 'fulfilled') {
-          results.push(result.value);
-        } else {
-          results.push({
-            name: marketRotationTasks[index]?.name || 'Unknown',
-            success: false,
-            error: result.reason instanceof Error ? result.reason.message : 'Unknown error'
-          });
-        }
-      });
-      
-      const successCount = results.filter(r => r.success).length;
-      const phaseEndTime = new Date();
-      const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime.getTime()) / 1000);
-      
-      console.log(`\n📊 ===== PHASE 2 MARKET ROTATION COMPLETED =====`);
-      console.log(`✅ Success: ${successCount}/4 calculations`);
-      console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
-      console.log(`⏱️ Total Duration: ${totalDuration}s`);
-      
-      // Update database log
-      if (logEntry) {
-        await SchedulerLogService.updateLog(logEntry.id!, {
-          status: successCount === 4 ? 'completed' : 'failed',
-          completed_at: new Date().toISOString(),
-          total_files_processed: 4,
-          files_created: successCount,
-          files_failed: 4 - successCount,
-          progress_percentage: 100,
-          current_processing: `Phase 2 Market Rotation complete: ${successCount}/4 calculations successful in ${totalDuration}s`
-        });
-      }
-      
-      // Cleanup after Phase 2 Market Rotation
-      await aggressiveMemoryCleanup();
-      
-    } catch (error) {
-      console.error('❌ Error during Phase 2 Market Rotation:', error);
-      
-      if (logEntry) {
-        await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
-      }
-    }
-  }, {
-    timezone: TIMEZONE
-  });
-  scheduledTasks.push(phase2MarketRotationTask);
-
-  // 4. Schedule Phase 3 - Light Calculations (Money Flow, Foreign Flow, Break Done Trade)
-  const phase3LightTask = cron.schedule(PHASE3_LIGHT_SCHEDULE, async () => {
-    const phaseStartTime = new Date();
-    console.log(`\n🚀 ===== PHASE 3 LIGHT CALCULATIONS STARTED =====`);
-    console.log(`🕐 Start Time: ${phaseStartTime.toISOString()}`);
-    console.log(`📋 Phase: Light Calculations (Money Flow, Foreign Flow, Break Done Trade)`);
-    
-    let logEntry: SchedulerLog | null = null;
-    
-    try {
-      // Check memory before starting
-      const memoryOk = await monitorMemoryUsage();
-      if (!memoryOk) {
-        console.log('⚠️ Skipping Phase 3 Light due to high memory usage');
-        return;
-      }
-      
-      // Create database log entry
-      const logData: Partial<SchedulerLog> = {
-        feature_name: 'phase3_light_calculations',
-        trigger_type: 'scheduled',
-        triggered_by: 'scheduler',
-        status: 'running',
-        started_at: new Date().toISOString(),
-        environment: process.env['NODE_ENV'] || 'development'
-      };
-      
-      logEntry = await SchedulerLogService.createLog(logData);
-      if (logEntry) {
-        console.log('📊 Phase 3 Light database log created:', logEntry.id);
-      }
-      
-      console.log('🔄 Starting Phase 3 Light calculations (PARALLEL MODE)...');
-      
-      // Run light calculations in parallel
-      const lightCalculations = [
-        { name: 'Money Flow', service: moneyFlowService, method: 'generateMoneyFlowData' },
-        { name: 'Foreign Flow', service: foreignFlowService, method: 'generateForeignFlowData' },
-        { name: 'Break Done Trade', service: breakDoneTradeService, method: 'generateBreakDoneTradeData' }
-      ];
-      
-      const lightCalculationPromises = lightCalculations.map(async (task, index) => {
-        const startTime = Date.now();
-        
-        try {
-          console.log(`🔄 Starting ${task.name} (${index + 1}/3)...`);
-          
-          // Update progress in database
-          if (logEntry) {
-            await SchedulerLogService.updateLog(logEntry.id!, {
-              progress_percentage: Math.round((index / 3) * 100),
-              current_processing: `Running ${task.name}...`
-            });
-          }
-          
-          // Run calculation
-          const result = await (task.service as any)[task.method]('all');
-          
-          const duration = Date.now() - startTime;
-          
-          if (result.success) {
-            console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
-            return { name: task.name, success: true, duration };
-          } else {
-            console.error(`❌ ${task.name} failed:`, result.message);
-            return { name: task.name, success: false, error: result.message, duration };
-          }
-          
-        } catch (error) {
-          const duration = Date.now() - startTime;
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-          console.error(`❌ ${task.name} failed:`, errorMessage);
-          return { name: task.name, success: false, error: errorMessage, duration };
-        }
-      });
-      
-      // Wait for all calculations to complete
-      const lightCalculationResults = await Promise.allSettled(lightCalculationPromises);
-      
-      // Process results
-      const results: Array<{ name: string; success: boolean; error?: string; duration?: number }> = [];
-      lightCalculationResults.forEach((result, index) => {
-        if (result.status === 'fulfilled') {
-          results.push(result.value);
-        } else {
-          results.push({
-            name: lightCalculations[index]?.name || 'Unknown',
-            success: false,
-            error: result.reason instanceof Error ? result.reason.message : 'Unknown error'
-          });
-        }
-      });
-      
-      const successCount = results.filter(r => r.success).length;
-      const phaseEndTime = new Date();
-      const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime.getTime()) / 1000);
-      
-      console.log(`\n📊 ===== PHASE 3 LIGHT COMPLETED =====`);
-      console.log(`✅ Success: ${successCount}/3 calculations`);
-      console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
-      console.log(`⏱️ Total Duration: ${totalDuration}s`);
-      
-      // Update database log
-      if (logEntry) {
-        await SchedulerLogService.updateLog(logEntry.id!, {
-          status: successCount === 3 ? 'completed' : 'failed',
-          completed_at: new Date().toISOString(),
-          total_files_processed: 3,
-          files_created: successCount,
-          files_failed: 3 - successCount,
-          progress_percentage: 100,
-          current_processing: `Phase 3 Light complete: ${successCount}/3 calculations successful in ${totalDuration}s`
-        });
-      }
-      
-      // Cleanup after Phase 3 Light
-      await aggressiveMemoryCleanup();
-      
-      // Trigger Phase 4 automatically if Phase 3 succeeded
-      if (successCount >= 2) { // Trigger Phase 4 if at least 2/3 succeed
-        console.log('🔄 Triggering Phase 4 Medium calculations...');
-        await runPhase4MediumCalculations();
-      } else {
-        console.log('⚠️ Skipping Phase 4 due to insufficient Phase 3 success rate');
-      }
-      
-    } catch (error) {
-      console.error('❌ Error during Phase 3 Light calculations:', error);
-      
-      if (logEntry) {
-        await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
-      }
-    }
-  }, {
-    timezone: TIMEZONE
-  });
-  scheduledTasks.push(phase3LightTask);
+  // Phase 2 and Phase 3 are now auto-triggered from Phase 1
 
   // Initialize Azure logging
   initializeAzureLogging().catch(console.error);
   
   // Log scheduler configuration
-  console.log(`\n📅 Scheduler Configuration (${TIMEZONE}) - OPTIMIZED FOR 8GB RAM:`);
+  console.log(`\n📅 Scheduler Configuration (${TIMEZONE}) - OPTIMIZED FOR 12GB RAM:`);
   console.log(`  🚀 Phase 1 Data Collection (PARALLEL): ${PHASE1_DATA_COLLECTION_TIME} daily (SCHEDULED)`);
   console.log(`    └─ Stock Data, Index Data, Done Summary Data (7 days)`);
   console.log(`  🚀 Phase 1 Shareholders & Holding (PARALLEL): ${PHASE1_SHAREHOLDERS_TIME} daily (SCHEDULED)`);
   console.log(`    └─ Shareholders Data, Holding Data (Monthly check)`);
-  console.log(`  🚀 Phase 2 Market Rotation (PARALLEL): ${PHASE2_MARKET_ROTATION_TIME} daily (SCHEDULED)`);
+  console.log(`  🚀 Phase 2 Market Rotation (PARALLEL): Auto-triggered after Phase 1`);
   console.log(`    └─ RRC, RRG, Seasonal, Trend Filter`);
-  console.log(`  🚀 Phase 3 Light (PARALLEL): ${PHASE3_LIGHT_TIME} daily (SCHEDULED)`);
+  console.log(`  🚀 Phase 3 Light (PARALLEL): Auto-triggered after Phase 2`);
   console.log(`    └─ Money Flow, Foreign Flow, Break Done Trade`);
   console.log(`  🚀 Phase 4 Medium (SEQUENTIAL): Auto-triggered after Phase 3`);
-  console.log(`    └─ Bid/Ask Footprint (all dates)`);
+  console.log(`    └─ Bid/Ask Footprint, Broker Breakdown (all dates)`);
   console.log(`  🚀 Phase 5 Heavy (SEQUENTIAL): Auto-triggered after Phase 4`);
   console.log(`    └─ Broker Data (all dates)`);
   console.log(`  🚀 Phase 6 Very Heavy (SEQUENTIAL): Auto-triggered after Phase 5`);
   console.log(`    └─ Broker Inventory, Accumulation Distribution (sequential)`);
   console.log(`  🧠 Memory Monitoring: ENABLED (12GB threshold)`);
   console.log(`  🧹 Aggressive Cleanup: After each calculation`);
-  console.log(`  ⏭️  Weekend updates: ENABLED (Sat/Sun)\n`);
+  console.log(`  ⏭️  Weekend skip: ENABLED (Sat/Sun) - All scheduled phases skip weekend\n`);
 
   schedulerRunning = true;
   console.log('✅ Scheduler started successfully');
@@ -1090,13 +1258,13 @@ export function getSchedulerStatus() {
     schedules: {
       phase1DataCollection: PHASE1_DATA_COLLECTION_TIME,
       phase1Shareholders: PHASE1_SHAREHOLDERS_TIME,
-      phase2MarketRotation: PHASE2_MARKET_ROTATION_TIME,
-      phase3Light: PHASE3_LIGHT_TIME,
+      phase2MarketRotation: 'Auto-triggered after Phase 1',
+      phase3Light: 'Auto-triggered after Phase 2',
       phase4Medium: 'Auto-triggered after Phase 3',
       phase5Heavy: 'Auto-triggered after Phase 4',
       phase6VeryHeavy: 'Auto-triggered after Phase 5'
     },
     memoryThreshold: '12GB',
-    weekendSkip: false
+    weekendSkip: true
   };
 }
