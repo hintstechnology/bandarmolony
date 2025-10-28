@@ -97,8 +97,21 @@ class AzureLoggingService {
   }
 }
 
-// Singleton instance
-const azureLogging = new AzureLoggingService();
+// Singleton instance (lazy initialization)
+let azureLogging: AzureLoggingService | null = null;
+
+function getAzureLogging(): AzureLoggingService | null {
+  if (!azureLogging) {
+    try {
+      azureLogging = new AzureLoggingService();
+    } catch (error) {
+      console.error('❌ Failed to initialize Azure Logging Service:', error);
+      console.warn('⚠️  Azure logging will be skipped. The application will continue without logging to Azure.');
+      return null;
+    }
+  }
+  return azureLogging;
+}
 
 // Helper function to format timestamp
 function getTimestamp(): string {
@@ -122,7 +135,10 @@ export class AzureLogger {
     const logContent = `[${timestamp}] 🚀 ${schedulerType.toUpperCase()} SCHEDULER STARTED${details ? ' - ' + details : ''}`;
     
     console.log(logContent);
-    await azureLogging.appendLog(getLogFilename(schedulerType), logContent);
+    const logger = getAzureLogging();
+    if (logger) {
+      await logger.appendLog(getLogFilename(schedulerType), logContent);
+    }
   }
   
   // Log scheduler end
@@ -136,7 +152,10 @@ export class AzureLogger {
     const logContent = `[${timestamp}] ✅ ${schedulerType.toUpperCase()} SCHEDULER COMPLETED - Success: ${summary.success}, Skipped: ${summary.skipped}, Failed: ${summary.failed}, Total: ${summary.total}`;
     
     console.log(logContent);
-    await azureLogging.appendLog(getLogFilename(schedulerType), logContent);
+    const logger = getAzureLogging();
+    if (logger) {
+      await logger.appendLog(getLogFilename(schedulerType), logContent);
+    }
   }
   
   // Log scheduler error
@@ -145,7 +164,10 @@ export class AzureLogger {
     const logContent = `[${timestamp}] ❌ ${schedulerType.toUpperCase()} SCHEDULER ERROR - ${error}`;
     
     console.error(logContent);
-    await azureLogging.appendLog(getLogFilename(schedulerType), logContent);
+    const logger = getAzureLogging();
+    if (logger) {
+      await logger.appendLog(getLogFilename(schedulerType), logContent);
+    }
   }
   
   // Log progress update
@@ -155,7 +177,10 @@ export class AzureLogger {
     const logContent = `[${timestamp}] 📊 ${schedulerType.toUpperCase()} PROGRESS - ${current}/${total} (${percentage}%)${item ? ' - ' + item : ''}`;
     
     console.log(logContent);
-    await azureLogging.appendLog(getLogFilename(schedulerType), logContent);
+    const logger = getAzureLogging();
+    if (logger) {
+      await logger.appendLog(getLogFilename(schedulerType), logContent);
+    }
   }
   
   // Log individual item processing
@@ -165,7 +190,10 @@ export class AzureLogger {
     const logContent = `[${timestamp}] ${emoji} ${schedulerType.toUpperCase()} ${action} - ${item}${details ? ' - ' + details : ''}`;
     
     console.log(logContent);
-    await azureLogging.appendLog(getLogFilename(schedulerType), logContent);
+    const logger = getAzureLogging();
+    if (logger) {
+      await logger.appendLog(getLogFilename(schedulerType), logContent);
+    }
   }
   
   // Log weekend skip
@@ -174,7 +202,10 @@ export class AzureLogger {
     const logContent = `[${timestamp}] ⏭️ ${schedulerType.toUpperCase()} SCHEDULER SKIPPED - Weekend (Saturday or Sunday)`;
     
     console.log(logContent);
-    await azureLogging.appendLog(getLogFilename(schedulerType), logContent);
+    const logger = getAzureLogging();
+    if (logger) {
+      await logger.appendLog(getLogFilename(schedulerType), logContent);
+    }
   }
   
   // Log general info
@@ -183,7 +214,10 @@ export class AzureLogger {
     const logContent = `[${timestamp}] ℹ️ ${schedulerType.toUpperCase()} INFO - ${message}`;
     
     console.log(logContent);
-    await azureLogging.appendLog(getLogFilename(schedulerType), logContent);
+    const logger = getAzureLogging();
+    if (logger) {
+      await logger.appendLog(getLogFilename(schedulerType), logContent);
+    }
   }
   
   // Log warning
@@ -192,15 +226,23 @@ export class AzureLogger {
     const logContent = `[${timestamp}] ⚠️ ${schedulerType.toUpperCase()} WARNING - ${message}`;
     
     console.warn(logContent);
-    await azureLogging.appendLog(getLogFilename(schedulerType), logContent);
+    const logger = getAzureLogging();
+    if (logger) {
+      await logger.appendLog(getLogFilename(schedulerType), logContent);
+    }
   }
 }
 
 // Initialize Azure logging
 export async function initializeAzureLogging(): Promise<void> {
   try {
-    await azureLogging.ensureContainerExists();
-    console.log('✅ Azure Logging Service initialized');
+    const logger = getAzureLogging();
+    if (logger) {
+      await logger.ensureContainerExists();
+      console.log('✅ Azure Logging Service initialized');
+    } else {
+      console.warn('⚠️  Azure Logging Service not available');
+    }
   } catch (error) {
     console.error('❌ Failed to initialize Azure Logging Service:', error);
   }
