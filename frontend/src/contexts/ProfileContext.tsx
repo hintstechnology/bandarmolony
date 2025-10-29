@@ -8,6 +8,7 @@ interface ProfileContextType {
   profile: ProfileData | null;
   isLoading: boolean;
   isLoggingOut: boolean;
+  hasConnectionError: boolean;
   updateProfile: (updates: Partial<ProfileData>) => void;
   refreshProfile: (force?: boolean) => Promise<void>;
   clearProfile: () => void;
@@ -33,6 +34,7 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [hasConnectionError, setHasConnectionError] = useState(false);
   const hasInitialized = useRef(false);
 
   const refreshProfile = async (force = false) => {
@@ -66,6 +68,7 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
       
       if (response) {
         setProfile(response);
+        setHasConnectionError(false); // Clear connection error on success
         console.log('ProfileContext: Profile refreshed successfully');
       } else {
         console.log('ProfileContext: No profile data received');
@@ -262,8 +265,10 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
                  error.message?.includes('ERR_CONNECTION_REFUSED') ||
                  error.message?.includes('Network')) {
         console.warn('ProfileContext: Connection error, keeping existing profile');
+        // Set connection error flag to prevent redirect loop
+        setHasConnectionError(true);
         // DON'T clear profile on connection errors (e.g., server restart)
-        // Keep existing profile data
+        // Keep existing profile data (even if null - don't force logout on connection issues)
       } else {
         console.log('ProfileContext: Other error, clearing profile');
         setProfile(null);
@@ -295,6 +300,7 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
     setProfile(null);
     setIsLoading(false);
     setIsValidating(false);
+    setHasConnectionError(false);
   };
 
   // Listen for global 401 events from ANY API call
@@ -407,6 +413,7 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
     profile,
     isLoading,
     isLoggingOut,
+    hasConnectionError,
     updateProfile,
     refreshProfile,
     clearProfile,
