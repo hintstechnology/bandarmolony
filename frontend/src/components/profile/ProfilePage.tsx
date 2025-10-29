@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Badge } from "../ui/badge";
@@ -12,6 +13,7 @@ import { useToast } from "../../contexts/ToastContext";
 import { getAvatarUrl } from "../../utils/avatar";
 
 export function ProfilePage() {
+  const navigate = useNavigate();
   const { profile, isLoading, updateProfile } = useProfile();
   const { showToast } = useToast();
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
@@ -397,11 +399,11 @@ export function ProfilePage() {
                     {!subInfo.isActive && (
                       <div className="pt-4 border-t border-border">
                         <Button 
-                          onClick={() => window.location.href = '/subscription'}
+                          onClick={() => navigate('/subscription')}
                           className="w-full"
                         >
                           <Crown className="w-4 h-4 mr-2" />
-                          Upgrade to Premium
+                          Upgrade Plan
                         </Button>
                       </div>
                     )}

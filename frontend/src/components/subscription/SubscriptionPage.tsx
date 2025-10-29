@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -11,6 +12,7 @@ import { subscriptionPlans } from '../../constants/subscriptionPlans';
 // Removed unused currentSubscription object
 
 export function SubscriptionPage() {
+  const location = useLocation();
   const [selectedPlan] = useState('premium');
   const [loading, setLoading] = useState(false);
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
@@ -208,19 +210,23 @@ export function SubscriptionPage() {
   };
 
   // Auto scroll to pending payment on first load
+  // BUT skip if user just navigated to this page (to prioritize Current Subscription section)
   useEffect(() => {
-    if (pendingTransactions.length > 0 && !hasScrolledToPending) {
+    // Only auto-scroll to pending if data was already loaded before navigation
+    // This prevents overriding the scroll to Current Subscription section
+    if (pendingTransactions.length > 0 && !hasScrolledToPending && subscriptionStatus !== null) {
+      // Add longer delay to ensure scroll to top happens first
       const timer = setTimeout(() => {
         const pendingSection = document.getElementById('pending-transactions');
         if (pendingSection) {
           pendingSection.scrollIntoView({ behavior: 'smooth' });
           setHasScrolledToPending(true);
         }
-      }, 500);
+      }, 1500); // Increased delay to allow scroll to top/Current Subscription first
       return () => clearTimeout(timer);
     }
     return undefined; // Explicit return for all code paths
-  }, [pendingTransactions.length, hasScrolledToPending]);
+  }, [pendingTransactions.length, hasScrolledToPending, subscriptionStatus]);
 
   // Payment methods configuration
   const paymentMethodsConfig = {
@@ -273,6 +279,26 @@ export function SubscriptionPage() {
       </div>
     </div>
   );
+
+  // Scroll to top when navigating to this page
+  // This works for both initial mount and navigation from other pages
+  useEffect(() => {
+    // Reset scroll flag when navigating to ensure clean scroll behavior
+    setHasScrolledToPending(false);
+    
+    // Use setTimeout to ensure DOM is ready after navigation
+    const timer = setTimeout(() => {
+      // Try to scroll to Current Subscription section first, otherwise scroll to top
+      const currentSubscriptionSection = document.getElementById('current-subscription');
+      if (currentSubscriptionSection) {
+        currentSubscriptionSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }, 100); // Slight delay to ensure all components are rendered
+    
+    return () => clearTimeout(timer);
+  }, [location.pathname]); // Trigger on pathname change
 
   useEffect(() => {
     // Load data sequentially to prevent race conditions
@@ -704,7 +730,7 @@ export function SubscriptionPage() {
       )}
 
       {/* Current Subscription Status */}
-      <Card>
+      <Card id="current-subscription">
         <CardHeader>
           <CardTitle>Current Subscription</CardTitle>
         </CardHeader>
