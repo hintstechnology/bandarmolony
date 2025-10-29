@@ -38,6 +38,7 @@ import BaZiCycleAnalyzer from "./components/astrology/BaZiCycleAnalysis";
 import { TechnicalAnalysisTradingView } from "./components/technical-analysis/TechnicalAnalysisTradingView";
 import { ProfilePage } from "./components/profile/ProfilePage";
 import { SubscriptionPage } from "./components/subscription/SubscriptionPage";
+import { NotSubscribed } from "./components/subscription/NotSubscribed";
 import { AdminDashboard } from "./components/privilege/admin";
 import { DeveloperDashboard } from "./components/privilege/developer";
 import { Dashboard } from "./components/dashboard/Dashboard";
@@ -50,6 +51,7 @@ import { FeaturesPage } from "./pages/FeaturesPage";
 import { ContactPage } from "./pages/ContactPage";
 import { TermsPage } from "./pages/TermsPage";
 import { PrivacyPage } from "./pages/PrivacyPage";
+import { hasPremiumAccess, requiresPremiumAccess, getFeatureNameFromRoute } from "./utils/subscriptionAccess";
 
 // Dashboard Layout Component
 function DashboardLayout() {
@@ -125,19 +127,22 @@ function DashboardLayout() {
   // Get current route from URL
   const getCurrentRoute = () => {
     try {
-      const path = location?.pathname || '';
-      if (path === '/profile') return 'profile';
-      if (path === '/dashboard' || path === '/dashboard/') return 'dashboard';
-      if (path === '/subscription') return 'subscription';
+      const path = (location?.pathname || '').trim();
+      
+      // Handle exact matches first
+      if (path === '/profile' || path.startsWith('/profile/')) return 'profile';
+      if (path === '/subscription' || path.startsWith('/subscription/')) return 'subscription';
+      if (path === '/dashboard' || path === '/dashboard/' || path === '/') return 'dashboard';
+      
       // Remove leading slash and return the route
-      return path.replace('/', '') || 'dashboard';
+      const route = path.replace(/^\/+/, '') || 'dashboard';
+      return route;
     } catch (error) {
       console.warn('Error getting current route:', error);
       return 'dashboard';
     }
   };
 
-  const currentRoute = getCurrentRoute();
 
   // Breadcrumb mapping based on sidebar menu structure
   const breadcrumbMap: Record<string, { title: string; icon?: React.ComponentType<any>; children?: Record<string, string> }> = {
@@ -222,7 +227,31 @@ function DashboardLayout() {
 
   // Render main content based on route
   const renderMainContent = () => {
-    switch (currentRoute) {
+    // Get current route again inside render to ensure it's fresh
+    const route = getCurrentRoute();
+    
+    // Check if user has premium access for current route
+    const hasAccess = hasPremiumAccess(profile);
+    const needsPremium = requiresPremiumAccess(route);
+    const shouldShowNotSubscribed = needsPremium && !hasAccess;
+
+    // Debug logging (only in development mode)
+    // Uncomment below to enable debug logging:
+    // console.log('Access check:', {
+    //   route,
+    //   subscriptionPlan: profile?.subscriptionPlan,
+    //   subscriptionStatus: profile?.subscriptionStatus,
+    //   hasAccess,
+    //   needsPremium,
+    //   shouldShowNotSubscribed
+    // });
+
+    // Show NotSubscribed if user doesn't have premium access and route requires it
+    if (shouldShowNotSubscribed) {
+      return <NotSubscribed featureName={getFeatureNameFromRoute(route)} />;
+    }
+
+    switch (route) {
       // Market Rotation routes
       case "market-rotation":
       case "market-rotation/rrg":
@@ -364,7 +393,15 @@ function DashboardLayout() {
                   {profile?.full_name || profile?.name || 'User'}
                 </div>
                 <div className="text-xs text-muted-foreground mt-0.5 group-hover:text-blue-500 dark:group-hover:text-blue-300 transition-colors duration-200">
-                  {profile?.subscriptionPlan || 'Free'} Plan
+                  {profile?.subscriptionStatus === 'trial' 
+                    ? 'Pro Plan (Trial)' 
+                    : (profile?.subscriptionPlan || 'Free') + ' Plan'}
+                  {profile?.subscriptionStatus === 'trial' && profile?.subscriptionEndDate && (() => {
+                    const now = new Date();
+                    const endDate = new Date(profile.subscriptionEndDate);
+                    const daysLeft = Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                    return daysLeft >= 0 ? ` • ${daysLeft} day${daysLeft !== 1 ? 's' : ''} left` : '';
+                  })()}
                 </div>
               </div>
               {/* Hover indicator */}

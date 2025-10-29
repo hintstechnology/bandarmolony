@@ -24,7 +24,7 @@ router.get('/', requireSupabaseUser, async (req: any, res) => {
     // Fetch user profile (should exist due to trigger or fallback in middleware)
     const { data, error } = await supabaseAdmin
       .from('users')
-      .select('id, email, full_name, avatar_url, role, is_active, email_verified, last_login_at, created_at, updated_at')
+      .select('id, email, full_name, avatar_url, role, is_active, email_verified, last_login_at, created_at, updated_at, subscription_status, subscription_plan, subscription_start_date, subscription_end_date')
       .eq('id', userId)
       .single();
 
@@ -51,6 +51,70 @@ router.get('/', requireSupabaseUser, async (req: any, res) => {
     }
 
     console.log(`✅ GET /api/me - Profile found for user: ${userId}`);
+
+    // Handle admin/developer roles - always have Pro plan with lifetime access
+    if (data.role === 'admin' || data.role === 'developer') {
+      // Ensure admin/developer always have Pro plan with active status (no end date)
+      if (data.subscription_status !== 'active' || data.subscription_plan !== 'Pro' || data.subscription_end_date !== null) {
+        console.log(`🔄 GET /api/me - Syncing admin/developer ${userId} to Pro plan with lifetime access`);
+        
+        await supabaseAdmin
+          .from('users')
+          .update({
+            subscription_status: 'active',
+            subscription_plan: 'Pro',
+            subscription_start_date: new Date().toISOString(), // Set current date as start
+            subscription_end_date: null, // Lifetime - no end date
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', userId);
+
+        // Update data object to reflect sync
+        data.subscription_status = 'active';
+        data.subscription_plan = 'Pro';
+        data.subscription_start_date = new Date().toISOString();
+        data.subscription_end_date = null;
+        
+        console.log(`✅ GET /api/me - Synced admin/developer ${userId} to Pro plan (lifetime)`);
+      }
+    } else {
+      // For regular users: Sync subscription status: Check if user still has active subscription in subscriptions table
+      // If subscription_status in users table says 'trial' or 'active' but no active subscription exists,
+      // reset users table to Free plan
+      if (data.subscription_status && ['trial', 'active'].includes(data.subscription_status)) {
+        const { data: activeSubscription } = await supabaseAdmin
+          .from('subscriptions')
+          .select('id, status')
+          .eq('user_id', userId)
+          .in('status', ['active', 'trial', 'pending'])
+          .maybeSingle();
+
+        // If no active subscription exists but users table says trial/active, sync it
+        if (!activeSubscription) {
+          console.log(`⚠️ GET /api/me - Subscription mismatch detected. User ${userId} has subscription_status '${data.subscription_status}' but no active subscription found. Syncing to Free plan.`);
+          
+          // Sync users table to Free plan
+          await supabaseAdmin
+            .from('users')
+            .update({
+              subscription_status: 'inactive',
+              subscription_plan: 'Free',
+              subscription_start_date: null,
+              subscription_end_date: null,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', userId);
+
+          // Update data object to reflect sync
+          data.subscription_status = 'inactive';
+          data.subscription_plan = 'Free';
+          data.subscription_start_date = null;
+          data.subscription_end_date = null;
+          
+          console.log(`✅ GET /api/me - Synced user ${userId} subscription status to Free plan`);
+        }
+      }
+    }
 
     // Update last_login_at in background (don't await)
     (async () => {
@@ -151,7 +215,7 @@ router.put('/', requireSupabaseUser, async (req: any, res) => {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
-        .select('id, email, full_name, avatar_url, role, is_active, email_verified, last_login_at, created_at, updated_at')
+        .select('id, email, full_name, avatar_url, role, is_active, email_verified, last_login_at, created_at, updated_at, subscription_status, subscription_plan, subscription_start_date, subscription_end_date')
         .single();
 
       if (createError) {
@@ -197,7 +261,7 @@ router.put('/', requireSupabaseUser, async (req: any, res) => {
         .from('users')
         .update(updatePayload)
         .eq('id', userId)
-        .select('id, email, full_name, avatar_url, role, is_active, email_verified, last_login_at, created_at, updated_at')
+        .select('id, email, full_name, avatar_url, role, is_active, email_verified, last_login_at, created_at, updated_at, subscription_status, subscription_plan, subscription_start_date, subscription_end_date')
         .single();
 
 

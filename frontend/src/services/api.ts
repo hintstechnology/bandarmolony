@@ -21,7 +21,7 @@ export interface ProfileData {
   avatarUrl?: string;
   joinedDate?: string;
   subscriptionPlan?: string;
-  subscriptionStatus?: 'active' | 'inactive';
+  subscriptionStatus?: 'active' | 'inactive' | 'trial';
   subscriptionEndDate?: string;
 }
 
@@ -209,9 +209,15 @@ export const api = {
             month: 'long',
             day: 'numeric'
           }),
-          subscriptionPlan: (profile.role === 'admin' || profile.role === 'developer') ? 'Pro' : 'Free',
-          subscriptionStatus: profile.is_active ? 'active' : 'inactive' as const,
-          subscriptionEndDate: undefined, // Admin & Developer: No end date (active forever)
+          subscriptionPlan: (profile.role === 'admin' || profile.role === 'developer') 
+            ? 'Pro' 
+            : (profile.subscription_plan || 'Free'),
+          subscriptionStatus: (profile.role === 'admin' || profile.role === 'developer')
+            ? ('active' as const)
+            : (profile.subscription_status as 'active' | 'inactive' | 'trial' | undefined) || 'inactive',
+          subscriptionEndDate: (profile.role === 'admin' || profile.role === 'developer')
+            ? undefined
+            : (profile.subscription_end_date || undefined), // Admin & Developer: No end date (active forever)
         };
         return finalProfile;
       }
@@ -465,9 +471,15 @@ export const api = {
             month: 'long',
             day: 'numeric'
           }),
-          subscriptionPlan: (profile.role === 'admin' || profile.role === 'developer') ? 'Pro' : 'Free',
-          subscriptionStatus: profile.is_active ? 'active' : 'inactive' as const,
-          subscriptionEndDate: undefined, // Admin & Developer: No end date (active forever)
+          subscriptionPlan: (profile.role === 'admin' || profile.role === 'developer') 
+            ? 'Pro' 
+            : (profile.subscription_plan || 'Free'),
+          subscriptionStatus: (profile.role === 'admin' || profile.role === 'developer')
+            ? ('active' as const)
+            : (profile.subscription_status as 'active' | 'inactive' | 'trial' | undefined) || 'inactive',
+          subscriptionEndDate: (profile.role === 'admin' || profile.role === 'developer')
+            ? undefined
+            : (profile.subscription_end_date || undefined), // Admin & Developer: No end date (active forever)
         };
         console.log('✅ API: Profile processed successfully');
         return processedProfile;
@@ -659,24 +671,19 @@ export const api = {
         // Continue with frontend logout even if backend fails
       }
       
-      // Clear local storage FIRST (before signOut to prevent race conditions)
+      // Clear ALL auth-related storage (including all sb-* keys)
+      // DO: Clear storage BEFORE reload, DON'T call signOut() (can re-create session)
       clearAuthState();
-      localStorage.removeItem('user');
-      localStorage.removeItem('supabase_session');
       
-      // Sign out from Supabase (this will trigger auth state change)
-      // IMPORTANT: Supabase signOut() returns { error } instead of throwing
-      const { error: signOutError } = await supabase.auth.signOut();
-      
-      if (signOutError) {
-        console.error('Supabase signOut failed:', signOutError);
-      }
+      // Use window.location.replace for clean reload (don't call signOut())
+      // This prevents Supabase from re-creating session from memory cache
+      // The reload will ensure completely clean state
+      // Note: AuthContext will handle the redirect if needed
+      console.log('API: Storage cleared, reload will be handled by AuthContext or redirect');
     } catch (error) {
       console.error('Logout error:', error);
-      // Clear local storage anyway
+      // Clear local storage anyway on error
       clearAuthState();
-      localStorage.removeItem('user');
-      localStorage.removeItem('supabase_session');
     }
   },
 
@@ -695,23 +702,19 @@ export const api = {
         // Continue with frontend logout even if backend fails
       }
       
-      // Clear local storage FIRST (before signOut to prevent race conditions)
+      // Clear ALL auth-related storage (including all sb-* keys)
+      // DO: Clear storage BEFORE reload, DON'T call signOut() (can re-create session)
       clearAuthState();
-      localStorage.removeItem('user');
-      localStorage.removeItem('supabase_session');
       
-      // Sign out from Supabase (global)
-      // IMPORTANT: Supabase signOut() returns { error } instead of throwing
-      const { error: signOutError } = await supabase.auth.signOut();
-      
-      if (signOutError) {
-        console.error('Supabase signOut (all devices) failed:', signOutError);
-      }
+      // Use window.location.replace for clean reload (don't call signOut())
+      // This prevents Supabase from re-creating session from memory cache
+      // The reload will ensure completely clean state
+      // Note: AuthContext will handle the redirect if needed
+      console.log('API: Storage cleared for all devices, reload will be handled by AuthContext or redirect');
     } catch (error) {
-      // Clear local storage anyway
+      console.error('Logout all devices error:', error);
+      // Clear local storage anyway on error
       clearAuthState();
-      localStorage.removeItem('user');
-      localStorage.removeItem('supabase_session');
     }
   },
 
@@ -1056,6 +1059,64 @@ export const api = {
     } catch (error: any) {
       return { success: false, error: error.message || 'Failed to get subscription status' };
     }
+  },
+
+  async startTrial(): Promise<void> {
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session?.access_token) {
+      throw new Error('No active session');
+    }
+
+    const response = await fetch(`${API_URL}/api/subscription/start-trial`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    await checkResponse(response, '/api/subscription/start-trial');
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to start trial');
+    }
+
+    const result = await response.json();
+    if (!result.ok) {
+      throw new Error(result.error || 'Failed to start trial');
+    }
+  },
+
+  async getTrialStatus(): Promise<{ eligible: boolean; hasActiveTrial: boolean; trial?: any }> {
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session?.access_token) {
+      throw new Error('No active session');
+    }
+
+    const response = await fetch(`${API_URL}/api/subscription/trial-status`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    await checkResponse(response, '/api/subscription/trial-status');
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to get trial status');
+    }
+
+    const result = await response.json();
+    if (!result.ok) {
+      throw new Error(result.error || 'Failed to get trial status');
+    }
+
+    return result.data;
   },
 
   async cancelSubscription(data: {
