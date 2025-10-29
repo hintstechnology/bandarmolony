@@ -211,7 +211,7 @@ export const api = {
           }),
           subscriptionPlan: (profile.role === 'admin' || profile.role === 'developer') ? 'Pro' : 'Free',
           subscriptionStatus: profile.is_active ? 'active' : 'inactive' as const,
-          subscriptionEndDate: (profile.role === 'admin' || profile.role === 'developer') ? 'December 25, 2025' : undefined,
+          subscriptionEndDate: undefined, // Admin & Developer: No end date (active forever)
         };
         return finalProfile;
       }
@@ -467,7 +467,7 @@ export const api = {
           }),
           subscriptionPlan: (profile.role === 'admin' || profile.role === 'developer') ? 'Pro' : 'Free',
           subscriptionStatus: profile.is_active ? 'active' : 'inactive' as const,
-          subscriptionEndDate: (profile.role === 'admin' || profile.role === 'developer') ? 'December 25, 2025' : undefined,
+          subscriptionEndDate: undefined, // Admin & Developer: No end date (active forever)
         };
         console.log('✅ API: Profile processed successfully');
         return processedProfile;

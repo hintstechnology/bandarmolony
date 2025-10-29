@@ -34,15 +34,27 @@ export function ProfilePage() {
   };
 
   const getSubscriptionInfo = () => {
+    // Admin and Developer have Pro plan forever (no end date)
+    if (profile?.role === 'admin' || profile?.role === 'developer') {
+      return {
+        status: 'active',
+        daysLeft: 0,
+        isActive: true,
+        planName: 'Pro Plan',
+        endDate: undefined,
+        isLifetime: true // Flag to indicate lifetime subscription
+      };
+    }
+
     if (!subscriptionStatus?.subscription) {
-      return { status: 'inactive', daysLeft: 0, isActive: false, planName: 'Free Plan' };
+      return { status: 'inactive', daysLeft: 0, isActive: false, planName: 'Free Plan', endDate: undefined, isLifetime: false };
     }
 
     const subscription = subscriptionStatus.subscription;
     
     // If subscription is cancelled, failed, or expired, treat as inactive
     if (['cancelled', 'failed', 'expired'].includes(subscription.status)) {
-      return { status: 'inactive', daysLeft: 0, isActive: false, planName: 'Free Plan' };
+      return { status: 'inactive', daysLeft: 0, isActive: false, planName: 'Free Plan', endDate: undefined, isLifetime: false };
     }
     
     const now = new Date();
@@ -56,7 +68,8 @@ export function ProfilePage() {
       daysLeft: Math.max(0, daysLeft),
       isActive,
       planName: subscription.plan_name,
-      endDate: subscription.end_date
+      endDate: subscription.end_date,
+      isLifetime: false
     };
   };
 
@@ -277,9 +290,14 @@ export function ProfilePage() {
                           >
                             {isActive ? "Active" : "Inactive"}
                           </Badge>
-                          {isActive && profile.subscriptionEndDate && (
+                          {isActive && profile.subscriptionEndDate && profile.role !== 'admin' && profile.role !== 'developer' && (
                             <span className="text-sm text-muted-foreground">
                               until {profile.subscriptionEndDate}
+                            </span>
+                          )}
+                          {isActive && (profile?.role === 'admin' || profile?.role === 'developer') && (
+                            <span className="text-sm text-green-600">
+                              Lifetime Access
                             </span>
                           )}
                         </div>
@@ -321,23 +339,31 @@ export function ProfilePage() {
                         </div>
                         <p className="text-sm text-muted-foreground mt-1">
                           {subInfo.isActive 
-                            ? `Expires in ${subInfo.daysLeft} days`
+                            ? (subInfo.isLifetime 
+                                ? 'Active Forever (Lifetime Access)'
+                                : `Expires in ${subInfo.daysLeft} days`)
                             : subInfo.status === 'expired'
                             ? 'Subscription expired'
                             : 'No active subscription'
                           }
                         </p>
-                        {subInfo.endDate && (
+                        {subInfo.endDate && !subInfo.isLifetime && (
                           <p className="text-xs text-muted-foreground">
                             End date: {new Date(subInfo.endDate).toLocaleDateString('id-ID')}
                           </p>
                         )}
                       </div>
                       <div className="flex items-center gap-2">
-                        {subInfo.isActive && (
+                        {subInfo.isActive && !subInfo.isLifetime && (
                           <div className="flex items-center gap-1 text-sm text-muted-foreground">
                             <Clock className="w-4 h-4" />
                             <span>{subInfo.daysLeft} days left</span>
+                          </div>
+                        )}
+                        {subInfo.isActive && subInfo.isLifetime && (
+                          <div className="flex items-center gap-1 text-sm text-green-600">
+                            <Crown className="w-4 h-4" />
+                            <span>Lifetime</span>
                           </div>
                         )}
                       </div>

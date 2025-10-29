@@ -4,7 +4,7 @@ import { RefreshCw, Shield, AlertTriangle } from "lucide-react";
 import { useProfile } from "../../../contexts/ProfileContext";
 import { useNavigate } from "react-router-dom";
 import { getRoleDisplayName } from "../../../utils/role";
-import { UserStats, UserManagement, DataSchedulerControl, SchedulerLogs } from "../shared";
+import { UserStats, UserManagement } from "../shared";
 
 export function AdminDashboard() {
   const navigate = useNavigate();
@@ -62,12 +62,6 @@ export function AdminDashboard() {
 
       {/* User Management and Recent Users */}
       <UserManagement apiPrefix="admin" />
-
-      {/* Data Scheduler Control */}
-      <DataSchedulerControl />
-
-      {/* Scheduler Logs */}
-      <SchedulerLogs />
     </div>
   );
 }

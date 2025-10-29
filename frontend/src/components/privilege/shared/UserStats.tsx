@@ -41,6 +41,11 @@ export function UserStats({ apiPrefix, onStatsLoad }: UserStatsProps) {
       
       if (json.ok && json.data) {
         const data = json.data;
+        
+        // For admin dashboard, developers should be counted as users
+        const developerCount = data.roleDistribution?.developer || 0;
+        const userCount = data.roleDistribution?.user || 0;
+        
         const stats = {
           total: data.totalUsers || 0,
           active: data.activeUsers || 0,
@@ -48,8 +53,8 @@ export function UserStats({ apiPrefix, onStatsLoad }: UserStatsProps) {
           verified: data.verificationStats?.verified || 0,
           unverified: data.verificationStats?.unverified || 0,
           admin: data.roleDistribution?.admin || 0,
-          developer: data.roleDistribution?.developer || 0,
-          user: data.roleDistribution?.user || 0
+          developer: apiPrefix === 'admin' ? 0 : developerCount, // Hide developer count for admin
+          user: apiPrefix === 'admin' ? userCount + developerCount : userCount // Combine developer with user for admin
         };
 
         setUserStats(stats);
@@ -112,7 +117,7 @@ export function UserStats({ apiPrefix, onStatsLoad }: UserStatsProps) {
             {apiPrefix === 'admin' ? userStats.admin : userStats.developer}
           </div>
           <p className="text-xs text-muted-foreground">
-            {apiPrefix === 'admin' && userStats.developer > 0 && `${userStats.developer} developers`}
+            {apiPrefix === 'admin' ? `${userStats.user} users` : ''}
             {apiPrefix === 'developer' && userStats.admin > 0 && `${userStats.admin} admins`}
           </p>
         </CardContent>
