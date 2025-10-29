@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useRef, ReactNode } fro
 import { ProfileData, api } from '../services/api';
 import { getAvatarUrl } from '../utils/avatar';
 import { useAuth } from './AuthContext';
-import { supabase } from '../lib/supabase';
+import { clearAuthState } from '../utils/auth';
 
 interface ProfileContextType {
   profile: ProfileData | null;
@@ -132,45 +132,27 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
             if (attempt < maxAttempts) {
               return retryProfileFetch(attempt + 1, maxAttempts);
             } else {
-              // All retries failed
-              console.error('ProfileContext: All profile fetch retries failed. User needs to login again.');
-              setIsLoading(false);
-              setIsValidating(false);
-              
-              // Clear storage synchronously to prevent race conditions
-              console.log('ProfileContext: Clearing all auth-related storage...');
-              const allLocalStorageKeys = Object.keys(localStorage);
-              allLocalStorageKeys.forEach(key => {
-                if (key.startsWith('sb-') || 
-                    key.includes('supabase') || 
-                    key === 'user' || 
-                    key === 'supabase_session' ||
-                    key === 'kickedByOtherDevice' ||
-                    key === 'emailVerificationSuccess') {
-                  localStorage.removeItem(key);
-                }
-              });
-              
-              const allSessionStorageKeys = Object.keys(sessionStorage);
-              allSessionStorageKeys.forEach(key => {
-                if (key.startsWith('sb-') || key.includes('supabase')) {
-                  sessionStorage.removeItem(key);
-                }
-              });
-              
-              // Set flag for AuthPage to show error toast (AFTER clearing everything)
-              localStorage.setItem('emailVerificationError', 'true');
-              
-              // Logout
-              await supabase.auth.signOut({ scope: 'local' });
-              setProfile(null);
-              hasInitialized.current = false;
-              
-              // Force reload to ensure completely clean state
-              console.log('ProfileContext: Forcing page reload to ensure clean state...');
-              setTimeout(() => {
-                window.location.replace('/auth?mode=login');
-              }, 100);
+            // All retries failed
+            console.error('ProfileContext: All profile fetch retries failed. User needs to login again.');
+            setIsLoading(false);
+            setIsValidating(false);
+            
+            // Clear storage using helper (following LOGIN_LOGOUT_TROUBLESHOOTING.md)
+            console.log('ProfileContext: Clearing all auth-related storage...');
+            clearAuthState();
+            
+            // Set flag for AuthPage to show error toast (AFTER clearing everything)
+            localStorage.setItem('emailVerificationError', 'true');
+            
+            setProfile(null);
+            hasInitialized.current = false;
+            
+            // DON'T call signOut() - force reload instead (doc line 624-633)
+            // This prevents Supabase from re-creating session from memory cache
+            console.log('ProfileContext: Forcing page reload to ensure clean state...');
+            setTimeout(() => {
+              window.location.replace('/auth?mode=login');
+            }, 100);
             }
           };
           
@@ -192,23 +174,10 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
           // Check if this is a kicked scenario (user was authenticated but session invalid)
           const isKickedScenario = isAuthenticated && user;
           
-          // Clear storage - use EXACT pattern to ensure ALL supabase keys are removed
+          // Clear storage using helper (following LOGIN_LOGOUT_TROUBLESHOOTING.md line 552-565)
           try {
-            const localKeys = Object.keys(localStorage);
-            localKeys.forEach(key => {
-              if (key.startsWith('sb-') || key.includes('supabase') || key === 'user' || key === 'supabase_session') {
-                console.log('ProfileContext: Removing key:', key);
-                localStorage.removeItem(key);
-              }
-            });
-            
-            const sessionKeys = Object.keys(sessionStorage);
-            sessionKeys.forEach(key => {
-              if (key.startsWith('sb-') || key.includes('supabase')) {
-                console.log('ProfileContext: Removing sessionStorage key:', key);
-                sessionStorage.removeItem(key);
-              }
-            });
+            console.log('ProfileContext: Clearing all auth storage using helper');
+            clearAuthState();
             
             // Set kicked flag AFTER clearing if this is a kicked scenario
             // Skip this if email verification (will be handled by retry logic)
@@ -217,7 +186,7 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
               console.log('ProfileContext: Setting kicked flag (authenticated but 401)');
               localStorage.setItem('kickedByOtherDevice', 'true');
               
-              // Force reload after setting kicked flag
+              // DON'T call signOut() - force reload instead (doc line 624-633)
               console.log('ProfileContext: Forcing page reload to ensure clean logout');
               setTimeout(() => {
                 window.location.replace('/auth?mode=login');
@@ -247,74 +216,48 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
         console.warn('ProfileContext: Request timeout, keeping existing profile');
         // Keep existing profile data
       } else if (error.message?.includes('No active session') || error.message?.includes('No access token')) {
-        console.log('ProfileContext: No valid session, clearing profile and signing out');
+        console.log('ProfileContext: No valid session, clearing profile');
         
         // DON'T set kicked flag here - this is just "no session", not kicked
         
         setProfile(null);
         hasInitialized.current = false;
-        setIsLoggingOut(true); // Set logging out flag - will be cleared by AuthContext SIGNED_OUT event
+        setIsLoggingOut(true);
         
-        // Sign out from Supabase to trigger auth state change
-        // IMPORTANT: Supabase signOut() returns { error } instead of throwing
-        const { error: signOutError } = await supabase.auth.signOut();
-        
-        if (signOutError) {
-          console.error('ProfileContext: Supabase signOut failed (expected for expired sessions):', signOutError);
-          // If signOut fails (403 Forbidden), force clear everything
-          // This happens when server restarts and session is already invalid
+        // Clear storage using helper and force reload
+        // Following LOGIN_LOGOUT_TROUBLESHOOTING.md (doc line 552-565, 624-633)
+        try {
+          // Keep the kickedByOtherDevice flag if exists
+          const kickedFlag = localStorage.getItem('kickedByOtherDevice');
           
-          console.log('ProfileContext: Forcing complete logout - clearing all storage');
+          console.log('ProfileContext: Clearing all auth storage using helper');
+          clearAuthState();
           
-          // Force clear ALL storage keys related to auth
-          try {
-            // Keep the kickedByOtherDevice flag
-            const kickedFlag = localStorage.getItem('kickedByOtherDevice');
-            
-            // Clear ALL localStorage
-            const localKeys = Object.keys(localStorage);
-            localKeys.forEach(key => {
-              if (key.startsWith('sb-') || key.includes('supabase') || key.includes('auth') || key === 'user' || key === 'supabase_session') {
-                console.log('ProfileContext: Removing localStorage key:', key);
-                localStorage.removeItem(key);
-              }
-            });
-            
-            // Restore the kicked flag
-            if (kickedFlag) {
-              localStorage.setItem('kickedByOtherDevice', kickedFlag);
-            }
-            
-            // Clear ALL sessionStorage
-            const sessionKeys = Object.keys(sessionStorage);
-            sessionKeys.forEach(key => {
-              if (key.startsWith('sb-') || key.includes('supabase') || key.includes('auth')) {
-                console.log('ProfileContext: Removing sessionStorage key:', key);
-                sessionStorage.removeItem(key);
-              }
-            });
-            
-            // Clear profile and reset flags immediately
-            setProfile(null);
-            setIsLoggingOut(false);
-            setIsLoading(false);
-            setIsValidating(false);
-            
-            console.log('ProfileContext: Storage cleared, performing hard reload to /auth');
-          } catch (cleanupError) {
-            console.error('ProfileContext: Error during storage cleanup:', cleanupError);
+          // Restore the kicked flag if it existed
+          if (kickedFlag) {
+            localStorage.setItem('kickedByOtherDevice', kickedFlag);
           }
           
-          // Use window.location.replace to prevent back button issues
-          // and setTimeout to ensure storage flush
-          setTimeout(() => {
-            window.location.replace('/auth');
-          }, 100);
+          // Clear profile and reset flags immediately
+          setProfile(null);
+          setIsLoggingOut(false);
+          setIsLoading(false);
+          setIsValidating(false);
           
-          // Return early to prevent further execution
-          return;
+          console.log('ProfileContext: Storage cleared, performing hard reload to /auth');
+        } catch (cleanupError) {
+          console.error('ProfileContext: Error during storage cleanup:', cleanupError);
         }
-        // If signOut successful, let AuthContext handle SIGNED_OUT event
+        
+        // DON'T call signOut() - force reload instead (doc line 624-633)
+        // Use window.location.replace to prevent back button issues
+        // and setTimeout to ensure storage flush
+        setTimeout(() => {
+          window.location.replace('/auth?mode=login');
+        }, 100);
+        
+        // Return early to prevent further execution
+        return;
       } else if (error.message?.includes('Cannot connect to server') || 
                  error.message?.includes('ERR_CONNECTION_REFUSED') ||
                  error.message?.includes('Network')) {
@@ -379,26 +322,10 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
         hasInitialized.current = false;
         setIsLoggingOut(true);
         
-        // Force clear ALL Supabase storage synchronously
-        console.log('ProfileContext: Force clearing all Supabase storage synchronously');
+        // Clear storage using helper (following LOGIN_LOGOUT_TROUBLESHOOTING.md line 552-565)
+        console.log('ProfileContext: Clearing all auth storage using helper (global handler)');
         try {
-            // Clear ALL localStorage synchronously
-            const localKeys = Object.keys(localStorage);
-            localKeys.forEach(key => {
-              if (key.startsWith('sb-') || key.includes('supabase') || key === 'user' || key === 'supabase_session') {
-                console.log('ProfileContext: Removing key (global handler):', key);
-                localStorage.removeItem(key);
-              }
-            });
-          
-          // Clear ALL sessionStorage synchronously
-          const sessionKeys = Object.keys(sessionStorage);
-          sessionKeys.forEach(key => {
-            if (key.startsWith('sb-') || key.includes('supabase')) {
-              console.log('ProfileContext: Removing sessionStorage key (global handler):', key);
-              sessionStorage.removeItem(key);
-            }
-          });
+          clearAuthState();
           
           // Set the kicked flag AFTER clearing (so it persists)
           // BUT NOT if this is email verification flow (will be handled by retry)
@@ -416,7 +343,8 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
           console.error('ProfileContext: Error during storage cleanup:', cleanupError);
         }
         
-        // RADICAL FIX: Don't call signOut() - force reload instead
+        // DON'T call signOut() - force reload instead (doc line 624-633)
+        // This prevents Supabase from re-creating session from memory cache
         console.log('ProfileContext: Forcing page reload to ensure clean logout (global handler)');
         
         // Wait a tiny bit for storage to flush
