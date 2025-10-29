@@ -38,7 +38,8 @@ import BaZiCycleAnalyzer from "./components/astrology/BaZiCycleAnalysis";
 import { TechnicalAnalysisTradingView } from "./components/technical-analysis/TechnicalAnalysisTradingView";
 import { ProfilePage } from "./components/profile/ProfilePage";
 import { SubscriptionPage } from "./components/subscription/SubscriptionPage";
-import { AdminPage } from "./components/admin/AdminPage";
+import { AdminDashboard } from "./components/privilege/admin";
+import { DeveloperDashboard } from "./components/privilege/developer";
 import { Dashboard } from "./components/dashboard/Dashboard";
 import { LandingPage } from "./components/dashboard/LandingPage";
 import { PricingPage } from "./components/dashboard/PricingPage";
@@ -183,6 +184,7 @@ function DashboardLayout() {
     'profile': { title: 'Profile' },
     'subscription': { title: 'Subscription', icon: CreditCard },
     'admin': { title: 'Admin', icon: Shield },
+    'developer': { title: 'Developer', icon: Shield },
   };
 
   const getBreadcrumbParts = () => {
@@ -286,7 +288,11 @@ function DashboardLayout() {
 
       // Admin
       case "admin":
-        return <AdminPage />;
+        return <AdminDashboard />;
+
+      // Developer
+      case "developer":
+        return <DeveloperDashboard />;
 
       // Dashboard (default)
       case "dashboard":
@@ -358,7 +364,7 @@ function DashboardLayout() {
                   {profile?.full_name || profile?.name || 'User'}
                 </div>
                 <div className="text-xs text-muted-foreground mt-0.5 group-hover:text-blue-500 dark:group-hover:text-blue-300 transition-colors duration-200">
-                  {profile?.role || 'Free Plan'}
+                  {profile?.subscriptionPlan || 'Free'} Plan
                 </div>
               </div>
               {/* Hover indicator */}
@@ -510,6 +516,14 @@ function PublicRouteWrapper() {
       {/* Admin route */}
       <Route 
         path="/admin" 
+        element={
+          <ProtectedRoute children={<DashboardLayout />} />
+        } 
+      />
+      
+      {/* Developer route */}
+      <Route 
+        path="/developer" 
         element={
           <ProtectedRoute children={<DashboardLayout />} />
         } 

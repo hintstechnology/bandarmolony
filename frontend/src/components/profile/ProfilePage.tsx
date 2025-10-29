@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { Badge } from "../ui/badge";
@@ -8,13 +8,11 @@ import { EditProfile } from "./EditProfile";
 import { EditPassword } from "./EditPassword";
 import { useProfile } from "../../contexts/ProfileContext";
 import { api } from "../../services/api";
-import { toast } from "sonner";
 import { useToast } from "../../contexts/ToastContext";
 import { getAvatarUrl } from "../../utils/avatar";
-import { supabase } from "../../lib/supabase";
 
 export function ProfilePage() {
-  const { profile, isLoading, updateProfile, refreshProfile } = useProfile();
+  const { profile, isLoading, updateProfile } = useProfile();
   const { showToast } = useToast();
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [isEditPasswordOpen, setIsEditPasswordOpen] = useState(false);

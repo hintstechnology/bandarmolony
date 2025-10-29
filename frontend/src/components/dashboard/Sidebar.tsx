@@ -97,6 +97,11 @@ const adminMenuItems = [
   { title: "Admin Dashboard", icon: Shield, url: "#", route: "admin" },
 ];
 
+/** ===== DEVELOPER MENU ===== */
+const developerMenuItems = [
+  { title: "Developer Dashboard", icon: Shield, url: "#", route: "developer" },
+];
+
 interface SidebarProps {
   isOpen: boolean;                 // pinned
   onToggle: () => void;            // toggle pinned
@@ -216,6 +221,39 @@ export function Sidebar({
                   )}
                   <nav className="space-y-0.5 px-2 mb-4">
                     {adminMenuItems.map((item) => (
+                      <div
+                        key={item.title}
+                        onClick={() => handleNavigation(item.route)}
+                        className={`
+                          flex items-center gap-3 px-3 py-3 text-sm rounded-md transition-all duration-200 cursor-pointer min-h-12 group
+                          ${!isExpanded ? "justify-center" : ""}
+                          ${
+                            currentRoute === item.route
+                              ? "bg-accent text-accent-foreground shadow-sm"
+                              : "text-card-foreground hover:bg-accent hover:text-accent-foreground hover:shadow-sm active:bg-accent/80"
+                          }
+                        `}
+                      >
+                        <item.icon className="w-5 h-5 flex-shrink-0" />
+                        {isExpanded && <span className="whitespace-nowrap text-sm">{item.title}</span>}
+                      </div>
+                    ))}
+                  </nav>
+                </>
+              )}
+
+              {/* Developer Menu Items - Only show for developer users - AT THE TOP */}
+              {profile?.role === 'developer' && (
+                <>
+                  {isExpanded && (
+                    <div className="px-4 mb-2">
+                      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                        Development
+                      </h3>
+                    </div>
+                  )}
+                  <nav className="space-y-0.5 px-2 mb-4">
+                    {developerMenuItems.map((item) => (
                       <div
                         key={item.title}
                         onClick={() => handleNavigation(item.route)}

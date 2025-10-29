@@ -4,9 +4,7 @@ import { Button } from "../ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { User, Upload, X, Loader2 } from "lucide-react";
 import { ProfileData, api } from "../../services/api";
-import { useProfile } from "../../contexts/ProfileContext";
 import { toast } from "sonner";
-import { useToast } from "../../contexts/ToastContext";
 import { useConfirmation } from "../../contexts/ConfirmationContext";
 import { getAvatarUrl, isValidAvatarFile, isValidAvatarSize } from "../../utils/avatar";
 
@@ -18,8 +16,6 @@ type Props = {
 };
 
 export function EditProfile({ isOpen, onClose, profile, onSave }: Props) {
-  const { updateProfile } = useProfile();
-  const { showToast } = useToast();
   const { confirm } = useConfirmation();
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [localName, setLocalName] = useState(profile.full_name || profile.name);
@@ -28,7 +24,6 @@ export function EditProfile({ isOpen, onClose, profile, onSave }: Props) {
   const [isSaving, setIsSaving] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isRemoving, setIsRemoving] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   // Cleanup pending file on unmount
   useEffect(() => {
@@ -114,7 +109,6 @@ export function EditProfile({ isOpen, onClose, profile, onSave }: Props) {
       const reader = new FileReader();
       reader.onload = (e) => {
         const base64Url = e.target?.result as string;
-        setPreviewUrl(base64Url);
         setLocalAvatar(base64Url);
         setUploadProgress(100);
         toast.success('Avatar selected! Click Save to upload.');
@@ -139,9 +133,6 @@ export function EditProfile({ isOpen, onClose, profile, onSave }: Props) {
     
     // Simulate loading for better UX
     setTimeout(() => {
-      // Clean up preview URL if exists
-      setPreviewUrl(null);
-      
       // Clear pending file
       (window as any).pendingAvatarFile = null;
       
@@ -166,9 +157,8 @@ export function EditProfile({ isOpen, onClose, profile, onSave }: Props) {
           finalAvatarUrl = result.filePath;
           console.log('✅ Avatar uploaded to server:', finalAvatarUrl);
           
-          // Clear the pending file and preview URL
+          // Clear the pending file
           (window as any).pendingAvatarFile = null;
-          setPreviewUrl(null);
         } catch (uploadError: any) {
           console.error('❌ Failed to upload avatar:', uploadError);
           toast.error('Failed to upload avatar. Please try again.');
@@ -192,9 +182,9 @@ export function EditProfile({ isOpen, onClose, profile, onSave }: Props) {
         }
       }
       
-      const dataToSave = { 
-        full_name: localName,
-        avatar_url: finalAvatarUrl || undefined
+      const dataToSave: Partial<ProfileData> = { 
+        full_name: localName || '',
+        ...(finalAvatarUrl && { avatar_url: finalAvatarUrl })
       };
       
       console.log('EditProfile: Saving data:', dataToSave);
@@ -290,9 +280,6 @@ export function EditProfile({ isOpen, onClose, profile, onSave }: Props) {
                     size="sm" 
                     variant="outline" 
                     onClick={() => {
-                      // Clean up any existing preview URL
-                      setPreviewUrl(null);
-                      
                       // Clear pending file
                       (window as any).pendingAvatarFile = null;
                       

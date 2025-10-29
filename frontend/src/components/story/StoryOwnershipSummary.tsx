@@ -139,7 +139,7 @@ export function StoryOwnershipSummary({ selectedStock: propSelectedStock }: Stor
     }
 
     // Top 5 shareholders for table
-    const topShareholders = shareholders.slice(0, 5).map((s: any, idx: number) => ({
+    const topShareholders = shareholders.slice(0, 5).map((s: any) => ({
       name: s.PemegangSaham_Nama,
       percentage: s.PemegangSaham_Persentase,
       shares: s.PemegangSaham_JmlSaham,
@@ -176,7 +176,7 @@ export function StoryOwnershipSummary({ selectedStock: propSelectedStock }: Stor
                       dataKey="percentage"
                       nameKey="name"
                     >
-                      {pieData.map((entry, index) => (
+                      {pieData.map((entry: any, index: number) => (
                         <Cell key={`cell-${index}`} fill={entry.color} />
                       ))}
                     </Pie>
