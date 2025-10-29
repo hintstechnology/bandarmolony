@@ -137,7 +137,7 @@ export class TrendFilterCalculator {
         console.log(`📊 ${ticker}: Total lines=${lines.length-1}, Valid=${data.length}, Empty=${emptyLines}, Invalid=${invalidLines}, Skipped=${skippedLines}`);
       }
 
-      return data.sort((a, b) => new Date(a.Date).getTime() - new Date(b.Date).getTime());
+      return data.sort((a, b) => new Date(b.Date).getTime() - new Date(a.Date).getTime());
     } catch (error) {
       console.warn(`⚠️ Warning: Could not load data for ${ticker}: ${error}`);
       return [];

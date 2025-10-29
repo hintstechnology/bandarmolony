@@ -200,8 +200,8 @@ export class ForeignFlowCalculator {
         });
       });
       
-      // Sort by date
-      stockForeignFlow.sort((a, b) => a.Date.localeCompare(b.Date));
+      // Sort by date in descending order (newest first)
+      stockForeignFlow.sort((a, b) => b.Date.localeCompare(a.Date));
       
       foreignFlowData.set(stock, stockForeignFlow);
     });
@@ -237,6 +237,10 @@ export class ForeignFlowCalculator {
     
     return data;
     } catch (error) {
+      // File not found is normal for new files - just return empty array
+      if (error instanceof Error && error.message.includes('Blob not found')) {
+        return [];
+      }
       console.error(`Error reading existing CSV data from ${filename}:`, error);
       return [];
     }
@@ -259,9 +263,9 @@ export class ForeignFlowCalculator {
       dataMap.set(item.Date, item);
     });
     
-    // Convert back to array and sort by date
+    // Convert back to array and sort by date in descending order (newest first)
     const mergedData = Array.from(dataMap.values());
-    mergedData.sort((a, b) => a.Date.localeCompare(b.Date));
+    mergedData.sort((a, b) => b.Date.localeCompare(a.Date));
     
     return mergedData;
   }

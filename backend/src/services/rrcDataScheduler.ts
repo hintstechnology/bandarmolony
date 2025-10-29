@@ -188,6 +188,16 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
             throw new Error('No CSV content generated');
           }
         } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          
+          // Skip sectors/stocks that don't have CSV files (they may have been delisted or moved)
+          if (errorMessage.includes('tidak ditemukan') || errorMessage.includes('not found') || errorMessage.includes('CSV')) {
+            console.log(`⏭️ Skipping sector ${sector}: CSV file not found (may be delisted)`);
+            filesSkipped++;
+            generationProgress.completed++;
+            return { status: 'skipped', sector };
+          }
+          
           console.error(`❌ Error processing sector ${sector}:`, error);
           sectorFailed++;
           filesFailed++;

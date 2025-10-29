@@ -217,22 +217,23 @@ class ParallelProcessor {
     maxConcurrency: number
   ): Promise<T[]> {
     const results: T[] = [];
-    const executing: Promise<void>[] = [];
     
-    for (const promise of promises) {
-      const p = promise.then(result => {
-        results.push(result);
+    // Process promises in batches to control concurrency
+    for (let i = 0; i < promises.length; i += maxConcurrency) {
+      const batch = promises.slice(i, i + maxConcurrency);
+      
+      // Use Promise.allSettled to ensure all promises are tracked
+      const batchResults = await Promise.allSettled(batch);
+      
+      // Extract successful results
+      batchResults.forEach(result => {
+        if (result.status === 'fulfilled') {
+          results.push(result.value);
+        }
+        // Note: Rejected promises are handled by individual processEmiten error handling
       });
-      
-      executing.push(p);
-      
-      if (executing.length >= maxConcurrency) {
-        await Promise.race(executing);
-        executing.splice(executing.findIndex(p => p === p), 1);
-      }
     }
     
-    await Promise.all(executing);
     return results;
   }
   

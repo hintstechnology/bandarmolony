@@ -196,7 +196,8 @@ export class BrokerInventoryCalculator {
       });
     }
     
-    return inventoryData;
+    // Sort by date in descending order (newest first)
+    return inventoryData.sort((a, b) => b.Date.localeCompare(a.Date));
   }
 
   /**

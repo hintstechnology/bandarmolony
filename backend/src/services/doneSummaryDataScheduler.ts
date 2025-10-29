@@ -191,10 +191,32 @@ export async function updateDoneSummaryData(): Promise<void> {
     const gcsStorage = new GoogleCloudStorageService(gcsCredentials);
     await AzureLogger.logInfo(SCHEDULER_TYPE, 'GCS Storage initialized with credentials from Azure');
 
-    // List-and-sync: ambil semua file dari bucket GCS lalu sinkronkan ke Azure
+    // Get today's date in YYYYMMDD format
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10).replace(/-/g, '');
+    // Convert YYYYMMDD to YYMMDD format for DT filename (remove first 2 digits of year)
+    const todayStrShort = todayStr.slice(2); // 20251028 -> 251028
+    const todayFileName = `${todayStr}/DT${todayStrShort}.csv`;
+    
+    await AzureLogger.logInfo(SCHEDULER_TYPE, `Looking for today's done summary file: ${todayFileName}`);
+    
+    // Check if today's file exists in GCS
     const gcsAllFiles = await gcsStorage.listFiles('');
-    const gcsCsvFiles = gcsAllFiles.filter((name: string) => name && name.toLowerCase().endsWith('.csv'));
-    await AzureLogger.logInfo(SCHEDULER_TYPE, `Discovered ${gcsCsvFiles.length} CSV file(s) in GCS for synchronization`);
+    const todayFileExists = gcsAllFiles.includes(todayFileName);
+    
+    if (!todayFileExists) {
+      await AzureLogger.logItemProcess(SCHEDULER_TYPE, 'SKIP', todayStr, `Today's done summary file not found in GCS: ${todayFileName}`);
+      await AzureLogger.logSchedulerEnd(SCHEDULER_TYPE, {
+        success: 0,
+        skipped: 1,
+        failed: 0,
+        total: 1
+      });
+      return;
+    }
+    
+    const gcsCsvFiles = [todayFileName]; // Only process today's file
+    await AzureLogger.logInfo(SCHEDULER_TYPE, `Found today's done summary file: ${todayFileName}`);
 
     let successCount = 0;
     let skipCount = 0;
@@ -205,11 +227,12 @@ export async function updateDoneSummaryData(): Promise<void> {
       if (!gcsFileName) continue;
       
       // Derive date and target Azure path
-      // Expected common pattern: 20251013/DT20251013.csv
-      const match = gcsFileName.match(/^(\d{8})\/DT\1\.csv$/);
+      // Expected pattern: 20251028/DT251028.csv (YYYYMMDD/DTYYMMDD.csv)
+      const match = gcsFileName.match(/^(\d{8})\/DT(\d{6})\.csv$/);
       const dateStr = match ? match[1] : '';
+      const dtStr = match ? match[2] : '';
       const azureBlobName = match
-        ? `done-summary/${dateStr}/DT${dateStr}.csv`
+        ? `done-summary/${dateStr}/DT${dtStr}.csv`
         : `done-summary/${gcsFileName}`; // fallback: mirror structure under done-summary/
       
       try {
@@ -225,7 +248,7 @@ export async function updateDoneSummaryData(): Promise<void> {
         
         // Check if target already exists in Azure
         if (await azureStorage.blobExists(azureBlobName)) {
-          await AzureLogger.logItemProcess(SCHEDULER_TYPE, 'SKIP', dateStr || gcsFileName, 'Done summary already exists in Azure');
+          await AzureLogger.logItemProcess(SCHEDULER_TYPE, 'SKIP', dateStr || gcsFileName, `Today's done summary already exists in Azure (${dateStr})`);
           skipCount++;
           continue;
         }

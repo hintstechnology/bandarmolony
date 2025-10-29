@@ -227,7 +227,7 @@ export class MoneyFlowCalculator {
           // Merge with new data
           const mergedData = this.mergeMoneyFlowData(existingData, flowData);
           
-          // Sort by date ascending (oldest first) - same as original file
+          // Sort by date descending (newest first)
           const sortedData = this.sortMoneyFlowDataByDate(mergedData);
           
           // Save merged and sorted data
@@ -236,7 +236,7 @@ export class MoneyFlowCalculator {
         } else {
           console.log(`📄 Creating new file: ${filename}`);
           
-          // Sort new data by date ascending (oldest first) - same as original file
+          // Sort new data by date descending (newest first)
           const sortedData = this.sortMoneyFlowDataByDate(flowData);
           
           await this.saveToAzure(filename, sortedData);
@@ -253,7 +253,7 @@ export class MoneyFlowCalculator {
         // Simplified error handling - just log and continue
         console.log(`📄 File not found, creating new: ${filename}`);
         
-        // Sort new data by date ascending (oldest first) - same as original file
+        // Sort new data by date descending (newest first)
         const sortedData = this.sortMoneyFlowDataByDate(flowData);
         
         await this.saveToAzure(filename, sortedData);
@@ -277,12 +277,12 @@ export class MoneyFlowCalculator {
   }
 
   /**
-   * Sort money flow data by date ascending (oldest first) - same as original file
+   * Sort money flow data by date descending (newest first)
    */
   private sortMoneyFlowDataByDate(data: MoneyFlowData[]): MoneyFlowData[] {
     return data.sort((a, b) => {
-      // Parse dates and compare (oldest first) - same as original file
-      return a.Date.localeCompare(b.Date);
+      // Parse dates and compare (newest first)
+      return b.Date.localeCompare(a.Date);
     });
   }
 

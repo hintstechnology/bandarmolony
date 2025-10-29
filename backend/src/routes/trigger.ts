@@ -15,6 +15,10 @@ import BrokerDataScheduler from '../services/brokerDataScheduler';
 import BrokerInventoryDataScheduler from '../services/brokerInventoryDataScheduler';
 import ForeignFlowDataScheduler from '../services/foreignFlowDataScheduler';
 import MoneyFlowDataScheduler from '../services/moneyFlowDataScheduler';
+import { preGenerateAllRRC } from '../services/rrcDataScheduler';
+import { preGenerateAllRRG } from '../services/rrgDataScheduler';
+import { forceRegenerate as generateSeasonalityData } from '../services/seasonalityDataScheduler';
+import { TrendFilterDataScheduler } from '../services/trendFilterDataScheduler';
 
 const router = express.Router();
 
@@ -650,6 +654,40 @@ router.post('/money-flow', async (_req, res) => {
   }
 });
 
+// Get scheduler status
+router.get('/status', async (_req, res) => {
+  try {
+    // Get latest logs from scheduler
+    const latestLogs = await SchedulerLogService.getLogs({
+      limit: 10,
+      offset: 0
+    });
+
+    // Get total counts by status
+    const totalRunning = await SchedulerLogService.getLogsCount({ status: 'running' });
+    const totalCompleted = await SchedulerLogService.getLogsCount({ status: 'completed' });
+    const totalFailed = await SchedulerLogService.getLogsCount({ status: 'failed' });
+
+    return res.json({
+      success: true,
+      data: {
+        latestLogs,
+        summary: {
+          running: totalRunning,
+          completed: totalCompleted,
+          failed: totalFailed
+        }
+      }
+    });
+  } catch (error: any) {
+    console.error('❌ Error fetching scheduler status:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
 // Get scheduler logs
 router.get('/logs', async (req, res) => {
   try {
@@ -707,6 +745,224 @@ router.get('/logs/:id', async (req, res) => {
     return res.status(500).json({ 
       success: false, 
       message: error.message 
+    });
+  }
+});
+
+// Manual trigger for RRC calculation
+router.post('/rrc', async (_req, res) => {
+  try {
+    console.log('🔄 Manual trigger: RRC calculation');
+    
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'rrc',
+      trigger_type: 'manual',
+      triggered_by: 'admin',
+      status: 'running',
+      force_override: true,
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    preGenerateAllRRC(true, 'manual').then(async () => {
+      await AzureLogger.logInfo('rrc', 'Manual RRC calculation completed');
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'completed',
+          progress_percentage: 100
+        });
+      }
+    }).catch(async (error) => {
+      await AzureLogger.logSchedulerError('rrc', error.message);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
+        });
+      }
+    });
+
+    return res.json({ 
+      success: true, 
+      message: 'RRC calculation triggered successfully',
+      log_id: logEntry.id
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error triggering RRC calculation:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Unknown error' 
+    });
+  }
+});
+
+// Manual trigger for RRG calculation
+router.post('/rrg', async (_req, res) => {
+  try {
+    console.log('🔄 Manual trigger: RRG calculation');
+    
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'rrg',
+      trigger_type: 'manual',
+      triggered_by: 'admin',
+      status: 'running',
+      force_override: true,
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    preGenerateAllRRG(true, 'manual').then(async () => {
+      await AzureLogger.logInfo('rrg', 'Manual RRG calculation completed');
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'completed',
+          progress_percentage: 100
+        });
+      }
+    }).catch(async (error) => {
+      await AzureLogger.logSchedulerError('rrg', error.message);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
+        });
+      }
+    });
+
+    return res.json({ 
+      success: true, 
+      message: 'RRG calculation triggered successfully',
+      log_id: logEntry.id
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error triggering RRG calculation:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Unknown error' 
+    });
+  }
+});
+
+// Manual trigger for Seasonal calculation
+router.post('/seasonal', async (_req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Seasonal calculation');
+    
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'seasonality',
+      trigger_type: 'manual',
+      triggered_by: 'admin',
+      status: 'running',
+      force_override: true,
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    generateSeasonalityData('manual').then(async () => {
+      await AzureLogger.logInfo('seasonality', 'Manual seasonal calculation completed');
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'completed',
+          progress_percentage: 100
+        });
+      }
+    }).catch(async (error: any) => {
+      await AzureLogger.logSchedulerError('seasonality', error.message);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
+        });
+      }
+    });
+
+    return res.json({ 
+      success: true, 
+      message: 'Seasonal calculation triggered successfully',
+      log_id: logEntry.id
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error triggering seasonal calculation:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Unknown error' 
+    });
+  }
+});
+
+// Manual trigger for Trend Filter calculation
+router.post('/trend-filter', async (_req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Trend Filter calculation');
+    
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'trend_filter',
+      trigger_type: 'manual',
+      triggered_by: 'admin',
+      status: 'running',
+      force_override: true,
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    const trendFilterService = new TrendFilterDataScheduler();
+    trendFilterService.generateTrendFilterData().then(async (result: any) => {
+      await AzureLogger.logInfo('trend_filter', `Manual trend filter calculation completed: ${result.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: result.success ? 'completed' : 'failed',
+          progress_percentage: 100,
+          ...(result.success ? {} : { error_message: result.message })
+        });
+      }
+    }).catch(async (error: any) => {
+      await AzureLogger.logSchedulerError('trend_filter', error.message);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
+        });
+      }
+    });
+
+    return res.json({ 
+      success: true, 
+      message: 'Trend Filter calculation triggered successfully',
+      log_id: logEntry.id
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error triggering trend filter calculation:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Unknown error' 
     });
   }
 });

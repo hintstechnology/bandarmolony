@@ -28,7 +28,7 @@ import { initializeAzureLogging } from './azureLoggingService';
 // All scheduler times are configured here for easy maintenance
 const SCHEDULER_CONFIG = {
   // Scheduled Calculation Times - Only Phase 1 runs on schedule
-  PHASE1_DATA_COLLECTION_TIME: '19:01',    // Data collection (Stock, Index, Done Summary)
+  PHASE1_DATA_COLLECTION_TIME: '23:02',    // Data collection (Stock, Index, Done Summary)
   PHASE1_SHAREHOLDERS_TIME: '00:00',       // Shareholders & Holding (if last month)
   
   // Phase 2-6 are auto-triggered sequentially after Phase 1 completes
@@ -316,17 +316,19 @@ async function runPhase2MarketRotationCalculations(): Promise<void> {
         }
         
         // Run calculation
-        const result = await (task.service as any)();
+        if (task.method) {
+          // Call method on service instance
+          await (task.service as any)[task.method]();
+        } else {
+          // Call service directly as a function
+          await (task.service as any)();
+        }
         
         const duration = Date.now() - startTime;
         
-        if (result.success) {
-          console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
-          return { name: task.name, success: true, duration };
-        } else {
-          console.error(`❌ ${task.name} failed:`, result.message);
-          return { name: task.name, success: false, error: result.message, duration };
-        }
+        // If we reach here without throwing an error, the task succeeded
+        console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
+        return { name: task.name, success: true, duration };
         
       } catch (error) {
         const duration = Date.now() - startTime;
@@ -472,17 +474,13 @@ async function runPhase3LightCalculations(): Promise<void> {
         }
         
         // Run calculation
-        const result = await (task.service as any)[task.method]('all');
+        await (task.service as any)[task.method]('all');
         
         const duration = Date.now() - startTime;
         
-        if (result.success) {
-          console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
-          return { name: task.name, success: true, duration };
-        } else {
-          console.error(`❌ ${task.name} failed:`, result.message);
-          return { name: task.name, success: false, error: result.message, duration };
-        }
+        // If we reach here without throwing an error, the task succeeded
+        console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
+        return { name: task.name, success: true, duration };
         
       } catch (error) {
         const duration = Date.now() - startTime;
@@ -834,9 +832,7 @@ async function runPhase6VeryHeavyCalculations(): Promise<void> {
       
       totalCalculations++;
       
-      // Force aggressive garbage collection after each calculation
-      await aggressiveMemoryCleanup();
-      
+      // No aggressive cleanup during calculations to prevent data loss
       // Longer delay between calculations for very heavy operations
       if (totalCalculations < veryHeavyCalculations.length) {
         console.log('⏳ Waiting 10s before next calculation...');
@@ -873,6 +869,9 @@ async function runPhase6VeryHeavyCalculations(): Promise<void> {
     
     console.log(`\n🎉 ===== ALL PHASES COMPLETED =====`);
     console.log(`📊 Total time from Phase 1 start: Check individual phase logs`);
+    
+    // Cleanup memory after all calculations are complete
+    await aggressiveMemoryCleanup();
     
     // Stop memory monitoring after all phases complete
     stopMemoryMonitoring();
@@ -969,17 +968,13 @@ export function startScheduler(): void {
           }
           
           // Run calculation
-          const result = await (task.service as any)();
+          await (task.service as any)();
           
         const duration = Date.now() - startTime;
         
-        if (result.success) {
-            console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
-            return { name: task.name, success: true, duration };
-        } else {
-            console.error(`❌ ${task.name} failed:`, result.message);
-            return { name: task.name, success: false, error: result.message, duration };
-        }
+        // If we reach here without throwing an error, the task succeeded
+        console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
+        return { name: task.name, success: true, duration };
           
       } catch (error) {
         const duration = Date.now() - startTime;
@@ -1120,17 +1115,13 @@ export function startScheduler(): void {
             }
             
             // Run calculation
-            const result = await (task.service as any)();
+            await (task.service as any)();
       
       const duration = Date.now() - startTime;
       
-      if (result.success) {
-              console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
-              return { name: task.name, success: true, duration };
-      } else {
-              console.error(`❌ ${task.name} failed:`, result.message);
-              return { name: task.name, success: false, error: result.message, duration };
-            }
+      // If we reach here without throwing an error, the task succeeded
+      console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
+      return { name: task.name, success: true, duration };
             
           } catch (error) {
             const duration = Date.now() - startTime;
