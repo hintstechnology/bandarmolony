@@ -28,7 +28,7 @@ import { initializeAzureLogging } from './azureLoggingService';
 // All scheduler times are configured here for easy maintenance
 const SCHEDULER_CONFIG = {
   // Scheduled Calculation Times - Only Phase 1 runs on schedule
-  PHASE1_DATA_COLLECTION_TIME: '23:02',    // Data collection (Stock, Index, Done Summary)
+  PHASE1_DATA_COLLECTION_TIME: '19:00',    // Data collection (Stock, Index, Done Summary)
   PHASE1_SHAREHOLDERS_TIME: '00:00',       // Shareholders & Holding (if last month)
   
   // Phase 2-6 are auto-triggered sequentially after Phase 1 completes
@@ -270,8 +270,8 @@ async function runPhase2MarketRotationCalculations(): Promise<void> {
     if (!memoryOk) {
       console.log('⚠️ Skipping Phase 2 Market Rotation due to high memory usage');
       stopMemoryMonitoring();
-      return;
-    }
+        return;
+      }
 
     // Create database log entry
     const logData: Partial<SchedulerLog> = {
@@ -329,8 +329,8 @@ async function runPhase2MarketRotationCalculations(): Promise<void> {
         // If we reach here without throwing an error, the task succeeded
         console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
         return { name: task.name, success: true, duration };
-        
-      } catch (error) {
+      
+    } catch (error) {
         const duration = Date.now() - startTime;
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         console.error(`❌ ${task.name} failed:`, errorMessage);
@@ -391,7 +391,7 @@ async function runPhase2MarketRotationCalculations(): Promise<void> {
       console.log('⚠️ Skipping Phase 3 due to insufficient Phase 2 success rate');
     }
     
-  } catch (error) {
+    } catch (error) {
     trackError(error, 'Phase 2 Market Rotation Calculations');
     console.error('❌ Error during Phase 2 Market Rotation calculations:', error);
     
@@ -416,37 +416,37 @@ async function runPhase3LightCalculations(): Promise<void> {
   // Start memory monitoring for this phase
   startMemoryMonitoring();
   resetPerformanceMetrics();
-  
-  let logEntry: SchedulerLog | null = null;
-  
-  try {
+    
+    let logEntry: SchedulerLog | null = null;
+    
+    try {
     // Check memory before starting
     const canProceed = await checkMemoryBeforeLargeOperation('Phase 3 Light Calculations');
     if (!canProceed) {
       console.log('⚠️ Skipping Phase 3 Light due to high memory usage');
       stopMemoryMonitoring();
-      return;
-    }
-    
+        return;
+      }
+      
     const memoryOk = await monitorMemoryUsage();
     if (!memoryOk) {
       console.log('⚠️ Skipping Phase 3 Light due to high memory usage');
       stopMemoryMonitoring();
       return;
     }
-    
-    // Create database log entry
-    const logData: Partial<SchedulerLog> = {
+      
+      // Create database log entry
+      const logData: Partial<SchedulerLog> = {
       feature_name: 'phase3_light_calculations',
-      trigger_type: 'scheduled',
+        trigger_type: 'scheduled',
       triggered_by: 'phase2',
-      status: 'running',
-      started_at: new Date().toISOString(),
-      environment: process.env['NODE_ENV'] || 'development'
-    };
-    
-    logEntry = await SchedulerLogService.createLog(logData);
-    if (logEntry) {
+        status: 'running',
+        started_at: new Date().toISOString(),
+        environment: process.env['NODE_ENV'] || 'development'
+      };
+      
+      logEntry = await SchedulerLogService.createLog(logData);
+      if (logEntry) {
       console.log('📊 Phase 3 Light database log created:', logEntry.id);
     }
     
@@ -515,16 +515,16 @@ async function runPhase3LightCalculations(): Promise<void> {
     console.log(`✅ Success: ${successCount}/3 calculations`);
     console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
     console.log(`⏱️ Total Duration: ${totalDuration}s`);
-    
-    // Update database log
-    if (logEntry) {
-      await SchedulerLogService.updateLog(logEntry.id!, {
+      
+      // Update database log
+      if (logEntry) {
+        await SchedulerLogService.updateLog(logEntry.id!, {
         status: successCount === 3 ? 'completed' : 'failed',
-        completed_at: new Date().toISOString(),
+          completed_at: new Date().toISOString(),
         total_files_processed: 3,
         files_created: successCount,
         files_failed: 3 - successCount,
-        progress_percentage: 100,
+          progress_percentage: 100,
         current_processing: `Phase 3 Light complete: ${successCount}/3 calculations successful in ${totalDuration}s`
       });
     }
@@ -539,21 +539,21 @@ async function runPhase3LightCalculations(): Promise<void> {
     if (successCount >= 2) { // Trigger Phase 4 if at least 2/3 succeed
       console.log('🔄 Triggering Phase 4 Medium calculations...');
       await runPhase4MediumCalculations();
-    } else {
+      } else {
       console.log('⚠️ Skipping Phase 4 due to insufficient Phase 3 success rate');
-    }
-    
-  } catch (error) {
+      }
+      
+    } catch (error) {
     trackError(error, 'Phase 3 Light Calculations');
     console.error('❌ Error during Phase 3 Light calculations:', error);
-    
+      
     // Stop memory monitoring on error
     stopMemoryMonitoring();
     
-    if (logEntry) {
-      await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
+      if (logEntry) {
+        await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
+      }
     }
-  }
 }
 
 async function runPhase4MediumCalculations(): Promise<void> {
@@ -574,8 +574,8 @@ async function runPhase4MediumCalculations(): Promise<void> {
     if (!memoryOk) {
       console.log('⚠️ Skipping Phase 4 Medium due to high memory usage');
       stopMemoryMonitoring();
-        return;
-      }
+    return;
+  }
 
     // Create database log entry
     const logData: Partial<SchedulerLog> = {
@@ -786,7 +786,7 @@ async function runPhase6VeryHeavyCalculations(): Promise<void> {
     };
     
     logEntry = await SchedulerLogService.createLog(logData);
-    if (logEntry) {
+      if (logEntry) {
       console.log('📊 Phase 6 Very Heavy database log created:', logEntry.id);
     }
     
@@ -814,16 +814,16 @@ async function runPhase6VeryHeavyCalculations(): Promise<void> {
       try {
         const result = await (calc.service as any)[calc.method]('all');
         const calcDuration = Math.round((Date.now() - calcStartTime) / 1000);
-        
-        if (result.success) {
+      
+      if (result.success) {
           totalSuccessCount++;
           console.log(`✅ ${calc.name} completed in ${calcDuration}s`);
-          } else {
+      } else {
           console.error(`❌ ${calc.name} failed:`, result.message);
           console.error(`❌ Stopping Phase 6 due to critical calculation failure`);
           break; // Stop processing remaining calculations
-        }
-      } catch (error) {
+      }
+    } catch (error) {
         const calcDuration = Math.round((Date.now() - calcStartTime) / 1000);
         console.error(`❌ ${calc.name} error in ${calcDuration}s:`, error);
         console.error(`❌ Stopping Phase 6 due to critical calculation error`);
@@ -954,14 +954,14 @@ export function startScheduler(): void {
       ];
       
       const dataCollectionPromises = dataCollectionTasks.map(async (task, index) => {
-        const startTime = Date.now();
-        
-        try {
+    const startTime = Date.now();
+    
+    try {
           console.log(`🔄 Starting ${task.name} (${index + 1}/3)...`);
-          
-          // Update progress in database
-  if (logEntry) {
-    await SchedulerLogService.updateLog(logEntry.id!, {
+      
+      // Update progress in database
+      if (logEntry) {
+        await SchedulerLogService.updateLog(logEntry.id!, {
               progress_percentage: Math.round((index / 3) * 100),
               current_processing: `Running ${task.name}...`
             });
@@ -969,25 +969,25 @@ export function startScheduler(): void {
           
           // Run calculation
           await (task.service as any)();
-          
-        const duration = Date.now() - startTime;
-        
+      
+      const duration = Date.now() - startTime;
+      
         // If we reach here without throwing an error, the task succeeded
         console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
         return { name: task.name, success: true, duration };
-          
-      } catch (error) {
-        const duration = Date.now() - startTime;
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
           console.error(`❌ ${task.name} failed:`, errorMessage);
           return { name: task.name, success: false, error: errorMessage, duration };
-        }
-      });
-      
-      // Wait for all calculations to complete
+    }
+  });
+  
+  // Wait for all calculations to complete
       const dataCollectionResults = await Promise.allSettled(dataCollectionPromises);
-      
-      // Process results
+  
+  // Process results
       const results: Array<{ name: string; success: boolean; error?: string; duration?: number }> = [];
       dataCollectionResults.forEach((result, index) => {
     if (result.status === 'fulfilled') {
@@ -1059,9 +1059,9 @@ export function startScheduler(): void {
       return;
     }
     
-    let logEntry: SchedulerLog | null = null;
-    
-    try {
+  let logEntry: SchedulerLog | null = null;
+  
+  try {
     // Check if today is the last day of the month
     const today = new Date();
     const tomorrow = new Date(today);
@@ -1078,17 +1078,17 @@ export function startScheduler(): void {
         }
         
         // Create database log entry
-        const logData: Partial<SchedulerLog> = {
+    const logData: Partial<SchedulerLog> = {
           feature_name: 'phase1_shareholders_holding',
-          trigger_type: 'scheduled',
-          triggered_by: 'scheduler',
-          status: 'running',
-          started_at: new Date().toISOString(),
-          environment: process.env['NODE_ENV'] || 'development'
-        };
-        
-        logEntry = await SchedulerLogService.createLog(logData);
-        if (logEntry) {
+      trigger_type: 'scheduled',
+      triggered_by: 'scheduler',
+      status: 'running',
+      started_at: new Date().toISOString(),
+      environment: process.env['NODE_ENV'] || 'development'
+    };
+    
+    logEntry = await SchedulerLogService.createLog(logData);
+    if (logEntry) {
           console.log('📊 Phase 1 Shareholders & Holding database log created:', logEntry.id);
         }
         
@@ -1156,16 +1156,16 @@ export function startScheduler(): void {
         console.log(`✅ Success: ${successCount}/2 calculations`);
         console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
         console.log(`⏱️ Total Duration: ${totalDuration}s`);
-        
-        // Update database log
-        if (logEntry) {
-          await SchedulerLogService.updateLog(logEntry.id!, {
+    
+    // Update database log
+    if (logEntry) {
+      await SchedulerLogService.updateLog(logEntry.id!, {
             status: successCount === 2 ? 'completed' : 'failed',
-            completed_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
             total_files_processed: 2,
             files_created: successCount,
             files_failed: 2 - successCount,
-            progress_percentage: 100,
+        progress_percentage: 100,
             current_processing: `Phase 1 Shareholders & Holding complete: ${successCount}/2 calculations successful in ${totalDuration}s`
           });
         }
@@ -1175,15 +1175,15 @@ export function startScheduler(): void {
         
       } else {
         console.log('📅 Not the last day of month - skipping Shareholders & Holding updates');
-      }
-      
-    } catch (error) {
-      console.error('❌ Error during Phase 1 Shareholders & Holding:', error);
-      
-      if (logEntry) {
-        await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
-      }
     }
+    
+  } catch (error) {
+      console.error('❌ Error during Phase 1 Shareholders & Holding:', error);
+    
+    if (logEntry) {
+      await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
+    }
+  }
   }, {
     timezone: TIMEZONE
   });
