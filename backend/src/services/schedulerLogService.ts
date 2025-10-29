@@ -90,7 +90,7 @@ export class SchedulerLogService {
         updateData.completed_at = getJakartaTime();
         if (updates.status === 'completed' || updates.status === 'failed') {
           // Calculate duration if both started_at and completed_at exist
-          const log = await this.getLogById(parseInt(logId));
+          const log = await this.getLogById(logId);
           if (log?.started_at) {
             const startTime = new Date(log.started_at);
             const endTime = new Date(updateData.completed_at as string);
@@ -362,7 +362,7 @@ export class SchedulerLogService {
   /**
    * Get scheduler log by ID
    */
-  static async getLogById(id: number): Promise<any | null> {
+  static async getLogById(id: string | number): Promise<any | null> {
     try {
       const { data, error } = await supabaseAdmin
         .from('scheduler_logs')

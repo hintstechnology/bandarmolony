@@ -4,8 +4,8 @@ import { createSuccessResponse, createErrorResponse, ERROR_CODES, HTTP_STATUS } 
 
 const router = Router();
 
-// Middleware to check if user is admin
-const requireAdmin = async (req: any, res: any, next: any) => {
+// Middleware to check if user is developer
+const requireDeveloper = async (req: any, res: any, next: any) => {
   try {
     const auth = req.headers.authorization || '';
     const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
@@ -40,7 +40,7 @@ const requireAdmin = async (req: any, res: any, next: any) => {
       ));
     }
 
-    // Check if user is admin
+    // Check if user is developer
     const { data: userProfile, error: profileError } = await supabaseAdmin
       .from('users')
       .select('role')
@@ -49,16 +49,16 @@ const requireAdmin = async (req: any, res: any, next: any) => {
 
     if (profileError) {
       return res.status(403).json(createErrorResponse(
-        'Admin access required',
+        'Developer access required',
         ERROR_CODES.FORBIDDEN,
         undefined,
         HTTP_STATUS.FORBIDDEN
       ));
     }
 
-    if (!userProfile || userProfile.role !== 'admin') {
+    if (!userProfile || userProfile.role !== 'developer') {
       return res.status(403).json(createErrorResponse(
-        'Admin access required',
+        'Developer access required',
         ERROR_CODES.FORBIDDEN,
         undefined,
         HTTP_STATUS.FORBIDDEN
@@ -68,7 +68,7 @@ const requireAdmin = async (req: any, res: any, next: any) => {
     req.user = user;
     next();
   } catch (error) {
-    console.error('Admin middleware error:', error);
+    console.error('Developer middleware error:', error);
     res.status(500).json(createErrorResponse(
         'Internal server error',
         ERROR_CODES.INTERNAL_SERVER_ERROR,
@@ -79,10 +79,10 @@ const requireAdmin = async (req: any, res: any, next: any) => {
 };
 
 /**
- * GET /api/admin/stats
+ * GET /api/developer/stats
  * Get user statistics
  */
-router.get('/stats', requireAdmin, async (_req, res) => {
+router.get('/stats', requireDeveloper, async (_req, res) => {
   try {
     // Get total users using service role (bypasses RLS)
     const { count: totalUsers, error: totalError } = await supabaseAdmin
@@ -93,7 +93,6 @@ router.get('/stats', requireAdmin, async (_req, res) => {
       console.error('Error getting total users:', totalError);
       throw totalError;
     }
-
 
     // Get active users using service role
     const { count: activeUsers, error: activeError } = await supabaseAdmin
@@ -163,7 +162,7 @@ router.get('/stats', requireAdmin, async (_req, res) => {
     }, 'User statistics retrieved successfully'));
 
   } catch (error) {
-    console.error('Get admin stats error:', error);
+    console.error('Get developer stats error:', error);
     res.status(500).json(createErrorResponse(
       'Failed to retrieve user statistics',
       'INTERNAL_SERVER_ERROR',
@@ -174,10 +173,10 @@ router.get('/stats', requireAdmin, async (_req, res) => {
 });
 
 /**
- * GET /api/admin/users
+ * GET /api/developer/users
  * Get users list with pagination and filters
  */
-router.get('/users', requireAdmin, async (req, res) => {
+router.get('/users', requireDeveloper, async (req, res) => {
   try {
     const page = parseInt(req.query['page'] as string) || 1;
     const limit = parseInt(req.query['limit'] as string) || 10;
@@ -245,10 +244,10 @@ router.get('/users', requireAdmin, async (req, res) => {
 });
 
 /**
- * PUT /api/admin/users/:id/suspend
+ * PUT /api/developer/users/:id/suspend
  * Suspend or unsuspend a user
  */
-router.put('/users/:id/suspend', requireAdmin, async (req, res) => {
+router.put('/users/:id/suspend', requireDeveloper, async (req, res) => {
   try {
     const { id } = req.params;
     const { suspended } = req.body;
@@ -298,10 +297,10 @@ router.put('/users/:id/suspend', requireAdmin, async (req, res) => {
 });
 
 /**
- * GET /api/admin/recent-users
+ * GET /api/developer/recent-users
  * Get recent user registrations
  */
-router.get('/recent-users', requireAdmin, async (req, res) => {
+router.get('/recent-users', requireDeveloper, async (req, res) => {
   try {
     const limit = parseInt(req.query['limit'] as string) || 5;
 
@@ -327,10 +326,10 @@ router.get('/recent-users', requireAdmin, async (req, res) => {
 });
 
 /**
- * PATCH /api/admin/users/:id/email-verification
+ * PATCH /api/developer/users/:id/email-verification
  * Update user email verification status
  */
-router.patch('/users/:id/email-verification', requireAdmin, async (req, res) => {
+router.patch('/users/:id/email-verification', requireDeveloper, async (req, res) => {
   try {
     const { id } = req.params;
     const { email_verified } = req.body;
@@ -380,3 +379,4 @@ router.patch('/users/:id/email-verification', requireAdmin, async (req, res) => 
 });
 
 export default router;
+

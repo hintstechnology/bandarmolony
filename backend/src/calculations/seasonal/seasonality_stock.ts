@@ -120,7 +120,7 @@ async function loadStockData(sector: string, ticker: string): Promise<StockData[
     });
   }
   
-  return data.sort((a, b) => new Date(a.Date).getTime() - new Date(b.Date).getTime());
+  return data.sort((a, b) => new Date(b.Date).getTime() - new Date(a.Date).getTime());
 }
 
 /**

@@ -130,15 +130,11 @@ export async function preGenerateAllRRG(forceOverride: boolean = false, triggerT
       // Process batch in parallel
       await Promise.all(batch.map(async (stock) => {
         const cleanedStock = stock.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-        const filePath = `rrg_output/stock/o1-rrg-${cleanedStock}.csv`;
         
         stockProcessed++;
         
-        if (!forceOverride && await exists(filePath)) {
-          filesSkipped++;
-          console.log(`⏭️ Skipping existing stock: ${cleanedStock}`);
-          return;
-        }
+        // Always regenerate RRG data to ensure latest data is included
+        // Skip logic removed to ensure data is always fresh
 
         try {
           const csvContent = await calculateRrgStock(cleanedStock, 'COMPOSITE');
@@ -152,9 +148,17 @@ export async function preGenerateAllRRG(forceOverride: boolean = false, triggerT
             console.log(`❌ Failed to generate RRG data for stock: ${cleanedStock}`);
           }
         } catch (error) {
-          stockFailed++;
-          filesFailed++;
-          console.error(`❌ Error generating RRG data for stock ${cleanedStock}:`, error);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          
+          // Skip stocks that don't have CSV files (they may have been delisted or moved)
+          if (errorMessage.includes('tidak ditemukan') || errorMessage.includes('not found') || errorMessage.includes('CSV')) {
+            filesSkipped++;
+            console.log(`⏭️ Skipping stock ${cleanedStock}: CSV file not found (may be delisted)`);
+          } else {
+            stockFailed++;
+            filesFailed++;
+            console.error(`❌ Error generating RRG data for stock ${cleanedStock}:`, error);
+          }
         }
       }));
       

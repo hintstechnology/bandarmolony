@@ -147,72 +147,39 @@ async function processEmiten(
       existingData = await parseCsvString(existingCsvData);
     }
     
-    // Check if any data exists for the past week
-    const weekAgo = new Date();
-    weekAgo.setDate(weekAgo.getDate() - 7);
-    const weekAgoDate = weekAgo.toISOString().split('T')[0];
-    
-    if (!weekAgoDate) {
-      await AzureLogger.logItemProcess('stock', 'ERROR', emiten, 'Failed to calculate week ago date');
-      return { success: false, skipped: false, error: 'Failed to calculate week ago date' };
-    }
-    
-    // Check if ALL days in the past week have data
-    const weekAgoDateObj = new Date(weekAgoDate);
-    const todayDateObj = new Date(todayDate);
-    
-    // Generate all dates in the range
-    const requiredDates: string[] = [];
-    for (let d = new Date(weekAgoDateObj); d <= todayDateObj; d.setDate(d.getDate() + 1)) {
-      const isoString = d.toISOString();
-      if (isoString) {
-        const datePart = isoString.split('T')[0];
-        if (datePart) {
-          requiredDates.push(datePart);
+    // Check if today's data already exists
+    const todayDataExists = existingData.some(row => {
+      const rowDate = row.date || row.tanggal || row.Date || '';
+      if (!rowDate) return false;
+      
+      // Try different date formats
+      let rowDateObj: Date;
+      if (rowDate.includes('/')) {
+        const parts = rowDate.split('/');
+        if (parts.length === 3) {
+          rowDateObj = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+        } else {
+          rowDateObj = new Date(rowDate);
         }
+      } else if (rowDate.includes('-')) {
+        rowDateObj = new Date(rowDate);
+      } else {
+        rowDateObj = new Date(rowDate);
       }
-    }
+      
+      const rowDateStr = isNaN(rowDateObj.getTime()) ? '' : rowDateObj.toISOString().split('T')[0];
+      return rowDateStr === todayDate;
+    });
     
-    // Check if we have data for all required dates
-    const existingDates = new Set(
-      existingData
-        .map(row => {
-          const rowDate = row.date || row.tanggal || row.Date || '';
-          if (!rowDate) return '';
-          
-          // Try different date formats
-          let rowDateObj: Date;
-          if (rowDate.includes('/')) {
-            const parts = rowDate.split('/');
-            if (parts.length === 3) {
-              rowDateObj = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
-            } else {
-              rowDateObj = new Date(rowDate);
-            }
-          } else if (rowDate.includes('-')) {
-            rowDateObj = new Date(rowDate);
-          } else {
-            rowDateObj = new Date(rowDate);
-          }
-          
-          return isNaN(rowDateObj.getTime()) ? '' : rowDateObj.toISOString().split('T')[0];
-        })
-        .filter(date => date)
-    );
-    
-    // Check if all required dates exist
-    const weekDataExists = requiredDates.every(date => existingDates.has(date));
-    
-    
-    if (weekDataExists) {
-      await AzureLogger.logItemProcess('stock', 'SKIP', emiten, 'Data already exists for the past week');
+    if (todayDataExists) {
+      await AzureLogger.logItemProcess('stock', 'SKIP', emiten, `Data already exists for today (${todayDate})`);
       return { success: true, skipped: true };
     }
     
-    // Fetch data from API for the past week
+    // Fetch data from API for today only
     const params = {
       secCode: emiten,
-      startDate: weekAgoDate,
+      startDate: todayDate,
       endDate: todayDate,
       granularity: "daily",
     };
@@ -364,6 +331,9 @@ export async function updateStockData(): Promise<void> {
     const successCount = results.filter(r => r.success && !r.skipped).length;
     const skipCount = results.filter(r => r.success && r.skipped).length;
     const errorCount = results.filter(r => !r.success).length;
+
+    // Wait a moment for any pending Azure logging operations to complete
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
     await AzureLogger.logSchedulerEnd(SCHEDULER_TYPE, {
       success: successCount,

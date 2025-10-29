@@ -4,7 +4,17 @@ import { Badge } from "../ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Button } from "../ui/button";
 import { Filter, X, Loader2 } from "lucide-react";
-import { api, PaymentRecord } from "../../services/api";
+// Local type definition and direct fetch to backend to avoid tight coupling with api.ts
+type PaymentRecord = {
+  id: string;
+  date: string;
+  status: 'paid' | 'failed' | 'waiting' | string;
+  amount: string;
+  product: string;
+  paymentMethod: string;
+};
+
+const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
 
 const getStatusBadge = (status: PaymentRecord["status"]) => {
   switch (status) {
@@ -41,12 +51,19 @@ export function PaymentHistory() {
   const loadPayments = async () => {
     setIsLoading(true);
     try {
-      const filters = {
-        status: statusFilter !== "all" ? statusFilter : undefined,
-        paymentMethod: paymentMethodFilter !== "all" ? paymentMethodFilter : undefined
-      };
-      const data = await api.getPaymentHistory(filters);
-      setPayments(data);
+      const params = new URLSearchParams();
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      if (paymentMethodFilter !== "all") params.set("paymentMethod", paymentMethodFilter);
+
+      const res = await fetch(`${API_URL}/api/payments/history?${params.toString()}`);
+      if (!res.ok) {
+        console.warn(`PaymentHistory: backend returned ${res.status}; showing empty list`);
+        setPayments([]);
+      } else {
+        const json = await res.json();
+        const records: PaymentRecord[] = Array.isArray(json) ? json : (json?.data ?? []);
+        setPayments(records);
+      }
     } catch (error) {
       console.error("Failed to load payments:", error);
     } finally {

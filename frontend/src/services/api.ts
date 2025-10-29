@@ -9,7 +9,7 @@ export interface ProfileData {
   email: string;
   full_name: string;
   avatar_url?: string;
-  role: 'user' | 'admin' | 'moderator';
+  role: 'user' | 'admin' | 'developer';
   is_active: boolean;
   email_verified: boolean;
   last_login_at?: string;
@@ -209,9 +209,9 @@ export const api = {
             month: 'long',
             day: 'numeric'
           }),
-          subscriptionPlan: profile.role === 'admin' ? 'Pro' : 'Free',
+          subscriptionPlan: (profile.role === 'admin' || profile.role === 'developer') ? 'Pro' : 'Free',
           subscriptionStatus: profile.is_active ? 'active' : 'inactive' as const,
-          subscriptionEndDate: profile.role === 'admin' ? 'December 25, 2025' : undefined,
+          subscriptionEndDate: (profile.role === 'admin' || profile.role === 'developer') ? 'December 25, 2025' : undefined,
         };
         return finalProfile;
       }
@@ -465,9 +465,9 @@ export const api = {
             month: 'long',
             day: 'numeric'
           }),
-          subscriptionPlan: profile.role === 'admin' ? 'Pro' : 'Free',
+          subscriptionPlan: (profile.role === 'admin' || profile.role === 'developer') ? 'Pro' : 'Free',
           subscriptionStatus: profile.is_active ? 'active' : 'inactive' as const,
-          subscriptionEndDate: profile.role === 'admin' ? 'December 25, 2025' : undefined,
+          subscriptionEndDate: (profile.role === 'admin' || profile.role === 'developer') ? 'December 25, 2025' : undefined,
         };
         console.log('✅ API: Profile processed successfully');
         return processedProfile;
@@ -2196,5 +2196,6 @@ export const api = {
       return { success: false, error: err.message || 'Failed to get available dates' };
     }
   },
+
 
 };

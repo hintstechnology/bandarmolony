@@ -42,7 +42,7 @@ function calculateRSRatio(assetPrices: NumericArray, benchmarkPrices: NumericArr
   // Calculate relative strength directly for all data
   const rs = assetPrices.map((price, i) => {
     const benchmarkPrice = benchmarkPrices[i];
-    if (benchmarkPrice === undefined || benchmarkPrice === 0) return NaN;
+    if (benchmarkPrice === undefined) return NaN;
     return (price / benchmarkPrice) * 100;
   });
   
@@ -64,6 +64,9 @@ function calculateRSMomentum(rsRatio: NumericArray, _period: number = 14): Numer
     if (i >= 1 && currentRatio !== undefined && pastRatio !== undefined && !isNaN(currentRatio) && !isNaN(pastRatio)) {
       // Use 1-day period for all data (same as original)
       result.push((currentRatio / pastRatio) * 100);
+    } else if (i === 0 && currentRatio !== undefined && !isNaN(currentRatio)) {
+      // For first data point (latest date), use 100 as neutral momentum
+      result.push(100);
     } else {
       result.push(NaN);
     }
@@ -172,6 +175,8 @@ async function readCsvData(filePath: string): Promise<StockData> {
     }
   }
   
+  // Data sudah terurut descending dari stock scheduler (data terbaru di atas)
+  // Tidak perlu sorting lagi, langsung return data asli
   return { dates, close };
 }
 
@@ -182,24 +187,37 @@ async function fileExists(p: string): Promise<boolean> {
 async function findEmitterCsv(emitter: string, dir: string): Promise<string | null> {
   const upper = emitter.toUpperCase();
   
-  // Search all files in stock directory and subdirectories (sectors)
-  let files: string[] = [];
-  try {
-    files = await listPaths({ prefix: dir });
-  } catch {
-    return null;
-  }
+  // Define sector folders to search
+  const sectorFolders = [
+    "Basic Materials", "Consumer Cyclicals", "Consumer Non-Cyclicals",
+    "Energy", "Financials", "Healthcare", "Industrials", 
+    "Infrastructures", "Properties & Real Estate", "Technology",
+    "Transportation & Logistic"
+  ];
   
-  // Filter CSV files only
-  const csvs = files.filter((f) => f.toLowerCase().endsWith(".csv"));
-  if (csvs.length === 0) return null;
-  
-  // Find file that matches the stock code
-  // Match pattern: "stock/{Sector}/{STOCKCODE}.csv"
-  const stockFile = csvs.find(f => f.includes(`/${upper}.csv`));
-  
-  if (stockFile) {
-    return stockFile;
+  // Search in each sector folder
+  for (const sectorFolder of sectorFolders) {
+    const sectorPath = `${dir}/${sectorFolder}`;
+    let files: string[] = [];
+    try {
+      files = await listPaths({ prefix: sectorPath });
+    } catch {
+      continue; // Skip if sector folder doesn't exist
+    }
+    
+    // Filter CSV files only
+    const csvs = files.filter((f) => f.toLowerCase().endsWith(".csv"));
+    
+    // Find file that matches the stock code
+    // Match pattern: "stock/{Sector}/{STOCKCODE}.csv"
+    const stockFile = csvs.find(f => {
+      const filename = f.split('/').pop() || '';
+      return filename.toLowerCase() === `${upper}.csv`.toLowerCase();
+    });
+    
+    if (stockFile) {
+      return stockFile;
+    }
   }
   
   return null;
@@ -299,6 +317,8 @@ async function generateRRGData(emitter: string, stockDir: string, indexDir: stri
     }
     
     // Read data
+    console.log(`📖 Reading stock data from: ${stockPath}`);
+    console.log(`📖 Reading index data from: ${indexPath}`);
     const stockData = await readCsvData(stockPath);
     const indexData = await readCsvData(indexPath);
     
@@ -330,6 +350,35 @@ async function generateRRGData(emitter: string, stockDir: string, indexDir: stri
       return dateStr; // Already in YYYY-MM-DD format
     }
     
+    // Create a map for index data for faster lookup
+    const indexMap = new Map<string, number>();
+    for (let j = 0; j < indexData.dates.length; j++) {
+      const indexDate = indexData.dates[j];
+      if (!indexDate) continue;
+      
+      const indexClose = indexData.close[j];
+      if (indexClose === undefined) continue;
+      
+      const normalizedIndexDate = normalizeDate(indexDate);
+      indexMap.set(normalizedIndexDate, indexClose);
+    }
+    
+    // Log first few dates from both datasets for debugging
+    if (emitter.toUpperCase() === 'TRIL') {
+      console.log(`🔍 RRG Debug for ${emitter}:`);
+      console.log(`📊 Stock dates (first 5): ${stockData.dates.slice(0, 5).join(', ')}`);
+      console.log(`📈 Index dates (first 5): ${indexData.dates.slice(0, 5).join(', ')}`);
+      console.log(`🗺️ Index map keys (first 5): ${Array.from(indexMap.keys()).slice(0, 5).join(', ')}`);
+      console.log(`📦 Stock total dates: ${stockData.dates.length}`);
+      console.log(`📦 Index total dates: ${indexData.dates.length}`);
+      
+      // Check if 2025-10-28 exists in both datasets
+      const hasStock20251028 = stockData.dates.includes('2025-10-28');
+      const hasIndex20251028 = indexMap.has('2025-10-28');
+      console.log(`🔍 Has stock 2025-10-28: ${hasStock20251028}`);
+      console.log(`🔍 Has index 2025-10-28: ${hasIndex20251028}`);
+    }
+    
     // Cari tanggal yang cocok antara stock dan index data
     for (let i = 0; i < stockData.dates.length; i++) {
       const stockDate = stockData.dates[i];
@@ -340,23 +389,21 @@ async function generateRRGData(emitter: string, stockDir: string, indexDir: stri
       
       const normalizedStockDate = normalizeDate(stockDate);
       
-      // Cari tanggal yang sama di index data
-      for (let j = 0; j < indexData.dates.length; j++) {
-        const indexDate = indexData.dates[j];
-        if (!indexDate) continue;
-        
-        const indexClose = indexData.close[j];
-        if (indexClose === undefined) continue;
-        
-        const normalizedIndexDate = normalizeDate(indexDate);
-        
-        if (normalizedStockDate === normalizedIndexDate) {
-          alignedDates.push(stockDate); // Gunakan format asli dari stock
-          alignedStock.push(stockClose);
-          alignedIndex.push(indexClose);
-          break;
-        }
+      // Cari tanggal yang sama di index data menggunakan map
+      const indexClose = indexMap.get(normalizedStockDate);
+      
+      if (indexClose !== undefined) {
+        alignedDates.push(stockDate); // Gunakan format asli dari stock
+        alignedStock.push(stockClose);
+        alignedIndex.push(indexClose);
+      } else if (i < 5) { // Debug first few mismatches
+        console.log(`❌ No index data for stock date: ${stockDate} (normalized: ${normalizedStockDate})`);
       }
+    }
+    
+    console.log(`✅ Aligned dates count: ${alignedDates.length}`);
+    if (emitter.toUpperCase() === 'TRIL') {
+      console.log(`🔍 First 3 aligned dates: ${alignedDates.slice(0, 3).join(', ')}`);
     }
     
     if (alignedDates.length < 10) {
@@ -619,3 +666,4 @@ if (require.main === module) {
     process.exit(1);
   });
 }
+

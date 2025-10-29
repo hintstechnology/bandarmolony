@@ -148,8 +148,8 @@ export class AccumulationDistributionCalculator {
       }
     }
     
-    // Sort by date ascending
-    data.sort((a, b) => a.Date.localeCompare(b.Date));
+    // Sort by date descending (newest first)
+    data.sort((a, b) => b.Date.localeCompare(a.Date));
     return data;
     } catch (error) {
       console.error(`Error loading stock data for ${stockCode}:`, error);
@@ -511,41 +511,35 @@ export class AccumulationDistributionCalculator {
       // Discover all available bid_ask dates
       console.log("🔍 Searching for bid_ask folders in Azure...");
       
-      // First, let's see what's actually in Azure
-      console.log("🔍 Checking all blobs in Azure...");
-      const allBlobs = await listPaths({ prefix: '' });
-      console.log(`📁 Total blobs in Azure: ${allBlobs.length}`);
-      console.log(`📋 Sample blobs:`, allBlobs.slice(0, 20));
-      
+      // Get bid_ask blobs
       const blobs = await listPaths({ prefix: 'bid_ask/' });
-      console.log(`📁 Found ${blobs.length} blobs with prefix 'bid_ask/':`, blobs.slice(0, 10));
+      console.log(`📁 Found ${blobs.length} blobs with prefix 'bid_ask/'`);
       
       const allDates: string[] = [];
       for (const blobName of blobs) {
-        console.log(`🔍 Processing blob: ${blobName}`);
         const pathParts = blobName.split('/');
-        console.log(`📂 Path parts:`, pathParts);
         
         if (pathParts.length >= 2 && pathParts[0] === 'bid_ask') {
           const folderName = pathParts[1];
-          console.log(`📁 Folder name: ${folderName}`);
           
           if (folderName && folderName.startsWith('bid_ask_')) {
             const date = folderName.replace('bid_ask_', '');
-            console.log(`📅 Extracted date: ${date}`);
             if (/^\d{6}$/.test(date) || /^\d{8}$/.test(date)) {
               allDates.push(date);
-              console.log(`✅ Added date: ${date}`);
             }
           }
         }
       }
-      allDates.sort();
-      console.log(`📊 Final dates found: ${allDates.join(', ')}`);
+      // Remove duplicates and sort
+      const uniqueDates = [...new Set(allDates)].sort();
+      console.log(`📊 Final unique dates found: ${uniqueDates.length} dates`);
+      console.log(`📅 Sample dates: ${uniqueDates.slice(0, 10).join(', ')}`);
 
-      console.log(`Found ${allDates.length} bid_ask dates to process`);
+      // Limit to last 100 dates to prevent infinite processing
+      const limitedDates = uniqueDates.slice(-100);
+      console.log(`📊 Processing last ${limitedDates.length} dates (limited to prevent infinite loop)`);
       
-      if (allDates.length === 0) {
+      if (limitedDates.length === 0) {
         console.log("⚠️ No bid_ask dates found in Azure - skipping accumulation distribution");
         return {
           success: true,
@@ -561,13 +555,24 @@ export class AccumulationDistributionCalculator {
       
       const createdFilesSummary: { date: string; file: string; count: number }[] = [];
 
-      for (let di = 0; di < allDates.length; di++) {
-        const dateSuffix = allDates[di];
+      for (let di = 0; di < limitedDates.length; di++) {
+        const dateSuffix = limitedDates[di];
         if (!dateSuffix) {
           console.log(`Skip undefined date at index ${di}`);
           continue;
         }
-        console.log(`\n===== Processing accumulation for date ${dateSuffix} (${di + 1}/${allDates.length}) =====`);
+        
+        // Check if output file already exists
+        const checkFilename = `accumulation_distribution/${dateSuffix}.csv`;
+        try {
+          await downloadText(checkFilename);
+          console.log(`⏭️ Skipping ${dateSuffix} - file already exists`);
+          continue;
+        } catch (error) {
+          // File doesn't exist, continue processing
+        }
+        
+        console.log(`\n===== Processing accumulation for date ${dateSuffix} (${di + 1}/${limitedDates.length}) =====`);
 
 
         // Load bid/ask data for current date
@@ -593,9 +598,9 @@ export class AccumulationDistributionCalculator {
         });
 
         // Load up to 20 previous trading days
-        const currentDateIndex = allDates.indexOf(dateSuffix);
+        const currentDateIndex = limitedDates.indexOf(dateSuffix);
         if (currentDateIndex > 0) {
-          const previousDates = allDates.slice(Math.max(0, currentDateIndex - 20), currentDateIndex);
+          const previousDates = limitedDates.slice(Math.max(0, currentDateIndex - 20), currentDateIndex);
           console.log(`Loading previous dates: ${previousDates.join(', ')}`);
           for (const prevDate of previousDates) {
             try {
@@ -638,11 +643,8 @@ export class AccumulationDistributionCalculator {
             }
           }
           
-          // Memory cleanup after each batch
-          if (global.gc) {
-            global.gc();
-            console.log(`🧹 Memory cleanup after processing ${Math.min(i + STOCK_BATCH_SIZE, stockCodes.length)}/${stockCodes.length} stocks`);
-          }
+          // No memory cleanup during data loading to prevent data loss
+          // Let Node.js handle memory management naturally
         }
         
         // Check if too many stocks are missing (fail if > 10% missing)
@@ -723,7 +725,7 @@ export class AccumulationDistributionCalculator {
 
       return {
         success: true,
-        message: `Accumulation distribution generated for ${allDates.length} dates`,
+        message: `Accumulation distribution generated for ${limitedDates.length} dates`,
         data: createdFilesSummary
       };
     } catch (error) {
