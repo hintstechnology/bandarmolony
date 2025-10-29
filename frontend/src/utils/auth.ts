@@ -40,9 +40,8 @@ export function getAuthState(): AuthState {
     };
   } catch (error) {
     console.error('Error getting auth state:', error);
-    // Clear corrupted data
-    localStorage.removeItem('user');
-    localStorage.removeItem('supabase_session');
+    // Clear corrupted data using consistent pattern
+    clearAuthState();
     return {
       isAuthenticated: false,
       user: null,
@@ -52,8 +51,27 @@ export function getAuthState(): AuthState {
 }
 
 export function clearAuthState(): void {
-  localStorage.removeItem('user');
-  localStorage.removeItem('supabase_session');
+  // Clear ALL auth-related keys from localStorage
+  // Following LOGIN_LOGOUT_TROUBLESHOOTING.md pattern (line 552-565)
+  const localKeys = Object.keys(localStorage);
+  localKeys.forEach(key => {
+    if (key.startsWith('sb-') || 
+        key.includes('supabase') || 
+        key === 'user' || 
+        key === 'supabase_session') {
+      console.log('clearAuthState: Removing localStorage key:', key);
+      localStorage.removeItem(key);
+    }
+  });
+  
+  // Also clear sessionStorage
+  const sessionKeys = Object.keys(sessionStorage);
+  sessionKeys.forEach(key => {
+    if (key.startsWith('sb-') || key.includes('supabase')) {
+      console.log('clearAuthState: Removing sessionStorage key:', key);
+      sessionStorage.removeItem(key);
+    }
+  });
 }
 
 export function setAuthState(user: any, session?: any): void {

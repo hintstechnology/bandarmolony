@@ -63,6 +63,118 @@ const checkExpiredTransactions = async () => {
 // Run expired transaction check every 5 minutes
 setInterval(checkExpiredTransactions, 5 * 60 * 1000);
 
+// Function to expire trial subscriptions
+async function expireTrialSubscriptions() {
+  try {
+    const now = new Date().toISOString();
+    
+    // Find expired trials
+    const { data: expiredTrials, error } = await supabaseAdmin
+      .from('subscriptions')
+      .select('*')
+      .eq('status', 'trial')
+      .lte('free_trial_end_date', now);
+
+    if (error) {
+      console.error('Error checking expired trials:', error);
+      return;
+    }
+
+    if (expiredTrials && expiredTrials.length > 0) {
+      // Update expired trials to expired status
+      for (const trial of expiredTrials) {
+        // Update subscription to expired
+        await supabaseAdmin
+          .from('subscriptions')
+          .update({ 
+            status: 'expired',
+            updated_at: now
+          })
+          .eq('id', trial.id);
+
+        // Update user to Free plan
+        await supabaseAdmin
+          .from('users')
+          .update({
+            subscription_status: 'inactive',
+            subscription_plan: 'Free',
+            subscription_start_date: null,
+            subscription_end_date: null,
+            updated_at: now
+          })
+          .eq('id', trial.user_id);
+      }
+
+      console.log(`Expired ${expiredTrials.length} trial subscriptions`);
+    }
+  } catch (error) {
+    console.error('Error in expireTrialSubscriptions:', error);
+  }
+}
+
+// Run trial expiry check every hour
+setInterval(expireTrialSubscriptions, 60 * 60 * 1000);
+
+// Free Trial Configuration
+const FREE_TRIAL_CONFIG = {
+  durationDays: 7,
+  planType: 'Pro',
+  eligibleRoles: ['user'],
+  oneTimeOnly: true
+};
+
+// Helper function to check trial eligibility
+async function checkTrialEligibility(userId: string): Promise<boolean> {
+  try {
+    // Check user role
+    const { data: userProfile, error: profileError } = await supabaseAdmin
+      .from('users')
+      .select('role')
+      .eq('id', userId)
+      .single();
+
+    if (profileError || !userProfile) {
+      return false;
+    }
+
+    // Exclude admin/developer
+    if (!FREE_TRIAL_CONFIG.eligibleRoles.includes(userProfile.role)) {
+      return false;
+    }
+
+    // Check if already used trial (check in subscriptions table)
+    if (FREE_TRIAL_CONFIG.oneTimeOnly) {
+      const { data: existingTrial } = await supabaseAdmin
+        .from('subscriptions')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('free_trial_used', true)
+        .maybeSingle();
+      
+      if (existingTrial) {
+        return false;
+      }
+    }
+
+    // Check if already has active subscription
+    const { data: activeSubscription } = await supabaseAdmin
+      .from('subscriptions')
+      .select('*')
+      .eq('user_id', userId)
+      .in('status', ['active', 'trial'])
+      .single();
+
+    if (activeSubscription) {
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error checking trial eligibility:', error);
+    return false;
+  }
+}
+
 // Subscription plans configuration
 const subscriptionPlans = [
   {
@@ -278,15 +390,16 @@ router.post('/create-order', requireSupabaseUser, async (req: any, res) => {
       ));
     }
 
-    // Check if user already has active subscription
-    const { data: existingSubscription } = await supabaseAdmin
+    // Check if user has active PAID subscription (trial can be upgraded)
+    const { data: existingPaidSubscription } = await supabaseAdmin
       .from('subscriptions')
       .select('*')
       .eq('user_id', userId)
       .eq('status', 'active')
-      .single();
+      .not('status', 'eq', 'trial')
+      .maybeSingle();
 
-    if (existingSubscription) {
+    if (existingPaidSubscription) {
       return res.status(HTTP_STATUS.BAD_REQUEST).json(createErrorResponse(
         'User already has an active subscription',
         ERROR_CODES.VALIDATION_ERROR,
@@ -294,6 +407,14 @@ router.post('/create-order', requireSupabaseUser, async (req: any, res) => {
         HTTP_STATUS.BAD_REQUEST
       ));
     }
+
+    // Check if user has active trial - if yes, use it for upgrade
+    const { data: existingTrial } = await supabaseAdmin
+      .from('subscriptions')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('status', 'trial')
+      .maybeSingle();
 
     // Check if user has pending payment
     const { data: pendingTransaction } = await supabaseAdmin
@@ -312,22 +433,47 @@ router.post('/create-order', requireSupabaseUser, async (req: any, res) => {
       ));
     }
 
-    // Create subscription record
-    const { data: subscription, error: subscriptionError } = await supabaseAdmin
-      .from('subscriptions')
-      .insert({
-        user_id: userId,
-        plan_id: planId,
-        plan_name: plan.name,
-        plan_duration: plan.duration,
-        price: plan.price,
-        status: 'pending'
-      })
-      .select()
-      .single();
+    // If user has trial, update it instead of creating new subscription
+    let subscription;
+    if (existingTrial) {
+      // Update existing trial subscription for upgrade (keep trial metadata for webhook)
+      const { data: updatedSubscription, error: updateError } = await supabaseAdmin
+        .from('subscriptions')
+        .update({
+          plan_id: planId,
+          plan_name: plan.name,
+          plan_duration: plan.duration,
+          price: plan.price,
+          status: 'pending', // Will be converted to active when payment succeeds
+          // Keep trial metadata (free_trial_start_date, free_trial_end_date) for webhook to extend from trial end
+        })
+        .eq('id', existingTrial.id)
+        .select()
+        .single();
+      
+      if (updateError) {
+        throw updateError;
+      }
+      subscription = updatedSubscription;
+    } else {
+      // Create new subscription record
+      const { data: newSubscription, error: subscriptionError } = await supabaseAdmin
+        .from('subscriptions')
+        .insert({
+          user_id: userId,
+          plan_id: planId,
+          plan_name: plan.name,
+          plan_duration: plan.duration,
+          price: plan.price,
+          status: 'pending'
+        })
+        .select()
+        .single();
 
-    if (subscriptionError) {
-      throw subscriptionError;
+      if (subscriptionError) {
+        throw subscriptionError;
+      }
+      subscription = newSubscription;
     }
 
     // Create Midtrans transaction first
@@ -535,15 +681,38 @@ router.post('/webhook', async (req, res) => {
 
     // Handle successful payment
     if (internalStatus === 'paid') {
-      // Update subscription status
-      const endDate = new Date();
-      endDate.setMonth(endDate.getMonth() + transaction.plan_duration);
+      // Check if user has active trial - if yes, extend from trial end date
+      const { data: currentSubscription } = await supabaseAdmin
+        .from('subscriptions')
+        .select('*')
+        .eq('id', transaction.subscription_id)
+        .single();
+
+      let endDate = new Date();
+      
+      // If converting from trial, extend from trial end date
+      // Check if subscription has trial history (free_trial_end_date exists)
+      if (currentSubscription?.free_trial_end_date) {
+        const trialEndDate = new Date(currentSubscription.free_trial_end_date);
+        const now = new Date();
+        // If trial end date is in the future, extend from trial end date
+        if (trialEndDate > now) {
+          endDate = trialEndDate;
+          endDate.setMonth(endDate.getMonth() + transaction.plan_duration);
+        } else {
+          // Trial already expired, start from now
+          endDate.setMonth(endDate.getMonth() + transaction.plan_duration);
+        }
+      } else {
+        // No trial history, start from now
+        endDate.setMonth(endDate.getMonth() + transaction.plan_duration);
+      }
 
       await supabaseAdmin
         .from('subscriptions')
         .update({
           status: 'active',
-          start_date: new Date().toISOString(),
+          start_date: currentSubscription?.free_trial_start_date || new Date().toISOString(), // Keep trial start date if exists
           end_date: endDate.toISOString(),
           updated_at: new Date().toISOString()
         })
@@ -555,7 +724,7 @@ router.post('/webhook', async (req, res) => {
         .update({
           subscription_status: 'active',
           subscription_plan: transaction.plan_name,
-          subscription_start_date: new Date().toISOString(),
+          subscription_start_date: currentSubscription?.free_trial_start_date || new Date().toISOString(),
           subscription_end_date: endDate.toISOString(),
           last_payment_date: new Date().toISOString(),
           payment_failure_count: 0,
@@ -699,7 +868,7 @@ router.get('/status', requireSupabaseUser, async (req: any, res) => {
         )
       `)
       .eq('user_id', userId)
-      .in('status', ['active', 'pending'])
+      .in('status', ['active', 'trial', 'pending'])
       .order('created_at', { ascending: false })
       .limit(1)
       .single();
@@ -737,6 +906,125 @@ router.get('/status', requireSupabaseUser, async (req: any, res) => {
   } catch (error: any) {
     return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
       'Failed to retrieve subscription status',
+      ERROR_CODES.INTERNAL_SERVER_ERROR,
+      undefined,
+      HTTP_STATUS.INTERNAL_SERVER_ERROR
+    ));
+  }
+});
+
+/**
+ * POST /api/subscription/start-trial
+ * Start free trial for eligible user
+ */
+router.post('/start-trial', requireSupabaseUser, async (req: any, res) => {
+  try {
+    const userId = req.user.id;
+
+    // Check eligibility
+    const eligible = await checkTrialEligibility(userId);
+    if (!eligible) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json(createErrorResponse(
+        'Not eligible for free trial',
+        ERROR_CODES.VALIDATION_ERROR,
+        'eligibility',
+        HTTP_STATUS.BAD_REQUEST
+      ));
+    }
+
+    // Create trial subscription
+    const startDate = new Date();
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + FREE_TRIAL_CONFIG.durationDays);
+
+    // Create subscription record
+    // Note: plan_duration is set to 1 to satisfy database constraint,
+    // but trial duration is actually controlled by free_trial_end_date
+    const { data: subscription, error: subscriptionError } = await supabaseAdmin
+      .from('subscriptions')
+      .insert({
+        user_id: userId,
+        plan_id: 'pro',
+        plan_name: FREE_TRIAL_CONFIG.planType,
+        plan_duration: 1, // Set to 1 to satisfy constraint, actual trial uses free_trial_end_date
+        price: 0.01, // Set to 0.01 to satisfy constraint, trial is actually free (price 0)
+        status: 'trial',
+        start_date: startDate.toISOString(),
+        end_date: endDate.toISOString(),
+        free_trial_used: true,
+        free_trial_start_date: startDate.toISOString(),
+        free_trial_end_date: endDate.toISOString()
+      })
+      .select()
+      .single();
+
+    if (subscriptionError) {
+      throw subscriptionError;
+    }
+
+    // Update users table
+    // Note: free_trial_used is stored in subscriptions table, not users table
+    const { error: userUpdateError } = await supabaseAdmin
+      .from('users')
+      .update({
+        subscription_status: 'trial',
+        subscription_plan: FREE_TRIAL_CONFIG.planType,
+        subscription_start_date: startDate.toISOString(),
+        subscription_end_date: endDate.toISOString()
+      })
+      .eq('id', userId);
+
+    if (userUpdateError) {
+      throw userUpdateError;
+    }
+
+    return res.json(createSuccessResponse({
+      subscription,
+      message: 'Free trial started successfully'
+    }, 'Free trial started successfully'));
+
+  } catch (error: any) {
+    console.error('Error starting trial:', error);
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+      'Failed to start free trial',
+      ERROR_CODES.INTERNAL_SERVER_ERROR,
+      undefined,
+      HTTP_STATUS.INTERNAL_SERVER_ERROR
+    ));
+  }
+});
+
+/**
+ * GET /api/subscription/trial-status
+ * Get trial eligibility and active trial status
+ */
+router.get('/trial-status', requireSupabaseUser, async (req: any, res) => {
+  try {
+    const userId = req.user.id;
+
+    // Check eligibility
+    const eligible = await checkTrialEligibility(userId);
+
+    // Get active trial if exists
+    const { data: activeTrial } = await supabaseAdmin
+      .from('subscriptions')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('status', 'trial')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    return res.json(createSuccessResponse({
+      eligible,
+      hasActiveTrial: !!activeTrial,
+      trial: activeTrial || null
+    }, 'Trial status retrieved successfully'));
+
+  } catch (error: any) {
+    console.error('Error getting trial status:', error);
+    return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
+      'Failed to get trial status',
       ERROR_CODES.INTERNAL_SERVER_ERROR,
       undefined,
       HTTP_STATUS.INTERNAL_SERVER_ERROR

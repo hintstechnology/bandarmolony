@@ -125,7 +125,24 @@ export function UserManagement({ apiPrefix, onUserStatusChange }: UserManagement
       const json = await response.json();
       
       if (json.ok && json.data) {
-        setUsers(json.data.users || []);
+        // Ensure role field is properly normalized
+        const normalizedUsers = (json.data.users || []).map((user: User) => {
+          // Normalize role: trim whitespace and ensure lowercase for consistency
+          const normalizedRole = user.role && user.role.trim() 
+            ? user.role.trim().toLowerCase() 
+            : 'user';
+          
+          // Debug logging to help identify role display issues
+          if (normalizedRole !== 'user' && normalizedRole !== 'admin' && normalizedRole !== 'developer') {
+            console.warn('Unexpected role value:', { original: user.role, normalized: normalizedRole, email: user.email });
+          }
+          
+          return {
+            ...user,
+            role: normalizedRole
+          };
+        });
+        setUsers(normalizedUsers);
         setPagination(prev => ({
           ...prev,
           total: json.data.pagination?.total || 0,
@@ -159,7 +176,12 @@ export function UserManagement({ apiPrefix, onUserStatusChange }: UserManagement
       const json = await response.json();
       
       if (json.ok && json.data) {
-        setRecentUsers(json.data || []);
+        // Ensure role field is properly normalized
+        const normalizedUsers = (json.data || []).map((user: User) => ({
+          ...user,
+          role: user.role ? user.role.trim().toLowerCase() : 'user'
+        }));
+        setRecentUsers(normalizedUsers);
       }
     } catch (err) {
       console.error('Error loading recent users:', err);
@@ -224,7 +246,19 @@ export function UserManagement({ apiPrefix, onUserStatusChange }: UserManagement
   const filteredUsers = users.filter(user => {
     const matchesSearch = user.email.toLowerCase().includes(search.toLowerCase()) ||
                          user.full_name?.toLowerCase().includes(search.toLowerCase());
-    const matchesRole = !roleFilter || user.role === roleFilter;
+    
+    // For admin dashboard, if filtering by "user", include both user and developer roles
+    // (since developers are displayed as users in admin view)
+    let matchesRole = true;
+    if (roleFilter) {
+      if (apiPrefix === 'admin' && roleFilter === 'user') {
+        // For admin, user filter includes both user and developer roles
+        matchesRole = user.role === 'user' || user.role === 'developer';
+      } else {
+        matchesRole = user.role === roleFilter;
+      }
+    }
+    
     const matchesStatus = !statusFilter || 
                          (statusFilter === 'active' && user.is_active) ||
                          (statusFilter === 'inactive' && !user.is_active);
@@ -256,13 +290,14 @@ export function UserManagement({ apiPrefix, onUserStatusChange }: UserManagement
               <Select value={roleFilter || "all"} onValueChange={(value) => setRoleFilter(value === "all" ? "" : value)}>
                 <SelectTrigger className="w-[140px]">
                   <SelectValue>
-                    {roleFilter === "" ? "All Roles" : roleFilter === "admin" ? "Admin" : roleFilter === "developer" ? "Developer" : roleFilter === "user" ? "User" : "All Roles"}
+                    {roleFilter === "" ? "All Roles" : roleFilter === "admin" ? "Admin" : roleFilter === "developer" ? (apiPrefix === 'admin' ? "User" : "Developer") : roleFilter === "user" ? "User" : "All Roles"}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Roles</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
-                  <SelectItem value="developer">Developer</SelectItem>
+                  {/* Hide developer filter option for admin dashboard - developers will appear as users */}
+                  {apiPrefix !== 'admin' && <SelectItem value="developer">Developer</SelectItem>}
                   <SelectItem value="user">User</SelectItem>
                 </SelectContent>
               </Select>
@@ -319,7 +354,9 @@ export function UserManagement({ apiPrefix, onUserStatusChange }: UserManagement
                           </TableCell>
                           <TableCell>
                             <Badge variant="outline">
-                              {getRoleDisplayName(user.role)}
+                              {apiPrefix === 'admin' && user.role === 'developer' 
+                                ? getRoleDisplayName('user')
+                                : getRoleDisplayName(user.role)}
                             </Badge>
                           </TableCell>
                           <TableCell>
@@ -440,7 +477,9 @@ export function UserManagement({ apiPrefix, onUserStatusChange }: UserManagement
                     </div>
                   </div>
                   <Badge variant="outline" className="text-xs">
-                    {getRoleDisplayName(user.role)}
+                    {apiPrefix === 'admin' && user.role === 'developer' 
+                      ? getRoleDisplayName('user')
+                      : getRoleDisplayName(user.role)}
                   </Badge>
                 </div>
               ))}
