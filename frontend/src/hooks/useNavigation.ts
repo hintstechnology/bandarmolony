@@ -4,12 +4,13 @@ import { useProfile } from '../contexts/ProfileContext';
 
 export function useNavigation() {
   const { isAuthenticated, isLoading: authLoading, isLoggingOut: authLoggingOut } = useAuth();
-  const { profile, isLoading: profileLoading, isLoggingOut: profileLoggingOut } = useProfile();
+  const { profile, isLoading: profileLoading, isLoggingOut: profileLoggingOut, hasConnectionError } = useProfile();
 
   // Prevent unnecessary re-renders by memoizing the return value
   return React.useMemo(() => ({
     isAuthenticated,
     profile,
+    hasConnectionError,
     isLoading: authLoading || profileLoading || authLoggingOut || profileLoggingOut,
-  }), [isAuthenticated, profile, authLoading, profileLoading, authLoggingOut, profileLoggingOut]);
+  }), [isAuthenticated, profile, hasConnectionError, authLoading, profileLoading, authLoggingOut, profileLoggingOut]);
 }

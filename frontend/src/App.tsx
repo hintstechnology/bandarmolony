@@ -56,7 +56,7 @@ import { hasPremiumAccess, requiresPremiumAccess, getFeatureNameFromRoute } from
 // Dashboard Layout Component
 function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { profile, isLoading, isAuthenticated } = useNavigation();
+  const { profile, isLoading, isAuthenticated, hasConnectionError } = useNavigation();
   const location = useLocation();
   const navigate = useNavigate();
   const hasRedirected = React.useRef(false);
@@ -78,6 +78,13 @@ function DashboardLayout() {
       hasRedirected.current = false;
     }
     
+    // DON'T redirect if there's a connection error - backend might be restarting
+    // Following LOGIN_LOGOUT_TROUBLESHOOTING.md line 122-144
+    if (hasConnectionError && isAuthenticated) {
+      console.log('DashboardLayout: Connection error detected, waiting for backend to recover');
+      return; // Skip redirect, let user stay on dashboard
+    }
+    
     if (!isLoading && (!profile || !isAuthenticated) && !hasRedirected.current) {
       console.log('DashboardLayout: No profile or not authenticated, redirecting to auth');
       hasRedirected.current = true;
@@ -96,7 +103,7 @@ function DashboardLayout() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading, profile, isAuthenticated]); // Don't include navigate - causes loop!
+  }, [isLoading, profile, isAuthenticated, hasConnectionError]); // Don't include navigate - causes loop!
 
   // Show loading while profile is being fetched
   if (isLoading) {
