@@ -84,7 +84,7 @@ router.get('/', requireSupabaseUser, async (req: any, res) => {
       if (data.subscription_status && ['trial', 'active'].includes(data.subscription_status)) {
         const { data: activeSubscription } = await supabaseAdmin
           .from('subscriptions')
-          .select('id, status')
+          .select('id, status, plan_name, end_date, free_trial_end_date')
           .eq('user_id', userId)
           .in('status', ['active', 'trial', 'pending'])
           .maybeSingle();
@@ -112,6 +112,81 @@ router.get('/', requireSupabaseUser, async (req: any, res) => {
           data.subscription_end_date = null;
           
           console.log(`✅ GET /api/me - Synced user ${userId} subscription status to Free plan`);
+        }
+      }
+
+      // Two-way sync: If there is an active/trial subscription record, ensure users table reflects it
+      const { data: latestSub } = await supabaseAdmin
+        .from('subscriptions')
+        .select('id, status, plan_name, end_date, free_trial_end_date')
+        .eq('user_id', userId)
+        .in('status', ['active', 'trial'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (latestSub) {
+        // Determine effective end date
+        const effectiveEnd = latestSub.status === 'trial' ? latestSub.free_trial_end_date : latestSub.end_date;
+        const nowIso = new Date().toISOString();
+        const nowMs = Date.now();
+        const endMs = effectiveEnd ? new Date(effectiveEnd).getTime() : 0;
+
+        // If expired in subscriptions, downgrade users immediately
+        if (endMs && endMs <= nowMs) {
+          // Expire subscription record if still marked active/trial
+          await supabaseAdmin
+            .from('subscriptions')
+            .update({ status: 'expired', updated_at: nowIso })
+            .eq('id', latestSub.id)
+            .in('status', ['active', 'trial']);
+
+          // Downgrade users table
+          await supabaseAdmin
+            .from('users')
+            .update({
+              subscription_status: 'inactive',
+              subscription_plan: 'Free',
+              subscription_start_date: null,
+              subscription_end_date: null,
+              updated_at: nowIso
+            })
+            .eq('id', userId);
+
+          data.subscription_status = 'inactive';
+          data.subscription_plan = 'Free';
+          data.subscription_start_date = null;
+          data.subscription_end_date = null;
+        } else {
+          // Active/trial and not expired: ensure users reflects subscription
+          const desiredStatus = latestSub.status; // 'active' or 'trial'
+          const desiredPlan = latestSub.plan_name || 'Pro';
+          const desiredEnd = effectiveEnd || null;
+
+          if (
+            data.subscription_status !== desiredStatus ||
+            data.subscription_plan !== desiredPlan ||
+            (data.subscription_end_date || null) !== desiredEnd
+          ) {
+            await supabaseAdmin
+              .from('users')
+              .update({
+                subscription_status: desiredStatus,
+                subscription_plan: desiredPlan,
+                subscription_end_date: desiredEnd,
+                // Keep start_date as-is if present; set if missing
+                subscription_start_date: data.subscription_start_date || new Date().toISOString(),
+                updated_at: nowIso
+              })
+              .eq('id', userId);
+
+            data.subscription_status = desiredStatus;
+            data.subscription_plan = desiredPlan;
+            data.subscription_end_date = desiredEnd;
+            if (!data.subscription_start_date) {
+              data.subscription_start_date = nowIso;
+            }
+          }
         }
       }
     }

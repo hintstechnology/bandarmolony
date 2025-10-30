@@ -14,14 +14,23 @@ export function hasPremiumAccess(profile: ProfileData | null | undefined): boole
   // Check subscription plan and status
   const subscriptionPlan = profile.subscriptionPlan?.toLowerCase();
   const subscriptionStatus = profile.subscriptionStatus?.toLowerCase();
+  const subscriptionEndDateStr = (profile as any).subscriptionEndDate || (profile as any).subscription_end_date;
+  const now = Date.now();
+  const endDate = subscriptionEndDateStr ? new Date(subscriptionEndDateStr).getTime() : null;
   
   // Must have non-Free plan AND active/trial status
   if (!subscriptionPlan || subscriptionPlan === "free") {
     return false;
   }
-  
-  // Only grant access if status is active or trial (not inactive)
-  return subscriptionStatus === "active" || subscriptionStatus === "trial";
+
+  // Only grant access if status is active or trial AND end date is in the future
+  // For non-admin/developer users, a missing endDate should be treated as no access
+  if (subscriptionStatus === "active" || subscriptionStatus === "trial") {
+    if (!endDate) return false;
+    return endDate > now;
+  }
+
+  return false;
 }
 
 /**

@@ -19,6 +19,7 @@ export function NotSubscribed({ featureName = "this feature" }: NotSubscribedPro
   const [isLoading, setIsLoading] = useState(false);
   const [trialEligible, setTrialEligible] = useState<boolean | null>(null);
   const [checkingTrial, setCheckingTrial] = useState(true);
+  const [trialEndedDate, setTrialEndedDate] = useState<string | null>(null);
 
   useEffect(() => {
     const checkTrialEligibility = async () => {
@@ -26,6 +27,52 @@ export function NotSubscribed({ featureName = "this feature" }: NotSubscribedPro
         setCheckingTrial(true);
         const status = await api.getTrialStatus();
         setTrialEligible(status.eligible);
+        // Also check latest subscription to detect ended trial date
+        try {
+          const subStatus = await api.getSubscriptionStatus();
+          const now = new Date();
+
+          // Case 1: Have current subscription in response
+          if (subStatus.success && subStatus.data?.subscription) {
+            const s = subStatus.data.subscription;
+            const endRaw = s.free_trial_end_date || s.end_date;
+            const end = endRaw ? new Date(endRaw) : null;
+            const isTrialExpired = (s.status === 'trial' && end && end <= now) || s.status === 'expired';
+            if (isTrialExpired && end) {
+              setTrialEndedDate(end.toLocaleDateString('id-ID'));
+              return;
+            }
+          }
+
+          // Case 2: No current sub (because expired) → backend now returns latestTrial
+          if (subStatus.success && subStatus.data?.latestTrial) {
+            const t = subStatus.data.latestTrial;
+            const endRaw = t.free_trial_end_date || t.end_date;
+            const end = endRaw ? new Date(endRaw) : null;
+            if (t.status === 'expired' && end && end <= now) {
+              setTrialEndedDate(end.toLocaleDateString('id-ID'));
+              return;
+            }
+          }
+
+          setTrialEndedDate(null);
+        } catch (e) {
+          setTrialEndedDate(null);
+        }
+
+        // Fallback: detect from profile.users fields when backend doesn't return latestTrial
+        // This covers manual edits only in users table
+        try {
+          if (profile && profile.subscriptionEndDate) {
+            const end = new Date(profile.subscriptionEndDate);
+            const now2 = new Date();
+            if (end <= now2 && profile.subscriptionStatus !== 'active') {
+              setTrialEndedDate(end.toLocaleDateString('id-ID'));
+            }
+          }
+        } catch (_) {
+          // ignore
+        }
       } catch (error) {
         console.error("Failed to check trial eligibility:", error);
         setTrialEligible(false);
@@ -120,18 +167,23 @@ export function NotSubscribed({ featureName = "this feature" }: NotSubscribedPro
             <CardDescription className="text-base">
               You need an active subscription to access {featureName}.
             </CardDescription>
+            {trialEndedDate && (
+              <div className="mt-2 text-sm text-muted-foreground">
+                Your free trial ended on <span className="font-medium">{trialEndedDate}</span>. Subscribe now to regain access.
+              </div>
+            )}
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Buttons and trial info - moved above table */}
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex flex-row gap-3">
             {/* Start Free Trial Button - Only show if eligible */}
             {trialEligible === true && (
               <Button
                 onClick={handleStartTrial}
                 disabled={isLoading}
-                className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white"
                 size="lg"
+                className="flex-1 min-w-0 h-14 text-xs sm:text-sm md:text-base px-3 sm:px-4 md:px-6 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white"
               >
                 {isLoading ? (
                   <>
@@ -141,7 +193,8 @@ export function NotSubscribed({ featureName = "this feature" }: NotSubscribedPro
                 ) : (
                   <>
                     <Sparkles className="w-4 h-4 mr-2" />
-                    Start Free Trial (7 Days)
+                    <span className="sm:hidden">Start Trial (7d)</span>
+                    <span className="hidden sm:inline">Start Free Trial (7 Days)</span>
                   </>
                 )}
               </Button>
@@ -151,11 +204,12 @@ export function NotSubscribed({ featureName = "this feature" }: NotSubscribedPro
             <Button
               onClick={handleSubscribe}
               variant={trialEligible === true ? "outline" : "default"}
-              className={`flex-1 ${trialEligible !== true ? "bg-primary" : ""}`}
               size="lg"
+              className={`flex-1 min-w-0 h-14 text-xs sm:text-sm md:text-base px-3 sm:px-4 md:px-6 ${trialEligible !== true ? "bg-primary text-primary-foreground" : ""}`}
             >
               <CreditCard className="w-4 h-4 mr-2" />
-              {trialEligible === true ? "Or Subscribe Now" : "Subscribe Now"}
+              <span className="sm:hidden">Subscribe</span>
+              <span className="hidden sm:inline">{trialEligible === true ? "Or Subscribe Now" : "Subscribe Now"}</span>
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           </div>
