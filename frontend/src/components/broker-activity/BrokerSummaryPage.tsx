@@ -119,7 +119,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   const [selectedTicker, setSelectedTicker] = useState<string>(propSelectedStock || 'BBCA');
   const [tickerInput, setTickerInput] = useState<string>(propSelectedStock || 'BBCA');
   const [fdFilter, setFdFilter] = useState<'All' | 'Foreign' | 'Domestic'>('All');
-  const [marketFilter, setMarketFilter] = useState<'RG' | 'TN' | 'NG'>('RG');
+  const [marketFilter, setMarketFilter] = useState<'RG' | 'TN' | 'NG' | ''>('');
   
   // Stock selection state
   const [availableStocks, setAvailableStocks] = useState<string[]>([]);
@@ -349,25 +349,25 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                   <tr className="border-b border-border">
                     {selectedDates.map((date) => (
                       <React.Fragment key={`detail-${date}`}>
-                        {/* NBY Columns */}
-                        <th className={`text-left py-1 px-1 font-medium text-green-600 border border-border`}>NBY</th>
+                        {/* BY Columns */}
+                        <th className={`text-left py-1 px-1 font-medium text-green-600 border border-border`}>BY</th>
                         <th className={`text-right py-1 px-1 font-medium text-green-600 border border-border`}>BLot</th>
                         <th className={`text-right py-1 px-1 font-medium text-green-600 border border-border`}>BVal</th>
                         <th className={`text-right py-1 px-1 font-medium text-green-600 border border-border`}>BAvg</th>
-                        {/* NSL Columns */}
+                        {/* SL Columns */}
                         <th className="text-center py-1 px-1 font-medium text-white bg-gray-400 dark:bg-gray-700 border border-border">#</th>
-                        <th className={`text-left py-1 px-1 font-medium text-red-600 border border-border`}>NSL</th>
+                        <th className={`text-left py-1 px-1 font-medium text-red-600 border border-border`}>SL</th>
                         <th className={`text-right py-1 px-1 font-medium text-red-600 border border-border`}>SLot</th>
                         <th className={`text-right py-1 px-1 font-medium text-red-600 border border-border`}>SVal</th>
                         <th className={`text-right py-1 px-1 font-medium text-red-600 border border-border border-r-4 border-r-gray-400 dark:border-r-gray-600`}>SAvg</th>
                       </React.Fragment>
                     ))}
                     {/* Total Columns - No BAvg and SAvg */}
-                    <th className={`text-left py-1 px-1 font-medium text-green-600 border border-border`}>NBY</th>
+                    <th className={`text-left py-1 px-1 font-medium text-green-600 border border-border`}>BY</th>
                     <th className={`text-right py-1 px-1 font-medium text-green-600 border border-border`}>BLot</th>
                     <th className={`text-right py-1 px-1 font-medium text-green-600 border border-border`}>BVal</th>
                     <th className="text-center py-1 px-1 font-medium text-white bg-gray-400 dark:bg-gray-700 border border-border">#</th>
-                    <th className={`text-left py-1 px-1 font-medium text-red-600 border border-border`}>NSL</th>
+                    <th className={`text-left py-1 px-1 font-medium text-red-600 border border-border`}>SL</th>
                     <th className={`text-right py-1 px-1 font-medium text-red-600 border border-border`}>SLot</th>
                     <th className={`text-right py-1 px-1 font-medium text-red-600 border border-border`}>SVal</th>
                           </tr>
@@ -463,7 +463,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                           
                           return (
                             <React.Fragment key={`${date}-${rowIdx}`}>
-                              {/* NBY (Buyer) Columns - No # column (using SELL fields) */}
+                              {/* BY (Buyer) Columns - No # column (using SELL fields) */}
                               <td className={`py-1 px-1 border border-border ${buyData ? getBrokerColorClass(buyData.broker) : ''}`}>
                                 {buyData?.broker || '-'}
                               </td>
@@ -476,7 +476,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                               <td className="text-right py-1 px-1 text-green-600 border border-border">
                                 {buyData ? formatAverage(buyData.savg) : '-'}
                               </td>
-                              {/* NSL (Seller) Columns - Keep # column */}
+                              {/* SL (Seller) Columns - Keep # column */}
                               <td className={`text-center py-1 px-1 text-white border border-border bg-gray-400 dark:bg-gray-700 ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>{sellData ? rowIdx + 1 : '-'}</td>
                               <td className={`py-1 px-1 border border-border ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>
                                 {sellData?.broker || '-'}
@@ -1021,9 +1021,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                 <label className="text-sm font-medium whitespace-nowrap">Market:</label>
                 <select
                   value={marketFilter}
-                  onChange={(e) => setMarketFilter(e.target.value as 'RG' | 'TN' | 'NG')}
+                  onChange={(e) => setMarketFilter(e.target.value as 'RG' | 'TN' | 'NG' | '')}
                   className="px-3 py-1.5 border border-border rounded-md bg-background text-foreground text-sm"
                 >
+                  <option value="">All Trade</option>
                   <option value="RG">RG</option>
                   <option value="TN">TN</option>
                   <option value="NG">NG</option>
