@@ -877,6 +877,19 @@ router.get('/status', requireSupabaseUser, async (req: any, res) => {
       throw subscriptionError;
     }
 
+    // Additionally, get the latest trial/expired record to show end date when trial already ended
+    const { data: latestTrialOrExpired, error: latestTrialError } = await supabaseAdmin
+      .from('subscriptions')
+      .select('id, status, free_trial_end_date, end_date, plan_name, created_at')
+      .eq('user_id', userId)
+      .in('status', ['trial', 'expired'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (latestTrialError && latestTrialError.code !== 'PGRST116') {
+      throw latestTrialError;
+    }
+
     // Get user's payment history with subscription details (exclude cancelled transactions)
     const { data: transactions, error: transactionsError } = await supabaseAdmin
       .from('transactions')
@@ -899,6 +912,7 @@ router.get('/status', requireSupabaseUser, async (req: any, res) => {
 
     return res.json(createSuccessResponse({
       subscription: subscription || null,
+      latestTrial: latestTrialOrExpired || null,
       transactions: transactions || [],
       plans: subscriptionPlans
     }, 'Subscription status retrieved successfully'));

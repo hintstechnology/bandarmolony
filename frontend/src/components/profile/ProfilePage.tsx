@@ -65,10 +65,21 @@ export function ProfilePage() {
       const endDate = new Date(subscription.free_trial_end_date || subscription.end_date);
       const daysLeft = Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
       
+      if (daysLeft <= 0) {
+        return {
+          status: 'expired',
+          daysLeft: 0,
+          isActive: false,
+          planName: 'Free Plan',
+          endDate: subscription.free_trial_end_date || subscription.end_date,
+          isLifetime: false
+        };
+      }
+
       return {
         status: 'trial',
         daysLeft: Math.max(0, daysLeft),
-        isActive: true,
+        isActive: daysLeft > 0,
         planName: `${subscription.plan_name} (Trial)`,
         endDate: subscription.free_trial_end_date || subscription.end_date,
         isLifetime: false
