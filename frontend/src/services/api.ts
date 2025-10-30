@@ -2210,11 +2210,11 @@ export const api = {
   },
 
   // Broker Summary API
-  getBrokerSummaryData: async (stockCode: string, date: string) => {
+  getBrokerSummaryData: async (stockCode: string, date: string, market: 'RG' | 'TN' | 'NG' = 'RG') => {
     try {
       // Convert YYYY-MM-DD to YYYYMMDD format
       const dateStr = date.includes('-') ? date.replace(/-/g, '') : date;
-      const response = await fetch(`${API_URL}/api/broker/summary/${stockCode}?date=${dateStr}`);
+      const response = await fetch(`${API_URL}/api/broker-summary/summary/${stockCode}?date=${dateStr}&market=${market}`);
       const data = await response.json();
       return data;
     } catch (err: any) {
@@ -2234,11 +2234,11 @@ export const api = {
   },
 
   // Get available stocks for broker summary on specific date
-  getBrokerSummaryStocks: async (date: string) => {
+  getBrokerSummaryStocks: async (date: string, market: 'RG' | 'TN' | 'NG' = 'RG') => {
     try {
       // Convert YYYY-MM-DD to YYYYMMDD format
       const dateStr = date.includes('-') ? date.replace(/-/g, '') : date;
-      const response = await fetch(`${API_URL}/api/broker/stocks?date=${dateStr}`);
+      const response = await fetch(`${API_URL}/api/broker-summary/stocks?date=${dateStr}&market=${market}`);
       const data = await response.json();
       return data;
     } catch (err: any) {

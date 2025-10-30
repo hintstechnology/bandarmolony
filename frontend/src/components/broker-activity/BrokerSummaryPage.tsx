@@ -154,7 +154,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
       try {
         // Load stocks for the first selected date
         if (selectedDates[0]) {
-          const stocksResult = await api.getBrokerSummaryStocks(selectedDates[0]);
+          const stocksResult = await api.getBrokerSummaryStocks(selectedDates[0], marketFilter);
           if (stocksResult.success && stocksResult.data?.stocks) {
             setAvailableStocks(stocksResult.data.stocks);
           }
@@ -179,22 +179,19 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
       try {
         const entries = await Promise.all(
            selectedDates.map(async (date) => {
-            const res = await api.getBrokerSummaryData(selectedTicker, date);
+            const res = await api.getBrokerSummaryData(selectedTicker, date, marketFilter);
             const rows: BrokerSummaryData[] = (res?.data?.brokerData ?? []).map((r: any) => ({
               broker: r.BrokerCode ?? r.broker ?? r.BROKER ?? r.code ?? '',
-              // WORKAROUND: Backend sends nblot/nbval as NetBuyVol/NetBuyValue
-              // We need to calculate BuyerVol/BuyerValue from NetBuyVol + SellerVol
-              nblot: Number(r.nblot ?? 0) + Number(Math.abs(r.nslot ?? 0)), // NetBuyVol + |SellerVol|
-              nbval: Number(r.nbval ?? 0) + Number(Math.abs(r.nsval ?? 0)), // NetBuyValue + |SellerValue|
-              bavg: Number(r.bavg ?? 0),
-              // SELL side - use absolute values of nslot/nsval
-              nslot: Number(Math.abs(r.nslot ?? 0)),
-              nsval: Number(Math.abs(r.nsval ?? 0)),
-              savg: Number(r.savg ?? 0),
-              sl: Number(r.sl ?? 0),
-              // NET side - use nblot/nbval directly (these are NetBuyVol/NetBuyValue)
-              netBuyVol: Number(r.nblot ?? 0),
-              netBuyValue: Number(r.nbval ?? 0)
+              // Canonical mapping from new backend response; preserve UI expectations
+              nblot: Number(r.NetBuyVol ?? r.nblot ?? 0),
+              nbval: Number(r.NetBuyValue ?? r.nbval ?? 0),
+              bavg: Number(r.BuyerAvg ?? r.bavg ?? 0),
+              sl: Number(r.SellerVol ?? r.sl ?? 0),
+              nslot: -Number(r.SellerVol ?? 0),
+              nsval: -Number(r.SellerValue ?? 0),
+              savg: Number(r.SellerAvg ?? r.savg ?? 0),
+              netBuyVol: Number(r.NetBuyVol ?? r.nblot ?? 0),
+              netBuyValue: Number(r.NetBuyValue ?? r.nbval ?? 0)
              })) as BrokerSummaryData[];
              
              return [date, rows] as const;

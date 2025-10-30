@@ -1,5 +1,4 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
-import { BATCH_SIZE_PHASE_6 } from '../../services/dataUpdateService';
 
 // Type definitions, sama seperti broker_data.ts
 type TransactionType = 'RK' | 'TN' | 'NG';
@@ -41,7 +40,7 @@ interface BrokerTransactionData {
   TotalValue: number;
 }
 
-export class BrokerDataRkTnNgCalculator {
+export class BrokerDataRKTNNGCalculator {
   constructor() { }
 
   private async findAllDtFiles(): Promise<string[]> {
@@ -82,7 +81,7 @@ export class BrokerDataRkTnNgCalculator {
       const values = line.split(';');
       const stockCode = values[iSTK_CODE]?.trim() || '';
       if (stockCode.length === 4) {
-        data.push({
+        const base: TransactionData = {
           STK_CODE: stockCode,
           BRK_COD1: values[iBRK_COD1]?.trim() || '',
           BRK_COD2: values[iBRK_COD2]?.trim() || '',
@@ -90,7 +89,8 @@ export class BrokerDataRkTnNgCalculator {
           STK_PRIC: parseFloat(values[iSTK_PRIC]?.trim() || '0') || 0,
           TRX_CODE: values[iTRX_CODE]?.trim() || '',
           TRX_TYPE: values[iTRX_TYPE]?.trim() || '',
-        });
+        };
+        data.push(base);
       }
     }
     return data;
@@ -215,7 +215,7 @@ export class BrokerDataRkTnNgCalculator {
     return filename;
   }
 
-  public async generateBrokerData(dateSuffix: string): Promise<{ success: boolean; message: string; data?: any }> {
+  public async generateBrokerData(_dateSuffix?: string): Promise<{ success: boolean; message: string; data?: any }> {
     try {
       const dtFiles = await this.findAllDtFiles();
       if (dtFiles.length === 0) return { success: true, message: `No DT files found - skipped broker data generation` };
@@ -235,6 +235,12 @@ export class BrokerDataRkTnNgCalculator {
       return { success: false, message: (e as Error).message };
     }
   }
+
+  // Wrapper to align with scheduler service API
+  public async generateBrokerSummarySplitPerType(): Promise<{ success: boolean; message: string }> {
+    const result = await this.generateBrokerData('all');
+    return { success: result.success, message: result.message };
+  }
 }
 
-export default BrokerDataRkTnNgCalculator;
+export default BrokerDataRKTNNGCalculator;
