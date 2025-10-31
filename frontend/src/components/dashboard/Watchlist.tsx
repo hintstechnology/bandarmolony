@@ -15,6 +15,20 @@ interface StockData {
   lastUpdate?: string;
 }
 
+  // Helper function to generate dummy price data for stocks
+const generateDummyPriceData = (symbol: string) => {
+  // Simple hash function to generate consistent dummy data per symbol
+  const hash = symbol.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  const basePrice = 1000 + (hash % 9000) * 100;
+  const changePercent = ((hash % 300) - 150) / 100;
+  const change = (basePrice * changePercent) / 100;
+  return {
+    price: basePrice,
+    change: change,
+    changePercent: changePercent,
+  };
+};
+
 // Extended stock data with more companies (fallback data)
 const fallbackStocksData = [
   {
@@ -345,37 +359,62 @@ export function Watchlist({ selectedStock, onStockSelect, showFavoritesOnly: pro
           {/* Search Dropdown */}
           {showSearchDropdown && searchResults.length > 0 && (
             <div className="absolute top-full left-0 right-0 mt-1 bg-background border border-border rounded-md shadow-lg z-50 max-h-60 overflow-y-auto w-full">
-              {searchResults.map((stock) => (
-                <div 
-                  key={stock.symbol}
-                  className="flex items-center justify-between p-3 hover:bg-muted/50 cursor-pointer border-b border-border/50 last:border-b-0"
-                  onClick={() => handleStockSelectFromSearch(stock.symbol)}
-                >
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-medium text-card-foreground">
-                        {stock.symbol}
-                      </span>
-                    </div>
-                    <p className="text-sm text-muted-foreground truncate">{stock.name}</p>
-                  </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleFavorite(stock.symbol, e);
-                    }}
-                    className="hover:scale-110 transition-transform p-1"
+              {searchResults.map((stock) => {
+                // Generate dummy price data for stocks without price
+                const priceData = stock.price > 0 ? stock : generateDummyPriceData(stock.symbol);
+                return (
+                  <div 
+                    key={stock.symbol}
+                    className="flex items-center justify-between p-3 hover:bg-muted/50 cursor-pointer border-b border-border/50 last:border-b-0"
+                    onClick={() => handleStockSelectFromSearch(stock.symbol)}
                   >
-                    <Star 
-                      className={`w-4 h-4 ${
-                        favorites.includes(stock.symbol) 
-                          ? 'fill-yellow-400 text-yellow-400' 
-                          : 'text-muted-foreground hover:text-yellow-400'
-                      }`} 
-                    />
-                  </button>
-                </div>
-              ))}
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-medium text-card-foreground">
+                          {stock.symbol}
+                        </span>
+                        <Badge 
+                          variant={priceData.changePercent > 0 ? 'default' : 'destructive'} 
+                          className="text-xs flex items-center gap-1"
+                        >
+                          {priceData.changePercent > 0 ? (
+                            <TrendingUp className="w-3 h-3" />
+                          ) : (
+                            <TrendingDown className="w-3 h-3" />
+                          )}
+                          {Math.abs(priceData.changePercent).toFixed(2)}%
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground truncate">{stock.name}</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <p className="font-medium text-card-foreground">
+                          {priceData.price.toLocaleString()}
+                        </p>
+                        <p className={`text-sm ${priceData.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {priceData.change >= 0 ? '+' : ''}{priceData.change.toFixed(0)}
+                        </p>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFavorite(stock.symbol, e);
+                        }}
+                        className="hover:scale-110 transition-transform p-1"
+                      >
+                        <Star 
+                          className={`w-4 h-4 ${
+                            favorites.includes(stock.symbol) 
+                              ? 'fill-yellow-400 text-yellow-400' 
+                              : 'text-muted-foreground hover:text-yellow-400'
+                          }`} 
+                        />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -406,60 +445,63 @@ export function Watchlist({ selectedStock, onStockSelect, showFavoritesOnly: pro
               )}
             </div>
           ) : (
-            sortedStocks.map((stock) => (
-              <div 
-                key={stock.symbol} 
-                className={`
-                  flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all duration-200 hover:shadow-md
-                  ${selectedStock === stock.symbol 
-                    ? 'border-primary bg-primary/5 shadow-sm' 
-                    : 'border-border hover:border-primary/50'
-                  }
-                `}
-                onClick={() => onStockSelect(stock.symbol)}
-              >
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <button
-                      onClick={(e) => toggleFavorite(stock.symbol, e)}
-                      className="hover:scale-110 transition-transform"
-                    >
-                      <Star 
-                        className={`w-4 h-4 ${
-                          favorites.includes(stock.symbol) 
-                            ? 'fill-yellow-400 text-yellow-400' 
-                            : 'text-muted-foreground hover:text-yellow-400'
-                        }`} 
-                      />
-                    </button>
-                    <span className={`font-medium ${selectedStock === stock.symbol ? 'text-primary' : 'text-card-foreground'}`}>
-                      {stock.symbol}
-                    </span>
-                    {stock.price > 0 && (
-                      <Badge variant={stock.changePercent > 0 ? 'default' : 'destructive'} className="text-xs flex items-center gap-1">
-                        {stock.changePercent > 0 ? (
+            sortedStocks.map((stock) => {
+              // Generate dummy price data for stocks without price
+              const priceData = stock.price > 0 ? stock : generateDummyPriceData(stock.symbol);
+              return (
+                <div 
+                  key={stock.symbol} 
+                  className={`
+                    flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all duration-200 hover:shadow-md
+                    ${selectedStock === stock.symbol 
+                      ? 'border-primary bg-primary/5 shadow-sm' 
+                      : 'border-border hover:border-primary/50'
+                    }
+                  `}
+                  onClick={() => onStockSelect(stock.symbol)}
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <button
+                        onClick={(e) => toggleFavorite(stock.symbol, e)}
+                        className="hover:scale-110 transition-transform"
+                      >
+                        <Star 
+                          className={`w-4 h-4 ${
+                            favorites.includes(stock.symbol) 
+                              ? 'fill-yellow-400 text-yellow-400' 
+                              : 'text-muted-foreground hover:text-yellow-400'
+                          }`} 
+                        />
+                      </button>
+                      <span className={`font-medium ${selectedStock === stock.symbol ? 'text-primary' : 'text-card-foreground'}`}>
+                        {stock.symbol}
+                      </span>
+                      <Badge 
+                        variant={priceData.changePercent > 0 ? 'default' : 'destructive'} 
+                        className="text-xs flex items-center gap-1"
+                      >
+                        {priceData.changePercent > 0 ? (
                           <TrendingUp className="w-3 h-3" />
                         ) : (
                           <TrendingDown className="w-3 h-3" />
                         )}
-                        {Math.abs(stock.changePercent).toFixed(2)}%
+                        {Math.abs(priceData.changePercent).toFixed(2)}%
                       </Badge>
-                    )}
+                    </div>
+                    <p className="text-sm text-muted-foreground truncate">{stock.name}</p>
                   </div>
-                  <p className="text-sm text-muted-foreground truncate">{stock.name}</p>
-                </div>
-                {stock.price > 0 && (
                   <div className="text-right">
                     <p className={`font-medium ${selectedStock === stock.symbol ? 'text-primary' : 'text-card-foreground'}`}>
-                      {stock.price.toLocaleString()}
+                      {priceData.price.toLocaleString()}
                     </p>
-                    <p className={`text-sm ${stock.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {stock.change >= 0 ? '+' : ''}{stock.change.toFixed(0)}
+                    <p className={`text-sm ${priceData.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {priceData.change >= 0 ? '+' : ''}{priceData.change.toFixed(0)}
                     </p>
                   </div>
-                )}
-              </div>
-            ))
+                </div>
+              );
+            })
           )}
         </div>
       </CardContent>

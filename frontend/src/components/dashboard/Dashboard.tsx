@@ -21,6 +21,8 @@ export function Dashboard() {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
   const [isChartLoading, setIsChartLoading] = useState(false);
   const analysisSectionRef = useRef<HTMLDivElement>(null);
+  const overflowGuardClasses = 'w-full max-w-full overflow-x-auto md:overflow-x-visible';
+  const shrinkWrapClasses = 'min-w-0 [&_*]:min-w-0';
 
   // Check for email verification success toast
   useEffect(() => {
@@ -159,7 +161,13 @@ export function Dashboard() {
           subtitle="Price analysis with buy/sell frequency and lot data"
           defaultExpanded={expandedSections['done-summary'] || false}
         >
-          <StockTransactionDoneSummary selectedStock={selectedStock} />
+          {/* Guard overflow so inner grids/inputs can't push the card width */}
+          <div className={overflowGuardClasses}>
+            {/* Allow descendants to actually shrink inside flex/grid */}
+            <div className={shrinkWrapClasses}>
+              <StockTransactionDoneSummary selectedStock={selectedStock} />
+            </div>
+          </div>
         </CollapsibleSection>
       
         {/* Broker Summary Section */}
@@ -168,7 +176,11 @@ export function Dashboard() {
           subtitle="Top brokers trading activity and net positions"
           defaultExpanded={expandedSections['broker-summary'] || false}
         >
-          <BrokerSummaryPage selectedStock={selectedStock} />
+          <div className={overflowGuardClasses}>
+            <div className={shrinkWrapClasses}>
+              <BrokerSummaryPage selectedStock={selectedStock} />
+            </div>
+          </div>
         </CollapsibleSection>
         
         {/* Market Participant Section */}
@@ -177,7 +189,11 @@ export function Dashboard() {
           subtitle="Local vs Foreign market participation analysis"
           defaultExpanded={expandedSections['market-participant'] || false}
         >
-          <StoryMarketParticipant selectedStock={selectedStock} hideMarketAnalysis={true} hideForeignFlowAnalysis={true} />
+          <div className={overflowGuardClasses}>
+            <div className={shrinkWrapClasses}>
+              <StoryMarketParticipant selectedStock={selectedStock} hideMarketAnalysis={true} hideForeignFlowAnalysis={true} />
+            </div>
+          </div>
         </CollapsibleSection>
         
         {/* Ownership and Foreign Flow Section */}
@@ -209,12 +225,16 @@ export function Dashboard() {
           subtitle="Cumulative net flow for top brokers"
           defaultExpanded={expandedSections['broker-inventory'] || false}
         >
-          <BrokerInventoryPage 
-            selectedStock={selectedStock} 
-            defaultSplitView={true}
-            hideControls={false}
-            onlyShowInventoryChart={true}
-          />
+          <div className={overflowGuardClasses}>
+            <div className={shrinkWrapClasses}>
+              <BrokerInventoryPage 
+                selectedStock={selectedStock} 
+                defaultSplitView={true}
+                hideControls={false}
+                onlyShowInventoryChart={true}
+              />
+            </div>
+          </div>
         </CollapsibleSection>
       </div>
       
@@ -223,4 +243,3 @@ export function Dashboard() {
     </div>
   );
 }
-

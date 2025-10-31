@@ -784,161 +784,165 @@ export function StockTransactionDoneDetail() {
     <div className="min-h-screen space-y-4 sm:space-y-6 p-2 sm:p-4 lg:p-6 overflow-x-hidden">
       {/* Top Controls */}
       <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            {/* Title */}
+        <CardContent className="p-4 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div className="flex items-center gap-2 text-sm sm:text-base font-medium">
               <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
               Stock Selection & Date Range (Max 7 Days)
             </div>
-            
-            {/* Menu Controls */}
-            <div className="flex flex-wrap items-center gap-4">
-              {/* Stock Selection */}
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium whitespace-nowrap">Stock:</label>
-                <div className="relative" ref={dropdownRef}>
-                  <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
-                  <input
-                    type="text"
-                    value={stockInput}
-                    onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
-                    onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
-                    onKeyDown={(e) => {
-                      const suggestions = (stockInput === '' ? availableStocks : filteredStocks).slice(0, 10);
-                      if (!suggestions.length) return;
-                      if (e.key === 'ArrowDown') {
-                        e.preventDefault();
-                        setHighlightedStockIndex((prev) => (prev + 1) % suggestions.length);
-                      } else if (e.key === 'ArrowUp') {
-                        e.preventDefault();
-                        setHighlightedStockIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
-                      } else if (e.key === 'Enter' && showStockSuggestions) {
-                        e.preventDefault();
-                        const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
-                        const choice = suggestions[idx];
-                        if (choice) handleStockSelect(choice);
-                      } else if (e.key === 'Escape') {
-                        setShowStockSuggestions(false);
-                        setHighlightedStockIndex(-1);
-                      }
-                    }}
-                    placeholder="Enter stock code..."
-                    className="w-full pl-10 pr-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
-                  />
-                  {showStockSuggestions && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
-                      {availableStocks.length === 0 ? (
-                        <div className="px-3 py-2 text-sm text-muted-foreground flex items-center">
-                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                          Loading stocks...
-                        </div>
-                      ) : stockInput === '' ? (
-                        <>
-                          <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
-                            Available Stocks ({availableStocks.length})
-                          </div>
-                          {availableStocks.map(stock => (
-                            <div
-                              key={stock}
-                              onClick={() => handleStockSelect(stock)}
-                              className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
-                            >
-                              {stock}
-                            </div>
-                          ))}
-                        </>
-                      ) : filteredStocks.length > 0 ? (
-                        <>
-                          <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
-                            {filteredStocks.length} stocks found
-                          </div>
-                          {filteredStocks.map(stock => (
-                            <div
-                              key={stock}
-                              onClick={() => handleStockSelect(stock)}
-                              className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
-                            >
-                              {stock}
-                            </div>
-                          ))}
-                        </>
-                      ) : (
-                        <div className="px-3 py-2 text-sm text-muted-foreground">
-                          No stocks found
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
+          </div>
 
-              {/* Date Range */}
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
-                <div className="flex items-center gap-2">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {/* Stock Selection */}
+            <div className="flex flex-col gap-2 min-w-0">
+              <label className="text-sm font-medium text-foreground">Stock</label>
+              <div className="relative" ref={dropdownRef}>
+                <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+                <input
+                  type="text"
+                  value={stockInput}
+                  onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
+                  onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
+                  onKeyDown={(e) => {
+                    const suggestions = (stockInput === '' ? availableStocks : filteredStocks).slice(0, 10);
+                    if (!suggestions.length) return;
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      setHighlightedStockIndex((prev) => (prev + 1) % suggestions.length);
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      setHighlightedStockIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+                    } else if (e.key === 'Enter' && showStockSuggestions) {
+                      e.preventDefault();
+                      const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
+                      const choice = suggestions[idx];
+                      if (choice) handleStockSelect(choice);
+                    } else if (e.key === 'Escape') {
+                      setShowStockSuggestions(false);
+                      setHighlightedStockIndex(-1);
+                    }
+                  }}
+                  placeholder="Enter stock code..."
+                  className="w-full min-w-0 pl-10 pr-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
+                />
+                {showStockSuggestions && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                    {availableStocks.length === 0 ? (
+                      <div className="px-3 py-2 text-sm text-muted-foreground flex items-center">
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        Loading stocks...
+                      </div>
+                    ) : stockInput === '' ? (
+                      <>
+                        <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
+                          Available Stocks ({availableStocks.length})
+                        </div>
+                        {availableStocks.map(stock => (
+                          <div
+                            key={stock}
+                            onClick={() => handleStockSelect(stock)}
+                            className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
+                          >
+                            {stock}
+                          </div>
+                        ))}
+                      </>
+                    ) : filteredStocks.length > 0 ? (
+                      <>
+                        <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
+                          {filteredStocks.length} stocks found
+                        </div>
+                        {filteredStocks.map(stock => (
+                          <div
+                            key={stock}
+                            onClick={() => handleStockSelect(stock)}
+                            className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
+                          >
+                            {stock}
+                          </div>
+                        ))}
+                      </>
+                    ) : (
+                      <div className="px-3 py-2 text-sm text-muted-foreground">
+                        No stocks found
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Date Range */}
+            <div className="flex flex-col gap-2 min-w-0">
+              <label className="text-sm font-medium text-foreground">Date Range</label>
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
+                <div className="grid w-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:flex-1">
                   <input
                     type="date"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
                     className="w-full px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
                   />
-                  <span className="text-sm text-muted-foreground text-center whitespace-nowrap px-2">to</span>
+                  <span className="text-sm text-muted-foreground whitespace-nowrap text-center">to</span>
                   <input
                     type="date"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
                     className="w-full px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
                   />
-                  <Button onClick={addDateRange} size="sm" className="w-auto justify-self-center">
-                    <Plus className="w-4 h-4" />
-                    <span className="ml-1">Add</span>
-                  </Button>
                 </div>
+                <Button 
+                  onClick={addDateRange} 
+                  size="sm" 
+                  className="w-full sm:w-auto sm:flex-none sm:h-10 sm:ml-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span className="ml-1">Add</span>
+                </Button>
               </div>
+            </div>
 
-              {/* Quick Select */}
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium whitespace-nowrap">Quick Select:</label>
-                <div className="flex items-center gap-2">
+            {/* Quick Select */}
+            <div className="flex flex-col gap-2 min-w-0">
+              <label className="text-sm font-medium text-foreground">Quick Select</label>
+              <div className="flex flex-wrap items-center gap-2">
                 <select 
-                    className="w-full xl:flex-1 px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
-                    value={dateRangeMode}
-                    onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
-                  >
-                    <option value="1day">1 Day</option>
-                    <option value="3days">3 Days</option>
-                    <option value="1week">1 Week</option>
-                    <option value="custom">Custom</option>
+                  className="flex-1 min-w-[160px] px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
+                  value={dateRangeMode}
+                  onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
+                >
+                  <option value="1day">1 Day</option>
+                  <option value="3days">3 Days</option>
+                  <option value="1week">1 Week</option>
+                  <option value="custom">Custom</option>
                 </select>
-                  {dateRangeMode === 'custom' && (
-                    <Button onClick={clearAllDates} variant="outline" size="sm" className="w-auto">
-                      <RotateCcw className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
-                      <span className="text-sm">Clear</span>
-                    </Button>
-                  )}
+                {dateRangeMode === 'custom' && (
+                  <Button onClick={clearAllDates} variant="outline" size="sm" className="flex-shrink-0 h-10">
+                    <RotateCcw className="w-4 h-4 mr-1" />
+                    <span className="text-sm">Clear</span>
+                  </Button>
+                )}
               </div>
             </div>
-            </div>
+          </div>
 
-            {/* Selected Dates */}
-            <div>
-              <label className="text-sm font-medium">Selected Dates:</label>
-              <div className="flex flex-wrap gap-2 mt-2">
-                {selectedDates.map((date) => (
-                  <Badge key={date} variant="secondary" className="px-3 py-1">
-                    {formatDisplayDate(date)}
-                    {selectedDates.length > 1 && (
-                      <button
-                        onClick={() => removeDate(date)}
-                        className="ml-2 hover:text-destructive"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    )}
-                  </Badge>
-                ))}
-              </div>
+          {/* Selected Dates */}
+          <div>
+            <label className="text-sm font-medium">Selected Dates:</label>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {selectedDates.map((date) => (
+                <Badge key={date} variant="secondary" className="px-3 py-1">
+                  {formatDisplayDate(date)}
+                  {selectedDates.length > 1 && (
+                    <button
+                      onClick={() => removeDate(date)}
+                      className="ml-2 hover:text-destructive"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </Badge>
+              ))}
             </div>
           </div>
         </CardContent>

@@ -782,14 +782,6 @@ export function BrokerTransaction() {
 
   return (
     <div className="space-y-6">
-      {/* Loading State */}
-      {isLoading && (
-        <div className="flex items-center justify-center py-8">
-          <Loader2 className="w-6 h-6 animate-spin mr-2" />
-          <span>Loading transaction data...</span>
-        </div>
-      )}
-
       {/* Error State */}
       {error && (
         <div className="flex items-center justify-center py-8 text-red-600">
@@ -1006,6 +998,14 @@ export function BrokerTransaction() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Loading State */}
+      {isLoading && (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-6 h-6 animate-spin mr-2" />
+          <span>Loading transaction data...</span>
+        </div>
+      )}
 
       {/* Main Data Display */}
       {!isLoading && !error && (layoutMode === 'horizontal' ? renderHorizontalView() : renderVerticalView())}

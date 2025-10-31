@@ -2017,34 +2017,11 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
               {/* Price Chart */}
               <Card>
                 <CardHeader>
-                  <CardTitle>{selectedTicker} Price Action</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    Candlestick chart showing price movements
-                  </p>
-                </CardHeader>
-                <CardContent className="relative">
-                  {(isLoadingData || isLoadingBrokerData) && (
-                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-                      <div className="flex flex-col items-center gap-2">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
-                        <div className="text-xs text-muted-foreground">Loading stock...</div>
-                      </div>
-                    </div>
-                  )}
-                  {!isLoadingData && candlestickData.length > 0 && (
-                    <PriceChart candlestickData={candlestickData} />
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Broker Inventory Chart */}
-              <Card>
-                <CardHeader>
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-                    <div>
-                      <CardTitle>Broker Cumulative Net Flow</CardTitle>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex-1 min-w-[200px]">
+                      <CardTitle>{selectedTicker} Price Action</CardTitle>
                       <p className="text-sm text-muted-foreground">
-                        Broker inventory accumulation starting from 0
+                        Candlestick chart showing price movements
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -2068,6 +2045,31 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                         </Button>
                       </div>
                     </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="relative">
+                  {(isLoadingData || isLoadingBrokerData) && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                        <div className="text-xs text-muted-foreground">Loading stock...</div>
+                      </div>
+                    </div>
+                  )}
+                  {!isLoadingData && candlestickData.length > 0 && (
+                    <PriceChart candlestickData={candlestickData} />
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Broker Inventory Chart */}
+              <Card>
+                <CardHeader>
+                  <div>
+                    <CardTitle>Broker Cumulative Net Flow</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      Broker inventory accumulation starting from 0
+                    </p>
                   </div>
                 </CardHeader>
                 <CardContent className="relative">
@@ -2115,8 +2117,8 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
               {/* Main TradingView Chart */}
               <Card>
                 <CardHeader>
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-                    <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex-1 min-w-[200px]">
                   <CardTitle>{selectedTicker} Inventory Analysis</CardTitle>
                   <p className="text-sm text-muted-foreground">
                     Price action (right Y-axis) with broker cumulative net flow (left Y-axis, starting from 0)
