@@ -1,18 +1,24 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Menu, X } from "lucide-react";
 import Logo from "./dashboard/Logo";
+
+type NavbarProps = {
+  onSignIn?: () => void;
+  onRegister?: () => void;
+};
 
 const NAV_LINKS = [
   { label: "Home", to: "/" },
   { label: "Features", to: "/features" },
   { label: "Pricing", to: "/pricing" },
   { label: "Contact Us", to: "/contact" },
-];
+] as const;
 
-export function Navbar({ onSignIn, onRegister } = {}) {
+export function Navbar(props?: NavbarProps): JSX.Element {
+  const { onSignIn, onRegister } = props ?? {};
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  
+
   const toggleMenu = () => {
     setIsMenuOpen((prev) => !prev);
   };
@@ -38,7 +44,7 @@ export function Navbar({ onSignIn, onRegister } = {}) {
     "@type": "SiteNavigationElement",
     name: NAV_LINKS.map((link) => link.label),
     url: NAV_LINKS.map((link) => `https://bandarmolony.com${link.to}`),
-  };
+  } as const;
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 w-full bg-background/95 backdrop-blur-md shadow-lg">
@@ -154,4 +160,3 @@ export function Navbar({ onSignIn, onRegister } = {}) {
     </header>
   );
 }
-
