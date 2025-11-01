@@ -1,4 +1,3 @@
-import React from "react";
 import { Link } from "react-router-dom";
 
 const organizationSchema = {
@@ -6,9 +5,9 @@ const organizationSchema = {
   "@type": "Organization",
   name: "Bandarmolony",
   url: "https://bandarmolony.com/",
-};
+} as const;
 
-export function Footer() {
+export function Footer(): JSX.Element {
   return (
     <footer className="bg-transparent text-muted-foreground" aria-label="Footer">
       <div className="mx-auto flex w-full max-w-7xl flex-col items-center gap-8 px-4 py-12 md:px-8">

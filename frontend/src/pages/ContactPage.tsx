@@ -15,17 +15,10 @@ const contactChannels = [
   },
   {
     title: "WhatsApp",
-    description: "Tersedia 09.00 - 21.00 WIB untuk konsultasi dengan kami.",
+    description: "Tersedia 09.00 - 17.00 WIB untuk konsultasi dengan kami.",
     value: "(+62) 817-370-486",
     href: "https://wa.me/62817370486",
     icon: MessageCircle,
-  },
-  {
-    title: "Telepon",
-    description: "Tersedia 09.00 - 21.00 WIB untuk konsultasi dengan kami.",
-    value: "(+62) 817-370-486",
-    href: "tel:+62817370486",
-    icon: Phone,
   },
 ];
 
@@ -44,7 +37,7 @@ const faqs = [
   },
   {
     question: "Bagaimana cara mendapatkan dukungan?",
-    answer: "Tim support kami tersedia setiap hari mulai dari pukul 09.00 - 21.00 WIB melalui email, WhatsApp, atau telepon. Kami dengan senang hati membantu Anda.",
+    answer: "Tim support kami tersedia setiap hari mulai dari pukul 09.00 - 17.00 WIB melalui email atau WhatsApp. Kami dengan senang hati membantu Anda.",
   },
 ];
 
@@ -100,7 +93,7 @@ export function ContactPage() {
           </p>
         </motion.header>
 
-        <section className="grid gap-6 md:grid-cols-3">
+        <section className="grid grid-cols-1 gap-6 md:grid-cols-2">
           {contactChannels.map(({ title, description, value, href, icon: Icon }, index) => (
             <motion.article
               key={title}
@@ -108,7 +101,7 @@ export function ContactPage() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, amount: 0.2 }}
               transition={{ duration: 0.6, delay: index * 0.1 }}
-              className="flex h-full flex-col rounded-3xl border border-white/10 bg-background/80 p-8 shadow-xl backdrop-blur transition-all duration-300 hover:-translate-y-2 hover:shadow-primary/20 dark:border-white/5"
+              className="flex h-full w-full flex-col rounded-3xl border border-white/10 bg-background/80 p-8 shadow-xl backdrop-blur transition-all duration-300 hover:-translate-y-2 hover:shadow-primary/20 dark:border-white/5"
             >
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
                 <Icon className="h-5 w-5" aria-hidden="true" />
