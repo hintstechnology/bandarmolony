@@ -279,16 +279,18 @@ export class BrokerDataCalculator {
         const buyer = buyerSummary.get(broker) || { totalVol: 0, avgPrice: 0, transactionCount: 0, totalValue: 0 };
         const seller = sellerSummary.get(broker) || { totalVol: 0, avgPrice: 0, transactionCount: 0, totalValue: 0 };
         
+        // SWAPPED: Kolom Buyer isinya data Seller, kolom Seller isinya data Buyer
+        // Ini agar frontend tidak perlu swap lagi (sesuai dengan CSV yang kolomnya tertukar)
         finalSummary.push({
           BrokerCode: broker,
-          BuyerVol: buyer.totalVol,
-          BuyerValue: buyer.totalValue,
-          SellerVol: seller.totalVol,
-          SellerValue: seller.totalValue,
+          BuyerVol: seller.totalVol,      // SWAPPED: Kolom Buyer = data Seller
+          BuyerValue: seller.totalValue,  // SWAPPED: Kolom Buyer = data Seller
+          SellerVol: buyer.totalVol,      // SWAPPED: Kolom Seller = data Buyer
+          SellerValue: buyer.totalValue,  // SWAPPED: Kolom Seller = data Buyer
           NetBuyVol: buyer.totalVol - seller.totalVol,
           NetBuyValue: buyer.totalValue - seller.totalValue,
-          BuyerAvg: buyer.avgPrice,
-          SellerAvg: seller.avgPrice
+          BuyerAvg: seller.avgPrice,      // SWAPPED: Kolom BuyerAvg = SellerAvg
+          SellerAvg: buyer.avgPrice       // SWAPPED: Kolom SellerAvg = BuyerAvg
         });
       });
       
@@ -368,16 +370,18 @@ export class BrokerDataCalculator {
         const totalValue = buyerValue + sellerValue;
         const avgPrice = totalVolume > 0 ? totalValue / totalVolume : 0;
         
+        // SWAPPED: Kolom Buyer isinya data Seller, kolom Seller isinya data Buyer
+        // Ini agar frontend tidak perlu swap lagi (sesuai dengan CSV yang kolomnya tertukar)
         stockSummary.push({
           Emiten: stock,
-          BuyerVol: buyerVol,
-          BuyerValue: buyerValue,
-          SellerVol: sellerVol,
-          SellerValue: sellerValue,
+          BuyerVol: sellerVol,        // SWAPPED: Kolom Buyer = data Seller
+          BuyerValue: sellerValue,    // SWAPPED: Kolom Buyer = data Seller
+          SellerVol: buyerVol,        // SWAPPED: Kolom Seller = data Buyer
+          SellerValue: buyerValue,    // SWAPPED: Kolom Seller = data Buyer
           NetBuyVol: netBuyVol,
           NetBuyValue: netBuyValue,
-          BuyerAvg: buyerAvg,
-          SellerAvg: sellerAvg,
+          BuyerAvg: sellerAvg,        // SWAPPED: Kolom BuyerAvg = SellerAvg
+          SellerAvg: buyerAvg,         // SWAPPED: Kolom SellerAvg = BuyerAvg
           TotalVolume: totalVolume,
           AvgPrice: avgPrice,
           TransactionCount: transactions.length,
@@ -532,16 +536,18 @@ export class BrokerDataCalculator {
       const buyer = buyerData.get(broker) || { vol: 0, freq: 0, value: 0, avg: 0 };
       const seller = sellerData.get(broker) || { vol: 0, freq: 0, value: 0, avg: 0 };
       
+      // SWAPPED: Kolom Buyer isinya data Seller, kolom Seller isinya data Buyer
+      // Ini agar frontend tidak perlu swap lagi (sesuai dengan CSV yang kolomnya tertukar)
       detailedSummary.push({
         BrokerCode: broker,
-        BuyerVol: buyer.vol,
-        BuyerFreq: buyer.freq,
-        BuyerValue: buyer.value,
-        BuyerAvg: buyer.avg,
-        SellerVol: seller.vol,
-        SellerFreq: seller.freq,
-        SellerValue: seller.value,
-        SellerAvg: seller.avg,
+        BuyerVol: seller.vol,        // SWAPPED: Kolom Buyer = data Seller
+        BuyerFreq: seller.freq,      // SWAPPED: Kolom Buyer = data Seller
+        BuyerValue: seller.value,    // SWAPPED: Kolom Buyer = data Seller
+        BuyerAvg: seller.avg,        // SWAPPED: Kolom Buyer = data Seller
+        SellerVol: buyer.vol,        // SWAPPED: Kolom Seller = data Buyer
+        SellerFreq: buyer.freq,      // SWAPPED: Kolom Seller = data Buyer
+        SellerValue: buyer.value,    // SWAPPED: Kolom Seller = data Buyer
+        SellerAvg: buyer.avg,         // SWAPPED: Kolom Seller = data Buyer
         NetBuyVol: buyer.vol - seller.vol,
         NetBuyValue: buyer.value - seller.value
       });
@@ -591,6 +597,8 @@ export class BrokerDataCalculator {
       const netBuyValue = buyerValue - sellerValue;
       const netBuyFreq = buyerFreq - sellerFreq;
       
+      // SWAPPED: Kolom Buyer isinya data Seller, kolom Seller isinya data Buyer
+      // Ini agar frontend tidak perlu swap lagi (sesuai dengan CSV yang kolomnya tertukar)
       comprehensiveData.push({
         BrokerCode: broker,
         TotalBrokerVol: totalVol,
@@ -599,12 +607,12 @@ export class BrokerDataCalculator {
         NetBuyVol: netBuyVol,
         NetBuyValue: netBuyValue,
         NetBuyFreq: netBuyFreq,
-        SellerVol: sellerVol,
-        SellerValue: sellerValue,
-        SellerFreq: sellerFreq,
-        BuyerVol: buyerVol,
-        BuyerValue: buyerValue,
-        BuyerFreq: buyerFreq
+        SellerVol: buyerVol,        // SWAPPED: Kolom Seller = data Buyer
+        SellerValue: buyerValue,    // SWAPPED: Kolom Seller = data Buyer
+        SellerFreq: buyerFreq,      // SWAPPED: Kolom Seller = data Buyer
+        BuyerVol: sellerVol,        // SWAPPED: Kolom Buyer = data Seller
+        BuyerValue: sellerValue,    // SWAPPED: Kolom Buyer = data Seller
+        BuyerFreq: sellerFreq       // SWAPPED: Kolom Buyer = data Seller
       });
     });
     

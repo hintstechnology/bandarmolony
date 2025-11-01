@@ -20,6 +20,8 @@ import { preGenerateAllRRG } from '../services/rrgDataScheduler';
 import { forceRegenerate as generateSeasonalityData } from '../services/seasonalityDataScheduler';
 import { TrendFilterDataScheduler } from '../services/trendFilterDataScheduler';
 import BrokerSummaryTypeDataScheduler from '../services/brokerSummaryTypeDataScheduler';
+import { BrokerDataRGTNNGCalculator } from '../calculations/broker/broker_data_rk_tn_ng';
+import { listPaths } from '../utils/azureBlob';
 
 const router = express.Router();
 
@@ -475,6 +477,82 @@ router.post('/broker-data', async (_req, res) => {
   }
 });
 
+// Manual trigger for Broker Data calculation for all dates starting from 20250922
+router.post('/broker-data-all', async (_req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Broker Data calculation for all dates from 20250922 - Direct execution');
+
+    // Run calculation directly without scheduler log
+    const brokerDataService = new BrokerDataScheduler();
+    
+    // Execute in background and return immediately
+    (async () => {
+      try {
+        // Find all DT files
+        const allFiles = await listPaths({ prefix: 'done-summary/' });
+        const dtFiles = allFiles.filter((file: string) => 
+          file.includes('/DT') && file.endsWith('.csv')
+        );
+        
+        console.log(`📊 Found ${dtFiles.length} DT files to process`);
+        
+        // Extract unique dates from DT files (format: done-summary/20250922/DT250922.csv)
+        const datesSet = new Set<string>();
+        for (const file of dtFiles) {
+          const match = file.match(/done-summary\/(\d{8})\//);
+          if (match && match[1]) {
+            const dateStr = match[1];
+            // Only process dates from 20250922 onwards
+            if (dateStr >= '20250922') {
+              datesSet.add(dateStr);
+            }
+          }
+        }
+        
+        const dates = Array.from(datesSet).sort();
+        console.log(`📅 Processing ${dates.length} unique dates from 20250922 onwards:`, dates.slice(0, 10), '...');
+        
+        let successCount = 0;
+        let failCount = 0;
+        
+        for (const date of dates) {
+          try {
+            const result = await brokerDataService.generateBrokerData(date);
+            if (result.success) {
+              successCount++;
+              console.log(`✅ Broker data generated for ${date}`);
+            } else {
+              failCount++;
+              console.error(`❌ Broker data failed for ${date}: ${result.message}`);
+            }
+          } catch (error: any) {
+            failCount++;
+            console.error(`❌ Error generating broker data for ${date}:`, error.message);
+          }
+        }
+        
+        const message = `Broker data calculation completed: ${successCount} succeeded, ${failCount} failed`;
+        await AzureLogger.logInfo('broker_data_all', message);
+        console.log(`✅ ${message}`);
+      } catch (error: any) {
+        await AzureLogger.logSchedulerError('broker_data_all', error.message);
+        console.error(`❌ Broker data calculation error: ${error.message}`);
+      }
+    })();
+
+    return res.json({ 
+      success: true, 
+      message: 'Broker Data calculation for all dates started (running in background)'
+    });
+  } catch (error) {
+    console.error('❌ Error triggering broker data calculation for all dates:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error instanceof Error ? error.message : 'Unknown error' 
+    });
+  }
+});
+
 // Manual trigger for Broker Inventory calculation
 router.post('/broker-inventory', async (_req, res) => {
   try {
@@ -535,53 +613,62 @@ router.post('/broker-inventory', async (_req, res) => {
   }
 });
 
-// Manual trigger for Broker Summary by Type (RK/TN/NG)
-router.post('/broker-summary-type', async (_req, res) => {
+// Manual trigger for Broker Summary by Type - RG only
+router.post('/broker-summary-rg', async (_req, res) => {
   try {
-    console.log('🔄 Manual trigger: Broker Summary by Type (RK/TN/NG) calculation');
+    console.log('🔄 Manual trigger: Broker Summary by Type (RG only) calculation - Direct execution');
 
-    // Create log entry
-    const logEntry = await SchedulerLogService.createLog({
-      feature_name: 'broker_summary_type',
-      trigger_type: 'manual',
-      triggered_by: 'admin',
-      status: 'running',
-      force_override: true,
-      environment: process.env['NODE_ENV'] || 'development'
-    });
-
-    if (!logEntry) {
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to create scheduler log entry'
-      });
-    }
-
-    // Run calculation in background
-    const brokerSummaryTypeService = new BrokerSummaryTypeDataScheduler();
-    brokerSummaryTypeService.generateBrokerSummaryTypeData('all').then(async (result) => {
-      await AzureLogger.logInfo('broker_summary_type', `Manual broker summary type calculation completed: ${result.message || 'OK'}`);
-      if (logEntry.id) {
-        await SchedulerLogService.updateLog(logEntry.id, {
-          status: result.success ? 'completed' : 'failed',
-          progress_percentage: 100,
-          ...(result.success ? {} : { error_message: result.message })
-        });
+    // Run calculation directly without scheduler log
+    const calculator = new BrokerDataRGTNNGCalculator();
+    
+    // Execute in background and return immediately
+    (async () => {
+      try {
+        const result = await calculator.generateBrokerDataForType('RG');
+        await AzureLogger.logInfo('broker_summary_rg', `Manual broker summary RG calculation completed: ${result.message || 'OK'}`);
+        console.log(`✅ Broker Summary RG calculation completed: ${result.message}`);
+      } catch (error: any) {
+        await AzureLogger.logSchedulerError('broker_summary_rg', error.message);
+        console.error(`❌ Broker Summary RG calculation error: ${error.message}`);
       }
-    }).catch(async (error) => {
-      await AzureLogger.logSchedulerError('broker_summary_type', error.message);
-      if (logEntry.id) {
-        await SchedulerLogService.updateLog(logEntry.id, {
-          status: 'failed',
-          error_message: error.message
-        });
-      }
-    });
+    })();
 
     return res.json({
       success: true,
-      message: 'Broker Summary by Type calculation triggered',
-      log_id: logEntry.id
+      message: 'Broker Summary RG calculation started (running in background)'
+    });
+  } catch (error: any) {
+    console.error('❌ Error triggering broker summary RG calculation:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Unknown error'
+    });
+  }
+});
+
+// Manual trigger for Broker Summary by Type (RG/TN/NG)
+router.post('/broker-summary-type', async (_req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Broker Summary by Type (RG/TN/NG) calculation - Direct execution');
+
+    // Run calculation directly without scheduler log
+    const brokerSummaryTypeService = new BrokerSummaryTypeDataScheduler();
+    
+    // Execute in background and return immediately
+    (async () => {
+      try {
+        const result = await brokerSummaryTypeService.generateBrokerSummaryTypeData('all');
+        await AzureLogger.logInfo('broker_summary_type', `Manual broker summary type calculation completed: ${result.message || 'OK'}`);
+        console.log(`✅ Broker Summary Type calculation completed: ${result.message}`);
+      } catch (error: any) {
+        await AzureLogger.logSchedulerError('broker_summary_type', error.message);
+        console.error(`❌ Broker Summary Type calculation error: ${error.message}`);
+      }
+    })();
+
+    return res.json({
+      success: true,
+      message: 'Broker Summary by Type calculation started (running in background)'
     });
   } catch (error: any) {
     console.error('❌ Error triggering broker summary type calculation:', error);

@@ -6,13 +6,34 @@ export interface AzureListOptions {
   maxResults?: number;
 }
 
+function getAzureAccountName(connectionString: string): string | null {
+  try {
+    const parts = connectionString.split(';');
+    const accountNamePart = parts.find(part => part.startsWith('AccountName='));
+    if (accountNamePart) {
+      return accountNamePart.split('=')[1] || null;
+    }
+  } catch (e) {
+    // Ignore parse errors
+  }
+  return null;
+}
+
 function getContainer(): any {
   const connectionString = config.AZURE_STORAGE_CONNECTION_STRING;
   const containerName = config.AZURE_STORAGE_CONTAINER_NAME || 'stock-trading-data';
   if (!connectionString) {
     throw new Error('Azure Storage configuration is missing');
   }
-  console.log(`🔧 Azure Storage - Container: ${containerName}`);
+  
+  // Extract and log Azure account name
+  const accountName = getAzureAccountName(connectionString);
+  if (accountName) {
+    console.log(`🔧 Azure Storage - Account: ${accountName}, Container: ${containerName}`);
+  } else {
+    console.log(`🔧 Azure Storage - Container: ${containerName} (account name not found in connection string)`);
+  }
+  
   const service = BlobServiceClient.fromConnectionString(connectionString);
   return service.getContainerClient(containerName);
 }

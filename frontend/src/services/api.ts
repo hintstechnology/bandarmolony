@@ -2210,14 +2210,27 @@ export const api = {
   },
 
   // Broker Summary API
-  getBrokerSummaryData: async (stockCode: string, date: string, market: 'RG' | 'TN' | 'NG' = 'RG') => {
+  getBrokerSummaryData: async (stockCode: string, date: string, market: 'RG' | 'TN' | 'NG' | '' = '') => {
     try {
       // Convert YYYY-MM-DD to YYYYMMDD format
       const dateStr = date.includes('-') ? date.replace(/-/g, '') : date;
-      const response = await fetch(`${API_URL}/api/broker-summary/summary/${stockCode}?date=${dateStr}&market=${market}`);
+      // When market is empty string (All Trade), send it as empty string
+      const marketParam = market || '';
+      const url = marketParam ? `${API_URL}/api/broker-summary/summary/${stockCode}?date=${dateStr}&market=${marketParam}` : `${API_URL}/api/broker-summary/summary/${stockCode}?date=${dateStr}`;
+      console.log(`[API] Fetching broker summary: ${url}`);
+      
+      const response = await fetch(url);
       const data = await response.json();
+      
+      if (!response.ok) {
+        console.error(`[API] Broker summary request failed: ${response.status}`, data);
+        return { success: false, error: data.error || `HTTP ${response.status}: Failed to get broker summary data` };
+      }
+      
+      console.log(`[API] Broker summary response:`, { success: data.success, hasData: !!data.data, hasBrokerData: !!data.data?.brokerData, brokerDataLength: data.data?.brokerData?.length || 0 });
       return data;
     } catch (err: any) {
+      console.error(`[API] Broker summary fetch error:`, err);
       return { success: false, error: err.message || 'Failed to get broker summary data' };
     }
   },
@@ -2234,11 +2247,14 @@ export const api = {
   },
 
   // Get available stocks for broker summary on specific date
-  getBrokerSummaryStocks: async (date: string, market: 'RG' | 'TN' | 'NG' = 'RG') => {
+  getBrokerSummaryStocks: async (date: string, market: 'RG' | 'TN' | 'NG' | '' = '') => {
     try {
       // Convert YYYY-MM-DD to YYYYMMDD format
       const dateStr = date.includes('-') ? date.replace(/-/g, '') : date;
-      const response = await fetch(`${API_URL}/api/broker-summary/stocks?date=${dateStr}&market=${market}`);
+      // When market is empty string (All Trade), send it as empty string
+      const marketParam = market || '';
+      const url = marketParam ? `${API_URL}/api/broker-summary/stocks?date=${dateStr}&market=${marketParam}` : `${API_URL}/api/broker-summary/stocks?date=${dateStr}`;
+      const response = await fetch(url);
       const data = await response.json();
       return data;
     } catch (err: any) {
