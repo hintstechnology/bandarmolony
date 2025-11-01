@@ -5,15 +5,20 @@ import { api } from '../../services/api';
 
 interface BrokerSummaryData {
   broker: string;
-  nblot: number;      // BuyerVol (for BLot in BUY table)
-  nbval: number;      // BuyerValue (for BVal in BUY table)
+  buyerVol: number;   // BuyerVol (for BLot in BUY table)
+  buyerValue: number; // BuyerValue (for BVal in BUY table)
   bavg: number;       // BuyerAvg (for BAvg in BUY table)
-  sl: number;
-  nslot: number;      // SellerVol (for SLot in SELL table)
-  nsval: number;      // SellerValue (for SVal in SELL table)
+  sellerVol: number;  // SellerVol (for SLot in SELL table)
+  sellerValue: number; // SellerValue (for SVal in SELL table)
   savg: number;       // SellerAvg (for SAvg in SELL table)
+  nblot: number;      // NetBuyVol (for NBLot in NET table) - legacy
+  nbval: number;      // NetBuyValue (for NBVal in NET table) - legacy
   netBuyVol: number;  // NetBuyVol (for NBLot in NET table)
   netBuyValue: number; // NetBuyValue (for NBVal in NET table)
+  // Legacy fields for backward compatibility
+  sl: number;
+  nslot: number;
+  nsval: number;
 }
 
 // Note: TICKERS constant removed - now using dynamic stock loading from API
@@ -154,7 +159,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
       try {
         // Load stocks for the first selected date
         if (selectedDates[0]) {
-          const stocksResult = await api.getBrokerSummaryStocks(selectedDates[0], marketFilter);
+          // When marketFilter is empty string (All Trade), send it as empty string
+          const market = marketFilter || '';
+          const stocksResult = await api.getBrokerSummaryStocks(selectedDates[0], market as 'RG' | 'TN' | 'NG' | '');
           if (stocksResult.success && stocksResult.data?.stocks) {
             setAvailableStocks(stocksResult.data.stocks);
           }
@@ -166,7 +173,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     };
 
     loadAvailableStocks();
-  }, [selectedDates]);
+  }, [selectedDates, marketFilter]);
 
   // Load broker summary data from backend for each selected date
   useEffect(() => {
@@ -179,28 +186,81 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
       try {
         const entries = await Promise.all(
            selectedDates.map(async (date) => {
-            const res = await api.getBrokerSummaryData(selectedTicker, date, marketFilter);
-            const rows: BrokerSummaryData[] = (res?.data?.brokerData ?? []).map((r: any) => ({
-              broker: r.BrokerCode ?? r.broker ?? r.BROKER ?? r.code ?? '',
-              // Canonical mapping from new backend response; preserve UI expectations
-              nblot: Number(r.NetBuyVol ?? r.nblot ?? 0),
-              nbval: Number(r.NetBuyValue ?? r.nbval ?? 0),
-              bavg: Number(r.BuyerAvg ?? r.bavg ?? 0),
-              sl: Number(r.SellerVol ?? r.sl ?? 0),
-              nslot: -Number(r.SellerVol ?? 0),
-              nsval: -Number(r.SellerValue ?? 0),
-              savg: Number(r.SellerAvg ?? r.savg ?? 0),
-              netBuyVol: Number(r.NetBuyVol ?? r.nblot ?? 0),
-              netBuyValue: Number(r.NetBuyValue ?? r.nbval ?? 0)
-             })) as BrokerSummaryData[];
-             
-             return [date, rows] as const;
+            // When marketFilter is empty string (All Trade), send it as empty string, not default to 'RG'
+            const market = marketFilter || '';
+            console.log(`[BrokerSummary] Fetching data for ${selectedTicker} on ${date} with market: ${market || 'All Trade'}`);
+            const res = await api.getBrokerSummaryData(selectedTicker, date, market as 'RG' | 'TN' | 'NG' | '');
+            console.log(`[BrokerSummary] Response for ${date}:`, {
+              success: res?.success,
+              hasData: !!res?.data,
+              hasBrokerData: !!res?.data?.brokerData,
+              brokerDataLength: res?.data?.brokerData?.length || 0,
+              error: res?.error,
+              path: res?.data?.path
+            });
+            
+            // Check if response is successful
+            if (!res || !res.success) {
+              console.error(`[BrokerSummary] Failed to fetch data for ${selectedTicker} on ${date}:`, res?.error || 'Unknown error');
+              return [date, []] as const;
+            }
+            
+            // Check if brokerData exists
+            if (!res.data || !res.data.brokerData || !Array.isArray(res.data.brokerData)) {
+              console.warn(`[BrokerSummary] No broker data in response for ${selectedTicker} on ${date}`);
+              return [date, []] as const;
+            }
+            
+            const rows: BrokerSummaryData[] = (res.data.brokerData ?? []).map((r: any, idx: number) => {
+              // Backend sudah swap kolom Buyer dan Seller, jadi frontend tidak perlu swap lagi
+              const mapped = {
+                broker: r.BrokerCode ?? r.broker ?? r.BROKER ?? r.code ?? '',
+                // Buyer fields - langsung dari BuyerVol, BuyerValue, BuyerAvg (backend sudah swap)
+                buyerVol: Number(r.BuyerVol ?? 0),
+                buyerValue: Number(r.BuyerValue ?? 0),
+                bavg: Number(r.BuyerAvg ?? r.bavg ?? 0),
+                // Seller fields - langsung dari SellerVol, SellerValue, SellerAvg (backend sudah swap)
+                sellerVol: Number(r.SellerVol ?? 0),
+                sellerValue: Number(r.SellerValue ?? 0),
+                savg: Number(r.SellerAvg ?? r.savg ?? 0),
+                // Net fields
+                netBuyVol: Number(r.NetBuyVol ?? 0),
+                netBuyValue: Number(r.NetBuyValue ?? 0),
+                // Legacy fields for backward compatibility
+                nblot: Number(r.NetBuyVol ?? r.nblot ?? 0),
+                nbval: Number(r.NetBuyValue ?? r.nbval ?? 0),
+                sl: Number(r.SellerVol ?? r.sl ?? 0),
+                nslot: -Number(r.SellerVol ?? 0),
+                nsval: -Number(r.SellerValue ?? 0)
+              };
+              
+              // Debug first row mapping
+              if (idx === 0) {
+                console.log(`[BrokerSummary] Sample row mapping for ${date}:`, {
+                  original: r,
+                  mapped
+                });
+              }
+              
+              return mapped;
+            }) as BrokerSummaryData[];
+            
+            console.log(`[BrokerSummary] Mapped ${rows.length} rows for ${selectedTicker} on ${date}`);
+            return [date, rows] as const;
            })
         );
         const map = new Map<string, BrokerSummaryData[]>();
-        entries.forEach(([date, rows]) => map.set(date, rows));
+        entries.forEach(([date, rows]) => {
+          map.set(date, [...rows]); // Convert readonly array to mutable array
+          console.log(`[BrokerSummary] Stored ${rows.length} rows for date ${date}`);
+        });
         setSummaryByDate(map);
+        
+        // Log summary
+        const totalRows = Array.from(map.values()).reduce((sum, rows) => sum + rows.length, 0);
+        console.log(`[BrokerSummary] Total rows loaded: ${totalRows} across ${map.size} dates`);
       } catch (e: any) {
+        console.error('[BrokerSummary] Error fetching data:', e);
         setError(e?.message || 'Failed to load broker summary');
       } finally {
         setIsLoading(false);
@@ -208,7 +268,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     };
 
     fetchAll();
-  }, [selectedTicker, selectedDates]);
+  }, [selectedTicker, selectedDates, marketFilter]);
 
   // clearAllDates removed with Reset button
 
@@ -387,33 +447,33 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     const totalSellData: { [broker: string]: { nslot: number; nsval: number; savg: number; count: number } } = {};
                     
                     allBrokerData.forEach(dateData => {
-                      // BUY total now uses SELL metrics
+                      // BUY total uses Buyer metrics
                       dateData.buyData.forEach(b => {
-                        if (b.nsval > 0) {
+                        if (b.buyerValue > 0) {
                           if (!totalBuyData[b.broker]) {
                             totalBuyData[b.broker] = { nblot: 0, nbval: 0, bavg: 0, count: 0 };
                           }
                           const buyEntry = totalBuyData[b.broker];
                           if (buyEntry) {
-                            buyEntry.nblot += Math.abs(b.nslot);
-                            buyEntry.nbval += Math.abs(b.nsval);
-                            buyEntry.bavg += b.savg;
+                            buyEntry.nblot += b.buyerVol;
+                            buyEntry.nbval += b.buyerValue;
+                            buyEntry.bavg += b.bavg;
                             buyEntry.count += 1;
                           }
                         }
                       });
                       
-                      // SELL total now uses BUY metrics
+                      // SELL total uses Seller metrics
                       dateData.sellData.forEach(s => {
-                        if (s.nbval > 0) {
+                        if (s.sellerValue > 0) {
                           if (!totalSellData[s.broker]) {
                             totalSellData[s.broker] = { nslot: 0, nsval: 0, savg: 0, count: 0 };
                           }
                           const sellEntry = totalSellData[s.broker];
                           if (sellEntry) {
-                            sellEntry.nslot += s.nblot;
-                            sellEntry.nsval += s.nbval;
-                            sellEntry.savg += s.bavg;
+                            sellEntry.nslot += s.sellerVol;
+                            sellEntry.nsval += s.sellerValue;
+                            sellEntry.savg += s.savg;
                             sellEntry.count += 1;
                           }
                         }
@@ -430,14 +490,19 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       .map(([broker, data]) => ({ broker, ...data, savg: data.savg / data.count }))
                       .sort((a, b) => b.nsval - a.nsval);
                     
-                    // Find max row count across all dates
+                    // Find max row count across all dates AND total columns
                     let maxRows = 0;
                     selectedDates.forEach(date => {
                       const dateData = allBrokerData.find(d => d.date === date);
-                      const buyCount = (dateData?.buyData || []).filter(b => brokerFDScreen(b.broker) && b.nsval > 0).length; // swap + F/D filter
-                      const sellCount = (dateData?.sellData || []).filter(b => brokerFDScreen(b.broker) && b.nbval > 0).length; // swap + F/D filter
+                      const buyCount = (dateData?.buyData || []).filter(b => brokerFDScreen(b.broker) && b.buyerValue > 0).length;
+                      const sellCount = (dateData?.sellData || []).filter(s => brokerFDScreen(s.broker) && s.sellerValue > 0).length;
                       maxRows = Math.max(maxRows, buyCount, sellCount);
                     });
+                    
+                    // Also include total broker counts in maxRows (for Total column)
+                    const totalBuyCount = sortedTotalBuy.length;
+                    const totalSellCount = sortedTotalSell.length;
+                    maxRows = Math.max(maxRows, totalBuyCount, totalSellCount);
                     
                     // Render rows
                     return Array.from({ length: maxRows }).map((_, rowIdx) => (
@@ -445,33 +510,33 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                         {selectedDates.map((date) => {
                           const dateData = allBrokerData.find(d => d.date === date);
                           
-                          // Sort brokers for this date (SWAPPED): NBY uses SVal, NSL uses BVal
-                          const sortedByBVal = (dateData?.buyData || [])
+                          // Sort brokers for this date: Buy uses BuyerValue, Sell uses SellerValue
+                          const sortedByBuyerValue = (dateData?.buyData || [])
                             .filter(b => brokerFDScreen(b.broker))
-                            .filter(b => b.nsval > 0)
-                            .sort((a, b) => b.nsval - a.nsval);
-                          const sortedBySVal = (dateData?.sellData || [])
-                            .filter(b => brokerFDScreen(b.broker))
-                            .filter(b => b.nbval > 0)
-                            .sort((a, b) => b.nbval - a.nbval);
+                            .filter(b => b.buyerValue > 0)
+                            .sort((a, b) => b.buyerValue - a.buyerValue);
+                          const sortedBySellerValue = (dateData?.sellData || [])
+                            .filter(s => brokerFDScreen(s.broker))
+                            .filter(s => s.sellerValue > 0)
+                            .sort((a, b) => b.sellerValue - a.sellerValue);
                           
-                          const buyData = sortedByBVal[rowIdx];
-                          const sellData = sortedBySVal[rowIdx];
+                          const buyData = sortedByBuyerValue[rowIdx];
+                          const sellData = sortedBySellerValue[rowIdx];
                           
                           return (
                             <React.Fragment key={`${date}-${rowIdx}`}>
-                              {/* BY (Buyer) Columns - No # column (using SELL fields) */}
+                              {/* BY (Buyer) Columns - Using Buyer fields */}
                               <td className={`py-1 px-1 border border-border ${buyData ? getBrokerColorClass(buyData.broker) : ''}`}>
                                 {buyData?.broker || '-'}
                               </td>
                               <td className="text-right py-1 px-1 text-green-600 border border-border">
-                                {buyData ? formatNumber(Math.abs(buyData.nslot)) : '-'}
+                                {buyData ? formatNumber(buyData.buyerVol) : '-'}
                               </td>
                               <td className="text-right py-1 px-1 text-green-600 border border-border">
-                                {buyData ? formatNumber(Math.abs(buyData.nsval)) : '-'}
+                                {buyData ? formatNumber(buyData.buyerValue) : '-'}
                               </td>
                               <td className="text-right py-1 px-1 text-green-600 border border-border">
-                                {buyData ? formatAverage(buyData.savg) : '-'}
+                                {buyData ? formatAverage(buyData.bavg) : '-'}
                               </td>
                               {/* SL (Seller) Columns - Keep # column */}
                               <td className={`text-center py-1 px-1 text-white border border-border bg-gray-400 dark:bg-gray-700 ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>{sellData ? rowIdx + 1 : '-'}</td>
@@ -479,13 +544,13 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                 {sellData?.broker || '-'}
                               </td>
                               <td className="text-right py-1 px-1 text-red-600 border border-border">
-                                {sellData ? formatNumber(sellData.nblot) : '-'}
+                                {sellData ? formatNumber(sellData.sellerVol) : '-'}
                               </td>
                               <td className="text-right py-1 px-1 text-red-600 border border-border">
-                                {sellData ? formatNumber(sellData.nbval) : '-'}
+                                {sellData ? formatNumber(sellData.sellerValue) : '-'}
                               </td>
                               <td className="text-right py-1 px-1 text-red-600 border border-border border-r-4 border-r-gray-400 dark:border-r-gray-600">
-                                {sellData ? formatAverage(sellData.bavg) : '-'}
+                                {sellData ? formatAverage(sellData.savg) : '-'}
                               </td>
                             </React.Fragment>
                           );

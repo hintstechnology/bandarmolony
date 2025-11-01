@@ -23,11 +23,28 @@ function normalizeMarket(m?: string): 'RG' | 'TN' | 'NG' | undefined {
 }
 
 function resolvePaths(date: string, market?: string) {
-  const normalized = normalizeMarket(market) || 'RG';
+  // If market is empty or undefined, use legacy path only (All Trade)
+  if (!market || market === '') {
+    return {
+      modernPrefix: '', // No modern path for All Trade
+      legacyPrefix: `broker_summary/broker_summary_${date}/`
+    };
+  }
+  
+  // For specific markets (RG/TN/NG), use modern paths
+  const normalized = normalizeMarket(market);
+  if (!normalized) {
+    // If can't normalize, fallback to legacy
+    return {
+      modernPrefix: '',
+      legacyPrefix: `broker_summary/broker_summary_${date}/`
+    };
+  }
+  
   const type = normalized.toLowerCase(); // 'rg' | 'tn' | 'ng'
   const typeFolder = type === 'rg' ? 'rk' : type; // map RG to rk output
   const modernPrefix = `broker_summary_${typeFolder}/broker_summary_${typeFolder}_${date}/`;
-  const legacyPrefix = `broker_summary/broker_summary_${date}/`;
+  const legacyPrefix = `broker_summary/broker_summary_${date}/`; // Keep legacy as fallback
   return { modernPrefix, legacyPrefix };
 }
 
@@ -36,9 +53,15 @@ router.get('/stocks', async (req, res) => {
     const { date, market } = querySchema.parse(req.query);
     const { modernPrefix, legacyPrefix } = resolvePaths(date, market);
 
-    let files = await listPaths({ prefix: modernPrefix });
-    if (!files || files.length === 0) {
+    let files: string[] = [];
+    
+    // If modernPrefix is empty (All Trade), only search in legacy path
+    if (!modernPrefix) {
       files = await listPaths({ prefix: legacyPrefix });
+    } else {
+      // For specific markets (RG/TN/NG), only search in modern path - NO fallback to legacy
+      // If not found, return empty instead of wrong data
+      files = await listPaths({ prefix: modernPrefix });
     }
 
     const stocks = (files || [])
@@ -60,32 +83,66 @@ router.get('/summary/:stockCode', async (req, res) => {
     const { stockCode } = paramsSchema.parse(req.params);
     const { date, market } = querySchema.parse(req.query);
 
-    const { modernPrefix, legacyPrefix } = resolvePaths(date, market);
-    const modernPath = `${modernPrefix}${stockCode}.csv`;
-    const legacyPath = `${legacyPrefix}${stockCode}.csv`;
+    console.log(`[BrokerSummary] Fetching data for ${stockCode} on ${date} with market: ${market || 'RG'}`);
 
-    // Try modern path first
-    let csvData = await downloadText(modernPath);
-    let usedPath = modernPath;
-    if (!csvData) {
-      csvData = await downloadText(legacyPath);
-      usedPath = legacyPath;
+    const { modernPrefix, legacyPrefix } = resolvePaths(date, market);
+    
+    let csvData: string | null = null;
+    let usedPath = '';
+    
+    // If modernPrefix is empty (All Trade), only try legacy path
+    if (!modernPrefix) {
+      const legacyPath = `${legacyPrefix}${stockCode}.csv`;
+      console.log(`[BrokerSummary] All Trade selected, trying legacy path: ${legacyPath}`);
+      try {
+        csvData = await downloadText(legacyPath);
+        usedPath = legacyPath;
+      } catch (error: any) {
+        console.error(`[BrokerSummary] Legacy path not found: ${legacyPath}`, error.message);
+        csvData = null;
+      }
+    } else {
+      // For specific markets (RG/TN/NG), only try modern path - NO fallback to legacy
+      // If not found, return empty (don't show wrong data from legacy path)
+      const modernPath = `${modernPrefix}${stockCode}.csv`;
+
+      console.log(`[BrokerSummary] Market: ${market}, trying modern path: ${modernPath}`);
+
+      try {
+        csvData = await downloadText(modernPath);
+        usedPath = modernPath;
+      } catch (error: any) {
+        console.log(`[BrokerSummary] Modern path not found: ${modernPath}`, error.message);
+        // Don't fallback to legacy - return empty instead of wrong data
+        csvData = null;
+      }
     }
 
     if (!csvData) {
+      console.error(`[BrokerSummary] No data found for ${stockCode} on ${date} with market: ${market || 'All Trade'}`);
       return res.status(404).json({ success: false, error: `No data for ${stockCode} on ${date}` });
     }
 
+    console.log(`[BrokerSummary] File found at: ${usedPath}, size: ${csvData.length} characters`);
+
     const lines = csvData.trim().split('\n');
     if (lines.length < 2) {
+      console.error(`[BrokerSummary] Invalid CSV format: only ${lines.length} lines`);
       return res.status(404).json({ success: false, error: 'Invalid CSV format' });
     }
 
+    console.log(`[BrokerSummary] CSV has ${lines.length} lines (including header)`);
+
     const headers = (lines[0] || '').split(',').map(h => h.trim());
+    console.log(`[BrokerSummary] CSV headers:`, headers);
+
     const brokerData: any[] = [];
     for (let i = 1; i < lines.length; i++) {
       const values = (lines[i] || '').split(',').map(v => v.trim());
-      if (values.length !== headers.length) continue;
+      if (values.length !== headers.length) {
+        console.warn(`[BrokerSummary] Row ${i} skipped: ${values.length} values vs ${headers.length} headers`);
+        continue;
+      }
       const row: any = {};
       headers.forEach((h, idx) => {
         const raw = values[idx];
@@ -96,6 +153,11 @@ router.get('/summary/:stockCode', async (req, res) => {
         }
       });
       brokerData.push(row);
+    }
+
+    console.log(`[BrokerSummary] Parsed ${brokerData.length} broker rows for ${stockCode} on ${date}`);
+    if (brokerData.length > 0) {
+      console.log(`[BrokerSummary] Sample row:`, brokerData[0]);
     }
 
     return res.json({ success: true, data: { stockCode, date, market: normalizeMarket(market) || 'RG', path: usedPath, brokerData } });

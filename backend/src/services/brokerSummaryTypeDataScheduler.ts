@@ -1,17 +1,17 @@
-import { BrokerDataRKTNNGCalculator } from '../calculations/broker/broker_data_rk_tn_ng';
+import { BrokerDataRGTNNGCalculator } from '../calculations/broker/broker_data_rk_tn_ng';
 
 class BrokerSummaryTypeDataScheduler {
-  private calculator: BrokerDataRKTNNGCalculator;
+  private calculator: BrokerDataRGTNNGCalculator;
 
   constructor() {
-    this.calculator = new BrokerDataRKTNNGCalculator();
+    this.calculator = new BrokerDataRGTNNGCalculator();
   }
 
-  // Generate broker summaries split per TRX_TYPE (RK/TN/NG)
+  // Generate broker summaries split per TRX_TYPE (RG/TN/NG)
   // Scope: 'all' for all available DT files
   async generateBrokerSummaryTypeData(_scope: 'all' = 'all'): Promise<{ success: boolean; message?: string }> {
     try {
-      console.log('🔄 Generating Broker Summary by Type (RK/TN/NG)...');
+      console.log('🔄 Generating Broker Summary by Type (RG/TN/NG)...');
       await this.calculator.generateBrokerSummarySplitPerType();
       console.log('✅ Broker Summary by Type generation completed');
       return { success: true };

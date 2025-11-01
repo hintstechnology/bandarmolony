@@ -1,7 +1,7 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
 
 // Type definitions, sama seperti broker_data.ts
-type TransactionType = 'RK' | 'TN' | 'NG';
+type TransactionType = 'RG' | 'TN' | 'NG';
 interface TransactionData {
   STK_CODE: string;
   BRK_COD1: string;
@@ -40,24 +40,44 @@ interface BrokerTransactionData {
   TotalValue: number;
 }
 
-export class BrokerDataRKTNNGCalculator {
+export class BrokerDataRGTNNGCalculator {
   constructor() { }
 
   private async findAllDtFiles(): Promise<string[]> {
-    const allFiles = await listPaths({ prefix: 'done-summary/' });
-    return allFiles.filter(file => file.includes('/DT') && file.endsWith('.csv'));
+    console.log('🔍 Scanning for DT files in done-summary folder...');
+    try {
+      const allFiles = await listPaths({ prefix: 'done-summary/' });
+      console.log(`📁 Found ${allFiles.length} total files in done-summary folder`);
+      const dtFiles = allFiles.filter(file => file.includes('/DT') && file.endsWith('.csv'));
+      console.log(`📊 Found ${dtFiles.length} DT files to process`);
+      if (dtFiles.length > 0) {
+        console.log(`📋 Sample DT files:`, dtFiles.slice(0, 5));
+      }
+      return dtFiles;
+    } catch (error: any) {
+      console.error('❌ Error finding DT files:', error.message);
+      return [];
+    }
   }
 
   private async loadAndProcessSingleDtFile(blobName: string): Promise<{ data: TransactionData[], dateSuffix: string } | null> {
     try {
+      console.log(`📥 Downloading file: ${blobName}`);
       const content = await downloadText(blobName);
-      if (!content || content.trim().length === 0) return null;
+      if (!content || content.trim().length === 0) {
+        console.warn(`⚠️ Empty file or no content: ${blobName}`);
+        return null;
+      }
+      console.log(`✅ Downloaded ${blobName} (${content.length} characters)`);
       const pathParts = blobName.split('/');
       const dateFolder = pathParts[1] || 'unknown';
       const dateSuffix = dateFolder;
+      console.log(`📅 Extracted date suffix: ${dateSuffix} from ${blobName}`);
       const data = this.parseTransactionData(content);
+      console.log(`✅ Parsed ${data.length} transactions from ${blobName}`);
       return { data, dateSuffix };
-    } catch {
+    } catch (error: any) {
+      console.error(`❌ Error loading file ${blobName}:`, error.message);
       return null;
     }
   }
@@ -101,7 +121,8 @@ export class BrokerDataRKTNNGCalculator {
   }
 
   private getSummaryPaths(type: TransactionType, dateSuffix: string) {
-    let name = type.toLowerCase();
+    // Map RG to rk for Azure Storage path (RG transaction type uses rk folder in Azure)
+    let name = type.toLowerCase() === 'rg' ? 'rk' : type.toLowerCase();
     return {
       brokerSummary: `broker_summary_${name}/broker_summary_${name}_${dateSuffix}`,
       brokerTransaction: `broker_transaction_${name}/broker_transaction_${name}_${dateSuffix}`
@@ -145,16 +166,18 @@ export class BrokerDataRKTNNGCalculator {
       allBrokers.forEach(broker => {
         const buyer = buyerSummary.get(broker) || { totalVol: 0, avgPrice: 0, transactionCount: 0, totalValue: 0 };
         const seller = sellerSummary.get(broker) || { totalVol: 0, avgPrice: 0, transactionCount: 0, totalValue: 0 };
+        // SWAPPED: Kolom Buyer isinya data Seller, kolom Seller isinya data Buyer
+        // Ini agar frontend tidak perlu swap lagi (sesuai dengan CSV yang kolomnya tertukar)
         finalSummary.push({
           BrokerCode: broker,
-          BuyerVol: buyer.totalVol,
-          BuyerValue: buyer.totalValue,
-          SellerVol: seller.totalVol,
-          SellerValue: seller.totalValue,
+          BuyerVol: seller.totalVol,      // SWAPPED: Kolom Buyer = data Seller
+          BuyerValue: seller.totalValue,  // SWAPPED: Kolom Buyer = data Seller
+          SellerVol: buyer.totalVol,      // SWAPPED: Kolom Seller = data Buyer
+          SellerValue: buyer.totalValue,  // SWAPPED: Kolom Seller = data Buyer
           NetBuyVol: buyer.totalVol - seller.totalVol,
           NetBuyValue: buyer.totalValue - seller.totalValue,
-          BuyerAvg: buyer.avgPrice,
-          SellerAvg: seller.avgPrice,
+          BuyerAvg: seller.avgPrice,      // SWAPPED: Kolom BuyerAvg = SellerAvg
+          SellerAvg: buyer.avgPrice,      // SWAPPED: Kolom SellerAvg = BuyerAvg
         });
       });
       finalSummary.sort((a, b) => b.NetBuyValue - a.NetBuyValue);
@@ -192,11 +215,22 @@ export class BrokerDataRKTNNGCalculator {
         const totalVolume = buyerVol + sellerVol;
         const totalValue = buyerValue + sellerValue;
         const avgPrice = totalVolume > 0 ? totalValue / totalVolume : 0;
+        // SWAPPED: Kolom Buyer isinya data Seller, kolom Seller isinya data Buyer
+        // Ini agar frontend tidak perlu swap lagi (sesuai dengan CSV yang kolomnya tertukar)
         stockSummary.push({
-          Emiten: stock, BuyerVol: buyerVol, BuyerValue: buyerValue,
-          SellerVol: sellerVol, SellerValue: sellerValue, NetBuyVol: netBuyVol,
-          NetBuyValue: netBuyValue, BuyerAvg: buyerAvg, SellerAvg: sellerAvg,
-          TotalVolume: totalVolume, AvgPrice: avgPrice, TransactionCount: txs.length, TotalValue: totalValue
+          Emiten: stock, 
+          BuyerVol: sellerVol,        // SWAPPED: Kolom Buyer = data Seller
+          BuyerValue: sellerValue,    // SWAPPED: Kolom Buyer = data Seller
+          SellerVol: buyerVol,        // SWAPPED: Kolom Seller = data Buyer
+          SellerValue: buyerValue,    // SWAPPED: Kolom Seller = data Buyer
+          NetBuyVol: netBuyVol,
+          NetBuyValue: netBuyValue, 
+          BuyerAvg: sellerAvg,        // SWAPPED: Kolom BuyerAvg = SellerAvg
+          SellerAvg: buyerAvg,         // SWAPPED: Kolom SellerAvg = BuyerAvg
+          TotalVolume: totalVolume, 
+          AvgPrice: avgPrice, 
+          TransactionCount: txs.length, 
+          TotalValue: totalValue
         });
       });
       stockSummary.sort((a, b) => b.TotalVolume - a.TotalVolume);
@@ -208,11 +242,21 @@ export class BrokerDataRKTNNGCalculator {
   }
 
   private async saveToAzure(filename: string, data: any[]): Promise<string> {
-    if (!data || data.length === 0) return filename;
-    const headers = Object.keys(data[0]);
-    const csvContent = [headers.join(','), ...data.map(row => headers.map(header => row[header]).join(','))].join('\n');
-    await uploadText(filename, csvContent, 'text/csv');
-    return filename;
+    if (!data || data.length === 0) {
+      console.warn(`⚠️ No data to save for ${filename}, skipping upload`);
+      return filename;
+    }
+    try {
+      const headers = Object.keys(data[0]);
+      const csvContent = [headers.join(','), ...data.map(row => headers.map(header => row[header]).join(','))].join('\n');
+      console.log(`📤 Uploading ${filename} (${data.length} rows, ${csvContent.length} bytes)...`);
+      await uploadText(filename, csvContent, 'text/csv');
+      console.log(`✅ Successfully uploaded ${filename}`);
+      return filename;
+    } catch (error: any) {
+      console.error(`❌ Failed to upload ${filename}:`, error.message);
+      throw error;
+    }
   }
 
   public async generateBrokerData(_dateSuffix?: string): Promise<{ success: boolean; message: string; data?: any }> {
@@ -223,14 +267,14 @@ export class BrokerDataRKTNNGCalculator {
         const result = await this.loadAndProcessSingleDtFile(blobName);
         if (!result) continue;
         const { data, dateSuffix: date } = result;
-        for (const type of ['RK', 'TN', 'NG'] as const) {
+        for (const type of ['RG', 'TN', 'NG'] as const) {
           const filtered = this.filterByType(data, type);
           if (filtered.length === 0) continue;
           await this.createBrokerSummaryPerEmiten(filtered, date, type);
           await this.createBrokerTransactionPerBroker(filtered, date, type);
         }
       }
-      return { success: true, message: 'Broker RK/TN/NG data generated' };
+      return { success: true, message: 'Broker RG/TN/NG data generated' };
     } catch (e) {
       return { success: false, message: (e as Error).message };
     }
@@ -241,6 +285,67 @@ export class BrokerDataRKTNNGCalculator {
     const result = await this.generateBrokerData('all');
     return { success: result.success, message: result.message };
   }
+
+  // Generate broker data for specific type only (RG, TN, or NG)
+  public async generateBrokerDataForType(type: 'RG' | 'TN' | 'NG'): Promise<{ success: boolean; message: string; data?: any }> {
+    try {
+      console.log(`🔄 Starting Broker ${type} data generation...`);
+      const dtFiles = await this.findAllDtFiles();
+      console.log(`📊 Found ${dtFiles.length} DT files to process`);
+      
+      if (dtFiles.length === 0) {
+        console.warn(`⚠️ No DT files found - skipped broker data generation for ${type}`);
+        return { success: true, message: `No DT files found - skipped broker data generation for ${type}` };
+      }
+      
+      let processedDates = 0;
+      let totalFilesCreated = 0;
+      
+      for (const blobName of dtFiles) {
+        try {
+          console.log(`📂 Processing file: ${blobName}`);
+          const result = await this.loadAndProcessSingleDtFile(blobName);
+          if (!result) {
+            console.warn(`⚠️ Failed to load file: ${blobName}`);
+            continue;
+          }
+          
+          const { data, dateSuffix: date } = result;
+          console.log(`📊 Loaded ${data.length} transactions from ${date}`);
+          
+          const filtered = this.filterByType(data, type);
+          console.log(`🔍 Filtered to ${filtered.length} transactions for type ${type}`);
+          
+          if (filtered.length === 0) {
+            console.log(`⏭️ Skipping ${date} - no ${type} transactions found`);
+            continue;
+          }
+          
+          console.log(`📝 Creating broker summary for ${date} (${type})...`);
+          const summaryFiles = await this.createBrokerSummaryPerEmiten(filtered, date, type);
+          console.log(`✅ Created ${summaryFiles.length} broker summary files for ${date}`);
+          
+          console.log(`📝 Creating broker transactions for ${date} (${type})...`);
+          const transactionFiles = await this.createBrokerTransactionPerBroker(filtered, date, type);
+          console.log(`✅ Created ${transactionFiles.length} broker transaction files for ${date}`);
+          
+          processedDates++;
+          totalFilesCreated += summaryFiles.length + transactionFiles.length;
+        } catch (error: any) {
+          console.error(`❌ Error processing file ${blobName}:`, error.message);
+          continue;
+        }
+      }
+      
+      const message = `Broker ${type} data generated for ${processedDates} dates (${totalFilesCreated} files created)`;
+      console.log(`✅ ${message}`);
+      return { success: true, message };
+    } catch (e) {
+      const error = e as Error;
+      console.error(`❌ Error in generateBrokerDataForType (${type}):`, error.message);
+      return { success: false, message: error.message };
+    }
+  }
 }
 
-export default BrokerDataRKTNNGCalculator;
+export default BrokerDataRGTNNGCalculator;

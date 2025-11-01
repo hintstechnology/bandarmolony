@@ -704,7 +704,7 @@ async function runPhase5HeavyCalculations(): Promise<void> {
     console.log('🔄 Starting Broker Data calculation...');
     const result = await brokerDataService.generateBrokerData('all');
 
-    console.log('🔄 Starting Broker Summary by Type (RK/TN/NG) calculation...');
+    console.log('🔄 Starting Broker Summary by Type (RG/TN/NG) calculation...');
     const resultType = await brokerSummaryTypeService.generateBrokerSummaryTypeData('all');
     
     const phaseEndTime = new Date();
