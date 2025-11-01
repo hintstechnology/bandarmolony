@@ -519,6 +519,25 @@ export function DataSchedulerControl() {
               </Button>
             </div>
 
+            {/* Broker Summary by Type (RK/TN/NG) */}
+            <div className="p-4 border rounded-lg">
+              <h4 className="font-semibold mb-2">Broker Summary by Type</h4>
+              <p className="text-sm text-muted-foreground mb-3">Generate broker summary split by RK / TN / NG</p>
+              <Button
+                onClick={() => handleTriggerDataUpdate('broker-summary-type')}
+                disabled={triggering['broker-summary-type']}
+                className="w-full"
+                size="sm"
+              >
+                {triggering['broker-summary-type'] ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Play className="w-4 h-4 mr-2" />
+                )}
+                {triggering['broker-summary-type'] ? 'Calculating...' : 'Trigger Calculation'}
+              </Button>
+            </div>
+
             {/* Foreign Flow */}
             <div className="p-4 border rounded-lg">
               <h4 className="font-semibold mb-2">Foreign Flow</h4>
