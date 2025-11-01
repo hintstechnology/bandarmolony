@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
-import { Search, X, Calendar } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 import {
   createChart,
   ColorType,
@@ -760,31 +760,29 @@ export function StoryMarketParticipant({
             <div className="flex flex-col sm:flex-row gap-4">
               <div className="flex-1">
                 <label className="block text-sm font-medium mb-2">Date Range (optional):</label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <input
-                      type="date"
-                      value={tempDateRange.start}
-                      onChange={(e) => setTempDateRange(prev => ({ ...prev, start: e.target.value }))}
-                      className="pl-3 pr-9 py-1 h-10 border border-border rounded-md bg-background text-foreground w-full cursor-pointer"
-                      placeholder="Start date"
-                    />
-                    <Calendar className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                  </div>
-                  <span className="flex items-center text-muted-foreground">to</span>
-                  <div className="relative flex-1">
-                    <input
-                      type="date"
-                      value={tempDateRange.end}
-                      onChange={(e) => setTempDateRange(prev => ({ ...prev, end: e.target.value }))}
-                      className="pl-3 pr-9 py-1 h-10 border border-border rounded-md bg-background text-foreground w-full cursor-pointer"
-                      placeholder="End date"
-                    />
-                    <Calendar className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <div className="grid w-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:flex-1">
+                    <div className="relative">
+                      <input
+                        type="date"
+                        value={tempDateRange.start}
+                        onChange={(e) => setTempDateRange(prev => ({ ...prev, start: e.target.value }))}
+                        className="w-full px-3 py-2 h-10 border border-border rounded-md bg-background text-foreground cursor-pointer"
+                      />
+                    </div>
+                    <span className="flex items-center justify-center text-muted-foreground">to</span>
+                    <div className="relative">
+                      <input
+                        type="date"
+                        value={tempDateRange.end}
+                        onChange={(e) => setTempDateRange(prev => ({ ...prev, end: e.target.value }))}
+                        className="w-full px-3 py-2 h-10 border border-border rounded-md bg-background text-foreground cursor-pointer"
+                      />
+                    </div>
                   </div>
                   <Button
                     onClick={() => setDateRange(tempDateRange)}
-                    className="h-10 px-4"
+                    className="w-full sm:w-auto h-10"
                     variant="default"
                   >
                     Apply Date

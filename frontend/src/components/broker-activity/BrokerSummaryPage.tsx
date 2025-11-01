@@ -1100,4 +1100,3 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     </div>
   );
 }
-

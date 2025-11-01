@@ -786,30 +786,26 @@ export default function MarketRotationRRC() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {/* View Mode Toggle */}
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">View Mode</label>
-                <div className="flex rounded-lg border border-input">
-                  <button
-            onClick={() => handleViewModeChange('sector')}
-                    className={`flex-1 px-3 py-2 text-sm font-medium transition-colors rounded-l-lg ${
-                      viewMode === 'sector'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-background text-foreground hover:bg-accent'
-                    }`}
-          >
-            Sector
-                  </button>
-                  <button
-            onClick={() => handleViewModeChange('stock')}
-                    className={`flex-1 px-3 py-2 text-sm font-medium transition-colors rounded-r-lg ${
-                      viewMode === 'stock'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-background text-foreground hover:bg-accent'
-                    }`}
-          >
-            Stock
-                  </button>
-        </div>
-      </div>
+                <label className="text-sm font-medium text-foreground">View Mode</label>
+                <div className="flex items-center gap-1 border border-border rounded-lg p-1 h-10">
+                  <Button
+                    variant={viewMode === 'sector' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => handleViewModeChange('sector')}
+                    className="h-full px-3 flex-1 text-xs sm:text-sm"
+                  >
+                    Sector
+                  </Button>
+                  <Button
+                    variant={viewMode === 'stock' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => handleViewModeChange('stock')}
+                    className="h-full px-3 flex-1 text-xs sm:text-sm"
+                  >
+                    Stock
+                  </Button>
+                </div>
+              </div>
 
               {/* Start Date */}
               <div className="flex flex-col gap-2">
@@ -1386,8 +1382,6 @@ export default function MarketRotationRRC() {
     </div>
   );
 }
-
-
 
 
 
