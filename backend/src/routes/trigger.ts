@@ -20,7 +20,7 @@ import { preGenerateAllRRG } from '../services/rrgDataScheduler';
 import { forceRegenerate as generateSeasonalityData } from '../services/seasonalityDataScheduler';
 import { TrendFilterDataScheduler } from '../services/trendFilterDataScheduler';
 import BrokerSummaryTypeDataScheduler from '../services/brokerSummaryTypeDataScheduler';
-import { BrokerDataRGTNNGCalculator } from '../calculations/broker/broker_data_rk_tn_ng';
+import { BrokerDataRGTNNGCalculator } from '../calculations/broker/broker_data_rg_tn_ng';
 import { listPaths } from '../utils/azureBlob';
 
 const router = express.Router();
@@ -649,26 +649,51 @@ router.post('/broker-summary-rg', async (_req, res) => {
 // Manual trigger for Broker Summary by Type (RG/TN/NG)
 router.post('/broker-summary-type', async (_req, res) => {
   try {
-    console.log('🔄 Manual trigger: Broker Summary by Type (RG/TN/NG) calculation - Direct execution');
+    console.log('🔄 Manual trigger: Broker Summary by Type (RG/TN/NG) calculation');
+    
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'broker_summary_type',
+      trigger_type: 'manual',
+      triggered_by: 'admin',
+      status: 'running',
+      force_override: true,
+      environment: process.env['NODE_ENV'] || 'development'
+    });
 
-    // Run calculation directly without scheduler log
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
     const brokerSummaryTypeService = new BrokerSummaryTypeDataScheduler();
     
     // Execute in background and return immediately
-    (async () => {
-      try {
-        const result = await brokerSummaryTypeService.generateBrokerSummaryTypeData('all');
-        await AzureLogger.logInfo('broker_summary_type', `Manual broker summary type calculation completed: ${result.message || 'OK'}`);
-        console.log(`✅ Broker Summary Type calculation completed: ${result.message}`);
-      } catch (error: any) {
-        await AzureLogger.logSchedulerError('broker_summary_type', error.message);
-        console.error(`❌ Broker Summary Type calculation error: ${error.message}`);
+    brokerSummaryTypeService.generateBrokerSummaryTypeData('all').then(async (result) => {
+      await AzureLogger.logInfo('broker_summary_type', `Manual broker summary type calculation completed: ${result.message || 'OK'}`);
+      console.log(`✅ Broker Summary Type calculation completed: ${result.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'completed',
+          progress_percentage: 100
+        });
       }
-    })();
+    }).catch(async (error: any) => {
+      await AzureLogger.logSchedulerError('broker_summary_type', error.message);
+      console.error(`❌ Broker Summary Type calculation error: ${error.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
+        });
+      }
+    });
 
     return res.json({
       success: true,
-      message: 'Broker Summary by Type calculation started (running in background)'
+      message: 'Broker Summary by Type calculation triggered successfully',
+      log_id: logEntry.id
     });
   } catch (error: any) {
     console.error('❌ Error triggering broker summary type calculation:', error);

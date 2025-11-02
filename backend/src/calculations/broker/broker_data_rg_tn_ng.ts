@@ -46,7 +46,7 @@ export class BrokerDataRGTNNGCalculator {
   private async findAllDtFiles(): Promise<string[]> {
     console.log('🔍 Scanning for DT files in done-summary folder...');
     try {
-      const allFiles = await listPaths({ prefix: 'done-summary/' });
+    const allFiles = await listPaths({ prefix: 'done-summary/' });
       console.log(`📁 Found ${allFiles.length} total files in done-summary folder`);
       const dtFiles = allFiles.filter(file => file.includes('/DT') && file.endsWith('.csv'));
       
@@ -154,8 +154,8 @@ export class BrokerDataRGTNNGCalculator {
   }
 
   private getSummaryPaths(type: TransactionType, dateSuffix: string) {
-    // Map RG to rk for Azure Storage path (RG transaction type uses rk folder in Azure)
-    let name = type.toLowerCase() === 'rg' ? 'rk' : type.toLowerCase();
+    // Use lowercase type directly (RG -> rg, TN -> tn, NG -> ng)
+    const name = type.toLowerCase();
     return {
       brokerSummary: `broker_summary_${name}/broker_summary_${name}_${dateSuffix}`,
       brokerTransaction: `broker_transaction_${name}/broker_transaction_${name}_${dateSuffix}`
@@ -323,7 +323,7 @@ export class BrokerDataRGTNNGCalculator {
   public async generateBrokerDataForType(type: 'RG' | 'TN' | 'NG'): Promise<{ success: boolean; message: string; data?: any }> {
     try {
       console.log(`🔄 Starting Broker ${type} data generation...`);
-      const dtFiles = await this.findAllDtFiles();
+    const dtFiles = await this.findAllDtFiles();
       console.log(`📊 Found ${dtFiles.length} DT files to process`);
       
       if (dtFiles.length === 0) {

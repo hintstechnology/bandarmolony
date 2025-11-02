@@ -1,4 +1,4 @@
-import { BrokerDataRGTNNGCalculator } from '../calculations/broker/broker_data_rk_tn_ng';
+import { BrokerDataRGTNNGCalculator } from '../calculations/broker/broker_data_rg_tn_ng';
 
 class BrokerSummaryTypeDataScheduler {
   private calculator: BrokerDataRGTNNGCalculator;
