@@ -42,8 +42,7 @@ function resolvePaths(date: string, market?: string) {
   }
   
   const type = normalized.toLowerCase(); // 'rg' | 'tn' | 'ng'
-  const typeFolder = type === 'rg' ? 'rk' : type; // map RG to rk output
-  const modernPrefix = `broker_summary_${typeFolder}/broker_summary_${typeFolder}_${date}/`;
+  const modernPrefix = `broker_summary_${type}/broker_summary_${type}_${date}/`;
   const legacyPrefix = `broker_summary/broker_summary_${date}/`; // Keep legacy as fallback
   return { modernPrefix, legacyPrefix };
 }
@@ -169,13 +168,13 @@ router.get('/summary/:stockCode', async (req, res) => {
 
 router.get('/dates', async (_req, res) => {
   try {
-    // Collect dates from all modern prefixes (rk/tn/ng) and legacy
-    const prefixes = ['broker_summary_rk/', 'broker_summary_tn/', 'broker_summary_ng/', 'broker_summary/'];
+    // Collect dates from all modern prefixes (rg/tn/ng) and legacy
+    const prefixes = ['broker_summary_rg/', 'broker_summary_tn/', 'broker_summary_ng/', 'broker_summary/'];
     const dates = new Set<string>();
     for (const prefix of prefixes) {
       const files = await listPaths({ prefix });
       (files || []).forEach(file => {
-        const m1 = file.match(/broker_summary_(rk|tn|ng)\/broker_summary_\1_(\d{8})\//);
+        const m1 = file.match(/broker_summary_(rg|tn|ng)\/broker_summary_\1_(\d{8})\//);
         const m2 = file.match(/broker_summary\/broker_summary_(\d{8})\//);
         if (m1 && m1[2]) dates.add(m1[2]);
         if (m2 && m2[1]) dates.add(m2[1]);
