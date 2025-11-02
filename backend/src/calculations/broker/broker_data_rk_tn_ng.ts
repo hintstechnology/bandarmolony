@@ -49,11 +49,44 @@ export class BrokerDataRGTNNGCalculator {
       const allFiles = await listPaths({ prefix: 'done-summary/' });
       console.log(`📁 Found ${allFiles.length} total files in done-summary folder`);
       const dtFiles = allFiles.filter(file => file.includes('/DT') && file.endsWith('.csv'));
-      console.log(`📊 Found ${dtFiles.length} DT files to process`);
-      if (dtFiles.length > 0) {
-        console.log(`📋 Sample DT files:`, dtFiles.slice(0, 5));
+      
+      // Filter by date range: 20251023 to 20251101
+      const startDate = '20251023';
+      const endDate = '20251101';
+      console.log(`📅 Filtering DT files for date range: ${startDate} to ${endDate}`);
+      
+      const filteredFiles = dtFiles.filter(file => {
+        // Extract date from path: done-summary/YYYYMMDD/DTDDMMYY.csv
+        const pathParts = file.split('/');
+        if (pathParts.length < 2) return false;
+        const dateFolder = pathParts[1]; // e.g., "20251023"
+        if (!dateFolder) return false;
+        
+        // Check if date is in range (inclusive)
+        return dateFolder >= startDate && dateFolder <= endDate;
+      });
+      
+      console.log(`📊 Found ${filteredFiles.length} DT files in date range ${startDate}-${endDate}`);
+      
+      // Sort by date descending (newest first: 20251101 → 20251023)
+      const sortedFiles = filteredFiles.sort((a, b) => {
+        const dateA = a.split('/')[1] || '';
+        const dateB = b.split('/')[1] || '';
+        return dateB.localeCompare(dateA); // Descending order
+      });
+      
+      if (sortedFiles.length > 0) {
+        console.log(`📋 Processing order (newest first):`);
+        const dates = sortedFiles.map(f => f.split('/')[1]).filter((v, i, arr) => arr.indexOf(v) === i);
+        dates.slice(0, 10).forEach((date, idx) => {
+          console.log(`   ${idx + 1}. ${date}`);
+        });
+        if (dates.length > 10) {
+          console.log(`   ... and ${dates.length - 10} more dates`);
+        }
       }
-      return dtFiles;
+      
+      return sortedFiles;
     } catch (error: any) {
       console.error('❌ Error finding DT files:', error.message);
       return [];
