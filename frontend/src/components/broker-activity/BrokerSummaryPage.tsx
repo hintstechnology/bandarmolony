@@ -74,6 +74,24 @@ const formatNumber = (value: number): string => {
   return value.toLocaleString();
 };
 
+const formatLot = (value: number): string => {
+  const absValue = Math.abs(value);
+  const sign = value < 0 ? '-' : '';
+  
+  if (absValue >= 1000000000) {
+    return `${sign}${(absValue / 1000000000).toFixed(3)}B`;
+  } else if (absValue >= 1000000) {
+    return `${sign}${(absValue / 1000000).toFixed(3)}M`;
+  } else {
+    // Untuk ribuan (< 1 juta), tampilkan format lengkap dengan separator koma
+    const formatted = absValue.toLocaleString('en-US', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    });
+    return `${sign}${formatted}`;
+  }
+};
+
 const formatAverage = (value: number): string => {
   return value.toLocaleString('id-ID', {
     minimumFractionDigits: 0,
@@ -595,7 +613,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                         {buyData?.broker || '-'}
                                       </td>
                                       <td className="text-right py-0 px-[3px] text-green-600 border border-[#3a4252] font-bold">
-                                        {buyData ? formatNumber(buyData.buyerVol / 100) : '-'}
+                                        {buyData ? formatLot(buyData.buyerVol / 100) : '-'}
                                       </td>
                                       <td className="text-right py-0 px-[3px] text-green-600 border border-[#3a4252] font-bold">
                                         {buyData ? formatNumber(buyData.buyerValue) : '-'}
@@ -609,7 +627,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                         {sellData?.broker || '-'}
                                       </td>
                                       <td className="text-right py-0 px-[3px] text-red-600 border border-[#3a4252] font-bold">
-                                        {sellData ? formatNumber(sellData.sellerVol / 100) : '-'}
+                                        {sellData ? formatLot(sellData.sellerVol / 100) : '-'}
                                       </td>
                                       <td className="text-right py-0 px-[3px] text-red-600 border border-[#3a4252] font-bold">
                                         {sellData ? formatNumber(sellData.sellerValue) : '-'}
@@ -625,7 +643,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   {totalBuy?.broker || '-'}
                                 </td>
                                 <td className="text-right py-0 px-[3px] text-green-600 border border-[#3a4252] font-bold">
-                                  {totalBuy ? formatNumber(totalBuy.nblot / 100) : '-'}
+                                  {totalBuy ? formatLot(totalBuy.nblot / 100) : '-'}
                                 </td>
                                 <td className="text-right py-0 px-[3px] text-green-600 border border-[#3a4252] font-bold">
                                   {totalBuy ? formatNumber(totalBuy.nbval) : '-'}
@@ -635,7 +653,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   {totalSell?.broker || '-'}
                                 </td>
                                 <td className="text-right py-0 px-[3px] text-red-600 border border-[#3a4252] font-bold">
-                                  {totalSell ? formatNumber(totalSell.nslot / 100) : '-'}
+                                  {totalSell ? formatLot(totalSell.nslot / 100) : '-'}
                                 </td>
                                 <td className={`text-right py-0 px-[3px] text-red-600 border border-[#3a4252] font-bold`}>
                                   {totalSell ? formatNumber(totalSell.nsval) : '-'}
@@ -893,7 +911,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                         {netBuyData?.broker || '-'}
                                       </td>
                                       <td className={`text-right py-0 px-[3px] border border-[#3a4252] font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
-                                        {netBuyData ? formatNumber(nbLot / 100) : '-'}
+                                        {netBuyData ? formatLot(nbLot / 100) : '-'}
                                       </td>
                                       <td className={`text-right py-0 px-[3px] border border-[#3a4252] font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
                                         {netBuyData ? formatNumber(nbVal) : '-'}
@@ -907,7 +925,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                         {netSellData?.broker || '-'}
                                       </td>
                                       <td className={`text-right py-0 px-[3px] border border-[#3a4252] font-bold ${netSellBgStyle ? '' : 'text-red-600'}`} style={netSellBgStyle}>
-                                        {netSellData ? formatNumber(nsLot / 100) : '-'}
+                                        {netSellData ? formatLot(nsLot / 100) : '-'}
                                       </td>
                                       <td className={`text-right py-0 px-[3px] border border-[#3a4252] font-bold ${netSellBgStyle ? '' : 'text-red-600'}`} style={netSellBgStyle}>
                                         {netSellData ? formatNumber(nsVal) : '-'}
@@ -923,7 +941,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   {totalNetBuy?.broker || '-'}
                                 </td>
                                 <td className={`text-right py-0 px-[3px] border border-[#3a4252] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
-                                  {totalNetBuy ? formatNumber(totalNetBuy.nblot / 100) : '-'}
+                                  {totalNetBuy ? formatLot(totalNetBuy.nblot / 100) : '-'}
                                 </td>
                                 <td className={`text-right py-0 px-[3px] border border-[#3a4252] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
                                   {totalNetBuy ? formatNumber(totalNetBuy.nbval) : '-'}
@@ -933,7 +951,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   {totalNetSell?.broker || '-'}
                                 </td>
                                 <td className={`text-right py-0 px-[3px] border border-[#3a4252] font-bold ${totalNetSellBgStyle ? '' : 'text-red-600'}`} style={totalNetSellBgStyle}>
-                                  {totalNetSell ? formatNumber(totalNetSell.nslot / 100) : '-'}
+                                  {totalNetSell ? formatLot(totalNetSell.nslot / 100) : '-'}
                                 </td>
                                 <td className={`text-right py-0 px-[3px] border border-[#3a4252] font-bold ${totalNetSellBgStyle ? '' : 'text-red-600'}`} style={totalNetSellBgStyle}>
                                   {totalNetSell ? formatNumber(totalNetSell.nsval) : '-'}
