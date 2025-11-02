@@ -481,6 +481,25 @@ export function DataSchedulerControl() {
               </Button>
             </div>
 
+            {/* Broker Breakdown */}
+            <div className="p-4 border rounded-lg">
+              <h4 className="font-semibold mb-2">Broker Breakdown</h4>
+              <p className="text-sm text-muted-foreground mb-3">Calculate broker breakdown by stock, broker, and price level</p>
+              <Button
+                onClick={() => handleTriggerDataUpdate('broker-breakdown')}
+                disabled={triggering['broker-breakdown']}
+                className="w-full"
+                size="sm"
+              >
+                {triggering['broker-breakdown'] ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Play className="w-4 h-4 mr-2" />
+                )}
+                {triggering['broker-breakdown'] ? 'Calculating...' : 'Trigger Calculation'}
+              </Button>
+            </div>
+
             {/* Broker Data */}
             <div className="p-4 border rounded-lg">
               <h4 className="font-semibold mb-2">Broker Data</h4>
