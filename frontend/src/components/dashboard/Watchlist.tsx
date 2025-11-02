@@ -1,11 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
 import { TrendingUp, TrendingDown, Star, Search, X, Loader2 } from 'lucide-react';
 import { api } from '../../services/api';
 
-// Interface for stock data from backend
 interface StockData {
   symbol: string;
   name: string;
@@ -14,164 +12,6 @@ interface StockData {
   changePercent: number;
   lastUpdate?: string;
 }
-
-  // Helper function to generate dummy price data for stocks
-const generateDummyPriceData = (symbol: string) => {
-  // Simple hash function to generate consistent dummy data per symbol
-  const hash = symbol.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  const basePrice = 1000 + (hash % 9000) * 100;
-  const changePercent = ((hash % 300) - 150) / 100;
-  const change = (basePrice * changePercent) / 100;
-  return {
-    price: basePrice,
-    change: change,
-    changePercent: changePercent,
-  };
-};
-
-// Extended stock data with more companies (fallback data)
-const fallbackStocksData = [
-  {
-    symbol: "BBRI",
-    name: "Bank Rakyat Indonesia",
-    price: 4650,
-    change: 50,
-    changePercent: 1.09,
-  },
-  {
-    symbol: "BBCA",
-    name: "Bank Central Asia",
-    price: 9150,
-    change: -25,
-    changePercent: -0.27,
-  },
-  {
-    symbol: "BMRI",
-    name: "Bank Mandiri",
-    price: 5675,
-    change: 75,
-    changePercent: 1.34,
-  },
-  {
-    symbol: "BBNI",
-    name: "Bank Negara Indonesia",
-    price: 4850,
-    change: 30,
-    changePercent: 0.62,
-  },
-  {
-    symbol: "TLKM",
-    name: "Telkom Indonesia",
-    price: 3580,
-    change: -20,
-    changePercent: -0.56,
-  },
-  {
-    symbol: "ASII",
-    name: "Astra International",
-    price: 5200,
-    change: 100,
-    changePercent: 1.96,
-  },
-  {
-    symbol: "UNVR",
-    name: "Unilever Indonesia",
-    price: 2850,
-    change: -15,
-    changePercent: -0.52,
-  },
-  {
-    symbol: "GGRM",
-    name: "Gudang Garam",
-    price: 18500,
-    change: 200,
-    changePercent: 1.09,
-  },
-  {
-    symbol: "ICBP",
-    name: "Indofood CBP Sukses Makmur",
-    price: 10250,
-    change: -50,
-    changePercent: -0.49,
-  },
-  {
-    symbol: "INDF",
-    name: "Indofood Sukses Makmur",
-    price: 6250,
-    change: 75,
-    changePercent: 1.22,
-  },
-  {
-    symbol: "KLBF",
-    name: "Kalbe Farma",
-    price: 1850,
-    change: 25,
-    changePercent: 1.37,
-  },
-  {
-    symbol: "ADRO",
-    name: "Adaro Energy",
-    price: 3250,
-    change: -40,
-    changePercent: -1.22,
-  },
-  {
-    symbol: "ANTM",
-    name: "Aneka Tambang",
-    price: 1250,
-    change: 15,
-    changePercent: 1.22,
-  },
-  {
-    symbol: "ITMG",
-    name: "Indo Tambangraya Megah",
-    price: 28500,
-    change: -300,
-    changePercent: -1.04,
-  },
-  {
-    symbol: "PTBA",
-    name: "Bukit Asam",
-    price: 3250,
-    change: 50,
-    changePercent: 1.56,
-  },
-  {
-    symbol: "SMGR",
-    name: "Semen Indonesia",
-    price: 4250,
-    change: -25,
-    changePercent: -0.58,
-  },
-  {
-    symbol: "INTP",
-    name: "Indocement Tunggal Prakarsa",
-    price: 12500,
-    change: 100,
-    changePercent: 0.81,
-  },
-  {
-    symbol: "WIKA",
-    name: "Wijaya Karya",
-    price: 850,
-    change: -5,
-    changePercent: -0.58,
-  },
-  {
-    symbol: "WSKT",
-    name: "Waskita Karya",
-    price: 450,
-    change: 10,
-    changePercent: 2.27,
-  },
-  {
-    symbol: "PGAS",
-    name: "Perusahaan Gas Negara",
-    price: 1850,
-    change: -20,
-    changePercent: -1.07,
-  },
-];
 
 interface WatchlistProps {
   selectedStock: string;
@@ -182,94 +22,68 @@ interface WatchlistProps {
 export function Watchlist({ selectedStock, onStockSelect, showFavoritesOnly: propShowFavoritesOnly }: WatchlistProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [favorites, setFavorites] = useState<string[]>(() => {
-    // Load favorites from localStorage
     const saved = localStorage.getItem('watchlist-favorites');
     return saved ? JSON.parse(saved) : ['BBRI', 'BBCA', 'BMRI'];
   });
-  const [showFavoritesOnly, setShowFavoritesOnly] = useState(propShowFavoritesOnly || false);
+  const showFavoritesOnly = propShowFavoritesOnly || false;
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
-  
-  // Backend data state
   const [stocksData, setStocksData] = useState<StockData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Save favorites to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem('watchlist-favorites', JSON.stringify(favorites));
   }, [favorites]);
 
-  // Fetch stock list from backend with company names
   useEffect(() => {
-    const fetchStockList = async () => {
+    let isMounted = true;
+
+    const loadSnapshot = async () => {
       setIsLoading(true);
       setError(null);
-      
+
       try {
-        // Get stock list with company names from backend
-        console.log('📊 Fetching stock list with company names from backend...');
-        const stockListResponse = await api.getStockListWithCompanyNames();
-        console.log('📊 Stock list response:', stockListResponse);
-        
-        if (stockListResponse.success && stockListResponse.data) {
-          const stockDetails = stockListResponse.data.stocks; // Get ALL stocks with company names
-          console.log('📊 Raw stock details from backend:', stockDetails.slice(0, 10), '...');
-          
-          // Convert to StockData format with company names
-          const stocksList: StockData[] = stockDetails.map((stock: any) => ({
-            symbol: stock.code,
-            name: stock.companyName || stock.code, // Use company name if available, fallback to code
-            price: 0, // Placeholder, will be loaded when selected
-            change: 0,
-            changePercent: 0,
-            lastUpdate: undefined
-          }));
-          
-          setStocksData(stocksList);
-          console.log(`📊 Loaded ${stocksList.length} stocks with company names from backend`);
-        } else {
-          console.error('📊 Backend response failed:', stockListResponse);
-          // Fallback to stock list without company names
-          console.log('📊 Falling back to stock list without company names...');
-          const fallbackStockListResponse = await api.getStockList();
-          
-          if (fallbackStockListResponse.success && fallbackStockListResponse.data) {
-            const stockSymbols = fallbackStockListResponse.data.stocks;
-            const stocksList: StockData[] = stockSymbols.map((symbol: string) => ({
-              symbol: symbol,
-              name: symbol,
-              price: 0,
-              change: 0,
-              changePercent: 0,
-              lastUpdate: undefined
-            }));
-            
-            setStocksData(stocksList);
-            console.log(`📊 Loaded ${stocksList.length} stock symbols from backend (without company names)`);
-          } else {
-            throw new Error('Failed to get stock list from backend');
-          }
+        const response = await api.getWatchlistSnapshot();
+        if (!response.success || !response.data) {
+          throw new Error(response.error || 'Failed to load watchlist snapshot');
+        }
+
+        const stocks: StockData[] = response.data.stocks.map((stock: any) => ({
+          symbol: stock.symbol,
+          name: stock.name || stock.symbol,
+          price: Number(stock.price) || 0,
+          change: Number(stock.change) || 0,
+          changePercent: Number(stock.changePercent) || 0,
+          lastUpdate: stock.lastUpdate,
+        }));
+
+        if (isMounted) {
+          setStocksData(stocks);
         }
       } catch (err) {
-        console.error('Error fetching stock list:', err);
-        setError('Failed to load stock list from backend');
-        // Fallback to static data
-        console.log('📊 Using fallback data due to backend error');
-        setStocksData(fallbackStocksData);
+        if (isMounted) {
+          const message = err instanceof Error ? err.message : 'Failed to load watchlist data';
+          setError(message);
+          setStocksData([]);
+        }
       } finally {
-        setIsLoading(false);
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     };
 
-    fetchStockList();
+    loadSnapshot();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const toggleFavorite = (symbol: string, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent stock selection when clicking star
-    setFavorites(prev => 
-      prev.includes(symbol) 
-        ? prev.filter(fav => fav !== symbol)
-        : [...prev, symbol]
+    e.stopPropagation();
+    setFavorites((prev) =>
+      prev.includes(symbol) ? prev.filter((fav) => fav !== symbol) : [...prev, symbol]
     );
   };
 
@@ -286,7 +100,6 @@ export function Watchlist({ selectedStock, onStockSelect, showFavoritesOnly: pro
   };
 
   const handleSearchBlur = () => {
-    // Delay hiding dropdown to allow clicking on items
     setTimeout(() => setShowSearchDropdown(false), 200);
   };
 
@@ -296,30 +109,50 @@ export function Watchlist({ selectedStock, onStockSelect, showFavoritesOnly: pro
     setShowSearchDropdown(false);
   };
 
-  // For search dropdown - show all stocks that match search
-  const searchResults = stocksData.filter(stock => {
-    const matchesSearch = stock.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         stock.name.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesSearch;
-  });
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
 
-  // For main watchlist - show only favorites when propShowFavoritesOnly is true, but hide when dropdown is open
-  const filteredStocks = showSearchDropdown ? [] : stocksData.filter(stock => {
-    const matchesSearch = stock.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         stock.name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesFavorites = (propShowFavoritesOnly || showFavoritesOnly) ? favorites.includes(stock.symbol) : true;
-    return matchesSearch && matchesFavorites;
-  });
+  const searchResults = useMemo(() => {
+    if (!normalizedSearchQuery) {
+      return [];
+    }
 
-  // Sort: favorites first, then by symbol
-  const sortedStocks = filteredStocks.sort((a, b) => {
-    const aIsFavorite = favorites.includes(a.symbol);
-    const bIsFavorite = favorites.includes(b.symbol);
-    
-    if (aIsFavorite && !bIsFavorite) return -1;
-    if (!aIsFavorite && bIsFavorite) return 1;
-    return a.symbol.localeCompare(b.symbol);
-  });
+    return stocksData
+      .filter((stock) => {
+        const symbol = stock.symbol.toLowerCase();
+        const name = stock.name.toLowerCase();
+        return symbol.includes(normalizedSearchQuery) || name.includes(normalizedSearchQuery);
+      })
+      .slice(0, 50);
+  }, [normalizedSearchQuery, stocksData]);
+
+  const filteredStocks = useMemo(() => {
+    if (showSearchDropdown) {
+      return [];
+    }
+
+    return stocksData.filter((stock) => {
+      const symbol = stock.symbol.toLowerCase();
+      const name = stock.name.toLowerCase();
+      const matchesSearch =
+        !normalizedSearchQuery || symbol.includes(normalizedSearchQuery) || name.includes(normalizedSearchQuery);
+      const matchesFavorites =
+        propShowFavoritesOnly || showFavoritesOnly ? favorites.includes(stock.symbol) : true;
+      return matchesSearch && matchesFavorites;
+    });
+  }, [showSearchDropdown, stocksData, normalizedSearchQuery, propShowFavoritesOnly, showFavoritesOnly, favorites]);
+
+  const sortedStocks = useMemo(() => {
+    const stocks = [...filteredStocks];
+    stocks.sort((a, b) => {
+      const aIsFavorite = favorites.includes(a.symbol);
+      const bIsFavorite = favorites.includes(b.symbol);
+
+      if (aIsFavorite && !bIsFavorite) return -1;
+      if (!aIsFavorite && bIsFavorite) return 1;
+      return a.symbol.localeCompare(b.symbol);
+    });
+    return stocks;
+  }, [filteredStocks, favorites]);
 
   return (
     <Card className="h-full flex flex-col">
@@ -331,8 +164,7 @@ export function Watchlist({ selectedStock, onStockSelect, showFavoritesOnly: pro
             {favorites.length} favorites
           </div>
         </CardTitle>
-        
-        {/* Search Bar */}
+
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
           <input
@@ -355,15 +187,21 @@ export function Watchlist({ selectedStock, onStockSelect, showFavoritesOnly: pro
               <X className="w-4 h-4" />
             </button>
           )}
-          
-          {/* Search Dropdown */}
+
           {showSearchDropdown && searchResults.length > 0 && (
             <div className="absolute top-full left-0 right-0 mt-1 bg-background border border-border rounded-md shadow-lg z-50 max-h-60 overflow-y-auto w-full">
               {searchResults.map((stock) => {
-                // Generate dummy price data for stocks without price
-                const priceData = stock.price > 0 ? stock : generateDummyPriceData(stock.symbol);
+                const changeClass =
+                  stock.change === 0 ? 'text-muted-foreground' : stock.change > 0 ? 'text-green-600' : 'text-red-600';
+                const badgeVariant =
+                  stock.changePercent === 0
+                    ? 'secondary'
+                    : stock.changePercent > 0
+                      ? 'default'
+                      : 'destructive';
+
                 return (
-                  <div 
+                  <div
                     key={stock.symbol}
                     className="flex items-center justify-between p-3 hover:bg-muted/50 cursor-pointer border-b border-border/50 last:border-b-0"
                     onClick={() => handleStockSelectFromSearch(stock.symbol)}
@@ -373,16 +211,13 @@ export function Watchlist({ selectedStock, onStockSelect, showFavoritesOnly: pro
                         <span className="font-medium text-card-foreground">
                           {stock.symbol}
                         </span>
-                        <Badge 
-                          variant={priceData.changePercent > 0 ? 'default' : 'destructive'} 
-                          className="text-xs flex items-center gap-1"
-                        >
-                          {priceData.changePercent > 0 ? (
+                        <Badge variant={badgeVariant} className="text-xs flex items-center gap-1">
+                          {stock.changePercent > 0 ? (
                             <TrendingUp className="w-3 h-3" />
-                          ) : (
+                          ) : stock.changePercent < 0 ? (
                             <TrendingDown className="w-3 h-3" />
-                          )}
-                          {Math.abs(priceData.changePercent).toFixed(2)}%
+                          ) : null}
+                          {stock.changePercent === 0 ? '--' : `${Math.abs(stock.changePercent).toFixed(2)}%`}
                         </Badge>
                       </div>
                       <p className="text-sm text-muted-foreground truncate">{stock.name}</p>
@@ -390,10 +225,10 @@ export function Watchlist({ selectedStock, onStockSelect, showFavoritesOnly: pro
                     <div className="flex items-center gap-3">
                       <div className="text-right">
                         <p className="font-medium text-card-foreground">
-                          {priceData.price.toLocaleString()}
+                          {stock.price ? stock.price.toLocaleString() : '--'}
                         </p>
-                        <p className={`text-sm ${priceData.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {priceData.change >= 0 ? '+' : ''}{priceData.change.toFixed(0)}
+                        <p className={`text-sm ${changeClass}`}>
+                          {stock.change === 0 ? '--' : `${stock.change > 0 ? '+' : ''}${stock.change.toFixed(0)}`}
                         </p>
                       </div>
                       <button
@@ -403,12 +238,12 @@ export function Watchlist({ selectedStock, onStockSelect, showFavoritesOnly: pro
                         }}
                         className="hover:scale-110 transition-transform p-1"
                       >
-                        <Star 
+                        <Star
                           className={`w-4 h-4 ${
-                            favorites.includes(stock.symbol) 
-                              ? 'fill-yellow-400 text-yellow-400' 
+                            favorites.includes(stock.symbol)
+                              ? 'fill-yellow-400 text-yellow-400'
                               : 'text-muted-foreground hover:text-yellow-400'
-                          }`} 
+                          }`}
                         />
                       </button>
                     </div>
@@ -419,18 +254,18 @@ export function Watchlist({ selectedStock, onStockSelect, showFavoritesOnly: pro
           )}
         </div>
       </CardHeader>
-      
+
       <CardContent className="flex-1 overflow-y-auto pb-4">
         <div className="space-y-2">
           {isLoading ? (
             <div className="text-center py-8 text-muted-foreground">
               <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
-              <p>Loading stock data...</p>
+              <p>Loading watchlist data...</p>
             </div>
           ) : error ? (
             <div className="text-center py-8 text-muted-foreground">
               <p className="text-red-600 mb-2">{error}</p>
-              <p className="text-sm">Using fallback data</p>
+              <p className="text-sm">Watchlist data is unavailable right now.</p>
             </div>
           ) : showSearchDropdown ? (
             <div className="text-center py-8 text-muted-foreground">
@@ -446,15 +281,22 @@ export function Watchlist({ selectedStock, onStockSelect, showFavoritesOnly: pro
             </div>
           ) : (
             sortedStocks.map((stock) => {
-              // Generate dummy price data for stocks without price
-              const priceData = stock.price > 0 ? stock : generateDummyPriceData(stock.symbol);
+              const changeClass =
+                stock.change === 0 ? 'text-muted-foreground' : stock.change > 0 ? 'text-green-600' : 'text-red-600';
+              const badgeVariant =
+                stock.changePercent === 0
+                  ? 'secondary'
+                  : stock.changePercent > 0
+                    ? 'default'
+                    : 'destructive';
+
               return (
-                <div 
-                  key={stock.symbol} 
+                <div
+                  key={stock.symbol}
                   className={`
                     flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all duration-200 hover:shadow-md
-                    ${selectedStock === stock.symbol 
-                      ? 'border-primary bg-primary/5 shadow-sm' 
+                    ${selectedStock === stock.symbol
+                      ? 'border-primary bg-primary/5 shadow-sm'
                       : 'border-border hover:border-primary/50'
                     }
                   `}
@@ -466,37 +308,34 @@ export function Watchlist({ selectedStock, onStockSelect, showFavoritesOnly: pro
                         onClick={(e) => toggleFavorite(stock.symbol, e)}
                         className="hover:scale-110 transition-transform"
                       >
-                        <Star 
+                        <Star
                           className={`w-4 h-4 ${
-                            favorites.includes(stock.symbol) 
-                              ? 'fill-yellow-400 text-yellow-400' 
+                            favorites.includes(stock.symbol)
+                              ? 'fill-yellow-400 text-yellow-400'
                               : 'text-muted-foreground hover:text-yellow-400'
-                          }`} 
+                          }`}
                         />
                       </button>
                       <span className={`font-medium ${selectedStock === stock.symbol ? 'text-primary' : 'text-card-foreground'}`}>
                         {stock.symbol}
                       </span>
-                      <Badge 
-                        variant={priceData.changePercent > 0 ? 'default' : 'destructive'} 
-                        className="text-xs flex items-center gap-1"
-                      >
-                        {priceData.changePercent > 0 ? (
+                      <Badge variant={badgeVariant} className="text-xs flex items-center gap-1">
+                        {stock.changePercent > 0 ? (
                           <TrendingUp className="w-3 h-3" />
-                        ) : (
+                        ) : stock.changePercent < 0 ? (
                           <TrendingDown className="w-3 h-3" />
-                        )}
-                        {Math.abs(priceData.changePercent).toFixed(2)}%
+                        ) : null}
+                        {stock.changePercent === 0 ? '--' : `${Math.abs(stock.changePercent).toFixed(2)}%`}
                       </Badge>
                     </div>
                     <p className="text-sm text-muted-foreground truncate">{stock.name}</p>
                   </div>
                   <div className="text-right">
                     <p className={`font-medium ${selectedStock === stock.symbol ? 'text-primary' : 'text-card-foreground'}`}>
-                      {priceData.price.toLocaleString()}
+                      {stock.price ? stock.price.toLocaleString() : '--'}
                     </p>
-                    <p className={`text-sm ${priceData.change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {priceData.change >= 0 ? '+' : ''}{priceData.change.toFixed(0)}
+                    <p className={`text-sm ${changeClass}`}>
+                      {stock.change === 0 ? '--' : `${stock.change > 0 ? '+' : ''}${stock.change.toFixed(0)}`}
                     </p>
                   </div>
                 </div>
