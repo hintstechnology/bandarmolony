@@ -22,6 +22,7 @@ import { updateIndexData } from './indexDataScheduler';
 import { updateShareholdersData } from './shareholdersDataScheduler';
 import { updateHoldingData } from './holdingDataScheduler';
 import { initializeAzureLogging } from './azureLoggingService';
+import { updateWatchlistSnapshot } from './watchlistSnapshotService';
 
 // ======================
 // SCHEDULER CONFIGURATION
@@ -912,7 +913,7 @@ export function startScheduler(): void {
     const phaseStartTime = Date.now();
     console.log(`\n🚀 ===== PHASE 1 DATA COLLECTION STARTED =====`);
     console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
-    console.log(`📋 Phase: Data Collection (Stock, Index, Done Summary) - 7 days`);
+    console.log(`📋 Phase: Data Collection (Stock, Index, Done Summary, Watchlist Snapshot) - 7 days`);
     
     // Skip if weekend
     if (isWeekend()) {
@@ -955,19 +956,21 @@ export function startScheduler(): void {
       const dataCollectionTasks = [
         { name: 'Stock Data', service: updateStockData, method: null },
         { name: 'Index Data', service: updateIndexData, method: null },
-        { name: 'Done Summary Data', service: updateDoneSummaryData, method: null }
+        { name: 'Done Summary Data', service: updateDoneSummaryData, method: null },
+        { name: 'Watchlist Snapshot', service: updateWatchlistSnapshot, method: null }
       ];
+      const totalTasks = dataCollectionTasks.length;
       
       const dataCollectionPromises = dataCollectionTasks.map(async (task, index) => {
     const startTime = Date.now();
     
     try {
-          console.log(`🔄 Starting ${task.name} (${index + 1}/3)...`);
+          console.log(`🔄 Starting ${task.name} (${index + 1}/${totalTasks})...`);
       
       // Update progress in database
       if (logEntry) {
         await SchedulerLogService.updateLog(logEntry.id!, {
-              progress_percentage: Math.round((index / 3) * 100),
+              progress_percentage: Math.round((index / totalTasks) * 100),
               current_processing: `Running ${task.name}...`
             });
           }
@@ -1011,20 +1014,20 @@ export function startScheduler(): void {
       const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
       
       console.log(`\n📊 ===== PHASE 1 DATA COLLECTION COMPLETED =====`);
-      console.log(`✅ Success: ${successCount}/3 calculations`);
+      console.log(`✅ Success: ${successCount}/${totalTasks} calculations`);
       console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
       console.log(`⏱️ Total Duration: ${totalDuration}s`);
       
       // Update database log
   if (logEntry) {
     await SchedulerLogService.updateLog(logEntry.id!, {
-          status: successCount === 3 ? 'completed' : 'failed',
+          status: successCount === totalTasks ? 'completed' : 'failed',
           completed_at: new Date().toISOString(),
-          total_files_processed: 3,
+          total_files_processed: totalTasks,
           files_created: successCount,
-          files_failed: 3 - successCount,
+          files_failed: totalTasks - successCount,
           progress_percentage: 100,
-          current_processing: `Phase 1 Data Collection complete: ${successCount}/3 calculations successful in ${totalDuration}s`
+          current_processing: `Phase 1 Data Collection complete: ${successCount}/${totalTasks} calculations successful in ${totalDuration}s`
         });
       }
       
@@ -1032,7 +1035,7 @@ export function startScheduler(): void {
       await aggressiveMemoryCleanup();
       
       // Trigger Phase 2 automatically if Phase 1 succeeded
-      if (successCount >= 2) { // Trigger Phase 2 if at least 2/3 succeed
+      if (successCount >= Math.ceil(totalTasks * 0.67)) { // Trigger Phase 2 if at least ~2/3 succeed
         console.log('🔄 Triggering Phase 2 Market Rotation calculations...');
         await runPhase2MarketRotationCalculations();
       } else {

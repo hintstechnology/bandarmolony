@@ -12,7 +12,7 @@ interface StockData {
   ChangePercent: number;
 }
 
-interface WatchlistStock {
+export interface WatchlistStock {
   symbol: string;
   name: string;
   price: number;
@@ -32,6 +32,15 @@ interface EmitenDetail {
 export class WatchlistCalculator {
   private blobServiceClient: any;
   private containerName: string;
+
+  private buildStockLookup(stocks: { sector: string; ticker: string }[]): Map<string, { sector: string; ticker: string }> {
+    const lookup = new Map<string, { sector: string; ticker: string }>();
+    stocks.forEach((stock) => {
+      const ticker = stock.ticker.toUpperCase();
+      lookup.set(ticker, { sector: stock.sector, ticker: stock.ticker });
+    });
+    return lookup;
+  }
 
   constructor() {
     this.blobServiceClient = BlobServiceClient.fromConnectionString(
@@ -115,7 +124,7 @@ export class WatchlistCalculator {
     }
   }
 
-  private async getAllStocksFromAzure(): Promise<{ sector: string; ticker: string }[]> {
+  public async getAllStocksFromAzure(): Promise<{ sector: string; ticker: string }[]> {
     const stocks: { sector: string; ticker: string }[] = [];
 
     try {
@@ -142,7 +151,7 @@ export class WatchlistCalculator {
     return stocks;
   }
 
-  private async loadEmitenDetailsFromAzure(): Promise<Map<string, EmitenDetail>> {
+  public async loadEmitenDetailsFromAzure(): Promise<Map<string, EmitenDetail>> {
     const emitenMap = new Map<string, EmitenDetail>();
 
     try {
@@ -216,25 +225,43 @@ export class WatchlistCalculator {
    * @param symbols Array of stock symbols to get data for
    * @returns Array of watchlist stock data
    */
-  public async getWatchlistData(symbols: string[]): Promise<WatchlistStock[]> {
+  public async getWatchlistData(
+    symbols: string[],
+    options?: {
+      stockLookup?: Map<string, { sector: string; ticker: string }>;
+      emitenDetails?: Map<string, EmitenDetail>;
+    }
+  ): Promise<WatchlistStock[]> {
     try {
       console.log(`📊 Fetching watchlist data for ${symbols.length} stocks...`);
       
-      // Load all stocks from Azure
-      const allStocks = await this.getAllStocksFromAzure();
-      const emitenDetails = await this.loadEmitenDetailsFromAzure();
+      const normalizedSymbols = symbols
+        .map((symbol) => symbol.trim().toUpperCase())
+        .filter((symbol) => symbol.length > 0);
+
+      if (!normalizedSymbols.length) {
+        return [];
+      }
+
+      const allStocks = options?.stockLookup
+        ? null
+        : await this.getAllStocksFromAzure();
+      const stockLookup =
+        options?.stockLookup ?? (allStocks ? this.buildStockLookup(allStocks) : new Map());
+
+      const emitenDetails =
+        options?.emitenDetails ?? (await this.loadEmitenDetailsFromAzure());
 
       // Get watchlist stocks data
       const watchlistStocks: WatchlistStock[] = [];
       
       // Process stocks in batches
       const BATCH_SIZE = 50;
-      for (let i = 0; i < symbols.length; i += BATCH_SIZE) {
-        const batch = symbols.slice(i, i + BATCH_SIZE);
+      for (let i = 0; i < normalizedSymbols.length; i += BATCH_SIZE) {
+        const batch = normalizedSymbols.slice(i, i + BATCH_SIZE);
         
         const batchPromises = batch.map(async (symbol) => {
-          // Find stock in allStocks by ticker
-          const stock = allStocks.find(s => s.ticker === symbol);
+          const stock = stockLookup.get(symbol);
           if (!stock) {
             return null;
           }
@@ -292,7 +319,22 @@ export class WatchlistCalculator {
       throw error;
     }
   }
+
+  /**
+   * List all available stock tickers from Azure storage
+   */
+  public async listAllTickers(): Promise<string[]> {
+    const stocks = await this.getAllStocksFromAzure();
+    const uniqueTickers = new Set<string>();
+
+    stocks.forEach((stock) => {
+      if (stock.ticker) {
+        uniqueTickers.add(stock.ticker.toUpperCase());
+      }
+    });
+
+    return Array.from(uniqueTickers).sort();
+  }
 }
 
 export default WatchlistCalculator;
-

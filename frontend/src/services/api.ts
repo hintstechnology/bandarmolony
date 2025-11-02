@@ -152,6 +152,60 @@ export const api = {
       return { success: false, error: err.message || 'Failed to pre-generate outputs' };
     }
   },
+
+  async getWatchlistData(symbols: string[]): Promise<{ success: boolean; data?: { stocks: Array<{ symbol: string; name: string; price: number; change: number; changePercent: number; lastUpdate?: string }> }; error?: string }> {
+    if (!symbols.length) {
+      return { success: true, data: { stocks: [] } };
+    }
+
+    const uniqueSymbols = Array.from(new Set(symbols.map((sym) => sym.trim().toUpperCase()).filter(Boolean)));
+    if (!uniqueSymbols.length) {
+      return { success: true, data: { stocks: [] } };
+    }
+
+    const params = new URLSearchParams();
+    params.set('symbols', uniqueSymbols.join(','));
+
+    try {
+      const response = await fetch(`${API_URL}/api/watchlist?${params.toString()}`);
+      const json = await response.json();
+
+      if (!response.ok || !json?.success) {
+        throw new Error(json?.error || 'Failed to fetch watchlist data');
+      }
+
+      return {
+        success: true,
+        data: {
+          stocks: Array.isArray(json?.data?.stocks) ? json.data.stocks : [],
+        },
+      };
+    } catch (error: any) {
+      console.error('❌ API: Failed to fetch watchlist data', error);
+      return { success: false, error: error?.message || 'Failed to fetch watchlist data' };
+    }
+  },
+
+  async getWatchlistSnapshot(): Promise<{ success: boolean; data?: { stocks: Array<{ symbol: string; name: string; price: number; change: number; changePercent: number; lastUpdate?: string }> }; error?: string }> {
+    try {
+      const response = await fetch(`${API_URL}/api/watchlist`);
+      const json = await response.json();
+
+      if (!response.ok || !json?.success) {
+        throw new Error(json?.error || 'Failed to fetch watchlist snapshot');
+      }
+
+      return {
+        success: true,
+        data: {
+          stocks: Array.isArray(json?.data?.stocks) ? json.data.stocks : [],
+        },
+      };
+    } catch (error: any) {
+      console.error('❌ API: Failed to fetch watchlist snapshot', error);
+      return { success: false, error: error?.message || 'Failed to fetch watchlist snapshot' };
+    }
+  },
   async getProfile(): Promise<ProfileData> {
     console.log('🔍 API: Getting profile...');
     
