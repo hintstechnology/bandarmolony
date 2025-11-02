@@ -282,7 +282,11 @@ export function Watchlist({ selectedStock, onStockSelect, showFavoritesOnly: pro
           ) : (
             sortedStocks.map((stock) => {
               const changeClass =
-                stock.change === 0 ? 'text-muted-foreground' : stock.change > 0 ? 'text-green-600' : 'text-red-600';
+                Number.isFinite(stock.change) && stock.change === 0
+                  ? 'text-muted-foreground'
+                  : stock.change > 0
+                    ? 'text-green-600'
+                    : 'text-red-600';
               const badgeVariant =
                 stock.changePercent === 0
                   ? 'secondary'
@@ -325,17 +329,21 @@ export function Watchlist({ selectedStock, onStockSelect, showFavoritesOnly: pro
                         ) : stock.changePercent < 0 ? (
                           <TrendingDown className="w-3 h-3" />
                         ) : null}
-                        {stock.changePercent === 0 ? '--' : `${Math.abs(stock.changePercent).toFixed(2)}%`}
+                        {Number.isFinite(stock.changePercent)
+                          ? `${Math.abs(stock.changePercent).toFixed(2)}%`
+                          : '--'}
                       </Badge>
                     </div>
                     <p className="text-sm text-muted-foreground truncate">{stock.name}</p>
                   </div>
                   <div className="text-right">
                     <p className={`font-medium ${selectedStock === stock.symbol ? 'text-primary' : 'text-card-foreground'}`}>
-                      {stock.price ? stock.price.toLocaleString() : '--'}
+                      {Number.isFinite(stock.price) ? stock.price.toLocaleString() : '--'}
                     </p>
                     <p className={`text-sm ${changeClass}`}>
-                      {stock.change === 0 ? '--' : `${stock.change > 0 ? '+' : ''}${stock.change.toFixed(0)}`}
+                      {Number.isFinite(stock.change)
+                        ? `${stock.change > 0 ? '+' : ''}${stock.change.toFixed(0)}`
+                        : '--'}
                     </p>
                   </div>
                 </div>
