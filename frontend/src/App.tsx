@@ -14,7 +14,6 @@ import { ResetPasswordPage } from "./components/auth/ResetPasswordPage";
 import { ProtectedRoute } from "./components/dashboard/ProtectedRoute";
 import { PublicRoute } from "./components/dashboard/PublicRoute";
 import { Sidebar } from "./components/dashboard/Sidebar";
-import { ThemeToggle } from "./components/dashboard/ThemeToggle";
 import { Avatar, AvatarFallback, AvatarImage } from "./components/ui/avatar";
 import { User, Home, ChevronRight, TrendingUp, Activity, ArrowRightLeft, BookOpen, Star, BarChart3, CreditCard, Shield } from "lucide-react";
  
@@ -379,8 +378,6 @@ function DashboardLayout() {
           </div>
           
           <div className="flex items-center gap-3">
-            {/* Theme Toggle */}
-            <ThemeToggle />
             {/* Profile Button */}
             <div className="relative">
             <button
@@ -609,4 +606,3 @@ export default function App() {
     </ThemeProvider>
   );
 }
-
