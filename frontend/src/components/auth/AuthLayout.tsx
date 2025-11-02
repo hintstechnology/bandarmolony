@@ -1,6 +1,5 @@
 import React from 'react';
-import { Moon, Sun, ArrowLeft } from 'lucide-react';
-import { useTheme } from '../dashboard/ThemeProvider';
+import { ArrowLeft } from 'lucide-react';
 import { getImageUrl } from '../../utils/imageMapping.ts';
 
 interface AuthLayoutProps {
@@ -9,12 +8,6 @@ interface AuthLayoutProps {
 }
 
 export function AuthLayout({ children, onBackToLanding }: AuthLayoutProps) {
-  const { theme, setTheme } = useTheme();
-
-  const toggleTheme = () => {
-    setTheme(theme === 'dark' ? 'light' : 'dark');
-  };
-
   return (
     <div className="min-h-screen flex">
       {/* Background Image Section */}
@@ -52,19 +45,6 @@ export function AuthLayout({ children, onBackToLanding }: AuthLayoutProps) {
 
       {/* Auth Form Section */}
       <div className="flex-1 lg:flex-none lg:w-[480px] relative bg-background">
-        {/* Dark Mode Toggle */}
-        <button
-          onClick={toggleTheme}
-          className="absolute top-6 right-6 p-2 rounded-lg hover:bg-accent transition-colors"
-          aria-label="Toggle dark mode"
-        >
-          {theme === 'dark' ? (
-            <Sun className="h-5 w-5" />
-          ) : (
-            <Moon className="h-5 w-5" />
-          )}
-        </button>
-
         {/* Form Container */}
         <div className="flex flex-col justify-center min-h-screen px-8 lg:px-12">
           <div className="w-full max-w-sm mx-auto">
