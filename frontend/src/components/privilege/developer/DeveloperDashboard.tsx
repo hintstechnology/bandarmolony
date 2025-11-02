@@ -4,7 +4,7 @@ import { RefreshCw, Shield, AlertTriangle } from "lucide-react";
 import { useProfile } from "../../../contexts/ProfileContext";
 import { useNavigate } from "react-router-dom";
 import { getRoleDisplayName } from "../../../utils/role";
-import { UserStats, UserManagement, DataSchedulerControl, SchedulerLogs } from "../shared";
+import { UserStats, UserManagement, DataSchedulerControl, SchedulerLogs, ManualTriggerControl } from "../shared";
 
 export function DeveloperDashboard() {
   const navigate = useNavigate();
@@ -63,7 +63,10 @@ export function DeveloperDashboard() {
       {/* User Management and Recent Users */}
       <UserManagement apiPrefix="developer" />
 
-      {/* Data Scheduler Control */}
+      {/* Manual Data Trigger Progress */}
+      <ManualTriggerControl />
+
+      {/* Scheduler Data Progress */}
       <DataSchedulerControl />
 
       {/* Scheduler Logs */}

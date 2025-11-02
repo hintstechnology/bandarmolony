@@ -956,7 +956,8 @@ router.get('/logs/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
-    const log = await SchedulerLogService.getLogById(parseInt(id));
+    // ID is UUID string, not integer
+    const log = await SchedulerLogService.getLogById(id);
     
     if (!log) {
       return res.status(404).json({ 
@@ -972,6 +973,54 @@ router.get('/logs/:id', async (req, res) => {
 
   } catch (error: any) {
     console.error('❌ Error fetching scheduler log:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+});
+
+// Cancel a running scheduler task
+router.post('/logs/:id/cancel', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    
+    // ID is UUID string, not integer
+    // Get log to check if it's running
+    const log = await SchedulerLogService.getLogById(id);
+    
+    if (!log) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Log not found' 
+      });
+    }
+
+    if (log.status !== 'running') {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Cannot cancel log with status: ${log.status}` 
+      });
+    }
+
+    // Mark as cancelled
+    const success = await SchedulerLogService.markCancelled(id, reason);
+    
+    if (!success) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to cancel scheduler log' 
+      });
+    }
+
+    return res.json({ 
+      success: true, 
+      message: 'Scheduler task cancelled successfully' 
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error cancelling scheduler log:', error);
     return res.status(500).json({ 
       success: false, 
       message: error.message 

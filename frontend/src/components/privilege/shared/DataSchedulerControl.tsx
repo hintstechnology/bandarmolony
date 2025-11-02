@@ -2,11 +2,23 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Badge } from "../../ui/badge";
-import { Play, Square, Loader2, CheckCircle, Database, RefreshCw } from "lucide-react";
+import { Progress } from "../../ui/progress";
+import { Play, Square, Loader2, CheckCircle, RefreshCw, X, Clock } from "lucide-react";
 import { useToast } from "../../../contexts/ToastContext";
 import { api } from "../../../services/api";
 
 const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
+
+interface ScheduledTask {
+  logId: string;
+  featureName: string;
+  triggerType: string;
+  status: string;
+  progress?: number;
+  currentProcessing?: string;
+  startedAt: string;
+  triggeredBy?: string;
+}
 
 export function DataSchedulerControl() {
   const { showToast } = useToast();
@@ -19,6 +31,9 @@ export function DataSchedulerControl() {
   const [generationStatus, setGenerationStatus] = useState<any>(null);
   const [debugMessage, setDebugMessage] = useState<string>('');
   const [triggering, setTriggering] = useState<{[key: string]: boolean}>({});
+  const [activeLogs, setActiveLogs] = useState<{[key: string]: { logId: string; progress: number; status: string } | null}>({});
+  const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([]);
+  const [loading, setLoading] = useState(false);
 
   // Data Scheduler Functions
   const loadStatus = async () => {
@@ -56,6 +71,14 @@ export function DataSchedulerControl() {
       
       if (result.success) {
         showToast({ type: 'success', title: 'Success', message: `${type} data update triggered successfully` });
+        
+        // Store log_id if provided for progress tracking (no auto polling)
+        if (result.log_id) {
+          setActiveLogs(prev => ({
+            ...prev,
+            [type]: { logId: result.log_id, progress: 0, status: 'running' }
+          }));
+        }
       } else {
         showToast({ type: 'error', title: 'Error', message: `Failed to trigger ${type} update: ${result.message}` });
       }
@@ -63,9 +86,14 @@ export function DataSchedulerControl() {
       console.error(`Error triggering ${type} update:`, error);
       showToast({ type: 'error', title: 'Error', message: `Error triggering ${type} update` });
     } finally {
-      setTriggering(prev => ({ ...prev, [type]: false }));
+      // Don't reset triggering immediately if we have a log_id (task is running in background)
+      if (!activeLogs[type]?.logId) {
+        setTriggering(prev => ({ ...prev, [type]: false }));
+      }
     }
   };
+
+  // No auto polling - user needs to refresh manually
 
   const handleStopGeneration = async () => {
     setDebugMessage('Stopping all generation processes...');
@@ -124,21 +152,71 @@ export function DataSchedulerControl() {
     }
   };
 
+  // Load scheduled tasks (status = 'running' and trigger_type = 'scheduled')
+  const loadScheduledTasks = async () => {
+    setLoading(true);
+    try {
+      const result = await api.getSchedulerLogs({
+        limit: 50,
+        offset: 0,
+        status: 'running'
+      });
+
+      if (result.success && result.data) {
+        // Filter only scheduled tasks (not manual)
+        const tasks: ScheduledTask[] = result.data
+          .filter((log: any) => log.trigger_type === 'scheduled')
+          .map((log: any) => ({
+            logId: log.id,
+            featureName: log.feature_name,
+            triggerType: log.trigger_type,
+            status: log.status,
+            progress: log.progress_percentage || 0,
+            currentProcessing: log.current_processing,
+            startedAt: log.started_at,
+            triggeredBy: log.triggered_by
+          }));
+        setScheduledTasks(tasks);
+      }
+    } catch (error) {
+      console.error('Error loading scheduled tasks:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load on mount and manual refresh only (no auto refresh)
   useEffect(() => {
     loadStatus();
+    loadScheduledTasks();
   }, []);
 
-  const getStatusIcon = (isGenerating: boolean) => {
-    if (isGenerating) {
+  const formatTime = (dateString: string): string => {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    // Format time only: HH:MM:SS using toLocaleString with Jakarta timezone
+    const formatted = date.toLocaleString('id-ID', {
+      timeZone: 'Asia/Jakarta',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+    // Replace dots with colons in time format (HH.MM.SS -> HH:MM:SS)
+    return formatted.replace(/\./g, ':');
+  };
+
+  const getStatusIcon = (isRunning: boolean) => {
+    if (isRunning) {
       return <Loader2 className="w-4 h-4 animate-spin text-blue-500" />;
     }
     return <CheckCircle className="w-4 h-4 text-green-500" />;
   };
 
-  const getStatusBadge = (isGenerating: boolean) => {
+  const getStatusBadge = (isRunning: boolean) => {
     return (
-      <Badge variant={isGenerating ? "default" : "secondary"}>
-        {isGenerating ? "Generating" : "Idle"}
+      <Badge variant={isRunning ? "secondary" : "outline"}>
+        {isRunning ? "Running" : "Idle"}
       </Badge>
     );
   };
@@ -146,92 +224,76 @@ export function DataSchedulerControl() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Database className="w-5 h-5" />
-          Data Scheduler Control
+        <CardTitle className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Clock className="w-5 h-5" />
+            Scheduler Data Progress
+          </div>
+          <Button
+            onClick={() => {
+              loadStatus();
+              loadScheduledTasks();
+            }}
+            disabled={loading}
+            variant="outline"
+            size="sm"
+          >
+            {loading ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4 mr-2" />
+            )}
+            Refresh
+          </Button>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* Status Overview */}
-        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="flex items-center justify-between p-4 border rounded-lg">
-            <div className="flex items-center gap-3">
-              {getStatusIcon(rrcStatus?.isGenerating || false)}
-              <div>
-                <h3 className="font-medium">RRC Generation</h3>
-                <p className="text-sm text-muted-foreground">
-                  {rrcStatus?.progress?.current || 'Ready'}
-                </p>
-              </div>
-            </div>
-            {getStatusBadge(rrcStatus?.isGenerating || false)}
+        {/* Scheduled Tasks Progress */}
+        {scheduledTasks.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            No scheduled tasks running
           </div>
-          
-          <div className="flex items-center justify-between p-4 border rounded-lg">
-            <div className="flex items-center gap-3">
-              {getStatusIcon(rrgStatus?.isGenerating || false)}
-              <div>
-                <h3 className="font-medium">RRG Generation</h3>
-                <p className="text-sm text-muted-foreground">
-                  {rrgStatus?.progress?.current || 'Ready'}
-                </p>
-              </div>
-            </div>
-            {getStatusBadge(rrgStatus?.isGenerating || false)}
-          </div>
+        ) : (
+          <div className="space-y-4">
+            {scheduledTasks.map((task) => (
+              <div
+                key={task.logId}
+                className="p-4 border rounded-lg space-y-3"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {getStatusIcon(task.status === 'running')}
+                    <div>
+                      <h4 className="font-semibold">{task.featureName}</h4>
+                      <p className="text-xs text-muted-foreground">
+                        {task.triggerType} • Started: {formatTime(task.startedAt)}
+                        {task.triggeredBy && ` • By: ${task.triggeredBy}`}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {getStatusBadge(task.status === 'running')}
+                  </div>
+                </div>
 
-          <div className="flex items-center justify-between p-4 border rounded-lg">
-            <div className="flex items-center gap-3">
-              {getStatusIcon(seasonalStatus?.isGenerating || false)}
-              <div>
-                <h3 className="font-medium">Seasonal Calculation</h3>
-                <p className="text-sm text-muted-foreground">
-                  {seasonalStatus?.progress?.current || 'Ready'}
-                </p>
+                {task.status === 'running' && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Progress</span>
+                      <span className="font-medium">{task.progress || 0}%</span>
+                    </div>
+                    <Progress value={task.progress || 0} className="h-2" />
+                    {task.currentProcessing && (
+                      <p className="text-xs text-muted-foreground truncate">
+                        {task.currentProcessing}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
-            </div>
-            {getStatusBadge(seasonalStatus?.isGenerating || false)}
+            ))}
           </div>
-
-          <div className="flex items-center justify-between p-4 border rounded-lg">
-            <div className="flex items-center gap-3">
-              {getStatusIcon(trendFilterStatus?.isGenerating || false)}
-              <div>
-                <h3 className="font-medium">Trend Filter</h3>
-                <p className="text-sm text-muted-foreground">
-                  {trendFilterStatus?.progress?.current || 'Ready'}
-                </p>
-              </div>
-            </div>
-            {getStatusBadge(trendFilterStatus?.isGenerating || false)}
-          </div>
-
-          <div className="flex items-center justify-between p-4 border rounded-lg">
-            <div className="flex items-center gap-3">
-              {getStatusIcon(generationStatus?.isGenerating || false)}
-              <div>
-                <h3 className="font-medium">Phase 1 Calculations</h3>
-                <p className="text-sm text-muted-foreground">
-                  {generationStatus?.progress?.current || 'Ready'}
-                </p>
-              </div>
-            </div>
-            {getStatusBadge(generationStatus?.isGenerating || false)}
-          </div>
-
-          <div className="flex items-center justify-between p-4 border rounded-lg">
-            <div className="flex items-center gap-3">
-              {getStatusIcon(generationStatus?.phase2Generating || false)}
-              <div>
-                <h3 className="font-medium">Phase 2 Calculations</h3>
-                <p className="text-sm text-muted-foreground">
-                  {generationStatus?.phase2Progress?.current || 'Ready'}
-                </p>
-              </div>
-            </div>
-            {getStatusBadge(generationStatus?.phase2Generating || false)}
-          </div>
-        </div>
+        )}
 
         {/* Control Buttons */}
         <div className="flex flex-wrap gap-2">
@@ -270,19 +332,51 @@ export function DataSchedulerControl() {
             <div className="p-4 border rounded-lg">
               <h4 className="font-semibold mb-2">Stock Data</h4>
               <p className="text-sm text-muted-foreground mb-3">Update stock data from TICMI API</p>
-              <Button
-                onClick={() => handleTriggerDataUpdate('stock')}
-                disabled={triggering['stock']}
-                className="w-full"
-                size="sm"
-              >
-                {triggering['stock'] ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Play className="w-4 h-4 mr-2" />
+              {activeLogs['stock'] && activeLogs['stock'].status === 'running' && (
+                <div className="mb-2 space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Progress</span>
+                    <span className="font-medium">{activeLogs['stock'].progress}%</span>
+                  </div>
+                  <Progress value={activeLogs['stock'].progress} className="h-1.5" />
+                </div>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => handleTriggerDataUpdate('stock')}
+                  disabled={triggering['stock']}
+                  className="flex-1"
+                  size="sm"
+                >
+                  {triggering['stock'] ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-2" />
+                  )}
+                  {triggering['stock'] ? 'Updating...' : 'Trigger Update'}
+                </Button>
+                {activeLogs['stock'] && activeLogs['stock'].status === 'running' && (
+                  <Button
+                    onClick={async () => {
+                      const result = await api.cancelSchedulerLog(activeLogs['stock']!.logId);
+                      if (result.success) {
+                        showToast({ type: 'success', title: 'Cancelled', message: 'Stock data update cancelled' });
+                        setActiveLogs(prev => {
+                          const updated = { ...prev };
+                          delete updated['stock'];
+                          return updated;
+                        });
+                        setTriggering(prev => ({ ...prev, stock: false }));
+                      }
+                    }}
+                    variant="destructive"
+                    size="sm"
+                    className="px-2"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
                 )}
-                {triggering['stock'] ? 'Updating...' : 'Trigger Update'}
-              </Button>
+              </div>
             </div>
 
             {/* Index Data */}
