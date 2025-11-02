@@ -11,7 +11,8 @@ const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001
 function formatJakartaTime(dateString: string): string {
   if (!dateString) return 'N/A';
   const date = new Date(dateString);
-  return date.toLocaleString('id-ID', {
+  // Format: DD/MM/YYYY, HH.MM.SS
+  const formatted = date.toLocaleString('id-ID', {
     timeZone: 'Asia/Jakarta',
     year: 'numeric',
     month: '2-digit',
@@ -20,7 +21,13 @@ function formatJakartaTime(dateString: string): string {
     minute: '2-digit',
     second: '2-digit',
     hour12: false
-  }).replace(/,/g, ' ');
+  });
+  // Replace comma with space, and replace dots in time part (HH.MM.SS) with colons
+  // Format is typically: DD/MM/YYYY, HH.MM.SS or DD/MM/YYYY HH.MM.SS
+  return formatted
+    .replace(/,/g, ' ')
+    .replace(/(\d{2}\/\d{2}\/\d{4})\s+(\d{2})\.(\d{2})\.(\d{2})/, '$1 $2:$3:$4')
+    .replace(/(\s)(\d{2})\.(\d{2})\.(\d{2})$/, '$1$2:$3:$4'); // Fallback for any remaining time format
 }
 
 export function SchedulerLogs() {

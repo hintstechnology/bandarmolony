@@ -53,22 +53,22 @@ router.get('/stock/:code', async (req, res) => {
         return row;
       });
       
-      // Apply limit if provided (get last N records)
+      // Data from CSV is already sorted descending (newest first) from calculation
+      // Sort by date descending to ensure newest on top (consistent with calculation)
+      data.sort((a, b) => {
+        const dateA = new Date(a.date);
+        const dateB = new Date(b.date);
+        return dateB.getTime() - dateA.getTime(); // Descending: newest first
+      });
+      
+      // Apply limit if provided (get first N records = newest N records)
       let filteredData = data;
       if (limit) {
         const limitNum = parseInt(String(limit));
         if (limitNum > 0) {
-          filteredData = data.slice(-limitNum);
+          filteredData = data.slice(0, limitNum); // Take first N (newest) records
         }
       }
-      
-      // Data is sorted ascending by date (oldest first)
-      // Sort by date to ensure correct order
-      filteredData.sort((a, b) => {
-        const dateA = new Date(a.date);
-        const dateB = new Date(b.date);
-        return dateA.getTime() - dateB.getTime();
-      });
       
       console.log(`📊 Retrieved ${filteredData.length} holding records for ${stockCode}`);
       

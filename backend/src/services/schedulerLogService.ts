@@ -3,14 +3,8 @@
 
 import { supabaseAdmin } from '../supabaseClient';
 
-// Timezone helper functions
-function getJakartaTime(): string {
-  const now = new Date();
-  const jakartaTime = new Date(now.getTime() + (7 * 60 * 60 * 1000)); // UTC + 7
-  return jakartaTime.toISOString();
-}
-
-// Removed unused function
+// All timestamps are stored as UTC in database
+// Frontend will handle timezone conversion to Jakarta time
 
 export interface SchedulerLog {
   id?: string;
@@ -55,12 +49,13 @@ export class SchedulerLogService {
    */
   static async createLog(logData: Partial<SchedulerLog>): Promise<SchedulerLog | null> {
     try {
-      const jakartaTime = getJakartaTime();
+      // Store as UTC (not Jakarta time) - frontend will handle timezone conversion
+      const startedAt = new Date().toISOString();
       const { data, error } = await supabaseAdmin
         .from('scheduler_logs')
         .insert([{
           ...logData,
-          started_at: jakartaTime,
+          started_at: startedAt,
           environment: process.env['NODE_ENV'] || 'development'
         }])
         .select()
@@ -84,10 +79,10 @@ export class SchedulerLogService {
    */
   static async updateLog(logId: string, updates: Partial<SchedulerLog>): Promise<boolean> {
     try {
-      // Add Jakarta timezone for completed_at if status is completed or failed
+      // Store as UTC (not Jakarta time) - frontend will handle timezone conversion
       const updateData = { ...updates };
       if (updates.status === 'completed' || updates.status === 'failed') {
-        updateData.completed_at = getJakartaTime();
+        updateData.completed_at = new Date().toISOString();
         if (updates.status === 'completed' || updates.status === 'failed') {
           // Calculate duration if both started_at and completed_at exist
           const log = await this.getLogById(logId);
@@ -279,6 +274,49 @@ export class SchedulerLogService {
       return true;
     } catch (error) {
       console.error('❌ Error marking log as failed:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Mark a log as cancelled
+   */
+  static async markCancelled(logId: string, reason?: string): Promise<boolean> {
+    try {
+      const completedAt = new Date().toISOString();
+      
+      // Get started_at to calculate duration
+      const { data: logData } = await supabaseAdmin
+        .from('scheduler_logs')
+        .select('started_at')
+        .eq('id', logId)
+        .single();
+
+      let duration_seconds = 0;
+      if (logData?.started_at) {
+        duration_seconds = Math.floor((new Date(completedAt).getTime() - new Date(logData.started_at).getTime()) / 1000);
+      }
+
+      const { error } = await supabaseAdmin
+        .from('scheduler_logs')
+        .update({
+          status: 'cancelled',
+          completed_at: completedAt,
+          duration_seconds,
+          error_message: reason || 'Cancelled by user',
+          current_processing: 'Cancelled'
+        })
+        .eq('id', logId);
+
+      if (error) {
+        console.error('❌ Error marking log as cancelled:', error);
+        return false;
+      }
+
+      console.log('✅ Scheduler log marked as cancelled:', logId);
+      return true;
+    } catch (error) {
+      console.error('❌ Error marking log as cancelled:', error);
       return false;
     }
   }

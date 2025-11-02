@@ -114,11 +114,16 @@ router.get('/stock/:code', async (req, res) => {
         return row;
       });
 
-      // Sort by date (newest first) and percentage (highest first)
+      // Sort by date descending (newest first) and percentage (highest first)
+      // Data from CSV is already sorted descending from calculation, but ensure consistency
       allData.sort((a, b) => {
-        const dateCompare = b.DataDate.localeCompare(a.DataDate);
+        // Primary sort: Date descending (newest first)
+        const dateA = new Date(a.DataDate).getTime();
+        const dateB = new Date(b.DataDate).getTime();
+        const dateCompare = dateB - dateA;
         if (dateCompare !== 0) return dateCompare;
-        return b.PemegangSaham_Persentase - a.PemegangSaham_Persentase;
+        // Secondary sort: Percentage descending (highest first)
+        return (b.PemegangSaham_Persentase || 0) - (a.PemegangSaham_Persentase || 0);
       });
 
       // Get latest date

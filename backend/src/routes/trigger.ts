@@ -20,6 +20,7 @@ import { preGenerateAllRRG } from '../services/rrgDataScheduler';
 import { forceRegenerate as generateSeasonalityData } from '../services/seasonalityDataScheduler';
 import { TrendFilterDataScheduler } from '../services/trendFilterDataScheduler';
 import BrokerSummaryTypeDataScheduler from '../services/brokerSummaryTypeDataScheduler';
+import BrokerBreakdownDataScheduler from '../services/brokerBreakdownDataScheduler';
 import { BrokerDataRGTNNGCalculator } from '../calculations/broker/broker_data_rg_tn_ng';
 import { listPaths } from '../utils/azureBlob';
 
@@ -413,6 +414,65 @@ router.post('/bidask', async (_req, res) => {
     return res.status(500).json({ 
       success: false, 
       message: error instanceof Error ? error.message : 'Unknown error' 
+    });
+  }
+});
+
+// Manual trigger for Broker Breakdown calculation
+router.post('/broker-breakdown', async (_req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Broker Breakdown calculation');
+    
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'broker_breakdown',
+      trigger_type: 'manual',
+      triggered_by: 'admin',
+      status: 'running',
+      force_override: true,
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    const brokerBreakdownService = new BrokerBreakdownDataScheduler();
+    
+    // Execute in background and return immediately
+    brokerBreakdownService.generateBrokerBreakdownData('all').then(async (result) => {
+      await AzureLogger.logInfo('broker_breakdown', `Manual broker breakdown calculation completed: ${result.message || 'OK'}`);
+      console.log(`✅ Broker Breakdown calculation completed: ${result.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: result.success ? 'completed' : 'failed',
+          progress_percentage: 100,
+          ...(result.success ? {} : { error_message: result.message })
+        });
+      }
+    }).catch(async (error: any) => {
+      await AzureLogger.logSchedulerError('broker_breakdown', error.message);
+      console.error(`❌ Broker Breakdown calculation error: ${error.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
+        });
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: 'Broker Breakdown calculation triggered successfully',
+      log_id: logEntry.id
+    });
+  } catch (error: any) {
+    console.error('❌ Error triggering broker breakdown calculation:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Unknown error'
     });
   }
 });
@@ -896,7 +956,8 @@ router.get('/logs/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
-    const log = await SchedulerLogService.getLogById(parseInt(id));
+    // ID is UUID string, not integer
+    const log = await SchedulerLogService.getLogById(id);
     
     if (!log) {
       return res.status(404).json({ 
@@ -912,6 +973,54 @@ router.get('/logs/:id', async (req, res) => {
 
   } catch (error: any) {
     console.error('❌ Error fetching scheduler log:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+});
+
+// Cancel a running scheduler task
+router.post('/logs/:id/cancel', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    
+    // ID is UUID string, not integer
+    // Get log to check if it's running
+    const log = await SchedulerLogService.getLogById(id);
+    
+    if (!log) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Log not found' 
+      });
+    }
+
+    if (log.status !== 'running') {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Cannot cancel log with status: ${log.status}` 
+      });
+    }
+
+    // Mark as cancelled
+    const success = await SchedulerLogService.markCancelled(id, reason);
+    
+    if (!success) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to cancel scheduler log' 
+      });
+    }
+
+    return res.json({ 
+      success: true, 
+      message: 'Scheduler task cancelled successfully' 
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error cancelling scheduler log:', error);
     return res.status(500).json({ 
       success: false, 
       message: error.message 

@@ -2274,5 +2274,63 @@ export const api = {
     }
   },
 
+  // Scheduler Logs API
+  async getSchedulerLog(logId: string | number): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const response = await fetch(`${API_URL}/api/trigger/logs/${logId}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to get scheduler log');
+      return { success: true, data: data.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get scheduler log' };
+    }
+  },
+
+  async cancelSchedulerLog(logId: string | number, reason?: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const response = await fetch(`${API_URL}/api/trigger/logs/${logId}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to cancel scheduler log');
+      return { success: true, message: data.message };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to cancel scheduler log' };
+    }
+  },
+
+  async getSchedulerLogs(options?: { limit?: number; offset?: number; status?: string; feature_name?: string }): Promise<{ success: boolean; data?: any[]; total?: number; error?: string }> {
+    try {
+      const params = new URLSearchParams();
+      if (options?.limit) params.append('limit', options.limit.toString());
+      if (options?.offset) params.append('offset', options.offset.toString());
+      if (options?.status) params.append('status', options.status);
+      if (options?.feature_name) params.append('feature_name', options.feature_name);
+
+      const response = await fetch(`${API_URL}/api/trigger/logs?${params}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to get scheduler logs');
+      return { success: true, data: data.data, total: data.total };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get scheduler logs' };
+    }
+  },
+
+  async triggerBrokerBreakdownData(): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const response = await fetch(`${API_URL}/api/trigger/broker-breakdown`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to trigger broker breakdown');
+      return { success: true, message: data.message };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to trigger broker breakdown' };
+    }
+  },
+
 
 };
