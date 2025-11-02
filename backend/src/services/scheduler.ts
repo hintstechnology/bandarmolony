@@ -30,7 +30,7 @@ import { initializeAzureLogging } from './azureLoggingService';
 const SCHEDULER_CONFIG = {
   // Scheduled Calculation Times - Only Phase 1 runs on schedule
   PHASE1_DATA_COLLECTION_TIME: '19:00',    // Data collection (Stock, Index, Done Summary)
-  PHASE1_SHAREHOLDERS_TIME: '00:00',       // Shareholders & Holding (if last month)
+  PHASE1_SHAREHOLDERS_TIME: '00:01',       // Shareholders & Holding (if first day of month)
   
   // Phase 2-6 are auto-triggered sequentially after Phase 1 completes
   // Phase 2: Market rotation (RRC, RRG, Seasonal, Trend Filter)
@@ -1067,13 +1067,11 @@ export function startScheduler(): void {
   let logEntry: SchedulerLog | null = null;
   
   try {
-    // Check if today is the last day of the month
+    // Check if today is the first day of the month
     const today = new Date();
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
     
-    if (today.getMonth() !== tomorrow.getMonth()) {
-        console.log('📅 Last day of month detected - running Shareholders & Holding updates');
+    if (today.getDate() === 1) {
+        console.log('📅 First day of month detected - running Shareholders & Holding updates');
         
         // Check memory before starting
         const memoryOk = await monitorMemoryUsage();
@@ -1179,7 +1177,7 @@ export function startScheduler(): void {
         await aggressiveMemoryCleanup();
         
       } else {
-        console.log('📅 Not the last day of month - skipping Shareholders & Holding updates');
+        console.log('📅 Not the first day of month - skipping Shareholders & Holding updates');
     }
     
   } catch (error) {

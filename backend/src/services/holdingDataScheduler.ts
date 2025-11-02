@@ -133,7 +133,45 @@ async function processHoldingEmiten(
       granularity: "daily",
     };
 
-    const response = await httpClient.get(baseUrl, params);
+    let response;
+    try {
+      response = await httpClient.get(baseUrl, params);
+    } catch (apiError: any) {
+      // Handle 400 Bad Request - emiten may not exist or be invalid in TICMI API
+      if (apiError.response && apiError.response.status === 400) {
+        console.warn(`⚠️ Emiten ${emiten} returned 400 Bad Request - may not be available in TICMI API`);
+        
+        // Save placeholder data to indicate emiten is not available
+        const placeholderData = [{
+          date: todayDate,
+          emiten: emiten,
+          status: 'NOT_AVAILABLE',
+          note: `Emiten not available in TICMI API (400 Bad Request)`
+        }];
+        
+        const combinedData = [...placeholderData, ...existingData];
+        // Sort descending: newest first (consistent with main data processing)
+        combinedData.sort((a, b) => {
+          const dateA = a.date || a.tanggal || a.Date || '';
+          const dateB = b.date || b.tanggal || b.Date || '';
+          return new Date(dateB).getTime() - new Date(dateA).getTime();
+        });
+        
+        const deduplicatedData = removeDuplicates(combinedData);
+        const csvData = convertToCsv(deduplicatedData);
+        
+        await azureStorage.uploadCsvData(azureBlobName, csvData);
+        
+        // Cache the result
+        cache.set(cacheKey, { processed: true });
+        
+        await AzureLogger.logItemProcess('holding', 'SKIP', emiten, 'Emiten not available in API (400 Bad Request)');
+        return { success: true, skipped: true };
+      }
+      
+      // Re-throw other errors
+      throw apiError;
+    }
     
     if (!response.data || response.data === null) {
       const placeholderData = [{
@@ -144,6 +182,7 @@ async function processHoldingEmiten(
       }];
       
       const combinedData = [...placeholderData, ...existingData];
+      // Sort descending: newest first (consistent with main data processing)
       combinedData.sort((a, b) => {
         const dateA = a.date || a.tanggal || a.Date || '';
         const dateB = b.date || b.tanggal || b.Date || '';
@@ -174,10 +213,14 @@ async function processHoldingEmiten(
     }
     
     const combinedData = [...normalizedData, ...existingData];
+    // Sort descending: newest first (dateB - dateA for descending order)
     combinedData.sort((a, b) => {
       const dateA = a.date || a.tanggal || a.Date || '';
       const dateB = b.date || b.tanggal || b.Date || '';
-      return dateB.localeCompare(dateA);
+      // Use Date comparison for consistency (same as placeholder data path)
+      const timeA = new Date(dateA).getTime();
+      const timeB = new Date(dateB).getTime();
+      return timeB - timeA; // Descending: newest first
     });
     
     const deduplicatedData = removeDuplicates(combinedData);

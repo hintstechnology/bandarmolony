@@ -146,7 +146,52 @@ async function processShareholdersEmiten(
       secCode: emiten,
     };
 
-    const response = await httpClient.get(baseUrl, params);
+    let response;
+    try {
+      response = await httpClient.get(baseUrl, params);
+    } catch (apiError: any) {
+      // Handle 400 Bad Request - emiten may not exist or be invalid in TICMI API
+      if (apiError.response && apiError.response.status === 400) {
+        console.warn(`⚠️ Emiten ${emiten} returned 400 Bad Request - may not be available in TICMI API`);
+        
+        // Save placeholder data to indicate emiten is not available
+        const placeholderData = [{
+          EmitenCode: emiten,
+          DataDate: todayDate,
+          JumlahPemegangSaham: '',
+          LastUpdate: todayDate,
+          PemegangSaham_Pengendali: '',
+          PemegangSaham_Nama: '',
+          PemegangSaham_Kategori: 'NOT_AVAILABLE',
+          PemegangSaham_Persentase: '',
+          PemegangSaham_JmlSaham: ''
+        }];
+        
+        const combinedData = [...placeholderData, ...existingData];
+        // Sort descending: newest first (consistent with main data processing)
+        combinedData.sort((a, b) => {
+          const dateA = a.DataDate || a.date || a.Date || '';
+          const dateB = b.DataDate || b.date || b.Date || '';
+          const timeA = new Date(dateA).getTime();
+          const timeB = new Date(dateB).getTime();
+          return timeB - timeA; // Descending: newest first
+        });
+        
+        const deduplicatedData = removeDuplicates(combinedData);
+        const csvData = convertToCsv(deduplicatedData);
+        
+        await azureStorage.uploadCsvData(azureBlobName, csvData);
+        
+        // Cache the result
+        cache.set(cacheKey, { processed: true });
+        
+        await AzureLogger.logItemProcess('shareholders', 'SKIP', emiten, 'Emiten not available in API (400 Bad Request)');
+        return { success: true, skipped: true };
+      }
+      
+      // Re-throw other errors
+      throw apiError;
+    }
     
     // Jika respons kosong - sesuai file asli
     if (!response.data) {
@@ -187,11 +232,14 @@ async function processShareholdersEmiten(
     // Gabungkan data baru dengan data existing
     const combinedData = [...normalizedData, ...existingData];
     
-    // Urutkan berdasarkan tanggal (terbaru di atas) - sesuai file asli
+    // Sort descending: newest first (consistent with holding data processing)
     combinedData.sort((a, b) => {
       const dateA = a.DataDate || a.date || a.Date || '';
       const dateB = b.DataDate || b.date || b.Date || '';
-      return dateB.localeCompare(dateA); // Descending (terbaru di atas)
+      // Use Date comparison for consistency (same as holding data)
+      const timeA = new Date(dateA).getTime();
+      const timeB = new Date(dateB).getTime();
+      return timeB - timeA; // Descending: newest first
     });
     
     // Hapus duplikat berdasarkan kombinasi unik - sesuai file asli
