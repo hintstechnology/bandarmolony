@@ -74,10 +74,22 @@ const formatNumber = (value: number): string => {
   return value.toLocaleString();
 };
 
+// Format Lot: jika >= 1,000,000 gunakan format dengan K (1,000K), jika < 1,000,000 gunakan format koma ribuan biasa (12,000)
+const formatLot = (value: number): string => {
+  const rounded = Math.round(value);
+  if (rounded >= 1000000) {
+    // Format dengan K untuk nilai >= 1,000,000 (misal: 1,000,000 -> 1,000K)
+    const thousands = rounded / 1000;
+    return `${thousands.toLocaleString('en-US', { maximumFractionDigits: 0 })}K`;
+  }
+  // Format koma ribuan biasa untuk nilai < 1,000,000 (misal: 12,000 -> 12,000)
+  return rounded.toLocaleString('en-US');
+};
+
 const formatAverage = (value: number): string => {
   return value.toLocaleString('id-ID', {
     minimumFractionDigits: 0,
-    maximumFractionDigits: 2
+    maximumFractionDigits: 1
   });
 };
 
@@ -119,8 +131,8 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     }
     return '';
   });
-  const [selectedTicker, setSelectedTicker] = useState<string>(propSelectedStock || 'BBCA');
-  const [tickerInput, setTickerInput] = useState<string>(propSelectedStock || 'BBCA');
+  const [selectedTickers, setSelectedTickers] = useState<string[]>(propSelectedStock ? [propSelectedStock] : ['BBCA']);
+  const [tickerInput, setTickerInput] = useState<string>('');
   const [fdFilter, setFdFilter] = useState<'All' | 'Foreign' | 'Domestic'>('All');
   const [marketFilter, setMarketFilter] = useState<'RG' | 'TN' | 'NG' | ''>('');
   
@@ -132,6 +144,36 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   const dropdownRef = useRef<HTMLDivElement>(null);
   const startDateRef = useRef<HTMLInputElement>(null);
   const endDateRef = useRef<HTMLInputElement>(null);
+  const valueTableRef = useRef<HTMLTableElement>(null);
+  const netTableRef = useRef<HTMLTableElement>(null);
+  const valueTableContainerRef = useRef<HTMLDivElement>(null);
+  const netTableContainerRef = useRef<HTMLDivElement>(null);
+
+  // Column widths state - store widths for Value table columns
+  const [columnWidths, setColumnWidths] = useState<{
+    BY: string;
+    BLot: string;
+    BVal: string;
+    BAvg: string;
+    hash: string; // '#'
+    SL: string;
+    SLot: string;
+    SVal: string;
+    SAvg: string;
+  }>({
+    BY: 'w-4',
+    BLot: 'w-6',
+    BVal: 'w-6',
+    BAvg: 'w-6',
+    hash: 'w-4',
+    SL: 'w-4',
+    SLot: 'w-6',
+    SVal: 'w-6',
+    SAvg: 'w-6',
+  });
+
+  // Date column group widths - store width for each date column group (colspan=9)
+  const [dateColumnWidths, setDateColumnWidths] = useState<Map<string, string>>(new Map());
 
   // dark mode hook used here once per component
   // dark mode hook removed; not needed for current color rules
@@ -141,13 +183,13 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Update selectedTicker when prop changes
+  // Update selectedTickers when prop changes
   useEffect(() => {
-    if (propSelectedStock && propSelectedStock !== selectedTicker) {
-      setSelectedTicker(propSelectedStock);
-      setTickerInput(propSelectedStock);
+    if (propSelectedStock && !selectedTickers.includes(propSelectedStock)) {
+      setSelectedTickers([propSelectedStock]);
+      setTickerInput('');
     }
-  }, [propSelectedStock, selectedTicker]);
+  }, [propSelectedStock]);
 
   // Load available stocks when dates change
   useEffect(() => {
@@ -173,90 +215,114 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     loadAvailableStocks();
   }, [selectedDates, marketFilter]);
 
-  // Load broker summary data from backend for each selected date
+  // Load broker summary data from backend for each selected date and aggregate multiple tickers
   useEffect(() => {
     const fetchAll = async () => {
-      if (!selectedTicker || selectedDates.length === 0) {
+      if (selectedTickers.length === 0 || selectedDates.length === 0) {
         return;
       }
       setIsLoading(true);
       setError(null);
       try {
-        const entries = await Promise.all(
-           selectedDates.map(async (date) => {
-            // When marketFilter is empty string (All Trade), send it as empty string, not default to 'RG'
-            const market = marketFilter || '';
-            console.log(`[BrokerSummary] Fetching data for ${selectedTicker} on ${date} with market: ${market || 'All Trade'}`);
-            const res = await api.getBrokerSummaryData(selectedTicker, date, market as 'RG' | 'TN' | 'NG' | '');
-            console.log(`[BrokerSummary] Response for ${date}:`, {
-              success: res?.success,
-              hasData: !!res?.data,
-              hasBrokerData: !!res?.data?.brokerData,
-              brokerDataLength: res?.data?.brokerData?.length || 0,
-              error: res?.error,
-              path: res?.data?.path
-            });
-            
-            // Check if response is successful
-            if (!res || !res.success) {
-              console.error(`[BrokerSummary] Failed to fetch data for ${selectedTicker} on ${date}:`, res?.error || 'Unknown error');
-              return [date, []] as const;
-            }
-            
-            // Check if brokerData exists
-            if (!res.data || !res.data.brokerData || !Array.isArray(res.data.brokerData)) {
-              console.warn(`[BrokerSummary] No broker data in response for ${selectedTicker} on ${date}`);
-              return [date, []] as const;
-            }
-            
-            const rows: BrokerSummaryData[] = (res.data.brokerData ?? []).map((r: any, idx: number) => {
-              // Backend sudah swap kolom Buyer dan Seller, jadi frontend tidak perlu swap lagi
-              const mapped = {
-                broker: r.BrokerCode ?? r.broker ?? r.BROKER ?? r.code ?? '',
-                // Buyer fields - langsung dari BuyerVol, BuyerValue, BuyerAvg (backend sudah swap)
-                buyerVol: Number(r.BuyerVol ?? 0),
-                buyerValue: Number(r.BuyerValue ?? 0),
-                bavg: Number(r.BuyerAvg ?? r.bavg ?? 0),
-                // Seller fields - langsung dari SellerVol, SellerValue, SellerAvg (backend sudah swap)
-                sellerVol: Number(r.SellerVol ?? 0),
-                sellerValue: Number(r.SellerValue ?? 0),
-                savg: Number(r.SellerAvg ?? r.savg ?? 0),
-                // Net fields
-                netBuyVol: Number(r.NetBuyVol ?? 0),
-                netBuyValue: Number(r.NetBuyValue ?? 0),
-                // Legacy fields for backward compatibility
-                nblot: Number(r.NetBuyVol ?? r.nblot ?? 0),
-                nbval: Number(r.NetBuyValue ?? r.nbval ?? 0),
-                sl: Number(r.SellerVol ?? r.sl ?? 0),
-                nslot: -Number(r.SellerVol ?? 0),
-                nsval: -Number(r.SellerValue ?? 0)
-              };
-              
-              // Debug first row mapping
-              if (idx === 0) {
-                console.log(`[BrokerSummary] Sample row mapping for ${date}:`, {
-                  original: r,
-                  mapped
-                });
-              }
-              
-              return mapped;
-            }) as BrokerSummaryData[];
-            
-            console.log(`[BrokerSummary] Mapped ${rows.length} rows for ${selectedTicker} on ${date}`);
-            return [date, rows] as const;
-           })
-        );
-        const map = new Map<string, BrokerSummaryData[]>();
-        entries.forEach(([date, rows]) => {
-          map.set(date, [...rows]); // Convert readonly array to mutable array
-          console.log(`[BrokerSummary] Stored ${rows.length} rows for date ${date}`);
-        });
-        setSummaryByDate(map);
+        const market = marketFilter || '';
         
-        // Log summary
-        const totalRows = Array.from(map.values()).reduce((sum, rows) => sum + rows.length, 0);
-        console.log(`[BrokerSummary] Total rows loaded: ${totalRows} across ${map.size} dates`);
+        // Fetch data for all selected tickers and all dates
+        const allDataPromises = selectedTickers.flatMap(ticker =>
+              selectedDates.map(async (date) => {
+                console.log(`[BrokerSummary] Fetching data for ${ticker} on ${date} with market: ${market || 'All Trade'}`);
+                const res = await api.getBrokerSummaryData(ticker, date, market as 'RG' | 'TN' | 'NG' | '');
+                
+                // Check if response is successful
+                if (!res || !res.success) {
+                  console.error(`[BrokerSummary] Failed to fetch data for ${ticker} on ${date}:`, res?.error || 'Unknown error');
+              return { ticker, date, data: [] };
+                }
+                
+                // Check if brokerData exists
+                if (!res.data || !res.data.brokerData || !Array.isArray(res.data.brokerData)) {
+                  console.warn(`[BrokerSummary] No broker data in response for ${ticker} on ${date}`);
+              return { ticker, date, data: [] };
+                }
+                
+            const rows: BrokerSummaryData[] = (res.data.brokerData ?? []).map((r: any) => {
+              return {
+                    broker: r.BrokerCode ?? r.broker ?? r.BROKER ?? r.code ?? '',
+                    buyerVol: Number(r.BuyerVol ?? 0),
+                    buyerValue: Number(r.BuyerValue ?? 0),
+                    bavg: Number(r.BuyerAvg ?? r.bavg ?? 0),
+                    sellerVol: Number(r.SellerVol ?? 0),
+                    sellerValue: Number(r.SellerValue ?? 0),
+                    savg: Number(r.SellerAvg ?? r.savg ?? 0),
+                    netBuyVol: Number(r.NetBuyVol ?? 0),
+                    netBuyValue: Number(r.NetBuyValue ?? 0),
+                    nblot: Number(r.NetBuyVol ?? r.nblot ?? 0),
+                    nbval: Number(r.NetBuyValue ?? r.nbval ?? 0),
+                    sl: Number(r.SellerVol ?? r.sl ?? 0),
+                    nslot: -Number(r.SellerVol ?? 0),
+                    nsval: -Number(r.SellerValue ?? 0)
+                  };
+                }) as BrokerSummaryData[];
+                
+            return { ticker, date, data: rows };
+          })
+        );
+        
+        const allDataResults = await Promise.all(allDataPromises);
+        
+        // Aggregate data per date and per broker (sum all tickers)
+        const aggregatedMap = new Map<string, Map<string, BrokerSummaryData>>();
+        
+        selectedDates.forEach(date => {
+          aggregatedMap.set(date, new Map<string, BrokerSummaryData>());
+        });
+        
+        allDataResults.forEach(({ date, data }) => {
+          const dateMap = aggregatedMap.get(date);
+          if (!dateMap) return;
+          
+          data.forEach(row => {
+            const broker = row.broker;
+            if (!broker) return;
+            
+            const existing = dateMap.get(broker);
+            if (existing) {
+              // Sum values from multiple tickers
+              existing.buyerVol += row.buyerVol;
+              existing.buyerValue += row.buyerValue;
+              existing.sellerVol += row.sellerVol;
+              existing.sellerValue += row.sellerValue;
+              existing.netBuyVol += row.netBuyVol;
+              existing.netBuyValue += row.netBuyValue;
+              existing.nblot += row.nblot;
+              existing.nbval += row.nbval;
+              existing.sl += row.sl;
+              
+              // Recalculate nslot and nsval from aggregated seller values (negative values)
+              existing.nslot = -existing.sellerVol;
+              existing.nsval = -existing.sellerValue;
+              
+              // Recalculate averages
+              existing.bavg = existing.buyerVol > 0 ? existing.buyerValue / existing.buyerVol : 0;
+              existing.savg = existing.sellerVol > 0 ? existing.sellerValue / existing.sellerVol : 0;
+            } else {
+              // First occurrence of this broker for this date
+              dateMap.set(broker, { ...row });
+            }
+          });
+        });
+        
+        // Convert aggregated map to the format expected by the component
+        const finalMap = new Map<string, BrokerSummaryData[]>();
+        aggregatedMap.forEach((brokerMap, date) => {
+          const rows = Array.from(brokerMap.values());
+          finalMap.set(date, rows);
+          console.log(`[BrokerSummary] Aggregated ${rows.length} brokers for date ${date} from ${selectedTickers.length} ticker(s)`);
+        });
+        
+        setSummaryByDate(finalMap);
+        
+        const totalRows = Array.from(finalMap.values()).reduce((sum, rows) => sum + rows.length, 0);
+        console.log(`[BrokerSummary] Total aggregated rows: ${totalRows} across ${finalMap.size} dates from ${selectedTickers.join(', ')}`);
       } catch (e: any) {
         console.error('[BrokerSummary] Error fetching data:', e);
         setError(e?.message || 'Failed to load broker summary');
@@ -266,7 +332,372 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     };
 
     fetchAll();
-  }, [selectedTicker, selectedDates, marketFilter]);
+  }, [selectedTickers, selectedDates, marketFilter]);
+
+  // Measure and store column widths from VALUE table, including date column group widths
+  useEffect(() => {
+    const measureColumnWidths = () => {
+      const valueTable = valueTableRef.current;
+      if (!valueTable || selectedDates.length === 0) return;
+
+      // Get header rows
+      const valueHeaderRows = valueTable.querySelectorAll('thead tr');
+      if (valueHeaderRows.length < 2) return;
+
+      // Get the first header row (date headers with colspan=9)
+      const valueDateHeaderRow = valueHeaderRows[0];
+      if (!valueDateHeaderRow) return;
+
+      // Measure width of each date column group (colspan=9)
+      // Also check body cells to get actual rendered width (important for multiple emiten sums)
+      const dateHeaderCells = valueDateHeaderRow.querySelectorAll('th[colspan="9"]');
+      const valueBodyRows = valueTable.querySelectorAll('tbody tr');
+      const newDateColumnWidths = new Map<string, string>();
+      
+      selectedDates.forEach((date, dateIndex) => {
+        const dateHeaderCell = dateHeaderCells[dateIndex] as HTMLElement;
+        let maxDateWidth = 0;
+        
+        if (dateHeaderCell && dateHeaderCell.offsetWidth > 0) {
+          maxDateWidth = dateHeaderCell.offsetWidth;
+        }
+        
+        // Check actual width from body rows (important when content grows due to sums)
+        if (valueBodyRows.length > 0) {
+          valueBodyRows.forEach((row) => {
+            const cells = Array.from(row.children);
+            const startIdx = dateIndex * 9;
+            const endIdx = startIdx + 9;
+            const dateGroupCells = cells.slice(startIdx, endIdx);
+            
+            // Calculate total width of this date column group from cells
+            let groupWidth = 0;
+            dateGroupCells.forEach((cell) => {
+              const cellEl = cell as HTMLElement;
+              if (cellEl) {
+                groupWidth += cellEl.offsetWidth || 0;
+              }
+            });
+            
+            if (groupWidth > maxDateWidth) {
+              maxDateWidth = groupWidth;
+            }
+          });
+        }
+        
+        if (maxDateWidth > 0) {
+          newDateColumnWidths.set(date, `${maxDateWidth}px`);
+        }
+      });
+
+      // Update date column widths if we have measurements
+      if (newDateColumnWidths.size > 0) {
+        setDateColumnWidths(newDateColumnWidths);
+      }
+
+      // Get the second header row (the one with column headers: BY, BLot, etc.)
+      const valueColumnHeaderRow = valueHeaderRows[1];
+      if (!valueColumnHeaderRow) return;
+
+      // Get the first date column group to measure individual column widths
+      const valueDateHeaderCells = valueColumnHeaderRow.querySelectorAll('th');
+      
+      // Find first date column group (skip Total columns at the end)
+      // Each date has 9 columns: BY, BLot, BVal, BAvg, #, SL, SLot, SVal, SAvg
+      if (valueDateHeaderCells.length >= 9) {
+        type ColumnName = 'BY' | 'BLot' | 'BVal' | 'BAvg' | 'hash' | 'SL' | 'SLot' | 'SVal' | 'SAvg';
+        const widths: Partial<Record<ColumnName, string>> = {};
+        
+        // Measure each column in the first date group (index 0-8)
+        // Column order: BY, BLot, BVal, BAvg, #, SL, SLot, SVal, SAvg
+        const columnNames: ColumnName[] = ['BY', 'BLot', 'BVal', 'BAvg', 'hash', 'SL', 'SLot', 'SVal', 'SAvg'];
+        
+        columnNames.forEach((colName, idx) => {
+          const headerCell = valueDateHeaderCells[idx] as HTMLElement;
+          if (headerCell && headerCell.offsetWidth > 0) {
+            // Store as pixel value
+            widths[colName] = `${headerCell.offsetWidth}px`;
+          }
+        });
+        
+        // Check all body cells for more accurate measurement (to handle multiple emiten sums)
+        const valueBodyRows = valueTable.querySelectorAll('tbody tr');
+        if (valueBodyRows.length > 0) {
+          // Measure maximum width across all rows for each column
+          valueBodyRows.forEach((row) => {
+            const dateCells = Array.from(row.children).slice(0, 9);
+            
+            dateCells.forEach((cell, idx) => {
+              if (idx < columnNames.length) {
+                const colName = columnNames[idx];
+                if (colName) {
+                  const cellEl = cell as HTMLElement;
+                  if (cellEl && cellEl.offsetWidth > 0) {
+                    const existingWidth = widths[colName];
+                    if (!existingWidth) {
+                      widths[colName] = `${cellEl.offsetWidth}px`;
+                    } else {
+                      // Use the maximum width across all cells
+                      const existingWidthNum = parseInt(existingWidth || '0') || 0;
+                      if (cellEl.offsetWidth > existingWidthNum) {
+                        widths[colName] = `${cellEl.offsetWidth}px`;
+                      }
+                    }
+                  }
+                }
+              }
+            });
+          });
+        }
+        
+        // Update column widths state if we have all measurements
+        if (widths.BY && widths.BLot && widths.BVal && widths.BAvg && widths.hash && 
+            widths.SL && widths.SLot && widths.SVal && widths.SAvg) {
+          setColumnWidths({
+            BY: widths.BY || 'w-4',
+            BLot: widths.BLot || 'w-6',
+            BVal: widths.BVal || 'w-6',
+            BAvg: widths.BAvg || 'w-6',
+            hash: widths.hash || 'w-4',
+            SL: widths.SL || 'w-4',
+            SLot: widths.SLot || 'w-6',
+            SVal: widths.SVal || 'w-6',
+            SAvg: widths.SAvg || 'w-6',
+          });
+        }
+      }
+    };
+
+    // Initial measurement with delays (longer delays to wait for data rendering after sums)
+    const timeoutId1 = setTimeout(() => measureColumnWidths(), 100);
+    const timeoutId2 = setTimeout(() => measureColumnWidths(), 300);
+    const timeoutId3 = setTimeout(() => measureColumnWidths(), 600);
+    const timeoutId4 = setTimeout(() => measureColumnWidths(), 1000);
+
+    // Use ResizeObserver to watch for changes
+    let resizeObserver: ResizeObserver | null = null;
+    
+    if (valueTableRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        // Add small delay to avoid too frequent measurements
+        setTimeout(() => measureColumnWidths(), 100);
+      });
+      resizeObserver.observe(valueTableRef.current);
+    }
+
+    // Also watch the container
+    if (valueTableContainerRef.current) {
+      if (!resizeObserver) {
+        resizeObserver = new ResizeObserver(() => {
+          setTimeout(() => measureColumnWidths(), 100);
+        });
+      }
+      resizeObserver.observe(valueTableContainerRef.current);
+    }
+
+    // Measure after data loads (with longer delay to ensure rendering is complete)
+    if (!isLoading && summaryByDate.size > 0) {
+      const dataTimeoutId = setTimeout(() => measureColumnWidths(), 800);
+      
+      return () => {
+        clearTimeout(timeoutId1);
+        clearTimeout(timeoutId2);
+        clearTimeout(timeoutId3);
+        clearTimeout(timeoutId4);
+        clearTimeout(dataTimeoutId);
+        if (resizeObserver) resizeObserver.disconnect();
+      };
+    }
+
+    return () => {
+      clearTimeout(timeoutId1);
+      clearTimeout(timeoutId2);
+      clearTimeout(timeoutId3);
+      clearTimeout(timeoutId4);
+      if (resizeObserver) resizeObserver.disconnect();
+    };
+  }, [summaryByDate, selectedDates, selectedTickers, isLoading]);
+
+  // Sync NET table width with VALUE table width dynamically, including date column group widths
+  useEffect(() => {
+    const syncTableWidths = () => {
+      const valueTable = valueTableRef.current;
+      const netTable = netTableRef.current;
+      const netContainer = netTableContainerRef.current;
+
+      if (!valueTable || !netTable) return;
+
+      // Sync overall table width - ensure NET is not wider than VALUE
+      const valueTableWidth = valueTable.scrollWidth || valueTable.offsetWidth;
+      
+      if (valueTableWidth > 0) {
+        // Use Value table width exactly, don't let Net table grow wider
+        netTable.style.width = `${valueTableWidth}px`;
+        netTable.style.minWidth = `${valueTableWidth}px`;
+        netTable.style.maxWidth = `${valueTableWidth}px`; // Prevent Net from being wider
+        
+        if (netContainer) {
+          netContainer.style.width = `${valueTableWidth}px`;
+          netContainer.style.minWidth = `${valueTableWidth}px`;
+          netContainer.style.maxWidth = `${valueTableWidth}px`; // Prevent container from being wider
+        }
+      }
+
+      // Sync date column group widths (colspan=9 headers)
+      const valueHeaderRows = valueTable.querySelectorAll('thead tr');
+      const netHeaderRows = netTable.querySelectorAll('thead tr');
+      
+      if (valueHeaderRows.length >= 2 && netHeaderRows.length >= 2) {
+        // Get first header row (date headers with colspan=9)
+        const netDateHeaderRow = netHeaderRows[0];
+        const valueDateHeaderRow = valueHeaderRows[0];
+        
+        if (netDateHeaderRow && valueDateHeaderRow && dateColumnWidths.size > 0) {
+          const netDateHeaderCells = netDateHeaderRow.querySelectorAll('th[colspan="9"]');
+          const valueDateHeaderCells = valueDateHeaderRow.querySelectorAll('th[colspan="9"]');
+          
+          selectedDates.forEach((date, dateIndex) => {
+            const dateWidth = dateColumnWidths.get(date);
+            const netDateHeaderCell = netDateHeaderCells[dateIndex] as HTMLElement;
+            const valueDateHeaderCell = valueDateHeaderCells[dateIndex] as HTMLElement;
+            
+            if (netDateHeaderCell && dateWidth) {
+              // Apply the date column group width - use exact width from Value table
+              netDateHeaderCell.style.width = dateWidth;
+              netDateHeaderCell.style.minWidth = dateWidth;
+              netDateHeaderCell.style.maxWidth = dateWidth; // Prevent Net from being wider
+            }
+            
+            // Also ensure the value date header has the same width for consistency
+            if (valueDateHeaderCell && dateWidth) {
+              valueDateHeaderCell.style.width = dateWidth;
+              valueDateHeaderCell.style.minWidth = dateWidth;
+            }
+          });
+        }
+
+        // Sync individual column widths using stored columnWidths
+        const valueColumnHeaderRow = valueHeaderRows[1];
+        const netColumnHeaderRow = netHeaderRows[1];
+        
+        if (valueColumnHeaderRow && netColumnHeaderRow) {
+          // Apply column widths to NET table header cells
+          const netHeaderCells = netColumnHeaderRow.querySelectorAll('th');
+          const columnOrder = ['BY', 'BLot', 'BVal', 'BAvg', 'hash', 'SL', 'SLot', 'SVal', 'SAvg'];
+          
+          // Apply widths to each date column group
+          selectedDates.forEach((_, dateIndex) => {
+            const startIdx = dateIndex * 9;
+            columnOrder.forEach((colName, idx) => {
+              const netHeaderCell = netHeaderCells[startIdx + idx] as HTMLElement;
+              if (netHeaderCell && columnWidths[colName as keyof typeof columnWidths]) {
+                const width = columnWidths[colName as keyof typeof columnWidths];
+                if (width.includes('px')) {
+                  netHeaderCell.style.width = width;
+                  netHeaderCell.style.minWidth = width;
+                  netHeaderCell.style.maxWidth = width; // Prevent Net from being wider
+                }
+              }
+            });
+          });
+          
+          // Apply widths to body cells
+          const valueBodyRows = valueTable.querySelectorAll('tbody tr');
+          const netBodyRows = netTable.querySelectorAll('tbody tr');
+          
+          netBodyRows.forEach((netRow, rowIndex) => {
+            const valueRow = valueBodyRows[rowIndex];
+            if (!valueRow || !netRow) return;
+            
+            selectedDates.forEach((_, dateIndex) => {
+              const startIdx = dateIndex * 9;
+              columnOrder.forEach((colName, idx) => {
+                const netCell = netRow.children[startIdx + idx] as HTMLElement;
+                if (netCell && columnWidths[colName as keyof typeof columnWidths]) {
+                  const width = columnWidths[colName as keyof typeof columnWidths];
+                  if (width.includes('px')) {
+                    netCell.style.width = width;
+                    netCell.style.minWidth = width;
+                    netCell.style.maxWidth = width; // Prevent Net from being wider
+                  }
+                }
+              });
+            });
+          });
+        }
+      }
+    };
+
+    // Initial sync with multiple delays to catch different render stages
+    // Wait longer for column measurements to complete first
+    const timeoutId1 = setTimeout(() => {
+      syncTableWidths();
+    }, 150);
+    
+    const timeoutId2 = setTimeout(() => {
+      syncTableWidths();
+    }, 400);
+    
+    const timeoutId3 = setTimeout(() => {
+      syncTableWidths();
+    }, 700);
+    
+    const timeoutId4 = setTimeout(() => {
+      syncTableWidths();
+    }, 1100);
+
+    // Use ResizeObserver to watch for changes in VALUE table width
+    let resizeObserver: ResizeObserver | null = null;
+    
+    if (valueTableRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        syncTableWidths();
+      });
+      resizeObserver.observe(valueTableRef.current);
+    }
+
+    // Also watch the container
+    if (valueTableContainerRef.current) {
+      if (!resizeObserver) {
+        resizeObserver = new ResizeObserver(() => {
+          syncTableWidths();
+        });
+      }
+      resizeObserver.observe(valueTableContainerRef.current);
+    }
+
+    // Also sync on window resize
+    const handleResize = () => {
+      syncTableWidths();
+    };
+    window.addEventListener('resize', handleResize);
+
+    // Sync after data finishes loading (with longer delay to wait for measurements)
+    if (!isLoading && summaryByDate.size > 0) {
+      const dataTimeoutId = setTimeout(() => {
+        syncTableWidths();
+      }, 900);
+      
+      return () => {
+        clearTimeout(timeoutId1);
+        clearTimeout(timeoutId2);
+        clearTimeout(timeoutId3);
+        clearTimeout(timeoutId4);
+        clearTimeout(dataTimeoutId);
+        if (resizeObserver) resizeObserver.disconnect();
+        window.removeEventListener('resize', handleResize);
+      };
+    }
+
+    return () => {
+      clearTimeout(timeoutId1);
+      clearTimeout(timeoutId2);
+      clearTimeout(timeoutId3);
+      clearTimeout(timeoutId4);
+      if (resizeObserver) resizeObserver.disconnect();
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [summaryByDate, selectedDates, selectedTickers, isLoading, columnWidths, dateColumnWidths]);
 
   // clearAllDates removed with Reset button
 
@@ -294,9 +725,15 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   }, [stockSearchTimeout]);
 
   const handleStockSelect = (stock: string) => {
-    setSelectedTicker(stock);
-    setTickerInput(stock);
+    if (!selectedTickers.includes(stock)) {
+      setSelectedTickers([...selectedTickers, stock]);
+    }
+    setTickerInput('');
     setShowStockSuggestions(false);
+  };
+
+  const handleRemoveTicker = (stock: string) => {
+    setSelectedTickers(selectedTickers.filter(t => t !== stock));
   };
 
   const handleStockInputChange = (value: string) => {
@@ -326,13 +763,16 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     setStockSearchTimeout(timeout);
 
     // If exact match, select it
-    if ((availableStocks || []).includes(value.toUpperCase())) {
-      setSelectedTicker(value.toUpperCase());
+    const upperValue = value.toUpperCase();
+    if ((availableStocks || []).includes(upperValue) && !selectedTickers.includes(upperValue)) {
+      setSelectedTickers([...selectedTickers, upperValue]);
+      setTickerInput('');
+      setShowStockSuggestions(false);
     }
   };
 
   const filteredStocks = (availableStocks || []).filter(stock =>
-    stock.toLowerCase().includes(tickerInput.toLowerCase())
+    stock.toLowerCase().includes(tickerInput.toLowerCase()) && !selectedTickers.includes(stock)
   );
 
   // Helper function to trigger date picker
@@ -362,15 +802,15 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   };
 
   const renderHorizontalView = () => {
-    if (!selectedTicker || selectedDates.length === 0) return null;
+    if (selectedTickers.length === 0 || selectedDates.length === 0) return null;
     
     // Build view model from API data (for each selected date)
     const allBrokerData = selectedDates.map(date => {
       const rows = summaryByDate.get(date) || [];
-      return {
-        date,
-        buyData: rows,
-        sellData: rows
+          return {
+            date,
+            buyData: rows,
+            sellData: rows
       };
     });
     
@@ -385,117 +825,117 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         {/* Combined Buy & Sell Side Table */}
         <div className="w-full">
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
-            <h3 className="font-semibold text-sm">VALUE - {selectedTicker}</h3>
+            <h3 className="font-semibold text-sm">VALUE - {selectedTickers.join(', ')}</h3>
           </div>
-          <div className="w-full">
-            <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
-              <table className={`w-full min-w-[1000px] ${getFontSizeClass()} border-collapse table-auto`}>
-                        <thead className="bg-[#3a4252]">
-                          <tr className="border-b border-[#3a4252]">
-                    {selectedDates.map((date) => (
-                      <th key={date} className={`text-center py-0 px-2 font-medium text-white border border-[#3a4252] border-r-8 border-r-[#3a4252] whitespace-nowrap`} colSpan={9}>
-                        {formatDisplayDate(date)}
-                      </th>
-                    ))}
-                    <th className="text-center py-0 px-1 font-medium text-white border border-[#3a4252]" colSpan={7}>
-                      Total
-                    </th>
-                  </tr>
-                  <tr className="border-b border-[#3a4252] bg-[#3a4252]">
-                    {selectedDates.map((date) => (
+           <div className="w-full">
+             <div ref={valueTableContainerRef} className="overflow-x-auto max-h-[520px] overflow-y-auto">
+               <table ref={valueTableRef} className={`w-full min-w-[1000px] ${getFontSizeClass()} border-collapse table-auto`}>
+                         <thead className="bg-[#3a4252]">
+                         <tr className="border-b border-[#3a4252]">
+                     {selectedDates.map((date) => (
+                       <th key={date} className={`text-center py-0 px-2 font-medium text-white border border-[#3a4252] border-r-8 border-r-[#3a4252] whitespace-nowrap`} colSpan={9}>
+                         {formatDisplayDate(date)}
+                            </th>
+                          ))}
+                          <th className="text-center py-0 px-1 font-medium text-white border border-[#3a4252]" colSpan={7}>
+                            Total
+                          </th>
+                        </tr>
+                        <tr className="border-b border-[#3a4252] bg-[#3a4252]">
+                        {selectedDates.map((date) => (
                       <React.Fragment key={`detail-${date}`}>
-                        {/* BY Columns */}
-                        <th className={`text-left py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BY</th>
-                        <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BLot</th>
-                        <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BVal</th>
-                        <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BAvg</th>
-                        {/* SL Columns */}
-                        <th className="text-center py-0 px-1 font-medium text-white bg-[#3a4252] border border-[#3a4252]">#</th>
-                        <th className={`text-left py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SL</th>
-                        <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SLot</th>
-                        <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SVal</th>
-                        <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252] border-r-8 border-r-[#3a4252]`}>SAvg</th>
-                      </React.Fragment>
-                    ))}
+                              {/* BY Columns */}
+                              <th className={`text-left py-0 px-1 font-medium text-white border border-[#3a4252] w-4`}>BY</th>
+                              <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] w-6`}>BLot</th>
+                              <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] w-6`}>BVal</th>
+                              <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] w-6`}>BAvg</th>
+                              {/* SL Columns */}
+                              <th className="text-center py-0 px-1 font-medium text-white bg-[#3a4252] border border-[#3a4252] w-4">#</th>
+                              <th className={`text-left py-0 px-1 font-medium text-white border border-[#3a4252] w-4`}>SL</th>
+                              <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] w-6`}>SLot</th>
+                              <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] w-6`}>SVal</th>
+                        <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] border-r-8 border-r-[#3a4252] w-6`}>SAvg</th>
+                            </React.Fragment>
+                          ))}
                     {/* Total Columns - No BAvg and SAvg */}
-                    <th className={`text-left py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BY</th>
-                    <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BLot</th>
-                    <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BVal</th>
-                    <th className="text-center py-0 px-1 font-medium text-white bg-[#3a4252] border border-[#3a4252]">#</th>
-                    <th className={`text-left py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SL</th>
-                    <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SLot</th>
-                    <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SVal</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                  {(() => {
-                    // Get broker text color class
-                    const getBrokerColorClass = (brokerCode: string): string => {
-                      if (GOVERNMENT_BROKERS.includes(brokerCode)) {
-                        return 'text-green-600 font-semibold';
-                      }
-                      if (FOREIGN_BROKERS.includes(brokerCode)) {
-                        return 'text-red-600 font-semibold';
-                      }
-                      return 'text-white font-semibold';
-                    };
-                    
+                          <th className={`text-left py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BY</th>
+                          <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BLot</th>
+                          <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BVal</th>
+                          <th className="text-center py-0 px-1 font-medium text-white bg-[#3a4252] border border-[#3a4252]">#</th>
+                          <th className={`text-left py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SL</th>
+                          <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SLot</th>
+                          <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SVal</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          // Get broker text color class
+                          const getBrokerColorClass = (brokerCode: string): string => {
+                            if (GOVERNMENT_BROKERS.includes(brokerCode)) {
+                              return 'text-green-600 font-semibold';
+                            }
+                            if (FOREIGN_BROKERS.includes(brokerCode)) {
+                              return 'text-red-600 font-semibold';
+                            }
+                            return 'text-white font-semibold';
+                          };
+                          
                     // Calculate total data across all dates (SWAPPED: Buy uses SELL fields, Sell uses BUY fields)
                     const totalBuyData: { [broker: string]: { nblot: number; nbval: number; bavg: number; count: number } } = {};
                     const totalSellData: { [broker: string]: { nslot: number; nsval: number; savg: number; count: number } } = {};
                     
                     allBrokerData.forEach(dateData => {
-                      // BUY total uses Buyer metrics
-                      dateData.buyData.forEach(b => {
-                        if (b.buyerValue > 0) {
+                            // BUY total uses Buyer metrics
+                            dateData.buyData.forEach(b => {
+                              if (b.buyerValue > 0) {
                           if (!totalBuyData[b.broker]) {
                             totalBuyData[b.broker] = { nblot: 0, nbval: 0, bavg: 0, count: 0 };
-                          }
+                                }
                           const buyEntry = totalBuyData[b.broker];
-                          if (buyEntry) {
-                            buyEntry.nblot += b.buyerVol;
-                            buyEntry.nbval += b.buyerValue;
-                            buyEntry.bavg += b.bavg;
-                            buyEntry.count += 1;
-                          }
-                        }
-                      });
-                      
-                      // SELL total uses Seller metrics
-                      dateData.sellData.forEach(s => {
-                        if (s.sellerValue > 0) {
+                                if (buyEntry) {
+                                  buyEntry.nblot += b.buyerVol;
+                                  buyEntry.nbval += b.buyerValue;
+                                  buyEntry.bavg += b.bavg;
+                                  buyEntry.count += 1;
+                                }
+                              }
+                            });
+                            
+                            // SELL total uses Seller metrics
+                            dateData.sellData.forEach(s => {
+                              if (s.sellerValue > 0) {
                           if (!totalSellData[s.broker]) {
                             totalSellData[s.broker] = { nslot: 0, nsval: 0, savg: 0, count: 0 };
-                          }
+                                }
                           const sellEntry = totalSellData[s.broker];
-                          if (sellEntry) {
-                            sellEntry.nslot += s.sellerVol;
-                            sellEntry.nsval += s.sellerValue;
-                            sellEntry.savg += s.savg;
-                            sellEntry.count += 1;
-                          }
-                        }
-                      });
-                    });
-                    
+                                if (sellEntry) {
+                                  sellEntry.nslot += s.sellerVol;
+                                  sellEntry.nsval += s.sellerValue;
+                                  sellEntry.savg += s.savg;
+                                  sellEntry.count += 1;
+                                }
+                              }
+                            });
+                          });
+                          
                     // Sort total data
                     const sortedTotalBuy = Object.entries(totalBuyData)
-                      .filter(([broker]) => brokerFDScreen(broker))
-                      .map(([broker, data]) => ({ broker, ...data, bavg: data.bavg / data.count }))
-                      .sort((a, b) => b.nbval - a.nbval);
+                            .filter(([broker]) => brokerFDScreen(broker))
+                            .map(([broker, data]) => ({ broker, ...data, bavg: data.bavg / data.count }))
+                            .sort((a, b) => b.nbval - a.nbval);
                     const sortedTotalSell = Object.entries(totalSellData)
-                      .filter(([broker]) => brokerFDScreen(broker))
-                      .map(([broker, data]) => ({ broker, ...data, savg: data.savg / data.count }))
-                      .sort((a, b) => b.nsval - a.nsval);
-                    
+                            .filter(([broker]) => brokerFDScreen(broker))
+                            .map(([broker, data]) => ({ broker, ...data, savg: data.savg / data.count }))
+                            .sort((a, b) => b.nsval - a.nsval);
+                          
                     // Find max row count across all dates AND total columns
-                    let maxRows = 0;
+                          let maxRows = 0;
                     selectedDates.forEach(date => {
                       const dateData = allBrokerData.find(d => d.date === date);
                       const buyCount = (dateData?.buyData || []).filter(b => brokerFDScreen(b.broker) && b.buyerValue > 0).length;
                       const sellCount = (dateData?.sellData || []).filter(s => brokerFDScreen(s.broker) && s.sellerValue > 0).length;
-                      maxRows = Math.max(maxRows, buyCount, sellCount);
-                    });
+                            maxRows = Math.max(maxRows, buyCount, sellCount);
+                          });
                     
                     // Also include total broker counts in maxRows (for Total column)
                     const totalBuyCount = sortedTotalBuy.length;
@@ -504,216 +944,216 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     
                     // Render rows
                     return Array.from({ length: maxRows }).map((_, rowIdx) => (
-                      <tr key={rowIdx} className="border-b border-[#3a4252]/50 hover:bg-accent/50">
+                              <tr key={rowIdx} className="border-b border-[#3a4252]/50 hover:bg-accent/50">
                         {selectedDates.map((date) => {
                           const dateData = allBrokerData.find(d => d.date === date);
                           
-                          // Sort brokers for this date: Buy uses BuyerValue, Sell uses SellerValue
+                                  // Sort brokers for this date: Buy uses BuyerValue, Sell uses SellerValue
                           const sortedByBuyerValue = (dateData?.buyData || [])
-                            .filter(b => brokerFDScreen(b.broker))
-                            .filter(b => b.buyerValue > 0)
-                            .sort((a, b) => b.buyerValue - a.buyerValue);
+                                    .filter(b => brokerFDScreen(b.broker))
+                                    .filter(b => b.buyerValue > 0)
+                                    .sort((a, b) => b.buyerValue - a.buyerValue);
                           const sortedBySellerValue = (dateData?.sellData || [])
-                            .filter(s => brokerFDScreen(s.broker))
-                            .filter(s => s.sellerValue > 0)
-                            .sort((a, b) => b.sellerValue - a.sellerValue);
-                          
-                          const buyData = sortedByBuyerValue[rowIdx];
-                          const sellData = sortedBySellerValue[rowIdx];
-                          
-                          return (
+                                    .filter(s => brokerFDScreen(s.broker))
+                                    .filter(s => s.sellerValue > 0)
+                                    .sort((a, b) => b.sellerValue - a.sellerValue);
+                                  
+                                  const buyData = sortedByBuyerValue[rowIdx];
+                                  const sellData = sortedBySellerValue[rowIdx];
+                                  
+                                  return (
                             <React.Fragment key={`${date}-${rowIdx}`}>
-                              {/* BY (Buyer) Columns - Using Buyer fields */}
-                              <td className={`py-0 px-[3px] border border-[#3a4252] font-bold ${buyData ? getBrokerColorClass(buyData.broker) : ''}`}>
-                                {buyData?.broker || '-'}
+                                      {/* BY (Buyer) Columns - Using Buyer fields */}
+                                      <td className={`py-0 px-1 border border-[#3a4252] font-bold w-4 ${buyData ? getBrokerColorClass(buyData.broker) : ''}`}>
+                                        {buyData?.broker || '-'}
+                                      </td>
+                              <td className="text-right py-0 px-1 text-green-600 border border-[#3a4252] font-bold w-6">
+                                {buyData ? formatLot(buyData.buyerVol / 100) : '-'}
                               </td>
-                              <td className="text-right py-0 px-[3px] text-green-600 border border-[#3a4252] font-bold">
-                                {buyData ? formatNumber(buyData.buyerVol / 100) : '-'}
+                                      <td className="text-right py-0 px-1 text-green-600 border border-[#3a4252] font-bold w-6">
+                                        {buyData ? formatNumber(buyData.buyerValue) : '-'}
+                                      </td>
+                                      <td className="text-right py-0 px-1 text-green-600 border border-[#3a4252] font-bold w-6">
+                                        {buyData ? formatAverage(buyData.bavg) : '-'}
+                                      </td>
+                                      {/* SL (Seller) Columns - Keep # column */}
+                                      <td className={`text-center py-0 px-1 text-white border border-[#3a4252] bg-[#3a4252] font-bold w-4 ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>{sellData ? rowIdx + 1 : '-'}</td>
+                                      <td className={`py-0 px-1 border border-[#3a4252] font-bold w-4 ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>
+                                        {sellData?.broker || '-'}
+                                      </td>
+                              <td className="text-right py-0 px-1 text-red-600 border border-[#3a4252] font-bold w-6">
+                                {sellData ? formatLot(sellData.sellerVol / 100) : '-'}
                               </td>
-                              <td className="text-right py-0 px-[3px] text-green-600 border border-[#3a4252] font-bold">
-                                {buyData ? formatNumber(buyData.buyerValue) : '-'}
-                              </td>
-                              <td className="text-right py-0 px-[3px] text-green-600 border border-[#3a4252] font-bold">
-                                {buyData ? formatAverage(buyData.bavg) : '-'}
-                              </td>
-                              {/* SL (Seller) Columns - Keep # column */}
-                              <td className={`text-center py-0 px-1 text-white border border-[#3a4252] bg-[#3a4252] font-bold ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>{sellData ? rowIdx + 1 : '-'}</td>
-                              <td className={`py-0 px-[3px] border border-[#3a4252] font-bold ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>
-                                {sellData?.broker || '-'}
-                              </td>
-                              <td className="text-right py-0 px-[3px] text-red-600 border border-[#3a4252] font-bold">
-                                {sellData ? formatNumber(sellData.sellerVol / 100) : '-'}
-                              </td>
-                              <td className="text-right py-0 px-[3px] text-red-600 border border-[#3a4252] font-bold">
-                                {sellData ? formatNumber(sellData.sellerValue) : '-'}
-                              </td>
-                              <td className="text-right py-0 px-[3px] text-red-600 border border-[#3a4252] border-r-8 border-r-[#3a4252] font-bold">
-                                {sellData ? formatAverage(sellData.savg) : '-'}
-                              </td>
-                            </React.Fragment>
-                          );
-                        })}
+                                      <td className="text-right py-0 px-1 text-red-600 border border-[#3a4252] font-bold w-6">
+                                        {sellData ? formatNumber(sellData.sellerValue) : '-'}
+                                      </td>
+                              <td className="text-right py-0 px-1 text-red-600 border border-[#3a4252] border-r-8 border-r-[#3a4252] font-bold w-6">
+                                        {sellData ? formatAverage(sellData.savg) : '-'}
+                                      </td>
+                                    </React.Fragment>
+                                  );
+                                })}
                         {/* Total Columns - No BAvg and SAvg */}
                         {(() => {
                           const totalBuy = sortedTotalBuy[rowIdx];
                           const totalSell = sortedTotalSell[rowIdx];
                           return (
                             <React.Fragment>
-                              <td className={`py-0 px-[3px] border border-[#3a4252] font-bold ${totalBuy ? getBrokerColorClass(totalBuy.broker) : ''}`}>
-                                {totalBuy?.broker || '-'}
-                              </td>
+                                <td className={`py-0 px-[3px] border border-[#3a4252] font-bold ${totalBuy ? getBrokerColorClass(totalBuy.broker) : ''}`}>
+                                  {totalBuy?.broker || '-'}
+                                </td>
                               <td className="text-right py-0 px-[3px] text-green-600 border border-[#3a4252] font-bold">
-                                {totalBuy ? formatNumber(totalBuy.nblot / 100) : '-'}
+                                {totalBuy ? formatLot(totalBuy.nblot / 100) : '-'}
                               </td>
-                              <td className="text-right py-0 px-[3px] text-green-600 border border-[#3a4252] font-bold">
-                                {totalBuy ? formatNumber(totalBuy.nbval) : '-'}
-                              </td>
-                              <td className={`text-center py-0 px-1 text-white border border-[#3a4252] bg-[#3a4252] font-bold ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>{totalSell ? rowIdx + 1 : '-'}</td>
-                              <td className={`py-0 px-[3px] border border-[#3a4252] font-bold ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>
-                                {totalSell?.broker || '-'}
+                                <td className="text-right py-0 px-[3px] text-green-600 border border-[#3a4252] font-bold">
+                                  {totalBuy ? formatNumber(totalBuy.nbval) : '-'}
+                                </td>
+                                <td className={`text-center py-0 px-1 text-white border border-[#3a4252] bg-[#3a4252] font-bold ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>{totalSell ? rowIdx + 1 : '-'}</td>
+                                <td className={`py-0 px-[3px] border border-[#3a4252] font-bold ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>
+                                  {totalSell?.broker || '-'}
+                                </td>
+                              <td className="text-right py-0 px-[3px] text-red-600 border border-[#3a4252] font-bold">
+                                {totalSell ? formatLot(totalSell.nslot / 100) : '-'}
                               </td>
                               <td className="text-right py-0 px-[3px] text-red-600 border border-[#3a4252] font-bold">
-                                {totalSell ? formatNumber(totalSell.nslot / 100) : '-'}
-                              </td>
-                              <td className="text-right py-0 px-[3px] text-red-600 border border-[#3a4252] font-bold">
-                                {totalSell ? formatNumber(totalSell.nsval) : '-'}
-                              </td>
+                                  {totalSell ? formatNumber(totalSell.nsval) : '-'}
+                                </td>
                             </React.Fragment>
-                          );
+                            );
                         })()}
                       </tr>
                     ));
-                  })()}
-                        </tbody>
-                      </table>
-                    </div>
-                </div>
-              </div>
+                        })()}
+                      </tbody>
+                    </table>
+            </div>
+          </div>
+        </div>
 
         {/* Net Table */}
         <div className="w-full mt-1">
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
-            <h3 className="font-semibold text-sm">NET - {selectedTicker}</h3>
+            <h3 className="font-semibold text-sm">NET - {selectedTickers.join(', ')}</h3>
           </div>
           <div className="w-full">
-                    <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
-              <table className={`w-full min-w-[1000px] ${getFontSizeClass()} border-collapse table-auto`}>
+                    <div ref={netTableContainerRef} className="overflow-x-auto max-h-[520px] overflow-y-auto">
+              <table ref={netTableRef} className={`w-full min-w-[1000px] ${getFontSizeClass()} border-collapse table-auto`}>
                         <thead className="bg-[#3a4252]">
-                          <tr className="border-b border-[#3a4252]">
+                        <tr className="border-b border-[#3a4252]">
                     {selectedDates.map((date) => (
                       <th key={date} className={`text-center py-0 px-2 font-medium text-white border border-[#3a4252] border-r-8 border-r-[#3a4252] whitespace-nowrap`} colSpan={9}>
                         {formatDisplayDate(date)}
-                      </th>
-                    ))}
-                    <th className="text-center py-0 px-1 font-medium text-white border border-[#3a4252]" colSpan={7}>
-                      Total
-                    </th>
-                  </tr>
-                  <tr className="border-b border-[#3a4252] bg-[#3a4252]">
+                            </th>
+                          ))}
+                          <th className="text-center py-0 px-1 font-medium text-white border border-[#3a4252]" colSpan={7}>
+                            Total
+                          </th>
+                        </tr>
+                        <tr className="border-b border-[#3a4252] bg-[#3a4252]">
                     {selectedDates.map((date) => (
                       <React.Fragment key={`detail-${date}`}>
-                        {/* Net Buy Columns - No # */}
-                        <th className={`text-left py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BY</th>
-                        <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BLot</th>
-                        <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BVal</th>
-                        <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BAvg</th>
-                        {/* Net Sell Columns - Keep # */}
-                        <th className="text-center py-0 px-1 font-medium text-white bg-[#3a4252] border border-[#3a4252]">#</th>
-                        <th className={`text-left py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SL</th>
-                        <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SLot</th>
-                        <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SVal</th>
-                        <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252] border-r-8 border-r-[#3a4252]`}>SAvg</th>
-                      </React.Fragment>
-                    ))}
+                              {/* Net Buy Columns - No # */}
+                              <th className={`text-left py-0 px-1 font-medium text-white border border-[#3a4252] w-4`}>BY</th>
+                              <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] w-6`}>BLot</th>
+                              <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] w-6`}>BVal</th>
+                              <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] w-6`}>BAvg</th>
+                              {/* Net Sell Columns - Keep # */}
+                              <th className="text-center py-0 px-1 font-medium text-white bg-[#3a4252] border border-[#3a4252] w-4">#</th>
+                              <th className={`text-left py-0 px-1 font-medium text-white border border-[#3a4252] w-4`}>SL</th>
+                              <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] w-6`}>SLot</th>
+                              <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] w-6`}>SVal</th>
+                        <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] border-r-8 border-r-[#3a4252] w-6`}>SAvg</th>
+                            </React.Fragment>
+                          ))}
                     {/* Total Columns - No Avg, No # for Buy */}
-                    <th className={`text-left py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BY</th>
-                    <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BLot</th>
-                    <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BVal</th>
-                    <th className="text-center py-0 px-1 font-medium text-white bg-[#3a4252] border border-[#3a4252]">#</th>
-                    <th className={`text-left py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SL</th>
-                    <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SLot</th>
-                    <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SVal</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                  {(() => {
-                    // Get broker text color class
-                    const getBrokerColorClass = (brokerCode: string): string => {
-                      if (GOVERNMENT_BROKERS.includes(brokerCode)) {
-                        return 'text-green-600 font-semibold';
-                      }
-                      if (FOREIGN_BROKERS.includes(brokerCode)) {
-                        return 'text-red-600 font-semibold';
-                      }
-                      return 'text-white font-semibold';
-                    };
-                    
+                          <th className={`text-left py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BY</th>
+                          <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BLot</th>
+                          <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BVal</th>
+                          <th className="text-center py-0 px-1 font-medium text-white bg-[#3a4252] border border-[#3a4252]">#</th>
+                          <th className={`text-left py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SL</th>
+                          <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SLot</th>
+                          <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SVal</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          // Get broker text color class
+                          const getBrokerColorClass = (brokerCode: string): string => {
+                            if (GOVERNMENT_BROKERS.includes(brokerCode)) {
+                              return 'text-green-600 font-semibold';
+                            }
+                            if (FOREIGN_BROKERS.includes(brokerCode)) {
+                              return 'text-red-600 font-semibold';
+                            }
+                            return 'text-white font-semibold';
+                          };
+                          
                     // Calculate total net data across all dates (SWAPPED: Net Buy uses negative values)
                     const totalNetBuyData: { [broker: string]: { nblot: number; nbval: number; nbavg: number; count: number } } = {};
                     const totalNetSellData: { [broker: string]: { nslot: number; nsval: number; nsavg: number; count: number } } = {};
                     
                     allBrokerData.forEach(dateData => {
-                      dateData.buyData.forEach(b => {
-                        const netBuyLot = b.netBuyVol || 0;
-                        const netBuyVal = b.netBuyValue || 0;
-                        
-                        if (netBuyVal < 0) { // swapped: net buy uses negatives
+                            dateData.buyData.forEach(b => {
+                              const netBuyLot = b.netBuyVol || 0;
+                              const netBuyVal = b.netBuyValue || 0;
+                              
+                              if (netBuyVal < 0) { // swapped: net buy uses negatives
                           if (!totalNetBuyData[b.broker]) {
                             totalNetBuyData[b.broker] = { nblot: 0, nbval: 0, nbavg: 0, count: 0 };
-                          }
+                                }
                           const netBuyEntry = totalNetBuyData[b.broker];
-                          if (netBuyEntry) {
-                            netBuyEntry.nblot += Math.abs(netBuyLot);
-                            netBuyEntry.nbval += Math.abs(netBuyVal);
-                            netBuyEntry.nbavg += Math.abs((netBuyVal / netBuyLot)) || 0;
-                            netBuyEntry.count += 1;
-                          }
-                        } else if (netBuyVal > 0) { // swapped: net sell uses positives
+                                if (netBuyEntry) {
+                                  netBuyEntry.nblot += Math.abs(netBuyLot);
+                                  netBuyEntry.nbval += Math.abs(netBuyVal);
+                                  netBuyEntry.nbavg += Math.abs((netBuyVal / netBuyLot)) || 0;
+                                  netBuyEntry.count += 1;
+                                }
+                              } else if (netBuyVal > 0) { // swapped: net sell uses positives
                           if (!totalNetSellData[b.broker]) {
                             totalNetSellData[b.broker] = { nslot: 0, nsval: 0, nsavg: 0, count: 0 };
-                          }
+                                }
                           const netSellEntry = totalNetSellData[b.broker];
-                          if (netSellEntry) {
-                            netSellEntry.nslot += netBuyLot;
-                            netSellEntry.nsval += netBuyVal;
-                            netSellEntry.nsavg += (netBuyVal / netBuyLot) || 0;
-                            netSellEntry.count += 1;
-                          }
-                        }
-                      });
-                    });
-                    
+                                if (netSellEntry) {
+                                  netSellEntry.nslot += netBuyLot;
+                                  netSellEntry.nsval += netBuyVal;
+                                  netSellEntry.nsavg += (netBuyVal / netBuyLot) || 0;
+                                  netSellEntry.count += 1;
+                                }
+                              }
+                            });
+                          });
+                          
                     // Sort total data
                     const sortedTotalNetBuy = Object.entries(totalNetBuyData)
-                      .filter(([broker]) => brokerFDScreen(broker))
-                      .map(([broker, data]) => ({ broker, ...data, nbavg: data.nbavg / data.count }))
-                      .sort((a, b) => b.nbval - a.nbval);
+                            .filter(([broker]) => brokerFDScreen(broker))
+                            .map(([broker, data]) => ({ broker, ...data, nbavg: data.nbavg / data.count }))
+                            .sort((a, b) => b.nbval - a.nbval);
                     const sortedTotalNetSell = Object.entries(totalNetSellData)
-                      .filter(([broker]) => brokerFDScreen(broker))
-                      .map(([broker, data]) => ({ broker, ...data, nsavg: data.nsavg / data.count }))
-                      .sort((a, b) => b.nsval - a.nsval);
-                    
-                    // Generate contrast colors like BrokerInventoryPage (HSL with high saturation)
-                    const generateContrastColor = (index: number): string => {
-                      const baseHues = [210, 270, 50, 200, 330]; // sky, violet, yellow, cyan, fuchsia
-                      const hue = baseHues[index % baseHues.length];
-                      const saturation = 60 + (index * 3) % 20; // 60-80% saturation
-                      const lightness = 40 + (index * 2) % 15; // 40-55% lightness (darker for contrast)
-                      return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-                    };
-                    
-                    // Generate contrast colors array for top 5
-                    const bgColors = Array.from({ length: 5 }, (_, idx) => generateContrastColor(idx));
-                    
+                            .filter(([broker]) => brokerFDScreen(broker))
+                            .map(([broker, data]) => ({ broker, ...data, nsavg: data.nsavg / data.count }))
+                            .sort((a, b) => b.nsval - a.nsval);
+                          
+                          // Generate contrast colors like BrokerInventoryPage (HSL with high saturation)
+                          const generateContrastColor = (index: number): string => {
+                            const baseHues = [210, 270, 50, 200, 330]; // sky, violet, yellow, cyan, fuchsia
+                            const hue = baseHues[index % baseHues.length];
+                            const saturation = 60 + (index * 3) % 20; // 60-80% saturation
+                            const lightness = 40 + (index * 2) % 15; // 40-55% lightness (darker for contrast)
+                            return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+                          };
+                          
+                          // Generate contrast colors array for top 5
+                          const bgColors = Array.from({ length: 5 }, (_, idx) => generateContrastColor(idx));
+                          
                     // Map top 5 net buy brokers to background colors (HSL strings)
                     const netBuyBrokerBgMap = new Map<string, string>();
-                    sortedTotalNetBuy.slice(0, 5).forEach((item, idx) => {
+                          sortedTotalNetBuy.slice(0, 5).forEach((item, idx) => {
                       netBuyBrokerBgMap.set(item.broker, bgColors[idx] || '');
-                    });
-                    
+                          });
+                          
                     // Map top 5 net sell brokers to background colors (HSL strings)
                     const netSellBrokerBgMap = new Map<string, string>();
-                    sortedTotalNetSell.slice(0, 5).forEach((item, idx) => {
+                          sortedTotalNetSell.slice(0, 5).forEach((item, idx) => {
                       netSellBrokerBgMap.set(item.broker, bgColors[idx] || '');
                     });
                     
@@ -730,78 +1170,78 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     };
                     
                     // Find max row count across all dates
-                    let maxRows = 0;
+                          let maxRows = 0;
                     selectedDates.forEach(date => {
                       const dateData = allBrokerData.find(d => d.date === date);
                       const netBuyCount = (dateData?.buyData || []).filter(b => brokerFDScreen(b.broker) && (b.netBuyValue || 0) < 0).length; // swap + F/D filter
                       const netSellCount = (dateData?.buyData || []).filter(b => brokerFDScreen(b.broker) && (b.netBuyValue || 0) > 0).length; // swap + F/D filter
-                      maxRows = Math.max(maxRows, netBuyCount, netSellCount);
-                    });
-                    
+                            maxRows = Math.max(maxRows, netBuyCount, netSellCount);
+                          });
+                          
                     // Render rows
-                    return Array.from({ length: maxRows }).map((_, rowIdx) => {
+                          return Array.from({ length: maxRows }).map((_, rowIdx) => {
                       // Cek apakah broker pada row adalah top5
                       // (delete unused block: netBuyData/netSellData functions)
-                      return (
-                        <tr key={rowIdx} className="border-b border-[#3a4252]/50 hover:bg-accent/50">
+                            return (
+                              <tr key={rowIdx} className="border-b border-[#3a4252]/50 hover:bg-accent/50">
                           {selectedDates.map((date) => {
                             const dateData = allBrokerData.find(d => d.date === date);
-                            // Sort brokers for this date by NetBuyValue (SWAPPED)
+                                  // Sort brokers for this date by NetBuyValue (SWAPPED)
                             const sortedNetBuy = (dateData?.buyData || [])
                               .filter(b => (b.netBuyValue || 0) < 0)
-                              .sort((a, b) => Math.abs(b.netBuyValue || 0) - Math.abs(a.netBuyValue || 0));
+                                    .sort((a, b) => Math.abs(b.netBuyValue || 0) - Math.abs(a.netBuyValue || 0));
                             const sortedNetSell = (dateData?.buyData || [])
                               .filter(b => (b.netBuyValue || 0) > 0)
-                              .sort((a, b) => (b.netBuyValue || 0) - (a.netBuyValue || 0));
-                            const netBuyData = sortedNetBuy[rowIdx];
-                            const netSellData = sortedNetSell[rowIdx];
+                                    .sort((a, b) => (b.netBuyValue || 0) - (a.netBuyValue || 0));
+                                  const netBuyData = sortedNetBuy[rowIdx];
+                                  const netSellData = sortedNetSell[rowIdx];
                             // Calculate data...
-                            // Calculate NSLot and NSVal (Buy - Sell) for Net Buy
-                            const nbLot = netBuyData ? Math.abs(netBuyData.netBuyVol || 0) : 0;
-                            const nbVal = netBuyData ? Math.abs(netBuyData.netBuyValue || 0) : 0;
-                            const nbAvg = nbLot !== 0 ? nbVal / nbLot : 0;
-                            
-                            // Calculate for Net Sell
-                            const nsLot = netSellData ? Math.abs(netSellData.netBuyVol || 0) : 0;
-                            const nsVal = netSellData ? Math.abs(netSellData.netBuyValue || 0) : 0;
-                            const nsAvg = nsLot !== 0 ? nsVal / nsLot : 0;
-                            
+                                  // Calculate NSLot and NSVal (Buy - Sell) for Net Buy
+                                  const nbLot = netBuyData ? Math.abs(netBuyData.netBuyVol || 0) : 0;
+                                  const nbVal = netBuyData ? Math.abs(netBuyData.netBuyValue || 0) : 0;
+                                  const nbAvg = nbLot !== 0 ? nbVal / nbLot : 0;
+                                  
+                                  // Calculate for Net Sell
+                                  const nsLot = netSellData ? Math.abs(netSellData.netBuyVol || 0) : 0;
+                                  const nsVal = netSellData ? Math.abs(netSellData.netBuyValue || 0) : 0;
+                                  const nsAvg = nsLot !== 0 ? nsVal / nsLot : 0;
+                                  
                             // Get background colors for this row
                             const netBuyBgStyle = netBuyData ? getNetBuyBgStyle(netBuyData.broker) : undefined;
                             const netSellBgStyle = netSellData ? getNetSellBgStyle(netSellData.broker) : undefined;
-                            
-                            return (
+                                  
+                                  return (
                               <React.Fragment key={`${date}-${rowIdx}`}>
-                                {/* Net Buy Columns - No # */}
-                                <td className={`py-0 px-[3px] border border-[#3a4252] font-bold ${netBuyData ? getBrokerColorClass(netBuyData.broker) : ''}`} style={netBuyBgStyle}>
-                                  {netBuyData?.broker || '-'}
+                                      {/* Net Buy Columns - No # */}
+                                      <td className={`py-0 px-1 border border-[#3a4252] font-bold w-4 ${netBuyData ? getBrokerColorClass(netBuyData.broker) : ''}`} style={netBuyBgStyle}>
+                                        {netBuyData?.broker || '-'}
+                                      </td>
+                                <td className={`text-right py-0 px-1 border border-[#3a4252] font-bold w-6 ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
+                                  {netBuyData ? formatLot(nbLot / 100) : '-'}
                                 </td>
-                                <td className={`text-right py-0 px-[3px] border border-[#3a4252] font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
-                                  {netBuyData ? formatNumber(nbLot / 100) : '-'}
+                                      <td className={`text-right py-0 px-1 border border-[#3a4252] font-bold w-6 ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
+                                        {netBuyData ? formatNumber(nbVal) : '-'}
+                                      </td>
+                                      <td className={`text-right py-0 px-1 border border-[#3a4252] font-bold w-6 ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
+                                        {netBuyData ? formatAverage(nbAvg) : '-'}
+                                      </td>
+                                      {/* Net Sell Columns - Keep # */}
+                                      <td className={`text-center py-0 px-1 text-white border border-[#3a4252] bg-[#3a4252] font-bold w-4 ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`} style={netSellBgStyle}>{netSellData ? rowIdx + 1 : '-'}</td>
+                                      <td className={`py-0 px-1 border border-[#3a4252] font-bold w-4 ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`} style={netSellBgStyle}>
+                                        {netSellData?.broker || '-'}
+                                      </td>
+                                <td className={`text-right py-0 px-1 border border-[#3a4252] font-bold w-6 ${netSellBgStyle ? '' : 'text-red-600'}`} style={netSellBgStyle}>
+                                  {netSellData ? formatLot(nsLot / 100) : '-'}
                                 </td>
-                                <td className={`text-right py-0 px-[3px] border border-[#3a4252] font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
-                                  {netBuyData ? formatNumber(nbVal) : '-'}
-                                </td>
-                                <td className={`text-right py-0 px-[3px] border border-[#3a4252] font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
-                                  {netBuyData ? formatAverage(nbAvg) : '-'}
-                                </td>
-                                {/* Net Sell Columns - Keep # */}
-                                <td className={`text-center py-0 px-1 text-white border border-[#3a4252] bg-[#3a4252] font-bold ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`} style={netSellBgStyle}>{netSellData ? rowIdx + 1 : '-'}</td>
-                                <td className={`py-0 px-[3px] border border-[#3a4252] font-bold ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`} style={netSellBgStyle}>
-                                  {netSellData?.broker || '-'}
-                                </td>
-                                <td className={`text-right py-0 px-[3px] border border-[#3a4252] font-bold ${netSellBgStyle ? '' : 'text-red-600'}`} style={netSellBgStyle}>
-                                  {netSellData ? formatNumber(nsLot / 100) : '-'}
-                                </td>
-                                <td className={`text-right py-0 px-[3px] border border-[#3a4252] font-bold ${netSellBgStyle ? '' : 'text-red-600'}`} style={netSellBgStyle}>
-                                  {netSellData ? formatNumber(nsVal) : '-'}
-                                </td>
-                                <td className={`text-right py-0 px-[3px] border border-[#3a4252] font-bold border-r-8 border-r-[#3a4252] ${netSellBgStyle ? '' : 'text-red-600'}`} style={netSellBgStyle}>
-                                  {netSellData ? formatAverage(nsAvg) : '-'}
-                                </td>
-                              </React.Fragment>
-                            );
-                          })}
+                                      <td className={`text-right py-0 px-1 border border-[#3a4252] font-bold w-6 ${netSellBgStyle ? '' : 'text-red-600'}`} style={netSellBgStyle}>
+                                        {netSellData ? formatNumber(nsVal) : '-'}
+                                      </td>
+                                <td className={`text-right py-0 px-1 border border-[#3a4252] font-bold border-r-8 border-r-[#3a4252] w-6 ${netSellBgStyle ? '' : 'text-red-600'}`} style={netSellBgStyle}>
+                                        {netSellData ? formatAverage(nsAvg) : '-'}
+                                      </td>
+                                    </React.Fragment>
+                                  );
+                                })}
                           {/* Total Columns - No Avg */}
                           {(() => {
                             const totalNetBuy = sortedTotalNetBuy[rowIdx];
@@ -817,7 +1257,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   {totalNetBuy?.broker || '-'}
                                 </td>
                                 <td className={`text-right py-0 px-[3px] border border-[#3a4252] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
-                                  {totalNetBuy ? formatNumber(totalNetBuy.nblot / 100) : '-'}
+                                  {totalNetBuy ? formatLot(totalNetBuy.nblot / 100) : '-'}
                                 </td>
                                 <td className={`text-right py-0 px-[3px] border border-[#3a4252] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
                                   {totalNetBuy ? formatNumber(totalNetBuy.nbval) : '-'}
@@ -827,7 +1267,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   {totalNetSell?.broker || '-'}
                                 </td>
                                 <td className={`text-right py-0 px-[3px] border border-[#3a4252] font-bold ${totalNetSellBgStyle ? '' : 'text-red-600'}`} style={totalNetSellBgStyle}>
-                                  {totalNetSell ? formatNumber(totalNetSell.nslot / 100) : '-'}
+                                  {totalNetSell ? formatLot(totalNetSell.nslot / 100) : '-'}
                                 </td>
                                 <td className={`text-right py-0 px-[3px] border border-[#3a4252] font-bold ${totalNetSellBgStyle ? '' : 'text-red-600'}`} style={totalNetSellBgStyle}>
                                   {totalNetSell ? formatNumber(totalNetSell.nsval) : '-'}
@@ -835,15 +1275,15 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                               </React.Fragment>
                             );
                           })()}
-                        </tr>
-                      );
-                    });
-                  })()}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
+                              </tr>
+                            );
+                          });
+                        })()}
+                      </tbody>
+                    </table>
+            </div>
+          </div>
+        </div>
       </div>
     );
   };
@@ -853,82 +1293,102 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
       {/* Top Controls - Compact without Card */}
       <div className="bg-background border-b border-[#3a4252] px-4 py-1.5">
             <div className="flex flex-wrap items-center gap-4">
-              {/* Ticker Selection */}
+              {/* Ticker Selection - Multi-select with chips */}
               <div className="flex items-center gap-2">
                 <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
-                <div className="relative" ref={dropdownRef}>
-                  <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
-                  <input
-                    type="text"
-                    value={tickerInput}
-                    onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
-                    onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
-                    onKeyDown={(e) => {
-                      const suggestions = (tickerInput === '' ? availableStocks : filteredStocks).slice(0, 10);
-                      if (!suggestions.length) return;
-                      if (e.key === 'ArrowDown') {
-                        e.preventDefault();
-                        setHighlightedStockIndex((prev) => (prev + 1) % suggestions.length);
-                      } else if (e.key === 'ArrowUp') {
-                        e.preventDefault();
-                        setHighlightedStockIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
-                      } else if (e.key === 'Enter' && showStockSuggestions) {
-                        e.preventDefault();
-                        const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
-                        const choice = suggestions[idx];
-                        if (choice) handleStockSelect(choice);
-                      } else if (e.key === 'Escape') {
-                        setShowStockSuggestions(false);
-                        setHighlightedStockIndex(-1);
-                      }
-                    }}
-                    placeholder="Code"
-                    className="w-24 pl-10 pr-3 py-2 text-sm border border-[#3a4252] rounded-md bg-input text-foreground"
-                  />
-                  {showStockSuggestions && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
-                      {availableStocks.length === 0 ? (
-                        <div className="px-3 py-2 text-sm text-muted-foreground flex items-center">
-                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                          Loading stocks...
-                        </div>
-                      ) : tickerInput === '' ? (
-                        <>
-                          <div className="px-3 py-2 text-xs text-muted-foreground border-b border-[#3a4252]">
-                            Available Stocks ({availableStocks.length})
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Selected Ticker Chips */}
+                  {selectedTickers.map(ticker => (
+                    <div
+                      key={ticker}
+                      className="flex items-center gap-1 px-2 py-1 bg-primary/20 text-primary rounded-md text-sm"
+                    >
+                      <span>{ticker}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveTicker(ticker)}
+                        className="hover:bg-primary/30 rounded px-1"
+                        aria-label={`Remove ${ticker}`}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                  {/* Ticker Input */}
+                  <div className="relative" ref={dropdownRef}>
+                    <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+                    <input
+                      type="text"
+                      value={tickerInput}
+                      onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
+                      onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
+                      onKeyDown={(e) => {
+                        const suggestions = (tickerInput === '' ? availableStocks.filter(s => !selectedTickers.includes(s)) : filteredStocks).slice(0, 10);
+                        if (!suggestions.length) return;
+                        if (e.key === 'ArrowDown') {
+                          e.preventDefault();
+                          setHighlightedStockIndex((prev) => (prev + 1) % suggestions.length);
+                        } else if (e.key === 'ArrowUp') {
+                          e.preventDefault();
+                          setHighlightedStockIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+                        } else if (e.key === 'Enter' && showStockSuggestions) {
+                          e.preventDefault();
+                          const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
+                          const choice = suggestions[idx];
+                          if (choice) handleStockSelect(choice);
+                        } else if (e.key === 'Escape') {
+                          setShowStockSuggestions(false);
+                          setHighlightedStockIndex(-1);
+                        }
+                      }}
+                      placeholder="Add ticker"
+                      className="w-24 pl-10 pr-3 py-2 text-sm border border-[#3a4252] rounded-md bg-input text-foreground"
+                    />
+                    {showStockSuggestions && (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                        {availableStocks.length === 0 ? (
+                          <div className="px-3 py-2 text-sm text-muted-foreground flex items-center">
+                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                            Loading stocks...
                           </div>
-                          {availableStocks.map(stock => (
-                            <div
-                              key={stock}
-                              onClick={() => handleStockSelect(stock)}
-                              className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
-                            >
-                              {stock}
+                        ) : tickerInput === '' ? (
+                          <>
+                            <div className="px-3 py-2 text-xs text-muted-foreground border-b border-[#3a4252]">
+                              Available Stocks ({availableStocks.filter(s => !selectedTickers.includes(s)).length})
                             </div>
-                          ))}
-                        </>
-                      ) : filteredStocks.length > 0 ? (
-                        <>
-                          <div className="px-3 py-2 text-xs text-muted-foreground border-b border-[#3a4252]">
-                            {filteredStocks.length} stocks found
+                            {availableStocks.filter(s => !selectedTickers.includes(s)).map(stock => (
+                              <div
+                                key={stock}
+                                onClick={() => handleStockSelect(stock)}
+                                className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
+                              >
+                                {stock}
+                              </div>
+                            ))}
+                          </>
+                        ) : filteredStocks.length > 0 ? (
+                          <>
+                            <div className="px-3 py-2 text-xs text-muted-foreground border-b border-[#3a4252]">
+                              {filteredStocks.length} stocks found
+                            </div>
+                            {filteredStocks.map(stock => (
+                              <div
+                                key={stock}
+                                onClick={() => handleStockSelect(stock)}
+                                className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
+                              >
+                                {stock}
+                              </div>
+                            ))}
+                          </>
+                        ) : (
+                          <div className="px-3 py-2 text-sm text-muted-foreground">
+                            No stocks found
                           </div>
-                          {filteredStocks.map(stock => (
-                            <div
-                              key={stock}
-                              onClick={() => handleStockSelect(stock)}
-                              className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
-                            >
-                              {stock}
-                            </div>
-                          ))}
-                        </>
-                      ) : (
-                        <div className="px-3 py-2 text-sm text-muted-foreground">
-                          No stocks found
-                        </div>
                           )}
                         </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
 
