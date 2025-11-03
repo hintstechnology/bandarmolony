@@ -417,7 +417,7 @@ function DashboardLayout() {
         </header>
 
         {/* Main Content Area */}
-        <main className="flex-1 overflow-auto p-6">
+        <main className="flex-1 overflow-auto p-6 bg-[#0a0f20]">
           {renderMainContent()}
         </main>
       </div>

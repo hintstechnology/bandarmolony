@@ -889,7 +889,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     });
     
     return (
-      <div className="w-full">
+      <div className="w-full bg-[#0a0f18]">
         {isLoading && (
           <div className="text-sm text-muted-foreground px-4 py-1">Loading broker summary...</div>
         )}
@@ -898,7 +898,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         )}
         {/* Combined Buy & Sell Side Table */}
         <div className="w-full max-w-full">
-          <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
+          <div className="bg-[#0a0f20] px-4 py-1.5 border-y border-border">
             <h3 className="font-semibold text-sm">VALUE - {selectedTickers.join(', ')}</h3>
           </div>
            <div className="w-full max-w-full">
@@ -1130,7 +1130,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
 
         {/* Net Table */}
         <div className="w-full max-w-full mt-1">
-          <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
+          <div className="bg-[#0a0f20] px-4 py-1.5 border-y border-border">
             <h3 className="font-semibold text-sm">NET - {selectedTickers.join(', ')}</h3>
           </div>
           <div className="w-full max-w-full">
@@ -1447,9 +1447,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   };
 
   return (
-    <div className="w-full">
+    <div className="w-full bg-[#0a0f20]">
       {/* Top Controls - Compact without Card */}
-      <div className="bg-background border-b border-[#3a4252] px-4 py-1.5">
+      <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5">
             <div className="flex flex-wrap items-center gap-8">
               {/* Ticker Selection - Multi-select with chips */}
               <div className="flex items-center gap-2">
@@ -1708,7 +1708,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
             </div>
 
       {/* Main Data Display */}
-      {renderHorizontalView()}
+      <div className="bg-[#0a0f20]">
+        {renderHorizontalView()}
+      </div>
     </div>
   );
 }
