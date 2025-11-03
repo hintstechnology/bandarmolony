@@ -34,11 +34,12 @@ const GOVERNMENT_BROKERS = ['CC', 'NI', 'OD', 'DX'];
 
 // Note: local generator removed in favor of backend API
 
-// Get last trading days (excluding weekends)
+// Get last trading days (excluding weekends and today)
+// Start from yesterday since today's data is not available yet
 const getLastTradingDays = (count: number): string[] => {
   const today = new Date();
   const dates: string[] = [];
-  let daysBack = 0;
+  let daysBack = 1; // Start from yesterday, skip today
   
   while (dates.length < count) {
     const date = new Date(today);
@@ -520,6 +521,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     const syncTableWidths = () => {
       const valueTable = valueTableRef.current;
       const netTable = netTableRef.current;
+      const valueContainer = valueTableContainerRef.current;
       const netContainer = netTableContainerRef.current;
 
       if (!valueTable || !netTable) return;
@@ -537,6 +539,40 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           netContainer.style.width = `${valueTableWidth}px`;
           netContainer.style.minWidth = `${valueTableWidth}px`;
           netContainer.style.maxWidth = `${valueTableWidth}px`; // Prevent container from being wider
+        }
+        
+        // Sync container scroll width - ensure NET container has same width as VALUE container
+        if (valueContainer && netContainer) {
+          const valueContainerWidth = valueContainer.clientWidth || valueContainer.offsetWidth;
+          if (valueContainerWidth > 0) {
+            // Use exact VALUE container width, don't exceed screen width
+            netContainer.style.width = `${valueContainerWidth}px`;
+            netContainer.style.minWidth = `${valueContainerWidth}px`;
+            netContainer.style.maxWidth = `${valueContainerWidth}px`;
+          }
+        }
+        
+        // Ensure parent wrapper NET has same width as VALUE parent wrapper
+        const valueParentWrapper = valueContainer?.parentElement;
+        const netParentWrapper = netContainer?.parentElement;
+        if (valueParentWrapper && netParentWrapper) {
+          const valueParentWidth = valueParentWrapper.clientWidth || valueParentWrapper.offsetWidth;
+          if (valueParentWidth > 0) {
+            netParentWrapper.style.width = `${valueParentWidth}px`;
+            netParentWrapper.style.minWidth = `${valueParentWidth}px`;
+            netParentWrapper.style.maxWidth = `${valueParentWidth}px`;
+          }
+        }
+        
+        // Sync main wrapper width (the div with className="w-full max-w-full")
+        const valueMainWrapper = valueContainer?.parentElement?.parentElement;
+        const netMainWrapper = netContainer?.parentElement?.parentElement;
+        if (valueMainWrapper && netMainWrapper) {
+          const valueMainWidth = valueMainWrapper.clientWidth || valueMainWrapper.offsetWidth;
+          if (valueMainWidth > 0) {
+            netMainWrapper.style.width = `${valueMainWidth}px`;
+            netMainWrapper.style.maxWidth = `${valueMainWidth}px`;
+          }
         }
       }
 
@@ -820,13 +856,13 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           <div className="text-sm text-destructive px-4 py-1">{error}</div>
         )}
         {/* Combined Buy & Sell Side Table */}
-        <div className="w-full">
+        <div className="w-full max-w-full">
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
             <h3 className="font-semibold text-sm">VALUE - {selectedTickers.join(', ')}</h3>
           </div>
-           <div className="w-full">
-             <div ref={valueTableContainerRef} className="overflow-x-auto max-h-[520px] overflow-y-auto">
-               <table ref={valueTableRef} className={`w-full min-w-[1000px] ${getFontSizeClass()} border-collapse table-auto`}>
+           <div className="w-full max-w-full">
+             <div ref={valueTableContainerRef} className="w-full max-w-full overflow-x-auto max-h-[520px] overflow-y-auto">
+               <table ref={valueTableRef} className={`min-w-[1000px] ${getFontSizeClass()} border-collapse table-auto`}>
                          <thead className="bg-[#3a4252]">
                          <tr className="border-b border-[#3a4252]">
                      {selectedDates.map((date) => (
@@ -1028,13 +1064,13 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         </div>
 
         {/* Net Table */}
-        <div className="w-full mt-1">
+        <div className="w-full max-w-full mt-1">
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
             <h3 className="font-semibold text-sm">NET - {selectedTickers.join(', ')}</h3>
           </div>
-          <div className="w-full">
-                    <div ref={netTableContainerRef} className="overflow-x-auto max-h-[520px] overflow-y-auto">
-              <table ref={netTableRef} className={`w-full min-w-[1000px] ${getFontSizeClass()} border-collapse table-auto`}>
+          <div className="w-full max-w-full">
+                    <div ref={netTableContainerRef} className="w-full max-w-full overflow-x-auto max-h-[520px] overflow-y-auto">
+              <table ref={netTableRef} className={`min-w-[1000px] ${getFontSizeClass()} border-collapse table-auto`}>
                         <thead className="bg-[#3a4252]">
                         <tr className="border-b border-[#3a4252]">
                     {selectedDates.map((date) => (
