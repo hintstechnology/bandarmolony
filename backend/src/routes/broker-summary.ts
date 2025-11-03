@@ -42,11 +42,11 @@ function resolvePaths(date: string, market?: string) {
   }
   
   // Map market to folder name:
-  // RG -> rk (folder is broker_summary_rk, not broker_summary_rg)
+  // RG -> rg (folder is broker_summary_rg)
   // TN -> tn
   // NG -> ng
   const folderMap: { [key: string]: string } = {
-    'RG': 'rk',
+    'RG': 'rg',
     'TN': 'tn',
     'NG': 'ng'
   };
