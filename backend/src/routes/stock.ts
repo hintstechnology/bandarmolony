@@ -435,4 +435,106 @@ router.get('/footprint/:stockCode', async (req, res) => {
   }
 });
 
+/**
+ * Get latest available date for a specific stock
+ */
+router.get('/latest-date/:stockCode', async (req, res) => {
+  try {
+    const { stockCode } = req.params;
+    
+    if (!stockCode || stockCode.length !== 4) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid stock code. Must be 4 characters.'
+      });
+    }
+    
+    console.log(`📊 Getting latest available date for stock: ${stockCode}`);
+    
+    // Build sector mapping first
+    await buildSectorMappingFromAzure();
+    
+    // Get sector for this stock
+    const sector = getSectorForEmiten(stockCode.toUpperCase());
+    const filePath = `stock/${sector}/${stockCode.toUpperCase()}.csv`;
+    
+    console.log(`📊 Using sector: ${sector} for stock: ${stockCode}`);
+    
+    try {
+      // Download CSV data from Azure
+      const csvData = await downloadText(filePath);
+      
+      // Parse CSV to find latest date (get MAXIMUM date, not last row)
+      const lines = csvData.split('\n').filter(line => line.trim());
+      
+      if (lines.length < 2) {
+        return res.status(404).json({
+          success: false,
+          error: `No data found for stock ${stockCode}`
+        });
+      }
+      
+      // Get headers
+      const headers = lines[0]?.split(',') || [];
+      const dateIndex = headers.indexOf('Date');
+      
+      if (dateIndex === -1) {
+        return res.status(404).json({
+          success: false,
+          error: 'Date column not found in stock data'
+        });
+      }
+      
+      // Collect all dates and find the LATEST (maximum date)
+      // Don't rely on row position - CSV might not be sorted
+      let latestDate: string | null = null;
+      
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i]?.split(',') || [];
+        if (line.length > dateIndex) {
+          const date = line[dateIndex]?.trim();
+          if (date) {
+            // Compare dates as strings (YYYY-MM-DD format sorts correctly)
+            if (!latestDate || date > latestDate) {
+              latestDate = date;
+            }
+          }
+        }
+      }
+      
+      if (!latestDate) {
+        return res.status(404).json({
+          success: false,
+          error: 'Could not determine latest date'
+        });
+      }
+      
+      console.log(`📊 Latest available date for ${stockCode}: ${latestDate}`);
+      
+      return res.json({
+        success: true,
+        data: {
+          stockCode: stockCode.toUpperCase(),
+          latestDate,
+          generated_at: new Date().toISOString()
+        }
+      });
+      
+    } catch (error) {
+      console.error(`❌ Error reading stock file for ${stockCode}:`, error);
+      return res.status(404).json({
+        success: false,
+        error: `Stock data not found for ${stockCode}`
+      });
+    }
+    
+  } catch (error) {
+    console.error('❌ Error getting latest date:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get latest date'
+    });
+  }
+});
+
 export default router;
