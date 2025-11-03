@@ -862,42 +862,42 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           </div>
            <div className="w-full max-w-full">
              <div ref={valueTableContainerRef} className="w-full max-w-full overflow-x-auto max-h-[520px] overflow-y-auto">
-               <table ref={valueTableRef} className={`min-w-[1000px] ${getFontSizeClass()} border-collapse table-auto`}>
+               <table ref={valueTableRef} className={`min-w-[1000px] ${getFontSizeClass()} table-auto`}>
                          <thead className="bg-[#3a4252]">
-                         <tr className="border-b border-[#3a4252]">
+                         <tr>
                      {selectedDates.map((date) => (
-                       <th key={date} className={`text-center py-0 px-2 font-medium text-white border border-[#3a4252] border-r-8 border-r-[#3a4252] whitespace-nowrap`} colSpan={9}>
+                       <th key={date} className={`text-center py-0 px-2 font-medium text-white pr-8 whitespace-nowrap`} colSpan={9}>
                          {formatDisplayDate(date)}
                             </th>
                           ))}
-                          <th className="text-center py-0 px-1 font-medium text-white border border-[#3a4252]" colSpan={7}>
+                          <th className="text-center py-0 px-1 font-medium text-white" colSpan={7}>
                             Total
                           </th>
                         </tr>
-                        <tr className="border-b border-[#3a4252] bg-[#3a4252]">
+                        <tr className="bg-[#3a4252]">
                         {selectedDates.map((date) => (
                       <React.Fragment key={`detail-${date}`}>
                               {/* BY Columns */}
-                              <th className={`text-left py-0 px-1 font-medium text-white border border-[#3a4252] w-4`}>BY</th>
-                              <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] w-6`}>BLot</th>
-                              <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] w-6`}>BVal</th>
-                              <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] w-6`}>BAvg</th>
+                              <th className={`text-left py-0 px-1 font-medium text-white w-4`}>BY</th>
+                              <th className={`text-right py-0 px-1 font-medium text-white w-6`}>BLot</th>
+                              <th className={`text-right py-0 px-1 font-medium text-white w-6`}>BVal</th>
+                              <th className={`text-right py-0 px-1 font-medium text-white w-6`}>BAvg</th>
                               {/* SL Columns */}
-                              <th className="text-center py-0 px-1 font-medium text-white bg-[#3a4252] border border-[#3a4252] w-4">#</th>
-                              <th className={`text-left py-0 px-1 font-medium text-white border border-[#3a4252] w-4`}>SL</th>
-                              <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] w-6`}>SLot</th>
-                              <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] w-6`}>SVal</th>
-                        <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] border-r-8 border-r-[#3a4252] w-6`}>SAvg</th>
+                              <th className="text-center py-0 px-1 font-medium text-white bg-[#3a4252] w-4">#</th>
+                              <th className={`text-left py-0 px-1 font-medium text-white w-4`}>SL</th>
+                              <th className={`text-right py-0 px-1 font-medium text-white w-6`}>SLot</th>
+                              <th className={`text-right py-0 px-1 font-medium text-white w-6`}>SVal</th>
+                        <th className={`text-right py-0 px-1 font-medium text-white pr-8 w-6`}>SAvg</th>
                             </React.Fragment>
                           ))}
                     {/* Total Columns - No BAvg and SAvg */}
-                          <th className={`text-left py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BY</th>
-                          <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BLot</th>
-                          <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BVal</th>
-                          <th className="text-center py-0 px-1 font-medium text-white bg-[#3a4252] border border-[#3a4252]">#</th>
-                          <th className={`text-left py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SL</th>
-                          <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SLot</th>
-                          <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SVal</th>
+                          <th className={`text-left py-0 px-[3px] font-medium text-white`}>BY</th>
+                          <th className={`text-right py-0 px-[3px] font-medium text-white`}>BLot</th>
+                          <th className={`text-right py-0 px-[3px] font-medium text-white`}>BVal</th>
+                          <th className="text-center py-0 px-1 font-medium text-white bg-[#3a4252]">#</th>
+                          <th className={`text-left py-0 px-[3px] font-medium text-white`}>SL</th>
+                          <th className={`text-right py-0 px-[3px] font-medium text-white`}>SLot</th>
+                          <th className={`text-right py-0 px-[3px] font-medium text-white`}>SVal</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -977,7 +977,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     
                     // Render rows
                     return Array.from({ length: maxRows }).map((_, rowIdx) => (
-                              <tr key={rowIdx} className="border-b border-[#3a4252]/50 hover:bg-accent/50">
+                              <tr key={rowIdx} className="hover:bg-accent/50">
                         {selectedDates.map((date) => {
                           const dateData = allBrokerData.find(d => d.date === date);
                           
@@ -997,30 +997,30 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   return (
                             <React.Fragment key={`${date}-${rowIdx}`}>
                                       {/* BY (Buyer) Columns - Using Buyer fields */}
-                                      <td className={`py-0 px-1 border border-[#3a4252] w-4 ${buyData ? getBrokerColorClass(buyData.broker) : ''}`}>
+                                      <td className={`py-0 px-1 w-4 ${buyData ? getBrokerColorClass(buyData.broker) : ''}`}>
                                         {buyData?.broker || '-'}
                                       </td>
-                              <td className="text-right py-0 px-1 text-green-600 border border-[#3a4252] w-6">
+                              <td className="text-right py-0 px-1 text-green-600 w-6">
                                 {buyData ? formatLot(buyData.buyerVol / 100) : '-'}
                               </td>
-                                      <td className="text-right py-0 px-1 text-green-600 border border-[#3a4252] w-6">
+                                      <td className="text-right py-0 px-1 text-green-600 w-6">
                                         {buyData ? formatNumber(buyData.buyerValue) : '-'}
                                       </td>
-                                      <td className="text-right py-0 px-1 text-green-600 border border-[#3a4252] w-6">
+                                      <td className="text-right py-0 px-1 text-green-600 w-6">
                                         {buyData ? formatAverage(buyData.bavg) : '-'}
                                       </td>
                                       {/* SL (Seller) Columns - Keep # column */}
-                                      <td className={`text-center py-0 px-1 text-white border border-[#3a4252] bg-[#3a4252] w-4 ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>{sellData ? rowIdx + 1 : '-'}</td>
-                                      <td className={`py-0 px-1 border border-[#3a4252] w-4 ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>
+                                      <td className={`text-center py-0 px-1 text-white bg-[#3a4252] w-4 ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>{sellData ? rowIdx + 1 : '-'}</td>
+                                      <td className={`py-0 px-1 w-4 ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>
                                         {sellData?.broker || '-'}
                                       </td>
-                              <td className="text-right py-0 px-1 text-red-600 border border-[#3a4252] w-6">
+                              <td className="text-right py-0 px-1 text-red-600 w-6">
                                 {sellData ? formatLot(sellData.sellerVol / 100) : '-'}
                               </td>
-                                      <td className="text-right py-0 px-1 text-red-600 border border-[#3a4252] w-6">
+                                      <td className="text-right py-0 px-1 text-red-600 w-6">
                                         {sellData ? formatNumber(sellData.sellerValue) : '-'}
                                       </td>
-                              <td className="text-right py-0 px-1 text-red-600 border border-[#3a4252] border-r-8 border-r-[#3a4252] w-6">
+                              <td className="text-right py-0 px-1 text-red-600 pr-8 w-6">
                                         {sellData ? formatAverage(sellData.savg) : '-'}
                                       </td>
                                     </React.Fragment>
@@ -1032,23 +1032,23 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                           const totalSell = sortedTotalSell[rowIdx];
                           return (
                             <React.Fragment>
-                                <td className={`py-0 px-[3px] border border-[#3a4252] ${totalBuy ? getBrokerColorClass(totalBuy.broker) : ''}`}>
+                                <td className={`py-0 px-[3px] ${totalBuy ? getBrokerColorClass(totalBuy.broker) : ''}`}>
                                   {totalBuy?.broker || '-'}
                                 </td>
-                              <td className="text-right py-0 px-[3px] text-green-600 border border-[#3a4252]">
+                              <td className="text-right py-0 px-[3px] text-green-600">
                                 {totalBuy ? formatLot(totalBuy.nblot / 100) : '-'}
                               </td>
-                                <td className="text-right py-0 px-[3px] text-green-600 border border-[#3a4252]">
+                                <td className="text-right py-0 px-[3px] text-green-600">
                                   {totalBuy ? formatNumber(totalBuy.nbval) : '-'}
                                 </td>
-                                <td className={`text-center py-0 px-1 text-white border border-[#3a4252] bg-[#3a4252] ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>{totalSell ? rowIdx + 1 : '-'}</td>
-                                <td className={`py-0 px-[3px] border border-[#3a4252] ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>
+                                <td className={`text-center py-0 px-1 text-white bg-[#3a4252] ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>{totalSell ? rowIdx + 1 : '-'}</td>
+                                <td className={`py-0 px-[3px] ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>
                                   {totalSell?.broker || '-'}
                                 </td>
-                              <td className="text-right py-0 px-[3px] text-red-600 border border-[#3a4252]">
+                              <td className="text-right py-0 px-[3px] text-red-600">
                                 {totalSell ? formatLot(totalSell.nslot / 100) : '-'}
                               </td>
-                              <td className="text-right py-0 px-[3px] text-red-600 border border-[#3a4252]">
+                              <td className="text-right py-0 px-[3px] text-red-600">
                                   {totalSell ? formatNumber(totalSell.nsval) : '-'}
                                 </td>
                             </React.Fragment>
@@ -1070,42 +1070,42 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           </div>
           <div className="w-full max-w-full">
                     <div ref={netTableContainerRef} className="w-full max-w-full overflow-x-auto max-h-[520px] overflow-y-auto">
-              <table ref={netTableRef} className={`min-w-[1000px] ${getFontSizeClass()} border-collapse table-auto`}>
+              <table ref={netTableRef} className={`min-w-[1000px] ${getFontSizeClass()} table-auto`}>
                         <thead className="bg-[#3a4252]">
-                        <tr className="border-b border-[#3a4252]">
+                        <tr>
                     {selectedDates.map((date) => (
-                      <th key={date} className={`text-center py-0 px-2 font-medium text-white border border-[#3a4252] border-r-8 border-r-[#3a4252] whitespace-nowrap`} colSpan={9}>
+                      <th key={date} className={`text-center py-0 px-2 font-medium text-white pr-8 whitespace-nowrap`} colSpan={9}>
                         {formatDisplayDate(date)}
                             </th>
                           ))}
-                          <th className="text-center py-0 px-1 font-medium text-white border border-[#3a4252]" colSpan={7}>
+                          <th className="text-center py-0 px-1 font-medium text-white" colSpan={7}>
                             Total
                           </th>
                         </tr>
-                        <tr className="border-b border-[#3a4252] bg-[#3a4252]">
+                        <tr className="bg-[#3a4252]">
                     {selectedDates.map((date) => (
                       <React.Fragment key={`detail-${date}`}>
                               {/* Net Buy Columns - No # */}
-                              <th className={`text-left py-0 px-1 font-medium text-white border border-[#3a4252] w-4`}>BY</th>
-                              <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] w-6`}>BLot</th>
-                              <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] w-6`}>BVal</th>
-                              <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] w-6`}>BAvg</th>
+                              <th className={`text-left py-0 px-1 font-medium text-white w-4`}>BY</th>
+                              <th className={`text-right py-0 px-1 font-medium text-white w-6`}>BLot</th>
+                              <th className={`text-right py-0 px-1 font-medium text-white w-6`}>BVal</th>
+                              <th className={`text-right py-0 px-1 font-medium text-white w-6`}>BAvg</th>
                               {/* Net Sell Columns - Keep # */}
-                              <th className="text-center py-0 px-1 font-medium text-white bg-[#3a4252] border border-[#3a4252] w-4">#</th>
-                              <th className={`text-left py-0 px-1 font-medium text-white border border-[#3a4252] w-4`}>SL</th>
-                              <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] w-6`}>SLot</th>
-                              <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] w-6`}>SVal</th>
-                        <th className={`text-right py-0 px-1 font-medium text-white border border-[#3a4252] border-r-8 border-r-[#3a4252] w-6`}>SAvg</th>
+                              <th className="text-center py-0 px-1 font-medium text-white bg-[#3a4252] w-4">#</th>
+                              <th className={`text-left py-0 px-1 font-medium text-white w-4`}>SL</th>
+                              <th className={`text-right py-0 px-1 font-medium text-white w-6`}>SLot</th>
+                              <th className={`text-right py-0 px-1 font-medium text-white w-6`}>SVal</th>
+                        <th className={`text-right py-0 px-1 font-medium text-white pr-8 w-6`}>SAvg</th>
                             </React.Fragment>
                           ))}
                     {/* Total Columns - No Avg, No # for Buy */}
-                          <th className={`text-left py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BY</th>
-                          <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BLot</th>
-                          <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>BVal</th>
-                          <th className="text-center py-0 px-1 font-medium text-white bg-[#3a4252] border border-[#3a4252]">#</th>
-                          <th className={`text-left py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SL</th>
-                          <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SLot</th>
-                          <th className={`text-right py-0 px-[3px] font-medium text-white border border-[#3a4252]`}>SVal</th>
+                          <th className={`text-left py-0 px-[3px] font-medium text-white`}>BY</th>
+                          <th className={`text-right py-0 px-[3px] font-medium text-white`}>BLot</th>
+                          <th className={`text-right py-0 px-[3px] font-medium text-white`}>BVal</th>
+                          <th className="text-center py-0 px-1 font-medium text-white bg-[#3a4252]">#</th>
+                          <th className={`text-left py-0 px-[3px] font-medium text-white`}>SL</th>
+                          <th className={`text-right py-0 px-[3px] font-medium text-white`}>SLot</th>
+                          <th className={`text-right py-0 px-[3px] font-medium text-white`}>SVal</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1216,7 +1216,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       // Cek apakah broker pada row adalah top5
                       // (delete unused block: netBuyData/netSellData functions)
                             return (
-                              <tr key={rowIdx} className="border-b border-[#3a4252]/50 hover:bg-accent/50">
+                              <tr key={rowIdx} className="hover:bg-accent/50">
                           {selectedDates.map((date) => {
                             const dateData = allBrokerData.find(d => d.date === date);
                                   // Sort brokers for this date by NetBuyValue (SWAPPED)
@@ -1246,30 +1246,30 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   return (
                               <React.Fragment key={`${date}-${rowIdx}`}>
                                       {/* Net Buy Columns - No # */}
-                                      <td className={`py-0 px-1 border border-[#3a4252] w-4 ${netBuyData ? getBrokerColorClass(netBuyData.broker) : ''}`} style={netBuyBgStyle}>
+                                      <td className={`py-0 px-1 w-4 ${netBuyData ? getBrokerColorClass(netBuyData.broker) : ''}`} style={netBuyBgStyle}>
                                         {netBuyData?.broker || '-'}
                                       </td>
-                                <td className={`text-right py-0 px-1 border border-[#3a4252] w-6 ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
+                                <td className={`text-right py-0 px-1 w-6 ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
                                   {netBuyData ? formatLot(nbLot / 100) : '-'}
                                 </td>
-                                      <td className={`text-right py-0 px-1 border border-[#3a4252] w-6 ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
+                                      <td className={`text-right py-0 px-1 w-6 ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
                                         {netBuyData ? formatNumber(nbVal) : '-'}
                                       </td>
-                                      <td className={`text-right py-0 px-1 border border-[#3a4252] w-6 ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
+                                      <td className={`text-right py-0 px-1 w-6 ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
                                         {netBuyData ? formatAverage(nbAvg) : '-'}
                                       </td>
                                       {/* Net Sell Columns - Keep # */}
-                                      <td className={`text-center py-0 px-1 text-white border border-[#3a4252] bg-[#3a4252] w-4 ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`} style={netSellBgStyle}>{netSellData ? rowIdx + 1 : '-'}</td>
-                                      <td className={`py-0 px-1 border border-[#3a4252] w-4 ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`} style={netSellBgStyle}>
+                                      <td className={`text-center py-0 px-1 text-white bg-[#3a4252] w-4 ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`} style={netSellBgStyle}>{netSellData ? rowIdx + 1 : '-'}</td>
+                                      <td className={`py-0 px-1 w-4 ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`} style={netSellBgStyle}>
                                         {netSellData?.broker || '-'}
                                       </td>
-                                <td className={`text-right py-0 px-1 border border-[#3a4252] w-6 ${netSellBgStyle ? '' : 'text-red-600'}`} style={netSellBgStyle}>
+                                <td className={`text-right py-0 px-1 w-6 ${netSellBgStyle ? '' : 'text-red-600'}`} style={netSellBgStyle}>
                                   {netSellData ? formatLot(nsLot / 100) : '-'}
                                 </td>
-                                      <td className={`text-right py-0 px-1 border border-[#3a4252] w-6 ${netSellBgStyle ? '' : 'text-red-600'}`} style={netSellBgStyle}>
+                                      <td className={`text-right py-0 px-1 w-6 ${netSellBgStyle ? '' : 'text-red-600'}`} style={netSellBgStyle}>
                                         {netSellData ? formatNumber(nsVal) : '-'}
                                       </td>
-                                <td className={`text-right py-0 px-1 border border-[#3a4252] border-r-8 border-r-[#3a4252] w-6 ${netSellBgStyle ? '' : 'text-red-600'}`} style={netSellBgStyle}>
+                                <td className={`text-right py-0 px-1 pr-8 w-6 ${netSellBgStyle ? '' : 'text-red-600'}`} style={netSellBgStyle}>
                                         {netSellData ? formatAverage(nsAvg) : '-'}
                                       </td>
                                     </React.Fragment>
@@ -1286,23 +1286,23 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                             
                             return (
                               <React.Fragment>
-                                <td className={`py-0 px-[3px] border border-[#3a4252] ${totalNetBuy ? getBrokerColorClass(totalNetBuy.broker) : ''}`} style={totalNetBuyBgStyle}>
+                                <td className={`py-0 px-[3px] ${totalNetBuy ? getBrokerColorClass(totalNetBuy.broker) : ''}`} style={totalNetBuyBgStyle}>
                                   {totalNetBuy?.broker || '-'}
                                 </td>
-                                <td className={`text-right py-0 px-[3px] border border-[#3a4252] ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
+                                <td className={`text-right py-0 px-[3px] ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
                                   {totalNetBuy ? formatLot(totalNetBuy.nblot / 100) : '-'}
                                 </td>
-                                <td className={`text-right py-0 px-[3px] border border-[#3a4252] ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
+                                <td className={`text-right py-0 px-[3px] ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
                                   {totalNetBuy ? formatNumber(totalNetBuy.nbval) : '-'}
                                 </td>
-                                <td className={`text-center py-0 px-1 text-white border border-[#3a4252] bg-[#3a4252] ${totalNetSell ? getBrokerColorClass(totalNetSell.broker) : ''}`} style={totalNetSellBgStyle}>{totalNetSell ? rowIdx + 1 : '-'}</td>
-                                <td className={`py-0 px-[3px] border border-[#3a4252] ${totalNetSell ? getBrokerColorClass(totalNetSell.broker) : ''}`} style={totalNetSellBgStyle}>
+                                <td className={`text-center py-0 px-1 text-white bg-[#3a4252] ${totalNetSell ? getBrokerColorClass(totalNetSell.broker) : ''}`} style={totalNetSellBgStyle}>{totalNetSell ? rowIdx + 1 : '-'}</td>
+                                <td className={`py-0 px-[3px] ${totalNetSell ? getBrokerColorClass(totalNetSell.broker) : ''}`} style={totalNetSellBgStyle}>
                                   {totalNetSell?.broker || '-'}
                                 </td>
-                                <td className={`text-right py-0 px-[3px] border border-[#3a4252] ${totalNetSellBgStyle ? '' : 'text-red-600'}`} style={totalNetSellBgStyle}>
+                                <td className={`text-right py-0 px-[3px] ${totalNetSellBgStyle ? '' : 'text-red-600'}`} style={totalNetSellBgStyle}>
                                   {totalNetSell ? formatLot(totalNetSell.nslot / 100) : '-'}
                                 </td>
-                                <td className={`text-right py-0 px-[3px] border border-[#3a4252] ${totalNetSellBgStyle ? '' : 'text-red-600'}`} style={totalNetSellBgStyle}>
+                                <td className={`text-right py-0 px-[3px] ${totalNetSellBgStyle ? '' : 'text-red-600'}`} style={totalNetSellBgStyle}>
                                   {totalNetSell ? formatNumber(totalNetSell.nsval) : '-'}
                                 </td>
                               </React.Fragment>
