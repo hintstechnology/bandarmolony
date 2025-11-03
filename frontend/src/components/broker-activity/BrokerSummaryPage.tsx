@@ -89,7 +89,7 @@ const formatLot = (value: number): string => {
 
 const formatAverage = (value: number): string => {
   return value.toLocaleString('id-ID', {
-    minimumFractionDigits: 0,
+    minimumFractionDigits: 1,
     maximumFractionDigits: 1
   });
 };
