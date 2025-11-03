@@ -1,4 +1,4 @@
-import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
+import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
 
 // Type definitions, sama seperti broker_data.ts
 type TransactionType = 'RG' | 'TN' | 'NG';
@@ -46,30 +46,14 @@ export class BrokerDataRGTNNGCalculator {
   private async findAllDtFiles(): Promise<string[]> {
     console.log('🔍 Scanning for DT files in done-summary folder...');
     try {
-    const allFiles = await listPaths({ prefix: 'done-summary/' });
+      const allFiles = await listPaths({ prefix: 'done-summary/' });
       console.log(`📁 Found ${allFiles.length} total files in done-summary folder`);
       const dtFiles = allFiles.filter(file => file.includes('/DT') && file.endsWith('.csv'));
       
-      // Filter by date range: 20251023 to 20251101
-      const startDate = '20251023';
-      const endDate = '20251101';
-      console.log(`📅 Filtering DT files for date range: ${startDate} to ${endDate}`);
+      console.log(`📊 Found ${dtFiles.length} DT files (no date range filter - processing all)`);
       
-      const filteredFiles = dtFiles.filter(file => {
-        // Extract date from path: done-summary/YYYYMMDD/DTDDMMYY.csv
-        const pathParts = file.split('/');
-        if (pathParts.length < 2) return false;
-        const dateFolder = pathParts[1]; // e.g., "20251023"
-        if (!dateFolder) return false;
-        
-        // Check if date is in range (inclusive)
-        return dateFolder >= startDate && dateFolder <= endDate;
-      });
-      
-      console.log(`📊 Found ${filteredFiles.length} DT files in date range ${startDate}-${endDate}`);
-      
-      // Sort by date descending (newest first: 20251101 → 20251023)
-      const sortedFiles = filteredFiles.sort((a, b) => {
+      // Sort by date descending (newest first)
+      const sortedFiles = dtFiles.sort((a, b) => {
         const dateA = a.split('/')[1] || '';
         const dateB = b.split('/')[1] || '';
         return dateB.localeCompare(dateA); // Descending order
@@ -166,7 +150,24 @@ export class BrokerDataRGTNNGCalculator {
     const paths = this.getSummaryPaths(type, dateSuffix);
     const uniqueEmiten = [...new Set(data.map(row => row.STK_CODE))];
     const createdFiles: string[] = [];
+    const skippedFiles: string[] = [];
+    
     for (const emiten of uniqueEmiten) {
+      const filename = `${paths.brokerSummary}/${emiten}.csv`;
+      
+      // Check if file already exists - skip if exists
+      try {
+        const fileExists = await exists(filename);
+        if (fileExists) {
+          console.log(`⏭️ Skipping ${filename} - file already exists`);
+          skippedFiles.push(filename);
+          continue;
+        }
+      } catch (error: any) {
+        // If check fails, continue with generation (might be folder not found yet)
+        console.log(`ℹ️ Could not check existence of ${filename}, proceeding with generation`);
+      }
+      
       const emitenData = data.filter(row => row.STK_CODE === emiten);
       const buyerGroups = new Map<string, TransactionData[]>();
       emitenData.forEach(row => {
@@ -214,10 +215,14 @@ export class BrokerDataRGTNNGCalculator {
         });
       });
       finalSummary.sort((a, b) => b.NetBuyValue - a.NetBuyValue);
-      const filename = `${paths.brokerSummary}/${emiten}.csv`;
       await this.saveToAzure(filename, finalSummary);
       createdFiles.push(filename);
     }
+    
+    if (skippedFiles.length > 0) {
+      console.log(`⏭️ Skipped ${skippedFiles.length} files that already exist`);
+    }
+    
     return createdFiles;
   }
 
@@ -225,7 +230,24 @@ export class BrokerDataRGTNNGCalculator {
     const paths = this.getSummaryPaths(type, dateSuffix);
     const uniqueBrokers = [...new Set([ ...data.map(r => r.BRK_COD2), ...data.map(r => r.BRK_COD1)])];
     const createdFiles: string[] = [];
+    const skippedFiles: string[] = [];
+    
     for (const broker of uniqueBrokers) {
+      const filename = `${paths.brokerTransaction}/${broker}.csv`;
+      
+      // Check if file already exists - skip if exists
+      try {
+        const fileExists = await exists(filename);
+        if (fileExists) {
+          console.log(`⏭️ Skipping ${filename} - file already exists`);
+          skippedFiles.push(filename);
+          continue;
+        }
+      } catch (error: any) {
+        // If check fails, continue with generation (might be folder not found yet)
+        console.log(`ℹ️ Could not check existence of ${filename}, proceeding with generation`);
+      }
+      
       const brokerData = data.filter(row => row.BRK_COD2 === broker || row.BRK_COD1 === broker);
       const stockGroups = new Map<string, TransactionData[]>();
       brokerData.forEach(row => {
@@ -267,10 +289,14 @@ export class BrokerDataRGTNNGCalculator {
         });
       });
       stockSummary.sort((a, b) => b.TotalVolume - a.TotalVolume);
-      const filename = `${paths.brokerTransaction}/${broker}.csv`;
       await this.saveToAzure(filename, stockSummary);
       createdFiles.push(filename);
     }
+    
+    if (skippedFiles.length > 0) {
+      console.log(`⏭️ Skipped ${skippedFiles.length} broker transaction files that already exist`);
+    }
+    
     return createdFiles;
   }
 
@@ -356,11 +382,11 @@ export class BrokerDataRGTNNGCalculator {
           
           console.log(`📝 Creating broker summary for ${date} (${type})...`);
           const summaryFiles = await this.createBrokerSummaryPerEmiten(filtered, date, type);
-          console.log(`✅ Created ${summaryFiles.length} broker summary files for ${date}`);
+          console.log(`✅ Created ${summaryFiles.length} broker summary files for ${date} (skipped files that already exist)`);
           
           console.log(`📝 Creating broker transactions for ${date} (${type})...`);
           const transactionFiles = await this.createBrokerTransactionPerBroker(filtered, date, type);
-          console.log(`✅ Created ${transactionFiles.length} broker transaction files for ${date}`);
+          console.log(`✅ Created ${transactionFiles.length} broker transaction files for ${date} (skipped files that already exist)`);
           
           processedDates++;
           totalFilesCreated += summaryFiles.length + transactionFiles.length;

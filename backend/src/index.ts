@@ -28,6 +28,7 @@ import breakDoneTradeRoutes from './routes/break-done-trade';
 import topBrokerRoutes from './routes/top-broker';
 import watchlistRoutes from './routes/watchlist';
 import brokerSummaryRoutes from './routes/broker-summary';
+import brokerInventoryRoutes from './routes/broker_inventory';
 import { requireSupabaseUser } from './middleware/requireSupabaseUser';
 import { securityHeaders, sanitizeInput } from './middleware/security';
 import { createErrorResponse, ERROR_CODES, HTTP_STATUS } from './utils/responseUtils';
@@ -105,6 +106,7 @@ app.use('/api/break-done-trade', breakDoneTradeRoutes);
 app.use('/api/top-broker', topBrokerRoutes);
 app.use('/api/watchlist', watchlistRoutes);
 app.use('/api/broker-summary', brokerSummaryRoutes);
+app.use('/api/broker-inventory', brokerInventoryRoutes);
 
 // contoh protected route pakai Supabase Auth token
 app.get('/me', requireSupabaseUser, (req: any, res) => {

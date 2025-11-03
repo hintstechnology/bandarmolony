@@ -1828,6 +1828,21 @@ export const api = {
     }
   },
 
+  // Get latest available date for a specific stock
+  async getLatestStockDate(stockCode: string): Promise<{ success: boolean; data?: { latestDate: string; stockCode: string }; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/stock/latest-date/${stockCode}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get latest date');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get latest date' };
+    }
+  },
+
   // Get bid/ask data for specific stock and date
   async getBidAskData(stockCode: string, date: string): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
@@ -1899,20 +1914,6 @@ export const api = {
     }
   },
 
-  // Broker Inventory Data
-  async getBrokerInventoryData(stockCode: string, date: string): Promise<{ success: boolean; data?: any; error?: string }> {
-    try {
-      const res = await fetch(`${API_URL}/api/broker/inventory/${stockCode}?date=${date}`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to get broker inventory data');
-      return { success: true, data: json.data };
-    } catch (err: any) {
-      return { success: false, error: err.message || 'Failed to get broker inventory data' };
-    }
-  },
 
   async getMultipleStocksData(stockCodes: string[], startDate?: string, endDate?: string, limit?: number): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
@@ -2313,6 +2314,84 @@ export const api = {
       return data;
     } catch (err: any) {
       return { success: false, error: err.message || 'Failed to get broker summary stocks' };
+    }
+  },
+
+  // Get broker inventory data (cumulative net flow)
+  getBrokerInventoryData: async (stockCode: string, brokerCode: string) => {
+    try {
+      const url = `${API_URL}/api/broker-inventory/${stockCode}/${brokerCode}`;
+      console.log(`[API] Fetching broker inventory: ${url}`);
+      
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      if (!response.ok) {
+        console.error(`[API] Broker inventory request failed: ${response.status}`, data);
+        return { success: false, error: data.error || `HTTP ${response.status}: Failed to get broker inventory data` };
+      }
+      
+      console.log(`[API] Broker inventory response:`, { 
+        success: data.success, 
+        hasData: !!data.data, 
+        inventoryDataLength: data.data?.inventoryData?.length || 0 
+      });
+      return data;
+    } catch (err: any) {
+      console.error(`[API] Broker inventory fetch error:`, err);
+      return { success: false, error: err.message || 'Failed to get broker inventory data' };
+    }
+  },
+
+  // Get available brokers for a stock from broker_inventory folder
+  getBrokerInventoryBrokers: async (stockCode: string) => {
+    try {
+      const url = `${API_URL}/api/broker-inventory/brokers/${stockCode}`;
+      console.log(`[API] Fetching broker inventory brokers: ${url}`);
+      
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      if (!response.ok) {
+        console.error(`[API] Broker inventory brokers request failed: ${response.status}`, data);
+        return { success: false, error: data.error || `HTTP ${response.status}: Failed to get broker inventory brokers` };
+      }
+      
+      console.log(`[API] Broker inventory brokers response:`, { 
+        success: data.success, 
+        brokersCount: data.data?.brokers?.length || 0 
+      });
+      return data;
+    } catch (err: any) {
+      console.error(`[API] Broker inventory brokers fetch error:`, err);
+      return { success: false, error: err.message || 'Failed to get broker inventory brokers' };
+    }
+  },
+
+  // Get top brokers for a specific date
+  getTopBrokers: async (date: string) => {
+    try {
+      // Convert YYYY-MM-DD to YYYYMMDD format
+      const dateStr = date.includes('-') ? date.replace(/-/g, '') : date;
+      const url = `${API_URL}/api/top-broker?date=${dateStr}`;
+      console.log(`[API] Fetching top brokers: ${url}`);
+      
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      if (!response.ok) {
+        console.error(`[API] Top brokers request failed: ${response.status}`, data);
+        return { success: false, error: data.error || `HTTP ${response.status}: Failed to get top brokers` };
+      }
+      
+      console.log(`[API] Top brokers response:`, { 
+        success: data.success, 
+        brokersCount: data.data?.brokers?.length || 0 
+      });
+      return data;
+    } catch (err: any) {
+      console.error(`[API] Top brokers fetch error:`, err);
+      return { success: false, error: err.message || 'Failed to get top brokers' };
     }
   },
 

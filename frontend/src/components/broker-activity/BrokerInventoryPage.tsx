@@ -36,7 +36,12 @@ interface InventoryTimeSeries {
 // Note: BROKER_COLORS is available but not used in this component - using dynamic color generation instead
 
 // Dynamic color generator based on loaded brokers
-const generateBrokerColor = (broker: string, allBrokers: string[] = []): string => {
+const generateBrokerColor = (broker: string | undefined | null, allBrokers: string[] = []): string => {
+  // Handle undefined/null broker
+  if (!broker || typeof broker !== 'string') {
+    return 'hsl(0, 0%, 50%)'; // Return gray color for invalid broker
+  }
+  
   // Get all unique brokers and sort them for consistent color assignment
   const sortedBrokers = [...new Set(allBrokers)].sort();
   const brokerIndex = sortedBrokers.indexOf(broker);
@@ -712,37 +717,102 @@ const InventoryChart = ({ inventoryData, selectedBrokers }: { inventoryData: Inv
     const chart = chartRef.current!;
 
     try {
+      const firstInventoryItem = inventoryData[0];
+      console.log(`📊 InventoryChart render:`, {
+        inventoryDataLength: inventoryData.length,
+        selectedBrokers,
+        sampleInventoryData: inventoryData.slice(0, 3),
+        inventoryDataKeys: firstInventoryItem ? Object.keys(firstInventoryItem) : []
+      });
+
+      if (inventoryData.length === 0) {
+        console.warn(`⚠️ InventoryChart: No inventory data provided`);
+        return;
+      }
+
+      if (selectedBrokers.length === 0) {
+        console.warn(`⚠️ InventoryChart: No selected brokers`);
+        return;
+      }
+
       selectedBrokers.forEach(broker => {
-        const brokerData = inventoryData.map(d => ({
-        time: d.time,
-          value: d[broker] as number,
-        })).filter(d => d.value !== undefined && d.value !== null);
+        // Extract broker-specific data from inventoryData
+        const brokerData = inventoryData
+          .map(d => {
+            const brokerValue = d[broker];
+            // Convert time to proper format (lightweight-charts expects YYYY-MM-DD string)
+            let timeValue: string = String(d.time || '');
+            
+            // Ensure time is in YYYY-MM-DD format
+            const rawTime: any = d.time;
+            if (typeof rawTime === 'string') {
+              timeValue = rawTime;
+              // Check format
+              if (!/^\d{4}-\d{2}-\d{2}$/.test(timeValue)) {
+                // Try to parse and reformat
+                const date = new Date(timeValue);
+                if (!isNaN(date.getTime())) {
+                  const isoStr = date.toISOString().split('T')[0];
+                  timeValue = isoStr || timeValue;
+                }
+              }
+            } else if (rawTime && typeof rawTime === 'object' && 'toISOString' in rawTime) {
+              // Date object
+              const dateObj = rawTime as Date;
+              const isoStr = dateObj.toISOString().split('T')[0];
+              timeValue = isoStr || '';
+            } else if (typeof rawTime === 'number') {
+              // Unix timestamp
+              const date = new Date(rawTime * 1000);
+              const isoStr = date.toISOString().split('T')[0];
+              timeValue = isoStr || '';
+            }
+            
+            return {
+              time: timeValue,
+              value: typeof brokerValue === 'number' ? brokerValue : 0
+            };
+          })
+          .filter(d => {
+            // Filter out invalid data points
+            const isValid = d.time && !isNaN(d.value) && isFinite(d.value);
+            return isValid;
+          })
+          .sort((a, b) => {
+            // Sort by time
+            return a.time.localeCompare(b.time);
+          });
         
         console.log(`📊 InventoryChart: Adding series for broker ${broker}:`, {
           brokerDataLength: brokerData.length,
-          sampleData: brokerData.slice(0, 3),
-          hasData: brokerData.length > 0
+          sampleData: brokerData.slice(0, 5),
+          hasData: brokerData.length > 0,
+          firstValue: brokerData[0]?.value,
+          lastValue: brokerData[brokerData.length - 1]?.value
         });
         
         if (brokerData.length > 0) {
-        const lineSeries = chart.addSeries(LineSeries, {
-          color: generateBrokerColor(broker, selectedBrokers),
-          lineWidth: 2,
-          title: broker,
-          priceScaleId: 'right',
-          priceFormat: {
-            type: 'custom',
-            formatter: (price: number) => formatLotNumber(price),
-          },
-        });
+          const lineSeries = chart.addSeries(LineSeries, {
+            color: generateBrokerColor(broker, selectedBrokers),
+            lineWidth: 2,
+            title: broker,
+            priceScaleId: 'right',
+            priceFormat: {
+              type: 'custom',
+              formatter: (price: number) => formatLotNumber(price),
+            },
+          });
 
           lineSeries.setData(brokerData);
+          console.log(`✅ InventoryChart: Series added for broker ${broker} with ${brokerData.length} data points`);
         } else {
-          console.warn(`⚠️ InventoryChart: No data found for broker ${broker}`);
+          console.warn(`⚠️ InventoryChart: No valid data found for broker ${broker}`);
         }
       });
 
+      // Fit content after adding all series
       chart.timeScale().fitContent();
+      console.log(`✅ InventoryChart: Chart rendered with ${selectedBrokers.length} series`);
     } catch (e) {
       console.error('Inventory chart render error:', e);
     }
@@ -806,6 +876,34 @@ const InventoryChart = ({ inventoryData, selectedBrokers }: { inventoryData: Inv
 // Removed unused chart components to improve performance
 
 
+// Cache mechanism
+const cache = {
+  brokers: new Map<string, { data: string[]; timestamp: number }>(),
+  inventory: new Map<string, { data: any[]; timestamp: number }>(),
+  stockData: new Map<string, { data: any[]; timestamp: number }>(),
+  topBrokers: new Map<string, { data: any[]; timestamp: number }>(),
+  latestDate: { date: null as string | null, timestamp: 0 },
+  
+  get(key: string, cacheMap: Map<string, any>, ttl: number = 5 * 60 * 1000): any | null {
+    const cached = cacheMap.get(key);
+    if (cached && Date.now() - cached.timestamp < ttl) {
+      return cached.data;
+    }
+    return null;
+  },
+  
+  set(key: string, data: any, cacheMap: Map<string, any>): void {
+    cacheMap.set(key, { data, timestamp: Date.now() });
+  },
+  
+  clear(): void {
+    cache.brokers.clear();
+    cache.inventory.clear();
+    cache.stockData.clear();
+    cache.topBrokers.clear();
+  }
+};
+
 export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({ 
   selectedStock: propSelectedStock,
   defaultSplitView = false,
@@ -822,14 +920,9 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
   // State management
   const [selectedTicker, setSelectedTicker] = useState(propSelectedStock || 'BBCA');
   const [selectedBrokers, setSelectedBrokers] = useState<string[]>([]);
-  const [startDate, setStartDate] = useState(() => {
-    const date = new Date();
-    date.setMonth(date.getMonth() - 1);
-    return date.toISOString().split('T')[0];
-  });
-  const [endDate, setEndDate] = useState(() => {
-    return new Date().toISOString().split('T')[0];
-  });
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+  const [isInitializing, setIsInitializing] = useState(true);
   const [brokerSearch, setBrokerSearch] = useState('');
   const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false);
   const [highlightedBrokerIndex, setHighlightedBrokerIndex] = useState(-1);
@@ -846,10 +939,16 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
   const [brokerDataError, setBrokerDataError] = useState<string | null>(null);
   const [ohlcData, setOhlcData] = useState<any[]>([]);
   const [volumeData, setVolumeData] = useState<any[]>([]);
-  const [brokerSummaryData, setBrokerSummaryData] = useState<any[]>([]);
+  const [brokerSummaryData, setBrokerSummaryData] = useState<any[]>([]); // Still used for top brokers table
   const [availableBrokersForStock, setAvailableBrokersForStock] = useState<string[]>([]);
   const [isLoadingBrokersForStock, setIsLoadingBrokersForStock] = useState(false);
   const [topBrokersCount, setTopBrokersCount] = useState<5 | 10 | 15 | 20 | 'all'>(5);
+  const startDateRef = useRef<HTMLInputElement>(null);
+  const endDateRef = useRef<HTMLInputElement>(null);
+  const [latestDataDate, setLatestDataDate] = useState<string | null>(null);
+  
+  // Minimum date allowed: 19/09/2025
+  const MIN_DATE = '2025-09-19';
 
   // Update selectedTicker when propSelectedStock changes
   useEffect(() => {
@@ -886,8 +985,20 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
     });
   };
 
+  // Helper function to trigger date picker
+  const triggerDatePicker = (inputRef: React.RefObject<HTMLInputElement>) => {
+    if (inputRef.current) {
+      inputRef.current.showPicker();
+    }
+  };
 
-  // Load available stocks and broker dates on component mount
+  // Helper function to format date for input (YYYY-MM-DD)
+  const formatDateForInput = (date: string | undefined) => {
+    return date || ''; // Already in YYYY-MM-DD format, return empty string if undefined
+  };
+
+
+  // Load initial data (stocks list only) on component mount
   useEffect(() => {
     const loadInitialData = async () => {
       try {
@@ -917,6 +1028,92 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
     loadInitialData();
   }, [showToast]);
 
+  // Load latest date and set default date range when stock is selected
+  useEffect(() => {
+    const loadLatestDateForStock = async () => {
+      if (!selectedTicker) {
+        return;
+      }
+      
+      try {
+        setIsInitializing(true);
+        
+        // Check if we have cached latest date for this stock
+        const cachedDate = cache.latestDate.date;
+        const cachedStock = (cache.latestDate as any).stockCode;
+        
+        let latestDate: string | null = null;
+        
+        if (cachedDate && cachedStock === selectedTicker && Date.now() - cache.latestDate.timestamp < 5 * 60 * 1000) {
+          latestDate = cachedDate;
+          setLatestDataDate(latestDate);
+          console.log(`📊 Using cached latest date for ${selectedTicker}: ${latestDate}`);
+        } else {
+          // Fetch latest date for this specific stock
+          console.log(`📊 Fetching latest date for stock: ${selectedTicker}`);
+          const latestResponse = await api.getLatestStockDate(selectedTicker);
+          
+          if (latestResponse.success && latestResponse.data?.latestDate) {
+            latestDate = latestResponse.data.latestDate;
+            // Cache with stock code
+            cache.latestDate = { 
+              date: latestDate, 
+              timestamp: Date.now(),
+              stockCode: selectedTicker 
+            } as any;
+            // Store latest date in state for validation and display
+            setLatestDataDate(latestDate);
+            console.log(`📊 Fetched latest date for ${selectedTicker}: ${latestDate}`);
+          } else {
+            console.warn(`⚠️ Could not get latest date for ${selectedTicker}`);
+            setLatestDataDate(null);
+          }
+        }
+        
+        if (latestDate) {
+          // Set end date to latest date
+          setEndDate(latestDate);
+          
+          // Set start date to 1 month before latest date
+          const latest = new Date(latestDate);
+          const oneMonthAgo = new Date(latest);
+          oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+          const startDateStr = oneMonthAgo.toISOString().split('T')[0];
+          if (startDateStr) {
+            setStartDate(startDateStr);
+          }
+          
+          console.log(`📊 Default date range set for ${selectedTicker}: ${startDateStr} to ${latestDate}`);
+        } else {
+          // Fallback: use today if latest date not available
+          const today = new Date();
+          const oneMonthAgo = new Date(today);
+          oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+          const todayStr = today.toISOString().split('T')[0];
+          const oneMonthAgoStr = oneMonthAgo.toISOString().split('T')[0];
+          if (todayStr) setEndDate(todayStr);
+          if (oneMonthAgoStr) setStartDate(oneMonthAgoStr);
+          console.log(`📊 Using fallback date range for ${selectedTicker}`);
+        }
+        
+      } catch (error) {
+        console.error(`Error loading latest date for ${selectedTicker}:`, error);
+        // Fallback to current date
+        const today = new Date();
+        const oneMonthAgo = new Date(today);
+        oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+        const todayStr = today.toISOString().split('T')[0];
+        const oneMonthAgoStr = oneMonthAgo.toISOString().split('T')[0];
+        if (todayStr) setEndDate(todayStr);
+        if (oneMonthAgoStr) setStartDate(oneMonthAgoStr);
+      } finally {
+        setIsInitializing(false);
+      }
+    };
+    
+    loadLatestDateForStock();
+  }, [selectedTicker]);
+
   // Sync endDate when startDate changes to ensure endDate >= startDate
   useEffect(() => {
     if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
@@ -928,23 +1125,41 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
   // Load OHLC and volume data when ticker or date range changes
   useEffect(() => {
     const loadStockData = async () => {
-      if (!selectedTicker || !startDate || !endDate) return;
+      if (!selectedTicker || !startDate || !endDate || isInitializing) return;
       
       setIsLoadingData(true);
       setDataError(null);
       
       try {
+        // Check cache first (5 minutes TTL)
+        const cacheKey = `${selectedTicker}-${startDate}-${endDate}`;
+        const cachedData = cache.get(cacheKey, cache.stockData, 5 * 60 * 1000);
+        
+        if (cachedData) {
+          console.log(`📊 Using cached stock data for ${selectedTicker}`);
+          setOhlcData(cachedData.candlestick);
+          setVolumeData(cachedData.volume);
+          setIsLoadingData(false);
+          return;
+        }
+        
         console.log(`📊 Loading stock data for ${selectedTicker} from ${startDate} to ${endDate}`);
         
-        // Call stock API to get OHLC data
+        // Call stock API to get OHLC data (backend already filters by date range)
         const response = await api.getStockData(selectedTicker, startDate, endDate, 1000);
         
         if (response.success && response.data?.data) {
           const stockData = response.data.data;
           console.log(`📊 Received ${stockData.length} records for ${selectedTicker}`);
           
+          // Filter data by date range (additional client-side filter for safety)
+          const filteredData = stockData.filter((row: any) => {
+            const rowDate = row.Date;
+            return rowDate >= startDate && rowDate <= endDate;
+          });
+          
           // Convert to candlestick format for charts
-          const candlestickData = stockData.map((row: any) => ({
+          const candlestickData = filteredData.map((row: any) => ({
             time: row.Date,
             open: row.Open || 0,
             high: row.High || 0,
@@ -954,11 +1169,14 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
           }));
           
           // Convert to volume format for charts
-          const volumeChartData = stockData.map((row: any) => ({
+          const volumeChartData = filteredData.map((row: any) => ({
             time: row.Date,
             value: row.Volume || 0,
             color: (row.Close || 0) >= (row.Open || 0) ? '#16a34a' : '#dc2626'
           }));
+          
+          // Cache the data
+          cache.set(cacheKey, { candlestick: candlestickData, volume: volumeChartData }, cache.stockData);
           
           setOhlcData(candlestickData);
           setVolumeData(volumeChartData);
@@ -983,24 +1201,23 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
     };
     
     loadStockData();
-  }, [selectedTicker, startDate, endDate, showToast]);
+  }, [selectedTicker, startDate, endDate, isInitializing, showToast]);
 
-  // Load broker summary data using optimized API
+  // Load top brokers data for table using top_broker API
   useEffect(() => {
-    const loadBrokerData = async () => {
-      // Load broker data even if no brokers are selected (for top brokers table)
-      if (!selectedTicker || !startDate || !endDate || ohlcData.length === 0) return;
+    const loadTopBrokersData = async () => {
+      // Load top brokers data for table (not for chart)
+      if (!selectedTicker || !startDate || !endDate || ohlcData.length === 0 || isInitializing) {
+        setBrokerSummaryData([]);
+        return;
+      }
       
       setIsLoadingBrokerData(true);
       setBrokerDataError(null);
       
       try {
-        console.log(`🔄 Loading optimized broker data for ${selectedTicker} from ${startDate} to ${endDate}`);
-        console.log(`📊 OHLC data available: ${ohlcData.length} records`);
-        
-        // Get dates from OHLC data instead of generating them
+        // Get dates from OHLC data (already filtered by date range)
         const ohlcDates = ohlcData.map(d => d.time).sort();
-        console.log(`📊 Using ${ohlcDates.length} dates from OHLC data:`, ohlcDates.slice(0, 5), '...');
         
         if (ohlcDates.length === 0) {
           console.log('⚠️ No OHLC dates available');
@@ -1008,307 +1225,197 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
           return;
         }
         
-        // Load broker data for each OHLC date with smart skipping and error protection
+        console.log(`🔄 Loading top brokers data for ${selectedTicker} from ${startDate} to ${endDate}`);
+        console.log(`📊 Using ${ohlcDates.length} dates from OHLC data (filtered by date range)`);
+        
+        // Load top brokers for each date using top_broker API (with caching)
         const allBrokerData: any[] = [];
         let successfulDates = 0;
-        let consecutiveNotFound = 0;
-        let consecutiveErrors = 0;
-        const maxConsecutiveNotFound = 5; // Stop after 5 consecutive not found dates
-        const maxConsecutiveErrors = 3; // Stop after 3 consecutive errors
-        const maxRetries = 2; // Maximum retries per date
-        const minDataDays = 30; // Minimum days of data required
         
-        console.log(`📊 Starting broker data loading with smart skipping and error protection`);
-        console.log(`📊 Max consecutive not found: ${maxConsecutiveNotFound}, Max consecutive errors: ${maxConsecutiveErrors}`);
-        console.log(`📊 Processing ${ohlcDates.length} dates from ${ohlcDates[0]} to ${ohlcDates[ohlcDates.length - 1]}`);
-        console.log(`📊 Target: Minimum ${minDataDays} days of broker data`);
-        
-        for (const dateStr of ohlcDates) { // Process all dates, no limit
-          let retryCount = 0;
-          let dateProcessed = false;
-          
-          while (retryCount <= maxRetries && !dateProcessed) {
-            try {
-              // Progress logging every 5 dates (more frequent)
-              const currentIndex = ohlcDates.indexOf(dateStr);
-              if (currentIndex % 5 === 0 || currentIndex === ohlcDates.length - 1) {
-                console.log(`📊 Progress: Processing date ${currentIndex + 1}/${ohlcDates.length} (${dateStr}) - Found ${successfulDates} successful dates, ${consecutiveNotFound} consecutive not found, ${consecutiveErrors} consecutive errors`);
-              }
-              
-              // Convert date from YYYY-MM-DD to YYYYMMDD format for broker API
-              const brokerDateStr = dateStr.replace(/-/g, '');
-              
-              const response = await api.getBrokerSummaryData(selectedTicker, brokerDateStr);
-              
-              console.log(`📊 Broker API response for ${dateStr} (${brokerDateStr}):`, {
-                success: response.success,
-                hasData: !!response.data?.brokerData,
-                dataLength: response.data?.brokerData?.length || 0,
-                consecutiveNotFound: consecutiveNotFound,
-                consecutiveErrors: consecutiveErrors,
-                retryCount: retryCount
-              });
-              
-              // Reset consecutive errors counter on successful API call
-              consecutiveErrors = 0;
-              
-              if (response.success && response.data?.brokerData) {
-                const brokerData = response.data.brokerData;
-                
-                // Use ALL brokers, not filtered by selectedBrokers
-                // For chart, we still need selectedBrokers, but for top brokers table, we use all data
-                
-                console.log(`📊 Broker data for ${dateStr}:`, {
-                  totalBrokers: brokerData.length,
-                  brokerNames: brokerData.map((b: any) => b.broker).slice(0, 10)
-                });
-                
-                // Only add data if we have brokers for this date
-                if (brokerData.length > 0) {
-                  // Add date to each broker record
-                  brokerData.forEach((broker: any) => {
-                    allBrokerData.push({
-                      ...broker,
-                      date: dateStr, // Use original OHLC date format
-                      time: dateStr // For chart compatibility
-                    });
-                  });
-                  
-                  successfulDates++;
-                  consecutiveNotFound = 0; // Reset counter on successful date
-                  console.log(`✅ Broker data loaded for ${dateStr}: ${brokerData.length} brokers`);
-                } else {
-                  consecutiveNotFound++;
-                  console.log(`⚠️ No broker data found for ${selectedTicker} on ${dateStr} - skipping immediately (${consecutiveNotFound}/${maxConsecutiveNotFound} consecutive not found)`);
-                  
-                  // Early feedback for no data
-                  if (consecutiveNotFound === 1) {
-                    console.log(`💡 Tip: No broker data found for ${selectedTicker} on ${dateStr}. This may indicate limited broker activity for this stock.`);
-                  }
-                  
-                  // Check if we should stop due to too many consecutive not found dates
-                  // But only if we already have minimum required data
-                  if (consecutiveNotFound >= maxConsecutiveNotFound && successfulDates >= minDataDays) {
-                    console.log(`🛑 Stopping broker data loading after ${consecutiveNotFound} consecutive not found dates`);
-                    console.log(`✅ Already have ${successfulDates} days of data (minimum ${minDataDays} required)`);
-                    console.log(`💡 Suggestion: Try selecting different brokers or check if broker data is available for ${selectedTicker}`);
-                    break;
-                  } else if (consecutiveNotFound >= maxConsecutiveNotFound) {
-                    console.log(`⚠️ ${consecutiveNotFound} consecutive not found dates, but only ${successfulDates} days collected (need ${minDataDays})`);
-                    console.log(`📊 Continuing to search for more data...`);
-                  }
-                }
-              } else {
-                consecutiveNotFound++;
-                console.log(`⚠️ No broker data for ${selectedTicker} on ${dateStr} - skipping immediately (${consecutiveNotFound}/${maxConsecutiveNotFound} consecutive not found)`);
-                
-                // Early feedback for no data
-                if (consecutiveNotFound === 1) {
-                  console.log(`💡 Tip: No broker data found for ${selectedTicker} on ${dateStr}. This may indicate limited broker activity for this stock.`);
-                }
-                
-                // Check if we should stop due to too many consecutive not found dates
-                // But only if we already have minimum required data
-                if (consecutiveNotFound >= maxConsecutiveNotFound && successfulDates >= minDataDays) {
-                  console.log(`🛑 Stopping broker data loading after ${consecutiveNotFound} consecutive not found dates`);
-                  console.log(`✅ Already have ${successfulDates} days of data (minimum ${minDataDays} required)`);
-                  console.log(`💡 Suggestion: Try selecting different brokers or check if broker data is available for ${selectedTicker}`);
-                  break;
-                } else if (consecutiveNotFound >= maxConsecutiveNotFound) {
-                  console.log(`⚠️ ${consecutiveNotFound} consecutive not found dates, but only ${successfulDates} days collected (need ${minDataDays})`);
-                  console.log(`📊 Continuing to search for more data...`);
-                }
-              }
-              
-              dateProcessed = true; // Mark date as processed successfully
-              
-            } catch (error) {
-              consecutiveErrors++;
-              retryCount++;
-              
-              console.warn(`⚠️ Error loading broker data for ${dateStr} (attempt ${retryCount}/${maxRetries + 1}):`, error);
-              
-              if (retryCount > maxRetries) {
-                // Max retries reached, count as not found and move to next date
-                consecutiveNotFound++;
-                console.log(`⚠️ Max retries reached for ${dateStr}, skipping to next date immediately (${consecutiveNotFound}/${maxConsecutiveNotFound} consecutive not found)`);
-                
-                // Check if we should stop due to too many consecutive errors
-                // But only if we already have minimum required data
-                if (consecutiveErrors >= maxConsecutiveErrors && successfulDates >= minDataDays) {
-                  console.log(`🛑 Stopping broker data loading after ${consecutiveErrors} consecutive errors`);
-                  console.log(`✅ Already have ${successfulDates} days of data (minimum ${minDataDays} required)`);
-                  break;
-                } else if (consecutiveErrors >= maxConsecutiveErrors) {
-                  console.log(`⚠️ ${consecutiveErrors} consecutive errors, but only ${successfulDates} days collected (need ${minDataDays})`);
-                  console.log(`📊 Continuing to search for more data...`);
-                }
-                
-                // Check if we should stop due to too many consecutive not found dates
-                // But only if we already have minimum required data
-                if (consecutiveNotFound >= maxConsecutiveNotFound && successfulDates >= minDataDays) {
-                  console.log(`🛑 Stopping broker data loading after ${consecutiveNotFound} consecutive not found dates`);
-                  console.log(`✅ Already have ${successfulDates} days of data (minimum ${minDataDays} required)`);
-                  break;
-                } else if (consecutiveNotFound >= maxConsecutiveNotFound) {
-                  console.log(`⚠️ ${consecutiveNotFound} consecutive not found dates, but only ${successfulDates} days collected (need ${minDataDays})`);
-                  console.log(`📊 Continuing to search for more data...`);
-                }
-                
-                dateProcessed = true; // Mark date as processed (failed) to move to next date
-              } else {
-                // Wait before retry to prevent rapid API calls (reduced delay)
-                console.log(`⏳ Waiting 500ms before retry ${retryCount + 1} for ${dateStr}...`);
-                await new Promise(resolve => setTimeout(resolve, 500));
-              }
-            }
+        for (const dateStr of ohlcDates) {
+          // Filter dates within range (additional safety check)
+          if (dateStr < startDate || dateStr > endDate) {
+            continue;
           }
           
-          // Break out of outer loop if we hit the limits
-          // But only if we already have minimum required data
-          if ((consecutiveNotFound >= maxConsecutiveNotFound || consecutiveErrors >= maxConsecutiveErrors) && successfulDates >= minDataDays) {
-            break;
+          try {
+            // Check cache first (5 minutes TTL)
+            const cacheKey = `top-brokers-${dateStr}`;
+            let brokerData: any[] | null = cache.get(cacheKey, cache.topBrokers, 5 * 60 * 1000);
+            
+            if (!brokerData) {
+              const response = await api.getTopBrokers(dateStr);
+              
+              if (response.success && response.data?.brokers) {
+                const brokers = response.data.brokers;
+                
+                // Map top broker format to our format
+                brokerData = brokers.map((broker: any) => ({
+                  broker: broker.brokercode || broker.BrokerCode || '',
+                  BrokerCode: broker.brokercode || broker.BrokerCode || '',
+                  NetBuyVol: broker.netbuyvol || 0,
+                  TotalVol: broker.totalvol || 0,
+                  date: dateStr,
+                  time: dateStr
+                }));
+                
+                // Cache the data
+                cache.set(cacheKey, brokerData, cache.topBrokers);
+              } else {
+                brokerData = [];
+              }
+            } else {
+              // Update dates in cached data to match current date
+              brokerData = brokerData.map((b: any) => ({ ...b, date: dateStr, time: dateStr }));
+            }
+            
+            if (brokerData && brokerData.length > 0) {
+              allBrokerData.push(...brokerData);
+              successfulDates++;
+            }
+          } catch (error) {
+            console.warn(`⚠️ Error loading top brokers for ${dateStr}:`, error);
           }
         }
         
-        console.log(`📊 ===== BROKER DATA LOADING COMPLETE =====`);
-        console.log(`📊 Total OHLC dates processed: ${ohlcDates.length}`);
-        console.log(`📊 Successful broker dates: ${successfulDates}`);
-        console.log(`📊 Consecutive not found: ${consecutiveNotFound}`);
-        console.log(`📊 Consecutive errors: ${consecutiveErrors}`);
-        console.log(`📊 Total broker records loaded: ${allBrokerData.length}`);
-        console.log(`📊 Sample broker data:`, allBrokerData.slice(0, 3));
+        // Filter final data by date range (additional safety check)
+        const filteredBrokerData = allBrokerData.filter((record: any) => {
+          const recordDate = record.date || record.time;
+          return recordDate >= startDate && recordDate <= endDate;
+        });
         
-        if (allBrokerData.length === 0) {
-          console.log(`⚠️ No broker data found for ${selectedTicker}`);
-          if (consecutiveErrors >= maxConsecutiveErrors) {
-            setBrokerDataError(`No broker data found for ${selectedTicker}. Stopped after ${consecutiveErrors} consecutive API errors.`);
-          } else if (consecutiveNotFound >= maxConsecutiveNotFound) {
-            setBrokerDataError(`No broker data found for ${selectedTicker}. Stopped after ${consecutiveNotFound} consecutive not found dates. Data may not be available for this stock.`);
-          } else {
-            setBrokerDataError(`No broker data found for ${selectedTicker}. Please check if broker data is available for this stock.`);
-          }
+        console.log(`📊 ===== TOP BROKERS DATA LOADING COMPLETE =====`);
+        console.log(`📊 Total dates processed: ${ohlcDates.length}`);
+        console.log(`📊 Successful dates: ${successfulDates}`);
+        console.log(`📊 Total broker records (after filtering): ${filteredBrokerData.length}`);
+        
+        if (filteredBrokerData.length === 0) {
+          setBrokerDataError(`No top broker data found for ${selectedTicker} in date range ${startDate} to ${endDate}.`);
         } else {
           setBrokerDataError(null);
-          console.log(`✅ Successfully loaded broker data for ${successfulDates} dates with ${allBrokerData.length} total records`);
-          
-          // Show success message with data summary
-          if (successfulDates < minDataDays) {
-            console.log(`⚠️ Limited data available: Only ${successfulDates} dates with broker data found (target: ${minDataDays} days)`);
-            console.log(`💡 Consider expanding date range or selecting different brokers for more comprehensive analysis`);
-          } else {
-            console.log(`✅ Sufficient data available: ${successfulDates} days (target: ${minDataDays} days)`);
-          }
         }
         
-        setBrokerSummaryData(allBrokerData);
-        
-        console.log(`📊 Broker summary data set: ${allBrokerData.length} records`);
+        setBrokerSummaryData(filteredBrokerData);
         
       } catch (error) {
-        console.error('Error loading broker data:', error);
-        setBrokerDataError(error instanceof Error ? error.message : 'Failed to load broker data');
+        console.error('Error loading top brokers data:', error);
+        setBrokerDataError(error instanceof Error ? error.message : 'Failed to load top brokers data');
         showToast({
           type: 'error',
-          title: 'Error Memuat Data Broker',
-          message: 'Gagal memuat data broker summary.'
+          title: 'Error Memuat Data Top Brokers',
+          message: 'Gagal memuat data top brokers.'
         });
       } finally {
         setIsLoadingBrokerData(false);
       }
     };
     
-    loadBrokerData();
-  }, [selectedTicker, startDate, endDate, ohlcData, showToast]);
+    loadTopBrokersData();
+    // Only depend on ohlcData length, not the whole array to prevent unnecessary re-runs
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTicker, startDate, endDate, ohlcData.length, isInitializing, showToast]);
 
-  // Load available brokers for selected stock code
+  // Load available brokers for selected stock code from broker_inventory folder
   useEffect(() => {
     const loadBrokersForStock = async () => {
-      if (!selectedTicker || ohlcData.length === 0) {
+      if (!selectedTicker) {
         setAvailableBrokersForStock([]);
         return;
       }
       
       try {
-        console.log(`📊 Loading available brokers for stock: ${selectedTicker}`);
-        setIsLoadingBrokersForStock(true);
+        // Check cache first (10 minutes TTL)
+        const cacheKey = `brokers-${selectedTicker}`;
+        const cachedBrokers = cache.get(cacheKey, cache.brokers, 10 * 60 * 1000);
         
-        // Try to find available brokers by checking dates from most recent backwards
-        const ohlcDates = ohlcData.map(d => d.time).sort().reverse(); // Sort newest first
-        let foundBrokers = false;
-        let checkedDates = 0;
-        const maxDatesToCheck = 5; // Check up to 5 dates
-        
-        for (const dateStr of ohlcDates.slice(0, maxDatesToCheck)) {
-          try {
-            checkedDates++;
-            console.log(`📊 Checking brokers for ${selectedTicker} on ${dateStr} (${checkedDates}/${maxDatesToCheck})`);
-            
-            // Convert date from YYYY-MM-DD to YYYYMMDD format for broker API
-            const brokerDateStr = dateStr.replace(/-/g, '');
-            
-            const response = await api.getBrokerSummaryData(selectedTicker, brokerDateStr);
-            
-            if (response.success && response.data?.brokerData) {
-              const brokers = response.data.brokerData.map((broker: any) => broker.broker).filter(Boolean);
-              const uniqueBrokers = [...new Set(brokers)].sort() as string[];
+        if (cachedBrokers) {
+          console.log(`📊 Using cached brokers for ${selectedTicker}:`, cachedBrokers.length);
+          setAvailableBrokersForStock(cachedBrokers);
+          
+          // Auto-select default brokers if no brokers are currently selected
+          setSelectedBrokers(prevSelected => {
+            if (prevSelected.length === 0) {
+              const defaultBrokers = ['AK', 'BK', 'MG'];
+              const availableDefaultBrokers = defaultBrokers.filter(broker => cachedBrokers.includes(broker));
               
-              if (uniqueBrokers.length > 0) {
-                console.log(`✅ Found ${uniqueBrokers.length} brokers for ${selectedTicker} on ${dateStr}:`, uniqueBrokers);
-                setAvailableBrokersForStock(uniqueBrokers);
-                foundBrokers = true;
-                
-                // Auto-select default brokers (AK, BK, MG) if none are selected
-                if (selectedBrokers.length === 0 && uniqueBrokers.length > 0) {
-                  const defaultBrokers = ['AK', 'BK', 'MG'];
-                  const availableDefaultBrokers = defaultBrokers.filter(broker => uniqueBrokers.includes(broker));
-                  
-                  if (availableDefaultBrokers.length > 0) {
-                    console.log(`📊 Auto-selecting default brokers:`, availableDefaultBrokers);
-                    setSelectedBrokers(availableDefaultBrokers);
-                  } else {
-                    // Fallback to first 3 brokers if default brokers not available
-                    const fallbackBrokers = uniqueBrokers.slice(0, 3) as string[];
-                    console.log(`📊 Default brokers not available, selecting first 3 brokers:`, fallbackBrokers);
-                    setSelectedBrokers(fallbackBrokers);
-                  }
-                } else {
-                  // Update selected brokers to only include those available for this stock
-                  const validSelectedBrokers = selectedBrokers.filter(broker => uniqueBrokers.includes(broker));
-                  if (validSelectedBrokers.length !== selectedBrokers.length) {
-                    console.log(`📊 Updating selected brokers to match available brokers:`, validSelectedBrokers);
-                    setSelectedBrokers(validSelectedBrokers);
-                  }
-                }
-                break; // Found brokers, stop checking
+              if (availableDefaultBrokers.length > 0) {
+                return availableDefaultBrokers;
               } else {
-                console.log(`⚠️ No brokers found for ${selectedTicker} on ${dateStr} - trying next date`);
+                return cachedBrokers.slice(0, 3);
               }
-            } else {
-              console.log(`⚠️ No broker data found for ${selectedTicker} on ${dateStr} - trying next date`);
             }
-          } catch (error) {
-            console.warn(`⚠️ Error checking brokers for ${dateStr}:`, error);
-            console.log(`⚠️ Skipping to next date due to error`);
-            // Continue to next date without retry
-          }
+            return prevSelected.filter(broker => cachedBrokers.includes(broker));
+          });
+          
+          return;
         }
         
-        if (!foundBrokers) {
-          console.log(`⚠️ No broker data found for ${selectedTicker} after checking ${checkedDates} dates`);
+        console.log(`📊 Loading available brokers for stock: ${selectedTicker} from broker_inventory`);
+        setIsLoadingBrokersForStock(true);
+        
+        // Get brokers from broker_inventory folder
+        const response = await api.getBrokerInventoryBrokers(selectedTicker);
+        
+        if (response.success && response.data?.brokers) {
+          const uniqueBrokers = response.data.brokers.sort() as string[];
+          
+          // Cache the brokers
+          cache.set(cacheKey, uniqueBrokers, cache.brokers);
+          
+          if (uniqueBrokers.length > 0) {
+            console.log(`✅ Found ${uniqueBrokers.length} brokers for ${selectedTicker} from broker_inventory:`, uniqueBrokers);
+            setAvailableBrokersForStock(uniqueBrokers);
+            
+            // Auto-select default brokers (AK, BK, MG) only if no brokers are currently selected
+            // Use functional update to avoid dependency on selectedBrokers
+            setSelectedBrokers(prevSelected => {
+              if (prevSelected.length === 0) {
+                const defaultBrokers = ['AK', 'BK', 'MG'];
+                const availableDefaultBrokers = defaultBrokers.filter(broker => uniqueBrokers.includes(broker));
+                
+                if (availableDefaultBrokers.length > 0) {
+                  console.log(`📊 Auto-selecting default brokers:`, availableDefaultBrokers);
+                  return availableDefaultBrokers;
+                } else {
+                  // Fallback to first 3 brokers if default brokers not available
+                  const fallbackBrokers = uniqueBrokers.slice(0, 3);
+                  console.log(`📊 Default brokers not available, selecting first 3 brokers:`, fallbackBrokers);
+                  return fallbackBrokers;
+                }
+              } else {
+                // Update selected brokers to only include those available for this stock
+                const validSelectedBrokers = prevSelected.filter(broker => uniqueBrokers.includes(broker));
+                if (validSelectedBrokers.length !== prevSelected.length) {
+                  console.log(`📊 Updating selected brokers to match available brokers:`, validSelectedBrokers);
+                  return validSelectedBrokers;
+                }
+                // Return unchanged if all selected brokers are still valid
+                return prevSelected;
+              }
+            });
+          } else {
+            console.log(`⚠️ No brokers found for ${selectedTicker} in broker_inventory`);
+            setAvailableBrokersForStock([]);
+            setSelectedBrokers([]);
+          }
+        } else {
+          console.log(`⚠️ Failed to load brokers for ${selectedTicker}`);
           setAvailableBrokersForStock([]);
           setSelectedBrokers([]);
         }
       } catch (error) {
         console.error('Error loading brokers for stock:', error);
         setAvailableBrokersForStock([]);
+        setSelectedBrokers([]);
       } finally {
         setIsLoadingBrokersForStock(false);
       }
     };
     
     loadBrokersForStock();
-  }, [selectedTicker, ohlcData, selectedBrokers]);
+    // Remove selectedBrokers from dependencies to prevent infinite loop
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTicker]);
 
   // Broker search handlers
   const handleBrokerSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1523,80 +1630,261 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
     return ohlcData;
   }, [ohlcData]);
 
-  // Convert broker summary data to cumulative net flow series
-  const inventoryData = useMemo(() => {
-    if (!brokerSummaryData || brokerSummaryData.length === 0) return [];
-    
-    console.log(`📊 Converting ${brokerSummaryData.length} broker records to cumulative series`);
-    
-    // Group data by date
-    const dataByDate: { [date: string]: any[] } = {};
-    brokerSummaryData.forEach(record => {
-      const date = record.date || record.time;
-      if (!dataByDate[date]) {
-        dataByDate[date] = [];
+  // Load broker inventory data (cumulative net flow) for selected brokers
+  const [brokerInventoryData, setBrokerInventoryData] = useState<{ [broker: string]: any[] }>({});
+  const [isLoadingInventoryData, setIsLoadingInventoryData] = useState(false);
+
+  // Load broker inventory data when brokers are selected
+  useEffect(() => {
+    const loadBrokerInventory = async () => {
+      if (!selectedTicker || selectedBrokers.length === 0 || !startDate || !endDate || isInitializing) {
+        setBrokerInventoryData({});
+        return;
       }
-      dataByDate[date].push(record);
+
+      setIsLoadingInventoryData(true);
+      const inventoryDataMap: { [broker: string]: any[] } = {};
+
+      try {
+        console.log(`📊 Loading broker inventory data for ${selectedBrokers.length} brokers from ${startDate} to ${endDate}`);
+        
+        // Load inventory data for each selected broker
+        for (const broker of selectedBrokers) {
+          try {
+            // Check cache first (5 minutes TTL)
+            const cacheKey = `inventory-${selectedTicker}-${broker}`;
+            let cachedData = cache.get(cacheKey, cache.inventory, 5 * 60 * 1000);
+            
+            let formattedData: any[] = [];
+            
+            if (cachedData) {
+              console.log(`📊 Using cached inventory data for ${selectedTicker}/${broker}`);
+              formattedData = cachedData;
+            } else {
+              const response = await api.getBrokerInventoryData(selectedTicker, broker);
+              
+              if (response.success && response.data?.inventoryData) {
+                // Convert Date format from YYMMDD to YYYY-MM-DD for chart compatibility
+                formattedData = response.data.inventoryData.map((row: any) => {
+                  let dateStr = row.Date || row.date || '';
+                  
+                  // Convert YYMMDD (6 digits) to YYYY-MM-DD
+                  // Format dari backend: YYMMDD (contoh: 241031 untuk 31 Oktober 2024)
+                  if (dateStr && typeof dateStr === 'string') {
+                    // Check if it's already YYYY-MM-DD format
+                    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+                      // Already in correct format, use as is
+                    } else if (dateStr.length === 6 && /^\d{6}$/.test(dateStr)) {
+                      // YYMMDD format - convert to YYYY-MM-DD
+                      const year = 2000 + parseInt(dateStr.substring(0, 2), 10);
+                      const month = dateStr.substring(2, 4);
+                      const day = dateStr.substring(4, 6);
+                      dateStr = `${year}-${month}-${day}`;
+                    } else if (dateStr.length === 8 && /^\d{8}$/.test(dateStr)) {
+                      // YYYYMMDD format - convert to YYYY-MM-DD
+                      const year = dateStr.substring(0, 4);
+                      const month = dateStr.substring(4, 6);
+                      const day = dateStr.substring(6, 8);
+                      dateStr = `${year}-${month}-${day}`;
+                    }
+                  }
+                  
+                  // Ensure CumulativeNetBuyVol is properly parsed (handle case variations)
+                  const cumulativeNetBuyVol = row.CumulativeNetBuyVol ?? row.cumulativeNetBuyVol ?? row.CumulativeNetBuy ?? row.cumulativeNetBuy ?? 0;
+                  
+                  // Ensure numeric values are properly converted
+                  const netBuyVol = typeof row.NetBuyVol === 'number' ? row.NetBuyVol : parseFloat(String(row.NetBuyVol || 0)) || 0;
+                  const cumNetBuyVol = typeof cumulativeNetBuyVol === 'number' ? cumulativeNetBuyVol : parseFloat(String(cumulativeNetBuyVol || 0)) || 0;
+                  
+                  const formattedRow = {
+                    ...row,
+                    Date: dateStr,
+                    time: dateStr, // For chart compatibility
+                    NetBuyVol: netBuyVol,
+                    CumulativeNetBuyVol: cumNetBuyVol // Ensure consistent field name
+                  };
+                  
+                  return formattedRow;
+                });
+                
+                // Cache the full data
+                cache.set(cacheKey, formattedData, cache.inventory);
+              } else {
+                console.warn(`⚠️ No inventory data for broker ${broker}`);
+                formattedData = [];
+              }
+            }
+            
+            // Filter data by date range
+            console.log(`🔍 Filtering data for broker ${broker} by date range: ${startDate} to ${endDate}`);
+            console.log(`📊 Total records before filter: ${formattedData.length}`);
+            if (formattedData.length > 0) {
+              console.log(`📊 Sample dates before filter:`, formattedData.slice(0, 5).map((r: any) => ({
+                original: r.Date || r.time || r.date,
+                formatted: r.Date,
+                cumulative: r.CumulativeNetBuyVol
+              })));
+            }
+            
+            const filteredData = formattedData.filter((row: any) => {
+              const rowDate = row.Date || row.time || row.date;
+              const inRange = rowDate >= startDate && rowDate <= endDate;
+              if (!inRange && formattedData.length <= 10) {
+                // Log first few out-of-range dates for debugging
+                console.log(`⚠️ Date ${rowDate} is out of range (${startDate} to ${endDate})`);
+              }
+              return inRange;
+            });
+            
+            console.log(`📊 Records after filter: ${filteredData.length}`);
+            if (filteredData.length > 0) {
+              console.log(`📊 Sample dates after filter:`, filteredData.slice(0, 5).map((r: any) => ({
+                date: r.Date,
+                cumulative: r.CumulativeNetBuyVol
+              })));
+            } else if (formattedData.length > 0) {
+              console.warn(`⚠️ All ${formattedData.length} records filtered out! Date range: ${startDate} to ${endDate}`);
+              console.warn(`📊 Available date range in data:`, {
+                earliest: formattedData[formattedData.length - 1]?.Date,
+                latest: formattedData[0]?.Date,
+                allDates: formattedData.map((r: any) => r.Date).slice(0, 10)
+              });
+            }
+            
+            inventoryDataMap[broker] = filteredData;
+            console.log(`✅ Loaded ${filteredData.length} records for broker ${broker} (filtered from ${formattedData.length} total)`, {
+              sampleRecord: filteredData[0],
+              hasCumulativeNetBuyVol: filteredData[0]?.CumulativeNetBuyVol !== undefined,
+              cumulativeValue: filteredData[0]?.CumulativeNetBuyVol,
+              dateRange: filteredData.length > 0 ? {
+                first: filteredData[filteredData.length - 1]?.Date,
+                last: filteredData[0]?.Date
+              } : null,
+              allDates: filteredData.map((r: any) => r.Date).slice(0, 5)
+            });
+          } catch (error) {
+            console.error(`❌ Error loading inventory for broker ${broker}:`, error);
+            inventoryDataMap[broker] = [];
+          }
+        }
+        
+        setBrokerInventoryData(inventoryDataMap);
+        console.log(`📊 Broker inventory data loaded for ${Object.keys(inventoryDataMap).length} brokers (filtered by date range ${startDate} to ${endDate})`);
+        console.log(`📊 Inventory data summary:`, {
+          brokers: Object.keys(inventoryDataMap),
+          recordCounts: Object.entries(inventoryDataMap).map(([broker, data]) => ({
+            broker,
+            count: (data as any[]).length,
+            hasData: (data as any[]).length > 0
+          }))
+        });
+      } catch (error) {
+        console.error('Error loading broker inventory:', error);
+      } finally {
+        setIsLoadingInventoryData(false);
+      }
+    };
+
+    loadBrokerInventory();
+  }, [selectedTicker, selectedBrokers, startDate, endDate, isInitializing]);
+
+  // Convert broker inventory data to time series format for chart
+  const inventoryData = useMemo(() => {
+    if (selectedBrokers.length === 0 || Object.keys(brokerInventoryData).length === 0) {
+      console.log(`📊 Inventory data empty: selectedBrokers=${selectedBrokers.length}, brokerInventoryData keys=${Object.keys(brokerInventoryData).length}`);
+      return [];
+    }
+
+    const firstBroker = selectedBrokers[0];
+    console.log(`📊 Converting broker inventory data to time series format`, {
+      selectedBrokers,
+      brokerInventoryDataKeys: Object.keys(brokerInventoryData),
+      sampleData: firstBroker ? brokerInventoryData[firstBroker]?.slice(0, 3) : undefined
     });
     
-    // Create cumulative series for each broker
-    const brokerCumulative: { [broker: string]: number } = {};
+    // Collect all unique dates from all brokers
+    const allDates = new Set<string>();
+    Object.values(brokerInventoryData).forEach(brokerData => {
+      brokerData.forEach((row: any) => {
+        const date = row.Date || row.time || row.date;
+        if (date) allDates.add(date);
+      });
+    });
+
+    const sortedDates = Array.from(allDates).sort();
     const inventorySeries: InventoryTimeSeries[] = [];
-    
-    // Sort dates chronologically
-    const sortedDates = Object.keys(dataByDate).sort();
-    
+
     sortedDates.forEach(date => {
       const dayData: InventoryTimeSeries = { time: date };
       
-      // Initialize all selected brokers for this date
+      // For each selected broker, get cumulative value for this date
       selectedBrokers.forEach(broker => {
-        if (!brokerCumulative[broker]) {
-          brokerCumulative[broker] = 0;
-        }
-        // Set current cumulative value for this broker
-        dayData[broker] = brokerCumulative[broker];
-      });
-      
-      // Process each broker record for this date
-      dataByDate[date]?.forEach(record => {
-        const broker = record.broker;
-        const netBuyVol = record.nblot || 0; // NetBuyVol from API
+        const brokerData = brokerInventoryData[broker] || [];
+        // Find the record for this date (or closest previous date)
+        let cumulativeValue = 0;
         
-        // Only process brokers that are in selectedBrokers
-        if (selectedBrokers.includes(broker)) {
-          // Add to cumulative
-          brokerCumulative[broker] += netBuyVol;
+        // Try to find exact match first
+        const exactMatch = brokerData.find((row: any) => {
+          const rowDate = row.Date || row.time || row.date;
+          return rowDate === date;
+        });
+        
+        if (exactMatch) {
+          // Handle case variations for CumulativeNetBuyVol
+          cumulativeValue = exactMatch.CumulativeNetBuyVol ?? 
+                           exactMatch.cumulativeNetBuyVol ?? 
+                           exactMatch.CumulativeNetBuy ?? 
+                           exactMatch.cumulativeNetBuy ?? 
+                           0;
           
-          // Update day data with new cumulative value
-          dayData[broker] = brokerCumulative[broker] || 0;
+          // Ensure it's a number
+          cumulativeValue = typeof cumulativeValue === 'number' ? cumulativeValue : parseFloat(String(cumulativeValue)) || 0;
+        } else {
+          // If no exact match, find closest previous date
+          for (let i = brokerData.length - 1; i >= 0; i--) {
+            const row = brokerData[i];
+            const rowDate = row.Date || row.time || row.date;
+            if (rowDate && rowDate <= date) {
+              cumulativeValue = row.CumulativeNetBuyVol ?? 
+                               row.cumulativeNetBuyVol ?? 
+                               row.CumulativeNetBuy ?? 
+                               row.cumulativeNetBuy ?? 
+                               0;
+              
+              // Ensure it's a number
+              cumulativeValue = typeof cumulativeValue === 'number' ? cumulativeValue : parseFloat(String(cumulativeValue)) || 0;
+              break;
+            }
+          }
         }
+        
+        // Store as number (not undefined)
+        dayData[broker] = cumulativeValue;
       });
       
       inventorySeries.push(dayData);
     });
-    
-    console.log(`📊 Generated ${inventorySeries.length} cumulative series points`);
-    console.log(`📊 Broker cumulative totals for selected brokers:`, Object.entries(brokerCumulative).filter(([broker]) => selectedBrokers.includes(broker)));
-    
-    // Debug: Log sample data structure
-    if (inventorySeries.length > 0) {
-      console.log(`📊 Sample inventory data structure:`, {
-        firstRecord: inventorySeries[0],
-        selectedBrokers: selectedBrokers,
-        availableBrokers: Object.keys(inventorySeries[0] || {}).filter(key => key !== 'time')
-      });
-    }
+
+    console.log(`📊 Generated ${inventorySeries.length} time series points for ${selectedBrokers.length} brokers`, {
+      sampleSeries: inventorySeries.slice(0, 3),
+      hasData: inventorySeries.length > 0,
+      firstPointBrokers: inventorySeries[0] ? Object.keys(inventorySeries[0]).filter(k => k !== 'time') : []
+    });
     
     return inventorySeries;
-  }, [brokerSummaryData, selectedBrokers]);
+  }, [brokerInventoryData, selectedBrokers]);
 
   const volumeDataForCharts = useMemo(() => {
     return volumeData;
   }, [volumeData]);
 
   // Generate unique colors for brokers (avoiding white/gray colors)
-  const generateUniqueBrokerColor = (broker: string, allBrokers: string[]): string => {
+  const generateUniqueBrokerColor = (broker: string | undefined | null, allBrokers: string[]): string => {
+    // Handle undefined/null broker
+    if (!broker || typeof broker !== 'string') {
+      return 'hsl(0, 0%, 50%)'; // Return gray color for invalid broker
+    }
+    
     const sortedBrokers = [...new Set(allBrokers)].sort();
     const brokerIndex = sortedBrokers.indexOf(broker);
     
@@ -1622,12 +1910,13 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
     return `hsl(${finalHue}, ${saturation}%, ${lightness}%)`;
   };
 
-  // Generate Top Brokers data by date from brokerSummaryData
+  // Generate Top Brokers data by date from brokerSummaryData (from top_broker API)
   const topBrokersData = useMemo(() => {
     if (!brokerSummaryData || brokerSummaryData.length === 0) return [];
     
-    // Get all unique brokers from the data (not filtered by selectedBrokers)
-    const allBrokers = [...new Set(brokerSummaryData.map(r => r.broker).filter(Boolean))];
+    // Get all unique brokers from the data
+    // Filter out undefined/null/empty brokers
+    const allBrokers = [...new Set(brokerSummaryData.map(r => r.broker).filter((b): b is string => Boolean(b) && typeof b === 'string'))];
     
     // Group data by date
     const dataByDate: { [date: string]: any[] } = {};
@@ -1642,36 +1931,21 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
     // Get unique dates and sort them
     const dates = Object.keys(dataByDate).sort();
     
-    // For each date, get top brokers
+    // For each date, get top brokers (already sorted from top_broker API)
     return dates.map(date => {
       const brokersForDate = dataByDate[date] || [];
       
-      // Calculate total volume (nblot + abs(nslot)) for each broker
-      const brokerVolumes: { [broker: string]: { volume: number; netFlow: number; color: string } } = {};
-      
-      brokersForDate.forEach(record => {
-        const broker = record.broker;
-        const buyVol = Math.abs(record.nblot || 0);
-        const sellVol = Math.abs(record.nslot || 0);
-        const volume = buyVol + sellVol;
-        const netFlow = record.nblot || 0;
-        
-        if (!brokerVolumes[broker]) {
-          brokerVolumes[broker] = { volume: 0, netFlow: 0, color: generateUniqueBrokerColor(broker, allBrokers) };
-        }
-        brokerVolumes[broker].volume += volume;
-        brokerVolumes[broker].netFlow += netFlow;
-      });
-      
-      // Sort brokers by net flow (nblot) - highest to lowest (Rank 1 = highest net transaction)
-      const sortedBrokers = Object.entries(brokerVolumes)
-        .sort((a, b) => b[1].netFlow - a[1].netFlow)
-        .slice(0, topBrokersCount === 'all' ? Object.keys(brokerVolumes).length : topBrokersCount)
-        .map(([broker, data]) => ({
-          broker,
-          volume: data.volume,
-          netFlow: data.netFlow,
-          color: data.color
+      // Data from top_broker API already has NetBuyVol and TotalVol
+      // Sort by NetBuyVol descending and slice based on topBrokersCount
+      const sortedBrokers = brokersForDate
+        .filter(record => record.broker && typeof record.broker === 'string')
+        .sort((a, b) => (b.NetBuyVol || 0) - (a.NetBuyVol || 0))
+        .slice(0, topBrokersCount === 'all' ? brokersForDate.length : topBrokersCount)
+        .map((record) => ({
+          broker: record.broker || record.BrokerCode || '',
+          volume: record.TotalVol || 0,
+          netFlow: record.NetBuyVol || 0,
+          color: generateUniqueBrokerColor(record.broker || record.BrokerCode || '', allBrokers)
         }));
       
       return {
@@ -1691,10 +1965,23 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
           {!hideControls && (
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calendar className="w-5 h-5" />
-            Broker Inventory Analysis Controls
-          </CardTitle>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <CardTitle className="flex items-center gap-2">
+              <Calendar className="w-5 h-5" />
+              Broker Inventory Analysis Controls
+            </CardTitle>
+            {latestDataDate && (
+              <div className="text-sm text-muted-foreground">
+                Last update data: <span className="font-medium text-foreground">
+                  {new Date(latestDataDate).toLocaleDateString('id-ID', {
+                    day: '2-digit',
+                    month: 'long',
+                    year: 'numeric'
+                  })}
+                </span>
+              </div>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
@@ -1913,22 +2200,131 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
               <div>
                     <label className="block text-sm font-medium mb-2">Date Range:</label>
                 <div className="flex items-center gap-2">
-                      <input
-                        type="date"
-                        value={startDate}
-                        onChange={(e) => setStartDate(e.target.value)}
-                        max={new Date().toISOString().split('T')[0]}
-                    className="flex-1 px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
-                      />
+                  <div 
+                    className="relative h-9 flex-1 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => triggerDatePicker(startDateRef)}
+                  >
+                    <input
+                      ref={startDateRef}
+                      type="date"
+                      value={formatDateForInput(startDate)}
+                      onChange={(e) => {
+                        const selectedDate = e.target.value;
+                        
+                        // Validate minimum date (19/09/2025)
+                        if (selectedDate < MIN_DATE) {
+                          showToast({
+                            type: 'error',
+                            title: 'Tanggal Tidak Valid',
+                            message: `Tanggal minimum yang bisa dipilih adalah ${new Date(MIN_DATE).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`
+                          });
+                          // Reset to previous value
+                          if (startDateRef.current) {
+                            startDateRef.current.value = formatDateForInput(startDate);
+                          }
+                          return;
+                        }
+                        
+                        // Validate maximum date (latest data date)
+                        if (latestDataDate && selectedDate > latestDataDate) {
+                          showToast({
+                            type: 'error',
+                            title: 'Tanggal Tidak Valid',
+                            message: `Tanggal maksimum yang tersedia adalah ${new Date(latestDataDate).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`
+                          });
+                          // Reset to previous value
+                          if (startDateRef.current) {
+                            startDateRef.current.value = formatDateForInput(startDate);
+                          }
+                          return;
+                        }
+                        
+                        setStartDate(selectedDate);
+                        // Auto update end date if not set or if start > end
+                        if (!endDate || new Date(selectedDate) > new Date(endDate)) {
+                          setEndDate(selectedDate);
+                        }
+                      }}
+                      max={latestDataDate ? formatDateForInput(latestDataDate) : (endDate ? formatDateForInput(endDate) : new Date().toISOString().split('T')[0] || '')}
+                      min={MIN_DATE}
+                      onKeyDown={(e) => e.preventDefault()}
+                      onPaste={(e) => e.preventDefault()}
+                      onInput={(e) => e.preventDefault()}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      style={{ caretColor: 'transparent' }}
+                    />
+                    <div className="flex items-center justify-between h-full px-3 py-2">
+                      <span className="text-sm text-foreground">
+                        {startDate ? new Date(startDate).toLocaleDateString('en-GB', { 
+                          day: '2-digit', 
+                          month: '2-digit', 
+                          year: 'numeric' 
+                        }) : 'Select start date'}
+                      </span>
+                      <Calendar className="w-4 h-4 text-foreground" />
+                    </div>
+                  </div>
                   <span className="text-sm text-muted-foreground">to</span>
-                      <input
-                        type="date"
-                        value={endDate}
-                        onChange={(e) => setEndDate(e.target.value)}
-                        min={startDate}
-                        max={new Date().toISOString().split('T')[0]}
-                    className="flex-1 px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
-                  />
+                  <div 
+                    className="relative h-9 flex-1 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => triggerDatePicker(endDateRef)}
+                  >
+                    <input
+                      ref={endDateRef}
+                      type="date"
+                      value={formatDateForInput(endDate)}
+                      onChange={(e) => {
+                        const selectedDate = e.target.value;
+                        
+                        // Validate minimum date (19/09/2025)
+                        if (selectedDate < MIN_DATE) {
+                          showToast({
+                            type: 'error',
+                            title: 'Tanggal Tidak Valid',
+                            message: `Tanggal minimum yang bisa dipilih adalah ${new Date(MIN_DATE).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`
+                          });
+                          // Reset to previous value
+                          if (endDateRef.current) {
+                            endDateRef.current.value = formatDateForInput(endDate);
+                          }
+                          return;
+                        }
+                        
+                        // Validate maximum date (latest data date)
+                        if (latestDataDate && selectedDate > latestDataDate) {
+                          showToast({
+                            type: 'error',
+                            title: 'Tanggal Tidak Valid',
+                            message: `Tanggal maksimum yang tersedia adalah ${new Date(latestDataDate).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}`
+                          });
+                          // Reset to previous value
+                          if (endDateRef.current) {
+                            endDateRef.current.value = formatDateForInput(endDate);
+                          }
+                          return;
+                        }
+                        
+                        setEndDate(selectedDate);
+                      }}
+                      min={formatDateForInput(startDate || MIN_DATE)}
+                      max={latestDataDate ? formatDateForInput(latestDataDate) : new Date().toISOString().split('T')[0]}
+                      onKeyDown={(e) => e.preventDefault()}
+                      onPaste={(e) => e.preventDefault()}
+                      onInput={(e) => e.preventDefault()}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      style={{ caretColor: 'transparent' }}
+                    />
+                    <div className="flex items-center justify-between h-full px-3 py-2">
+                      <span className="text-sm text-foreground">
+                        {endDate ? new Date(endDate).toLocaleDateString('en-GB', { 
+                          day: '2-digit', 
+                          month: '2-digit', 
+                          year: 'numeric' 
+                        }) : 'Select end date'}
+                      </span>
+                      <Calendar className="w-4 h-4 text-foreground" />
+                    </div>
+                  </div>
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
                       Available data may vary by date
@@ -1997,18 +2393,36 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                 </div>
               </CardHeader>
               <CardContent className="relative">
-                {(isLoadingData || isLoadingBrokerData) && (
+                {(isLoadingData || isLoadingInventoryData) && (
                   <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
                     <div className="flex flex-col items-center gap-2">
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
-                      <div className="text-xs text-muted-foreground">Loading broker...</div>
+                      <div className="text-xs text-muted-foreground">Loading broker inventory...</div>
                     </div>
                   </div>
                 )}
-                <InventoryChart
-                  inventoryData={inventoryData}
-                  selectedBrokers={selectedBrokers}
-                />
+                {!isLoadingData && !isLoadingInventoryData && inventoryData.length === 0 && selectedBrokers.length > 0 && (
+                  <div className="flex items-center justify-center h-80 text-muted-foreground">
+                    <div className="text-center">
+                      <p>No inventory data available for selected brokers</p>
+                      <p className="text-xs mt-2">Data may not be available for the selected date range</p>
+                    </div>
+                  </div>
+                )}
+                {!isLoadingData && !isLoadingInventoryData && inventoryData.length > 0 && selectedBrokers.length > 0 && (
+                  <InventoryChart
+                    inventoryData={inventoryData}
+                    selectedBrokers={selectedBrokers}
+                  />
+                )}
+                {selectedBrokers.length === 0 && (
+                  <div className="flex items-center justify-center h-80 text-muted-foreground">
+                    <div className="text-center">
+                      <p>No brokers selected</p>
+                      <p className="text-xs mt-2">Select brokers above to view cumulative net flow</p>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ) : splitVisualization ? (
@@ -2073,18 +2487,36 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                   </div>
                 </CardHeader>
                 <CardContent className="relative">
-                  {(isLoadingData || isLoadingBrokerData) && (
+                  {(isLoadingData || isLoadingInventoryData) && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
                       <div className="flex flex-col items-center gap-2">
                         <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
-                        <div className="text-xs text-muted-foreground">Loading broker...</div>
+                        <div className="text-xs text-muted-foreground">Loading broker inventory...</div>
                       </div>
                     </div>
                   )}
-                  <InventoryChart
-                    inventoryData={inventoryData}
-                    selectedBrokers={selectedBrokers}
-                  />
+                  {!isLoadingData && !isLoadingInventoryData && inventoryData.length === 0 && selectedBrokers.length > 0 && (
+                    <div className="flex items-center justify-center h-80 text-muted-foreground">
+                      <div className="text-center">
+                        <p>No inventory data available for selected brokers</p>
+                        <p className="text-xs mt-2">Data may not be available for the selected date range</p>
+                      </div>
+                    </div>
+                  )}
+                  {!isLoadingData && !isLoadingInventoryData && inventoryData.length > 0 && selectedBrokers.length > 0 && (
+                    <InventoryChart
+                      inventoryData={inventoryData}
+                      selectedBrokers={selectedBrokers}
+                    />
+                  )}
+                  {selectedBrokers.length === 0 && (
+                    <div className="flex items-center justify-center h-80 text-muted-foreground">
+                      <div className="text-center">
+                        <p>No brokers selected</p>
+                        <p className="text-xs mt-2">Select brokers above to view cumulative net flow</p>
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -2149,7 +2581,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                 </CardHeader>
                 <CardContent className="relative">
                   {/* Loading overlay */}
-                  {(isLoadingData || isLoadingBrokerData) && (
+                  {(isLoadingData || isLoadingInventoryData) && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
                       <div className="flex flex-col items-center gap-3">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
