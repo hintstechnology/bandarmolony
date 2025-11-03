@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Loader2, Calendar } from 'lucide-react';
+import { Search, Loader2, Calendar, X } from 'lucide-react';
  
 import { api } from '../../services/api';
 
@@ -184,7 +184,11 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   const [error, setError] = useState<string | null>(null);
 
   // Update selectedTickers when prop changes
+  // Update selectedTickers when prop changes
   useEffect(() => {
+    if (propSelectedStock && !selectedTickers.includes(propSelectedStock)) {
+      setSelectedTickers([propSelectedStock]);
+      setTickerInput('');
     if (propSelectedStock && !selectedTickers.includes(propSelectedStock)) {
       setSelectedTickers([propSelectedStock]);
       setTickerInput('');
@@ -218,6 +222,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   // Load broker summary data from backend for each selected date and aggregate multiple tickers
   useEffect(() => {
     const fetchAll = async () => {
+      if (selectedTickers.length === 0 || selectedDates.length === 0) {
       if (selectedTickers.length === 0 || selectedDates.length === 0) {
         return;
       }
@@ -736,6 +741,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     setSelectedTickers(selectedTickers.filter(t => t !== stock));
   };
 
+  const handleRemoveTicker = (stock: string) => {
+    setSelectedTickers(selectedTickers.filter(t => t !== stock));
+  };
+
   const handleStockInputChange = (value: string) => {
     setTickerInput(value);
     setShowStockSuggestions(true);
@@ -802,6 +811,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   };
 
   const renderHorizontalView = () => {
+    if (selectedTickers.length === 0 || selectedDates.length === 0) return null;
     if (selectedTickers.length === 0 || selectedDates.length === 0) return null;
     
     // Build view model from API data (for each selected date)
@@ -1258,6 +1268,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                 </td>
                                 <td className={`text-right py-0 px-[3px] border border-[#3a4252] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
                                   {totalNetBuy ? formatLot(totalNetBuy.nblot / 100) : '-'}
+                                  {totalNetBuy ? formatLot(totalNetBuy.nblot / 100) : '-'}
                                 </td>
                                 <td className={`text-right py-0 px-[3px] border border-[#3a4252] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
                                   {totalNetBuy ? formatNumber(totalNetBuy.nbval) : '-'}
@@ -1267,6 +1278,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   {totalNetSell?.broker || '-'}
                                 </td>
                                 <td className={`text-right py-0 px-[3px] border border-[#3a4252] font-bold ${totalNetSellBgStyle ? '' : 'text-red-600'}`} style={totalNetSellBgStyle}>
+                                  {totalNetSell ? formatLot(totalNetSell.nslot / 100) : '-'}
                                   {totalNetSell ? formatLot(totalNetSell.nslot / 100) : '-'}
                                 </td>
                                 <td className={`text-right py-0 px-[3px] border border-[#3a4252] font-bold ${totalNetSellBgStyle ? '' : 'text-red-600'}`} style={totalNetSellBgStyle}>
