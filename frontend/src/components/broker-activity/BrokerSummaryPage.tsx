@@ -89,7 +89,7 @@ const formatLot = (value: number): string => {
 
 const formatAverage = (value: number): string => {
   return value.toLocaleString('id-ID', {
-    minimumFractionDigits: 0,
+    minimumFractionDigits: 1,
     maximumFractionDigits: 1
   });
 };
@@ -361,26 +361,45 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         }
         
         // Check actual width from body rows (important when content grows due to sums)
+        // Use a more conservative approach: measure based on scrollWidth if available, otherwise use offsetWidth
         if (valueBodyRows.length > 0) {
-          valueBodyRows.forEach((row) => {
+          // Get the first non-empty row for this date to measure
+          let sampleRow: HTMLTableRowElement | null = null;
+          for (let i = 0; i < valueBodyRows.length; i++) {
+            const row = valueBodyRows[i] as HTMLTableRowElement;
             const cells = Array.from(row.children);
+            const startIdx = dateIndex * 9;
+            if (cells.length > startIdx + 8) {
+              sampleRow = row;
+              break;
+            }
+          }
+          
+          if (sampleRow) {
+            const cells = Array.from(sampleRow.children);
             const startIdx = dateIndex * 9;
             const endIdx = startIdx + 9;
             const dateGroupCells = cells.slice(startIdx, endIdx);
             
             // Calculate total width of this date column group from cells
+            // Use scrollWidth for more accurate measurement, but limit to reasonable bounds
             let groupWidth = 0;
             dateGroupCells.forEach((cell) => {
               const cellEl = cell as HTMLElement;
               if (cellEl) {
-                groupWidth += cellEl.offsetWidth || 0;
+                const cellWidth = cellEl.scrollWidth || cellEl.offsetWidth || 0;
+                groupWidth += cellWidth;
               }
             });
             
-            if (groupWidth > maxDateWidth) {
+            // Only update if the measured width is reasonable (not excessively wide)
+            // If groupWidth is more than 2x the header width, something is wrong - use header width instead
+            if (maxDateWidth > 0 && groupWidth > maxDateWidth * 2) {
+              // Keep the header width, don't use the inflated body width
+            } else if (groupWidth > maxDateWidth) {
               maxDateWidth = groupWidth;
             }
-          });
+          }
         }
         
         if (maxDateWidth > 0) {
@@ -1449,7 +1468,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   return (
     <div className="w-full">
       {/* Top Controls - Compact without Card */}
-      <div className="bg-background border-b border-[#3a4252] px-4 py-1.5">
+      <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5">
             <div className="flex flex-wrap items-center gap-8">
               {/* Ticker Selection - Multi-select with chips */}
               <div className="flex items-center gap-2">
@@ -1708,7 +1727,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
             </div>
 
       {/* Main Data Display */}
-      {renderHorizontalView()}
+      <div className="bg-[#0a0f20]">
+        {renderHorizontalView()}
+      </div>
     </div>
   );
 }
