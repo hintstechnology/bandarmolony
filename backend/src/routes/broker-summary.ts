@@ -41,8 +41,18 @@ function resolvePaths(date: string, market?: string) {
     };
   }
   
-  const type = normalized.toLowerCase(); // 'rg' | 'tn' | 'ng'
-  const modernPrefix = `broker_summary_${type}/broker_summary_${type}_${date}/`;
+  // Map market to folder name:
+  // RG -> rk (folder is broker_summary_rk, not broker_summary_rg)
+  // TN -> tn
+  // NG -> ng
+  const folderMap: { [key: string]: string } = {
+    'RG': 'rk',
+    'TN': 'tn',
+    'NG': 'ng'
+  };
+  
+  const folderType = folderMap[normalized] || normalized.toLowerCase();
+  const modernPrefix = `broker_summary_${folderType}/broker_summary_${folderType}_${date}/`;
   const legacyPrefix = `broker_summary/broker_summary_${date}/`; // Keep legacy as fallback
   return { modernPrefix, legacyPrefix };
 }
