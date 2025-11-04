@@ -1587,24 +1587,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       });
 
                       // Helper function to get underline color for top 5 sell broker (uses same colors as top 5 buy)
+                      // Color is locked per broker based on Total ranking (consistent across all dates)
                       const getNetSellUnderlineColor = (broker: string): string | undefined => {
                         const index = netSellBrokerIndexMap.get(broker);
                         return index !== undefined ? bgColors[index] : undefined;
-                      };
-
-                      // Create map for per-date top 5 sell brokers with their index (for each date column)
-                      const getTop5NetSellPerDate = (date: string): Map<string, number> => {
-                        const dateData = allBrokerData.find(d => d.date === date);
-                        if (!dateData) return new Map();
-                        const sortedNetSell = (dateData.buyData || [])
-                          .filter(b => brokerFDScreen(b.broker) && (b.netSellVol > 0 || b.netSellValue > 0))
-                          .sort((a, b) => (b.netSellValue || 0) - (a.netSellValue || 0));
-                        const top5 = sortedNetSell.slice(0, 5);
-                        const brokerIndexMap = new Map<string, number>();
-                        top5.forEach((b, idx) => {
-                          brokerIndexMap.set(b.broker, idx);
-                        });
-                        return brokerIndexMap;
                       };
 
                       // Find max row count across all dates
@@ -1666,11 +1652,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                               const netBuyBgStyle = netBuyData ? getNetBuyBgStyle(netBuyData.broker) : undefined;
                               // Note: Sell background color disabled - only buy gets colored
 
-                              // Get underline color for top 5 sell (per date)
-                              const top5NetSellPerDate = getTop5NetSellPerDate(date);
-                              const sellUnderlineColor = netSellData && top5NetSellPerDate.has(netSellData.broker) 
-                                ? bgColors[top5NetSellPerDate.get(netSellData.broker)!] 
-                                : undefined;
+                              // Get underline color for top 5 sell (locked per broker based on Total ranking)
+                              // Same broker will have same underline color across all dates
+                              const sellUnderlineColor = netSellData ? getNetSellUnderlineColor(netSellData.broker) : undefined;
                               const sellUnderlineStyle = sellUnderlineColor 
                                 ? { borderBottom: `4px solid ${sellUnderlineColor}` } 
                                 : undefined;
