@@ -23,6 +23,7 @@ import BrokerSummaryTypeDataScheduler from '../services/brokerSummaryTypeDataSch
 import BrokerBreakdownDataScheduler from '../services/brokerBreakdownDataScheduler';
 import { BrokerDataRGTNNGCalculator } from '../calculations/broker/broker_data_rg_tn_ng';
 import { listPaths } from '../utils/azureBlob';
+import { updateWatchlistSnapshot } from '../services/watchlistSnapshotService';
 
 const router = express.Router();
 
@@ -1239,6 +1240,62 @@ router.post('/trend-filter', async (_req, res) => {
 
   } catch (error: any) {
     console.error('❌ Error triggering trend filter calculation:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Unknown error' 
+    });
+  }
+});
+
+// Manual trigger for Watchlist Snapshot
+router.post('/watchlist-snapshot', async (_req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Watchlist Snapshot generation');
+    
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'watchlist_snapshot',
+      trigger_type: 'manual',
+      triggered_by: 'admin',
+      status: 'running',
+      force_override: true,
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    // Run watchlist snapshot generation in background
+    updateWatchlistSnapshot().then(async () => {
+      await AzureLogger.logInfo('watchlist_snapshot', 'Manual watchlist snapshot generation completed');
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'completed',
+          progress_percentage: 100,
+          current_processing: 'Watchlist snapshot generated and uploaded successfully'
+        });
+      }
+    }).catch(async (error: any) => {
+      await AzureLogger.logSchedulerError('watchlist_snapshot', error.message);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message || 'Unknown error'
+        });
+      }
+    });
+
+    return res.json({ 
+      success: true, 
+      message: 'Watchlist Snapshot generation triggered successfully',
+      log_id: logEntry.id
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error triggering watchlist snapshot generation:', error);
     return res.status(500).json({ 
       success: false, 
       message: error.message || 'Unknown error' 

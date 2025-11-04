@@ -134,6 +134,27 @@ app.use((_req, res) => {
   ));
 });
 
+// Global error handlers to prevent crashes from unhandled rejections
+process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
+  console.error('❌ Unhandled Promise Rejection:', reason);
+  console.error('Promise:', promise);
+  // Log error but don't crash - allow scheduler to continue
+  if (reason?.message) {
+    console.error('Error message:', reason.message);
+  }
+  if (reason?.stack) {
+    console.error('Stack trace:', reason.stack);
+  }
+});
+
+process.on('uncaughtException', (error: Error) => {
+  console.error('❌ Uncaught Exception:', error);
+  console.error('Stack trace:', error.stack);
+  // For uncaught exceptions, we might want to exit gracefully
+  // But for now, log and continue to prevent scheduler interruption
+  console.warn('⚠️ Continuing execution despite uncaught exception...');
+});
+
 const PORT = config.PORT;
 app.listen(PORT, async () => {
   console.log(`Backend listening on port ${PORT}`);
@@ -147,5 +168,8 @@ app.listen(PORT, async () => {
   initializeAzureLogging().then(() => {
     startScheduler();
     console.log(`✅ Scheduler started successfully`);
-  }).catch(console.error);
+  }).catch((error) => {
+    console.error('❌ Failed to start scheduler:', error);
+    // Don't crash - scheduler can be started manually later
+  });
 });

@@ -34,7 +34,7 @@ const SCHEDULER_CONFIG = {
   PHASE1_SHAREHOLDERS_TIME: '00:01',       // Shareholders & Holding (if first day of month)
   
   // Phase 2-6 are auto-triggered sequentially after Phase 1 completes
-  // Phase 2: Market rotation (RRC, RRG, Seasonal, Trend Filter)
+  // Phase 2: Market rotation (RRC, RRG, Seasonal, Trend Filter, Watchlist Snapshot)
   // Phase 3: Light calculations (Money Flow, Foreign Flow, Break Done Trade)
   // Phase 4: Medium calculations (Bid/Ask Footprint, Broker Breakdown)
   // Phase 5: Heavy calculations (Broker Data)
@@ -301,19 +301,20 @@ async function runPhase2MarketRotationCalculations(): Promise<void> {
       { name: 'RRC Calculation', service: forceRegenerate, method: null },
       { name: 'RRG Calculation', service: forceRegenerateRRG, method: null },
       { name: 'Seasonal Calculation', service: forceRegenerateSeasonal, method: null },
-      { name: 'Trend Filter Calculation', service: trendFilterService, method: 'generateTrendFilterData' }
+      { name: 'Trend Filter Calculation', service: trendFilterService, method: 'generateTrendFilterData' },
+      { name: 'Watchlist Snapshot', service: updateWatchlistSnapshot, method: null }
     ];
     
     const marketRotationPromises = marketRotationTasks.map(async (task, index) => {
       const startTime = Date.now();
       
       try {
-        console.log(`🔄 Starting ${task.name} (${index + 1}/4)...`);
+        console.log(`🔄 Starting ${task.name} (${index + 1}/5)...`);
         
         // Update progress in database
         if (logEntry) {
           await SchedulerLogService.updateLog(logEntry.id!, {
-            progress_percentage: Math.round((index / 4) * 100),
+            progress_percentage: Math.round((index / 5) * 100),
             current_processing: `Running ${task.name}...`
           });
         }
@@ -363,20 +364,20 @@ async function runPhase2MarketRotationCalculations(): Promise<void> {
     const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
     
     console.log(`\n📊 ===== PHASE 2 MARKET ROTATION COMPLETED =====`);
-    console.log(`✅ Success: ${successCount}/4 calculations`);
+    console.log(`✅ Success: ${successCount}/5 calculations`);
     console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
     console.log(`⏱️ Total Duration: ${totalDuration}s`);
     
     // Update database log
     if (logEntry) {
       await SchedulerLogService.updateLog(logEntry.id!, {
-        status: successCount === 4 ? 'completed' : 'failed',
+        status: successCount === 5 ? 'completed' : 'failed',
         completed_at: new Date().toISOString(),
-        total_files_processed: 4,
+        total_files_processed: 5,
         files_created: successCount,
-        files_failed: 4 - successCount,
+        files_failed: 5 - successCount,
         progress_percentage: 100,
-        current_processing: `Phase 2 Market Rotation complete: ${successCount}/4 calculations successful in ${totalDuration}s`
+        current_processing: `Phase 2 Market Rotation complete: ${successCount}/5 calculations successful in ${totalDuration}s`
       });
     }
     
@@ -387,7 +388,7 @@ async function runPhase2MarketRotationCalculations(): Promise<void> {
     stopMemoryMonitoring();
     
     // Trigger Phase 3 automatically if Phase 2 succeeded
-    if (successCount >= 3) { // Trigger Phase 3 if at least 3/4 succeed
+    if (successCount >= 4) { // Trigger Phase 3 if at least 4/5 succeed
       console.log('🔄 Triggering Phase 3 Light calculations...');
       await runPhase3LightCalculations();
     } else {
@@ -913,7 +914,7 @@ export function startScheduler(): void {
     const phaseStartTime = Date.now();
     console.log(`\n🚀 ===== PHASE 1 DATA COLLECTION STARTED =====`);
     console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
-    console.log(`📋 Phase: Data Collection (Stock, Index, Done Summary, Watchlist Snapshot) - 7 days`);
+    console.log(`📋 Phase: Data Collection (Stock, Index, Done Summary) - 7 days`);
     
     // Skip if weekend
     if (isWeekend()) {
@@ -956,8 +957,7 @@ export function startScheduler(): void {
       const dataCollectionTasks = [
         { name: 'Stock Data', service: updateStockData, method: null },
         { name: 'Index Data', service: updateIndexData, method: null },
-        { name: 'Done Summary Data', service: updateDoneSummaryData, method: null },
-        { name: 'Watchlist Snapshot', service: updateWatchlistSnapshot, method: null }
+        { name: 'Done Summary Data', service: updateDoneSummaryData, method: null }
       ];
       const totalTasks = dataCollectionTasks.length;
       
@@ -1207,7 +1207,7 @@ export function startScheduler(): void {
   console.log(`  🚀 Phase 1 Shareholders & Holding (PARALLEL): ${PHASE1_SHAREHOLDERS_TIME} daily (SCHEDULED)`);
   console.log(`    └─ Shareholders Data, Holding Data (Monthly check)`);
   console.log(`  🚀 Phase 2 Market Rotation (PARALLEL): Auto-triggered after Phase 1`);
-  console.log(`    └─ RRC, RRG, Seasonal, Trend Filter`);
+  console.log(`    └─ RRC, RRG, Seasonal, Trend Filter, Watchlist Snapshot`);
   console.log(`  🚀 Phase 3 Light (PARALLEL): Auto-triggered after Phase 2`);
   console.log(`    └─ Money Flow, Foreign Flow, Break Done Trade`);
   console.log(`  🚀 Phase 4 Medium (SEQUENTIAL): Auto-triggered after Phase 3`);

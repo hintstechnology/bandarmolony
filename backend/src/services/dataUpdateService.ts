@@ -136,12 +136,16 @@ class OptimizedHttpClient {
   }
   
   private shouldRetry(error: any): boolean {
-    return (
-      error.code === 'ECONNRESET' ||
-      error.code === 'ETIMEDOUT' ||
-      error.code === 'ENOTFOUND' ||
-      (error.response && error.response.status >= 500)
-    );
+    // Retry on network errors, timeouts, and server errors
+    const isTimeout = error.code === 'ETIMEDOUT' || 
+                     error.code === 'ECONNABORTED' ||
+                     error.message?.includes('timeout');
+    const isNetworkError = error.code === 'ECONNRESET' ||
+                          error.code === 'ENOTFOUND' ||
+                          error.code === 'ECONNREFUSED';
+    const isServerError = error.response && error.response.status >= 500;
+    
+    return isTimeout || isNetworkError || isServerError;
   }
   
   private delay(ms: number): Promise<void> {
@@ -225,12 +229,20 @@ class ParallelProcessor {
       // Use Promise.allSettled to ensure all promises are tracked
       const batchResults = await Promise.allSettled(batch);
       
-      // Extract successful results
-      batchResults.forEach(result => {
+      // Extract successful results and handle rejected promises
+      batchResults.forEach((result) => {
         if (result.status === 'fulfilled') {
           results.push(result.value);
+        } else {
+          // Ensure rejected promises are handled - create a default error result
+          // This prevents unhandled promise rejections
+          const errorResult = {
+            success: false,
+            skipped: false,
+            error: result.reason?.message || 'Unknown error'
+          } as T;
+          results.push(errorResult);
         }
-        // Note: Rejected promises are handled by individual processEmiten error handling
       });
     }
     
