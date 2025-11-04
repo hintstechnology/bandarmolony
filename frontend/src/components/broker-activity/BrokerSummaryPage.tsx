@@ -407,9 +407,23 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         }
       });
 
-      // Update date column widths if we have measurements
+      // Update date column widths if we have measurements (only if changed)
       if (newDateColumnWidths.size > 0) {
-        setDateColumnWidths(newDateColumnWidths);
+        // Check if widths actually changed to avoid unnecessary re-renders
+        let hasChanged = false;
+        if (dateColumnWidths.size !== newDateColumnWidths.size) {
+          hasChanged = true;
+        } else {
+          for (const [date, width] of newDateColumnWidths.entries()) {
+            if (dateColumnWidths.get(date) !== width) {
+              hasChanged = true;
+              break;
+            }
+          }
+        }
+        if (hasChanged) {
+          setDateColumnWidths(newDateColumnWidths);
+        }
       }
 
       // Get the second header row (the one with column headers: BY, BLot, etc.)
@@ -467,10 +481,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           });
         }
         
-        // Update column widths state if we have all measurements
+        // Update column widths state if we have all measurements (only if changed)
         if (widths.BY && widths.BLot && widths.BVal && widths.BAvg && widths.hash && 
             widths.SL && widths.SLot && widths.SVal && widths.SAvg) {
-          setColumnWidths({
+          const newWidths = {
             BY: widths.BY || 'w-4',
             BLot: widths.BLot || 'w-6',
             BVal: widths.BVal || 'w-6',
@@ -480,24 +494,44 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
             SLot: widths.SLot || 'w-6',
             SVal: widths.SVal || 'w-6',
             SAvg: widths.SAvg || 'w-6',
+          };
+          
+          // Check if widths actually changed to avoid unnecessary re-renders
+          const hasChanged = Object.keys(newWidths).some(key => {
+            return columnWidths[key as keyof typeof columnWidths] !== newWidths[key as keyof typeof newWidths];
           });
+          
+          if (hasChanged) {
+            setColumnWidths(newWidths);
+          }
         }
       }
     };
 
-    // Initial measurement with delays (longer delays to wait for data rendering after sums)
-    const timeoutId1 = setTimeout(() => measureColumnWidths(), 100);
-    const timeoutId2 = setTimeout(() => measureColumnWidths(), 300);
-    const timeoutId3 = setTimeout(() => measureColumnWidths(), 600);
-    const timeoutId4 = setTimeout(() => measureColumnWidths(), 1000);
+    // Debounce function to avoid too frequent measurements
+    let debounceTimer: NodeJS.Timeout | null = null;
+    const debouncedMeasure = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        measureColumnWidths();
+      }, 150);
+    };
 
-    // Use ResizeObserver to watch for changes
+    // Initial measurement with single delay (optimized)
+    const initialTimeoutId = setTimeout(() => measureColumnWidths(), 300);
+
+    // Measure after data loads (with delay to ensure rendering is complete)
+    let dataTimeoutId: NodeJS.Timeout | null = null;
+    if (!isLoading && summaryByDate.size > 0) {
+      dataTimeoutId = setTimeout(() => measureColumnWidths(), 600);
+    }
+
+    // Use ResizeObserver to watch for changes (with debouncing)
     let resizeObserver: ResizeObserver | null = null;
     
     if (valueTableRef.current) {
       resizeObserver = new ResizeObserver(() => {
-        // Add small delay to avoid too frequent measurements
-        setTimeout(() => measureColumnWidths(), 100);
+        debouncedMeasure();
       });
       resizeObserver.observe(valueTableRef.current);
     }
@@ -506,31 +540,16 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     if (valueTableContainerRef.current) {
       if (!resizeObserver) {
         resizeObserver = new ResizeObserver(() => {
-          setTimeout(() => measureColumnWidths(), 100);
+          debouncedMeasure();
         });
       }
       resizeObserver.observe(valueTableContainerRef.current);
     }
-
-    // Measure after data loads (with longer delay to ensure rendering is complete)
-    if (!isLoading && summaryByDate.size > 0) {
-      const dataTimeoutId = setTimeout(() => measureColumnWidths(), 800);
       
-      return () => {
-        clearTimeout(timeoutId1);
-        clearTimeout(timeoutId2);
-        clearTimeout(timeoutId3);
-        clearTimeout(timeoutId4);
-        clearTimeout(dataTimeoutId);
-        if (resizeObserver) resizeObserver.disconnect();
-      };
-    }
-
     return () => {
-      clearTimeout(timeoutId1);
-      clearTimeout(timeoutId2);
-      clearTimeout(timeoutId3);
-      clearTimeout(timeoutId4);
+      clearTimeout(initialTimeoutId);
+      if (dataTimeoutId) clearTimeout(dataTimeoutId);
+      if (debounceTimer) clearTimeout(debounceTimer);
       if (resizeObserver) resizeObserver.disconnect();
     };
   }, [summaryByDate, selectedDates, selectedTickers, isLoading]);
@@ -758,30 +777,35 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
       }
     };
 
-    // Initial sync with multiple delays to catch different render stages
-    // Wait longer for column measurements to complete first
-    const timeoutId1 = setTimeout(() => {
-      syncTableWidths();
-    }, 150);
-    
-    const timeoutId2 = setTimeout(() => {
+    // Debounce function to avoid too frequent syncs
+    let debounceTimer: NodeJS.Timeout | null = null;
+    const debouncedSync = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        syncTableWidths();
+      }, 100);
+    };
+
+    // Initial sync with single delay (optimized)
+    const initialTimeoutId = setTimeout(() => {
       syncTableWidths();
     }, 400);
-    
-    const timeoutId3 = setTimeout(() => {
-      syncTableWidths();
-    }, 700);
-    
-    const timeoutId4 = setTimeout(() => {
-      syncTableWidths();
-    }, 1100);
 
-    // Use ResizeObserver to watch for changes in VALUE table width
+    // Sync after data finishes loading or when empty
+    // This ensures width sync works even when data is empty (showing "No Data" row)
+    let dataTimeoutId: NodeJS.Timeout | null = null;
+    if (!isLoading) {
+      dataTimeoutId = setTimeout(() => {
+        syncTableWidths();
+      }, 700);
+    }
+
+    // Use ResizeObserver to watch for changes in VALUE table width (with debouncing)
     let resizeObserver: ResizeObserver | null = null;
     
     if (valueTableRef.current) {
       resizeObserver = new ResizeObserver(() => {
-        syncTableWidths();
+        debouncedSync();
       });
       resizeObserver.observe(valueTableRef.current);
     }
@@ -790,47 +814,22 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     if (valueTableContainerRef.current) {
       if (!resizeObserver) {
         resizeObserver = new ResizeObserver(() => {
-          syncTableWidths();
+          debouncedSync();
         });
       }
       resizeObserver.observe(valueTableContainerRef.current);
     }
 
-    // Also sync on window resize
+    // Also sync on window resize (with debouncing)
     const handleResize = () => {
-      syncTableWidths();
+      debouncedSync();
     };
     window.addEventListener('resize', handleResize);
-
-    // Sync after data finishes loading or when empty (with longer delay to wait for measurements)
-    // This ensures width sync works even when data is empty (showing "No Data" row)
-    if (!isLoading) {
-      const dataTimeoutId = setTimeout(() => {
-        syncTableWidths();
-      }, 900);
       
-      // Additional sync for empty data case (when "No Data" row is rendered)
-      const emptyDataTimeoutId = setTimeout(() => {
-        syncTableWidths();
-      }, 1200);
-      
-      return () => {
-        clearTimeout(timeoutId1);
-        clearTimeout(timeoutId2);
-        clearTimeout(timeoutId3);
-        clearTimeout(timeoutId4);
-        clearTimeout(dataTimeoutId);
-        clearTimeout(emptyDataTimeoutId);
-        if (resizeObserver) resizeObserver.disconnect();
-        window.removeEventListener('resize', handleResize);
-      };
-    }
-
     return () => {
-      clearTimeout(timeoutId1);
-      clearTimeout(timeoutId2);
-      clearTimeout(timeoutId3);
-      clearTimeout(timeoutId4);
+      clearTimeout(initialTimeoutId);
+      if (dataTimeoutId) clearTimeout(dataTimeoutId);
+      if (debounceTimer) clearTimeout(debounceTimer);
       if (resizeObserver) resizeObserver.disconnect();
       window.removeEventListener('resize', handleResize);
     };
