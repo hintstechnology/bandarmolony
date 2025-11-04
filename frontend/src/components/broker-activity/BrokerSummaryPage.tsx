@@ -604,37 +604,59 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         const netDateHeaderRow = netHeaderRows[0];
         const valueDateHeaderRow = valueHeaderRows[0];
         
-        if (netDateHeaderRow && valueDateHeaderRow && dateColumnWidths.size > 0) {
+        if (netDateHeaderRow && valueDateHeaderRow) {
           const netDateHeaderCells = netDateHeaderRow.querySelectorAll('th[colspan="9"]');
           const valueDateHeaderCells = valueDateHeaderRow.querySelectorAll('th[colspan="9"]');
           
           selectedDates.forEach((date, dateIndex) => {
-            const dateWidth = dateColumnWidths.get(date);
             const netDateHeaderCell = netDateHeaderCells[dateIndex] as HTMLElement;
             const valueDateHeaderCell = valueDateHeaderCells[dateIndex] as HTMLElement;
             
-            if (netDateHeaderCell && dateWidth) {
-              // Apply the date column group width - use exact width from Value table
-              netDateHeaderCell.style.width = dateWidth;
-              netDateHeaderCell.style.minWidth = dateWidth;
-              netDateHeaderCell.style.maxWidth = dateWidth; // Prevent Net from being wider
-            }
-            
-            // Also ensure the value date header has the same width for consistency
-            if (valueDateHeaderCell && dateWidth) {
-              valueDateHeaderCell.style.width = dateWidth;
-              valueDateHeaderCell.style.minWidth = dateWidth;
+            if (netDateHeaderCell && valueDateHeaderCell) {
+              // Get width from VALUE table (actual rendered width)
+              let dateWidth: string | undefined;
+              
+              if (valueDateHeaderCell.offsetWidth > 0) {
+                // Use actual width from VALUE table
+                dateWidth = `${valueDateHeaderCell.offsetWidth}px`;
+              } else if (dateColumnWidths.size > 0) {
+                // Fallback to stored width if available
+                dateWidth = dateColumnWidths.get(date);
+              }
+              
+              if (dateWidth) {
+                // Apply the date column group width - use exact width from Value table
+                netDateHeaderCell.style.width = dateWidth;
+                netDateHeaderCell.style.minWidth = dateWidth;
+                netDateHeaderCell.style.maxWidth = dateWidth; // Prevent Net from being wider
+                
+                // Also ensure the value date header has the same width for consistency
+                valueDateHeaderCell.style.width = dateWidth;
+                valueDateHeaderCell.style.minWidth = dateWidth;
+              }
             }
           });
+          
+          // Also sync Total column header width
+          const valueTotalHeaderCell = valueDateHeaderCells[valueDateHeaderCells.length - 1] as HTMLElement;
+          const netTotalHeaderCell = netDateHeaderCells[netDateHeaderCells.length - 1] as HTMLElement;
+          
+          if (valueTotalHeaderCell && netTotalHeaderCell && valueTotalHeaderCell.offsetWidth > 0) {
+            const totalWidth = `${valueTotalHeaderCell.offsetWidth}px`;
+            netTotalHeaderCell.style.width = totalWidth;
+            netTotalHeaderCell.style.minWidth = totalWidth;
+            netTotalHeaderCell.style.maxWidth = totalWidth;
+          }
         }
 
-        // Sync individual column widths using stored columnWidths
+        // Sync individual column widths using stored columnWidths or actual widths
         const valueColumnHeaderRow = valueHeaderRows[1];
         const netColumnHeaderRow = netHeaderRows[1];
         
         if (valueColumnHeaderRow && netColumnHeaderRow) {
           // Apply column widths to NET table header cells
           const netHeaderCells = netColumnHeaderRow.querySelectorAll('th');
+          const valueHeaderCells = valueColumnHeaderRow.querySelectorAll('th');
           const columnOrder = ['BY', 'BLot', 'BVal', 'BAvg', 'hash', 'SL', 'SLot', 'SVal', 'SAvg'];
           
           // Apply widths to each date column group
@@ -642,9 +664,20 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
             const startIdx = dateIndex * 9;
             columnOrder.forEach((colName, idx) => {
               const netHeaderCell = netHeaderCells[startIdx + idx] as HTMLElement;
-              if (netHeaderCell && columnWidths[colName as keyof typeof columnWidths]) {
-                const width = columnWidths[colName as keyof typeof columnWidths];
-                if (width.includes('px')) {
+              const valueHeaderCell = valueHeaderCells[startIdx + idx] as HTMLElement;
+              
+              if (netHeaderCell && valueHeaderCell) {
+                let width: string | undefined;
+                
+                // Try to use actual width from VALUE table first
+                if (valueHeaderCell.offsetWidth > 0) {
+                  width = `${valueHeaderCell.offsetWidth}px`;
+                } else if (columnWidths[colName as keyof typeof columnWidths] && columnWidths[colName as keyof typeof columnWidths].includes('px')) {
+                  // Fallback to stored width
+                  width = columnWidths[colName as keyof typeof columnWidths];
+                }
+                
+                if (width) {
                   netHeaderCell.style.width = width;
                   netHeaderCell.style.minWidth = width;
                   netHeaderCell.style.maxWidth = width; // Prevent Net from being wider
@@ -653,21 +686,52 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
             });
           });
           
-          // Apply widths to body cells
+          // Sync Total column headers
+          const totalStartIdx = selectedDates.length * 9;
+          columnOrder.forEach((colName, idx) => {
+            const netHeaderCell = netHeaderCells[totalStartIdx + idx] as HTMLElement;
+            const valueHeaderCell = valueHeaderCells[totalStartIdx + idx] as HTMLElement;
+            
+            if (netHeaderCell && valueHeaderCell && valueHeaderCell.offsetWidth > 0) {
+              const width = `${valueHeaderCell.offsetWidth}px`;
+              netHeaderCell.style.width = width;
+              netHeaderCell.style.minWidth = width;
+              netHeaderCell.style.maxWidth = width;
+            }
+          });
+          
+          // Apply widths to body cells (including "No Data" row)
           const valueBodyRows = valueTable.querySelectorAll('tbody tr');
           const netBodyRows = netTable.querySelectorAll('tbody tr');
           
-          netBodyRows.forEach((netRow, rowIndex) => {
-            const valueRow = valueBodyRows[rowIndex];
-            if (!valueRow || !netRow) return;
+          // Sync all rows (including empty or "No Data" rows)
+          const maxRows = Math.max(valueBodyRows.length, netBodyRows.length);
+          
+          for (let rowIndex = 0; rowIndex < maxRows; rowIndex++) {
+            const valueRow = valueBodyRows[rowIndex] as HTMLTableRowElement;
+            const netRow = netBodyRows[rowIndex] as HTMLTableRowElement;
             
+            if (!valueRow || !netRow) continue;
+            
+            // Sync date column groups
             selectedDates.forEach((_, dateIndex) => {
               const startIdx = dateIndex * 9;
               columnOrder.forEach((colName, idx) => {
                 const netCell = netRow.children[startIdx + idx] as HTMLElement;
-                if (netCell && columnWidths[colName as keyof typeof columnWidths]) {
-                  const width = columnWidths[colName as keyof typeof columnWidths];
-                  if (width.includes('px')) {
+                const valueCell = valueRow.children[startIdx + idx] as HTMLElement;
+                
+                if (netCell && valueCell) {
+                  let width: string | undefined;
+                  
+                  // Try to use actual width from VALUE table first
+                  if (valueCell.offsetWidth > 0) {
+                    width = `${valueCell.offsetWidth}px`;
+                  } else if (columnWidths[colName as keyof typeof columnWidths] && columnWidths[colName as keyof typeof columnWidths].includes('px')) {
+                    // Fallback to stored width
+                    width = columnWidths[colName as keyof typeof columnWidths];
+                  }
+                  
+                  if (width) {
                     netCell.style.width = width;
                     netCell.style.minWidth = width;
                     netCell.style.maxWidth = width; // Prevent Net from being wider
@@ -675,7 +739,21 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                 }
               });
             });
-          });
+            
+            // Sync Total column cells
+            const totalStartIdx = selectedDates.length * 9;
+            columnOrder.forEach((colName, idx) => {
+              const netCell = netRow.children[totalStartIdx + idx] as HTMLElement;
+              const valueCell = valueRow.children[totalStartIdx + idx] as HTMLElement;
+              
+              if (netCell && valueCell && valueCell.offsetWidth > 0) {
+                const width = `${valueCell.offsetWidth}px`;
+                netCell.style.width = width;
+                netCell.style.minWidth = width;
+                netCell.style.maxWidth = width;
+              }
+            });
+          }
         }
       }
     };
@@ -724,11 +802,17 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     };
     window.addEventListener('resize', handleResize);
 
-    // Sync after data finishes loading (with longer delay to wait for measurements)
-    if (!isLoading && summaryByDate.size > 0) {
+    // Sync after data finishes loading or when empty (with longer delay to wait for measurements)
+    // This ensures width sync works even when data is empty (showing "No Data" row)
+    if (!isLoading) {
       const dataTimeoutId = setTimeout(() => {
         syncTableWidths();
       }, 900);
+      
+      // Additional sync for empty data case (when "No Data" row is rendered)
+      const emptyDataTimeoutId = setTimeout(() => {
+        syncTableWidths();
+      }, 1200);
       
       return () => {
         clearTimeout(timeoutId1);
@@ -736,6 +820,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         clearTimeout(timeoutId3);
         clearTimeout(timeoutId4);
         clearTimeout(dataTimeoutId);
+        clearTimeout(emptyDataTimeoutId);
         if (resizeObserver) resizeObserver.disconnect();
         window.removeEventListener('resize', handleResize);
       };
@@ -938,7 +1023,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                         {selectedDates.map((date, dateIndex) => (
                       <React.Fragment key={`detail-${date}`}>
                               {/* BY Columns */}
-                              <th className={`text-left py-[1px] px-[4.2px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>BY</th>
+                              <th className={`text-center py-[1px] px-[4.2px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>BY</th>
                               <th className={`text-right py-[1px] px-[4.2px] font-bold text-white w-6`}>BLot</th>
                               <th className={`text-right py-[1px] px-[4.2px] font-bold text-white w-6`}>BVal</th>
                               <th className={`text-right py-[1px] px-[4.2px] font-bold text-white w-6`}>BAvg</th>
@@ -951,7 +1036,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                             </React.Fragment>
                           ))}
                     {/* Total Columns - Include BAvg and SAvg */}
-                          <th className={`text-left py-[1px] px-[3.1px] font-bold text-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>BY</th>
+                          <th className={`text-center py-[1px] px-[3.1px] font-bold text-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>BY</th>
                           <th className={`text-right py-[1px] px-[3.1px] font-bold text-white`}>BLot</th>
                           <th className={`text-right py-[1px] px-[3.1px] font-bold text-white`}>BVal</th>
                           <th className={`text-right py-[1px] px-[3.1px] font-bold text-white`}>BAvg</th>
@@ -959,7 +1044,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                           <th className={`text-left py-[1px] px-[3.1px] font-bold text-white`}>SL</th>
                           <th className={`text-right py-[1px] px-[3.1px] font-bold text-white`}>SLot</th>
                           <th className={`text-right py-[1px] px-[3.1px] font-bold text-white`}>SVal</th>
-                          <th className={`text-right py-[1px] px-[3.1px] font-bold text-white border-r-2 border-white`}>SAvg</th>
+                          <th className={`text-right py-[1px] px-[6px] font-bold text-white border-r-2 border-white`}>SAvg</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1071,7 +1156,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   return (
                             <React.Fragment key={`${date}-${rowIdx}`}>
                                       {/* BY (Buyer) Columns - Using Buyer fields */}
-                                      <td className={`py-[1px] px-[4.2px] w-4 font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${buyData ? getBrokerColorClass(buyData.broker) : ''}`}>
+                                      <td className={`text-center py-[1px] px-[4.2px] w-4 font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${buyData ? getBrokerColorClass(buyData.broker) : ''}`}>
                                         {buyData?.broker || '-'}
                                       </td>
                               <td className="text-right py-[1px] px-[4.2px] text-green-600 font-bold w-6">
@@ -1110,7 +1195,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                           const totalSellAvg = totalSell && totalSell.nslot > 0 ? Math.abs(totalSell.nsval) / totalSell.nslot : 0;
                           return (
                             <React.Fragment>
-                                <td className={`py-[1px] px-[3.1px] font-bold ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${totalBuy ? getBrokerColorClass(totalBuy.broker) : ''}`}>
+                                <td className={`text-center py-[1px] px-[3.1px] font-bold ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${totalBuy ? getBrokerColorClass(totalBuy.broker) : ''}`}>
                                   {totalBuy?.broker || '-'}
                                 </td>
                               <td className="text-right py-[1px] px-[3.1px] text-green-600 font-bold">
@@ -1132,7 +1217,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                               <td className="text-right py-[1px] px-[3.1px] text-red-600 font-bold">
                                   {totalSell ? formatNumber(totalSell.nsval) : '-'}
                                 </td>
-                              <td className="text-right py-[1px] px-[3.1px] text-red-600 font-bold border-r-2 border-white">
+                              <td className="text-right py-[1px] px-[6px] text-red-600 font-bold border-r-2 border-white">
                                   {totalSell && totalSellAvg > 0 ? formatAverage(totalSellAvg) : '-'}
                                 </td>
                             </React.Fragment>
@@ -1170,7 +1255,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     {selectedDates.map((date, dateIndex) => (
                       <React.Fragment key={`detail-${date}`}>
                               {/* Net Buy Columns - No # */}
-                              <th className={`text-left py-[1px] px-[4.2px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>BY</th>
+                              <th className={`text-center py-[1px] px-[4.2px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>BY</th>
                               <th className={`text-right py-[1px] px-[4.2px] font-bold text-white w-6`}>BLot</th>
                               <th className={`text-right py-[1px] px-[4.2px] font-bold text-white w-6`}>BVal</th>
                               <th className={`text-right py-[1px] px-[4.2px] font-bold text-white w-6`}>BAvg</th>
@@ -1183,7 +1268,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                             </React.Fragment>
                           ))}
                     {/* Total Columns - Include BAvg and SAvg */}
-                          <th className={`text-left py-[1px] px-[3.1px] font-bold text-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>BY</th>
+                          <th className={`text-center py-[1px] px-[3.1px] font-bold text-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>BY</th>
                           <th className={`text-right py-[1px] px-[3.1px] font-bold text-white`}>BLot</th>
                           <th className={`text-right py-[1px] px-[3.1px] font-bold text-white`}>BVal</th>
                           <th className={`text-right py-[1px] px-[3.1px] font-bold text-white`}>BAvg</th>
@@ -1191,7 +1276,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                           <th className={`text-left py-[1px] px-[3.1px] font-bold text-white`}>SL</th>
                           <th className={`text-right py-[1px] px-[3.1px] font-bold text-white`}>SLot</th>
                           <th className={`text-right py-[1px] px-[3.1px] font-bold text-white`}>SVal</th>
-                          <th className={`text-right py-[1px] px-[3.1px] font-bold text-white border-r-2 border-white`}>SAvg</th>
+                          <th className={`text-right py-[1px] px-[6px] font-bold text-white border-r-2 border-white`}>SAvg</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1312,9 +1397,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     };
                     
                     // Helper function to get background color style for net sell broker
+                    // Note: Sell background color disabled - only buy gets colored
                     const getNetSellBgStyle = (broker: string): React.CSSProperties | undefined => {
-                      const color = netSellBrokerBgMap.get(broker);
-                      return color ? { backgroundColor: color, color: 'white' } : undefined;
+                      return undefined; // No background color for sell
                     };
                     
                     // Find max row count across all dates
@@ -1371,14 +1456,14 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   const nsVal = netSellData ? Math.abs(netSellData.netBuyValue || 0) : 0;
                                   const nsAvg = nsLot !== 0 ? nsVal / nsLot : 0;
                                   
-                            // Get background colors for this row
+                            // Get background colors for this row (only for buy)
                             const netBuyBgStyle = netBuyData ? getNetBuyBgStyle(netBuyData.broker) : undefined;
-                            const netSellBgStyle = netSellData ? getNetSellBgStyle(netSellData.broker) : undefined;
+                            // Note: Sell background color disabled - only buy gets colored
                                   
                                   return (
                               <React.Fragment key={`${date}-${rowIdx}`}>
                                       {/* Net Buy Columns - No # */}
-                                      <td className={`py-[1px] px-[4.2px] w-4 font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${netBuyData ? getBrokerColorClass(netBuyData.broker) : ''}`} style={netBuyBgStyle}>
+                                      <td className={`text-center py-[1px] px-[4.2px] w-4 font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${netBuyData ? getBrokerColorClass(netBuyData.broker) : ''}`} style={netBuyBgStyle}>
                                         {netBuyData?.broker || '-'}
                                       </td>
                                 <td className={`text-right py-[1px] px-[4.2px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
@@ -1392,16 +1477,16 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                       </td>
                                       {/* Net Sell Columns - Keep # */}
                                       <td className={`text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold w-4 ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`}>{netSellData ? rowIdx + 1 : '-'}</td>
-                                      <td className={`py-[1px] px-[4.2px] w-4 font-bold ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`} style={netSellBgStyle}>
+                                      <td className={`py-[1px] px-[4.2px] w-4 font-bold ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`}>
                                         {netSellData?.broker || '-'}
                                       </td>
-                                <td className={`text-right py-[1px] px-[4.2px] w-6 font-bold ${netSellBgStyle ? '' : 'text-red-600'}`} style={netSellBgStyle}>
+                                <td className="text-right py-[1px] px-[4.2px] w-6 font-bold text-red-600">
                                   {netSellData ? formatLot(nsLot / 100) : '-'}
                                 </td>
-                                      <td className={`text-right py-[1px] px-[4.2px] w-6 font-bold ${netSellBgStyle ? '' : 'text-red-600'}`} style={netSellBgStyle}>
+                                      <td className="text-right py-[1px] px-[4.2px] w-6 font-bold text-red-600">
                                         {netSellData ? formatNumber(nsVal) : '-'}
                                       </td>
-                                <td className={`text-right py-[1px] px-[4.2px] w-6 font-bold ${netSellBgStyle ? '' : 'text-red-600'} ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={netSellBgStyle}>
+                                <td className={`text-right py-[1px] px-[4.2px] w-6 font-bold text-red-600 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
                                         {netSellData ? formatAverage(nsAvg) : '-'}
                                       </td>
                                     </React.Fragment>
@@ -1413,9 +1498,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                             const totalNetSell = sortedTotalNetSell[rowIdx];
                             
                             // Get background colors for total columns (top 5 only)
-                            // Buy uses original colors, Sell uses shifted colors
+                            // Buy uses original colors, Sell background color disabled
                             const totalNetBuyBgStyle = totalNetBuy && rowIdx < 5 ? { backgroundColor: bgColors[rowIdx] || '', color: 'white' } : undefined;
-                            const totalNetSellBgStyle = totalNetSell && rowIdx < 5 ? { backgroundColor: shiftColorForSell(bgColors[rowIdx] || ''), color: 'white' } : undefined;
+                            // Note: Sell background color disabled - only buy gets colored
                             
                             // Calculate BAvg: BVal / BLot
                             const totalNetBuyAvg = totalNetBuy && totalNetBuy.nblot > 0 ? totalNetBuy.nbval / totalNetBuy.nblot : 0;
@@ -1424,7 +1509,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                             
                             return (
                               <React.Fragment>
-                                <td className={`py-[1px] px-[3.1px] font-bold ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${totalNetBuy ? getBrokerColorClass(totalNetBuy.broker) : ''}`} style={totalNetBuyBgStyle}>
+                                <td className={`text-center py-[1px] px-[3.1px] font-bold ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${totalNetBuy ? getBrokerColorClass(totalNetBuy.broker) : ''}`} style={totalNetBuyBgStyle}>
                                   {totalNetBuy?.broker || '-'}
                                 </td>
                                 <td className={`text-right py-[1px] px-[3.1px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
@@ -1437,16 +1522,16 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   {totalNetBuy && totalNetBuyAvg > 0 ? formatAverage(totalNetBuyAvg) : '-'}
                                 </td>
                                 <td className={`text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold ${totalNetSell ? getBrokerColorClass(totalNetSell.broker) : ''}`}>{totalNetSell ? rowIdx + 1 : '-'}</td>
-                                <td className={`py-[1px] px-[3.1px] font-bold ${totalNetSell ? getBrokerColorClass(totalNetSell.broker) : ''}`} style={totalNetSellBgStyle}>
+                                <td className={`py-[1px] px-[3.1px] font-bold ${totalNetSell ? getBrokerColorClass(totalNetSell.broker) : ''}`}>
                                   {totalNetSell?.broker || '-'}
                                 </td>
-                                <td className={`text-right py-[1px] px-[3.1px] font-bold ${totalNetSellBgStyle ? '' : 'text-red-600'}`} style={totalNetSellBgStyle}>
+                                <td className="text-right py-[1px] px-[3.1px] text-red-600 font-bold">
                                   {totalNetSell ? formatLot(totalNetSell.nslot / 100) : '-'}
                                 </td>
-                                <td className={`text-right py-[1px] px-[3.1px] font-bold ${totalNetSellBgStyle ? '' : 'text-red-600'}`} style={totalNetSellBgStyle}>
+                                <td className="text-right py-[1px] px-[3.1px] text-red-600 font-bold">
                                   {totalNetSell ? formatNumber(totalNetSell.nsval) : '-'}
                                 </td>
-                                <td className={`text-right py-[1px] px-[3.1px] font-bold border-r-2 border-white ${totalNetSellBgStyle ? '' : 'text-red-600'}`} style={totalNetSellBgStyle}>
+                                <td className="text-right py-[1px] px-[6px] text-red-600 font-bold border-r-2 border-white">
                                   {totalNetSell && totalNetSellAvg > 0 ? formatAverage(totalNetSellAvg) : '-'}
                                 </td>
                               </React.Fragment>
