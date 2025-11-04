@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Search, Loader2, Calendar } from 'lucide-react';
  
 import { api } from '../../services/api';
@@ -180,6 +180,14 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   const [summaryByDate, setSummaryByDate] = useState<Map<string, BrokerSummaryData[]>>(new Map());
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [isDataReady, setIsDataReady] = useState<boolean>(false); // Control when to show tables
+  
+  // Cache for API responses to avoid redundant calls
+  // Key format: `${ticker}-${date}-${market}`
+  const dataCacheRef = useRef<Map<string, { data: BrokerSummaryData[]; timestamp: number }>>(new Map());
+  
+  // Cache expiration time: 5 minutes
+  const CACHE_EXPIRY_MS = 5 * 60 * 1000;
 
   // Update selectedTickers when prop changes
   useEffect(() => {
@@ -213,37 +221,70 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     loadAvailableStocks();
   }, [selectedDates, marketFilter]);
 
+  // Hide tables immediately when dependencies change (before fetch starts)
+  // This ensures tables disappear instantly when user changes date/ticker
+  // Use useLayoutEffect to run synchronously before paint, preventing flash of old content
+  useLayoutEffect(() => {
+    // Clear data and hide tables immediately when dependencies change
+    setSummaryByDate(new Map());
+    setIsDataReady(false);
+  }, [selectedTickers, selectedDates, marketFilter]);
+
   // Load broker summary data from backend for each selected date and aggregate multiple tickers
   useEffect(() => {
     const fetchAll = async () => {
       if (selectedTickers.length === 0 || selectedDates.length === 0) {
         return;
       }
+      
+      // Start loading (data and tables already cleared by the separate useEffect above)
+      // But add safety check here too to ensure tables are hidden
+      setIsDataReady(false);
       setIsLoading(true);
       setError(null);
+      
       try {
         const market = marketFilter || '';
+        const now = Date.now();
+        const cache = dataCacheRef.current;
         
-        // Fetch data for all selected tickers and all dates
+        // Clear expired cache entries
+        for (const [key, value] of cache.entries()) {
+          if (now - value.timestamp > CACHE_EXPIRY_MS) {
+            cache.delete(key);
+          }
+        }
+        
+        // Fetch data for all selected tickers and all dates (with cache)
         const allDataPromises = selectedTickers.flatMap(ticker =>
               selectedDates.map(async (date) => {
+                const cacheKey = `${ticker}-${date}-${market}`;
+                const cached = cache.get(cacheKey);
+                
+                // Check cache first
+                if (cached && (now - cached.timestamp) <= CACHE_EXPIRY_MS) {
+                  console.log(`[BrokerSummary] Using cached data for ${ticker} on ${date}`);
+                  return { ticker, date, data: cached.data };
+                }
+                
+                // Fetch from API
                 console.log(`[BrokerSummary] Fetching data for ${ticker} on ${date} with market: ${market || 'All Trade'}`);
                 const res = await api.getBrokerSummaryData(ticker, date, market as 'RG' | 'TN' | 'NG' | '');
                 
                 // Check if response is successful
                 if (!res || !res.success) {
                   console.error(`[BrokerSummary] Failed to fetch data for ${ticker} on ${date}:`, res?.error || 'Unknown error');
-              return { ticker, date, data: [] };
+                  return { ticker, date, data: [] };
                 }
                 
                 // Check if brokerData exists
                 if (!res.data || !res.data.brokerData || !Array.isArray(res.data.brokerData)) {
                   console.warn(`[BrokerSummary] No broker data in response for ${ticker} on ${date}`);
-              return { ticker, date, data: [] };
+                  return { ticker, date, data: [] };
                 }
                 
-            const rows: BrokerSummaryData[] = (res.data.brokerData ?? []).map((r: any) => {
-              return {
+                const rows: BrokerSummaryData[] = (res.data.brokerData ?? []).map((r: any) => {
+                  return {
                     broker: r.BrokerCode ?? r.broker ?? r.BROKER ?? r.code ?? '',
                     buyerVol: Number(r.BuyerVol ?? 0),
                     buyerValue: Number(r.BuyerValue ?? 0),
@@ -261,8 +302,12 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                   };
                 }) as BrokerSummaryData[];
                 
-            return { ticker, date, data: rows };
-          })
+                // Store in cache
+                cache.set(cacheKey, { data: rows, timestamp: now });
+                console.log(`[BrokerSummary] Cached data for ${ticker} on ${date}`);
+                
+                return { ticker, date, data: rows };
+              })
         );
         
         const allDataResults = await Promise.all(allDataPromises);
@@ -317,15 +362,46 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           console.log(`[BrokerSummary] Aggregated ${rows.length} brokers for date ${date} from ${selectedTickers.length} ticker(s)`);
         });
         
+        // Store data first (but tables won't show yet because isDataReady is still false)
         setSummaryByDate(finalMap);
         
         const totalRows = Array.from(finalMap.values()).reduce((sum, rows) => sum + rows.length, 0);
         console.log(`[BrokerSummary] Total aggregated rows: ${totalRows} across ${finalMap.size} dates from ${selectedTickers.join(', ')}`);
+        
+        // Mark loading as complete (data is set, but tables still hidden)
+        setIsLoading(false);
+        
+        // Wait for all frontend calculations and DOM rendering to complete before showing tables
+        // This prevents lag by ensuring everything is pre-calculated and rendered off-screen
+        // Strategy: Use multiple requestAnimationFrame + setTimeout to ensure:
+        // 1. React state updates are flushed
+        // 2. DOM is fully rendered (even if hidden)
+        // 3. All measurements and calculations are complete
+        // 4. Browser has time to complete layout calculations
+        
+        // First, wait for React state updates to flush
+        requestAnimationFrame(() => {
+          // Second, wait for DOM rendering
+          requestAnimationFrame(() => {
+            // Third, wait for browser layout calculations to complete
+            setTimeout(() => {
+              // Fourth, check that tables are in DOM and measurements are complete
+              requestAnimationFrame(() => {
+                // Tables should be in DOM now (rendered but hidden)
+                // Give additional time for measureColumnWidths and syncTableWidths useEffects
+                // These useEffects need time to complete their measurements
+                setTimeout(() => {
+                  setIsDataReady(true);
+                }, 400); // Sufficient delay for all measurements to complete
+              });
+            }, 300); // Initial delay for layout calculations
+          });
+        });
       } catch (e: any) {
         console.error('[BrokerSummary] Error fetching data:', e);
         setError(e?.message || 'Failed to load broker summary');
-      } finally {
         setIsLoading(false);
+        setIsDataReady(false);
       }
     };
 
@@ -837,6 +913,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
 
   // Synchronize horizontal scroll between Value and Net tables
   useEffect(() => {
+    // Wait for tables to be ready (data loaded and DOM rendered)
+    if (isLoading || !isDataReady) return;
+
     const valueContainer = valueTableContainerRef.current;
     const netContainer = netTableContainerRef.current;
 
@@ -847,7 +926,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
 
     // Handle Value table scroll - sync to Net table
     const handleValueScroll = () => {
-      if (!isSyncing) {
+      if (!isSyncing && netContainer) {
         isSyncing = true;
         netContainer.scrollLeft = valueContainer.scrollLeft;
         requestAnimationFrame(() => {
@@ -858,7 +937,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
 
     // Handle Net table scroll - sync to Value table
     const handleNetScroll = () => {
-      if (!isSyncing) {
+      if (!isSyncing && valueContainer) {
         isSyncing = true;
         valueContainer.scrollLeft = netContainer.scrollLeft;
         requestAnimationFrame(() => {
@@ -867,14 +946,15 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
       }
     };
 
-    valueContainer.addEventListener('scroll', handleValueScroll);
-    netContainer.addEventListener('scroll', handleNetScroll);
+    // Add event listeners
+    valueContainer.addEventListener('scroll', handleValueScroll, { passive: true });
+    netContainer.addEventListener('scroll', handleNetScroll, { passive: true });
 
     return () => {
       valueContainer.removeEventListener('scroll', handleValueScroll);
       netContainer.removeEventListener('scroll', handleNetScroll);
     };
-  }, []);
+  }, [isLoading, isDataReady, summaryByDate]); // Re-setup when data changes
 
   // clearAllDates removed with Reset button
 
@@ -981,6 +1061,36 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   const renderHorizontalView = () => {
     if (selectedTickers.length === 0 || selectedDates.length === 0) return null;
     
+    // Show loading state if still loading or data not ready
+    // But we'll still render tables in DOM (hidden) to allow pre-calculation
+    const showLoading = isLoading || !isDataReady;
+    
+    if (showLoading && summaryByDate.size === 0) {
+      // No data yet, show loading
+      return (
+        <div className="w-full flex items-center justify-center py-12">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <div className="text-sm text-muted-foreground">Loading broker summary...</div>
+          </div>
+        </div>
+      );
+    }
+    
+    // If we have data but still processing, render tables hidden so calculations can complete
+    // This allows all frontend calculations to finish before showing tables
+    
+    // Show error state
+    if (error) {
+      return (
+        <div className="w-full px-4 py-8">
+          <div className="text-sm text-destructive px-4 py-2 bg-destructive/10 rounded-md">
+            {error}
+          </div>
+        </div>
+      );
+    }
+    
     // Build view model from API data (for each selected date)
     const allBrokerData = selectedDates.map(date => {
       const rows = summaryByDate.get(date) || [];
@@ -992,13 +1102,20 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     });
     
     return (
-      <div className="w-full">
-        {isLoading && (
-          <div className="text-sm text-muted-foreground px-4 py-1">Loading broker summary...</div>
+      <div className="w-full relative">
+        {/* Loading overlay - shown when processing */}
+        {showLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-[#0a0f20]/80 z-50">
+            <div className="flex flex-col items-center gap-3">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <div className="text-sm text-muted-foreground">Loading broker summary...</div>
+            </div>
+          </div>
         )}
-        {error && (
-          <div className="text-sm text-destructive px-4 py-1">{error}</div>
-        )}
+        
+        {/* Tables - rendered in DOM but hidden when processing */}
+        {/* Use opacity: 0 instead of visibility: hidden to allow layout calculations */}
+        <div className={`w-full transition-opacity duration-0 ${showLoading ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
         {/* Combined Buy & Sell Side Table */}
         <div className="w-full max-w-full">
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
@@ -1544,6 +1661,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     </table>
             </div>
           </div>
+        </div>
         </div>
       </div>
     );
