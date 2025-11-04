@@ -19,8 +19,12 @@ interface BrokerSummary {
   SellerValue: number;
   NetBuyVol: number;
   NetBuyValue: number;
+  NetSellVol: number;
+  NetSellValue: number;
   BuyerAvg: number;
   SellerAvg: number;
+  NetBuyerAvg: number;
+  NetSellerAvg: number;
 }
 
 interface TopBrokerData {
@@ -41,8 +45,12 @@ interface BrokerTransactionData {
   SellerValue: number;
   NetBuyVol: number;
   NetBuyValue: number;
+  NetSellVol: number;
+  NetSellValue: number;
   BuyerAvg: number;
   SellerAvg: number;
+  NetBuyAvg: number;
+  NetSellAvg: number;
   TotalVolume: number;
   AvgPrice: number;
   TransactionCount: number;
@@ -279,6 +287,34 @@ export class BrokerDataCalculator {
         const buyer = buyerSummary.get(broker) || { totalVol: 0, avgPrice: 0, transactionCount: 0, totalValue: 0 };
         const seller = sellerSummary.get(broker) || { totalVol: 0, avgPrice: 0, transactionCount: 0, totalValue: 0 };
         
+        // Calculate net values (before SWAPPED)
+        const rawNetBuyVol = buyer.totalVol - seller.totalVol;
+        const rawNetBuyValue = buyer.totalValue - seller.totalValue;
+        let netBuyVol = 0;
+        let netBuyValue = 0;
+        let netSellVol = 0;
+        let netSellValue = 0;
+        
+        // If NetBuy is negative, it becomes NetSell (and NetBuy is set to 0)
+        // If NetBuy is positive, NetSell is 0 (and NetBuy keeps the value)
+        if (rawNetBuyVol < 0 || rawNetBuyValue < 0) {
+          // NetBuy is negative, so it becomes NetSell
+          netSellVol = Math.abs(rawNetBuyVol);
+          netSellValue = Math.abs(rawNetBuyValue);
+          netBuyVol = 0;
+          netBuyValue = 0;
+        } else {
+          // NetBuy is positive or zero, keep it and NetSell is 0
+          netBuyVol = rawNetBuyVol;
+          netBuyValue = rawNetBuyValue;
+          netSellVol = 0;
+          netSellValue = 0;
+        }
+        
+        // Calculate averages
+        const netBuyerAvg = netBuyVol > 0 ? netBuyValue / netBuyVol : 0;
+        const netSellerAvg = netSellVol > 0 ? netSellValue / netSellVol : 0;
+        
         // SWAPPED: Kolom Buyer isinya data Seller, kolom Seller isinya data Buyer
         // Ini agar frontend tidak perlu swap lagi (sesuai dengan CSV yang kolomnya tertukar)
         finalSummary.push({
@@ -287,10 +323,14 @@ export class BrokerDataCalculator {
           BuyerValue: seller.totalValue,  // SWAPPED: Kolom Buyer = data Seller
           SellerVol: buyer.totalVol,      // SWAPPED: Kolom Seller = data Buyer
           SellerValue: buyer.totalValue,  // SWAPPED: Kolom Seller = data Buyer
-          NetBuyVol: buyer.totalVol - seller.totalVol,
-          NetBuyValue: buyer.totalValue - seller.totalValue,
+          NetBuyVol: netBuyVol,
+          NetBuyValue: netBuyValue,
+          NetSellVol: netSellVol,
+          NetSellValue: netSellValue,
           BuyerAvg: seller.avgPrice,      // SWAPPED: Kolom BuyerAvg = SellerAvg
-          SellerAvg: buyer.avgPrice       // SWAPPED: Kolom SellerAvg = BuyerAvg
+          SellerAvg: buyer.avgPrice,      // SWAPPED: Kolom SellerAvg = BuyerAvg
+          NetBuyerAvg: netBuyerAvg,
+          NetSellerAvg: netSellerAvg
         });
       });
       
@@ -361,9 +401,33 @@ export class BrokerDataCalculator {
         const sellerValue = sellerTransactions.reduce((sum, t) => sum + (t.STK_VOLM * t.STK_PRIC), 0);
         const sellerAvg = sellerVol > 0 ? sellerValue / sellerVol : 0;
         
-        // Calculate net values
-        const netBuyVol = buyerVol - sellerVol;
-        const netBuyValue = buyerValue - sellerValue;
+        // Calculate net values (before SWAPPED)
+        const rawNetBuyVol = buyerVol - sellerVol;
+        const rawNetBuyValue = buyerValue - sellerValue;
+        let netBuyVol = 0;
+        let netBuyValue = 0;
+        let netSellVol = 0;
+        let netSellValue = 0;
+        
+        // If NetBuy is negative, it becomes NetSell (and NetBuy is set to 0)
+        // If NetBuy is positive, NetSell is 0 (and NetBuy keeps the value)
+        if (rawNetBuyVol < 0 || rawNetBuyValue < 0) {
+          // NetBuy is negative, so it becomes NetSell
+          netSellVol = Math.abs(rawNetBuyVol);
+          netSellValue = Math.abs(rawNetBuyValue);
+          netBuyVol = 0;
+          netBuyValue = 0;
+        } else {
+          // NetBuy is positive or zero, keep it and NetSell is 0
+          netBuyVol = rawNetBuyVol;
+          netBuyValue = rawNetBuyValue;
+          netSellVol = 0;
+          netSellValue = 0;
+        }
+        
+        // Calculate net averages
+        const netBuyAvg = netBuyVol > 0 ? netBuyValue / netBuyVol : 0;
+        const netSellAvg = netSellVol > 0 ? netSellValue / netSellVol : 0;
         
         // Calculate total values
         const totalVolume = buyerVol + sellerVol;
@@ -380,8 +444,12 @@ export class BrokerDataCalculator {
           SellerValue: buyerValue,    // SWAPPED: Kolom Seller = data Buyer
           NetBuyVol: netBuyVol,
           NetBuyValue: netBuyValue,
+          NetSellVol: netSellVol,
+          NetSellValue: netSellValue,
           BuyerAvg: sellerAvg,        // SWAPPED: Kolom BuyerAvg = SellerAvg
           SellerAvg: buyerAvg,         // SWAPPED: Kolom SellerAvg = BuyerAvg
+          NetBuyAvg: netBuyAvg,
+          NetSellAvg: netSellAvg,
           TotalVolume: totalVolume,
           AvgPrice: avgPrice,
           TransactionCount: transactions.length,
