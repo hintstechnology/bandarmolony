@@ -244,8 +244,22 @@ async function processEmiten(
     return { success: true, skipped: false };
 
   } catch (error: any) {
-    await AzureLogger.logItemProcess('stock', 'ERROR', emiten, error.message);
-    return { success: false, skipped: false, error: error.message };
+    // Handle timeout errors gracefully - log but don't crash
+    const errorMessage = error.message || 'Unknown error';
+    const isTimeout = error.code === 'ETIMEDOUT' || 
+                     error.code === 'ECONNABORTED' ||
+                     errorMessage.includes('timeout');
+    
+    if (isTimeout) {
+      await AzureLogger.logItemProcess('stock', 'ERROR', emiten, `Timeout: ${errorMessage}`);
+      console.warn(`⚠️ Timeout for ${emiten}: ${errorMessage}`);
+    } else {
+      await AzureLogger.logItemProcess('stock', 'ERROR', emiten, errorMessage);
+      console.error(`❌ Error processing ${emiten}: ${errorMessage}`);
+    }
+    
+    // Return error result - don't throw to prevent crash
+    return { success: false, skipped: false, error: errorMessage };
   }
 }
 

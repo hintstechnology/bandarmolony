@@ -688,6 +688,25 @@ export function DataSchedulerControl() {
                 {triggering['money-flow'] ? 'Calculating...' : 'Trigger Calculation'}
               </Button>
             </div>
+
+            {/* Watchlist Snapshot */}
+            <div className="p-4 border rounded-lg">
+              <h4 className="font-semibold mb-2">Watchlist Snapshot</h4>
+              <p className="text-sm text-muted-foreground mb-3">Generate watchlist snapshot for all stocks</p>
+              <Button
+                onClick={() => handleTriggerDataUpdate('watchlist-snapshot')}
+                disabled={triggering['watchlist-snapshot']}
+                className="w-full"
+                size="sm"
+              >
+                {triggering['watchlist-snapshot'] ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Play className="w-4 h-4 mr-2" />
+                )}
+                {triggering['watchlist-snapshot'] ? 'Generating...' : 'Trigger Generation'}
+              </Button>
+            </div>
           </div>
         </div>
 
