@@ -1,24 +1,30 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
 import { Search, Loader2, Calendar } from 'lucide-react';
 
 import { api } from '../../services/api';
 
 interface BrokerSummaryData {
   broker: string;
-  buyerVol: number;   // BuyerVol (for BLot in BUY table)
-  buyerValue: number; // BuyerValue (for BVal in BUY table)
-  bavg: number;       // BuyerAvg (for BAvg in BUY table)
-  sellerVol: number;  // SellerVol (for SLot in SELL table)
-  sellerValue: number; // SellerValue (for SVal in SELL table)
-  savg: number;       // SellerAvg (for SAvg in SELL table)
-  nblot: number;      // NetBuyVol (for NBLot in NET table) - legacy
-  nbval: number;      // NetBuyValue (for NBVal in NET table) - legacy
-  netBuyVol: number;  // NetBuyVol (for NBLot in NET table)
-  netBuyValue: number; // NetBuyValue (for NBVal in NET table)
+  buyerVol: number;   // BuyerVol (for BLot in BUY table) - SWAPPED: actually Seller data
+  buyerValue: number; // BuyerValue (for BVal in BUY table) - SWAPPED: actually Seller data
+  bavg: number;       // BuyerAvg (for BAvg in BUY table) - SWAPPED: actually Seller avg
+  sellerVol: number;  // SellerVol (for SLot in SELL table) - SWAPPED: actually Buyer data
+  sellerValue: number; // SellerValue (for SVal in SELL table) - SWAPPED: actually Buyer data
+  savg: number;       // SellerAvg (for SAvg in SELL table) - SWAPPED: actually Buyer avg
+  // Net Buy fields (always >= 0, if negative becomes 0 and goes to NetSell)
+  netBuyVol: number;  // NetBuyVol (for NBLot in NET table) - already >= 0 from backend
+  netBuyValue: number; // NetBuyValue (for NBVal in NET table) - already >= 0 from backend
+  netBuyerAvg: number; // NetBuyerAvg (for NBAvg in NET table) - already calculated from backend
+  // Net Sell fields (always >= 0)
+  netSellVol: number;  // NetSellVol (for NSLot in NET table) - already >= 0 from backend
+  netSellValue: number; // NetSellValue (for NSVal in NET table) - already >= 0 from backend
+  netSellerAvg: number; // NetSellerAvg (for NSAvg in NET table) - already calculated from backend
   // Legacy fields for backward compatibility
-  sl: number;
-  nslot: number;
-  nsval: number;
+  nblot: number;      // Legacy: same as netBuyVol
+  nbval: number;      // Legacy: same as netBuyValue
+  sl: number;         // Legacy: same as sellerVol
+  nslot: number;      // Legacy: negative sellerVol (not used anymore, use netSellVol instead)
+  nsval: number;      // Legacy: negative sellerValue (not used anymore, use netSellValue instead)
 }
 
 // Note: TICKERS constant removed - now using dynamic stock loading from API
@@ -135,7 +141,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   const [selectedTickers, setSelectedTickers] = useState<string[]>(propSelectedStock ? [propSelectedStock] : ['BBCA']);
   const [tickerInput, setTickerInput] = useState<string>('');
   const [fdFilter, setFdFilter] = useState<'All' | 'Foreign' | 'Domestic'>('All');
-  const [marketFilter, setMarketFilter] = useState<'RG' | 'TN' | 'NG' | ''>('');
+  const [marketFilter, setMarketFilter] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Default to RG
 
   // Stock selection state
   const [availableStocks, setAvailableStocks] = useState<string[]>([]);
@@ -255,62 +261,90 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           }
         }
 
-        // Fetch data for all selected tickers and all dates (with cache)
-        const allDataPromises = selectedTickers.flatMap(ticker =>
-          selectedDates.map(async (date) => {
-            const cacheKey = `${ticker}-${date}-${market}`;
-            const cached = cache.get(cacheKey);
+        // Helper function to fetch data for a single ticker-date combination (with cache)
+        const fetchSingleData = async (ticker: string, date: string): Promise<{ ticker: string; date: string; data: BrokerSummaryData[] }> => {
+          const cacheKey = `${ticker}-${date}-${market}`;
+          const cached = cache.get(cacheKey);
 
-            // Check cache first
-            if (cached && (now - cached.timestamp) <= CACHE_EXPIRY_MS) {
-              console.log(`[BrokerSummary] Using cached data for ${ticker} on ${date}`);
-              return { ticker, date, data: cached.data };
-            }
+          // Check cache first
+          if (cached && (now - cached.timestamp) <= CACHE_EXPIRY_MS) {
+            console.log(`[BrokerSummary] Using cached data for ${ticker} on ${date}`);
+            return { ticker, date, data: cached.data };
+          }
 
-            // Fetch from API
-            console.log(`[BrokerSummary] Fetching data for ${ticker} on ${date} with market: ${market || 'All Trade'}`);
-            const res = await api.getBrokerSummaryData(ticker, date, market as 'RG' | 'TN' | 'NG' | '');
+          // Fetch from API
+          console.log(`[BrokerSummary] Fetching data for ${ticker} on ${date} with market: ${market || 'All Trade'}`);
+          const res = await api.getBrokerSummaryData(ticker, date, market as 'RG' | 'TN' | 'NG' | '');
 
-            // Check if response is successful
-            if (!res || !res.success) {
-              console.error(`[BrokerSummary] Failed to fetch data for ${ticker} on ${date}:`, res?.error || 'Unknown error');
-              return { ticker, date, data: [] };
-            }
+          // Check if response is successful
+          if (!res || !res.success) {
+            console.error(`[BrokerSummary] Failed to fetch data for ${ticker} on ${date}:`, res?.error || 'Unknown error');
+            return { ticker, date, data: [] };
+          }
 
-            // Check if brokerData exists
-            if (!res.data || !res.data.brokerData || !Array.isArray(res.data.brokerData)) {
-              console.warn(`[BrokerSummary] No broker data in response for ${ticker} on ${date}`);
-              return { ticker, date, data: [] };
-            }
+          // Check if brokerData exists
+          if (!res.data || !res.data.brokerData || !Array.isArray(res.data.brokerData)) {
+            console.warn(`[BrokerSummary] No broker data in response for ${ticker} on ${date}`);
+            return { ticker, date, data: [] };
+          }
 
-            const rows: BrokerSummaryData[] = (res.data.brokerData ?? []).map((r: any) => {
-              return {
-                broker: r.BrokerCode ?? r.broker ?? r.BROKER ?? r.code ?? '',
-                buyerVol: Number(r.BuyerVol ?? 0),
-                buyerValue: Number(r.BuyerValue ?? 0),
-                bavg: Number(r.BuyerAvg ?? r.bavg ?? 0),
-                sellerVol: Number(r.SellerVol ?? 0),
-                sellerValue: Number(r.SellerValue ?? 0),
-                savg: Number(r.SellerAvg ?? r.savg ?? 0),
-                netBuyVol: Number(r.NetBuyVol ?? 0),
-                netBuyValue: Number(r.NetBuyValue ?? 0),
-                nblot: Number(r.NetBuyVol ?? r.nblot ?? 0),
-                nbval: Number(r.NetBuyValue ?? r.nbval ?? 0),
-                sl: Number(r.SellerVol ?? r.sl ?? 0),
-                nslot: -Number(r.SellerVol ?? 0),
-                nsval: -Number(r.SellerValue ?? 0)
-              };
-            }) as BrokerSummaryData[];
+          const rows: BrokerSummaryData[] = (res.data.brokerData ?? []).map((r: any) => {
+            // Backend already calculates NetSellVol, NetSellValue, NetBuyerAvg, NetSellerAvg
+            // Backend also handles the logic: if NetBuy is negative, it becomes NetSell and NetBuy = 0
+            return {
+              broker: r.BrokerCode ?? r.broker ?? r.BROKER ?? r.code ?? '',
+              buyerVol: Number(r.BuyerVol ?? 0),
+              buyerValue: Number(r.BuyerValue ?? 0),
+              bavg: Number(r.BuyerAvg ?? r.bavg ?? 0),
+              sellerVol: Number(r.SellerVol ?? 0),
+              sellerValue: Number(r.SellerValue ?? 0),
+              savg: Number(r.SellerAvg ?? r.savg ?? 0),
+              // Net Buy fields (already >= 0 from backend)
+              netBuyVol: Number(r.NetBuyVol ?? 0),
+              netBuyValue: Number(r.NetBuyValue ?? 0),
+              netBuyerAvg: Number(r.NetBuyerAvg ?? 0),
+              // Net Sell fields (already >= 0 from backend)
+              netSellVol: Number(r.NetSellVol ?? 0),
+              netSellValue: Number(r.NetSellValue ?? 0),
+              netSellerAvg: Number(r.NetSellerAvg ?? 0),
+              // Legacy fields for backward compatibility
+              nblot: Number(r.NetBuyVol ?? r.nblot ?? 0),
+              nbval: Number(r.NetBuyValue ?? r.nbval ?? 0),
+              sl: Number(r.SellerVol ?? r.sl ?? 0),
+              nslot: Number(r.NetSellVol ?? 0), // Use NetSellVol instead of negative sellerVol
+              nsval: Number(r.NetSellValue ?? 0) // Use NetSellValue instead of negative sellerValue
+            };
+          }) as BrokerSummaryData[];
 
-            // Store in cache
-            cache.set(cacheKey, { data: rows, timestamp: now });
-            console.log(`[BrokerSummary] Cached data for ${ticker} on ${date}`);
+          // Store in cache
+          cache.set(cacheKey, { data: rows, timestamp: now });
+          console.log(`[BrokerSummary] Cached data for ${ticker} on ${date}`);
 
-            return { ticker, date, data: rows };
-          })
-        );
+          return { ticker, date, data: rows };
+        };
 
-        const allDataResults = await Promise.all(allDataPromises);
+        // Lazy load: Process data in batches to avoid blocking UI
+        // Process by date first (to show progress per date), then aggregate
+        const allDataResults: Array<{ ticker: string; date: string; data: BrokerSummaryData[] }> = [];
+        
+        // Process dates in parallel batches (max 2 dates at a time to reduce UI blocking)
+        const BATCH_SIZE = 2;
+        for (let i = 0; i < selectedDates.length; i += BATCH_SIZE) {
+          const dateBatch = selectedDates.slice(i, i + BATCH_SIZE);
+          
+          // For each date batch, fetch all tickers in parallel
+          const batchPromises = dateBatch.flatMap(date =>
+            selectedTickers.map(ticker => fetchSingleData(ticker, date))
+          );
+          
+          const batchResults = await Promise.all(batchPromises);
+          allDataResults.push(...batchResults);
+          
+          // Yield to browser to prevent UI freeze (every batch)
+          if (i + BATCH_SIZE < selectedDates.length) {
+            await new Promise(resolve => setTimeout(resolve, 0)); // Yield to event loop
+          }
+        }
 
         // Aggregate data per date and per broker (sum all tickers)
         const aggregatedMap = new Map<string, Map<string, BrokerSummaryData>>();
@@ -334,21 +368,28 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
               existing.buyerValue += row.buyerValue;
               existing.sellerVol += row.sellerVol;
               existing.sellerValue += row.sellerValue;
+              // Net Buy fields - sum directly (backend already handles negative -> NetSell conversion)
               existing.netBuyVol += row.netBuyVol;
               existing.netBuyValue += row.netBuyValue;
+              existing.netSellVol += row.netSellVol;
+              existing.netSellValue += row.netSellValue;
+              
+              // Legacy fields
               existing.nblot += row.nblot;
               existing.nbval += row.nbval;
               existing.sl += row.sl;
+              existing.nslot += row.nslot;
+              existing.nsval += row.nsval;
 
-              // Recalculate nslot and nsval from aggregated seller values (negative values)
-              existing.nslot = -existing.sellerVol;
-              existing.nsval = -existing.sellerValue;
-
-              // Recalculate averages
+              // Recalculate averages (only for Buyer/Seller avg, NetBuyerAvg/NetSellerAvg already from backend per ticker)
+              // For aggregated data across multiple tickers, we need to recalculate net averages
               existing.bavg = existing.buyerVol > 0 ? existing.buyerValue / existing.buyerVol : 0;
               existing.savg = existing.sellerVol > 0 ? existing.sellerValue / existing.sellerVol : 0;
+              // Recalculate net averages from aggregated values
+              existing.netBuyerAvg = existing.netBuyVol > 0 ? existing.netBuyValue / existing.netBuyVol : 0;
+              existing.netSellerAvg = existing.netSellVol > 0 ? existing.netSellValue / existing.netSellVol : 0;
             } else {
-              // First occurrence of this broker for this date
+              // First occurrence of this broker for this date - clone row
               dateMap.set(broker, { ...row });
             }
           });
@@ -1058,6 +1099,26 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     return true; // All
   };
 
+  // Memoize availableDates to avoid recalculating on every render
+  const availableDates = useMemo(() => {
+    return selectedDates.filter(date => {
+      const rows = summaryByDate.get(date);
+      return rows && rows.length > 0; // Only include dates with data
+    });
+  }, [selectedDates, summaryByDate]);
+
+  // Memoize allBrokerData to avoid recalculating on every render
+  const allBrokerData = useMemo(() => {
+    return availableDates.map(date => {
+      const rows = summaryByDate.get(date) || [];
+      return {
+        date,
+        buyData: rows,
+        sellData: rows
+      };
+    });
+  }, [availableDates, summaryByDate]);
+
   const renderHorizontalView = () => {
     if (selectedTickers.length === 0 || selectedDates.length === 0) return null;
 
@@ -1090,23 +1151,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         </div>
       );
     }
-
-    // Filter out dates with no data to prevent parse errors and lag
-    // Only show dates that have actual data in summaryByDate
-    const availableDates = selectedDates.filter(date => {
-      const rows = summaryByDate.get(date);
-      return rows && rows.length > 0; // Only include dates with data
-    });
-
-    // Build view model from API data (for each available date only)
-    const allBrokerData = availableDates.map(date => {
-      const rows = summaryByDate.get(date) || [];
-      return {
-        date,
-        buyData: rows,
-        sellData: rows
-      };
-    });
 
     return (
       <div className="w-full relative">
@@ -1415,49 +1459,55 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                         return 'text-white font-semibold';
                       };
 
-                      // Calculate total net data across all dates (SWAPPED: Net Buy uses negative values)
-                      const totalNetBuyData: { [broker: string]: { nblot: number; nbval: number; nbavg: number; count: number } } = {};
-                      const totalNetSellData: { [broker: string]: { nslot: number; nsval: number; nsavg: number; count: number } } = {};
+                      // Calculate total net data across all dates
+                      // Backend already handles: NetBuy is always >= 0, NetSell is always >= 0
+                      const totalNetBuyData: { [broker: string]: { nblot: number; nbval: number; nbavg: number } } = {};
+                      const totalNetSellData: { [broker: string]: { nslot: number; nsval: number; nsavg: number } } = {};
 
                       allBrokerData.forEach(dateData => {
                         dateData.buyData.forEach(b => {
-                          const netBuyLot = b.netBuyVol || 0;
-                          const netBuyVal = b.netBuyValue || 0;
-
-                          if (netBuyVal < 0) { // swapped: net buy uses negatives
+                          // Use netBuyVol > 0 for NetBuy (backend already handles negative conversion)
+                          if (b.netBuyVol > 0 || b.netBuyValue > 0) {
                             if (!totalNetBuyData[b.broker]) {
-                              totalNetBuyData[b.broker] = { nblot: 0, nbval: 0, nbavg: 0, count: 0 };
+                              totalNetBuyData[b.broker] = { nblot: 0, nbval: 0, nbavg: 0 };
                             }
                             const netBuyEntry = totalNetBuyData[b.broker];
                             if (netBuyEntry) {
-                              netBuyEntry.nblot += Math.abs(netBuyLot);
-                              netBuyEntry.nbval += Math.abs(netBuyVal);
-                              netBuyEntry.nbavg += Math.abs((netBuyVal / netBuyLot)) || 0;
-                              netBuyEntry.count += 1;
+                              netBuyEntry.nblot += b.netBuyVol || 0;
+                              netBuyEntry.nbval += b.netBuyValue || 0;
                             }
-                          } else if (netBuyVal > 0) { // swapped: net sell uses positives
+                          }
+                          
+                          // Use netSellVol > 0 for NetSell (backend already handles conversion)
+                          if (b.netSellVol > 0 || b.netSellValue > 0) {
                             if (!totalNetSellData[b.broker]) {
-                              totalNetSellData[b.broker] = { nslot: 0, nsval: 0, nsavg: 0, count: 0 };
+                              totalNetSellData[b.broker] = { nslot: 0, nsval: 0, nsavg: 0 };
                             }
                             const netSellEntry = totalNetSellData[b.broker];
                             if (netSellEntry) {
-                              netSellEntry.nslot += netBuyLot;
-                              netSellEntry.nsval += netBuyVal;
-                              netSellEntry.nsavg += (netBuyVal / netBuyLot) || 0;
-                              netSellEntry.count += 1;
+                              netSellEntry.nslot += b.netSellVol || 0;
+                              netSellEntry.nsval += b.netSellValue || 0;
                             }
                           }
                         });
                       });
 
-                      // Sort total data
+                      // Calculate averages from aggregated totals and sort
                       const sortedTotalNetBuy = Object.entries(totalNetBuyData)
                         .filter(([broker]) => brokerFDScreen(broker))
-                        .map(([broker, data]) => ({ broker, ...data, nbavg: data.nbavg / data.count }))
+                        .map(([broker, data]) => ({ 
+                          broker, 
+                          ...data, 
+                          nbavg: data.nblot > 0 ? data.nbval / data.nblot : 0 
+                        }))
                         .sort((a, b) => b.nbval - a.nbval);
                       const sortedTotalNetSell = Object.entries(totalNetSellData)
                         .filter(([broker]) => brokerFDScreen(broker))
-                        .map(([broker, data]) => ({ broker, ...data, nsavg: data.nsavg / data.count }))
+                        .map(([broker, data]) => ({ 
+                          broker, 
+                          ...data, 
+                          nsavg: data.nslot > 0 ? data.nsval / data.nslot : 0 
+                        }))
                         .sort((a, b) => b.nsval - a.nsval);
 
                       // Generate contrast colors like BrokerInventoryPage (HSL with high saturation)
@@ -1525,12 +1575,31 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                         return undefined; // No background color for sell
                       };
 
+                      // Helper function to check if broker is top 5 sell (for underline styling)
+                      const isTop5NetSell = (broker: string): boolean => {
+                        return netSellBrokerBgMap.has(broker);
+                      };
+
+                      // Map top 5 sell brokers to their index (0-4) for getting underline color
+                      const netSellBrokerIndexMap = new Map<string, number>();
+                      sortedTotalNetSell.slice(0, 5).forEach((item, idx) => {
+                        netSellBrokerIndexMap.set(item.broker, idx);
+                      });
+
+                      // Helper function to get underline color for top 5 sell broker (uses same colors as top 5 buy)
+                      // Color is locked per broker based on Total ranking (consistent across all dates)
+                      const getNetSellUnderlineColor = (broker: string): string | undefined => {
+                        const index = netSellBrokerIndexMap.get(broker);
+                        return index !== undefined ? bgColors[index] : undefined;
+                      };
+
                       // Find max row count across all dates
+                      // Backend already separates NetBuy (netBuyVol > 0) and NetSell (netSellVol > 0)
                       let maxRows = 0;
                       availableDates.forEach(date => {
                         const dateData = allBrokerData.find(d => d.date === date);
-                        const netBuyCount = (dateData?.buyData || []).filter(b => brokerFDScreen(b.broker) && (b.netBuyValue || 0) < 0).length; // swap + F/D filter
-                        const netSellCount = (dateData?.buyData || []).filter(b => brokerFDScreen(b.broker) && (b.netBuyValue || 0) > 0).length; // swap + F/D filter
+                        const netBuyCount = (dateData?.buyData || []).filter(b => brokerFDScreen(b.broker) && (b.netBuyVol > 0 || b.netBuyValue > 0)).length;
+                        const netSellCount = (dateData?.buyData || []).filter(b => brokerFDScreen(b.broker) && (b.netSellVol > 0 || b.netSellValue > 0)).length;
                         maxRows = Math.max(maxRows, netBuyCount, netSellCount);
                       });
 
@@ -1559,29 +1628,36 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                           <tr key={rowIdx} className={`hover:bg-accent/50 ${rowIdx === maxRows - 1 ? 'border-b-2 border-white' : ''}`}>
                             {availableDates.map((date, dateIndex) => {
                               const dateData = allBrokerData.find(d => d.date === date);
-                              // Sort brokers for this date by NetBuyValue (SWAPPED)
+                              // Sort brokers for this date
+                              // Backend already separates: NetBuy (netBuyVol > 0) and NetSell (netSellVol > 0)
                               const sortedNetBuy = (dateData?.buyData || [])
-                                .filter(b => (b.netBuyValue || 0) < 0)
-                                .sort((a, b) => Math.abs(b.netBuyValue || 0) - Math.abs(a.netBuyValue || 0));
-                              const sortedNetSell = (dateData?.buyData || [])
-                                .filter(b => (b.netBuyValue || 0) > 0)
+                                .filter(b => brokerFDScreen(b.broker) && (b.netBuyVol > 0 || b.netBuyValue > 0))
                                 .sort((a, b) => (b.netBuyValue || 0) - (a.netBuyValue || 0));
+                              const sortedNetSell = (dateData?.buyData || [])
+                                .filter(b => brokerFDScreen(b.broker) && (b.netSellVol > 0 || b.netSellValue > 0))
+                                .sort((a, b) => (b.netSellValue || 0) - (a.netSellValue || 0));
                               const netBuyData = sortedNetBuy[rowIdx];
                               const netSellData = sortedNetSell[rowIdx];
-                              // Calculate data...
-                              // Calculate NSLot and NSVal (Buy - Sell) for Net Buy
-                              const nbLot = netBuyData ? Math.abs(netBuyData.netBuyVol || 0) : 0;
-                              const nbVal = netBuyData ? Math.abs(netBuyData.netBuyValue || 0) : 0;
-                              const nbAvg = nbLot !== 0 ? nbVal / nbLot : 0;
+                              
+                              // Use data directly from backend (already >= 0, averages already calculated)
+                              const nbLot = netBuyData?.netBuyVol || 0;
+                              const nbVal = netBuyData?.netBuyValue || 0;
+                              const nbAvg = netBuyData?.netBuyerAvg || 0;
 
-                              // Calculate for Net Sell
-                              const nsLot = netSellData ? Math.abs(netSellData.netBuyVol || 0) : 0;
-                              const nsVal = netSellData ? Math.abs(netSellData.netBuyValue || 0) : 0;
-                              const nsAvg = nsLot !== 0 ? nsVal / nsLot : 0;
+                              const nsLot = netSellData?.netSellVol || 0;
+                              const nsVal = netSellData?.netSellValue || 0;
+                              const nsAvg = netSellData?.netSellerAvg || 0;
 
                               // Get background colors for this row (only for buy)
                               const netBuyBgStyle = netBuyData ? getNetBuyBgStyle(netBuyData.broker) : undefined;
                               // Note: Sell background color disabled - only buy gets colored
+
+                              // Get underline color for top 5 sell (locked per broker based on Total ranking)
+                              // Same broker will have same underline color across all dates
+                              const sellUnderlineColor = netSellData ? getNetSellUnderlineColor(netSellData.broker) : undefined;
+                              const sellUnderlineStyle = sellUnderlineColor 
+                                ? { borderBottom: `4px solid ${sellUnderlineColor}` } 
+                                : undefined;
 
                               return (
                                 <React.Fragment key={`${date}-${rowIdx}`}>
@@ -1600,16 +1676,16 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   </td>
                                   {/* Net Sell Columns - Keep # */}
                                   <td className={`text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold w-4 ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`}>{netSellData ? rowIdx + 1 : '-'}</td>
-                                  <td className={`py-[1px] px-[4.2px] w-4 font-bold ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`}>
+                                  <td className={`py-[1px] px-[4.2px] w-4 font-bold ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`} style={sellUnderlineStyle}>
                                     {netSellData?.broker || '-'}
                                   </td>
-                                  <td className="text-right py-[1px] px-[4.2px] w-6 font-bold text-red-600">
+                                  <td className="text-right py-[1px] px-[4.2px] w-6 font-bold text-red-600" style={sellUnderlineStyle}>
                                     {netSellData ? formatLot(nsLot / 100) : '-'}
                                   </td>
-                                  <td className="text-right py-[1px] px-[4.2px] w-6 font-bold text-red-600">
+                                  <td className="text-right py-[1px] px-[4.2px] w-6 font-bold text-red-600" style={sellUnderlineStyle}>
                                     {netSellData ? formatNumber(nsVal) : '-'}
                                   </td>
-                                  <td className={`text-right py-[1px] px-[4.2px] w-6 font-bold text-red-600 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
+                                  <td className={`text-right py-[1px] px-[4.2px] w-6 font-bold text-red-600 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={sellUnderlineStyle}>
                                     {netSellData ? formatAverage(nsAvg) : '-'}
                                   </td>
                                 </React.Fragment>
@@ -1625,10 +1701,17 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                               const totalNetBuyBgStyle = totalNetBuy && rowIdx < 5 ? { backgroundColor: bgColors[rowIdx] || '', color: 'white' } : undefined;
                               // Note: Sell background color disabled - only buy gets colored
 
-                              // Calculate BAvg: BVal / BLot
-                              const totalNetBuyAvg = totalNetBuy && totalNetBuy.nblot > 0 ? totalNetBuy.nbval / totalNetBuy.nblot : 0;
-                              // Calculate SAvg: SVal / SLot
-                              const totalNetSellAvg = totalNetSell && totalNetSell.nslot > 0 ? Math.abs(totalNetSell.nsval) / totalNetSell.nslot : 0;
+                              // Get underline color for top 5 sell (total column)
+                              const totalSellUnderlineColor = totalNetSell && isTop5NetSell(totalNetSell.broker) 
+                                ? getNetSellUnderlineColor(totalNetSell.broker) 
+                                : undefined;
+                              const totalSellUnderlineStyle = totalSellUnderlineColor 
+                                ? { borderBottom: `4px solid ${totalSellUnderlineColor}` } 
+                                : undefined;
+
+                              // Averages already calculated in sortedTotalNetBuy/sortedTotalNetSell
+                              const totalNetBuyAvg = totalNetBuy?.nbavg || 0;
+                              const totalNetSellAvg = totalNetSell?.nsavg || 0;
 
                               return (
                                 <React.Fragment>
@@ -1645,16 +1728,16 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                     {totalNetBuy && totalNetBuyAvg > 0 ? formatAverage(totalNetBuyAvg) : '-'}
                                   </td>
                                   <td className={`text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold ${totalNetSell ? getBrokerColorClass(totalNetSell.broker) : ''}`}>{totalNetSell ? rowIdx + 1 : '-'}</td>
-                                  <td className={`py-[1px] px-[3.1px] font-bold ${totalNetSell ? getBrokerColorClass(totalNetSell.broker) : ''}`}>
+                                  <td className={`py-[1px] px-[3.1px] font-bold ${totalNetSell ? getBrokerColorClass(totalNetSell.broker) : ''}`} style={totalSellUnderlineStyle}>
                                     {totalNetSell?.broker || '-'}
                                   </td>
-                                  <td className="text-right py-[1px] px-[3.1px] text-red-600 font-bold">
-                                    {totalNetSell ? formatLot(totalNetSell.nslot / 100) : '-'}
+                                  <td className="text-right py-[1px] px-[3.1px] text-red-600 font-bold" style={totalSellUnderlineStyle}>
+                                    {totalNetSell ? formatLot((totalNetSell.nslot || 0) / 100) : '-'}
                                   </td>
-                                  <td className="text-right py-[1px] px-[3.1px] text-red-600 font-bold">
-                                    {totalNetSell ? formatNumber(totalNetSell.nsval) : '-'}
+                                  <td className="text-right py-[1px] px-[3.1px] text-red-600 font-bold" style={totalSellUnderlineStyle}>
+                                    {totalNetSell ? formatNumber(totalNetSell.nsval || 0) : '-'}
                                   </td>
-                                  <td className="text-right py-[1px] px-[6px] text-red-600 font-bold border-r-2 border-white">
+                                  <td className="text-right py-[1px] px-[6px] text-red-600 font-bold border-r-2 border-white" style={totalSellUnderlineStyle}>
                                     {totalNetSell && totalNetSellAvg > 0 ? formatAverage(totalNetSellAvg) : '-'}
                                   </td>
                                 </React.Fragment>
