@@ -11,6 +11,7 @@ import BidAskDataScheduler from './bidAskDataScheduler';
 import BrokerDataScheduler from './brokerDataScheduler';
 import BrokerInventoryDataScheduler from './brokerInventoryDataScheduler';
 import BrokerSummaryTypeDataScheduler from './brokerSummaryTypeDataScheduler';
+import BrokerSummaryIDXDataScheduler from './brokerSummaryIDXDataScheduler';
 import BrokerBreakdownDataScheduler from './brokerBreakdownDataScheduler';
 import ForeignFlowDataScheduler from './foreignFlowDataScheduler';
 import MoneyFlowDataScheduler from './moneyFlowDataScheduler';
@@ -80,6 +81,7 @@ const brokerDataService = new BrokerDataScheduler();
 const brokerInventoryService = new BrokerInventoryDataScheduler();
 const brokerBreakdownService = new BrokerBreakdownDataScheduler();
 const brokerSummaryTypeService = new BrokerSummaryTypeDataScheduler();
+const brokerSummaryIDXService = new BrokerSummaryIDXDataScheduler();
 const foreignFlowService = new ForeignFlowDataScheduler();
 const moneyFlowService = new MoneyFlowDataScheduler();
 const breakDoneTradeService = new BreakDoneTradeDataScheduler();
@@ -672,7 +674,7 @@ async function runPhase5HeavyCalculations(): Promise<void> {
   const phaseStartTime = Date.now();
   console.log(`\n🚀 ===== PHASE 5 HEAVY CALCULATIONS STARTED =====`);
   console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
-  console.log(`📋 Phase: Heavy Calculations (Broker Data, Broker Summary by Type)`);
+  console.log(`📋 Phase: Heavy Calculations (Broker Data, Broker Summary by Type, Broker Summary IDX)`);
   
   // Start memory monitoring for this phase
   startMemoryMonitoring();
@@ -709,25 +711,34 @@ async function runPhase5HeavyCalculations(): Promise<void> {
     console.log('🔄 Starting Broker Summary by Type (RG/TN/NG) calculation...');
     const resultType = await brokerSummaryTypeService.generateBrokerSummaryTypeData('all');
     
+    console.log('🔄 Starting Broker Summary IDX (aggregated all emiten) calculation...');
+    const idxStartTime = Date.now();
+    const resultIDX = await brokerSummaryIDXService.generateBrokerSummaryIDXData('all');
+    const idxDuration = Math.round((Date.now() - idxStartTime) / 1000);
+    console.log(`📊 Broker Summary IDX completed in ${idxDuration}s`);
+    
     const phaseEndTime = new Date();
     const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
     
     console.log(`\n📊 ===== PHASE 5 HEAVY COMPLETED =====`);
-    const successCount = (result.success ? 1 : 0) + (resultType.success ? 1 : 0);
-    console.log(`✅ Success: ${successCount}/2 calculations`);
+    const successCount = (result.success ? 1 : 0) + (resultType.success ? 1 : 0) + (resultIDX.success ? 1 : 0);
+    console.log(`✅ Success: ${successCount}/3 calculations`);
+    console.log(`📊 Broker Data: ${result.success ? 'SUCCESS' : 'FAILED'}`);
+    console.log(`📊 Broker Summary Type: ${resultType.success ? 'SUCCESS' : 'FAILED'}`);
+    console.log(`📊 Broker Summary IDX: ${resultIDX.success ? 'SUCCESS' : 'FAILED'} (${idxDuration}s)`);
     console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
     console.log(`⏱️ Total Duration: ${totalDuration}s`);
     
     // Update database log
     if (logEntry) {
       await SchedulerLogService.updateLog(logEntry.id!, {
-        status: successCount >= 1 ? 'completed' : 'failed',
+        status: successCount >= 2 ? 'completed' : 'failed',
         completed_at: new Date().toISOString(),
-        total_files_processed: 2,
+        total_files_processed: 3,
         files_created: successCount,
-        files_failed: 2 - successCount,
+        files_failed: 3 - successCount,
         progress_percentage: 100,
-        current_processing: `Phase 5 Heavy complete: Broker Data (${result.success ? 'OK' : 'FAIL'}), Broker Summary Type (${resultType.success ? 'OK' : 'FAIL'}) in ${totalDuration}s`
+        current_processing: `Phase 5 Heavy complete: Broker Data (${result.success ? 'OK' : 'FAIL'}), Broker Summary Type (${resultType.success ? 'OK' : 'FAIL'}), Broker Summary IDX (${resultIDX.success ? 'OK' : 'FAIL'}) in ${totalDuration}s`
       });
     }
     
@@ -737,8 +748,8 @@ async function runPhase5HeavyCalculations(): Promise<void> {
     // Stop memory monitoring for this phase
     stopMemoryMonitoring();
     
-    // Trigger Phase 6 automatically if Phase 5 succeeded
-    if (result.success && resultType.success) {
+    // Trigger Phase 6 automatically if Phase 5 succeeded (at least 2/3 must succeed)
+    if (successCount >= 2) {
       console.log('🔄 Triggering Phase 6 Very Heavy calculations...');
       await runPhase6VeryHeavyCalculations();
       } else {
