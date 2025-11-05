@@ -32,6 +32,7 @@ export class BrokerSummaryIDXDataScheduler {
       const marketTypes: Array<'' | 'RG' | 'TN' | 'NG'> = ['', 'RG', 'TN', 'NG'];
       let totalSuccess = 0;
       let totalFailed = 0;
+      let totalSkipped = 0;
       const results: any = {};
 
       for (const marketType of marketTypes) {
@@ -40,18 +41,20 @@ export class BrokerSummaryIDXDataScheduler {
         results[marketType || 'all'] = batchResult;
         totalSuccess += batchResult.success;
         totalFailed += batchResult.failed;
+        totalSkipped += batchResult.skipped || 0;
         
-        console.log(`✅ ${marketType || 'All Trade'}: ${batchResult.success} success, ${batchResult.failed} failed`);
+        console.log(`✅ ${marketType || 'All Trade'}: ${batchResult.success} success, ${batchResult.skipped || 0} skipped, ${batchResult.failed} failed`);
       }
 
-      const totalProcessed = totalSuccess + totalFailed;
+      const totalProcessed = totalSuccess + totalFailed + totalSkipped;
       console.log(`\n📊 ===== IDX GENERATION COMPLETED =====`);
       console.log(`✅ Total Success: ${totalSuccess}/${totalProcessed}`);
+      console.log(`⏭️  Total Skipped: ${totalSkipped}/${totalProcessed}`);
       console.log(`❌ Total Failed: ${totalFailed}/${totalProcessed}`);
 
       return {
-        success: totalSuccess > 0,
-        message: `IDX generation completed: ${totalSuccess} success, ${totalFailed} failed across ${marketTypes.length} market types`,
+        success: totalSuccess > 0 || totalSkipped > 0,
+        message: `IDX generation completed: ${totalSuccess} success, ${totalSkipped} skipped, ${totalFailed} failed across ${marketTypes.length} market types`,
         data: results
       };
     } catch (error: any) {
@@ -109,18 +112,25 @@ export class BrokerSummaryIDXDataScheduler {
       for (const folder of marketFolders) {
         try {
           const paths = await listPaths({ prefix: folder });
+          console.log(`📁 Found ${paths.length} paths in ${folder}`);
+          
           paths.forEach(path => {
-            // Extract date from path like: broker_summary_rg/broker_summary_rg_20241021/...
-            // or broker_summary/broker_summary_20241021/...
+            // Extract date from path patterns:
+            // - broker_summary_rg/broker_summary_rg_20241021/BBCA.csv
+            // - broker_summary_rg/broker_summary_rg_20241021/IDX.csv
+            // - broker_summary/broker_summary_20241021/BBCA.csv
+            // - broker_summary/broker_summary_20241021/IDX.csv
             // Date format is YYYYMMDD (8 digits)
-            // Match modern path: broker_summary_rg/broker_summary_rg_20241021/
-            const m1 = path.match(/broker_summary_(rg|tn|ng)\/broker_summary_\1_(\d{8})\//);
-            // Match legacy path: broker_summary/broker_summary_20241021/
+            
+            // Match modern path: broker_summary_rg/broker_summary_rg_20241021/...
+            const m1 = path.match(/broker_summary_(rg|tn|ng)\/broker_summary_(rg|tn|ng)_(\d{8})\//);
+            // Match legacy path: broker_summary/broker_summary_20241021/...
             const m2 = path.match(/broker_summary\/broker_summary_(\d{8})\//);
-            if (m1 && m1[2]) {
-              allDates.add(m1[2]);
+            
+            if (m1 && m1[3] && /^\d{8}$/.test(m1[3])) {
+              allDates.add(m1[3]);
             }
-            if (m2 && m2[1]) {
+            if (m2 && m2[1] && /^\d{8}$/.test(m2[1])) {
               allDates.add(m2[1]);
             }
           });
@@ -130,7 +140,9 @@ export class BrokerSummaryIDXDataScheduler {
         }
       }
 
-      return Array.from(allDates).sort().reverse(); // Newest first
+      const dateList = Array.from(allDates).sort().reverse(); // Newest first
+      console.log(`📅 Found ${dateList.length} unique dates: ${dateList.slice(0, 10).join(', ')}${dateList.length > 10 ? '...' : ''}`);
+      return dateList;
     } catch (error) {
       console.error('❌ Error getting available dates:', error);
       return [];

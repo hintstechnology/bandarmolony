@@ -177,6 +177,26 @@ export class BrokerSummaryIDXCalculator {
    */
   public async generateIDX(dateSuffix: string, marketType: '' | 'RG' | 'TN' | 'NG' = ''): Promise<{ success: boolean; message: string; file?: string }> {
     try {
+      // Validate dateSuffix format (YYYYMMDD - 8 digits)
+      if (!dateSuffix || !/^\d{8}$/.test(dateSuffix)) {
+        const errorMsg = `Invalid dateSuffix format: ${dateSuffix}. Expected YYYYMMDD (8 digits)`;
+        console.error(`❌ ${errorMsg}`);
+        return {
+          success: false,
+          message: errorMsg
+        };
+      }
+
+      // Validate marketType
+      if (marketType && !['RG', 'TN', 'NG'].includes(marketType)) {
+        const errorMsg = `Invalid marketType: ${marketType}. Expected '', 'RG', 'TN', or 'NG'`;
+        console.error(`❌ ${errorMsg}`);
+        return {
+          success: false,
+          message: errorMsg
+        };
+      }
+
       // Determine folder path based on market type
       let folderPrefix: string;
       if (marketType === '') {
@@ -187,6 +207,24 @@ export class BrokerSummaryIDXCalculator {
       }
 
       console.log(`🔍 Scanning for emiten CSV files in: ${folderPrefix}/`);
+
+      // Check if IDX.csv already exists - skip if exists
+      const { exists } = await import('../../utils/azureBlob');
+      const idxFilePath = `${folderPrefix}/IDX.csv`;
+      try {
+        const idxExists = await exists(idxFilePath);
+        if (idxExists) {
+          console.log(`⏭️ Skipping ${idxFilePath} - IDX.csv already exists`);
+          return {
+            success: true,
+            message: `IDX.csv already exists for ${dateSuffix} (${marketType || 'All Trade'})`,
+            file: idxFilePath
+          };
+        }
+      } catch (error) {
+        // If check fails, continue with generation
+        console.log(`ℹ️ Could not check existence of ${idxFilePath}, proceeding with generation`);
+      }
 
       // List all files in the folder
       const allFiles = await listPaths({ prefix: `${folderPrefix}/` });
@@ -248,8 +286,7 @@ export class BrokerSummaryIDXCalculator {
       // Convert to CSV
       const csvContent = this.convertToCSV(aggregatedData);
 
-      // Save IDX.csv to the same folder
-      const idxFilePath = `${folderPrefix}/IDX.csv`;
+      // Save IDX.csv to the same folder (reuse variable from skip check)
       await uploadText(idxFilePath, csvContent, 'text/csv');
 
       console.log(`✅ Successfully created ${idxFilePath} with ${aggregatedData.length} brokers`);
@@ -273,28 +310,69 @@ export class BrokerSummaryIDXCalculator {
    * @param dateSuffixes Array of date strings in format YYYYMMDD
    * @param marketType Market type: '' (all), 'RG', 'TN', or 'NG'
    */
-  public async generateIDXBatch(dateSuffixes: string[], marketType: '' | 'RG' | 'TN' | 'NG' = ''): Promise<{ success: number; failed: number; results: Array<{ date: string; success: boolean; message: string; file?: string }> }> {
-    const results: Array<{ date: string; success: boolean; message: string; file?: string }> = [];
+  public async generateIDXBatch(dateSuffixes: string[], marketType: '' | 'RG' | 'TN' | 'NG' = ''): Promise<{ success: number; failed: number; skipped: number; results: Array<{ date: string; success: boolean; message: string; file?: string; skipped?: boolean }> }> {
+    const results: Array<{ date: string; success: boolean; message: string; file?: string; skipped?: boolean }> = [];
     let successCount = 0;
     let failedCount = 0;
+    let skippedCount = 0;
 
-    for (const dateSuffix of dateSuffixes) {
-      const result = await this.generateIDX(dateSuffix, marketType);
-      results.push({
-        date: dateSuffix,
-        ...result
-      });
+    console.log(`📊 Processing ${dateSuffixes.length} dates for market type: ${marketType || 'All Trade'}`);
 
-      if (result.success) {
-        successCount++;
-      } else {
+    for (let i = 0; i < dateSuffixes.length; i++) {
+      const dateSuffixRaw = dateSuffixes[i];
+      
+      // Skip if dateSuffix is undefined or empty
+      if (!dateSuffixRaw || typeof dateSuffixRaw !== 'string' || dateSuffixRaw.trim() === '') {
+        console.warn(`⚠️ Skipping invalid date at index ${i}: ${dateSuffixRaw}`);
+        continue;
+      }
+      
+      // At this point, TypeScript knows dateSuffix is a valid string
+      const dateSuffix: string = dateSuffixRaw;
+      const progress = `[${i + 1}/${dateSuffixes.length}]`;
+      
+      try {
+        console.log(`${progress} Processing date ${dateSuffix}...`);
+        const result = await this.generateIDX(dateSuffix, marketType);
+        
+        // Check if skipped (already exists)
+        const skipped = result.message.includes('already exists');
+        
+        results.push({
+          date: dateSuffix,
+          ...result,
+          skipped
+        });
+
+        if (skipped) {
+          skippedCount++;
+          console.log(`${progress} ✅ ${dateSuffix}: Skipped (already exists)`);
+        } else if (result.success) {
+          successCount++;
+          console.log(`${progress} ✅ ${dateSuffix}: Success`);
+        } else {
+          failedCount++;
+          console.log(`${progress} ❌ ${dateSuffix}: Failed - ${result.message}`);
+        }
+      } catch (error: any) {
         failedCount++;
+        const errorMsg = error?.message || 'Unknown error';
+        console.error(`${progress} ❌ ${dateSuffix}: Error - ${errorMsg}`);
+        results.push({
+          date: dateSuffix,
+          success: false,
+          message: `Error: ${errorMsg}`,
+          skipped: false
+        });
       }
     }
+
+    console.log(`📊 Batch completed: ${successCount} success, ${skippedCount} skipped, ${failedCount} failed`);
 
     return {
       success: successCount,
       failed: failedCount,
+      skipped: skippedCount,
       results
     };
   }
