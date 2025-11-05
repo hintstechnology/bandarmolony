@@ -1,35 +1,48 @@
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
 
-// Type definitions, sama seperti broker_data.ts
+// Type definitions
 type TransactionType = 'RG' | 'TN' | 'NG';
 interface TransactionData {
   STK_CODE: string;
-  BRK_COD1: string;
-  BRK_COD2: string;
+  BRK_COD1: string; // Buyer broker
+  BRK_COD2: string; // Seller broker
   STK_VOLM: number;
   STK_PRIC: number;
   TRX_CODE: string;
   TRX_TYPE: string; // field tambahan
+  TRX_ORD1: number; // Order reference 1 (buyer)
+  TRX_ORD2: number; // Order reference 2 (seller)
 }
 
-interface BrokerSummary {
-  BrokerCode: string;
+interface BrokerTransactionData {
+  Emiten: string;
+  // Buy side (when broker is buyer - BRK_COD1)
   BuyerVol: number;
   BuyerValue: number;
+  BuyerAvg: number;
+  BuyerFreq: number; // Count of unique TRX_CODE
+  BuyerOrdNum: number; // Unique count of TRX_ORD1
+  // Sell side (when broker is seller - BRK_COD2)
   SellerVol: number;
   SellerValue: number;
+  SellerAvg: number;
+  SellerFreq: number; // Count of unique TRX_CODE
+  SellerOrdNum: number; // Unique count of TRX_ORD2
+  // Net Buy
   NetBuyVol: number;
   NetBuyValue: number;
+  NetBuyAvg: number;
+  NetBuyFreq: number; // BuyerFreq - SellerFreq (can be negative)
+  NetBuyOrdNum: number; // BuyerOrdNum - SellerOrdNum (can be negative)
+  // Net Sell
   NetSellVol: number;
   NetSellValue: number;
-  BuyerAvg: number;
-  SellerAvg: number;
-  NetBuyerAvg: number;
-  NetSellerAvg: number;
+  NetSellAvg: number;
+  NetSellFreq: number; // SellerFreq - BuyerFreq (can be negative)
+  NetSellOrdNum: number; // SellerOrdNum - BuyerOrdNum (can be negative)
 }
 
-
-export class BrokerDataRGTNNGCalculator {
+export class BrokerTransactionRGTNNGCalculator {
   constructor() { }
 
   private async findAllDtFiles(): Promise<string[]> {
@@ -99,7 +112,9 @@ export class BrokerDataRGTNNGCalculator {
     const iSTK_PRIC = getIdx('STK_PRIC');
     const iTRX_CODE = getIdx('TRX_CODE');
     const iTRX_TYPE = getIdx('TRX_TYPE');
-    if ([iSTK_CODE, iBRK_COD1, iBRK_COD2, iSTK_VOLM, iSTK_PRIC, iTRX_CODE, iTRX_TYPE].some(k => k === -1)) return [];
+    const iTRX_ORD1 = getIdx('TRX_ORD1');
+    const iTRX_ORD2 = getIdx('TRX_ORD2');
+    if ([iSTK_CODE, iBRK_COD1, iBRK_COD2, iSTK_VOLM, iSTK_PRIC, iTRX_CODE, iTRX_TYPE, iTRX_ORD1, iTRX_ORD2].some(k => k === -1)) return [];
     const data: TransactionData[] = [];
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i];
@@ -115,33 +130,35 @@ export class BrokerDataRGTNNGCalculator {
           STK_PRIC: parseFloat(values[iSTK_PRIC]?.trim() || '0') || 0,
           TRX_CODE: values[iTRX_CODE]?.trim() || '',
           TRX_TYPE: values[iTRX_TYPE]?.trim() || '',
+          TRX_ORD1: parseInt(values[iTRX_ORD1]?.trim() || '0', 10) || 0,
+          TRX_ORD2: parseInt(values[iTRX_ORD2]?.trim() || '0', 10) || 0,
         };
         data.push(base);
       }
     }
-    return data;
-  }
-
+      return data;
+    }
+    
   private filterByType(data: TransactionData[], type: TransactionType): TransactionData[] {
     return data.filter(row => row.TRX_TYPE === type);
   }
 
-  private getSummaryPaths(type: TransactionType, dateSuffix: string) {
+  private getTransactionPaths(type: TransactionType, dateSuffix: string) {
     // Use lowercase type directly (RG -> rg, TN -> tn, NG -> ng)
     const name = type.toLowerCase();
     return {
-      brokerSummary: `broker_summary_${name}/broker_summary_${name}_${dateSuffix}`
+      brokerTransaction: `broker_transaction_${name}/broker_transaction_${name}_${dateSuffix}`
     };
   }
 
-  private async createBrokerSummaryPerEmiten(data: TransactionData[], dateSuffix: string, type: TransactionType): Promise<string[]> {
-    const paths = this.getSummaryPaths(type, dateSuffix);
-    const uniqueEmiten = [...new Set(data.map(row => row.STK_CODE))];
+  private async createBrokerTransactionPerBroker(data: TransactionData[], dateSuffix: string, type: TransactionType): Promise<string[]> {
+    const paths = this.getTransactionPaths(type, dateSuffix);
+    const uniqueBrokers = [...new Set([ ...data.map(r => r.BRK_COD1), ...data.map(r => r.BRK_COD2)])];
     const createdFiles: string[] = [];
     const skippedFiles: string[] = [];
     
-    for (const emiten of uniqueEmiten) {
-      const filename = `${paths.brokerSummary}/${emiten}.csv`;
+    for (const broker of uniqueBrokers) {
+      const filename = `${paths.brokerTransaction}/${broker}.csv`;
       
       // Check if file already exists - skip if exists
       try {
@@ -156,42 +173,53 @@ export class BrokerDataRGTNNGCalculator {
         console.log(`ℹ️ Could not check existence of ${filename}, proceeding with generation`);
       }
       
-      const emitenData = data.filter(row => row.STK_CODE === emiten);
-      const buyerGroups = new Map<string, TransactionData[]>();
-      emitenData.forEach(row => {
-        const broker = row.BRK_COD2;
-        if (!buyerGroups.has(broker)) buyerGroups.set(broker, []);
-        buyerGroups.get(broker)!.push(row);
+      const brokerData = data.filter(row => row.BRK_COD1 === broker || row.BRK_COD2 === broker);
+      const stockGroups = new Map<string, TransactionData[]>();
+      brokerData.forEach(row => {
+        const stock = row.STK_CODE;
+        if (!stockGroups.has(stock)) stockGroups.set(stock, []);
+        stockGroups.get(stock)!.push(row);
       });
-      const buyerSummary = new Map<string, { totalVol: number; avgPrice: number; transactionCount: number; totalValue: number }>();
-      buyerGroups.forEach((txs, broker) => {
-        const totalVol = txs.reduce((s, t) => s + t.STK_VOLM, 0);
-        const totalValue = txs.reduce((s, t) => s + (t.STK_VOLM * t.STK_PRIC), 0);
-        const avgPrice = totalVol > 0 ? totalValue / totalVol : 0;
-        buyerSummary.set(broker, { totalVol, avgPrice, transactionCount: txs.length, totalValue });
-      });
-      const sellerGroups = new Map<string, TransactionData[]>();
-      emitenData.forEach(row => {
-        const broker = row.BRK_COD1;
-        if (!sellerGroups.has(broker)) sellerGroups.set(broker, []);
-        sellerGroups.get(broker)!.push(row);
-      });
-      const sellerSummary = new Map<string, { totalVol: number; avgPrice: number; transactionCount: number; totalValue: number }>();
-      sellerGroups.forEach((txs, broker) => {
-        const totalVol = txs.reduce((s, t) => s + t.STK_VOLM, 0);
-        const totalValue = txs.reduce((s, t) => s + (t.STK_VOLM * t.STK_PRIC), 0);
-        const avgPrice = totalVol > 0 ? totalValue / totalVol : 0;
-        sellerSummary.set(broker, { totalVol, avgPrice, transactionCount: txs.length, totalValue });
-      });
-      const allBrokers = new Set([...buyerSummary.keys(), ...sellerSummary.keys()]);
-      const finalSummary: BrokerSummary[] = [];
-      allBrokers.forEach(broker => {
-        const buyer = buyerSummary.get(broker) || { totalVol: 0, avgPrice: 0, transactionCount: 0, totalValue: 0 };
-        const seller = sellerSummary.get(broker) || { totalVol: 0, avgPrice: 0, transactionCount: 0, totalValue: 0 };
+      const stockSummary: BrokerTransactionData[] = [];
+      stockGroups.forEach((txs, stock) => {
+        const buyerTxs = txs.filter(t => t.BRK_COD1 === broker);
+        const sellerTxs = txs.filter(t => t.BRK_COD2 === broker);
+        const buyerVol = buyerTxs.reduce((s, t) => s + t.STK_VOLM, 0);
+        const buyerValue = buyerTxs.reduce((s, t) => s + (t.STK_VOLM * t.STK_PRIC), 0);
+        const buyerAvg = buyerVol > 0 ? buyerValue / buyerVol : 0;
+        const sellerVol = sellerTxs.reduce((s, t) => s + t.STK_VOLM, 0);
+        const sellerValue = sellerTxs.reduce((s, t) => s + (t.STK_VOLM * t.STK_PRIC), 0);
+        const sellerAvg = sellerVol > 0 ? sellerValue / sellerVol : 0;
         
-        // Calculate net values (before SWAPPED)
-        const rawNetBuyVol = buyer.totalVol - seller.totalVol;
-        const rawNetBuyValue = buyer.totalValue - seller.totalValue;
+        // Calculate frequencies and order numbers
+        const buyerTxCodes = new Set<string>();
+        const sellerTxCodes = new Set<string>();
+        const buyerOrdNums = new Set<number>();
+        const sellerOrdNums = new Set<number>();
+        
+        buyerTxs.forEach(t => {
+          if (t.TRX_CODE) buyerTxCodes.add(t.TRX_CODE);
+          if (t.TRX_ORD1 > 0) buyerOrdNums.add(t.TRX_ORD1);
+        });
+        
+        sellerTxs.forEach(t => {
+          if (t.TRX_CODE) sellerTxCodes.add(t.TRX_CODE);
+          if (t.TRX_ORD2 > 0) sellerOrdNums.add(t.TRX_ORD2);
+        });
+        
+        const buyerFreq = buyerTxCodes.size;
+        const sellerFreq = sellerTxCodes.size;
+        const buyerOrdNum = buyerOrdNums.size;
+        const sellerOrdNum = sellerOrdNums.size;
+        
+        // Calculate net values
+        const rawNetBuyVol = buyerVol - sellerVol;
+        const rawNetBuyValue = buyerValue - sellerValue;
+        const netBuyFreq = buyerFreq - sellerFreq; // Can be negative
+        const netBuyOrdNum = buyerOrdNum - sellerOrdNum; // Can be negative
+        const netSellFreq = sellerFreq - buyerFreq; // Can be negative
+        const netSellOrdNum = sellerOrdNum - buyerOrdNum; // Can be negative
+        
         let netBuyVol = 0;
         let netBuyValue = 0;
         let netSellVol = 0;
@@ -199,54 +227,60 @@ export class BrokerDataRGTNNGCalculator {
         
         // If NetBuy is negative, it becomes NetSell (and NetBuy is set to 0)
         // If NetBuy is positive, NetSell is 0 (and NetBuy keeps the value)
-        if (rawNetBuyVol < 0 || rawNetBuyValue < 0) {
-          // NetBuy is negative, so it becomes NetSell
-          netSellVol = Math.abs(rawNetBuyVol);
-          netSellValue = Math.abs(rawNetBuyValue);
-          netBuyVol = 0;
-          netBuyValue = 0;
-        } else {
+        if (rawNetBuyVol >= 0) {
           // NetBuy is positive or zero, keep it and NetSell is 0
           netBuyVol = rawNetBuyVol;
           netBuyValue = rawNetBuyValue;
           netSellVol = 0;
           netSellValue = 0;
+        } else {
+          // NetBuy is negative, so it becomes NetSell
+          netSellVol = Math.abs(rawNetBuyVol);
+          netSellValue = Math.abs(rawNetBuyValue);
+          netBuyVol = 0;
+          netBuyValue = 0;
         }
         
-        // Calculate averages
-        const netBuyerAvg = netBuyVol > 0 ? netBuyValue / netBuyVol : 0;
-        const netSellerAvg = netSellVol > 0 ? netSellValue / netSellVol : 0;
+        // Calculate net averages
+        const netBuyAvg = netBuyVol > 0 ? netBuyValue / netBuyVol : 0;
+        const netSellAvg = netSellVol > 0 ? netSellValue / netSellVol : 0;
         
-        // SWAPPED: Kolom Buyer isinya data Seller, kolom Seller isinya data Buyer
-        // Ini agar frontend tidak perlu swap lagi (sesuai dengan CSV yang kolomnya tertukar)
-        finalSummary.push({
-          BrokerCode: broker,
-          BuyerVol: seller.totalVol,      // SWAPPED: Kolom Buyer = data Seller
-          BuyerValue: seller.totalValue,  // SWAPPED: Kolom Buyer = data Seller
-          SellerVol: buyer.totalVol,      // SWAPPED: Kolom Seller = data Buyer
-          SellerValue: buyer.totalValue,  // SWAPPED: Kolom Seller = data Buyer
+        stockSummary.push({
+          Emiten: stock,
+          BuyerVol: buyerVol,
+          BuyerValue: buyerValue,
+          BuyerAvg: buyerAvg,
+          BuyerFreq: buyerFreq,
+          BuyerOrdNum: buyerOrdNum,
+          SellerVol: sellerVol,
+          SellerValue: sellerValue,
+          SellerAvg: sellerAvg,
+          SellerFreq: sellerFreq,
+          SellerOrdNum: sellerOrdNum,
           NetBuyVol: netBuyVol,
           NetBuyValue: netBuyValue,
+          NetBuyAvg: netBuyAvg,
+          NetBuyFreq: netBuyFreq, // Can be negative
+          NetBuyOrdNum: netBuyOrdNum, // Can be negative
           NetSellVol: netSellVol,
           NetSellValue: netSellValue,
-          BuyerAvg: seller.avgPrice,      // SWAPPED: Kolom BuyerAvg = SellerAvg
-          SellerAvg: buyer.avgPrice,      // SWAPPED: Kolom SellerAvg = BuyerAvg
-          NetBuyerAvg: netBuyerAvg,
-          NetSellerAvg: netSellerAvg
+          NetSellAvg: netSellAvg,
+          NetSellFreq: netSellFreq, // Can be negative
+          NetSellOrdNum: netSellOrdNum, // Can be negative
         });
       });
-      finalSummary.sort((a, b) => b.NetBuyValue - a.NetBuyValue);
-      await this.saveToAzure(filename, finalSummary);
+      // Sort by net buy value descending (same as generateBrokerTransactionTest.ts)
+      stockSummary.sort((a, b) => b.NetBuyValue - a.NetBuyValue);
+      await this.saveToAzure(filename, stockSummary);
       createdFiles.push(filename);
     }
     
     if (skippedFiles.length > 0) {
-      console.log(`⏭️ Skipped ${skippedFiles.length} files that already exist`);
+      console.log(`⏭️ Skipped ${skippedFiles.length} broker transaction files that already exist`);
     }
     
     return createdFiles;
   }
-
 
   private async saveToAzure(filename: string, data: any[]): Promise<string> {
     if (!data || data.length === 0) {
@@ -266,84 +300,36 @@ export class BrokerDataRGTNNGCalculator {
     }
   }
 
-  public async generateBrokerData(_dateSuffix?: string): Promise<{ success: boolean; message: string; data?: any }> {
+  public async generateBrokerTransactionData(_dateSuffix?: string): Promise<{ success: boolean; message: string; data?: any }> {
     try {
       const dtFiles = await this.findAllDtFiles();
-      if (dtFiles.length === 0) return { success: true, message: `No DT files found - skipped broker data generation` };
-      
-      let processedDates = 0;
-      let skippedDates = 0;
-      let totalFilesCreated = 0;
-      
+      if (dtFiles.length === 0) return { success: true, message: `No DT files found - skipped broker transaction data generation` };
       for (const blobName of dtFiles) {
-        // Extract date from blob name first (before loading input)
-        const pathParts = blobName.split('/');
-        const dateFolder = pathParts[1] || 'unknown'; // 20251021
-        const dateSuffix = dateFolder;
-        
-        // Check if output already exists for this date BEFORE loading input
-        // Check key output files for each type (RG, TN, NG)
-        let shouldSkip = true;
-        
-        for (const type of ['RG', 'TN', 'NG'] as const) {
-          const paths = this.getSummaryPaths(type, dateSuffix);
-          // Check if at least one output file exists for this type and date
-          try {
-            // List files in broker_summary folder for this type and date
-            const summaryPrefix = `${paths.brokerSummary}/`;
-            const summaryFiles = await listPaths({ prefix: summaryPrefix, maxResults: 1 });
-            if (summaryFiles.length === 0) {
-              shouldSkip = false;
-              break; // At least one type is missing, need to process
-            }
-          } catch (error) {
-            // If check fails, continue with processing
-            shouldSkip = false;
-            break;
-          }
-        }
-        
-        if (shouldSkip) {
-          console.log(`⏭️ Broker data (RG/TN/NG) already exists for date ${dateSuffix} - skipping`);
-          skippedDates++;
-          continue;
-        }
-        
-        // Only load input if output doesn't exist
         const result = await this.loadAndProcessSingleDtFile(blobName);
         if (!result) continue;
-        
         const { data, dateSuffix: date } = result;
-        let dateFilesCreated = 0;
-        
         for (const type of ['RG', 'TN', 'NG'] as const) {
           const filtered = this.filterByType(data, type);
           if (filtered.length === 0) continue;
-          await this.createBrokerSummaryPerEmiten(filtered, date, type);
+          await this.createBrokerTransactionPerBroker(filtered, date, type);
         }
       }
-      return { success: true, message: 'Broker RG/TN/NG data generated' };
+      return { success: true, message: 'Broker Transaction RG/TN/NG data generated' };
     } catch (e) {
       return { success: false, message: (e as Error).message };
     }
   }
 
-  // Wrapper to align with scheduler service API
-  public async generateBrokerSummarySplitPerType(): Promise<{ success: boolean; message: string }> {
-    const result = await this.generateBrokerData('all');
-    return { success: result.success, message: result.message };
-  }
-
-  // Generate broker data for specific type only (RG, TN, or NG)
-  public async generateBrokerDataForType(type: 'RG' | 'TN' | 'NG'): Promise<{ success: boolean; message: string; data?: any }> {
+  // Generate broker transaction data for specific type only (RG, TN, or NG)
+  public async generateBrokerTransactionDataForType(type: 'RG' | 'TN' | 'NG'): Promise<{ success: boolean; message: string; data?: any }> {
     try {
-      console.log(`🔄 Starting Broker ${type} data generation...`);
-    const dtFiles = await this.findAllDtFiles();
+      console.log(`🔄 Starting Broker Transaction ${type} data generation...`);
+      const dtFiles = await this.findAllDtFiles();
       console.log(`📊 Found ${dtFiles.length} DT files to process`);
       
       if (dtFiles.length === 0) {
-        console.warn(`⚠️ No DT files found - skipped broker data generation for ${type}`);
-        return { success: true, message: `No DT files found - skipped broker data generation for ${type}` };
+        console.warn(`⚠️ No DT files found - skipped broker transaction data generation for ${type}`);
+        return { success: true, message: `No DT files found - skipped broker transaction data generation for ${type}` };
       }
       
       let processedDates = 0;
@@ -369,27 +355,27 @@ export class BrokerDataRGTNNGCalculator {
             continue;
           }
           
-          console.log(`📝 Creating broker summary for ${date} (${type})...`);
-          const summaryFiles = await this.createBrokerSummaryPerEmiten(filtered, date, type);
-          console.log(`✅ Created ${summaryFiles.length} broker summary files for ${date} (skipped files that already exist)`);
+          console.log(`📝 Creating broker transactions for ${date} (${type})...`);
+          const transactionFiles = await this.createBrokerTransactionPerBroker(filtered, date, type);
+          console.log(`✅ Created ${transactionFiles.length} broker transaction files for ${date} (skipped files that already exist)`);
           
           processedDates++;
-          totalFilesCreated += summaryFiles.length;
+          totalFilesCreated += transactionFiles.length;
         } catch (error: any) {
           console.error(`❌ Error processing file ${blobName}:`, error.message);
           continue;
         }
       }
       
-      const message = `Broker ${type} data generated for ${processedDates} dates (${totalFilesCreated} files created)`;
+      const message = `Broker Transaction ${type} data generated for ${processedDates} dates (${totalFilesCreated} files created)`;
       console.log(`✅ ${message}`);
       return { success: true, message };
     } catch (e) {
       const error = e as Error;
-      console.error(`❌ Error in generateBrokerDataForType (${type}):`, error.message);
+      console.error(`❌ Error in generateBrokerTransactionDataForType (${type}):`, error.message);
       return { success: false, message: error.message };
     }
   }
 }
 
-export default BrokerDataRGTNNGCalculator;
+export default BrokerTransactionRGTNNGCalculator;
