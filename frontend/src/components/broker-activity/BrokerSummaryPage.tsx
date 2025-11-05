@@ -248,12 +248,39 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
 
   // Toast "Range Tanggal Lebih dari 7 Hari" is now shown only after clicking Show button (in fetchAll)
 
-  // Load available stocks ONLY on initial load or when marketFilter changes
-  // CRITICAL: Do NOT load stocks when user changes dates - let user click Show first
-  // REMOVED: loadAvailableStocks effect
-  // This was causing API calls when dates change
-  // Stocks will be loaded only when needed (e.g., when user types in stock input)
-  // No automatic stock loading to prevent any side effects when dates change
+  // Load available stocks ONCE on mount - use getStockList() which doesn't need date
+  // This is faster than getBrokerSummaryStocks() which requires a date
+  useEffect(() => {
+    const loadStocks = async () => {
+      if (availableStocks.length > 0) return; // Already loaded
+      
+      try {
+        console.log('[BrokerSummary] Loading stock list...');
+        const result = await api.getStockList();
+        if (result.success && result.data?.stocks && Array.isArray(result.data.stocks)) {
+          // Sort stocks alphabetically for better UX
+          const sortedStocks = result.data.stocks.sort((a: string, b: string) => a.localeCompare(b));
+          setAvailableStocks(sortedStocks);
+          console.log(`[BrokerSummary] Loaded ${sortedStocks.length} stocks`);
+        } else {
+          console.warn('[BrokerSummary] No stocks found in API response');
+        }
+      } catch (err) {
+        console.error('[BrokerSummary] Error loading stock list:', err);
+      }
+    };
+    
+    loadStocks();
+  }, []); // Only run once on mount
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (stockSearchTimeout) {
+        clearTimeout(stockSearchTimeout);
+      }
+    };
+  }, [stockSearchTimeout]);
 
   // REMOVED: useLayoutEffect that resets shouldFetchData
   // Reset is now handled directly in onChange handlers (startDate and endDate)
@@ -460,40 +487,86 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
             return { ticker, date, data: rows };
         };
 
-        // OPTIMIZED: Fetch all data in parallel without batching delays
-        // Modern browsers can handle parallel requests efficiently
+        // OPTIMIZED: Fetch all data in parallel with batching to avoid overwhelming browser
+        // Batch size: 10 concurrent requests at a time for better performance and stability
+        const BATCH_SIZE = 10;
         const allDataResults: Array<{ ticker: string; date: string; data: BrokerSummaryData[] }> = [];
         
-        // Fetch all ticker-date combinations in parallel (no batching)
-        const allPromises = selectedDates.flatMap(date =>
-          selectedTickers.map(ticker => fetchSingleData(ticker, date))
+        // Create all fetch task descriptions (NOT promises yet - create promises only when needed)
+        const allFetchTasks = selectedDates.flatMap(date =>
+          selectedTickers.map(ticker => ({ ticker, date }))
         );
         
-        // Wait for all requests to complete (with abort support)
-        // If aborted, Promise.all will reject - catch it and return early
-        let batchResults: Array<{ ticker: string; date: string; data: BrokerSummaryData[] }>;
-        try {
-          batchResults = await Promise.all(allPromises);
-        } catch (error: any) {
-          // If aborted or shouldFetchDataRef is false, silently abort
-          if (error?.message === 'Fetch aborted' || !shouldFetchDataRef.current || abortController.signal.aborted) {
-            console.log('[BrokerSummary] Promise.all aborted');
+        console.log(`[BrokerSummary] Fetching ${allFetchTasks.length} ticker-date combinations in batches of ${BATCH_SIZE}...`);
+        
+        // Process in batches to avoid overwhelming browser with too many concurrent requests
+        // Create promises only when needed (not all at once)
+        for (let i = 0; i < allFetchTasks.length; i += BATCH_SIZE) {
+          // CRITICAL: Check ref before each batch - user might have changed dates
+          if (!shouldFetchDataRef.current || abortController.signal.aborted) {
+            console.log('[BrokerSummary] Fetch aborted before batch processing');
             setIsLoading(false);
             setIsDataReady(false);
             return;
           }
-          throw error; // Re-throw other errors
+          
+          const batch = allFetchTasks.slice(i, i + BATCH_SIZE);
+          const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+          const totalBatches = Math.ceil(allFetchTasks.length / BATCH_SIZE);
+          
+          console.log(`[BrokerSummary] Processing batch ${batchNum}/${totalBatches} (${batch.length} requests)...`);
+          
+          try {
+            // Create promises only for this batch (not all at once)
+            const batchPromises = batch.map(({ ticker, date }) => fetchSingleData(ticker, date));
+            
+            // Wait for current batch to complete
+            const batchResults = await Promise.all(batchPromises);
+            
+            // CRITICAL: Check ref after each batch - user might have changed dates
+            if (!shouldFetchDataRef.current || abortController.signal.aborted) {
+              console.log('[BrokerSummary] Fetch aborted after batch processing');
+              setIsLoading(false);
+              setIsDataReady(false);
+              return;
+            }
+            
+            allDataResults.push(...batchResults);
+            console.log(`[BrokerSummary] Batch ${batchNum}/${totalBatches} completed (${batchResults.length} results)`);
+          } catch (error: any) {
+            // If aborted, silently abort
+            if (error?.message === 'Fetch aborted' || !shouldFetchDataRef.current || abortController.signal.aborted) {
+              console.log('[BrokerSummary] Batch aborted');
+              setIsLoading(false);
+              setIsDataReady(false);
+              return;
+            }
+            
+            // For other errors, log but continue with next batch
+            console.error(`[BrokerSummary] Error in batch ${batchNum}:`, error);
+            // Don't add empty results - just skip failed items
+          }
         }
         
-        // CRITICAL: Check ref again after Promise.all - user might have changed dates during fetch
+        // CRITICAL: Final check after all batches - user might have changed dates during fetch
         if (!shouldFetchDataRef.current) {
-          console.log('[BrokerSummary] fetchAll: shouldFetchDataRef became false after Promise.all, aborting aggregation');
+          console.log('[BrokerSummary] fetchAll: shouldFetchDataRef became false after all batches, aborting aggregation');
           setIsLoading(false);
           setIsDataReady(false);
           return;
         }
         
-        allDataResults.push(...batchResults);
+        // Filter out empty results (failed fetches)
+        const validResults = allDataResults.filter(result => result.ticker && result.date && result.data.length > 0);
+        console.log(`[BrokerSummary] Completed ${validResults.length}/${allFetchTasks.length} successful fetches`);
+        
+        if (validResults.length === 0) {
+          console.warn('[BrokerSummary] No valid data fetched');
+          setIsLoading(false);
+          setIsDataReady(false);
+          setError('No data available for selected tickers and dates');
+          return;
+        }
         
         // Aggregate data per date and per broker (sum all tickers)
         const aggregatedMap = new Map<string, Map<string, BrokerSummaryData>>();
@@ -502,7 +575,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           aggregatedMap.set(date, new Map<string, BrokerSummaryData>());
         });
         
-        allDataResults.forEach(({ date, data }) => {
+        validResults.forEach(({ date, data }) => {
           // CRITICAL: Check ref during aggregation - user might have changed dates
           if (!shouldFetchDataRef.current) {
             console.log('[BrokerSummary] fetchAll: shouldFetchDataRef became false during aggregation, aborting');
@@ -1095,28 +1168,28 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     // Clear previous timeout
     if (stockSearchTimeout) {
       clearTimeout(stockSearchTimeout);
+      setStockSearchTimeout(null);
     }
 
-    // Set new timeout for debounced stock loading
-    const timeout = setTimeout(async () => {
-      // Load stocks if not already loaded and user is typing
-      // Use availableDates (from summaryByDate) instead of selectedDates to avoid dependency on date picker
-      const firstDate = availableDates.length > 0 ? availableDates[0] : null;
-      if (availableStocks.length === 0 && firstDate) {
+    // If stocks not loaded yet, load them (no debounce needed - stocks already loaded on mount)
+    // But if for some reason stocks are not loaded, try to load them
+    if (availableStocks.length === 0) {
+      const timeout = setTimeout(async () => {
         try {
-          const stocksResult = await api.getBrokerSummaryStocks(firstDate);
-          if (stocksResult.success && stocksResult.data?.stocks) {
-            setAvailableStocks(stocksResult.data.stocks);
+          console.log('[BrokerSummary] Loading stock list on demand...');
+          const result = await api.getStockList();
+          if (result.success && result.data?.stocks && Array.isArray(result.data.stocks)) {
+            const sortedStocks = result.data.stocks.sort((a: string, b: string) => a.localeCompare(b));
+            setAvailableStocks(sortedStocks);
           }
         } catch (err) {
           console.error('Error loading stocks:', err);
         }
-      }
-    }, 300); // 300ms debounce
+      }, 100); // Short delay only if needed
+      setStockSearchTimeout(timeout);
+    }
 
-    setStockSearchTimeout(timeout);
-
-    // If exact match, select it
+    // If exact match, select it immediately
     const upperValue = value.toUpperCase();
     if ((availableStocks || []).includes(upperValue) && !selectedTickers.includes(upperValue)) {
       setSelectedTickers([...selectedTickers, upperValue]);
