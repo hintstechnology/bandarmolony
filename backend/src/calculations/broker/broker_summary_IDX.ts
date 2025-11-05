@@ -183,7 +183,7 @@ export class BrokerSummaryIDXCalculator {
         folderPrefix = `broker_summary/broker_summary_${dateSuffix}`;
       } else {
         const marketLower = marketType.toLowerCase();
-        folderPrefix = `broker_summary_${marketLower}/broker_summary_${dateSuffix}`;
+        folderPrefix = `broker_summary_${marketLower}/broker_summary_${marketLower}_${dateSuffix}`;
       }
 
       console.log(`🔍 Scanning for emiten CSV files in: ${folderPrefix}/`);

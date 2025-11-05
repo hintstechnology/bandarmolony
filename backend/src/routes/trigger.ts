@@ -1340,12 +1340,13 @@ router.post('/broker-summary-idx', async (_req, res) => {
         });
       }
     }).catch(async (error: any) => {
-      await AzureLogger.logSchedulerError('broker_summary_idx', error.message);
-      console.error(`❌ Broker Summary IDX calculation error: ${error.message}`);
+      const errorMessage = error?.message || error?.toString() || 'Unknown error';
+      await AzureLogger.logSchedulerError('broker_summary_idx', errorMessage);
+      console.error(`❌ Broker Summary IDX calculation error: ${errorMessage}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
-          error_message: error.message
+          error_message: errorMessage
         });
       }
     });
@@ -1357,9 +1358,10 @@ router.post('/broker-summary-idx', async (_req, res) => {
     });
   } catch (error: any) {
     console.error('❌ Error triggering broker summary IDX calculation:', error);
+    const errorMessage = error?.message || error?.toString() || 'Unknown error';
     return res.status(500).json({
       success: false,
-      message: error.message || 'Unknown error'
+      message: `Failed to trigger broker-summary-idx update: ${errorMessage}`
     });
   }
 });

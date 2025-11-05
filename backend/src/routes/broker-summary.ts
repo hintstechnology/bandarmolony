@@ -77,7 +77,7 @@ router.get('/stocks', async (req, res) => {
       .filter(path => path.endsWith('.csv') && !path.includes('ALLSUM'))
       .map(path => path.split('/').pop() || '')
       .map(name => name.replace('.csv', ''))
-      .filter(code => code.length === 4)
+      .filter(code => code.length === 4 || code.toUpperCase() === 'IDX')
       .sort();
 
     return res.json({ success: true, data: { stocks, date, market: market || 'RG' } });
@@ -184,7 +184,9 @@ router.get('/dates', async (_req, res) => {
     for (const prefix of prefixes) {
       const files = await listPaths({ prefix });
       (files || []).forEach(file => {
+        // Match modern path: broker_summary_rg/broker_summary_rg_20241021/
         const m1 = file.match(/broker_summary_(rg|tn|ng)\/broker_summary_\1_(\d{8})\//);
+        // Match legacy path: broker_summary/broker_summary_20241021/
         const m2 = file.match(/broker_summary\/broker_summary_(\d{8})\//);
         if (m1 && m1[2]) dates.add(m1[2]);
         if (m2 && m2[1]) dates.add(m2[1]);

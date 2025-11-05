@@ -358,7 +358,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           // Store in cache
           cache.set(cacheKey, { data: rows, timestamp: now });
           console.log(`[BrokerSummary] Cached data for ${ticker} on ${date}`);
-
+                
             return { ticker, date, data: rows };
         };
 
@@ -1642,11 +1642,11 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     const netBuyBrokerBgMap = new Map<string, string>();
                     sortedTotalNetSell.slice(0, 5).forEach((item, idx) => {
                       netBuyBrokerBgMap.set(item.broker, bgColors[idx] || '');
-                    });
+                          });
                           
                     // Map top 5 NetSell brokers (not used for background, but kept for consistency)
                     const netSellBrokerBgMap = new Map<string, string>();
-                    sortedTotalNetSell.slice(0, 5).forEach((item, idx) => {
+                          sortedTotalNetSell.slice(0, 5).forEach((item, idx) => {
                       netSellBrokerBgMap.set(item.broker, shiftColorForSell(bgColors[idx] || ''));
                     });
                     

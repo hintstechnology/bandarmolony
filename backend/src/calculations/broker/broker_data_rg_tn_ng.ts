@@ -271,10 +271,6 @@ export class BrokerDataRGTNNGCalculator {
       const dtFiles = await this.findAllDtFiles();
       if (dtFiles.length === 0) return { success: true, message: `No DT files found - skipped broker data generation` };
       
-      let processedDates = 0;
-      let skippedDates = 0;
-      let totalFilesCreated = 0;
-      
       for (const blobName of dtFiles) {
         // Extract date from blob name first (before loading input)
         const pathParts = blobName.split('/');
@@ -305,7 +301,6 @@ export class BrokerDataRGTNNGCalculator {
         
         if (shouldSkip) {
           console.log(`⏭️ Broker data (RG/TN/NG) already exists for date ${dateSuffix} - skipping`);
-          skippedDates++;
           continue;
         }
         
@@ -314,7 +309,6 @@ export class BrokerDataRGTNNGCalculator {
         if (!result) continue;
         
         const { data, dateSuffix: date } = result;
-        let dateFilesCreated = 0;
         
         for (const type of ['RG', 'TN', 'NG'] as const) {
           const filtered = this.filterByType(data, type);
