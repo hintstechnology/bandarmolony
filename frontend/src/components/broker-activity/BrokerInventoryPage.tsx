@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { X, Calendar } from 'lucide-react';
+import { X, Calendar, RotateCcw } from 'lucide-react';
 // Removed unused Recharts imports
 // Removed unused imports
 import { api } from '../../services/api';
@@ -922,6 +922,8 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
   const [selectedBrokers, setSelectedBrokers] = useState<string[]>([]);
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
+  const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('custom');
+  const [selectedDatesForDisplay, setSelectedDatesForDisplay] = useState<string[]>([]); // For displaying selected dates as badges
   const [isInitializing, setIsInitializing] = useState(true);
   const [brokerSearch, setBrokerSearch] = useState('');
   const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false);
@@ -997,6 +999,115 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
     return date || ''; // Already in YYYY-MM-DD format, return empty string if undefined
   };
 
+  // Helper functions for date management (from BrokerInventory.tsx)
+  const getTradingDays = (count: number): string[] => {
+    const dates: string[] = [];
+    const today = new Date();
+    let currentDate = new Date(today);
+    
+    while (dates.length < count) {
+      const dayOfWeek = currentDate.getDay();
+      
+      // Skip weekends (Saturday = 6, Sunday = 0)
+      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+        const dateStr = currentDate.toISOString().split('T')[0];
+        if (dateStr) {
+          dates.push(dateStr);
+        }
+      }
+      
+      // Go to previous day
+      currentDate.setDate(currentDate.getDate() - 1);
+      
+      // Safety check
+      if (dates.length === 0 && currentDate.getTime() < today.getTime() - (30 * 24 * 60 * 60 * 1000)) {
+        const todayStr = today.toISOString().split('T')[0];
+        if (todayStr) {
+          dates.push(todayStr);
+        }
+        break;
+      }
+    }
+    
+    return dates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+  };
+
+  const getLastThreeDays = (): string[] => {
+    return getTradingDays(3);
+  };
+
+  // Handler for date range mode change (from BrokerInventory.tsx)
+  const handleDateRangeModeChange = (mode: '1day' | '3days' | '1week' | 'custom') => {
+    setDateRangeMode(mode);
+    
+    // Only auto-set dates for quick select modes, not custom
+    if (mode === '1day') {
+      const oneDay = getLastThreeDays().slice(0, 1);
+      const sortedDates = [...oneDay].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+      if (sortedDates.length > 0) {
+        setStartDate(sortedDates[0]);
+        setEndDate(sortedDates[0]);
+        setSelectedDatesForDisplay(sortedDates);
+      }
+    } else if (mode === '3days') {
+      const threeDays = getLastThreeDays();
+      const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+      if (sortedDates.length > 0) {
+        setStartDate(sortedDates[0]);
+        setEndDate(sortedDates[sortedDates.length - 1]);
+        setSelectedDatesForDisplay(sortedDates);
+      }
+    } else if (mode === '1week') {
+      const oneWeek = getLastThreeDays().slice(0, 7);
+      const sortedDates = [...oneWeek].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+      if (sortedDates.length > 0) {
+        setStartDate(sortedDates[0]);
+        setEndDate(sortedDates[sortedDates.length - 1]);
+        setSelectedDatesForDisplay(sortedDates);
+      }
+    } else if (mode === 'custom') {
+      // For custom mode, don't auto-set dates, let user input manually
+      // Keep current dates but update selectedDatesForDisplay based on date range
+      if (startDate && endDate) {
+        const dates: string[] = [];
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        const current = new Date(start);
+        
+        while (current <= end) {
+          const dayOfWeek = current.getDay();
+          if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+            const dateStr = current.toISOString().split('T')[0];
+            if (dateStr) dates.push(dateStr);
+          }
+          current.setDate(current.getDate() + 1);
+        }
+        
+        setSelectedDatesForDisplay(dates.sort((a, b) => new Date(a).getTime() - new Date(b).getTime()));
+      }
+    }
+  };
+
+  // Update selectedDatesForDisplay when startDate or endDate changes (for custom mode)
+  useEffect(() => {
+    if (dateRangeMode === 'custom' && startDate && endDate) {
+      const dates: string[] = [];
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      const current = new Date(start);
+      
+      while (current <= end) {
+        const dayOfWeek = current.getDay();
+        if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+          const dateStr = current.toISOString().split('T')[0];
+          if (dateStr) dates.push(dateStr);
+        }
+        current.setDate(current.getDate() + 1);
+      }
+      
+      setSelectedDatesForDisplay(dates.sort((a, b) => new Date(a).getTime() - new Date(b).getTime()));
+    }
+  }, [startDate, endDate, dateRangeMode]);
 
   // Load initial data (stocks list only) on component mount
   useEffect(() => {
@@ -2197,7 +2308,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
               </div>
 
               {/* Date Range */}
-              <div>
+              <div className="md:col-span-2 lg:col-span-1">
                     <label className="block text-sm font-medium mb-2">Date Range:</label>
                 <div className="flex items-center gap-2">
                   <div 
@@ -2239,6 +2350,8 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                           return;
                         }
                         
+                        // Set to custom mode when user manually selects date
+                        setDateRangeMode('custom');
                         setStartDate(selectedDate);
                         // Auto update end date if not set or if start > end
                         if (!endDate || new Date(selectedDate) > new Date(endDate)) {
@@ -2304,6 +2417,8 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                           return;
                         }
                         
+                        // Set to custom mode when user manually selects date
+                        setDateRangeMode('custom');
                         setEndDate(selectedDate);
                       }}
                       min={formatDateForInput(startDate || MIN_DATE)}
@@ -2330,7 +2445,48 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                       Available data may vary by date
                     </p>
             </div>
+
+            {/* Quick Select (from BrokerInventory.tsx) */}
+            <div className="md:col-span-2 lg:col-span-1">
+              <label className="block text-sm font-medium mb-2">Quick Select:</label>
+              <div className="flex gap-2">
+                <select 
+                  className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                  value={dateRangeMode}
+                  onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
+                >
+                  <option value="1day">1 Day</option>
+                  <option value="3days">3 Days</option>
+                  <option value="1week">1 Week</option>
+                  <option value="custom">Custom</option>
+                </select>
+                {dateRangeMode === 'custom' && (
+                  <Button variant="outline" size="sm" onClick={() => { 
+                    setStartDate(''); 
+                    setEndDate('');
+                    setSelectedDatesForDisplay([]);
+                  }}>
+                    <RotateCcw className="w-4 h-4 mr-1" />
+                    Clear
+                  </Button>
+                )}
+              </div>
+            </div>
           </div>
+
+          {/* Selected Dates Display (from BrokerInventory.tsx) */}
+          {selectedDatesForDisplay.length > 0 && (
+            <div className="mt-4">
+              <label className="text-sm font-medium">Selected Dates:</label>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {selectedDatesForDisplay.map((date) => (
+                  <Badge key={date} variant="secondary" className="px-3 py-1">
+                    {formatDisplayDate(date)}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Selected Brokers Display */}
           {selectedBrokers.length > 0 ? (

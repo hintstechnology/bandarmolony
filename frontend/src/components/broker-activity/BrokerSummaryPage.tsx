@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
-import { Search, Loader2, Calendar } from 'lucide-react';
+import { Search, Loader2, Calendar, RotateCcw } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Button } from '../ui/button';
+import { getBrokerBackgroundClass, getBrokerTextClass, useDarkMode } from '../../utils/brokerColors';
  
 import { api } from '../../services/api';
 
@@ -65,6 +68,39 @@ const getLastTradingDays = (count: number): string[] => {
 // Get last three trading days
 const getLastThreeDays = (): string[] => {
   return getLastTradingDays(3);
+};
+
+// Get trading days (skip weekends) - for simple view
+const getTradingDays = (count: number): string[] => {
+  const dates: string[] = [];
+  const today = new Date();
+  let currentDate = new Date(today);
+  while (dates.length < count) {
+    const dow = currentDate.getDay();
+    if (dow !== 0 && dow !== 6) {
+      const dateStr = currentDate.toISOString().split('T')[0];
+      if (dateStr) {
+        dates.push(dateStr);
+      }
+    }
+    currentDate.setDate(currentDate.getDate() - 1);
+    if (dates.length === 0 && currentDate.getTime() < today.getTime() - (30 * 24 * 60 * 60 * 1000)) {
+      const todayStr = today.toISOString().split('T')[0];
+      if (todayStr) {
+        dates.push(todayStr);
+      }
+      break;
+    }
+  }
+  return dates.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+};
+
+// Format value for simple view (simpler format)
+const formatValueSimple = (num: number): string => {
+  if (Math.abs(num) >= 1000) {
+    return (num / 1000).toFixed(1) + 'K';
+  }
+  return num.toFixed(num >= 10 ? 0 : num >= 1 ? 1 : 2);
 };
 
 const formatNumber = (value: number): string => {
@@ -142,6 +178,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   const [tickerInput, setTickerInput] = useState<string>('');
   const [fdFilter, setFdFilter] = useState<'All' | 'Foreign' | 'Domestic'>('All');
   const [marketFilter, setMarketFilter] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Default to RG
+  const [viewMode, setViewMode] = useState<'simple' | 'complex'>('complex'); // Default to complex (existing view)
+  const [dateRangeMode, setDateRangeMode] = useState<'1day'|'3days'|'1week'|'custom'>('1day'); // For simple view
+  const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical'>('horizontal'); // For simple view
   
   // Stock selection state
   const [availableStocks, setAvailableStocks] = useState<string[]>([]);
@@ -1095,6 +1134,21 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     stock.toLowerCase().includes(tickerInput.toLowerCase()) && !selectedTickers.includes(stock)
   );
 
+  // Handle date range mode change for simple view
+  const handleDateRangeModeChange = (mode: '1day'|'3days'|'1week'|'custom') => {
+    setDateRangeMode(mode);
+    if (mode === 'custom') return;
+    const todayIso = new Date().toISOString().split('T')[0] ?? '';
+    const count = mode === '1day' ? 1 : mode === '3days' ? 3 : 5;
+    const days = getTradingDays(count);
+    if (days.length) {
+      setStartDate(days[0] || todayIso);
+      setEndDate(days[days.length - 1] || todayIso);
+      // For simple view, use only first date
+      setSelectedDates([days[0] || todayIso]);
+    }
+  };
+
   // Helper function to trigger date picker
   const triggerDatePicker = (inputRef: React.RefObject<HTMLInputElement>) => {
     if (inputRef.current) {
@@ -1826,12 +1880,230 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     );
   };
 
+  // Render simple view (similar to BrokerSummary component)
+  const renderSimpleView = () => {
+    const currentStock = selectedTickers[0] || 'BBCA';
+    const currentDate = startDate || selectedDates[0] || '';
+    const currentData = summaryByDate.get(currentDate) || [];
+
+    // Filter and prepare data for simple view
+    const filteredData = currentData
+      .filter(broker => brokerFDScreen(broker.broker))
+      .map(row => ({
+        broker: row.broker,
+        nblot: row.nblot || row.netBuyVol || 0,
+        nbval: row.nbval || row.netBuyValue || 0,
+        bavg: row.bavg || (row.nbval > 0 && row.nblot > 0 ? row.nbval / row.nblot : 0),
+        nslot: row.nslot || row.netSellVol || 0,
+        nsval: row.nsval || row.netSellValue || 0,
+      }));
+
+    const getBrokerRowClass = (broker: string): string => {
+      const isDarkMode = useDarkMode();
+      const backgroundClass = getBrokerBackgroundClass(broker, isDarkMode);
+      const textClass = getBrokerTextClass(broker, isDarkMode);
+      return `${backgroundClass} ${textClass} hover:opacity-80`;
+    };
+
+    return (
+      <div className="space-y-6">
+        {/* Date Range Selection - styling copied from BrokerSummary */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Calendar className="w-5 h-5" />
+              Date Range Selection
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col gap-4 md:grid md:grid-cols-2 lg:flex lg:flex-row items-center lg:items-end">
+              {/* Date Range */}
+              <div className="flex-1 min-w-0 w-full md:col-span-2">
+                <label className="block text-sm font-medium mb-2">Date Range:</label>
+                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2 w-full">
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => {
+                      setStartDate(e.target.value);
+                      setSelectedDates([e.target.value]);
+                    }}
+                    className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                  />
+                  <span className="text-sm text-muted-foreground text-center whitespace-nowrap sm:px-2">to</span>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
+                  />
+                  <Button size="sm" className="w-auto justify-self-center" onClick={() => { /* hook for future filtering */ }}>
+                    Apply
+                  </Button>
+                </div>
+              </div>
+
+              {/* Quick Select */}
+              <div className="flex-1 min-w-0 w-full">
+                <label className="block text-sm font-medium mb-2">Quick Select:</label>
+                <div className="flex gap-2">
+                  <select 
+                    className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+                    value={dateRangeMode}
+                    onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
+                  >
+                    <option value="1day">1 Day</option>
+                    <option value="3days">3 Days</option>
+                    <option value="1week">1 Week</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                  {dateRangeMode === 'custom' && (
+                    <Button variant="outline" size="sm" onClick={() => { 
+                      const todayIso = new Date().toISOString().split('T')[0] ?? '';
+                      setStartDate(todayIso); 
+                      setEndDate(todayIso);
+                      setSelectedDates([todayIso]);
+                    }}>
+                      <RotateCcw className="w-4 h-4 mr-1" />
+                      Clear
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* Layout Switch (same styling as BrokerSummary) */}
+              <div className="flex-1 min-w-0 w-full lg:w-auto lg:flex-none">
+                <label className="block text-sm font-medium mb-2">Layout:</label>
+                <div className="flex sm:inline-flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto w-full sm:w-auto lg:w-auto">
+                  <div className="flex items-center gap-1 min-w-max">
+                    <Button
+                      variant={layoutMode === 'horizontal' ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => setLayoutMode('horizontal')}
+                      className="px-3 py-1 h-8 text-xs"
+                    >
+                      Horizontal
+                    </Button>
+                    <Button
+                      variant={layoutMode === 'vertical' ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => setLayoutMode('vertical')}
+                      className="px-3 py-1 h-8 text-xs"
+                    >
+                      Vertical
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Stock Selection for Simple View */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">Stock Selection</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium">Stock:</label>
+              <input
+                type="text"
+                value={currentStock}
+                onChange={(e) => {
+                  const newStock = e.target.value.toUpperCase();
+                  setSelectedTickers([newStock]);
+                }}
+                className="px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm w-32"
+                placeholder="Stock code"
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Simple Table */}
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="w-6 h-6 animate-spin mr-2" />
+            <span>Loading broker data...</span>
+          </div>
+        ) : error ? (
+          <div className="flex items-center justify-center py-8 text-red-600">
+            <span>{error}</span>
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-md">
+            <table className="w-full min-w-[560px] text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/50">
+                  <th className="text-left py-2 px-3 font-medium">Broker</th>
+                  <th className="text-right py-2 px-3 font-medium">NBLot</th>
+                  <th className="text-right py-2 px-3 font-medium">NBVal</th>
+                  <th className="text-right py-2 px-3 font-medium">BAvg</th>
+                  <th className="text-right py-2 px-3 font-medium">Net</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredData.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="text-center py-8 text-muted-foreground">
+                      No broker data available for {currentStock} on {currentDate}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredData.map((row, idx) => {
+                    const netPosition = row.nblot + row.nslot; // Same as BrokerSummary.tsx: nblot + nslot
+                    return (
+                      <tr key={idx} className={`border-b border-border/50 hover:bg-accent/50 ${getBrokerRowClass(row.broker)}`}>
+                        <td className="py-2 px-3 font-medium">{row.broker}</td>
+                        <td className="text-right py-2 px-3 text-green-600">{formatValueSimple(row.nblot)}</td>
+                        <td className="text-right py-2 px-3 text-green-600">{formatValueSimple(row.nbval)}</td>
+                        <td className="text-right py-2 px-3">{formatValueSimple(row.bavg)}</td>
+                        <td className={`text-right py-2 px-3 font-medium ${netPosition >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {netPosition >= 0 ? '+' : ''}{formatValueSimple(netPosition)}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="w-full">
       {/* Top Controls - Compact without Card */}
       <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5">
             <div className="flex flex-wrap items-center gap-8">
-              {/* Ticker Selection - Multi-select with chips */}
+              {/* View Mode Toggle */}
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium whitespace-nowrap">View:</label>
+                <div className="flex items-center gap-1 border border-border rounded-lg p-1">
+                  <Button
+                    variant={viewMode === 'simple' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setViewMode('simple')}
+                    className="px-3 py-1 h-8 text-xs"
+                  >
+                    Simple
+                  </Button>
+                  <Button
+                    variant={viewMode === 'complex' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setViewMode('complex')}
+                    className="px-3 py-1 h-8 text-xs"
+                  >
+                    Complex
+                  </Button>
+                </div>
+              </div>
+
+              {/* Ticker Selection - Multi-select with chips (only show in complex mode) */}
+              {viewMode === 'complex' && (
               <div className="flex items-center gap-2">
                 <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
                 <div className="flex flex-wrap items-center gap-2">
@@ -1929,8 +2201,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                   </div>
                 </div>
               </div>
+              )}
 
-              {/* Date Range */}
+              {/* Date Range (only show in complex mode) */}
+              {viewMode === 'complex' && (
               <div className="flex items-center gap-2">
                 <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
               <div 
@@ -2055,8 +2329,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                 </div>
                 </div>
               </div>
+              )}
 
-            {/* F/D Filter - visual only */}
+            {/* F/D Filter - visual only (only show in complex mode) */}
+              {viewMode === 'complex' && (
               <div className="flex items-center gap-2">
                 <label className="text-sm font-medium whitespace-nowrap">F/D:</label>
                   <select 
@@ -2069,8 +2345,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                   <option value="Domestic">Domestic</option>
                   </select>
               </div>
+              )}
 
-            {/* Market Filter - visual only */}
+            {/* Market Filter - visual only (only show in complex mode) */}
+              {viewMode === 'complex' && (
               <div className="flex items-center gap-2">
                 <label className="text-sm font-medium whitespace-nowrap">Board:</label>
                 <select
@@ -2084,12 +2362,13 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                   <option value="NG">NG</option>
                 </select>
               </div>
+              )}
               </div>
             </div>
 
       {/* Main Data Display */}
       <div className="bg-[#0a0f20]">
-        {renderHorizontalView()}
+        {viewMode === 'simple' ? renderSimpleView() : renderHorizontalView()}
       </div>
     </div>
   );
