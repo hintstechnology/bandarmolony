@@ -137,14 +137,15 @@ async function streamToBuffer(readableStream: NodeJS.ReadableStream): Promise<Bu
 export async function updateDoneSummaryData(): Promise<void> {
   const SCHEDULER_TYPE = 'done-summary';
   
-  // Weekend skip temporarily disabled for testing
-  // const today = new Date();
-  // const dayOfWeek = today.getDay();
-  // 
-  // if (dayOfWeek === 0 || dayOfWeek === 6) {
-  //   await AzureLogger.logWeekendSkip(SCHEDULER_TYPE);
-  //   return;
-  // }
+  // Skip if weekend
+  const today = new Date();
+  const dayOfWeek = today.getDay();
+  
+  if (dayOfWeek === 0 || dayOfWeek === 6) {
+    await AzureLogger.logWeekendSkip(SCHEDULER_TYPE);
+    console.log('📅 Weekend detected - skipping Done Summary Data sync (no market data available)');
+    return;
+  }
   
   const logEntry = await SchedulerLogService.createLog({
     feature_name: 'done-summary',
@@ -191,39 +192,77 @@ export async function updateDoneSummaryData(): Promise<void> {
     const gcsStorage = new GoogleCloudStorageService(gcsCredentials);
     await AzureLogger.logInfo(SCHEDULER_TYPE, 'GCS Storage initialized with credentials from Azure');
 
-    // Get today's date in YYYYMMDD format
-    const today = new Date();
-    const todayStr = today.toISOString().slice(0, 10).replace(/-/g, '');
-    // Convert YYYYMMDD to YYMMDD format for DT filename (remove first 2 digits of year)
-    const todayStrShort = todayStr.slice(2); // 20251028 -> 251028
-    const todayFileName = `${todayStr}/DT${todayStrShort}.csv`;
-    
-    await AzureLogger.logInfo(SCHEDULER_TYPE, `Looking for today's done summary file: ${todayFileName}`);
-    
-    // Check if today's file exists in GCS
+    // List all files in GCS and check which ones don't exist in Azure
+    await AzureLogger.logInfo(SCHEDULER_TYPE, 'Listing all files in GCS...');
     const gcsAllFiles = await gcsStorage.listFiles('');
-    const todayFileExists = gcsAllFiles.includes(todayFileName);
     
-    if (!todayFileExists) {
-      await AzureLogger.logItemProcess(SCHEDULER_TYPE, 'SKIP', todayStr, `Today's done summary file not found in GCS: ${todayFileName}`);
-      await AzureLogger.logSchedulerEnd(SCHEDULER_TYPE, {
-        success: 0,
-        skipped: 1,
-        failed: 0,
-        total: 1
-      });
-      return;
+    // Filter for DT CSV files (pattern: YYYYMMDD/DTYYMMDD.csv)
+    const gcsCsvFiles = gcsAllFiles.filter((fileName: string) => {
+      return /^\d{8}\/DT\d{6}\.csv$/.test(fileName);
+    });
+    
+    // Sort by date descending (newest first) - process from newest to oldest
+    const sortedGcsFiles = gcsCsvFiles.sort((a, b) => {
+      const matchA = a.match(/^(\d{8})\/DT\d{6}\.csv$/);
+      const matchB = b.match(/^(\d{8})\/DT\d{6}\.csv$/);
+      const dateA = matchA ? matchA[1] || '' : '';
+      const dateB = matchB ? matchB[1] || '' : '';
+      return dateB.localeCompare(dateA); // Descending order (newest first)
+    });
+    
+    await AzureLogger.logInfo(SCHEDULER_TYPE, `Found ${sortedGcsFiles.length} DT CSV files in GCS (sorted newest first)`);
+    
+    // Check which files already exist in Azure and filter out existing ones
+    const filesToProcess: string[] = [];
+    let existingCount = 0;
+    
+    for (const gcsFileName of sortedGcsFiles) {
+      // Derive date and target Azure path
+      const match = gcsFileName.match(/^(\d{8})\/DT(\d{6})\.csv$/);
+      const dateStr = match ? match[1] : '';
+      const dtStr = match ? match[2] : '';
+      const azureBlobName = match
+        ? `done-summary/${dateStr}/DT${dtStr}.csv`
+        : `done-summary/${gcsFileName}`;
+      
+      // Check if already exists in Azure
+      if (await azureStorage.blobExists(azureBlobName)) {
+        existingCount++;
+        continue;
+      }
+      
+      filesToProcess.push(gcsFileName);
     }
     
-    const gcsCsvFiles = [todayFileName]; // Only process today's file
-    await AzureLogger.logInfo(SCHEDULER_TYPE, `Found today's done summary file: ${todayFileName}`);
+    await AzureLogger.logInfo(SCHEDULER_TYPE, `Found ${filesToProcess.length} files to process (${existingCount} already exist in Azure)`);
+    
+    if (filesToProcess.length === 0) {
+      await AzureLogger.logInfo(SCHEDULER_TYPE, 'All files already exist in Azure - nothing to process');
+      await AzureLogger.logSchedulerEnd(SCHEDULER_TYPE, {
+        success: 0,
+        skipped: existingCount,
+        failed: 0,
+        total: sortedGcsFiles.length
+      });
+      
+      if (logId) {
+        await SchedulerLogService.updateLog(logId, {
+          status: 'completed',
+          progress_percentage: 100,
+          total_files_processed: 0,
+          files_skipped: existingCount,
+          files_failed: 0
+        });
+      }
+      return;
+    }
 
     let successCount = 0;
-    let skipCount = 0;
+    let skipCount = existingCount; // Already counted existing files
     let errorCount = 0;
 
-    for (let i = 0; i < gcsCsvFiles.length; i++) {
-      const gcsFileName = gcsCsvFiles[i];
+    for (let i = 0; i < filesToProcess.length; i++) {
+      const gcsFileName = filesToProcess[i];
       if (!gcsFileName) continue;
       
       // Derive date and target Azure path
@@ -237,20 +276,13 @@ export async function updateDoneSummaryData(): Promise<void> {
       
       try {
         if ((i + 1) % 5 === 0 || i === 0) {
-          await AzureLogger.logProgress(SCHEDULER_TYPE, i + 1, gcsCsvFiles.length, `Syncing ${gcsFileName}`);
+          await AzureLogger.logProgress(SCHEDULER_TYPE, i + 1, filesToProcess.length, `Syncing ${gcsFileName}`);
           if (logId) {
             await SchedulerLogService.updateLog(logId, {
-              progress_percentage: Math.round(((i + 1) / gcsCsvFiles.length) * 100),
-              current_processing: `Syncing done summary ${i + 1}/${gcsCsvFiles.length}`
+              progress_percentage: Math.round(((i + 1) / filesToProcess.length) * 100),
+              current_processing: `Syncing done summary ${i + 1}/${filesToProcess.length}`
             });
           }
-        }
-        
-        // Check if target already exists in Azure
-        if (await azureStorage.blobExists(azureBlobName)) {
-          await AzureLogger.logItemProcess(SCHEDULER_TYPE, 'SKIP', dateStr || gcsFileName, `Today's done summary already exists in Azure (${dateStr})`);
-          skipCount++;
-          continue;
         }
         
         // Download from Google Cloud Storage by listed file name
@@ -284,7 +316,7 @@ export async function updateDoneSummaryData(): Promise<void> {
       success: successCount,
       skipped: skipCount,
       failed: errorCount,
-      total: gcsCsvFiles.length
+      total: sortedGcsFiles.length
     });
 
     if (logId) {

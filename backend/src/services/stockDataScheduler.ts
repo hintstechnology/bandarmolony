@@ -140,46 +140,70 @@ async function processEmiten(
     const sector = getSectorForEmiten(emiten);
     const azureBlobName = `stock/${sector}/${emiten}.csv`;
     
-    // Check if data already exists for today
+    // Calculate 7 days ago date
+    const sevenDaysAgo = new Date(todayDate);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const sevenDaysAgoDate = sevenDaysAgo.toISOString().split('T')[0] || '';
+    
+    // Validate dates
+    if (!sevenDaysAgoDate || !todayDate) {
+      await AzureLogger.logItemProcess('stock', 'ERROR', emiten, 'Invalid date calculation');
+      return { success: false, skipped: false, error: 'Invalid date calculation' };
+    }
+    
+    // Check if data already exists
     let existingData: any[] = [];
     if (await azureStorage.blobExists(azureBlobName)) {
       const existingCsvData = await azureStorage.downloadCsvData(azureBlobName);
       existingData = await parseCsvString(existingCsvData);
     }
     
-    // Check if today's data already exists
-    const todayDataExists = existingData.some(row => {
-      const rowDate = row.date || row.tanggal || row.Date || '';
-      if (!rowDate) return false;
-      
-      // Try different date formats
-      let rowDateObj: Date;
-      if (rowDate.includes('/')) {
-        const parts = rowDate.split('/');
-        if (parts.length === 3) {
-          rowDateObj = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+    // Generate all dates in the past 7 days range
+    const requiredDates: string[] = [];
+    for (let d = new Date(sevenDaysAgoDate); d <= new Date(todayDate); d.setDate(d.getDate() + 1)) {
+      const dateStr = d.toISOString().split('T')[0];
+      if (dateStr) {
+        requiredDates.push(dateStr);
+      }
+    }
+    
+    // Check which dates are missing
+    const existingDates = new Set(
+      existingData.map(row => {
+        const rowDate = row.date || row.tanggal || row.Date || '';
+        if (!rowDate) return '';
+        
+        // Try different date formats
+        let rowDateObj: Date;
+        if (rowDate.includes('/')) {
+          const parts = rowDate.split('/');
+          if (parts.length === 3) {
+            rowDateObj = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+          } else {
+            rowDateObj = new Date(rowDate);
+          }
+        } else if (rowDate.includes('-')) {
+          rowDateObj = new Date(rowDate);
         } else {
           rowDateObj = new Date(rowDate);
         }
-      } else if (rowDate.includes('-')) {
-        rowDateObj = new Date(rowDate);
-      } else {
-        rowDateObj = new Date(rowDate);
-      }
-      
-      const rowDateStr = isNaN(rowDateObj.getTime()) ? '' : rowDateObj.toISOString().split('T')[0];
-      return rowDateStr === todayDate;
-    });
+        
+        return isNaN(rowDateObj.getTime()) ? '' : rowDateObj.toISOString().split('T')[0];
+      }).filter(d => d)
+    );
     
-    if (todayDataExists) {
-      await AzureLogger.logItemProcess('stock', 'SKIP', emiten, `Data already exists for today (${todayDate})`);
+    const missingDates = requiredDates.filter(date => !existingDates.has(date));
+    
+    // If all dates exist, skip
+    if (missingDates.length === 0) {
+      await AzureLogger.logItemProcess('stock', 'SKIP', emiten, `All data for past 7 days already exists`);
       return { success: true, skipped: true };
     }
     
-    // Fetch data from API for today only
+    // Fetch data from API for the date range (7 days)
     const params = {
       secCode: emiten,
-      startDate: todayDate,
+      startDate: sevenDaysAgoDate,
       endDate: todayDate,
       granularity: "daily",
     };
@@ -267,14 +291,15 @@ async function processEmiten(
 export async function updateStockData(): Promise<void> {
   const SCHEDULER_TYPE = 'stock';
   
-  // Weekend skip temporarily disabled for testing
-  // const today = new Date();
-  // const dayOfWeek = today.getDay();
-  // 
-  // if (dayOfWeek === 0 || dayOfWeek === 6) {
-  //   await AzureLogger.logWeekendSkip(SCHEDULER_TYPE);
-  //   return;
-  // }
+  // Skip if weekend
+  const today = new Date();
+  const dayOfWeek = today.getDay();
+  
+  if (dayOfWeek === 0 || dayOfWeek === 6) {
+    await AzureLogger.logWeekendSkip(SCHEDULER_TYPE);
+    console.log('📅 Weekend detected - skipping Stock Data update (no market data available)');
+    return;
+  }
   
   const logEntry = await SchedulerLogService.createLog({
     feature_name: 'stock',

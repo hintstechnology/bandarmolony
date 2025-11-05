@@ -9,9 +9,9 @@ export class BrokerSummaryIDXDataScheduler {
 
   /**
    * Generate IDX.csv for all dates and market types
-   * @param scope 'all' to process all available dates
+   * @param _scope 'all' to process all available dates (reserved for future use)
    */
-  async generateBrokerSummaryIDXData(scope: 'all' = 'all'): Promise<{ success: boolean; message?: string; data?: any }> {
+  async generateBrokerSummaryIDXData(_scope: 'all' = 'all'): Promise<{ success: boolean; message?: string; data?: any }> {
     try {
       console.log('🔄 Generating Broker Summary IDX (aggregated all emiten)...');
       

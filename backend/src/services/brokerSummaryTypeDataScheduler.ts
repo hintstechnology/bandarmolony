@@ -12,12 +12,13 @@ class BrokerSummaryTypeDataScheduler {
   async generateBrokerSummaryTypeData(_scope: 'all' = 'all'): Promise<{ success: boolean; message?: string }> {
     try {
       console.log('🔄 Generating Broker Summary by Type (RG/TN/NG)...');
-      await this.calculator.generateBrokerSummarySplitPerType();
-      console.log('✅ Broker Summary by Type generation completed');
-      return { success: true };
+      const result = await this.calculator.generateBrokerSummarySplitPerType();
+      console.log(`✅ Broker Summary Type calculation completed: ${result.message || 'Success'}`);
+      return { success: result.success, message: result.message || 'Success' };
     } catch (error: any) {
-      console.error('❌ Broker Summary by Type generation failed:', error?.message || error);
-      return { success: false, message: error?.message || 'Unknown error' };
+      const errorMessage = error?.message || 'Unknown error';
+      console.error('❌ Broker Summary by Type generation failed:', errorMessage);
+      return { success: false, message: errorMessage };
     }
   }
 }

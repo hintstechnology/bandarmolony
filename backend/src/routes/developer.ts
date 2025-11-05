@@ -1,6 +1,16 @@
 import { Router } from 'express';
 import { supabaseAdmin } from '../supabaseClient';
 import { createSuccessResponse, createErrorResponse, ERROR_CODES, HTTP_STATUS } from '../utils/responseUtils';
+import { 
+  getSchedulerConfig, 
+  updateSchedulerConfig, 
+  restartScheduler, 
+  stopScheduler, 
+  startScheduler, 
+  getSchedulerStatus,
+  getAllPhasesStatus,
+  triggerPhase
+} from '../services/scheduler';
 
 const router = Router();
 
@@ -371,6 +381,258 @@ router.patch('/users/:id/email-verification', requireDeveloper, async (req, res)
     console.error('Update email verification error:', error);
     return res.status(500).json(createErrorResponse(
       'Failed to update email verification status',
+      'INTERNAL_SERVER_ERROR',
+      undefined,
+      500
+    ));
+  }
+});
+
+/**
+ * GET /api/developer/scheduler/config
+ * Get scheduler configuration
+ */
+router.get('/scheduler/config', requireDeveloper, async (_req, res) => {
+  try {
+    const config = getSchedulerConfig();
+    const status = getSchedulerStatus();
+    
+    res.json(createSuccessResponse({
+      config,
+      status
+    }, 'Scheduler configuration retrieved successfully'));
+  } catch (error) {
+    console.error('Get scheduler config error:', error);
+    res.status(500).json(createErrorResponse(
+      'Failed to retrieve scheduler configuration',
+      'INTERNAL_SERVER_ERROR',
+      undefined,
+      500
+    ));
+  }
+});
+
+/**
+ * PUT /api/developer/scheduler/config
+ * Update scheduler configuration and restart scheduler
+ */
+router.put('/scheduler/config', requireDeveloper, async (req, res) => {
+  try {
+    const { 
+      PHASE1_DATA_COLLECTION_TIME, 
+      PHASE1_SHAREHOLDERS_TIME,
+      TIMEZONE,
+      MEMORY_CLEANUP_INTERVAL,
+      FORCE_GC_INTERVAL,
+      MEMORY_THRESHOLD_GB
+    } = req.body;
+    
+    // Validate time format (HH:MM)
+    const timeFormatRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    
+    const newConfig: any = {};
+    
+    if (PHASE1_DATA_COLLECTION_TIME !== undefined) {
+      if (!timeFormatRegex.test(PHASE1_DATA_COLLECTION_TIME)) {
+        return res.status(400).json(createErrorResponse(
+          'Invalid time format for PHASE1_DATA_COLLECTION_TIME. Use HH:MM format (e.g., 19:00)',
+          'VALIDATION_ERROR',
+          'PHASE1_DATA_COLLECTION_TIME',
+          400
+        ));
+      }
+      newConfig.PHASE1_DATA_COLLECTION_TIME = PHASE1_DATA_COLLECTION_TIME;
+    }
+    
+    if (PHASE1_SHAREHOLDERS_TIME !== undefined) {
+      if (!timeFormatRegex.test(PHASE1_SHAREHOLDERS_TIME)) {
+        return res.status(400).json(createErrorResponse(
+          'Invalid time format for PHASE1_SHAREHOLDERS_TIME. Use HH:MM format (e.g., 00:01)',
+          'VALIDATION_ERROR',
+          'PHASE1_SHAREHOLDERS_TIME',
+          400
+        ));
+      }
+      newConfig.PHASE1_SHAREHOLDERS_TIME = PHASE1_SHAREHOLDERS_TIME;
+    }
+    
+    if (TIMEZONE !== undefined) {
+      newConfig.TIMEZONE = TIMEZONE;
+    }
+    
+    if (MEMORY_CLEANUP_INTERVAL !== undefined) {
+      if (typeof MEMORY_CLEANUP_INTERVAL !== 'number' || MEMORY_CLEANUP_INTERVAL < 1000) {
+        return res.status(400).json(createErrorResponse(
+          'MEMORY_CLEANUP_INTERVAL must be a number >= 1000 (milliseconds)',
+          'VALIDATION_ERROR',
+          'MEMORY_CLEANUP_INTERVAL',
+          400
+        ));
+      }
+      newConfig.MEMORY_CLEANUP_INTERVAL = MEMORY_CLEANUP_INTERVAL;
+    }
+    
+    if (FORCE_GC_INTERVAL !== undefined) {
+      if (typeof FORCE_GC_INTERVAL !== 'number' || FORCE_GC_INTERVAL < 1000) {
+        return res.status(400).json(createErrorResponse(
+          'FORCE_GC_INTERVAL must be a number >= 1000 (milliseconds)',
+          'VALIDATION_ERROR',
+          'FORCE_GC_INTERVAL',
+          400
+        ));
+      }
+      newConfig.FORCE_GC_INTERVAL = FORCE_GC_INTERVAL;
+    }
+    
+    if (MEMORY_THRESHOLD_GB !== undefined) {
+      if (typeof MEMORY_THRESHOLD_GB !== 'number' || MEMORY_THRESHOLD_GB < 1) {
+        return res.status(400).json(createErrorResponse(
+          'MEMORY_THRESHOLD_GB must be a number >= 1 (GB)',
+          'VALIDATION_ERROR',
+          'MEMORY_THRESHOLD_GB',
+          400
+        ));
+      }
+      newConfig.MEMORY_THRESHOLD = MEMORY_THRESHOLD_GB * 1024 * 1024 * 1024;
+    }
+    
+    // Update configuration
+    updateSchedulerConfig(newConfig);
+    
+    // Restart scheduler with new configuration
+    restartScheduler();
+    
+    const updatedConfig = getSchedulerConfig();
+    const status = getSchedulerStatus();
+    
+    return res.json(createSuccessResponse({
+      config: updatedConfig,
+      status,
+      message: 'Scheduler configuration updated and scheduler restarted successfully'
+    }, 'Scheduler configuration updated successfully'));
+  } catch (error) {
+    console.error('Update scheduler config error:', error);
+    return res.status(500).json(createErrorResponse(
+      'Failed to update scheduler configuration',
+      'INTERNAL_SERVER_ERROR',
+      undefined,
+      500
+    ));
+  }
+});
+
+/**
+ * POST /api/developer/scheduler/stop
+ * Stop the scheduler
+ */
+router.post('/scheduler/stop', requireDeveloper, async (_req, res) => {
+  try {
+    stopScheduler();
+    const status = getSchedulerStatus();
+    
+    res.json(createSuccessResponse({
+      status,
+      message: 'Scheduler stopped successfully'
+    }, 'Scheduler stopped successfully'));
+  } catch (error) {
+    console.error('Stop scheduler error:', error);
+    res.status(500).json(createErrorResponse(
+      'Failed to stop scheduler',
+      'INTERNAL_SERVER_ERROR',
+      undefined,
+      500
+    ));
+  }
+});
+
+/**
+ * POST /api/developer/scheduler/start
+ * Start the scheduler
+ */
+router.post('/scheduler/start', requireDeveloper, async (_req, res) => {
+  try {
+    startScheduler();
+    const status = getSchedulerStatus();
+    
+    res.json(createSuccessResponse({
+      status,
+      message: 'Scheduler started successfully'
+    }, 'Scheduler started successfully'));
+  } catch (error) {
+    console.error('Start scheduler error:', error);
+    res.status(500).json(createErrorResponse(
+      'Failed to start scheduler',
+      'INTERNAL_SERVER_ERROR',
+      undefined,
+      500
+    ));
+  }
+});
+
+/**
+ * GET /api/developer/scheduler/status
+ * Get scheduler status
+ */
+router.get('/scheduler/status', requireDeveloper, async (_req, res) => {
+  try {
+    const status = getSchedulerStatus();
+    
+    return res.json(createSuccessResponse(status, 'Scheduler status retrieved successfully'));
+  } catch (error) {
+    console.error('Get scheduler status error:', error);
+    return res.status(500).json(createErrorResponse(
+      'Failed to retrieve scheduler status',
+      'INTERNAL_SERVER_ERROR',
+      undefined,
+      500
+    ));
+  }
+});
+
+/**
+ * GET /api/developer/scheduler/phases
+ * Get all phases status and configuration
+ */
+router.get('/scheduler/phases', requireDeveloper, async (_req, res) => {
+  try {
+    const phasesStatus = getAllPhasesStatus();
+    
+    return res.json(createSuccessResponse(phasesStatus, 'All phases status retrieved successfully'));
+  } catch (error) {
+    console.error('Get phases status error:', error);
+    return res.status(500).json(createErrorResponse(
+      'Failed to retrieve phases status',
+      'INTERNAL_SERVER_ERROR',
+      undefined,
+      500
+    ));
+  }
+});
+
+/**
+ * POST /api/developer/scheduler/phases/:phaseId/trigger
+ * Trigger a specific phase manually
+ */
+router.post('/scheduler/phases/:phaseId/trigger', requireDeveloper, async (req, res) => {
+  try {
+    const { phaseId } = req.params;
+    
+    const result = await triggerPhase(phaseId);
+    
+    if (result.success) {
+      return res.json(createSuccessResponse(result, result.message));
+    } else {
+      return res.status(400).json(createErrorResponse(
+        result.message,
+        'TRIGGER_FAILED',
+        undefined,
+        400
+      ));
+    }
+  } catch (error) {
+    console.error('Trigger phase error:', error);
+    return res.status(500).json(createErrorResponse(
+      'Failed to trigger phase',
       'INTERNAL_SERVER_ERROR',
       undefined,
       500

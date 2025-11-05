@@ -20,7 +20,9 @@ import { preGenerateAllRRG } from '../services/rrgDataScheduler';
 import { forceRegenerate as generateSeasonalityData } from '../services/seasonalityDataScheduler';
 import { TrendFilterDataScheduler } from '../services/trendFilterDataScheduler';
 import BrokerSummaryTypeDataScheduler from '../services/brokerSummaryTypeDataScheduler';
+import BrokerSummaryIDXDataScheduler from '../services/brokerSummaryIDXDataScheduler';
 import BrokerBreakdownDataScheduler from '../services/brokerBreakdownDataScheduler';
+import BreakDoneTradeDataScheduler from '../services/breakDoneTradeDataScheduler';
 import { BrokerDataRGTNNGCalculator } from '../calculations/broker/broker_data_rg_tn_ng';
 import { listPaths } from '../utils/azureBlob';
 import { updateWatchlistSnapshot } from '../services/watchlistSnapshotService';
@@ -1299,6 +1301,125 @@ router.post('/watchlist-snapshot', async (_req, res) => {
     return res.status(500).json({ 
       success: false, 
       message: error.message || 'Unknown error' 
+    });
+  }
+});
+
+// Manual trigger for Broker Summary IDX calculation
+router.post('/broker-summary-idx', async (_req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Broker Summary IDX calculation');
+    
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'broker_summary_idx',
+      trigger_type: 'manual',
+      triggered_by: 'admin',
+      status: 'running',
+      force_override: true,
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    const brokerSummaryIDXService = new BrokerSummaryIDXDataScheduler();
+    
+    // Execute in background and return immediately
+    brokerSummaryIDXService.generateBrokerSummaryIDXData('all').then(async (result) => {
+      await AzureLogger.logInfo('broker_summary_idx', `Manual broker summary IDX calculation completed: ${result.message || 'OK'}`);
+      console.log(`✅ Broker Summary IDX calculation completed: ${result.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: result.success ? 'completed' : 'failed',
+          progress_percentage: 100,
+          ...(result.success ? {} : { error_message: result.message })
+        });
+      }
+    }).catch(async (error: any) => {
+      await AzureLogger.logSchedulerError('broker_summary_idx', error.message);
+      console.error(`❌ Broker Summary IDX calculation error: ${error.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
+        });
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: 'Broker Summary IDX calculation triggered successfully',
+      log_id: logEntry.id
+    });
+  } catch (error: any) {
+    console.error('❌ Error triggering broker summary IDX calculation:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Unknown error'
+    });
+  }
+});
+
+// Manual trigger for Break Done Trade calculation
+router.post('/break-done-trade', async (_req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Break Done Trade calculation');
+    
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'break_done_trade',
+      trigger_type: 'manual',
+      triggered_by: 'admin',
+      status: 'running',
+      force_override: true,
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    const breakDoneTradeService = new BreakDoneTradeDataScheduler();
+    
+    // Execute in background and return immediately
+    // Pass undefined to process all DT files (as per generateBreakDoneTradeData implementation)
+    breakDoneTradeService.generateBreakDoneTradeData(undefined).then(async (result) => {
+      await AzureLogger.logInfo('break_done_trade', `Manual break done trade calculation completed: ${result.message || 'OK'}`);
+      console.log(`✅ Break Done Trade calculation completed: ${result.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: result.success ? 'completed' : 'failed',
+          progress_percentage: 100,
+          ...(result.success ? {} : { error_message: result.message })
+        });
+      }
+    }).catch(async (error: any) => {
+      await AzureLogger.logSchedulerError('break_done_trade', error.message);
+      console.error(`❌ Break Done Trade calculation error: ${error.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
+        });
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: 'Break Done Trade calculation triggered successfully',
+      log_id: logEntry.id
+    });
+  } catch (error: any) {
+    console.error('❌ Error triggering break done trade calculation:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Unknown error'
     });
   }
 });

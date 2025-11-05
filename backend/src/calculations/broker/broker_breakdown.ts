@@ -42,8 +42,15 @@ export class BrokerBreakdownCalculator {
         file.includes('/DT') && file.endsWith('.csv')
       );
       
-      console.log(`Found ${dtFiles.length} DT files to process`);
-      return dtFiles;
+      // Sort by date descending (newest first) - process from newest to oldest
+      const sortedFiles = dtFiles.sort((a, b) => {
+        const dateA = a.split('/')[1] || '';
+        const dateB = b.split('/')[1] || '';
+        return dateB.localeCompare(dateA); // Descending order (newest first)
+      });
+      
+      console.log(`Found ${sortedFiles.length} DT files to process (sorted newest first)`);
+      return sortedFiles;
     } catch (error) {
       console.error('Error scanning DT files:', error);
       return [];
@@ -263,14 +270,38 @@ export class BrokerBreakdownCalculator {
   /**
    * Process a single DT file with broker breakdown analysis
    */
-  private async processSingleDtFile(blobName: string): Promise<{ success: boolean; dateSuffix: string; files: string[] }> {
+  private async processSingleDtFile(blobName: string): Promise<{ success: boolean; dateSuffix: string; files: string[]; skipped?: boolean }> {
+    // Extract date from blob name first (before loading input)
+    const pathParts = blobName.split('/');
+    const dateFolder = pathParts[1] || 'unknown'; // 20251021
+    const dateSuffix = dateFolder;
+    
+    // Check if output already exists for this date BEFORE loading input
+    // Check if folder exists by listing files (check if any file exists in the folder)
+    const { listPaths } = await import('../../utils/azureBlob');
+    
+    try {
+      // Check if at least one file exists in the output folder
+      const outputPrefix = `done_summary_broker_breakdown/${dateSuffix}/`;
+      const existingFiles = await listPaths({ prefix: outputPrefix });
+      
+      if (existingFiles.length > 0) {
+        console.log(`⏭️ Broker breakdown already exists for date ${dateSuffix} - skipping (found ${existingFiles.length} existing files)`);
+        return { success: true, dateSuffix, files: [], skipped: true };
+      }
+    } catch (error) {
+      // If check fails, continue with processing (might be permission issue)
+      console.log(`ℹ️ Could not check existence of output folder for ${dateSuffix}, proceeding with generation`);
+    }
+    
+    // Only load input if output doesn't exist
     const result = await this.loadAndProcessSingleDtFile(blobName);
     
     if (!result) {
       return { success: false, dateSuffix: '', files: [] };
     }
     
-    const { data, dateSuffix } = result;
+    const { data } = result;
     
     if (data.length === 0) {
       console.log(`⚠️ No transaction data in ${blobName} - skipping`);

@@ -2465,5 +2465,117 @@ export const api = {
     }
   },
 
+  // Scheduler Management API
+  async getSchedulerConfig(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const response = await fetch(`${API_URL}/api/developer/scheduler/config`, {
+        headers: {
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+        }
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to get scheduler config');
+      return { success: true, data: data.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get scheduler config' };
+    }
+  },
+
+  async updateSchedulerConfig(config: any): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const response = await fetch(`${API_URL}/api/developer/scheduler/config`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+        },
+        body: JSON.stringify(config)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to update scheduler config');
+      return { success: true, data: data.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to update scheduler config' };
+    }
+  },
+
+  async stopScheduler(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const response = await fetch(`${API_URL}/api/developer/scheduler/stop`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+        }
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to stop scheduler');
+      return { success: true, data: data.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to stop scheduler' };
+    }
+  },
+
+  async startScheduler(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const response = await fetch(`${API_URL}/api/developer/scheduler/start`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+        }
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to start scheduler');
+      return { success: true, data: data.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to start scheduler' };
+    }
+  },
+
+  async getSchedulerStatus(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const response = await fetch(`${API_URL}/api/developer/scheduler/status`, {
+        headers: {
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+        }
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to get scheduler status');
+      return { success: true, data: data.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get scheduler status' };
+    }
+  },
+
+  async getAllPhasesStatus(): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const response = await fetch(`${API_URL}/api/developer/scheduler/phases`, {
+        headers: {
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+        }
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to get phases status');
+      return { success: true, data: data.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get phases status' };
+    }
+  },
+
+  async triggerPhase(phaseId: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const response = await fetch(`${API_URL}/api/developer/scheduler/phases/${phaseId}/trigger`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+        }
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to trigger phase');
+      return { success: true, message: data.message };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to trigger phase' };
+    }
+  },
+
 
 };
