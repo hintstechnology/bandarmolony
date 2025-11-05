@@ -6,7 +6,6 @@ import { BrokerSummaryPage } from '../broker-activity/BrokerSummaryPage';
 import { StoryMarketParticipant } from '../story/StoryMarketParticipant';
 import { StoryOwnershipSummary } from '../story/StoryOwnershipSummary';
 import { StoryForeignFlowAnalysis } from '../story/StoryForeignFlowAnalysis';
-import { BrokerInventory } from '../broker-activity/BrokerInventory';
 import { BrokerInventoryPage } from '../broker-activity/BrokerInventoryPage';
 import { CollapsibleSection } from './CollapsibleSection';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
