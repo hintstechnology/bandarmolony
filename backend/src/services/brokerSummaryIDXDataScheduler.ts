@@ -110,15 +110,18 @@ export class BrokerSummaryIDXDataScheduler {
         try {
           const paths = await listPaths({ prefix: folder });
           paths.forEach(path => {
-            // Extract date from path like: broker_summary/broker_summary_240101/...
-            const match = path.match(/broker_summary_(\d{6})/);
-            if (match && match[1]) {
-              // Convert YYMMDD to YYYYMMDD
-              const yy = match[1].substring(0, 2);
-              const mmdd = match[1].substring(2);
-              // Assume 2000s (20YY)
-              const yyyy = `20${yy}`;
-              allDates.add(`${yyyy}${mmdd}`);
+            // Extract date from path like: broker_summary_rg/broker_summary_rg_20241021/...
+            // or broker_summary/broker_summary_20241021/...
+            // Date format is YYYYMMDD (8 digits)
+            // Match modern path: broker_summary_rg/broker_summary_rg_20241021/
+            const m1 = path.match(/broker_summary_(rg|tn|ng)\/broker_summary_\1_(\d{8})\//);
+            // Match legacy path: broker_summary/broker_summary_20241021/
+            const m2 = path.match(/broker_summary\/broker_summary_(\d{8})\//);
+            if (m1 && m1[2]) {
+              allDates.add(m1[2]);
+            }
+            if (m2 && m2[1]) {
+              allDates.add(m2[1]);
             }
           });
         } catch (error) {

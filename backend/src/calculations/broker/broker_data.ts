@@ -37,25 +37,6 @@ interface TopBrokerData {
 }
 
 
-interface BrokerTransactionData {
-  Emiten: string;
-  BuyerVol: number;
-  BuyerValue: number;
-  SellerVol: number;
-  SellerValue: number;
-  NetBuyVol: number;
-  NetBuyValue: number;
-  NetSellVol: number;
-  NetSellValue: number;
-  BuyerAvg: number;
-  SellerAvg: number;
-  NetBuyAvg: number;
-  NetSellAvg: number;
-  TotalVolume: number;
-  AvgPrice: number;
-  TransactionCount: number;
-  TotalValue: number;
-}
 
 interface DetailedBrokerSummary {
   BrokerCode: string;
@@ -357,130 +338,6 @@ export class BrokerDataCalculator {
   }
 
   /**
-   * Create broker transaction files for each broker
-   */
-  private async createBrokerTransactionPerBroker(
-    data: TransactionData[], 
-    dateSuffix: string
-  ): Promise<string[]> {
-    console.log("\nCreating broker transaction files per broker...");
-    
-    // Get unique broker codes (both buyer and seller brokers)
-    const uniqueBrokers = [...new Set([
-      ...data.map(row => row.BRK_COD2), // buyer brokers
-      ...data.map(row => row.BRK_COD1)  // seller brokers
-    ])];
-    console.log(`Found ${uniqueBrokers.length} unique brokers`);
-    
-    const createdFiles: string[] = [];
-    
-    for (const broker of uniqueBrokers) {
-      console.log(`Processing broker: ${broker}`);
-      
-      // Filter data for this broker (both as buyer and seller)
-      const brokerData = data.filter(row => row.BRK_COD2 === broker || row.BRK_COD1 === broker);
-      
-      // Group by stock code for this broker
-      const stockGroups = new Map<string, TransactionData[]>();
-      brokerData.forEach(row => {
-        const stock = row.STK_CODE;
-        if (!stockGroups.has(stock)) {
-          stockGroups.set(stock, []);
-        }
-        stockGroups.get(stock)!.push(row);
-      });
-      
-      // Calculate summary for each stock
-      const stockSummary: BrokerTransactionData[] = [];
-      
-      stockGroups.forEach((transactions, stock) => {
-        // Separate buyer and seller transactions
-        const buyerTransactions = transactions.filter(t => t.BRK_COD2 === broker);
-        const sellerTransactions = transactions.filter(t => t.BRK_COD1 === broker);
-        
-        // Calculate buyer data
-        const buyerVol = buyerTransactions.reduce((sum, t) => sum + t.STK_VOLM, 0);
-        const buyerValue = buyerTransactions.reduce((sum, t) => sum + (t.STK_VOLM * t.STK_PRIC), 0);
-        const buyerAvg = buyerVol > 0 ? buyerValue / buyerVol : 0;
-        
-        // Calculate seller data
-        const sellerVol = sellerTransactions.reduce((sum, t) => sum + t.STK_VOLM, 0);
-        const sellerValue = sellerTransactions.reduce((sum, t) => sum + (t.STK_VOLM * t.STK_PRIC), 0);
-        const sellerAvg = sellerVol > 0 ? sellerValue / sellerVol : 0;
-        
-        // Calculate net values (before SWAPPED)
-        const rawNetBuyVol = buyerVol - sellerVol;
-        const rawNetBuyValue = buyerValue - sellerValue;
-        let netBuyVol = 0;
-        let netBuyValue = 0;
-        let netSellVol = 0;
-        let netSellValue = 0;
-        
-        // If NetBuy is negative, it becomes NetSell (and NetBuy is set to 0)
-        // If NetBuy is positive, NetSell is 0 (and NetBuy keeps the value)
-        if (rawNetBuyVol < 0 || rawNetBuyValue < 0) {
-          // NetBuy is negative, so it becomes NetSell
-          netSellVol = Math.abs(rawNetBuyVol);
-          netSellValue = Math.abs(rawNetBuyValue);
-          netBuyVol = 0;
-          netBuyValue = 0;
-        } else {
-          // NetBuy is positive or zero, keep it and NetSell is 0
-          netBuyVol = rawNetBuyVol;
-          netBuyValue = rawNetBuyValue;
-          netSellVol = 0;
-          netSellValue = 0;
-        }
-        
-        // Calculate net averages
-        const netBuyAvg = netBuyVol > 0 ? netBuyValue / netBuyVol : 0;
-        const netSellAvg = netSellVol > 0 ? netSellValue / netSellVol : 0;
-        
-        // Calculate total values
-        const totalVolume = buyerVol + sellerVol;
-        const totalValue = buyerValue + sellerValue;
-        const avgPrice = totalVolume > 0 ? totalValue / totalVolume : 0;
-        
-        // SWAPPED: Kolom Buyer isinya data Seller, kolom Seller isinya data Buyer
-        // Ini agar frontend tidak perlu swap lagi (sesuai dengan CSV yang kolomnya tertukar)
-        stockSummary.push({
-          Emiten: stock,
-          BuyerVol: sellerVol,        // SWAPPED: Kolom Buyer = data Seller
-          BuyerValue: sellerValue,    // SWAPPED: Kolom Buyer = data Seller
-          SellerVol: buyerVol,        // SWAPPED: Kolom Seller = data Buyer
-          SellerValue: buyerValue,    // SWAPPED: Kolom Seller = data Buyer
-          NetBuyVol: netBuyVol,
-          NetBuyValue: netBuyValue,
-          NetSellVol: netSellVol,
-          NetSellValue: netSellValue,
-          BuyerAvg: sellerAvg,        // SWAPPED: Kolom BuyerAvg = SellerAvg
-          SellerAvg: buyerAvg,         // SWAPPED: Kolom SellerAvg = BuyerAvg
-          NetBuyAvg: netBuyAvg,
-          NetSellAvg: netSellAvg,
-          TotalVolume: totalVolume,
-          AvgPrice: avgPrice,
-          TransactionCount: transactions.length,
-          TotalValue: totalValue
-        });
-      });
-      
-      // Sort by total volume descending
-      stockSummary.sort((a, b) => b.TotalVolume - a.TotalVolume);
-      
-      // Save to Azure
-      const filename = `broker_transaction/broker_transaction_${dateSuffix}/${broker}.csv`;
-      await this.saveToAzure(filename, stockSummary);
-      createdFiles.push(filename);
-      
-      console.log(`Created ${filename} with ${stockSummary.length} stocks`);
-    }
-    
-    console.log(`Created ${createdFiles.length} broker transaction files`);
-    return createdFiles;
-  }
-
-
-  /**
    * Create top broker analysis: For each broker, show what stocks they bought
    * Same as original file - only processes buyer brokers (BRK_COD2)
    */
@@ -765,7 +622,6 @@ export class BrokerDataCalculator {
       // Track timing for each output type
       const timing = {
         brokerSummary: 0,
-        brokerTransaction: 0,
         topBroker: 0,
         allsum: 0,
         mainSummary: 0
@@ -773,9 +629,8 @@ export class BrokerDataCalculator {
       
       // Create all analysis types in parallel for speed
       const startTime = Date.now();
-      const [brokerSummaryFiles, brokerTransactionFiles, topBroker, detailedSummary, comprehensiveSummary] = await Promise.all([
+      const [brokerSummaryFiles, topBroker, detailedSummary, comprehensiveSummary] = await Promise.all([
         this.createBrokerSummaryPerEmiten(data, dateSuffix),
-        this.createBrokerTransactionPerBroker(data, dateSuffix),
         Promise.resolve(this.createTopBroker(data)),
         Promise.resolve(this.createDetailedBrokerSummary(data)),
         Promise.resolve(this.createComprehensiveTopBroker(data))
@@ -784,7 +639,6 @@ export class BrokerDataCalculator {
       
       // Create data maps for ALLSUM and top_broker files
       const brokerSummaryData = new Map<string, BrokerSummary[]>();
-      const brokerTransactionData = new Map<string, BrokerTransactionData[]>();
       
       // Note: ALLSUM files require actual data content, not just file names
       // For now, we'll skip ALLSUM creation in this simplified version
@@ -792,7 +646,7 @@ export class BrokerDataCalculator {
       // Create ALLSUM and top_broker files
       const allsumStartTime = Date.now();
       const [allsumFiles, topBrokerFiles] = await Promise.all([
-        this.createAllsumFiles(dateSuffix, brokerSummaryData, brokerTransactionData),
+        this.createAllsumFiles(dateSuffix, brokerSummaryData),
         this.createTopBrokerFiles(dateSuffix, brokerSummaryData)
       ]);
       timing.allsum = Math.round((Date.now() - allsumStartTime) / 1000);
@@ -808,7 +662,6 @@ export class BrokerDataCalculator {
       
       const allFiles = [
         ...brokerSummaryFiles,
-        ...brokerTransactionFiles,
         ...allsumFiles,
         ...topBrokerFiles,
         `broker_summary/broker_summary_${dateSuffix}/ALLSUM-broker_summary.csv`,
@@ -894,13 +747,11 @@ export class BrokerDataCalculator {
       
       // Calculate breakdown of output files by type and aggregate timing
       let brokerSummaryFiles = 0;
-      let brokerTransactionFiles = 0;
       let topBrokerFiles = 0;
       let allsumFiles = 0;
       
       const totalTiming = {
         brokerSummary: 0,
-        brokerTransaction: 0,
         topBroker: 0,
         allsum: 0,
         mainSummary: 0
@@ -911,8 +762,6 @@ export class BrokerDataCalculator {
           result.files.forEach(file => {
             if (file.includes('broker_summary/') && !file.includes('ALLSUM')) {
               brokerSummaryFiles++;
-            } else if (file.includes('broker_transaction/') && !file.includes('ALLSUM')) {
-              brokerTransactionFiles++;
             } else if (file.includes('top_broker/')) {
               topBrokerFiles++;
             } else if (file.includes('ALLSUM')) {
@@ -923,7 +772,6 @@ export class BrokerDataCalculator {
           // Aggregate timing if available
           if (result.timing) {
             totalTiming.brokerSummary += result.timing.brokerSummary || 0;
-            totalTiming.brokerTransaction += result.timing.brokerTransaction || 0;
             totalTiming.topBroker += result.timing.topBroker || 0;
             totalTiming.allsum += result.timing.allsum || 0;
             totalTiming.mainSummary += result.timing.mainSummary || 0;
@@ -937,7 +785,6 @@ export class BrokerDataCalculator {
       console.log(`📊 Total output files: ${totalFiles}`);
       console.log(`📊 Output breakdown:`);
       console.log(`   📈 Broker Summary files: ${brokerSummaryFiles} (${totalTiming.brokerSummary}s)`);
-      console.log(`   📊 Broker Transaction files: ${brokerTransactionFiles} (${totalTiming.brokerTransaction}s)`);
       console.log(`   🏆 Top Broker files: ${topBrokerFiles} (${totalTiming.topBroker}s)`);
       console.log(`   📋 ALLSUM files: ${allsumFiles} (${totalTiming.allsum}s)`);
       console.log(`   📄 Main Summary files: 3 (${totalTiming.mainSummary}s)`);
@@ -955,7 +802,6 @@ export class BrokerDataCalculator {
           duration: totalDuration,
           outputBreakdown: {
             brokerSummaryFiles,
-            brokerTransactionFiles,
             topBrokerFiles,
             allsumFiles
           },
@@ -974,29 +820,19 @@ export class BrokerDataCalculator {
   }
 
   /**
-   * Create ALLSUM files for broker_transaction only
+   * Create ALLSUM files
    * Note: ALLSUM-broker_summary.csv is created in main summary files
    */
   private async createAllsumFiles(
-    dateSuffix: string,
-    _brokerSummaryData: Map<string, BrokerSummary[]>,
-    brokerTransactionData: Map<string, BrokerTransactionData[]>
+    _dateSuffix: string,
+    _brokerSummaryData: Map<string, BrokerSummary[]>
   ): Promise<string[]> {
     const createdFiles: string[] = [];
 
     try {
-      // Create ALLSUM-broker_transaction.csv only (same as original file)
-      const allBrokerTransaction: BrokerTransactionData[] = [];
-      for (const [, transactions] of brokerTransactionData) {
-        allBrokerTransaction.push(...transactions);
-      }
-      
-      if (allBrokerTransaction.length > 0) {
-        const allsumTransactionFilename = `broker_transaction/broker_transaction_${dateSuffix}/ALLSUM-broker_transaction.csv`;
-        await this.saveToAzure(allsumTransactionFilename, allBrokerTransaction);
-        createdFiles.push(allsumTransactionFilename);
-        console.log(`Created ${allsumTransactionFilename} with ${allBrokerTransaction.length} rows`);
-      }
+      // Note: ALLSUM files are created in main summary files to match original structure
+      // This function is kept for compatibility but doesn't create additional files
+      console.log(`ALLSUM files will be created in main summary files (same as original)`);
 
     } catch (error) {
       console.error('Error creating ALLSUM files:', error);

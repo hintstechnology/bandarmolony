@@ -16,6 +16,15 @@ interface BrokerTransactionData {
   AvgPrice: number;
   TransactionCount: number;
   TotalValue: number;
+  // New fields for broker transaction
+  BCode?: string;      // Buyer Broker Code
+  BFreq?: number;      // Buyer Frequency
+  BLotPerFreq?: number; // Buyer Lot/Frequency (Lot/F)
+  BOrdNum?: number;    // Buyer Order Number
+  SCode?: string;      // Seller Broker Code
+  SFreq?: number;      // Seller Frequency
+  SLotPerFreq?: number; // Seller Lot/Frequency (Lot/F)
+  SOrdNum?: number;    // Seller Order Number
 }
 
 
@@ -61,28 +70,30 @@ const formatLot = (value: number): string => {
   
   if (absValue >= 1000000000) {
     // Use B (billion) with 3 decimal places
-    // Example: 144,000,000,000 → 144.000B
+    // Format: ribuan pakai ',' (koma), desimal pakai '.' (titik)
+    // Example: 144,000,000,000 → 144,000.000B
     const billions = rounded / 1000000000;
     const billionsStr = billions.toFixed(3);
     // Split integer and decimal parts
     const parts = billionsStr.split('.');
     const integerPart = parts[0] || '0';
     const decimalPart = parts[1] || '000';
-    // Format integer part with thousand separator (dot for thousand, comma for decimal in id-ID)
-    const integerFormatted = parseInt(integerPart).toLocaleString('id-ID', { useGrouping: true, minimumFractionDigits: 0, maximumFractionDigits: 0 });
-    return `${integerFormatted},${decimalPart}B`;
+    // Format integer part with thousand separator using en-US (comma for thousands)
+    const integerFormatted = parseInt(integerPart).toLocaleString('en-US', { useGrouping: true, minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    return `${integerFormatted}.${decimalPart}B`;
   } else if (absValue >= 1000000) {
     // Use M (million) with 3 decimal places
-    // Example: 141,431,000 → 141.431M
+    // Format: ribuan pakai ',' (koma), desimal pakai '.' (titik)
+    // Example: 141,431,000 → 141,431.000M
     const millions = rounded / 1000000;
     const millionsStr = millions.toFixed(3);
     // Split integer and decimal parts
     const parts = millionsStr.split('.');
     const integerPart = parts[0] || '0';
     const decimalPart = parts[1] || '000';
-    // Format integer part with thousand separator
-    const integerFormatted = parseInt(integerPart).toLocaleString('id-ID', { useGrouping: true, minimumFractionDigits: 0, maximumFractionDigits: 0 });
-    return `${integerFormatted},${decimalPart}M`;
+    // Format integer part with thousand separator using en-US (comma for thousands)
+    const integerFormatted = parseInt(integerPart).toLocaleString('en-US', { useGrouping: true, minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    return `${integerFormatted}.${decimalPart}M`;
   } else if (absValue >= 1000) {
     // Use K (thousand) with no decimals
     const thousands = rounded / 1000;
@@ -92,8 +103,12 @@ const formatLot = (value: number): string => {
 };
 
 const formatAverage = (value: number): string => {
-  return value.toLocaleString('id-ID', {
-    minimumFractionDigits: 0,
+  // Format: ribuan pakai ',' (koma), desimal pakai '.' (titik)
+  // Pastikan selalu 1 angka di belakang koma
+  // Contoh: 1335.0, 10,000.5
+  const rounded = Math.round(value * 10) / 10; // Round to 1 decimal place
+  return rounded.toLocaleString('en-US', {
+    minimumFractionDigits: 1,
     maximumFractionDigits: 1
   });
 };
@@ -172,7 +187,7 @@ const getFilteredAndSortedStocks = (
           break;
         }
       }
-      
+        
       // Determine sort direction based on filter
       if (filter.includes('-lowest')) {
         return aValue - bValue; // Lowest to highest
@@ -218,24 +233,24 @@ const getLastThreeDays = (): string[] => {
 
 export function BrokerTransaction() {
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
-  
-  // Get available dates from backend and return recent trading days (oldest first for display)
-  const getAvailableTradingDays = async (count: number): Promise<string[]> => {
-    try {
-      // Get available dates from backend
-      const response = await api.getBrokerTransactionDates();
-      if (response.success && response.data?.dates) {
-        // Sort from newest to oldest, then take first count, then reverse for display (oldest first)
-        const availableDates = response.data.dates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
-        return availableDates.slice(0, count).reverse(); // Reverse to get oldest first
-      }
-    } catch (error) {
-      console.error('Error fetching available dates:', error);
+
+// Get available dates from backend and return recent trading days (oldest first for display)
+const getAvailableTradingDays = async (count: number): Promise<string[]> => {
+  try {
+    // Get available dates from backend
+    const response = await api.getBrokerTransactionDates();
+    if (response.success && response.data?.dates) {
+      // Sort from newest to oldest, then take first count, then reverse for display (oldest first)
+      const availableDates = response.data.dates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+      return availableDates.slice(0, count).reverse(); // Reverse to get oldest first
     }
-    
-    // Fallback to local calculation if backend fails (already sorted oldest first)
-    return getTradingDays(count);
-  };
+  } catch (error) {
+    console.error('Error fetching available dates:', error);
+  }
+  
+  // Fallback to local calculation if backend fails (already sorted oldest first)
+  return getTradingDays(count);
+};
   const [startDate, setStartDate] = useState(() => {
     const threeDays = getLastThreeDays();
     if (threeDays.length > 0) {
@@ -259,6 +274,15 @@ export function BrokerTransaction() {
   const startDateRef = useRef<HTMLInputElement>(null);
   const endDateRef = useRef<HTMLInputElement>(null);
   const dropdownBrokerRef = useRef<HTMLDivElement>(null);
+  
+  // Refs for table synchronization
+  const valueTableRef = useRef<HTMLTableElement>(null);
+  const netTableRef = useRef<HTMLTableElement>(null);
+  const valueTableContainerRef = useRef<HTMLDivElement>(null);
+  const netTableContainerRef = useRef<HTMLDivElement>(null);
+  
+  // Store date column widths from Value table
+  const dateColumnWidthsRef = useRef<Map<string, number>>(new Map());
   
   // API data states
   const [transactionData, setTransactionData] = useState<Map<string, BrokerTransactionData[]>>(new Map());
@@ -489,6 +513,231 @@ export function BrokerTransaction() {
     };
   }, []);
 
+  // Synchronize table widths between Value and Net tables
+  useEffect(() => {
+    if (isLoading || selectedDates.length === 0) return;
+    
+    // Clear stored widths when dates change
+    dateColumnWidthsRef.current.clear();
+
+    const syncTableWidths = () => {
+      const valueTable = valueTableRef.current;
+      const netTable = netTableRef.current;
+
+      if (!valueTable || !netTable) return;
+
+      // Sync overall table width
+      const valueTableWidth = valueTable.scrollWidth || valueTable.offsetWidth;
+      
+      if (valueTableWidth > 0) {
+        netTable.style.width = `${valueTableWidth}px`;
+        netTable.style.minWidth = `${valueTableWidth}px`;
+        netTable.style.maxWidth = `${valueTableWidth}px`;
+      }
+
+      // Sync date column group widths (colspan=17 headers)
+      const valueHeaderRows = valueTable.querySelectorAll('thead tr');
+      const netHeaderRows = netTable.querySelectorAll('thead tr');
+      
+      if (valueHeaderRows.length >= 2 && netHeaderRows.length >= 2) {
+        // Get first header row (date headers with colspan=17)
+        const valueDateHeaderRow = valueHeaderRows[0];
+        const netDateHeaderRow = netHeaderRows[0];
+        
+        if (valueDateHeaderRow && netDateHeaderRow) {
+          const valueDateHeaderCells = valueDateHeaderRow.querySelectorAll('th[colspan="17"]');
+          const netDateHeaderCells = netDateHeaderRow.querySelectorAll('th[colspan="17"]');
+          
+          // Store widths from Value table and apply to Net table
+          valueDateHeaderCells.forEach((valueCell, index) => {
+            const netCell = netDateHeaderCells[index] as HTMLElement;
+            if (netCell && valueCell) {
+              const valueWidth = (valueCell as HTMLElement).offsetWidth;
+              
+              // Store width by date index (excluding Total column)
+              if (index < selectedDates.length) {
+                const date = selectedDates[index];
+                if (date) {
+                  dateColumnWidthsRef.current.set(date, valueWidth);
+                }
+              }
+              
+              // Apply width to Net table
+              const width = `${valueWidth}px`;
+              netCell.style.width = width;
+              netCell.style.minWidth = width;
+              netCell.style.maxWidth = width;
+            }
+          });
+          
+          // Also sync all body cells within each date column group
+          const valueBodyRows = valueTable.querySelectorAll('tbody tr');
+          const netBodyRows = netTable.querySelectorAll('tbody tr');
+          
+          valueBodyRows.forEach((valueRow, rowIndex) => {
+            const netRow = netBodyRows[rowIndex] as HTMLTableRowElement;
+            if (!valueRow || !netRow) return;
+            
+            // For each date column group (17 cells), sync all cells
+            selectedDates.forEach((date, dateIndex) => {
+              const startCellIndex = dateIndex * 17;
+              const storedWidth = dateColumnWidthsRef.current.get(date);
+              
+              if (storedWidth) {
+                // Sync each cell in this date column group
+                for (let i = 0; i < 17; i++) {
+                  const valueCell = valueRow.children[startCellIndex + i] as HTMLElement;
+                  const netCell = netRow.children[startCellIndex + i] as HTMLElement;
+                  
+                  if (valueCell && netCell) {
+                    const cellWidth = valueCell.offsetWidth;
+                    const width = `${cellWidth}px`;
+                    netCell.style.width = width;
+                    netCell.style.minWidth = width;
+                    netCell.style.maxWidth = width;
+                  }
+                }
+              }
+            });
+            
+            // Also sync Total column if exists
+            const totalStartIndex = selectedDates.length * 17;
+            const valueTotalCells = Array.from(valueRow.children).slice(totalStartIndex);
+            const netTotalCells = Array.from(netRow.children).slice(totalStartIndex);
+            
+            valueTotalCells.forEach((valueCell, idx) => {
+              const netCell = netTotalCells[idx] as HTMLElement;
+              if (netCell && valueCell) {
+                const cellWidth = (valueCell as HTMLElement).offsetWidth;
+                const width = `${cellWidth}px`;
+                netCell.style.width = width;
+                netCell.style.minWidth = width;
+                netCell.style.maxWidth = width;
+              }
+            });
+          });
+        }
+
+        // Sync individual column header widths
+        const valueColumnHeaderRow = valueHeaderRows[1];
+        const netColumnHeaderRow = netHeaderRows[1];
+        
+        if (valueColumnHeaderRow && netColumnHeaderRow) {
+          const valueHeaderCells = valueColumnHeaderRow.querySelectorAll('th');
+          const netHeaderCells = netColumnHeaderRow.querySelectorAll('th');
+          
+          valueHeaderCells.forEach((valueCell, index) => {
+            const netCell = netHeaderCells[index] as HTMLElement;
+            if (netCell && valueCell) {
+              const width = `${(valueCell as HTMLElement).offsetWidth}px`;
+              netCell.style.width = width;
+              netCell.style.minWidth = width;
+              netCell.style.maxWidth = width;
+            }
+          });
+        }
+      }
+    };
+
+    // Debounce function to avoid too frequent syncs
+    let debounceTimer: NodeJS.Timeout | null = null;
+    const debouncedSync = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        syncTableWidths();
+      }, 100);
+    };
+    
+    // Initial sync with delay
+    const initialTimeoutId = setTimeout(() => {
+      syncTableWidths();
+    }, 400);
+    
+    // Sync after data finishes loading
+    let dataTimeoutId: NodeJS.Timeout | null = null;
+    if (!isLoading) {
+      dataTimeoutId = setTimeout(() => {
+        syncTableWidths();
+      }, 700);
+    }
+
+    // Use ResizeObserver to watch for changes
+    let resizeObserver: ResizeObserver | null = null;
+    
+    if (valueTableRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        debouncedSync();
+      });
+      resizeObserver.observe(valueTableRef.current);
+    }
+
+    if (valueTableContainerRef.current) {
+      if (!resizeObserver) {
+        resizeObserver = new ResizeObserver(() => {
+          debouncedSync();
+        });
+      }
+      resizeObserver.observe(valueTableContainerRef.current);
+    }
+
+    // Also sync on window resize
+    const handleResize = () => {
+      debouncedSync();
+    };
+    window.addEventListener('resize', handleResize);
+      
+    return () => {
+      clearTimeout(initialTimeoutId);
+      if (dataTimeoutId) clearTimeout(dataTimeoutId);
+      if (debounceTimer) clearTimeout(debounceTimer);
+      if (resizeObserver) resizeObserver.disconnect();
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [selectedDates, isLoading, transactionData]);
+
+  // Synchronize horizontal scroll between Value and Net tables
+  useEffect(() => {
+    if (isLoading || selectedDates.length === 0) return;
+
+    const valueContainer = valueTableContainerRef.current;
+    const netContainer = netTableContainerRef.current;
+
+    if (!valueContainer || !netContainer) return;
+
+    // Flag to prevent infinite loop
+    let isSyncing = false;
+
+    // Handle Value table scroll - sync to Net table
+    const handleValueScroll = () => {
+      if (!isSyncing && netContainer) {
+        isSyncing = true;
+        netContainer.scrollLeft = valueContainer.scrollLeft;
+        requestAnimationFrame(() => {
+          isSyncing = false;
+        });
+      }
+    };
+
+    // Handle Net table scroll - sync to Value table
+    const handleNetScroll = () => {
+      if (!isSyncing && valueContainer) {
+        isSyncing = true;
+        valueContainer.scrollLeft = netContainer.scrollLeft;
+        requestAnimationFrame(() => {
+          isSyncing = false;
+        });
+      }
+    };
+
+    // Add event listeners
+    valueContainer.addEventListener('scroll', handleValueScroll, { passive: true });
+    netContainer.addEventListener('scroll', handleNetScroll, { passive: true });
+
+    return () => {
+      valueContainer.removeEventListener('scroll', handleValueScroll);
+      netContainer.removeEventListener('scroll', handleNetScroll);
+    };
+  }, [isLoading, selectedDates, transactionData]);
 
   const renderHorizontalView = () => {
     if (selectedBrokers.length === 0 || selectedDates.length === 0) return null;
@@ -496,7 +745,7 @@ export function BrokerTransaction() {
     // Get all unique stocks from all dates
     const allStocks = new Set<string>();
     selectedDates.forEach(date => {
-      const data = transactionData.get(date) || [];
+        const data = transactionData.get(date) || [];
       data.forEach(item => allStocks.add(item.Emiten));
     });
     
@@ -512,168 +761,629 @@ export function BrokerTransaction() {
       );
     }
     
-    // Get filtered and sorted stocks (no sorting, just filter by ticker search)
-    const filteredBuyStocks = getFilteredAndSortedStocks(uniqueStocks, transactionData, selectedDates, tickerSearch, 'all');
-    const filteredSellStocks = getFilteredAndSortedStocks(uniqueStocks, transactionData, selectedDates, tickerSearch, 'all');
+    // Filter stocks by ticker search
+    const filteredStocks = uniqueStocks.filter(stock => 
+      !tickerSearch.trim() || stock.toLowerCase().includes(tickerSearch.toLowerCase())
+    );
+    
+    // Sort stocks by BVal (highest to lowest) for each date - for VALUE table
+    // Create a map of stocks sorted per date
+    const sortedStocksByDate = new Map<string, string[]>();
+    selectedDates.forEach(date => {
+      const dateData = transactionData.get(date) || [];
+      const stocksWithData = dateData
+        .filter(d => filteredStocks.includes(d.Emiten))
+        .sort((a, b) => (b.BuyerValue || 0) - (a.BuyerValue || 0))
+        .map(d => d.Emiten);
+      sortedStocksByDate.set(date, stocksWithData);
+    });
+    
+    // Sort stocks by SVal (Seller Value) (highest to lowest) for each date - for NET table
+    const sortedNetStocksByDate = new Map<string, string[]>();
+    selectedDates.forEach(date => {
+      const dateData = transactionData.get(date) || [];
+      const stocksWithData = dateData
+        .filter(d => filteredStocks.includes(d.Emiten))
+        .sort((a, b) => (b.SellerValue || 0) - (a.SellerValue || 0))
+        .map(d => d.Emiten);
+      sortedNetStocksByDate.set(date, stocksWithData);
+    });
+    
+    // VALUE Table - Shows Buyer and Seller data
+    const renderValueTable = () => {
+      // Get sorted stocks for first date (or use filteredStocks if no data)
+      const firstDate = selectedDates.length > 0 ? selectedDates[0] : '';
+      const sortedStocks = firstDate ? (sortedStocksByDate.get(firstDate) || filteredStocks) : filteredStocks;
+      
+      // Calculate total data aggregated across all dates for each stock
+      const totalDataByStock = new Map<string, {
+        buyerVol: number;
+        buyerValue: number;
+        buyerAvg: number;
+        buyerFreq: number;
+        buyerOrdNum: number;
+        sellerVol: number;
+        sellerValue: number;
+        sellerAvg: number;
+        sellerFreq: number;
+        sellerOrdNum: number;
+        buyerAvgCount: number;
+        sellerAvgCount: number;
+      }>();
+      
+      selectedDates.forEach(date => {
+        const dateData = transactionData.get(date) || [];
+        dateData.forEach(dayData => {
+          if (!filteredStocks.includes(dayData.Emiten)) return;
+          
+          const stock = dayData.Emiten;
+          if (!totalDataByStock.has(stock)) {
+            totalDataByStock.set(stock, {
+              buyerVol: 0,
+              buyerValue: 0,
+              buyerAvg: 0,
+              buyerFreq: 0,
+              buyerOrdNum: 0,
+              sellerVol: 0,
+              sellerValue: 0,
+              sellerAvg: 0,
+              sellerFreq: 0,
+              sellerOrdNum: 0,
+              buyerAvgCount: 0,
+              sellerAvgCount: 0,
+            });
+          }
+          
+          const total = totalDataByStock.get(stock)!;
+          total.buyerVol += Number(dayData.BuyerVol) || 0;
+          total.buyerValue += Number(dayData.BuyerValue) || 0;
+          total.buyerFreq += Number(dayData.BFreq) || Number(dayData.TransactionCount) || 0;
+          total.buyerOrdNum += Number(dayData.BOrdNum) || 0;
+          total.sellerVol += Number(dayData.SellerVol) || 0;
+          total.sellerValue += Number(dayData.SellerValue) || 0;
+          total.sellerFreq += Number(dayData.SFreq) || Number(dayData.TransactionCount) || 0;
+          total.sellerOrdNum += Number(dayData.SOrdNum) || 0;
+          
+          // Calculate average by accumulating and counting
+          if (dayData.BuyerAvg || (dayData.BuyerVol && dayData.BuyerVol > 0)) {
+            total.buyerAvg += dayData.BuyerAvg || ((dayData.BuyerValue || 0) / (dayData.BuyerVol || 1));
+            total.buyerAvgCount += 1;
+          }
+          if (dayData.SellerAvg || (dayData.SellerVol && dayData.SellerVol > 0)) {
+            total.sellerAvg += dayData.SellerAvg || ((dayData.SellerValue || 0) / (dayData.SellerVol || 1));
+            total.sellerAvgCount += 1;
+        }
+      });
+    });
+    
+      // Calculate final averages
+      totalDataByStock.forEach((total, stock) => {
+        total.buyerAvg = total.buyerAvgCount > 0 ? total.buyerAvg / total.buyerAvgCount : (total.buyerVol > 0 ? total.buyerValue / total.buyerVol : 0);
+        total.sellerAvg = total.sellerAvgCount > 0 ? total.sellerAvg / total.sellerAvgCount : (total.sellerVol > 0 ? total.sellerValue / total.sellerVol : 0);
+      });
+      
+      // Sort stocks by total buyer value (highest to lowest) for Total column
+      const sortedTotalStocks = Array.from(totalDataByStock.entries())
+        .sort((a, b) => b[1].buyerValue - a[1].buyerValue)
+        .map(([stock]) => stock);
+      
+      return (
+        <div className="w-full max-w-full mt-1">
+          <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
+            <h3 className="font-semibold text-sm">VALUE - {selectedBrokers.join(', ')} ({sortedStocks.length} stocks)</h3>
+          </div>
+          <div className="w-full max-w-full">
+            <div ref={valueTableContainerRef} className="w-full max-w-full overflow-x-auto max-h-[494px] overflow-y-auto border-l-2 border-r-2 border-b-2 border-white">
+              <table ref={valueTableRef} className={`min-w-[1000px] ${getFontSizeClass()} table-auto`}>
+                <thead className="bg-[#3a4252]">
+                  {/* Date Header Row */}
+                  <tr className="border-t-2 border-white">
+                    {selectedDates.map((date, dateIndex) => (
+                      <th 
+                        key={date} 
+                        className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} 
+                        colSpan={17}
+                      >
+                        {formatDisplayDate(date)}
+                      </th>
+                    ))}
+                    <th className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={17}>
+                      Total
+                    </th>
+                  </tr>
+                  {/* Column Header Row */}
+                  <tr className="bg-[#3a4252]">
+                    {selectedDates.map((date, dateIndex) => (
+                      <React.Fragment key={date}>
+                        {/* Buyer Columns */}
+                        <th className={`text-center py-[1px] px-[4.2px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} title={formatDisplayDate(date)}>BCode</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>BLot</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>BVal</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>BAvg</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>BFreq</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>Lot/F</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>BOrdNum</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-10" title={formatDisplayDate(date)}>Lot/ON</th>
+                        {/* Separator */}
+                        <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-4" title={formatDisplayDate(date)}>#</th>
+                        {/* Seller Columns */}
+                        <th className="text-center py-[1px] px-[4.2px] font-bold text-white w-4" title={formatDisplayDate(date)}>SCode</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>SLot</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>SVal</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>SFreq</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>Lot/F</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>SOrdNum</th>
+                        <th className={`text-right py-[1px] px-[4.2px] font-bold text-white w-10 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/ON</th>
+                      </React.Fragment>
+                    ))}
+                    {/* Total Columns */}
+                    <th className={`text-center py-[1px] px-[4.2px] font-bold text-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>BCode</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BLot</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BVal</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BAvg</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BFreq</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BOrdNum</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/ON</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252]">#</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SCode</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SLot</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SVal</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SAvg</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SFreq</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SOrdNum</th>
+                    <th className="text-right py-[1px] px-[6px] font-bold text-white border-r-2 border-white">Lot/ON</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedStocks.map((stock, stockIdx) => (
+                    <tr key={stockIdx} className="border-b border-[#3a4252]/50">
+                      {selectedDates.map((date, dateIndex) => {
+                        // Sort stocks by BVal for this specific date
+                        const dateSortedStocks = sortedStocksByDate.get(date) || [];
+                        const currentStockIndex = dateSortedStocks.indexOf(stock);
+                        const dateData = transactionData.get(date) || [];
+                        const dayData = dateData.find(d => d.Emiten === stock);
+                        const hasData = dayData !== undefined;
+                        
+                        if (!hasData || !dayData) {
+                          return (
+                            <td key={date} className={`text-center py-[1px] px-[4.2px] text-gray-400 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} colSpan={17}>
+                              No Data
+                            </td>
+                          );
+                        }
+                        
+                        const buyerLot = (dayData.BuyerVol || 0) / 100;
+                        const buyerAvg = dayData.BuyerAvg || ((dayData.BuyerVol || 0) > 0 ? (dayData.BuyerValue || 0) / (dayData.BuyerVol || 0) : 0);
+                        const sellerLot = (dayData.SellerVol || 0) / 100;
+                        const sellerAvg = dayData.SellerAvg || ((dayData.SellerVol || 0) > 0 ? (dayData.SellerValue || 0) / (dayData.SellerVol || 0) : 0);
+                        const buyerFreq = dayData.BFreq || dayData.TransactionCount || 0;
+                        const sellerFreq = dayData.SFreq || dayData.TransactionCount || 0;
+                        const buyerLotPerFreq = buyerFreq > 0 ? buyerLot / buyerFreq : 0;
+                        const sellerLotPerFreq = sellerFreq > 0 ? sellerLot / sellerFreq : 0;
+                        const buyerOrdNum = dayData.BOrdNum || 0;
+                        const sellerOrdNum = dayData.SOrdNum || 0;
+                        const buyerLotPerOrdNum = buyerOrdNum > 0 ? buyerLot / buyerOrdNum : 0;
+                        const sellerLotPerOrdNum = sellerOrdNum > 0 ? sellerLot / sellerOrdNum : 0;
+                        
+                        return (
+                          <React.Fragment key={date}>
+                            {/* Buyer Columns */}
+                            <td className={`text-center py-[1px] px-[4.2px] font-bold text-green-600 w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>
+                              {dayData.BCode || stock}
+                            </td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600 w-6">{formatLot(buyerLot)}</td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600 w-6">{formatValue(dayData.BuyerValue || 0)}</td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600 w-6">{formatAverage(buyerAvg)}</td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600 w-6">{buyerFreq}</td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600 w-6">{formatAverage(buyerLotPerFreq)}</td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600 w-6">{buyerOrdNum}</td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600 w-10">{buyerOrdNum > 0 ? formatAverage(buyerLotPerOrdNum) : formatAverage(0)}</td>
+                            {/* Separator */}
+                            <td className="text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold w-4">{currentStockIndex >= 0 ? currentStockIndex + 1 : 0}</td>
+                            {/* Seller Columns */}
+                            <td className="text-center py-[1px] px-[4.2px] font-bold text-red-600 w-4">{dayData.SCode || stock}</td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600 w-6">{formatLot(sellerLot)}</td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600 w-6">{formatValue(dayData.SellerValue || 0)}</td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600 w-6">{formatAverage(sellerAvg)}</td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600 w-6">{sellerFreq}</td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600 w-6">{formatAverage(sellerLotPerFreq)}</td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600 w-6">{sellerOrdNum}</td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold text-red-600 w-10 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
+                              {sellerOrdNum > 0 ? formatAverage(sellerLotPerOrdNum) : formatAverage(0)}
+                            </td>
+                          </React.Fragment>
+                        );
+                      })}
+                      {/* Total Column */}
+                      {(() => {
+                        const totalData = totalDataByStock.get(stock);
+                        if (!totalData) {
+                          return (
+                            <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={17}>
+                              No Data
+                            </td>
+                          );
+                        }
+                        
+                        const totalBuyerLot = totalData.buyerVol / 100;
+                        const totalSellerLot = totalData.sellerVol / 100;
+                        const totalBuyerLotPerFreq = totalData.buyerFreq > 0 ? totalBuyerLot / totalData.buyerFreq : 0;
+                        const totalSellerLotPerFreq = totalData.sellerFreq > 0 ? totalSellerLot / totalData.sellerFreq : 0;
+                        const totalBuyerLotPerOrdNum = totalData.buyerOrdNum > 0 ? totalBuyerLot / totalData.buyerOrdNum : 0;
+                        const totalSellerLotPerOrdNum = totalData.sellerOrdNum > 0 ? totalSellerLot / totalData.sellerOrdNum : 0;
+                        const totalStockIndex = sortedTotalStocks.indexOf(stock);
+                        
+                        return (
+                          <React.Fragment>
+                            {/* Buyer Columns */}
+                            <td className={`text-center py-[1px] px-[4.2px] font-bold text-green-600 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>
+                              {totalData.buyerVol > 0 ? stock : '-'}
+                            </td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600">{formatLot(totalBuyerLot)}</td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600">{formatValue(totalData.buyerValue)}</td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600">{formatAverage(totalData.buyerAvg)}</td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600">{totalData.buyerFreq}</td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600">{formatAverage(totalBuyerLotPerFreq)}</td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600">{totalData.buyerOrdNum}</td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600">{totalData.buyerOrdNum > 0 ? formatAverage(totalBuyerLotPerOrdNum) : formatAverage(0)}</td>
+                            {/* Separator */}
+                            <td className="text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold">{totalStockIndex >= 0 ? totalStockIndex + 1 : 0}</td>
+                            {/* Seller Columns */}
+                            <td className="text-center py-[1px] px-[4.2px] font-bold text-red-600">
+                              {totalData.sellerVol > 0 ? stock : '-'}
+                            </td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600">{formatLot(totalSellerLot)}</td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600">{formatValue(totalData.sellerValue)}</td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600">{formatAverage(totalData.sellerAvg)}</td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600">{totalData.sellerFreq}</td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600">{formatAverage(totalSellerLotPerFreq)}</td>
+                            <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600">{totalData.sellerOrdNum}</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-red-600 border-r-2 border-white">
+                              {totalData.sellerOrdNum > 0 ? formatAverage(totalSellerLotPerOrdNum) : formatAverage(0)}
+                            </td>
+                          </React.Fragment>
+                        );
+                      })()}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    };
+    
+    // NET Table - Shows Net Buy/Sell data
+    const renderNetTable = () => {
+      // Get sorted stocks for first date (or use filteredStocks if no data)
+      const firstDate = selectedDates.length > 0 ? selectedDates[0] : '';
+      const sortedStocks = firstDate ? (sortedNetStocksByDate.get(firstDate) || filteredStocks) : filteredStocks;
+      
+      // Calculate total Net data aggregated across all dates for each stock
+      const totalNetDataByStock = new Map<string, {
+        netBuyVol: number;
+        netBuyValue: number;
+        netBuyAvg: number;
+        netBuyFreq: number;
+        netBuyOrdNum: number;
+        netSellVol: number;
+        netSellValue: number;
+        netSellAvg: number;
+        netSellFreq: number;
+        netSellOrdNum: number;
+        netBuyAvgCount: number;
+        netSellAvgCount: number;
+      }>();
+      
+      selectedDates.forEach(date => {
+        const dateData = transactionData.get(date) || [];
+        dateData.forEach(dayData => {
+          if (!filteredStocks.includes(dayData.Emiten)) return;
+          
+          const stock = dayData.Emiten;
+          if (!totalNetDataByStock.has(stock)) {
+            totalNetDataByStock.set(stock, {
+              netBuyVol: 0,
+              netBuyValue: 0,
+              netBuyAvg: 0,
+              netBuyFreq: 0,
+              netBuyOrdNum: 0,
+              netSellVol: 0,
+              netSellValue: 0,
+              netSellAvg: 0,
+              netSellFreq: 0,
+              netSellOrdNum: 0,
+              netBuyAvgCount: 0,
+              netSellAvgCount: 0,
+            });
+          }
+          
+          const total = totalNetDataByStock.get(stock)!;
+          const netBuyVol = Number(dayData.NetBuyVol) || 0;
+          const netBuyValue = Number(dayData.NetBuyValue) || 0;
+          const netSellVol = netBuyVol < 0 ? Math.abs(netBuyVol) : 0;
+          const netSellValue = netBuyValue < 0 ? Math.abs(netBuyValue) : 0;
+          
+          if (netBuyVol >= 0) {
+            total.netBuyVol += netBuyVol;
+            total.netBuyValue += netBuyValue;
+          } else {
+            total.netSellVol += netSellVol;
+            total.netSellValue += netSellValue;
+          }
+          
+          total.netBuyFreq += Number(dayData.BFreq) || 0;
+          total.netBuyOrdNum += Number(dayData.BOrdNum) || 0;
+          total.netSellFreq += Number(dayData.SFreq) || 0;
+          total.netSellOrdNum += Number(dayData.SOrdNum) || 0;
+          
+          // Calculate average
+          if (netBuyVol >= 0 && netBuyVol > 0) {
+            total.netBuyAvg += netBuyValue / netBuyVol;
+            total.netBuyAvgCount += 1;
+          }
+          if (netSellVol > 0) {
+            total.netSellAvg += netSellValue / netSellVol;
+            total.netSellAvgCount += 1;
+          }
+        });
+      });
+      
+      // Calculate final averages
+      totalNetDataByStock.forEach((total, stock) => {
+        total.netBuyAvg = total.netBuyAvgCount > 0 ? total.netBuyAvg / total.netBuyAvgCount : (total.netBuyVol > 0 ? total.netBuyValue / total.netBuyVol : 0);
+        total.netSellAvg = total.netSellAvgCount > 0 ? total.netSellAvg / total.netSellAvgCount : (total.netSellVol > 0 ? total.netSellValue / total.netSellVol : 0);
+      });
+      
+      // Sort stocks by total net sell value (highest to lowest) for Total column
+      const sortedTotalNetStocks = Array.from(totalNetDataByStock.entries())
+        .sort((a, b) => b[1].netSellValue - a[1].netSellValue)
+        .map(([stock]) => stock);
+    
+    return (
+        <div className="w-full max-w-full mt-1">
+          <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
+            <h3 className="font-semibold text-sm">NET - {selectedBrokers.join(', ')} ({sortedStocks.length} stocks)</h3>
+          </div>
+          <div className="w-full max-w-full">
+            <div ref={netTableContainerRef} className="w-full max-w-full overflow-x-auto max-h-[494px] overflow-y-auto border-l-2 border-r-2 border-b-2 border-white">
+              <table ref={netTableRef} className={`min-w-[1000px] ${getFontSizeClass()} table-auto`}>
+                <thead className="bg-[#3a4252]">
+                  {/* Date Header Row */}
+                  <tr className="border-t-2 border-white">
+                    {selectedDates.map((date, dateIndex) => (
+                      <th 
+                        key={date} 
+                        className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} 
+                        colSpan={17}
+                      >
+                        {formatDisplayDate(date)}
+                      </th>
+                    ))}
+                    <th className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={17}>
+                      Total
+                    </th>
+                  </tr>
+                  {/* Column Header Row */}
+                  <tr className="bg-[#3a4252]">
+                    {selectedDates.map((date, dateIndex) => (
+                      <React.Fragment key={date}>
+                        {/* Net Buy Columns */}
+                        <th className={`text-center py-[1px] px-[4.2px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} title={formatDisplayDate(date)}>BCode</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>BLot</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>BVal</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>BAvg</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>BFreq</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>Lot/F</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>BOrdNum</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-10" title={formatDisplayDate(date)}>Lot/ON</th>
+                        {/* Separator */}
+                        <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-4" title={formatDisplayDate(date)}>#</th>
+                        {/* Net Sell Columns */}
+                        <th className="text-center py-[1px] px-[4.2px] font-bold text-white w-4" title={formatDisplayDate(date)}>SCode</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>SLot</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>SVal</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>SFreq</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>Lot/F</th>
+                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>SOrdNum</th>
+                        <th className={`text-right py-[1px] px-[4.2px] font-bold text-white w-10 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/ON</th>
+                      </React.Fragment>
+                    ))}
+                    {/* Total Columns */}
+                    <th className={`text-center py-[1px] px-[4.2px] font-bold text-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>BCode</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BLot</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BVal</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BAvg</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BFreq</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BOrdNum</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/ON</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252]">#</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SCode</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SLot</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SVal</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SAvg</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SFreq</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SOrdNum</th>
+                    <th className="text-right py-[1px] px-[6px] font-bold text-white border-r-2 border-white">Lot/ON</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedStocks.map((stock, stockIdx) => (
+                    <tr key={stockIdx} className="border-b border-[#3a4252]/50">
+                      {selectedDates.map((date, dateIndex) => {
+                        // Sort stocks by SVal (Seller Value) for this specific date
+                        const dateSortedStocks = sortedNetStocksByDate.get(date) || [];
+                        const currentStockIndex = dateSortedStocks.indexOf(stock);
+                        const dateData = transactionData.get(date) || [];
+                        const dayData = dateData.find(d => d.Emiten === stock);
+                        const hasData = dayData !== undefined;
+                        
+                        if (!hasData || !dayData) {
+                          return (
+                            <td key={date} className={`text-center py-[1px] px-[4.2px] text-gray-400 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} colSpan={17}>
+                                No Data
+                              </td>
+                          );
+                        }
+                        
+                        const netBuyVol = dayData.NetBuyVol || 0;
+                        const netBuyValue = dayData.NetBuyValue || 0;
+                        const netBuyAvg = dayData.BuyerAvg || (netBuyVol > 0 ? netBuyValue / netBuyVol : 0);
+                        const netSellVol = Math.abs(Math.min(0, netBuyVol));
+                        const netSellValue = Math.abs(Math.min(0, netBuyValue));
+                        const netSellAvg = dayData.SellerAvg || (netSellVol > 0 ? netSellValue / netSellVol : 0);
+                        const buyerOrdNum = dayData.BOrdNum || 0;
+                        const sellerOrdNum = dayData.SOrdNum || 0;
+                        const buyerLot = netBuyVol >= 0 ? Math.abs(netBuyVol) / 100 : 0;
+                        const sellerLot = netSellVol > 0 ? netSellVol / 100 : 0;
+                        const buyerLotPerOrdNum = buyerOrdNum > 0 && netBuyVol >= 0 ? buyerLot / buyerOrdNum : 0;
+                        const sellerLotPerOrdNum = sellerOrdNum > 0 && netSellVol > 0 ? sellerLot / sellerOrdNum : 0;
+                        
+                        // Net Buy side
+                        const netBuyColor = netBuyVol >= 0 ? 'text-green-600' : 'text-red-600';
+                        // Net Sell side
+                        const netSellColor = netSellVol > 0 ? 'text-red-600' : 'text-green-600';
+                        
+                        return (
+                          <React.Fragment key={date}>
+                            {/* Net Buy Columns */}
+                            <td className={`text-center py-[1px] px-[4.2px] font-bold ${netBuyColor} w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>
+                              {dayData.BCode || stock}
+                            </td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${netBuyColor} w-6`}>
+                              {netBuyVol >= 0 ? formatLot(Math.abs(netBuyVol) / 100) : formatLot(0)}
+                            </td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${netBuyColor} w-6`}>
+                              {netBuyVol >= 0 ? formatValue(Math.abs(netBuyValue)) : formatValue(0)}
+                            </td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${netBuyColor} w-6`}>
+                              {netBuyVol >= 0 && netBuyAvg > 0 ? formatAverage(netBuyAvg) : formatAverage(0)}
+                            </td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${netBuyColor} w-6`}>0</td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${netBuyColor} w-6`}>{formatAverage(0)}</td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${netBuyColor} w-6`}>{buyerOrdNum}</td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${netBuyColor} w-10`}>{buyerOrdNum > 0 && netBuyVol >= 0 ? formatAverage(buyerLotPerOrdNum) : formatAverage(0)}</td>
+                            {/* Separator */}
+                            <td className="text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold w-4">{currentStockIndex >= 0 ? currentStockIndex + 1 : 0}</td>
+                            {/* Net Sell Columns */}
+                            <td className={`text-center py-[1px] px-[4.2px] font-bold ${netSellColor} w-4`}>
+                              {dayData.SCode || stock}
+                            </td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${netSellColor} w-6`}>
+                              {netSellVol > 0 ? formatLot(netSellVol / 100) : formatLot(0)}
+                            </td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${netSellColor} w-6`}>
+                              {netSellVol > 0 ? formatValue(netSellValue) : formatValue(0)}
+                            </td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${netSellColor} w-6`}>
+                              {netSellVol > 0 && netSellAvg > 0 ? formatAverage(netSellAvg) : formatAverage(0)}
+                            </td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${netSellColor} w-6`}>0</td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${netSellColor} w-6`}>{formatAverage(0)}</td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${netSellColor} w-6`}>{sellerOrdNum}</td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${netSellColor} w-10 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
+                              {sellerOrdNum > 0 && netSellVol > 0 ? formatAverage(sellerLotPerOrdNum) : formatAverage(0)}
+                            </td>
+                          </React.Fragment>
+                        );
+                      })}
+                      {/* Total Column */}
+                      {(() => {
+                        const totalNetData = totalNetDataByStock.get(stock);
+                        if (!totalNetData) {
+                          return (
+                            <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={17}>
+                              No Data
+                            </td>
+                          );
+                        }
+                        
+                        const totalNetBuyLot = totalNetData.netBuyVol / 100;
+                        const totalNetSellLot = totalNetData.netSellVol / 100;
+                        const totalNetBuyLotPerOrdNum = totalNetData.netBuyOrdNum > 0 && totalNetData.netBuyVol >= 0 ? totalNetBuyLot / totalNetData.netBuyOrdNum : 0;
+                        const totalNetSellLotPerOrdNum = totalNetData.netSellOrdNum > 0 && totalNetData.netSellVol > 0 ? totalNetSellLot / totalNetData.netSellOrdNum : 0;
+                        const totalNetStockIndex = sortedTotalNetStocks.indexOf(stock);
+                        
+                        const totalNetBuyColor = totalNetData.netBuyVol >= 0 ? 'text-green-600' : 'text-red-600';
+                        const totalNetSellColor = totalNetData.netSellVol > 0 ? 'text-red-600' : 'text-green-600';
+                        
+                        return (
+                          <React.Fragment>
+                            {/* Net Buy Columns */}
+                            <td className={`text-center py-[1px] px-[4.2px] font-bold ${totalNetBuyColor} ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>
+                              {totalNetData.netBuyVol >= 0 ? stock : '-'}
+                            </td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetBuyColor}`}>
+                              {totalNetData.netBuyVol >= 0 ? formatLot(totalNetBuyLot) : formatLot(0)}
+                            </td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetBuyColor}`}>
+                              {totalNetData.netBuyVol >= 0 ? formatValue(totalNetData.netBuyValue) : formatValue(0)}
+                            </td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetBuyColor}`}>
+                              {totalNetData.netBuyVol >= 0 && totalNetData.netBuyAvg > 0 ? formatAverage(totalNetData.netBuyAvg) : formatAverage(0)}
+                            </td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetBuyColor}`}>0</td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetBuyColor}`}>{formatAverage(0)}</td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetBuyColor}`}>{totalNetData.netBuyOrdNum}</td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetBuyColor}`}>
+                              {totalNetData.netBuyOrdNum > 0 && totalNetData.netBuyVol >= 0 ? formatAverage(totalNetBuyLotPerOrdNum) : formatAverage(0)}
+                            </td>
+                            {/* Separator */}
+                            <td className="text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold">{totalNetStockIndex >= 0 ? totalNetStockIndex + 1 : 0}</td>
+                            {/* Net Sell Columns */}
+                            <td className={`text-center py-[1px] px-[4.2px] font-bold ${totalNetSellColor}`}>
+                              {totalNetData.netSellVol > 0 ? stock : '-'}
+                            </td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetSellColor}`}>
+                              {totalNetData.netSellVol > 0 ? formatLot(totalNetSellLot) : formatLot(0)}
+                            </td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetSellColor}`}>
+                              {totalNetData.netSellVol > 0 ? formatValue(totalNetData.netSellValue) : formatValue(0)}
+                            </td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetSellColor}`}>
+                              {totalNetData.netSellVol > 0 && totalNetData.netSellAvg > 0 ? formatAverage(totalNetData.netSellAvg) : formatAverage(0)}
+                            </td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetSellColor}`}>0</td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetSellColor}`}>{formatAverage(0)}</td>
+                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetSellColor}`}>{totalNetData.netSellOrdNum}</td>
+                            <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} border-r-2 border-white`}>
+                              {totalNetData.netSellOrdNum > 0 && totalNetData.netSellVol > 0 ? formatAverage(totalNetSellLotPerOrdNum) : formatAverage(0)}
+                            </td>
+                          </React.Fragment>
+                        );
+                      })()}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    };
     
     return (
       <div className="w-full">
-        {/* Buy Side Horizontal Table */}
-        <div className="w-full max-w-full mt-1">
-          <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
-            <h3 className="font-semibold text-sm">BUY SIDE - {selectedBrokers.join(', ')} ({filteredBuyStocks.length} stocks)</h3>
-          </div>
-          <div className="w-full max-w-full">
-            <div className="w-full max-w-full overflow-x-auto max-h-[520px] overflow-y-auto">
-              <table className={`min-w-[900px] ${getFontSizeClass()} border-collapse table-auto`}>
-                <thead className="bg-[#3a4252]">
-                  <tr className="border-b border-[#3a4252]">
-                    <th className="text-left py-0 px-2 font-medium text-white border border-[#3a4252] border-r-8 border-r-[#3a4252] sticky left-0 z-20 bg-[#3a4252]">Ticker</th>
-                      {selectedDates.map((date) => (
-                      <th key={date} colSpan={6} className="text-center py-0 px-2 font-medium text-white border border-[#3a4252] border-r-8 border-r-[#3a4252] whitespace-nowrap">
-                          {formatDisplayDate(date)}
-                        </th>
-                      ))}
-                    </tr>
-                  <tr className="border-b border-[#3a4252] bg-[#3a4252]">
-                    <th className="text-left py-0 px-1 font-medium text-white border border-[#3a4252] border-r-8 border-r-[#3a4252] sticky left-0 z-20 bg-[#3a4252]"></th>
-                      {selectedDates.map((date) => (
-                        <React.Fragment key={date}>
-                        <th className="text-right py-0 px-1 font-medium text-white border border-[#3a4252]">BLot</th>
-                        <th className="text-right py-0 px-1 font-medium text-white border border-[#3a4252]">BVal</th>
-                        <th className="text-right py-0 px-1 font-medium text-white border border-[#3a4252]">BAvg</th>
-                        <th className="text-right py-0 px-1 font-medium text-white border border-[#3a4252]">SLot</th>
-                        <th className="text-right py-0 px-1 font-medium text-white border border-[#3a4252]">SVal</th>
-                        <th className="text-right py-0 px-1 font-medium text-white border border-[#3a4252] border-r-8 border-r-[#3a4252]">SAvg</th>
-                        </React.Fragment>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredBuyStocks.map((stock, idx) => (
-                    <tr key={idx} className="border-b border-[#3a4252]/50 hover:bg-accent/50">
-                      <td className="py-0 px-2 font-medium text-white border border-[#3a4252] border-r-8 border-r-[#3a4252] sticky left-0 z-20 bg-background">{stock}</td>
-                        {selectedDates.map((date) => {
-                          const dateData = transactionData.get(date) || [];
-                          const dayData = dateData.find(d => d.Emiten === stock);
-                          const hasDataForDate = dayData !== undefined;
-                        
-                        const buyerLot = (dayData?.BuyerVol || 0) / 100;
-                        const buyerAvg = (dayData?.BuyerVol || 0) > 0 ? (dayData?.BuyerValue || 0) / (dayData?.BuyerVol || 0) : 0;
-                        const sellerLot = (dayData?.SellerVol || 0) / 100;
-                        const sellerAvg = (dayData?.SellerVol || 0) > 0 ? (dayData?.SellerValue || 0) / (dayData?.SellerVol || 0) : 0;
-                          
-                          return (
-                            <React.Fragment key={date}>
-                              {hasDataForDate && dayData ? (
-                                <>
-                                <td className="text-right py-0 px-1 text-green-600 border border-[#3a4252]">{formatLot(buyerLot)}</td>
-                                <td className="text-right py-0 px-1 text-green-600 border border-[#3a4252]">{formatValue(dayData.BuyerValue || 0)}</td>
-                                <td className="text-right py-0 px-1 text-green-600 border border-[#3a4252]">{formatAverage(buyerAvg)}</td>
-                                <td className="text-right py-0 px-1 text-red-600 border border-[#3a4252]">{formatLot(sellerLot)}</td>
-                                <td className="text-right py-0 px-1 text-red-600 border border-[#3a4252]">{formatValue(dayData.SellerValue || 0)}</td>
-                                <td className="text-right py-0 px-1 text-red-600 border border-[#3a4252] border-r-8 border-r-[#3a4252]">{formatAverage(sellerAvg)}</td>
-                                </>
-                            ) : (
-                              <>
-                                <td className="text-center py-0 px-1 text-gray-400 border border-[#3a4252] border-r-8 border-r-[#3a4252]" colSpan={6}>
-                                  No Data
-                                </td>
-                              </>
-                            )}
-                            </React.Fragment>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-        </div>
-
-        {/* Sell Side Horizontal Table */}
-        <div className="w-full max-w-full mt-1">
-          <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
-            <h3 className="font-semibold text-sm">SELL SIDE - {selectedBrokers.join(', ')} ({filteredSellStocks.length} stocks)</h3>
-          </div>
-          <div className="w-full max-w-full">
-            <div className="w-full max-w-full overflow-x-auto max-h-[520px] overflow-y-auto">
-              <table className={`min-w-[900px] ${getFontSizeClass()} border-collapse table-auto`}>
-                <thead className="bg-[#3a4252]">
-                  <tr className="border-b border-[#3a4252]">
-                    <th className="text-left py-0 px-2 font-medium text-white border border-[#3a4252] border-r-8 border-r-[#3a4252] sticky left-0 z-20 bg-[#3a4252]">Ticker</th>
-                      {selectedDates.map((date) => (
-                      <th key={date} colSpan={4} className="text-center py-0 px-2 font-medium text-white border border-[#3a4252] border-r-8 border-r-[#3a4252] whitespace-nowrap">
-                          {formatDisplayDate(date)}
-                        </th>
-                      ))}
-                    </tr>
-                  <tr className="border-b border-[#3a4252] bg-[#3a4252]">
-                    <th className="text-left py-0 px-1 font-medium text-white border border-[#3a4252] border-r-8 border-r-[#3a4252] sticky left-0 z-20 bg-[#3a4252]"></th>
-                      {selectedDates.map((date) => (
-                        <React.Fragment key={date}>
-                        <th className="text-right py-0 px-1 font-medium text-white border border-[#3a4252]">NBLot</th>
-                        <th className="text-right py-0 px-1 font-medium text-white border border-[#3a4252]">NBVal</th>
-                        <th className="text-right py-0 px-1 font-medium text-white border border-[#3a4252]">TLot</th>
-                        <th className="text-right py-0 px-1 font-medium text-white border border-[#3a4252] border-r-8 border-r-[#3a4252]">TVal</th>
-                        </React.Fragment>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredSellStocks.map((stock, idx) => (
-                    <tr key={idx} className="border-b border-[#3a4252]/50 hover:bg-accent/50">
-                      <td className="py-0 px-2 font-medium text-white border border-[#3a4252] border-r-8 border-r-[#3a4252] sticky left-0 z-20 bg-background">{stock}</td>
-                        {selectedDates.map((date) => {
-                          const dateData = transactionData.get(date) || [];
-                          const dayData = dateData.find(d => d.Emiten === stock);
-                          const hasDataForDate = dayData !== undefined;
-                        
-                        const netBuyVol = dayData?.NetBuyVol || 0;
-                        const netBuyValue = dayData?.NetBuyValue || 0;
-                        const totalLot = (dayData?.TotalVolume || 0) / 100;
-                        
-                        // Color: green if positive, red if negative
-                        const netBuyVolColor = netBuyVol >= 0 ? 'text-green-600' : 'text-red-600';
-                        const netBuyValColor = netBuyValue >= 0 ? 'text-green-600' : 'text-red-600';
-                          
-                          return (
-                            <React.Fragment key={date}>
-                              {hasDataForDate && dayData ? (
-                                <>
-                                <td className={`text-right py-0 px-1 ${netBuyVolColor} border border-[#3a4252]`}>{formatLot(Math.abs(netBuyVol) / 100)}</td>
-                                <td className={`text-right py-0 px-1 ${netBuyValColor} border border-[#3a4252]`}>{formatValue(Math.abs(netBuyValue))}</td>
-                                <td className="text-right py-0 px-1 border border-[#3a4252]">{formatLot(totalLot)}</td>
-                                <td className="text-right py-0 px-1 border border-[#3a4252] border-r-8 border-r-[#3a4252]">{formatValue(dayData.TotalValue || 0)}</td>
-                                </>
-                            ) : (
-                              <>
-                                <td className="text-center py-0 px-1 text-gray-400 border border-[#3a4252] border-r-8 border-r-[#3a4252]" colSpan={4}>
-                                  No Data
-                                </td>
-                              </>
-                            )}
-                            </React.Fragment>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-      </div>
+        {renderValueTable()}
+        {renderNetTable()}
       </div>
     );
   };
 
-    
-    return (
+
+  return (
     <div className="w-full">
       {/* Top Controls - Compact without Card */}
-      <div className="bg-background border-b border-[#3a4252] px-4 py-1.5">
-        <div className="flex flex-wrap items-center gap-4">
+      <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5">
+        <div className="flex flex-wrap items-center gap-8">
           {/* Broker Selection - Multi-select with chips */}
           <div className="flex items-center gap-2">
             <label className="text-sm font-medium whitespace-nowrap">Broker:</label>
@@ -793,8 +1503,8 @@ export function BrokerTransaction() {
                     </div>
                   )}
               </div>
-                </div>
-              </div>
+            </div>
+          </div>
 
               {/* Date Range */}
           <div className="flex items-center gap-2">
@@ -893,9 +1603,9 @@ export function BrokerTransaction() {
               placeholder="Ticker..."
               className="w-24 px-3 py-2 text-sm border border-[#3a4252] rounded-md bg-input text-foreground"
             />
-              </div>
-            </div>
           </div>
+        </div>
+      </div>
 
       {/* Loading State */}
       {isLoading && (
@@ -915,7 +1625,7 @@ export function BrokerTransaction() {
       )}
 
       {/* Main Data Display */}
-      {!isLoading && !error && renderHorizontalView()}
+        {!isLoading && !error && renderHorizontalView()}
     </div>
   );
 }
