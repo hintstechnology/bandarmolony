@@ -229,10 +229,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   const [isDataReady, setIsDataReady] = useState<boolean>(false); // Control when to show tables
   const [shouldFetchData, setShouldFetchData] = useState<boolean>(false); // Control when to fetch data (only when Show button clicked)
   
-  // Search states
-  const [tickerSearch, setTickerSearch] = useState<string>('');
-  const [debouncedTickerSearch, setDebouncedTickerSearch] = useState<string>('');
+  // F/D Filter states
+  const [fdFilter, setFdFilter] = useState<'All' | 'Foreign' | 'Domestic'>('All');
   const [marketFilter, setMarketFilter] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Default to RG
+  
+  // Foreign brokers (red background) - same as BrokerSummaryPage
+  const FOREIGN_BROKERS = [
+    "AG", "AH", "AI", "AK", "BK", "BQ", "CG", "CS", "DP", "DR", "DU", "FS", "GW", "HD", "KK", 
+    "KZ", "LH", "LG", "LS", "MS", "NI", "RB", "RX", "TX", "YP", "YU", "ZP"
+  ];
+  
+  // Government brokers (green background) - same as BrokerSummaryPage
+  const GOVERNMENT_BROKERS: string[] = []; // Add if needed
   
   // Multi-select ticker states
   const [tickerInput, setTickerInput] = useState('');
@@ -248,18 +256,21 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [itemsPerPage, setItemsPerPage] = useState<number>(50); // Limit to 50 rows per page
 
-  // Debounce ticker search
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedTickerSearch(tickerSearch);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [tickerSearch]);
+  // Helper function to filter brokers by F/D
+  const brokerFDScreen = (broker: string): boolean => {
+    if (fdFilter === 'Foreign') {
+      return FOREIGN_BROKERS.includes(broker) && !GOVERNMENT_BROKERS.includes(broker);
+    }
+    if (fdFilter === 'Domestic') {
+      return (!FOREIGN_BROKERS.includes(broker) || GOVERNMENT_BROKERS.includes(broker));
+    }
+    return true; // All
+  };
   
-  // Reset to first page when search or filters change
+  // Reset to first page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [debouncedTickerSearch, selectedBrokers, selectedDates]);
+  }, [fdFilter, selectedBrokers, selectedDates]);
 
   // Load available brokers and initial dates on component mount
   useEffect(() => {
@@ -985,7 +996,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   }, [isLoading, selectedDates, transactionData]);
 
   // Memoize expensive calculations
-  const { uniqueStocks, filteredStocks, sortedStocksByDate, sortedNetStocksByDate, totalDataByStock, totalNetDataByStock, sortedTotalStocks, sortedTotalNetStocks, buyStocksByDate, sellStocksByDate, netBuyStocksByDate, netSellStocksByDate } = useMemo<{
+  const { uniqueStocks, filteredStocks, sortedStocksByDate, sortedNetStocksByDate, totalDataByStock, totalNetDataByStock, sortedTotalStocks, sortedTotalNetStocks, buyStocksByDate, sellStocksByDate, netBuyStocksByDate, netSellStocksByDate, totalNetBuyDataByStock, totalNetSellDataByStock, shouldFilterBySelectedTickers } = useMemo<{
     uniqueStocks: string[];
     filteredStocks: string[];
     sortedStocksByDate: Map<string, string[]>;
@@ -1024,6 +1035,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     sellStocksByDate: Map<string, Array<{ stock: string; data: BrokerTransactionData }>>;
     netBuyStocksByDate: Map<string, Array<{ stock: string; data: BrokerTransactionData }>>;
     netSellStocksByDate: Map<string, Array<{ stock: string; data: BrokerTransactionData }>>;
+    totalNetBuyDataByStock: Map<string, { netBuyVol: number; netBuyValue: number; netBuyAvg: number; netBuyFreq: number; netBuyOrdNum: number; netBuyAvgCount: number; }>;
+    totalNetSellDataByStock: Map<string, { netSellVol: number; netSellValue: number; netSellAvg: number; netSellFreq: number; netSellOrdNum: number; netSellAvgCount: number; }>;
+    shouldFilterBySelectedTickers: boolean;
   }>(() => {
     if (selectedBrokers.length === 0 || selectedDates.length === 0 || transactionData.size === 0) {
       return {
@@ -1038,13 +1052,15 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         buyStocksByDate: new Map(),
         sellStocksByDate: new Map(),
         netBuyStocksByDate: new Map(),
-        netSellStocksByDate: new Map()
+        netSellStocksByDate: new Map(),
+        totalNetBuyDataByStock: new Map(),
+        totalNetSellDataByStock: new Map(),
+        shouldFilterBySelectedTickers: false
       };
     }
     
     // Treat 4 sections independently: Buy (BCode), Sell (SCode), Net Buy (NBCode), Net Sell (NSCode)
     // Each section filters and sorts separately
-    const searchTerm = debouncedTickerSearch.trim().toLowerCase();
     // Support multi-select tickers: if selectedTickers is not empty, filter by those tickers
     const shouldFilterBySelectedTickers = selectedTickers.length > 0;
     
@@ -1064,10 +1080,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             if (!selectedTickers.includes(bCode)) return false;
           }
           
-          // Filter by search term if provided
-          if (searchTerm) {
-            return bCode.toLowerCase() === searchTerm;
-          }
           return true;
         })
         .filter(d => {
@@ -1100,10 +1112,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             if (!selectedTickers.includes(sCode)) return false;
           }
           
-          // Filter by search term if provided
-          if (searchTerm) {
-            return sCode.toLowerCase() === searchTerm;
-          }
           return true;
         })
         .filter(d => {
@@ -1136,10 +1144,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             if (!selectedTickers.includes(nbCode)) return false;
           }
           
-          // Filter by search term if provided
-          if (searchTerm) {
-            return nbCode.toLowerCase() === searchTerm;
-          }
           return true;
         })
         .filter(d => {
@@ -1168,10 +1172,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             if (!selectedTickers.includes(nsCode)) return false;
           }
           
-          // Filter by search term if provided
-          if (searchTerm) {
-            return nsCode.toLowerCase() === searchTerm;
-          }
           return true;
         })
         .filter(d => {
@@ -1520,9 +1520,12 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       buyStocksByDate,
       sellStocksByDate,
       netBuyStocksByDate,
-      netSellStocksByDate
+      netSellStocksByDate,
+      totalNetBuyDataByStock,
+      totalNetSellDataByStock,
+      shouldFilterBySelectedTickers
     };
-  }, [selectedBrokers, selectedDates, transactionData, debouncedTickerSearch, selectedTickers]);
+  }, [selectedBrokers, selectedDates, transactionData, selectedTickers, fdFilter]);
 
   // Calculate total pages for pagination - use max rows from all sections (Buy, Sell, Net Buy, Net Sell)
   const totalPages = useMemo(() => {
@@ -1574,7 +1577,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       return (
         <div className="text-center py-16">
           <div className="text-gray-400 text-sm">
-            No stocks found matching "{debouncedTickerSearch}"
+            No stocks found
           </div>
         </div>
       );
@@ -1894,23 +1897,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           );
                         }
                         
-                          // Filter by search term
-                          const searchTerm = debouncedTickerSearch.trim().toLowerCase();
-                          const buyMatch = !searchTerm || totalBuyBCode.toLowerCase() === searchTerm;
-                          const sellMatch = !searchTerm || totalSellSCode.toLowerCase() === searchTerm;
-                          
-                          if (searchTerm && !buyMatch && !sellMatch) {
-                            return (
-                              <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={17}>
-                                -
-                              </td>
-                            );
-                          }
                         
                         return (
                           <React.Fragment>
                               {/* Buyer Total Columns */}
-                              {buyMatch ? (
+                              {totalBuyBCode !== '-' && Math.abs(totalBuyLot) > 0 ? (
                                 <>
                             <td className={`text-center py-[1px] px-[4.2px] font-bold text-green-600 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>
                                     {totalBuyBCode}
@@ -1938,7 +1929,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                             {/* Separator */}
                               <td className="text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold">{rowIdx + 1}</td>
                               {/* Seller Total Columns */}
-                              {sellMatch ? (
+                              {totalSellSCode !== '-' && Math.abs(totalSellLot) > 0 ? (
                                 <>
                             <td className="text-center py-[1px] px-[4.2px] font-bold text-red-600">
                                     {totalSellSCode}
@@ -2210,150 +2201,82 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           </React.Fragment>
                         );
                       })}
-                        {/* Total Column - aggregate Net Buy and Net Sell data separately by stock code */}
+                        {/* Total Column - use aggregated data from totalNetBuyDataByStock and totalNetSellDataByStock */}
                       {(() => {
-                          // Get Net Buy stock code at this row index (from first date that has data)
-                          let totalNetBuyNBCode = '-';
-                          let netBuyStockCode = '';
-                          for (const date of selectedDates) {
-                            const netBuyDataForDate = netBuyStocksByDate.get(date) || [];
-                            const netBuyRowData = netBuyDataForDate[rowIdx];
-                            if (netBuyRowData) {
-                              netBuyStockCode = netBuyRowData.stock; // This is NBCode
-                              totalNetBuyNBCode = netBuyRowData.stock;
-                              break;
-                            }
+                          // Get unique Net Buy and Net Sell stocks from aggregated data (sorted by value)
+                          const sortedTotalNetBuyStocks = Array.from(totalNetBuyDataByStock.entries())
+                            .filter(([, data]) => {
+                              // Hide if NBLot is 0
+                              const nbLot = data.netBuyVol / 100;
+                              return Math.abs(nbLot) > 0;
+                            })
+                            .filter(([stock]) => {
+                              // Filter by selected tickers if provided
+                              if (shouldFilterBySelectedTickers) {
+                                return selectedTickers.includes(stock);
+                              }
+                              return true;
+                            })
+                            .sort((a, b) => b[1].netBuyValue - a[1].netBuyValue)
+                            .map(([stock]) => stock);
+                          
+                          const sortedTotalNetSellStocks = Array.from(totalNetSellDataByStock.entries())
+                            .filter(([, data]) => {
+                              // Hide if NSLot is 0
+                              const nsLot = data.netSellVol / 100;
+                              return Math.abs(nsLot) > 0;
+                            })
+                            .filter(([stock]) => {
+                              // Filter by selected tickers if provided
+                              if (shouldFilterBySelectedTickers) {
+                                return selectedTickers.includes(stock);
+                              }
+                              return true;
+                            })
+                            .sort((a, b) => b[1].netSellValue - a[1].netSellValue)
+                            .map(([stock]) => stock);
+                          
+                          // Get Net Buy stock at this row index
+                          const netBuyStockCode = sortedTotalNetBuyStocks[rowIdx] || '';
+                          const netBuyData = netBuyStockCode ? totalNetBuyDataByStock.get(netBuyStockCode) : null;
+                          
+                          // Get Net Sell stock at this row index
+                          const netSellStockCode = sortedTotalNetSellStocks[rowIdx] || '';
+                          const netSellData = netSellStockCode ? totalNetSellDataByStock.get(netSellStockCode) : null;
+                          
+                          // If both are empty, hide row
+                          if (!netBuyData && !netSellData) {
+                            return (
+                              <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={17}>
+                                -
+                              </td>
+                            );
                           }
                           
-                          // Get Net Sell stock code at this row index (from first date that has data)
-                          let totalNetSellNSCode = '-';
-                          let netSellStockCode = '';
-                          for (const date of selectedDates) {
-                            const netSellDataForDate = netSellStocksByDate.get(date) || [];
-                            const netSellRowData = netSellDataForDate[rowIdx];
-                            if (netSellRowData) {
-                              netSellStockCode = netSellRowData.stock; // This is NSCode
-                              totalNetSellNSCode = netSellRowData.stock;
-                              break;
-                            }
-                          }
+                          // Calculate values from aggregated data
+                          const totalNetBuyNBCode = netBuyStockCode || '-';
+                          const totalNetBuyLot = netBuyData ? netBuyData.netBuyVol / 100 : 0;
+                          const totalNetBuyValue = netBuyData ? netBuyData.netBuyValue : 0;
+                          const finalNetBuyAvg = netBuyData ? netBuyData.netBuyAvg : 0;
+                          const totalNetBuyFreq = netBuyData ? netBuyData.netBuyFreq : 0;
+                          const totalNetBuyOrdNum = netBuyData ? netBuyData.netBuyOrdNum : 0;
+                          // Calculate Lot/F and Lot/ON from aggregated data
+                          const totalNetBuyLotPerFreq = totalNetBuyFreq > 0 ? totalNetBuyLot / totalNetBuyFreq : 0;
+                          const totalNetBuyLotPerOrdNum = totalNetBuyOrdNum !== 0 ? totalNetBuyLot / totalNetBuyOrdNum : 0;
                           
-                          // Aggregate Net Buy data from all dates for this stock code (NBCode)
-                          let totalNetBuyVol = 0;
-                          let totalNetBuyValue = 0;
-                          let totalNetBuyAvg = 0;
-                          let totalNetBuyAvgCount = 0;
-                          let totalNetBuyFreq = 0;
-                          let totalNetBuyOrdNum = 0;
-                          
-                          // Aggregate Net Sell data from all dates for this stock code (NSCode)
-                          let totalNetSellVol = 0;
-                          let totalNetSellValue = 0;
-                          let totalNetSellAvg = 0;
-                          let totalNetSellAvgCount = 0;
-                          let totalNetSellFreq = 0;
-                          let totalNetSellOrdNum = 0;
-                          
-                          // Track Lot/F and Lot/ON from CSV for aggregation
-                          let totalNetBuyLotPerFreqSum = 0;
-                          let totalNetBuyLotPerFreqCount = 0;
-                          let totalNetBuyLotPerOrdNumSum = 0;
-                          let totalNetBuyLotPerOrdNumCount = 0;
-                          let totalNetSellLotPerFreqSum = 0;
-                          let totalNetSellLotPerFreqCount = 0;
-                          let totalNetSellLotPerOrdNumSum = 0;
-                          let totalNetSellLotPerOrdNumCount = 0;
-                          
-                          selectedDates.forEach(date => {
-                            // Aggregate Net Buy section: sum all rows with same NBCode (not just row index)
-                            const netBuyDataForDate = netBuyStocksByDate.get(date) || [];
-                            netBuyDataForDate.forEach(netBuyRow => {
-                              if (netBuyRow.stock === netBuyStockCode && netBuyStockCode) {
-                                const dayData = netBuyRow.data;
-                                const nbLot = (dayData.NBLot || 0) * 100; // Convert lot to volume
-                                totalNetBuyVol += nbLot;
-                                totalNetBuyValue += Number(dayData.NBVal) || 0;
-                                totalNetBuyFreq += Number(dayData.NBFreq) || 0;
-                                totalNetBuyOrdNum += Number(dayData.NBOrdNum) || 0;
-                                if (nbLot > 0) {
-                                  totalNetBuyAvg += (dayData.NBVal || 0) / nbLot;
-                                  totalNetBuyAvgCount += 1;
-                                }
-                                // Aggregate Lot/F and Lot/ON from CSV if available (including negative values)
-                                if (dayData.NBLotPerFreq !== undefined && dayData.NBLotPerFreq !== null) {
-                                  totalNetBuyLotPerFreqSum += dayData.NBLotPerFreq;
-                                  totalNetBuyLotPerFreqCount += 1;
-                                }
-                                if (dayData.NBLotPerOrdNum !== undefined && dayData.NBLotPerOrdNum !== null) {
-                                  totalNetBuyLotPerOrdNumSum += dayData.NBLotPerOrdNum;
-                                  totalNetBuyLotPerOrdNumCount += 1;
-                                }
-                              }
-                            });
-                            
-                            // Aggregate Net Sell section: sum all rows with same NSCode (not just row index)
-                            const netSellDataForDate = netSellStocksByDate.get(date) || [];
-                            netSellDataForDate.forEach(netSellRow => {
-                              if (netSellRow.stock === netSellStockCode && netSellStockCode) {
-                                const dayData = netSellRow.data;
-                                const nsLot = (dayData.NSLot || 0) * 100; // Convert lot to volume
-                                totalNetSellVol += nsLot;
-                                totalNetSellValue += Number(dayData.NSVal) || 0;
-                                totalNetSellFreq += Number(dayData.NSFreq) || 0;
-                                totalNetSellOrdNum += Number(dayData.NSOrdNum) || 0;
-                                if (nsLot > 0) {
-                                  totalNetSellAvg += (dayData.NSVal || 0) / nsLot;
-                                  totalNetSellAvgCount += 1;
-                                }
-                                // Aggregate Lot/F and Lot/ON from CSV if available (including negative values)
-                                if (dayData.NSLotPerFreq !== undefined && dayData.NSLotPerFreq !== null) {
-                                  totalNetSellLotPerFreqSum += dayData.NSLotPerFreq;
-                                  totalNetSellLotPerFreqCount += 1;
-                                }
-                                if (dayData.NSLotPerOrdNum !== undefined && dayData.NSLotPerOrdNum !== null) {
-                                  totalNetSellLotPerOrdNumSum += dayData.NSLotPerOrdNum;
-                                  totalNetSellLotPerOrdNumCount += 1;
-                                }
-                              }
-                            });
-                          });
-                          
-                          // Calculate final averages
-                          const finalNetBuyAvg = totalNetBuyAvgCount > 0 ? totalNetBuyAvg / totalNetBuyAvgCount : (totalNetBuyVol > 0 ? totalNetBuyValue / totalNetBuyVol : 0);
-                          const finalNetSellAvg = totalNetSellAvgCount > 0 ? totalNetSellAvg / totalNetSellAvgCount : (totalNetSellVol > 0 ? totalNetSellValue / totalNetSellVol : 0);
-                          
-                          const totalNetBuyLot = totalNetBuyVol / 100;
-                          const totalNetSellLot = totalNetSellVol / 100;
-                          // Use average of CSV values if available (preserving negative values), otherwise calculate
-                          const totalNetBuyLotPerFreq = totalNetBuyLotPerFreqCount > 0 
-                            ? totalNetBuyLotPerFreqSum / totalNetBuyLotPerFreqCount 
-                            : (totalNetBuyFreq > 0 ? totalNetBuyLot / totalNetBuyFreq : 0);
-                          const totalNetSellLotPerFreq = totalNetSellLotPerFreqCount > 0 
-                            ? totalNetSellLotPerFreqSum / totalNetSellLotPerFreqCount 
-                            : (totalNetSellFreq > 0 ? totalNetSellLot / totalNetSellFreq : 0);
-                          const totalNetBuyLotPerOrdNum = totalNetBuyLotPerOrdNumCount > 0 
-                            ? totalNetBuyLotPerOrdNumSum / totalNetBuyLotPerOrdNumCount 
-                            : (totalNetBuyOrdNum > 0 ? totalNetBuyLot / totalNetBuyOrdNum : 0);
-                          const totalNetSellLotPerOrdNum = totalNetSellLotPerOrdNumCount > 0 
-                            ? totalNetSellLotPerOrdNumSum / totalNetSellLotPerOrdNumCount 
-                            : (totalNetSellOrdNum > 0 ? totalNetSellLot / totalNetSellOrdNum : 0);
+                          const totalNetSellNSCode = netSellStockCode || '-';
+                          const totalNetSellLot = netSellData ? netSellData.netSellVol / 100 : 0;
+                          const totalNetSellValue = netSellData ? netSellData.netSellValue : 0;
+                          const finalNetSellAvg = netSellData ? netSellData.netSellAvg : 0;
+                          const totalNetSellFreq = netSellData ? netSellData.netSellFreq : 0;
+                          const totalNetSellOrdNum = netSellData ? netSellData.netSellOrdNum : 0;
+                          // Calculate Lot/F and Lot/ON from aggregated data
+                          const totalNetSellLotPerFreq = totalNetSellFreq > 0 ? totalNetSellLot / totalNetSellFreq : 0;
+                          const totalNetSellLotPerOrdNum = totalNetSellOrdNum !== 0 ? totalNetSellLot / totalNetSellOrdNum : 0;
                           
                           // Hide Total row if both Net Buy and Net Sell are empty, or if both NBLot and NSLot are 0
                           if ((totalNetBuyNBCode === '-' || Math.abs(totalNetBuyLot) === 0) && 
                               (totalNetSellNSCode === '-' || Math.abs(totalNetSellLot) === 0)) {
-                          return (
-                            <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={17}>
-                                -
-                            </td>
-                          );
-                        }
-                        
-                          // Filter by search term
-                          const searchTerm = debouncedTickerSearch.trim().toLowerCase();
-                          const netBuyMatch = !searchTerm || totalNetBuyNBCode.toLowerCase() === searchTerm;
-                          const netSellMatch = !searchTerm || totalNetSellNSCode.toLowerCase() === searchTerm;
-                          
-                          if (searchTerm && !netBuyMatch && !netSellMatch) {
                             return (
                               <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={17}>
                                 -
@@ -2369,7 +2292,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         return (
                           <React.Fragment>
                               {/* Net Buy Total Columns */}
-                              {netBuyMatch ? (
+                              {netBuyData && Math.abs(totalNetBuyLot) > 0 ? (
                                 <>
                             <td className={`text-center py-[1px] px-[4.2px] font-bold ${totalNetBuyColor} ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>
                                     {totalNetBuyNBCode}
@@ -2411,7 +2334,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                             {/* Separator */}
                               <td className="text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold">{rowIdx + 1}</td>
                               {/* Net Sell Total Columns */}
-                              {netSellMatch ? (
+                              {netSellData && Math.abs(totalNetSellLot) > 0 ? (
                                 <>
                             <td className={`text-center py-[1px] px-[4.2px] font-bold ${totalNetSellColor}`}>
                                     {totalNetSellNSCode}
@@ -2525,7 +2448,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         )}
       </div>
     );
-  }, [selectedBrokers, selectedDates, filteredStocks, uniqueStocks, sortedStocksByDate, sortedNetStocksByDate, totalDataByStock, totalNetDataByStock, sortedTotalStocks, sortedTotalNetStocks, transactionData, debouncedTickerSearch, currentPage, itemsPerPage, totalPages]);
+  }, [selectedBrokers, selectedDates, filteredStocks, uniqueStocks, sortedStocksByDate, sortedNetStocksByDate, totalDataByStock, totalNetDataByStock, sortedTotalStocks, sortedTotalNetStocks, transactionData, selectedTickers, fdFilter, currentPage, itemsPerPage, totalPages, buyStocksByDate, sellStocksByDate, netBuyStocksByDate, netSellStocksByDate, totalNetBuyDataByStock, totalNetSellDataByStock, shouldFilterBySelectedTickers]);
 
 
   return (
@@ -2921,16 +2844,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             </select>
             </div>
 
-          {/* Ticker Search */}
+          {/* F/D Filter */}
           <div className="flex items-center gap-2">
-            <label className="text-sm font-medium whitespace-nowrap">Search:</label>
-            <input
-              type="text"
-              value={tickerSearch}
-              onChange={(e) => setTickerSearch(e.target.value)}
-              placeholder="Ticker..."
-              className="w-24 px-3 py-2 text-sm border border-[#3a4252] rounded-md bg-input text-foreground"
-            />
+            <label className="text-sm font-medium whitespace-nowrap">F/D:</label>
+            <select
+              value={fdFilter}
+              onChange={(e) => setFdFilter(e.target.value as 'All' | 'Foreign' | 'Domestic')}
+              className="px-3 py-1.5 border border-[#3a4252] rounded-md bg-background text-foreground text-sm"
+            >
+              <option value="All">All</option>
+              <option value="Foreign">Foreign</option>
+              <option value="Domestic">Domestic</option>
+            </select>
           </div>
         </div>
       </div>
