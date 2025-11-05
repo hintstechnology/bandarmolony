@@ -23,6 +23,8 @@ import BrokerSummaryTypeDataScheduler from '../services/brokerSummaryTypeDataSch
 import BrokerSummaryIDXDataScheduler from '../services/brokerSummaryIDXDataScheduler';
 import BrokerBreakdownDataScheduler from '../services/brokerBreakdownDataScheduler';
 import BreakDoneTradeDataScheduler from '../services/breakDoneTradeDataScheduler';
+import BrokerTransactionDataScheduler from '../services/brokerTransactionDataScheduler';
+import BrokerTransactionRGTNNGDataScheduler from '../services/brokerTransactionRGTNNGDataScheduler';
 import { BrokerDataRGTNNGCalculator } from '../calculations/broker/broker_data_rg_tn_ng';
 import { listPaths } from '../utils/azureBlob';
 import { updateWatchlistSnapshot } from '../services/watchlistSnapshotService';
@@ -1362,6 +1364,126 @@ router.post('/broker-summary-idx', async (_req, res) => {
     return res.status(500).json({
       success: false,
       message: `Failed to trigger broker-summary-idx update: ${errorMessage}`
+    });
+  }
+});
+
+// Manual trigger for Broker Transaction calculation
+router.post('/broker-transaction', async (_req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Broker Transaction calculation');
+    
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'broker_transaction',
+      trigger_type: 'manual',
+      triggered_by: 'admin',
+      status: 'running',
+      force_override: true,
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    const brokerTransactionService = new BrokerTransactionDataScheduler();
+    
+    // Execute in background and return immediately
+    // Pass undefined to process all DT files (as per generateBrokerTransactionData implementation)
+    brokerTransactionService.generateBrokerTransactionData(undefined).then(async (result) => {
+      await AzureLogger.logInfo('broker_transaction', `Manual broker transaction calculation completed: ${result.message || 'OK'}`);
+      console.log(`✅ Broker Transaction calculation completed: ${result.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: result.success ? 'completed' : 'failed',
+          progress_percentage: 100,
+          ...(result.success ? {} : { error_message: result.message })
+        });
+      }
+    }).catch(async (error: any) => {
+      await AzureLogger.logSchedulerError('broker_transaction', error.message);
+      console.error(`❌ Broker Transaction calculation error: ${error.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
+        });
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: 'Broker Transaction calculation triggered successfully',
+      log_id: logEntry.id
+    });
+  } catch (error: any) {
+    console.error('❌ Error triggering broker transaction calculation:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Unknown error'
+    });
+  }
+});
+
+// Manual trigger for Broker Transaction RG/TN/NG calculation
+router.post('/broker-transaction-rgtnng', async (_req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Broker Transaction RG/TN/NG calculation');
+    
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'broker_transaction_rgtnng',
+      trigger_type: 'manual',
+      triggered_by: 'admin',
+      status: 'running',
+      force_override: true,
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    const brokerTransactionRGTNNGService = new BrokerTransactionRGTNNGDataScheduler();
+    
+    // Execute in background and return immediately
+    // Pass undefined to process all DT files (as per generateBrokerTransactionRGTNNGData implementation)
+    brokerTransactionRGTNNGService.generateBrokerTransactionRGTNNGData(undefined).then(async (result) => {
+      await AzureLogger.logInfo('broker_transaction_rgtnng', `Manual broker transaction RG/TN/NG calculation completed: ${result.message || 'OK'}`);
+      console.log(`✅ Broker Transaction RG/TN/NG calculation completed: ${result.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: result.success ? 'completed' : 'failed',
+          progress_percentage: 100,
+          ...(result.success ? {} : { error_message: result.message })
+        });
+      }
+    }).catch(async (error: any) => {
+      await AzureLogger.logSchedulerError('broker_transaction_rgtnng', error.message);
+      console.error(`❌ Broker Transaction RG/TN/NG calculation error: ${error.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
+        });
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: 'Broker Transaction RG/TN/NG calculation triggered successfully',
+      log_id: logEntry.id
+    });
+  } catch (error: any) {
+    console.error('❌ Error triggering broker transaction RG/TN/NG calculation:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Unknown error'
     });
   }
 });

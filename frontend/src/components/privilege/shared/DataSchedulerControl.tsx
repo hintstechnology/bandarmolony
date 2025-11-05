@@ -727,6 +727,44 @@ export function DataSchedulerControl() {
               </Button>
             </div>
 
+            {/* Broker Transaction */}
+            <div className="p-4 border rounded-lg">
+              <h4 className="font-semibold mb-2">Broker Transaction</h4>
+              <p className="text-sm text-muted-foreground mb-3">Calculate broker transaction data per broker (all transaction types)</p>
+              <Button
+                onClick={() => handleTriggerDataUpdate('broker-transaction')}
+                disabled={triggering['broker-transaction']}
+                className="w-full"
+                size="sm"
+              >
+                {triggering['broker-transaction'] ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Play className="w-4 h-4 mr-2" />
+                )}
+                {triggering['broker-transaction'] ? 'Calculating...' : 'Trigger Calculation'}
+              </Button>
+            </div>
+
+            {/* Broker Transaction RG/TN/NG */}
+            <div className="p-4 border rounded-lg">
+              <h4 className="font-semibold mb-2">Broker Transaction RG/TN/NG</h4>
+              <p className="text-sm text-muted-foreground mb-3">Calculate broker transaction data per broker split by transaction type (RG, TN, NG)</p>
+              <Button
+                onClick={() => handleTriggerDataUpdate('broker-transaction-rgtnng')}
+                disabled={triggering['broker-transaction-rgtnng']}
+                className="w-full"
+                size="sm"
+              >
+                {triggering['broker-transaction-rgtnng'] ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Play className="w-4 h-4 mr-2" />
+                )}
+                {triggering['broker-transaction-rgtnng'] ? 'Calculating...' : 'Trigger Calculation'}
+              </Button>
+            </div>
+
             {/* Break Done Trade */}
             <div className="p-4 border rounded-lg">
               <h4 className="font-semibold mb-2">Break Done Trade</h4>

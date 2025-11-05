@@ -183,7 +183,11 @@ router.get('/data/:stockCode', async (req, res) => {
     }
     
     // Sort by date (oldest first)
-    filteredData.sort((a, b) => a.Date.localeCompare(b.Date));
+    filteredData.sort((a, b) => {
+      const dateA = a.Date || '';
+      const dateB = b.Date || '';
+      return dateA.localeCompare(dateB);
+    });
     
     console.log(`📊 Parsed ${stockCode} data: ${filteredData.length} rows`);
     
@@ -279,7 +283,11 @@ router.get('/data', async (req, res) => {
         }
         
         // Sort by date
-        filteredData.sort((a, b) => a.Date.localeCompare(b.Date));
+        filteredData.sort((a, b) => {
+          const dateA = a.Date || '';
+          const dateB = b.Date || '';
+          return dateA.localeCompare(dateB);
+        });
         
         results.push({
           stockCode: stockCode.toUpperCase(),
