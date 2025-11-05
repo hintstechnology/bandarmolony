@@ -58,8 +58,15 @@ export class BidAskCalculator {
         file.includes('/DT') && file.endsWith('.csv')
       );
       
-      console.log(`Found ${dtFiles.length} DT files to process`);
-      return dtFiles;
+      // Sort by date descending (newest first) - process from newest to oldest
+      const sortedFiles = dtFiles.sort((a, b) => {
+        const dateA = a.split('/')[1] || '';
+        const dateB = b.split('/')[1] || '';
+        return dateB.localeCompare(dateA); // Descending order (newest first)
+      });
+      
+      console.log(`Found ${sortedFiles.length} DT files to process (sorted newest first)`);
+      return sortedFiles;
     } catch (error) {
       console.error('Error scanning DT files:', error);
       return [];

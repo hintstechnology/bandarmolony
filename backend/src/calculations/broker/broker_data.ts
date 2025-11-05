@@ -104,8 +104,15 @@ export class BrokerDataCalculator {
         file.includes('/DT') && file.endsWith('.csv')
       );
       
-      console.log(`Found ${dtFiles.length} DT files to process`);
-      return dtFiles;
+      // Sort by date descending (newest first) - process from newest to oldest
+      const sortedFiles = dtFiles.sort((a, b) => {
+        const dateA = a.split('/')[1] || '';
+        const dateB = b.split('/')[1] || '';
+        return dateB.localeCompare(dateA); // Descending order (newest first)
+      });
+      
+      console.log(`Found ${sortedFiles.length} DT files to process (sorted newest first)`);
+      return sortedFiles;
     } catch (error) {
       console.error('Error scanning DT files:', error);
       return [];
@@ -716,14 +723,36 @@ export class BrokerDataCalculator {
   /**
    * Process a single DT file with all broker analysis
    */
-  private async processSingleDtFile(blobName: string): Promise<{ success: boolean; dateSuffix: string; files: string[]; timing?: any }> {
+  private async processSingleDtFile(blobName: string): Promise<{ success: boolean; dateSuffix: string; files: string[]; timing?: any; skipped?: boolean }> {
+    // Extract date from blob name first (before loading input)
+    const pathParts = blobName.split('/');
+    const dateFolder = pathParts[1] || 'unknown'; // 20251021
+    const dateSuffix = dateFolder;
+    
+    // Check if output already exists for this date BEFORE loading input
+    // Check key output files: ALLSUM-broker_summary.csv
+    const keyOutputFile = `broker_summary/broker_summary_${dateSuffix}/ALLSUM-broker_summary.csv`;
+    const { exists } = await import('../../utils/azureBlob');
+    
+    try {
+      const outputExists = await exists(keyOutputFile);
+      if (outputExists) {
+        console.log(`⏭️ Broker data already exists for date ${dateSuffix} - skipping (checked ${keyOutputFile})`);
+        return { success: true, dateSuffix, files: [], skipped: true };
+      }
+    } catch (error) {
+      // If check fails, continue with processing (might be permission issue)
+      console.log(`ℹ️ Could not check existence of ${keyOutputFile}, proceeding with generation`);
+    }
+    
+    // Only load input if output doesn't exist
     const result = await this.loadAndProcessSingleDtFile(blobName);
     
     if (!result) {
-      return { success: false, dateSuffix: '', files: [] };
+      return { success: false, dateSuffix, files: [] };
     }
     
-    const { data, dateSuffix } = result;
+    const { data } = result;
     
     if (data.length === 0) {
       console.log(`⚠️ No transaction data in ${blobName} - skipping`);

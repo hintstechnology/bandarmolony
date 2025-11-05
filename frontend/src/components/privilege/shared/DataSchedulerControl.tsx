@@ -707,6 +707,44 @@ export function DataSchedulerControl() {
                 {triggering['watchlist-snapshot'] ? 'Generating...' : 'Trigger Generation'}
               </Button>
             </div>
+
+            {/* Broker Summary IDX */}
+            <div className="p-4 border rounded-lg">
+              <h4 className="font-semibold mb-2">Broker Summary IDX</h4>
+              <p className="text-sm text-muted-foreground mb-3">Generate aggregated IDX.csv for all dates and market types</p>
+              <Button
+                onClick={() => handleTriggerDataUpdate('broker-summary-idx')}
+                disabled={triggering['broker-summary-idx']}
+                className="w-full"
+                size="sm"
+              >
+                {triggering['broker-summary-idx'] ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Play className="w-4 h-4 mr-2" />
+                )}
+                {triggering['broker-summary-idx'] ? 'Calculating...' : 'Trigger Calculation'}
+              </Button>
+            </div>
+
+            {/* Break Done Trade */}
+            <div className="p-4 border rounded-lg">
+              <h4 className="font-semibold mb-2">Break Done Trade</h4>
+              <p className="text-sm text-muted-foreground mb-3">Break down done trade data by stock code</p>
+              <Button
+                onClick={() => handleTriggerDataUpdate('break-done-trade')}
+                disabled={triggering['break-done-trade']}
+                className="w-full"
+                size="sm"
+              >
+                {triggering['break-done-trade'] ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Play className="w-4 h-4 mr-2" />
+                )}
+                {triggering['break-done-trade'] ? 'Calculating...' : 'Trigger Calculation'}
+              </Button>
+            </div>
           </div>
         </div>
 

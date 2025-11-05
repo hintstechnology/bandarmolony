@@ -29,7 +29,8 @@ import { updateWatchlistSnapshot } from './watchlistSnapshotService';
 // SCHEDULER CONFIGURATION
 // ======================
 // All scheduler times are configured here for easy maintenance
-const SCHEDULER_CONFIG = {
+// This is now a mutable object that can be updated at runtime
+let SCHEDULER_CONFIG = {
   // Scheduled Calculation Times - Only Phase 1 runs on schedule
   PHASE1_DATA_COLLECTION_TIME: '19:00',    // Data collection (Stock, Index, Done Summary)
   PHASE1_SHAREHOLDERS_TIME: '00:01',       // Shareholders & Holding (if first day of month)
@@ -50,10 +51,10 @@ const SCHEDULER_CONFIG = {
   TIMEZONE: 'Asia/Jakarta'
 };
 
-// Extract times for scheduler
-const PHASE1_DATA_COLLECTION_TIME = SCHEDULER_CONFIG.PHASE1_DATA_COLLECTION_TIME;
-const PHASE1_SHAREHOLDERS_TIME = SCHEDULER_CONFIG.PHASE1_SHAREHOLDERS_TIME;
-const TIMEZONE = SCHEDULER_CONFIG.TIMEZONE;
+// Extract times for scheduler (will be updated when config changes)
+let PHASE1_DATA_COLLECTION_TIME = SCHEDULER_CONFIG.PHASE1_DATA_COLLECTION_TIME;
+let PHASE1_SHAREHOLDERS_TIME = SCHEDULER_CONFIG.PHASE1_SHAREHOLDERS_TIME;
+let TIMEZONE = SCHEDULER_CONFIG.TIMEZONE;
 
 // Convert time to cron format (HH:MM -> MM HH * * *)
 function timeToCron(time: string): string {
@@ -68,12 +69,23 @@ function isWeekend(): boolean {
   return dayOfWeek === 0 || dayOfWeek === 6; // Sunday or Saturday
 }
 
-// Generate cron schedules from configuration
-const PHASE1_DATA_COLLECTION_SCHEDULE = timeToCron(PHASE1_DATA_COLLECTION_TIME);
-const PHASE1_SHAREHOLDERS_SCHEDULE = timeToCron(PHASE1_SHAREHOLDERS_TIME);
+// Generate cron schedules from configuration (will be updated when config changes)
+let PHASE1_DATA_COLLECTION_SCHEDULE = timeToCron(PHASE1_DATA_COLLECTION_TIME);
+let PHASE1_SHAREHOLDERS_SCHEDULE = timeToCron(PHASE1_SHAREHOLDERS_TIME);
 
 let schedulerRunning = false;
 let scheduledTasks: any[] = [];
+
+// Phase status tracking
+let phaseStatus: Record<string, 'idle' | 'running' | 'stopped'> = {
+  phase1_data_collection: 'idle',
+  phase1_shareholders: 'idle',
+  phase2_market_rotation: 'idle',
+  phase3_light: 'idle',
+  phase4_medium: 'idle',
+  phase5_heavy: 'idle',
+  phase6_very_heavy: 'idle'
+};
 const trendFilterService = new TrendFilterDataScheduler();
 const accumulationService = new AccumulationDataScheduler();
 const bidAskService = new BidAskDataScheduler();
@@ -257,7 +269,8 @@ async function checkMemoryBeforeLargeOperation(operationName: string): Promise<b
 /**
  * Run Phase 2 - Market Rotation Calculations (RRC, RRG, Seasonal, Trend Filter)
  */
-async function runPhase2MarketRotationCalculations(): Promise<void> {
+export async function runPhase2MarketRotationCalculations(): Promise<void> {
+  phaseStatus['phase2_market_rotation'] = 'running';
   const phaseStartTime = Date.now();
   console.log(`\n🚀 ===== PHASE 2 MARKET ROTATION STARTED =====`);
   console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
@@ -407,13 +420,16 @@ async function runPhase2MarketRotationCalculations(): Promise<void> {
     if (logEntry) {
       await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
     }
+  } finally {
+    phaseStatus['phase2_market_rotation'] = 'idle';
   }
 }
 
 /**
  * Run Phase 3 - Light Calculations (Money Flow, Foreign Flow, Break Done Trade)
  */
-async function runPhase3LightCalculations(): Promise<void> {
+export async function runPhase3LightCalculations(): Promise<void> {
+  phaseStatus['phase3_light'] = 'running';
   const phaseStartTime = Date.now();
   console.log(`\n🚀 ===== PHASE 3 LIGHT CALCULATIONS STARTED =====`);
   console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
@@ -559,10 +575,13 @@ async function runPhase3LightCalculations(): Promise<void> {
       if (logEntry) {
         await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
       }
+    } finally {
+      phaseStatus['phase3_light'] = 'idle';
     }
 }
 
-async function runPhase4MediumCalculations(): Promise<void> {
+export async function runPhase4MediumCalculations(): Promise<void> {
+  phaseStatus['phase4_medium'] = 'running';
   const phaseStartTime = Date.now();
   console.log(`\n🚀 ===== PHASE 4 MEDIUM CALCULATIONS STARTED =====`);
   console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
@@ -664,13 +683,16 @@ async function runPhase4MediumCalculations(): Promise<void> {
     if (logEntry) {
       await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
     }
+  } finally {
+    phaseStatus['phase4_medium'] = 'idle';
   }
 }
 
 /**
  * Run Phase 5 - Heavy Calculations (Broker Data)
  */
-async function runPhase5HeavyCalculations(): Promise<void> {
+export async function runPhase5HeavyCalculations(): Promise<void> {
+  phaseStatus['phase5_heavy'] = 'running';
   const phaseStartTime = Date.now();
   console.log(`\n🚀 ===== PHASE 5 HEAVY CALCULATIONS STARTED =====`);
   console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
@@ -766,13 +788,16 @@ async function runPhase5HeavyCalculations(): Promise<void> {
     if (logEntry) {
       await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
     }
+  } finally {
+    phaseStatus['phase5_heavy'] = 'idle';
   }
 }
 
 /**
  * Run Phase 6 - Very Heavy Calculations (Broker Inventory, Accumulation Distribution)
  */
-async function runPhase6VeryHeavyCalculations(): Promise<void> {
+export async function runPhase6VeryHeavyCalculations(): Promise<void> {
+  phaseStatus['phase6_very_heavy'] = 'running';
   const phaseStartTime = Date.now();
   console.log(`\n🚀 ===== PHASE 6 VERY HEAVY CALCULATIONS STARTED =====`);
   console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
@@ -904,26 +929,19 @@ async function runPhase6VeryHeavyCalculations(): Promise<void> {
       if (logEntry) {
         await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
       }
+    } finally {
+      phaseStatus['phase6_very_heavy'] = 'idle';
     }
 }
 
 /**
- * Start the scheduler
+ * Run Phase 1 Data Collection manually
  */
-export function startScheduler(): void {
-  if (schedulerRunning) {
-    console.log('⚠️ Scheduler already running');
-    return;
-  }
-
-  console.log('🕐 Starting scheduler...');
-
-  // Phase 1, 2, 3 will be scheduled manually, Phase 4, 5, 6 will be auto-triggered
-
-  // 1. Schedule Phase 1 - Data Collection (Stock, Index, Done Summary)
-  const phase1DataCollectionTask = cron.schedule(PHASE1_DATA_COLLECTION_SCHEDULE, async () => {
+export async function runPhase1DataCollection(): Promise<void> {
+  phaseStatus['phase1_data_collection'] = 'running';
+  try {
     const phaseStartTime = Date.now();
-    console.log(`\n🚀 ===== PHASE 1 DATA COLLECTION STARTED =====`);
+    console.log(`\n🚀 ===== PHASE 1 DATA COLLECTION STARTED (MANUAL) =====`);
     console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
     console.log(`📋 Phase: Data Collection (Stock, Index, Done Summary) - 7 days`);
     
@@ -942,6 +960,307 @@ export function startScheduler(): void {
         console.log('⚠️ Skipping Phase 1 Data Collection due to high memory usage');
         return;
       }
+      
+      // Create database log entry
+      const logData: Partial<SchedulerLog> = {
+        feature_name: 'phase1_data_collection',
+        trigger_type: 'manual',
+        triggered_by: 'admin',
+        status: 'running',
+        started_at: new Date().toISOString(),
+        environment: process.env['NODE_ENV'] || 'development'
+      };
+      
+      logEntry = await SchedulerLogService.createLog(logData);
+      if (logEntry) {
+        console.log('📊 Phase 1 Data Collection database log created:', logEntry.id);
+      }
+      
+      console.log('🔄 Starting Phase 1 Data Collection (PARALLEL MODE)...');
+      
+      // Track batch performance
+      trackBatchPerformance(phaseStartTime, 'Phase 1 Data Collection Start');
+      
+      // Run data collection in parallel
+      const dataCollectionTasks = [
+        { name: 'Stock Data', service: updateStockData, method: null },
+        { name: 'Index Data', service: updateIndexData, method: null },
+        { name: 'Done Summary Data', service: updateDoneSummaryData, method: null }
+      ];
+      const totalTasks = dataCollectionTasks.length;
+      
+      const dataCollectionPromises = dataCollectionTasks.map(async (task, index) => {
+        const startTime = Date.now();
+        
+        try {
+          console.log(`🔄 Starting ${task.name} (${index + 1}/${totalTasks})...`);
+          
+          // Update progress in database
+          if (logEntry) {
+            await SchedulerLogService.updateLog(logEntry.id!, {
+              progress_percentage: Math.round((index / totalTasks) * 100),
+              current_processing: `Running ${task.name}...`
+            });
+          }
+          
+          // Run calculation
+          await (task.service as any)();
+          
+          const duration = Date.now() - startTime;
+          
+          // If we reach here without throwing an error, the task succeeded
+          console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
+          return { name: task.name, success: true, duration };
+          
+        } catch (error) {
+          const duration = Date.now() - startTime;
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          console.error(`❌ ${task.name} failed:`, errorMessage);
+          return { name: task.name, success: false, error: errorMessage, duration };
+        }
+      });
+      
+      // Wait for all calculations to complete
+      const dataCollectionResults = await Promise.allSettled(dataCollectionPromises);
+      
+      // Process results
+      const results: Array<{ name: string; success: boolean; error?: string; duration?: number }> = [];
+      dataCollectionResults.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          results.push(result.value);
+        } else {
+          results.push({
+            name: dataCollectionTasks[index]?.name || 'Unknown',
+            success: false,
+            error: result.reason instanceof Error ? result.reason.message : 'Unknown error'
+          });
+        }
+      });
+      
+      const successCount = results.filter(r => r.success).length;
+      const phaseEndTime = new Date();
+      const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
+      
+      console.log(`\n📊 ===== PHASE 1 DATA COLLECTION COMPLETED =====`);
+      console.log(`✅ Success: ${successCount}/${totalTasks} calculations`);
+      console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
+      console.log(`⏱️ Total Duration: ${totalDuration}s`);
+      
+      // Update database log
+      if (logEntry) {
+        await SchedulerLogService.updateLog(logEntry.id!, {
+          status: successCount === totalTasks ? 'completed' : 'failed',
+          completed_at: new Date().toISOString(),
+          total_files_processed: totalTasks,
+          files_created: successCount,
+          files_failed: totalTasks - successCount,
+          progress_percentage: 100,
+          current_processing: `Phase 1 Data Collection complete: ${successCount}/${totalTasks} calculations successful in ${totalDuration}s`
+        });
+      }
+      
+      // Cleanup after Phase 1
+      await aggressiveMemoryCleanup();
+      
+      // Trigger Phase 2 automatically if Phase 1 succeeded
+      if (successCount === totalTasks) {
+        console.log('🔄 Triggering Phase 2 Market Rotation calculations...');
+        await runPhase2MarketRotationCalculations();
+      } else {
+        console.log('⚠️ Skipping Phase 2 due to Phase 1 failure');
+      }
+      
+    } catch (error) {
+      trackError(error, 'Phase 1 Data Collection');
+      console.error('❌ Error during Phase 1 Data Collection:', error);
+      
+      if (logEntry) {
+        await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
+      }
+    }
+  } finally {
+    phaseStatus['phase1_data_collection'] = 'idle';
+  }
+}
+
+/**
+ * Get all phases status and configuration
+ */
+export function getAllPhasesStatus() {
+  const status = getSchedulerStatus();
+  
+  return {
+    phases: [
+      {
+        id: 'phase1_data_collection',
+        name: 'Phase 1 Data Collection',
+        description: 'Stock Data, Index Data, Done Summary Data (7 days)',
+        status: phaseStatus['phase1_data_collection'],
+        trigger: {
+          type: 'scheduled',
+          schedule: PHASE1_DATA_COLLECTION_TIME,
+          condition: `Daily at ${PHASE1_DATA_COLLECTION_TIME} (${TIMEZONE})`
+        },
+        tasks: ['Stock Data', 'Index Data', 'Done Summary Data'],
+        mode: 'PARALLEL'
+      },
+      {
+        id: 'phase1_shareholders',
+        name: 'Phase 1 Shareholders & Holding',
+        description: 'Shareholders Data, Holding Data (Monthly check)',
+        status: phaseStatus['phase1_shareholders'],
+        trigger: {
+          type: 'scheduled',
+          schedule: PHASE1_SHAREHOLDERS_TIME,
+          condition: `Daily at ${PHASE1_SHAREHOLDERS_TIME} (${TIMEZONE}) - Only on 1st of month`
+        },
+        tasks: ['Shareholders Data', 'Holding Data'],
+        mode: 'PARALLEL'
+      },
+      {
+        id: 'phase2_market_rotation',
+        name: 'Phase 2 Market Rotation',
+        description: 'RRC, RRG, Seasonal, Trend Filter, Watchlist Snapshot',
+        status: phaseStatus['phase2_market_rotation'],
+        trigger: {
+          type: 'auto',
+          condition: 'Auto-triggered after Phase 1 Data Collection completes'
+        },
+        tasks: ['RRC', 'RRG', 'Seasonal', 'Trend Filter', 'Watchlist Snapshot'],
+        mode: 'PARALLEL'
+      },
+      {
+        id: 'phase3_light',
+        name: 'Phase 3 Light',
+        description: 'Money Flow, Foreign Flow, Break Done Trade',
+        status: phaseStatus['phase3_light'],
+        trigger: {
+          type: 'auto',
+          condition: 'Auto-triggered after Phase 2 completes'
+        },
+        tasks: ['Money Flow', 'Foreign Flow', 'Break Done Trade'],
+        mode: 'PARALLEL'
+      },
+      {
+        id: 'phase4_medium',
+        name: 'Phase 4 Medium',
+        description: 'Bid/Ask Footprint, Broker Breakdown (all dates)',
+        status: phaseStatus['phase4_medium'],
+        trigger: {
+          type: 'auto',
+          condition: 'Auto-triggered after Phase 3 completes'
+        },
+        tasks: ['Bid/Ask Footprint', 'Broker Breakdown'],
+        mode: 'SEQUENTIAL'
+      },
+      {
+        id: 'phase5_heavy',
+        name: 'Phase 5 Heavy',
+        description: 'Broker Data, Broker Summary by Type, Broker Summary IDX (all dates)',
+        status: phaseStatus['phase5_heavy'],
+        trigger: {
+          type: 'auto',
+          condition: 'Auto-triggered after Phase 4 completes'
+        },
+        tasks: ['Broker Data', 'Broker Summary by Type', 'Broker Summary IDX'],
+        mode: 'SEQUENTIAL'
+      },
+      {
+        id: 'phase6_very_heavy',
+        name: 'Phase 6 Very Heavy',
+        description: 'Broker Inventory, Accumulation Distribution (sequential)',
+        status: phaseStatus['phase6_very_heavy'],
+        trigger: {
+          type: 'auto',
+          condition: 'Auto-triggered after Phase 5 completes'
+        },
+        tasks: ['Broker Inventory', 'Accumulation Distribution'],
+        mode: 'SEQUENTIAL'
+      }
+    ],
+    scheduler: {
+      running: status.running,
+      timezone: status.timezone,
+      memoryThreshold: status.memoryThreshold,
+      weekendSkip: status.weekendSkip
+    }
+  };
+}
+
+/**
+ * Trigger a specific phase manually
+ */
+export async function triggerPhase(phaseId: string): Promise<{ success: boolean; message: string }> {
+  try {
+    switch (phaseId) {
+      case 'phase1_data_collection':
+        await runPhase1DataCollection();
+        return { success: true, message: 'Phase 1 Data Collection triggered successfully' };
+      case 'phase1_shareholders':
+        // Phase 1 Shareholders requires special handling (monthly check)
+        return { success: false, message: 'Phase 1 Shareholders can only run on 1st of month via scheduler' };
+      case 'phase2_market_rotation':
+        await runPhase2MarketRotationCalculations();
+        return { success: true, message: 'Phase 2 Market Rotation triggered successfully' };
+      case 'phase3_light':
+        await runPhase3LightCalculations();
+        return { success: true, message: 'Phase 3 Light triggered successfully' };
+      case 'phase4_medium':
+        await runPhase4MediumCalculations();
+        return { success: true, message: 'Phase 4 Medium triggered successfully' };
+      case 'phase5_heavy':
+        await runPhase5HeavyCalculations();
+        return { success: true, message: 'Phase 5 Heavy triggered successfully' };
+      case 'phase6_very_heavy':
+        await runPhase6VeryHeavyCalculations();
+        return { success: true, message: 'Phase 6 Very Heavy triggered successfully' };
+      default:
+        return { success: false, message: `Unknown phase: ${phaseId}` };
+    }
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
+/**
+ * Start the scheduler
+ */
+export function startScheduler(): void {
+  if (schedulerRunning) {
+    console.log('⚠️ Scheduler already running');
+    return;
+  }
+
+  console.log('🕐 Starting scheduler...');
+
+  // Phase 1, 2, 3 will be scheduled manually, Phase 4, 5, 6 will be auto-triggered
+
+  // 1. Schedule Phase 1 - Data Collection (Stock, Index, Done Summary)
+  const phase1DataCollectionTask = cron.schedule(PHASE1_DATA_COLLECTION_SCHEDULE, async () => {
+    phaseStatus['phase1_data_collection'] = 'running';
+    try {
+      const phaseStartTime = Date.now();
+      console.log(`\n🚀 ===== PHASE 1 DATA COLLECTION STARTED =====`);
+      console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
+      console.log(`📋 Phase: Data Collection (Stock, Index, Done Summary) - 7 days`);
+      
+      // Skip if weekend
+      if (isWeekend()) {
+        console.log('📅 Weekend detected - skipping Phase 1 Data Collection (no market data available)');
+        phaseStatus['phase1_data_collection'] = 'idle';
+        return;
+      }
+      
+      let logEntry: SchedulerLog | null = null;
+      
+      try {
+        // Check memory before starting
+        const memoryOk = await monitorMemoryUsage();
+        if (!memoryOk) {
+          console.log('⚠️ Skipping Phase 1 Data Collection due to high memory usage');
+          phaseStatus['phase1_data_collection'] = 'idle';
+          return;
+        }
       
       // Create database log entry
       const logData: Partial<SchedulerLog> = {
@@ -1053,59 +1372,67 @@ export function startScheduler(): void {
         console.log('⚠️ Skipping Phase 2 due to insufficient Phase 1 success rate');
       }
       
-    } catch (error) {
-      console.error('❌ Error during Phase 1 Data Collection:', error);
-      
-      if (logEntry) {
-        await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
+      } catch (error) {
+        console.error('❌ Error during Phase 1 Data Collection:', error);
+        
+        if (logEntry) {
+          await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
+        }
+      } finally {
+        phaseStatus['phase1_data_collection'] = 'idle';
       }
+    } catch (error) {
+      console.error('❌ Error in Phase 1 Data Collection scheduler:', error);
+      phaseStatus['phase1_data_collection'] = 'idle';
     }
   }, {
     timezone: TIMEZONE
   });
   scheduledTasks.push(phase1DataCollectionTask);
 
-  // 2. Schedule Phase 1 - Shareholders & Holding (Monthly check)
+  // 2. Schedule Phase 1 - Shareholders & Holding (Monthly check - only on 1st of month)
   const phase1ShareholdersTask = cron.schedule(PHASE1_SHAREHOLDERS_SCHEDULE, async () => {
-    const phaseStartTime = Date.now();
-    console.log(`\n🚀 ===== PHASE 1 SHAREHOLDERS & HOLDING STARTED =====`);
-    console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
-    console.log(`📋 Phase: Shareholders & Holding (Monthly check)`);
-    
-    // Skip if weekend
-    if (isWeekend()) {
-      console.log('📅 Weekend detected - skipping Phase 1 Shareholders & Holding (no market data available)');
-      return;
-    }
-    
-  let logEntry: SchedulerLog | null = null;
-  
-  try {
-    // Check if today is the first day of the month
-    const today = new Date();
-    
-    if (today.getDate() === 1) {
-        console.log('📅 First day of month detected - running Shareholders & Holding updates');
-        
+    phaseStatus['phase1_shareholders'] = 'running';
+    try {
+      const phaseStartTime = Date.now();
+      console.log(`\n🚀 ===== PHASE 1 SHAREHOLDERS & HOLDING STARTED =====`);
+      console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
+      console.log(`📋 Phase: Shareholders & Holding (Monthly check - only on 1st of month)`);
+      
+      // Check if today is the first day of the month
+      const today = new Date();
+      
+      if (today.getDate() !== 1) {
+        console.log('📅 Not the first day of month - skipping Shareholders & Holding updates');
+        phaseStatus['phase1_shareholders'] = 'idle';
+        return;
+      }
+      
+      console.log('📅 First day of month detected - running Shareholders & Holding updates');
+      
+      let logEntry: SchedulerLog | null = null;
+      
+      try {
         // Check memory before starting
         const memoryOk = await monitorMemoryUsage();
         if (!memoryOk) {
           console.log('⚠️ Skipping Phase 1 Shareholders & Holding due to high memory usage');
+          phaseStatus['phase1_shareholders'] = 'idle';
           return;
         }
         
         // Create database log entry
-    const logData: Partial<SchedulerLog> = {
+        const logData: Partial<SchedulerLog> = {
           feature_name: 'phase1_shareholders_holding',
-      trigger_type: 'scheduled',
-      triggered_by: 'scheduler',
-      status: 'running',
-      started_at: new Date().toISOString(),
-      environment: process.env['NODE_ENV'] || 'development'
-    };
-    
-    logEntry = await SchedulerLogService.createLog(logData);
-    if (logEntry) {
+          trigger_type: 'scheduled',
+          triggered_by: 'scheduler',
+          status: 'running',
+          started_at: new Date().toISOString(),
+          environment: process.env['NODE_ENV'] || 'development'
+        };
+        
+        logEntry = await SchedulerLogService.createLog(logData);
+        if (logEntry) {
           console.log('📊 Phase 1 Shareholders & Holding database log created:', logEntry.id);
         }
         
@@ -1118,14 +1445,14 @@ export function startScheduler(): void {
         ];
         
         const shareholdersHoldingPromises = shareholdersHoldingTasks.map(async (task, index) => {
-    const startTime = Date.now();
-    
-    try {
+          const startTime = Date.now();
+          
+          try {
             console.log(`🔄 Starting ${task.name} (${index + 1}/2)...`);
-      
-      // Update progress in database
-      if (logEntry) {
-        await SchedulerLogService.updateLog(logEntry.id!, {
+            
+            // Update progress in database
+            if (logEntry) {
+              await SchedulerLogService.updateLog(logEntry.id!, {
                 progress_percentage: Math.round((index / 2) * 100),
                 current_processing: `Running ${task.name}...`
               });
@@ -1133,12 +1460,12 @@ export function startScheduler(): void {
             
             // Run calculation
             await (task.service as any)();
-      
-      const duration = Date.now() - startTime;
-      
-      // If we reach here without throwing an error, the task succeeded
-      console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
-      return { name: task.name, success: true, duration };
+            
+            const duration = Date.now() - startTime;
+            
+            // If we reach here without throwing an error, the task succeeded
+            console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
+            return { name: task.name, success: true, duration };
             
           } catch (error) {
             const duration = Date.now() - startTime;
@@ -1173,16 +1500,16 @@ export function startScheduler(): void {
         console.log(`✅ Success: ${successCount}/2 calculations`);
         console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
         console.log(`⏱️ Total Duration: ${totalDuration}s`);
-    
-    // Update database log
-    if (logEntry) {
-      await SchedulerLogService.updateLog(logEntry.id!, {
+        
+        // Update database log
+        if (logEntry) {
+          await SchedulerLogService.updateLog(logEntry.id!, {
             status: successCount === 2 ? 'completed' : 'failed',
-        completed_at: new Date().toISOString(),
+            completed_at: new Date().toISOString(),
             total_files_processed: 2,
             files_created: successCount,
             files_failed: 2 - successCount,
-        progress_percentage: 100,
+            progress_percentage: 100,
             current_processing: `Phase 1 Shareholders & Holding complete: ${successCount}/2 calculations successful in ${totalDuration}s`
           });
         }
@@ -1190,17 +1517,19 @@ export function startScheduler(): void {
         // Cleanup after Phase 1 Shareholders & Holding
         await aggressiveMemoryCleanup();
         
-      } else {
-        console.log('📅 Not the first day of month - skipping Shareholders & Holding updates');
+      } catch (error) {
+        console.error('❌ Error during Phase 1 Shareholders & Holding:', error);
+        
+        if (logEntry) {
+          await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
+        }
+      } finally {
+        phaseStatus['phase1_shareholders'] = 'idle';
+      }
+    } catch (error) {
+      console.error('❌ Error in Phase 1 Shareholders scheduler:', error);
+      phaseStatus['phase1_shareholders'] = 'idle';
     }
-    
-  } catch (error) {
-      console.error('❌ Error during Phase 1 Shareholders & Holding:', error);
-    
-    if (logEntry) {
-      await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
-    }
-  }
   }, {
     timezone: TIMEZONE
   });
@@ -1275,4 +1604,51 @@ export function getSchedulerStatus() {
     memoryThreshold: '12GB',
     weekendSkip: true
   };
+}
+
+/**
+ * Get scheduler configuration
+ */
+export function getSchedulerConfig() {
+  return {
+    ...SCHEDULER_CONFIG,
+    // Convert memory threshold to GB for readability
+    MEMORY_THRESHOLD_GB: SCHEDULER_CONFIG.MEMORY_THRESHOLD / (1024 * 1024 * 1024)
+  };
+}
+
+/**
+ * Update scheduler configuration
+ * @param newConfig Partial configuration to update
+ */
+export function updateSchedulerConfig(newConfig: Partial<typeof SCHEDULER_CONFIG>): void {
+  // Update config
+  SCHEDULER_CONFIG = {
+    ...SCHEDULER_CONFIG,
+    ...newConfig
+  };
+  
+  // Update extracted variables
+  PHASE1_DATA_COLLECTION_TIME = SCHEDULER_CONFIG.PHASE1_DATA_COLLECTION_TIME;
+  PHASE1_SHAREHOLDERS_TIME = SCHEDULER_CONFIG.PHASE1_SHAREHOLDERS_TIME;
+  TIMEZONE = SCHEDULER_CONFIG.TIMEZONE;
+  
+  // Update cron schedules
+  PHASE1_DATA_COLLECTION_SCHEDULE = timeToCron(PHASE1_DATA_COLLECTION_TIME);
+  PHASE1_SHAREHOLDERS_SCHEDULE = timeToCron(PHASE1_SHAREHOLDERS_TIME);
+  
+  console.log('✅ Scheduler configuration updated:', SCHEDULER_CONFIG);
+}
+
+/**
+ * Restart scheduler with new configuration
+ * This will stop current scheduler and start with new config
+ */
+export function restartScheduler(): void {
+  console.log('🔄 Restarting scheduler with new configuration...');
+  stopScheduler();
+  // Wait a bit for cleanup
+  setTimeout(() => {
+    startScheduler();
+  }, 1000);
 }
