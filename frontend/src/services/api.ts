@@ -1898,11 +1898,16 @@ export const api = {
   },
 
   // Broker Transaction Data
-  async getBrokerTransactionData(brokerCode: string, date: string): Promise<{ success: boolean; data?: any; error?: string }> {
+  async getBrokerTransactionData(brokerCode: string, date: string, market?: 'RG' | 'TN' | 'NG' | ''): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       // Convert YYYY-MM-DD to YYYYMMDD format
       const dateStr = date.includes('-') ? date.replace(/-/g, '') : date;
-      const res = await fetch(`${API_URL}/api/broker/transaction/${brokerCode}?date=${dateStr}`, {
+      const params = new URLSearchParams();
+      params.append('date', dateStr);
+      if (market) {
+        params.append('market', market);
+      }
+      const res = await fetch(`${API_URL}/api/broker/transaction/${brokerCode}?${params.toString()}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       });
