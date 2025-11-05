@@ -264,21 +264,25 @@ router.get('/transaction/:brokerCode', async (req, res) => {
  */
 router.get('/dates', async (_req, res) => {
   try {
-    const { listPaths } = await import('../utils/azureBlob');
+    const { listPrefixes } = await import('../utils/azureBlob');
     
-    // List all broker_summary directories
-    const allFiles = await listPaths({ prefix: 'broker_summary/' });
+    // Use listPrefixes to directly get folder names (much faster than listPaths)
+    // This lists only the folder structure, not all files
+    const prefixes = await listPrefixes('broker_summary/');
+    
     const dates = new Set<string>();
     
-    allFiles.forEach(file => {
+    prefixes.forEach(prefix => {
       // Extract date from broker_summary/broker_summary_YYYYMMDD/ pattern
-      const match = file.match(/broker_summary\/broker_summary_(\d{8})\//);
+      const match = prefix.match(/broker_summary\/broker_summary_(\d{8})\//);
       if (match && match[1]) {
         dates.add(match[1]);
       }
     });
     
     const sortedDates = Array.from(dates).sort().reverse(); // Newest first
+    
+    console.log(`[Broker] Found ${sortedDates.length} unique dates from ${prefixes.length} folders`);
     
     return res.json({
       success: true,
