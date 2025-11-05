@@ -1,10 +1,8 @@
-import React, { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
-import { Search, Loader2, Calendar, RotateCcw } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Button } from '../ui/button';
-import { getBrokerBackgroundClass, getBrokerTextClass, useDarkMode } from '../../utils/brokerColors';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Search, Loader2, Calendar } from 'lucide-react';
  
 import { api } from '../../services/api';
+import { useToast } from '../../contexts/ToastContext';
 
 interface BrokerSummaryData {
   broker: string;
@@ -42,66 +40,10 @@ const FOREIGN_BROKERS = [
 const GOVERNMENT_BROKERS = ['CC', 'NI', 'OD', 'DX'];
 
 // Note: local generator removed in favor of backend API
+// Default dates (last 3 days) are now set from API data in component useEffect
 
-// Get last trading days (excluding weekends and today)
-// Start from yesterday since today's data is not available yet
-const getLastTradingDays = (count: number): string[] => {
-  const today = new Date();
-  const dates: string[] = [];
-  let daysBack = 1; // Start from yesterday, skip today
-  
-  while (dates.length < count) {
-    const date = new Date(today);
-    date.setDate(date.getDate() - daysBack);
-    const dayOfWeek = date.getDay();
-    
-    // Skip weekends (Saturday = 6, Sunday = 0)
-    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-    dates.push(date.toISOString().split('T')[0] ?? '');
-    }
-    daysBack++;
-  }
-  
-  return dates;
-};
-
-// Get last three trading days
-const getLastThreeDays = (): string[] => {
-  return getLastTradingDays(3);
-};
-
-// Get trading days (skip weekends) - for simple view
-const getTradingDays = (count: number): string[] => {
-  const dates: string[] = [];
-  const today = new Date();
-  let currentDate = new Date(today);
-  while (dates.length < count) {
-    const dow = currentDate.getDay();
-    if (dow !== 0 && dow !== 6) {
-      const dateStr = currentDate.toISOString().split('T')[0];
-      if (dateStr) {
-        dates.push(dateStr);
-      }
-    }
-    currentDate.setDate(currentDate.getDate() - 1);
-    if (dates.length === 0 && currentDate.getTime() < today.getTime() - (30 * 24 * 60 * 60 * 1000)) {
-      const todayStr = today.toISOString().split('T')[0];
-      if (todayStr) {
-        dates.push(todayStr);
-      }
-      break;
-    }
-  }
-  return dates.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-};
-
-// Format value for simple view (simpler format)
-const formatValueSimple = (num: number): string => {
-  if (Math.abs(num) >= 1000) {
-    return (num / 1000).toFixed(1) + 'K';
-  }
-  return num.toFixed(num >= 10 ? 0 : num >= 1 ? 1 : 2);
-};
+// Minimum date that can be selected: 19/09/2025
+const MIN_DATE = '2025-09-19';
 
 const formatNumber = (value: number): string => {
   const absValue = Math.abs(value);
@@ -150,37 +92,16 @@ interface BrokerSummaryPageProps {
 }
 
 export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSummaryPageProps) {
-  const [selectedDates, setSelectedDates] = useState<string[]>(() => {
-    const threeDays = getLastThreeDays();
-    if (threeDays.length > 0) {
-      const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-      return sortedDates;
-    }
-    return [];
-  });
-  const [startDate, setStartDate] = useState(() => {
-    const threeDays = getLastThreeDays();
-    if (threeDays.length > 0) {
-      const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-      return sortedDates[0] ?? '';
-    }
-    return '';
-  });
-  const [endDate, setEndDate] = useState(() => {
-    const threeDays = getLastThreeDays();
-    if (threeDays.length > 0) {
-      const sortedDates = [...threeDays].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-      return sortedDates[sortedDates.length - 1] ?? '';
-    }
-    return '';
-  });
+  const { showToast } = useToast();
+  // Default dates will be set from API (maxAvailableDate useEffect)
+  // Using empty initial state - will be populated from API
+  const [selectedDates, setSelectedDates] = useState<string[]>([]);
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
   const [selectedTickers, setSelectedTickers] = useState<string[]>(propSelectedStock ? [propSelectedStock] : ['BBCA']);
   const [tickerInput, setTickerInput] = useState<string>('');
   const [fdFilter, setFdFilter] = useState<'All' | 'Foreign' | 'Domestic'>('All');
   const [marketFilter, setMarketFilter] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Default to RG
-  const [viewMode, setViewMode] = useState<'simple' | 'complex'>('complex'); // Default to complex (existing view)
-  const [dateRangeMode, setDateRangeMode] = useState<'1day'|'3days'|'1week'|'custom'>('1day'); // For simple view
-  const [layoutMode, setLayoutMode] = useState<'horizontal' | 'vertical'>('horizontal'); // For simple view
   
   // Stock selection state
   const [availableStocks, setAvailableStocks] = useState<string[]>([]);
@@ -195,37 +116,17 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   const valueTableContainerRef = useRef<HTMLDivElement>(null);
   const netTableContainerRef = useRef<HTMLDivElement>(null);
 
-  // Column widths state - store widths for Value table columns
-  const [columnWidths, setColumnWidths] = useState<{
-    BY: string;
-    BLot: string;
-    BVal: string;
-    BAvg: string;
-    hash: string; // '#'
-    SL: string;
-    SLot: string;
-    SVal: string;
-    SAvg: string;
-  }>({
-    BY: 'w-4',
-    BLot: 'w-6',
-    BVal: 'w-6',
-    BAvg: 'w-6',
-    hash: 'w-4',
-    SL: 'w-4',
-    SLot: 'w-6',
-    SVal: 'w-6',
-    SAvg: 'w-6',
-  });
-
-  // Date column group widths - store width for each date column group (colspan=9)
-  const [dateColumnWidths, setDateColumnWidths] = useState<Map<string, string>>(new Map());
-
   // API-driven broker summary data by date
   const [summaryByDate, setSummaryByDate] = useState<Map<string, BrokerSummaryData[]>>(new Map());
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [isDataReady, setIsDataReady] = useState<boolean>(false); // Control when to show tables
+  const [shouldFetchData, setShouldFetchData] = useState<boolean>(false); // Control when to fetch data (only when Show button clicked)
+  const [maxAvailableDate, setMaxAvailableDate] = useState<string>(''); // Maximum date available from API (format: YYYY-MM-DD)
+  const hasInitialAutoFetchRef = useRef<boolean>(false); // Track if initial auto-fetch has happened
+  const initialAutoFetchTriggeredRef = useRef<boolean>(false); // Track if initial auto-fetch has been triggered (to prevent useLayoutEffect from resetting it)
+  const shouldFetchDataRef = useRef<boolean>(false); // Ref to track shouldFetchData for async functions (always up-to-date)
+  const abortControllerRef = useRef<AbortController | null>(null); // Ref to abort ongoing fetch
 
   // Cache for API responses to avoid redundant calls
   // Key format: `${ticker}-${date}-${market}`
@@ -233,6 +134,109 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
 
   // Cache expiration time: 5 minutes
   const CACHE_EXPIRY_MS = 5 * 60 * 1000;
+
+  // Check if more than 7 days selected - if so, only show Total column
+  // CRITICAL: Calculate from summaryByDate (data that exists), not from selectedDates (which changes on date picker)
+  // This ensures no re-render when user changes dates - only when data changes (after Show button clicked)
+  const showOnlyTotal = summaryByDate.size > 7;
+
+  // Load maximum available date on mount - use this for validation and default dates
+  // IMPORTANT: This effect runs ONLY ONCE on mount, not when tickers change
+  useEffect(() => {
+    const loadMaxDate = async () => {
+      // Set loading state saat fetch dates
+      setIsLoading(true);
+      try {
+        const result = await api.getBrokerSummaryDates();
+        console.log('[BrokerSummary] getBrokerSummaryDates result:', result);
+        
+        if (result.success && result.data?.dates && Array.isArray(result.data.dates) && result.data.dates.length > 0) {
+          // Backend sudah memberikan dates sorted newest first
+          // Langsung ambil 3 teratas tanpa logic tambahan
+          const apiDates = result.data.dates.map((d: string) => {
+            const yyyy = d.slice(0, 4);
+            const mm = d.slice(4, 6);
+            const dd = d.slice(6, 8);
+            return `${yyyy}-${mm}-${dd}`;
+          });
+          
+          // Ambil 3 teratas (yang sudah newest first), lalu sort ascending untuk display
+          const lastThreeDates = apiDates.slice(0, 3).sort((a: string, b: string) => new Date(a).getTime() - new Date(b).getTime());
+          
+          // Set maxAvailableDate (tanggal terbaru)
+          const latestDateStr = result.data.dates[0];
+          const formattedDate = `${latestDateStr.slice(0, 4)}-${latestDateStr.slice(4, 6)}-${latestDateStr.slice(6, 8)}`;
+          console.log('[BrokerSummary] Max available date:', formattedDate);
+          console.log('[BrokerSummary] 3 latest dates:', lastThreeDates);
+          
+          // Set semua state sekaligus
+          setMaxAvailableDate(formattedDate);
+          setSelectedDates(lastThreeDates);
+          setStartDate(lastThreeDates[0]);
+          setEndDate(lastThreeDates[lastThreeDates.length - 1]);
+          
+          // Trigger initial auto-fetch AFTER all states are set
+          // CRITICAL: Use setTimeout to ensure all state updates are batched and applied
+          // Also capture selectedTickers value from closure to avoid reading stale state
+          const currentTickers = [...selectedTickers]; // Capture current value (copy array)
+          // Capture dates to ensure we use the same dates that were set
+          const datesToUse = [...lastThreeDates];
+          setTimeout(() => {
+            // TRIPLE-CHECK: only trigger if initial fetch hasn't happened AND we have dates and tickers
+            // Check that we're still in initial load phase (hasInitialAutoFetchRef is still false)
+            // This prevents trigger if user changed dates during setTimeout
+            if (!hasInitialAutoFetchRef.current && 
+                datesToUse.length > 0 && 
+                currentTickers.length > 0) {
+              // Mark as triggered IMMEDIATELY (synchronously) before any async operations
+              hasInitialAutoFetchRef.current = true;
+              initialAutoFetchTriggeredRef.current = true;
+              console.log('[BrokerSummary] Initial auto-fetch triggered from loadMaxDate', {
+                dates: datesToUse,
+                tickers: currentTickers
+              });
+              // Set ref first (synchronous), then state (async)
+              shouldFetchDataRef.current = true;
+              setShouldFetchData(true);
+            } else {
+              console.log('[BrokerSummary] Initial auto-fetch skipped', {
+                hasInitialAutoFetchRef: hasInitialAutoFetchRef.current,
+                datesLength: datesToUse.length,
+                tickersLength: currentTickers.length
+              });
+            }
+          }, 0);
+          
+          // Loading akan di-reset oleh fetchAll
+        } else {
+          console.warn('[BrokerSummary] No dates available from API', result);
+          setIsLoading(false);
+          // Show error toast
+          if (result.error) {
+            showToast({
+              type: 'error',
+              title: 'Error',
+              message: `Gagal memuat tanggal: ${result.error}`,
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Error loading max available date:', err);
+        setIsLoading(false);
+        showToast({
+          type: 'error',
+          title: 'Error',
+          message: 'Gagal memuat data tanggal. Silakan refresh halaman.',
+        });
+      }
+    };
+    
+    loadMaxDate();
+  }, []); // IMPORTANT: Empty dependency array - only run once on mount
+  
+  // REMOVED: Auto-fetch effect - now triggered directly from loadMaxDate after all states are set
+  // This ensures no re-runs when user changes dates (which would trigger auto-fetch again)
+  // Initial auto-fetch is now handled directly in loadMaxDate useEffect
 
   // Update selectedTickers when prop changes
   useEffect(() => {
@@ -242,43 +246,125 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     }
   }, [propSelectedStock]);
 
-  // Load available stocks when dates change
+  // Toast "Range Tanggal Lebih dari 7 Hari" is now shown only after clicking Show button (in fetchAll)
+
+  // Load available stocks ONLY on initial load or when marketFilter changes
+  // CRITICAL: Do NOT load stocks when user changes dates - let user click Show first
+  // REMOVED: loadAvailableStocks effect
+  // This was causing API calls when dates change
+  // Stocks will be loaded only when needed (e.g., when user types in stock input)
+  // No automatic stock loading to prevent any side effects when dates change
+
+  // REMOVED: useLayoutEffect that resets shouldFetchData
+  // Reset is now handled directly in onChange handlers (startDate and endDate)
+  // This ensures NO effect runs when user changes dates - completely silent
+  
+  // Mark initial auto-fetch as no longer being triggered after fetchAll completes
+  // This allows onChange handlers to reset shouldFetchData on subsequent date changes
   useEffect(() => {
-    const loadAvailableStocks = async () => {
-      if (selectedDates.length === 0) return;
+    if (initialAutoFetchTriggeredRef.current && !isLoading && isDataReady) {
+      // Initial fetch completed, allow onChange handlers to reset shouldFetchData on future changes
+      setTimeout(() => {
+        initialAutoFetchTriggeredRef.current = false;
+      }, 300); // Delay to ensure fetchAll is fully complete and state is stable
+    }
+  }, [isLoading, isDataReady]);
 
-      try {
-        // Load stocks for the first selected date
-        if (selectedDates[0]) {
-          // When marketFilter is empty string (All Trade), send it as empty string
-          const market = marketFilter || '';
-          const stocksResult = await api.getBrokerSummaryStocks(selectedDates[0], market as 'RG' | 'TN' | 'NG' | '');
-          if (stocksResult.success && stocksResult.data?.stocks) {
-            setAvailableStocks(stocksResult.data.stocks);
-          }
-        }
-      } catch (err) {
-        console.error('Error loading available stocks:', err);
-        // Don't show error toast for stocks loading, just log it
-      }
-    };
-
-    loadAvailableStocks();
-  }, [selectedDates, marketFilter]);
-
-  // Hide tables immediately when dependencies change (before fetch starts)
-  // This ensures tables disappear instantly when user changes date/ticker
-  // Use useLayoutEffect to run synchronously before paint, preventing flash of old content
-  useLayoutEffect(() => {
-    // Clear data and hide tables immediately when dependencies change
-    setSummaryByDate(new Map());
-    setIsDataReady(false);
-  }, [selectedTickers, selectedDates, marketFilter]);
+  // REMOVED: Reminder toast effect
+  // User wants NO side effects when changing dates - completely silent
+  // Reminder toast removed per user request: "jangan lakukan apa-apa di manapun, biarkan aja begitu"
+  
+  // REMOVED: Auto-fetch on initial load - user MUST click Show button to fetch data
+  // This ensures no data is displayed automatically without user clicking Show
 
   // Load broker summary data from backend for each selected date and aggregate multiple tickers
+  // Only fetch when shouldFetchData is true (triggered by Show button or initial auto-fetch)
+  // IMPORTANT: This effect only runs when shouldFetchData changes, NOT when selectedTickers/selectedDates change
+  // CRITICAL: This effect should NEVER run after initial load unless user clicks Show button
   useEffect(() => {
+    // CRITICAL: Check ref FIRST (before anything else) - ref is always up-to-date
+    // This is the most reliable check to prevent unwanted fetches
+    if (!shouldFetchDataRef.current) {
+      console.log('[BrokerSummary] fetchAll effect: shouldFetchDataRef is false, aborting immediately');
+      return; // Early return if ref is false - this is the primary guard
+    }
+    
+    // CRITICAL: Also check state for consistency
+    if (!shouldFetchData) {
+      console.log('[BrokerSummary] fetchAll effect: shouldFetchData state is false, aborting');
+      // Reset ref to match state
+      shouldFetchDataRef.current = false;
+      return; // Early return if shouldFetchData is false
+    }
+    
+    // CRITICAL: Cancel any ongoing fetch before starting new one
+    if (abortControllerRef.current) {
+      console.log('[BrokerSummary] Cancelling previous fetch before starting new one');
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    
+    // Final check: make sure ref is still true after cleanup
+    if (!shouldFetchDataRef.current) {
+      console.log('[BrokerSummary] fetchAll effect: shouldFetchDataRef became false after cleanup, aborting');
+      return;
+    }
+    
+    // Create new AbortController for this fetch
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    
     const fetchAll = async () => {
+      // CRITICAL: Check ref instead of state - ref is always up-to-date even in async context
+      // This is especially important if user changes dates while fetch is queued
+      if (!shouldFetchDataRef.current) {
+        console.log('[BrokerSummary] fetchAll function: shouldFetchDataRef is false, aborting fetch');
+        setIsLoading(false);
+        setIsDataReady(false);
+        return;
+      }
+      
       if (selectedTickers.length === 0 || selectedDates.length === 0) {
+        setIsLoading(false);
+        setIsDataReady(false);
+        shouldFetchDataRef.current = false;
+        setShouldFetchData(false); // Reset fetch trigger
+        return;
+      }
+      
+      // Note: maxAvailableDate validation is done in date picker, not here
+      // If we reach here, dates should already be valid
+
+      // CRITICAL: Check ref again after validation - user might have changed dates
+      if (!shouldFetchDataRef.current) {
+        console.log('[BrokerSummary] fetchAll: shouldFetchDataRef became false after validation, aborting');
+        setIsLoading(false);
+        setIsDataReady(false);
+        return;
+      }
+      
+      // Validate that all selected dates are within maxAvailableDate
+      if (maxAvailableDate && maxAvailableDate.trim() !== '') {
+        const invalidDates = selectedDates.filter(date => date > maxAvailableDate);
+        if (invalidDates.length > 0) {
+          showToast({
+            type: 'warning',
+            title: 'Tanggal Tidak Valid',
+            message: `Tanggal paling baru yang tersedia adalah ${new Date(maxAvailableDate).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}. Beberapa tanggal yang dipilih melebihi batas maksimum.`,
+          });
+          setIsLoading(false);
+          setIsDataReady(false);
+          shouldFetchDataRef.current = false;
+          setShouldFetchData(false); // Reset fetch trigger
+          return;
+        }
+      }
+
+      // CRITICAL: Final check before starting fetch - user might have changed dates during validation
+      if (!shouldFetchDataRef.current) {
+        console.log('[BrokerSummary] fetchAll: shouldFetchDataRef became false before starting fetch, aborting');
+        setIsLoading(false);
+        setIsDataReady(false);
         return;
       }
 
@@ -302,6 +388,12 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
 
         // Helper function to fetch data for a single ticker-date combination (with cache)
         const fetchSingleData = async (ticker: string, date: string): Promise<{ ticker: string; date: string; data: BrokerSummaryData[] }> => {
+          // CRITICAL: Check if fetch was aborted
+          if (abortController.signal.aborted || !shouldFetchDataRef.current) {
+            console.log(`[BrokerSummary] Fetch aborted for ${ticker} on ${date}`);
+            throw new Error('Fetch aborted');
+          }
+          
           const cacheKey = `${ticker}-${date}-${market}`;
           const cached = cache.get(cacheKey);
 
@@ -309,6 +401,12 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           if (cached && (now - cached.timestamp) <= CACHE_EXPIRY_MS) {
             console.log(`[BrokerSummary] Using cached data for ${ticker} on ${date}`);
             return { ticker, date, data: cached.data };
+          }
+
+          // CRITICAL: Check again before API call
+          if (abortController.signal.aborted || !shouldFetchDataRef.current) {
+            console.log(`[BrokerSummary] Fetch aborted before API call for ${ticker} on ${date}`);
+            throw new Error('Fetch aborted');
           }
 
           // Fetch from API
@@ -362,28 +460,40 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
             return { ticker, date, data: rows };
         };
 
-        // Lazy load: Process data in batches to avoid blocking UI
-        // Process by date first (to show progress per date), then aggregate
+        // OPTIMIZED: Fetch all data in parallel without batching delays
+        // Modern browsers can handle parallel requests efficiently
         const allDataResults: Array<{ ticker: string; date: string; data: BrokerSummaryData[] }> = [];
         
-        // Process dates in parallel batches (max 2 dates at a time to reduce UI blocking)
-        const BATCH_SIZE = 2;
-        for (let i = 0; i < selectedDates.length; i += BATCH_SIZE) {
-          const dateBatch = selectedDates.slice(i, i + BATCH_SIZE);
-          
-          // For each date batch, fetch all tickers in parallel
-          const batchPromises = dateBatch.flatMap(date =>
-            selectedTickers.map(ticker => fetchSingleData(ticker, date))
-          );
-          
-          const batchResults = await Promise.all(batchPromises);
-          allDataResults.push(...batchResults);
-          
-          // Yield to browser to prevent UI freeze (every batch)
-          if (i + BATCH_SIZE < selectedDates.length) {
-            await new Promise(resolve => setTimeout(resolve, 0)); // Yield to event loop
+        // Fetch all ticker-date combinations in parallel (no batching)
+        const allPromises = selectedDates.flatMap(date =>
+          selectedTickers.map(ticker => fetchSingleData(ticker, date))
+        );
+        
+        // Wait for all requests to complete (with abort support)
+        // If aborted, Promise.all will reject - catch it and return early
+        let batchResults: Array<{ ticker: string; date: string; data: BrokerSummaryData[] }>;
+        try {
+          batchResults = await Promise.all(allPromises);
+        } catch (error: any) {
+          // If aborted or shouldFetchDataRef is false, silently abort
+          if (error?.message === 'Fetch aborted' || !shouldFetchDataRef.current || abortController.signal.aborted) {
+            console.log('[BrokerSummary] Promise.all aborted');
+            setIsLoading(false);
+            setIsDataReady(false);
+            return;
           }
+          throw error; // Re-throw other errors
         }
+        
+        // CRITICAL: Check ref again after Promise.all - user might have changed dates during fetch
+        if (!shouldFetchDataRef.current) {
+          console.log('[BrokerSummary] fetchAll: shouldFetchDataRef became false after Promise.all, aborting aggregation');
+          setIsLoading(false);
+          setIsDataReady(false);
+          return;
+        }
+        
+        allDataResults.push(...batchResults);
         
         // Aggregate data per date and per broker (sum all tickers)
         const aggregatedMap = new Map<string, Map<string, BrokerSummaryData>>();
@@ -393,6 +503,12 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         });
         
         allDataResults.forEach(({ date, data }) => {
+          // CRITICAL: Check ref during aggregation - user might have changed dates
+          if (!shouldFetchDataRef.current) {
+            console.log('[BrokerSummary] fetchAll: shouldFetchDataRef became false during aggregation, aborting');
+            return;
+          }
+          
           const dateMap = aggregatedMap.get(date);
           if (!dateMap) return;
           
@@ -434,6 +550,14 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           });
         });
         
+        // CRITICAL: Check ref again before setting data - user might have changed dates during aggregation
+        if (!shouldFetchDataRef.current) {
+          console.log('[BrokerSummary] fetchAll: shouldFetchDataRef became false before setting data, aborting');
+          setIsLoading(false);
+          setIsDataReady(false);
+          return;
+        }
+        
         // Convert aggregated map to the format expected by the component
         const finalMap = new Map<string, BrokerSummaryData[]>();
         aggregatedMap.forEach((brokerMap, date) => {
@@ -442,560 +566,400 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           console.log(`[BrokerSummary] Aggregated ${rows.length} brokers for date ${date} from ${selectedTickers.length} ticker(s)`);
         });
         
+        // CRITICAL: Final check before storing data - user might have changed dates
+        if (!shouldFetchDataRef.current) {
+          console.log('[BrokerSummary] fetchAll: shouldFetchDataRef became false before storing data, aborting');
+          setIsLoading(false);
+          setIsDataReady(false);
+          return;
+        }
+        
         // Store data first (but tables won't show yet because isDataReady is still false)
         setSummaryByDate(finalMap);
         
         const totalRows = Array.from(finalMap.values()).reduce((sum, rows) => sum + rows.length, 0);
         console.log(`[BrokerSummary] Total aggregated rows: ${totalRows} across ${finalMap.size} dates from ${selectedTickers.join(', ')}`);
 
-        // Mark loading as complete (data is set, but tables still hidden)
-        setIsLoading(false);
+        // CRITICAL: Check ref again before showing toast and setting data ready
+        // User might have changed dates during aggregation
+        if (!shouldFetchDataRef.current) {
+          console.log('[BrokerSummary] fetchAll: shouldFetchDataRef became false before marking data ready, aborting');
+          setIsLoading(false);
+          setIsDataReady(false);
+          return;
+        }
 
-        // Wait for all frontend calculations and DOM rendering to complete before showing tables
-        // This prevents lag by ensuring everything is pre-calculated and rendered off-screen
-        // Strategy: Use multiple requestAnimationFrame + setTimeout to ensure:
-        // 1. React state updates are flushed
-        // 2. DOM is fully rendered (even if hidden)
-        // 3. All measurements and calculations are complete
-        // 4. Browser has time to complete layout calculations
-
-        // First, wait for React state updates to flush
-        requestAnimationFrame(() => {
-          // Second, wait for DOM rendering
-          requestAnimationFrame(() => {
-            // Third, wait for browser layout calculations to complete
-            setTimeout(() => {
-              // Fourth, check that tables are in DOM and measurements are complete
-              requestAnimationFrame(() => {
-                // Tables should be in DOM now (rendered but hidden)
-                // Give additional time for measureColumnWidths and syncTableWidths useEffects
-                // These useEffects need time to complete their measurements
-                setTimeout(() => {
-                  setIsDataReady(true);
-                }, 400); // Sufficient delay for all measurements to complete
-              });
-            }, 300); // Initial delay for layout calculations
+        // Show toast for range > 7 days only after data is fetched (after clicking Show)
+        const showOnlyTotalNow = selectedDates.length > 7;
+        if (showOnlyTotalNow) {
+          showToast({
+            type: 'info',
+            title: 'Range Tanggal Lebih dari 7 Hari',
+            message: `Anda telah memilih ${selectedDates.length} hari kerja. Hanya kolom Total yang akan ditampilkan untuk VALUE dan NET.`,
           });
-        });
+        }
+
+        // CRITICAL: Final check before marking data ready
+        if (!shouldFetchDataRef.current) {
+          console.log('[BrokerSummary] fetchAll: shouldFetchDataRef became false before final data ready, aborting');
+          setIsLoading(false);
+          setIsDataReady(false);
+          return;
+        }
+
+        // Mark loading as complete and show data immediately
+        setIsLoading(false);
+        
+        // OPTIMIZED: Show data immediately after state update
+        // Column width sync will happen after data is visible (non-blocking)
+        setIsDataReady(true);
+        
+        // Clear abort controller after successful fetch
+        abortControllerRef.current = null;
       } catch (e: any) {
+        // If aborted, don't show error - just reset state
+        // Check abortControllerRef.current instead of local abortController (which might be stale)
+        const wasAborted = abortControllerRef.current?.signal.aborted || e?.message === 'Fetch aborted' || !shouldFetchDataRef.current;
+        if (wasAborted) {
+          console.log('[BrokerSummary] Fetch aborted, cleaning up');
+          setIsLoading(false);
+          setIsDataReady(false);
+          abortControllerRef.current = null;
+          return;
+        }
         console.error('[BrokerSummary] Error fetching data:', e);
         setError(e?.message || 'Failed to load broker summary');
         setIsLoading(false);
         setIsDataReady(false);
+        abortControllerRef.current = null;
       }
     };
 
     fetchAll();
-  }, [selectedTickers, selectedDates, marketFilter]);
-
-  // Measure and store column widths from VALUE table, including date column group widths
-  useEffect(() => {
-    const measureColumnWidths = () => {
-      const valueTable = valueTableRef.current;
-      if (!valueTable || selectedDates.length === 0) return;
-
-      // Get header rows
-      const valueHeaderRows = valueTable.querySelectorAll('thead tr');
-      if (valueHeaderRows.length < 2) return;
-
-      // Get the first header row (date headers with colspan=9)
-      const valueDateHeaderRow = valueHeaderRows[0];
-      if (!valueDateHeaderRow) return;
-
-      // Measure width of each date column group (colspan=9)
-      // Also check body cells to get actual rendered width (important for multiple emiten sums)
-      const dateHeaderCells = valueDateHeaderRow.querySelectorAll('th[colspan="9"]');
-      const valueBodyRows = valueTable.querySelectorAll('tbody tr');
-      const newDateColumnWidths = new Map<string, string>();
-      
-      selectedDates.forEach((date, dateIndex) => {
-        const dateHeaderCell = dateHeaderCells[dateIndex] as HTMLElement;
-        let maxDateWidth = 0;
-        
-        if (dateHeaderCell && dateHeaderCell.offsetWidth > 0) {
-          maxDateWidth = dateHeaderCell.offsetWidth;
-        }
-        
-        // Check actual width from body rows (important when content grows due to sums)
-        // Use a more conservative approach: measure based on scrollWidth if available, otherwise use offsetWidth
-        if (valueBodyRows.length > 0) {
-          // Get the first non-empty row for this date to measure
-          let sampleRow: HTMLTableRowElement | null = null;
-          for (let i = 0; i < valueBodyRows.length; i++) {
-            const row = valueBodyRows[i] as HTMLTableRowElement;
-            const cells = Array.from(row.children);
-            const startIdx = dateIndex * 9;
-            if (cells.length > startIdx + 8) {
-              sampleRow = row;
-              break;
-            }
-          }
-          
-          if (sampleRow) {
-            const cells = Array.from(sampleRow.children);
-            const startIdx = dateIndex * 9;
-            const endIdx = startIdx + 9;
-            const dateGroupCells = cells.slice(startIdx, endIdx);
-            
-            // Calculate total width of this date column group from cells
-            // Use scrollWidth for more accurate measurement, but limit to reasonable bounds
-            let groupWidth = 0;
-            dateGroupCells.forEach((cell) => {
-              const cellEl = cell as HTMLElement;
-              if (cellEl) {
-                const cellWidth = cellEl.scrollWidth || cellEl.offsetWidth || 0;
-                groupWidth += cellWidth;
-              }
-            });
-            
-            // Only update if the measured width is reasonable (not excessively wide)
-            // If groupWidth is more than 2x the header width, something is wrong - use header width instead
-            if (maxDateWidth > 0 && groupWidth > maxDateWidth * 2) {
-              // Keep the header width, don't use the inflated body width
-            } else if (groupWidth > maxDateWidth) {
-              maxDateWidth = groupWidth;
-            }
-          }
-        }
-        
-        if (maxDateWidth > 0) {
-          newDateColumnWidths.set(date, `${maxDateWidth}px`);
-        }
-      });
-
-      // Update date column widths if we have measurements (only if changed)
-      if (newDateColumnWidths.size > 0) {
-        // Check if widths actually changed to avoid unnecessary re-renders
-        let hasChanged = false;
-        if (dateColumnWidths.size !== newDateColumnWidths.size) {
-          hasChanged = true;
-        } else {
-          for (const [date, width] of newDateColumnWidths.entries()) {
-            if (dateColumnWidths.get(date) !== width) {
-              hasChanged = true;
-              break;
-            }
-          }
-        }
-        if (hasChanged) {
-        setDateColumnWidths(newDateColumnWidths);
-        }
-      }
-
-      // Get the second header row (the one with column headers: BY, BLot, etc.)
-      const valueColumnHeaderRow = valueHeaderRows[1];
-      if (!valueColumnHeaderRow) return;
-
-      // Get the first date column group to measure individual column widths
-      const valueDateHeaderCells = valueColumnHeaderRow.querySelectorAll('th');
-      
-      // Find first date column group (skip Total columns at the end)
-      // Each date has 9 columns: BY, BLot, BVal, BAvg, #, SL, SLot, SVal, SAvg
-      if (valueDateHeaderCells.length >= 9) {
-        type ColumnName = 'BY' | 'BLot' | 'BVal' | 'BAvg' | 'hash' | 'SL' | 'SLot' | 'SVal' | 'SAvg';
-        const widths: Partial<Record<ColumnName, string>> = {};
-        
-        // Measure each column in the first date group (index 0-8)
-        // Column order: BY, BLot, BVal, BAvg, #, SL, SLot, SVal, SAvg
-        const columnNames: ColumnName[] = ['BY', 'BLot', 'BVal', 'BAvg', 'hash', 'SL', 'SLot', 'SVal', 'SAvg'];
-        
-        columnNames.forEach((colName, idx) => {
-          const headerCell = valueDateHeaderCells[idx] as HTMLElement;
-          if (headerCell && headerCell.offsetWidth > 0) {
-            // Store as pixel value
-            widths[colName] = `${headerCell.offsetWidth}px`;
-          }
-        });
-        
-        // Check all body cells for more accurate measurement (to handle multiple emiten sums)
-        const valueBodyRows = valueTable.querySelectorAll('tbody tr');
-        if (valueBodyRows.length > 0) {
-          // Measure maximum width across all rows for each column
-          valueBodyRows.forEach((row) => {
-            const dateCells = Array.from(row.children).slice(0, 9);
-            
-            dateCells.forEach((cell, idx) => {
-              if (idx < columnNames.length) {
-                const colName = columnNames[idx];
-                if (colName) {
-                  const cellEl = cell as HTMLElement;
-                  if (cellEl && cellEl.offsetWidth > 0) {
-                    const existingWidth = widths[colName];
-                    if (!existingWidth) {
-                      widths[colName] = `${cellEl.offsetWidth}px`;
-                    } else {
-                      // Use the maximum width across all cells
-                      const existingWidthNum = parseInt(existingWidth || '0') || 0;
-                      if (cellEl.offsetWidth > existingWidthNum) {
-                        widths[colName] = `${cellEl.offsetWidth}px`;
-                      }
-                    }
-                  }
-                }
-              }
-            });
-          });
-        }
-        
-        // Update column widths state if we have all measurements (only if changed)
-        if (widths.BY && widths.BLot && widths.BVal && widths.BAvg && widths.hash && 
-            widths.SL && widths.SLot && widths.SVal && widths.SAvg) {
-          const newWidths = {
-            BY: widths.BY || 'w-4',
-            BLot: widths.BLot || 'w-6',
-            BVal: widths.BVal || 'w-6',
-            BAvg: widths.BAvg || 'w-6',
-            hash: widths.hash || 'w-4',
-            SL: widths.SL || 'w-4',
-            SLot: widths.SLot || 'w-6',
-            SVal: widths.SVal || 'w-6',
-            SAvg: widths.SAvg || 'w-6',
-          };
-
-          // Check if widths actually changed to avoid unnecessary re-renders
-          const hasChanged = Object.keys(newWidths).some(key => {
-            return columnWidths[key as keyof typeof columnWidths] !== newWidths[key as keyof typeof newWidths];
-          });
-
-          if (hasChanged) {
-            setColumnWidths(newWidths);
-          }
-        }
-      }
-    };
-
-    // Debounce function to avoid too frequent measurements
-    let debounceTimer: NodeJS.Timeout | null = null;
-    const debouncedMeasure = () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        measureColumnWidths();
-      }, 150);
-    };
-
-    // Initial measurement with single delay (optimized)
-    const initialTimeoutId = setTimeout(() => measureColumnWidths(), 300);
-
-    // Measure after data loads (with delay to ensure rendering is complete)
-    let dataTimeoutId: NodeJS.Timeout | null = null;
-    if (!isLoading && summaryByDate.size > 0) {
-      dataTimeoutId = setTimeout(() => measureColumnWidths(), 600);
-    }
-
-    // Use ResizeObserver to watch for changes (with debouncing)
-    let resizeObserver: ResizeObserver | null = null;
     
-    if (valueTableRef.current) {
-      resizeObserver = new ResizeObserver(() => {
-        debouncedMeasure();
-      });
-      resizeObserver.observe(valueTableRef.current);
-    }
-
-    // Also watch the container
-    if (valueTableContainerRef.current) {
-      if (!resizeObserver) {
-        resizeObserver = new ResizeObserver(() => {
-          debouncedMeasure();
-        });
+    // Cleanup: abort fetch if component unmounts or effect re-runs
+    return () => {
+      if (abortControllerRef.current) {
+        console.log('[BrokerSummary] Cleaning up: aborting fetch');
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
       }
-      resizeObserver.observe(valueTableContainerRef.current);
-    }
-      
-      return () => {
-      clearTimeout(initialTimeoutId);
-      if (dataTimeoutId) clearTimeout(dataTimeoutId);
-      if (debounceTimer) clearTimeout(debounceTimer);
-      if (resizeObserver) resizeObserver.disconnect();
     };
-  }, [summaryByDate, selectedDates, selectedTickers, isLoading]);
+    // Only depend on shouldFetchData - selectedTickers, selectedDates, marketFilter are already accessed inside
+    // This prevents auto-fetch when dates/tickers change - only fetch when Show button is clicked
+  }, [shouldFetchData]);
 
-  // Sync NET table width with VALUE table width dynamically, including date column group widths
+  // OPTIMIZED: Removed measureColumnWidths - width sync handled in syncTableWidths() which is more efficient
+
+  // Sync NET container width with VALUE container width (tables auto-size, only sync container)
   useEffect(() => {
     const syncTableWidths = () => {
-      const valueTable = valueTableRef.current;
-      const netTable = netTableRef.current;
       const valueContainer = valueTableContainerRef.current;
       const netContainer = netTableContainerRef.current;
 
-      if (!valueTable || !netTable) return;
+      if (!valueContainer || !netContainer) return;
 
-      // Sync overall table width - ensure NET is not wider than VALUE
-      const valueTableWidth = valueTable.scrollWidth || valueTable.offsetWidth;
-      
-      if (valueTableWidth > 0) {
-        // Use Value table width exactly, don't let Net table grow wider
-        netTable.style.width = `${valueTableWidth}px`;
-        netTable.style.minWidth = `${valueTableWidth}px`;
-        netTable.style.maxWidth = `${valueTableWidth}px`; // Prevent Net from being wider
+      // Calculate showOnlyTotal from current data (not from dependency) to avoid effect re-run when dates change
+      const showOnlyTotalNow = summaryByDate.size > 0 && Array.from(summaryByDate.keys()).length > 7;
+
+      // For showOnlyTotal, let tables size naturally based on content (don't force width)
+      if (showOnlyTotalNow) {
+        // Reset any forced widths to allow natural sizing
+        valueContainer.style.width = '';
+        valueContainer.style.minWidth = '';
+        netContainer.style.width = '';
+        netContainer.style.minWidth = '';
         
-        if (netContainer) {
-          netContainer.style.width = `${valueTableWidth}px`;
-          netContainer.style.minWidth = `${valueTableWidth}px`;
-          netContainer.style.maxWidth = `${valueTableWidth}px`; // Prevent container from being wider
-        }
-        
-        // Sync container scroll width - ensure NET container has same width as VALUE container
-        if (valueContainer && netContainer) {
-          const valueContainerWidth = valueContainer.clientWidth || valueContainer.offsetWidth;
-          if (valueContainerWidth > 0) {
-            // Use exact VALUE container width, don't exceed screen width
-            netContainer.style.width = `${valueContainerWidth}px`;
-            netContainer.style.minWidth = `${valueContainerWidth}px`;
-            netContainer.style.maxWidth = `${valueContainerWidth}px`;
-          }
-        }
-        
-        // Ensure parent wrapper NET has same width as VALUE parent wrapper
-        const valueParentWrapper = valueContainer?.parentElement;
-        const netParentWrapper = netContainer?.parentElement;
+        // Reset parent wrappers
+        const valueParentWrapper = valueContainer.parentElement;
+        const netParentWrapper = netContainer.parentElement;
         if (valueParentWrapper && netParentWrapper) {
-          const valueParentWidth = valueParentWrapper.clientWidth || valueParentWrapper.offsetWidth;
-          if (valueParentWidth > 0) {
-            netParentWrapper.style.width = `${valueParentWidth}px`;
-            netParentWrapper.style.minWidth = `${valueParentWidth}px`;
-            netParentWrapper.style.maxWidth = `${valueParentWidth}px`;
-          }
+          valueParentWrapper.style.width = '';
+          valueParentWrapper.style.minWidth = '';
+          netParentWrapper.style.width = '';
+          netParentWrapper.style.minWidth = '';
         }
         
-        // Sync main wrapper width (the div with className="w-full max-w-full")
-        const valueMainWrapper = valueContainer?.parentElement?.parentElement;
-        const netMainWrapper = netContainer?.parentElement?.parentElement;
+        // Reset main wrappers
+        const valueMainWrapper = valueParentWrapper?.parentElement;
+        const netMainWrapper = netParentWrapper?.parentElement;
         if (valueMainWrapper && netMainWrapper) {
-          const valueMainWidth = valueMainWrapper.clientWidth || valueMainWrapper.offsetWidth;
-          if (valueMainWidth > 0) {
-            netMainWrapper.style.width = `${valueMainWidth}px`;
-            netMainWrapper.style.maxWidth = `${valueMainWidth}px`;
+          valueMainWrapper.style.width = '';
+          valueMainWrapper.style.minWidth = '';
+          netMainWrapper.style.width = '';
+          netMainWrapper.style.minWidth = '';
+        }
+        
+        // Still sync column widths for alignment
+        // (will continue to syncTableWidths logic below)
+      } else {
+        // For normal view (with date columns), sync container widths
+        const valueContainerWidth = valueContainer.offsetWidth || valueContainer.clientWidth;
+        
+        if (valueContainerWidth > 0) {
+          // Sync NET container width to match VALUE container width exactly
+          // Tables will auto-size based on their content, but containers have same width
+          netContainer.style.width = `${valueContainerWidth}px`;
+          netContainer.style.minWidth = `${valueContainerWidth}px`;
+          
+          // Sync parent wrappers to ensure same width
+          const valueParentWrapper = valueContainer.parentElement;
+          const netParentWrapper = netContainer.parentElement;
+          if (valueParentWrapper && netParentWrapper) {
+            const valueParentWidth = valueParentWrapper.offsetWidth || valueParentWrapper.clientWidth;
+            if (valueParentWidth > 0) {
+              netParentWrapper.style.width = `${valueParentWidth}px`;
+              netParentWrapper.style.minWidth = `${valueParentWidth}px`;
+            }
+          }
+          
+          // Sync main wrappers
+          const valueMainWrapper = valueParentWrapper?.parentElement;
+          const netMainWrapper = netParentWrapper?.parentElement;
+          if (valueMainWrapper && netMainWrapper) {
+            const valueMainWidth = valueMainWrapper.offsetWidth || valueMainWrapper.clientWidth;
+            if (valueMainWidth > 0) {
+              netMainWrapper.style.width = `${valueMainWidth}px`;
+              netMainWrapper.style.minWidth = `${valueMainWidth}px`;
+            }
           }
         }
       }
 
-      // Sync date column group widths (colspan=9 headers)
-      const valueHeaderRows = valueTable.querySelectorAll('thead tr');
-      const netHeaderRows = netTable.querySelectorAll('thead tr');
-      
-      if (valueHeaderRows.length >= 2 && netHeaderRows.length >= 2) {
-        // Get first header row (date headers with colspan=9)
-        const netDateHeaderRow = netHeaderRows[0];
-        const valueDateHeaderRow = valueHeaderRows[0];
+      // ROOT CAUSE FIX: Use table-layout: fixed to ensure exact column width matching
+      // With table-auto, browser can redistribute widths dynamically, causing misalignment
+      // For showOnlyTotal, use auto layout for natural sizing
+      const valueTable = valueTableRef.current;
+      const netTable = netTableRef.current;
+
+      if (!valueTable || !netTable) return;
+
+      // Use showOnlyTotalNow calculated above
+      if (showOnlyTotalNow) {
+        // For showOnlyTotal, let tables size naturally - don't force widths
+        valueTable.style.tableLayout = 'auto';
+        netTable.style.tableLayout = 'auto';
         
-        if (netDateHeaderRow && valueDateHeaderRow) {
-          const netDateHeaderCells = netDateHeaderRow.querySelectorAll('th[colspan="9"]');
-          const valueDateHeaderCells = valueDateHeaderRow.querySelectorAll('th[colspan="9"]');
-          
-          // Use availableDates instead of selectedDates to match actual rendered dates
-          const renderedDates = Array.from(valueDateHeaderCells).map((_, idx) => {
-            if (idx < valueDateHeaderCells.length - 1) {
-              // Get date from summaryByDate keys or use index
-              const dateKeys = Array.from(summaryByDate.keys()).filter(d => {
-                const rows = summaryByDate.get(d);
-                return rows && rows.length > 0;
-              }).sort();
-              return dateKeys[idx] || '';
-            }
-            return '';
-          }).filter(d => d);
-          
-          renderedDates.forEach((date, dateIndex) => {
-            const netDateHeaderCell = netDateHeaderCells[dateIndex] as HTMLElement;
-            const valueDateHeaderCell = valueDateHeaderCells[dateIndex] as HTMLElement;
-            
-            if (netDateHeaderCell && valueDateHeaderCell) {
-              // Get width from VALUE table (actual rendered width)
-              let dateWidth: string | undefined;
-
-              if (valueDateHeaderCell.offsetWidth > 0) {
-                // Use actual width from VALUE table
-                dateWidth = `${valueDateHeaderCell.offsetWidth}px`;
-              } else if (dateColumnWidths.size > 0) {
-                // Fallback to stored width if available
-                dateWidth = dateColumnWidths.get(date);
-              }
-
-              if (dateWidth) {
-              // Apply the date column group width - use exact width from Value table
-              netDateHeaderCell.style.width = dateWidth;
-              netDateHeaderCell.style.minWidth = dateWidth;
-              netDateHeaderCell.style.maxWidth = dateWidth; // Prevent Net from being wider
-            
-            // Also ensure the value date header has the same width for consistency
-              valueDateHeaderCell.style.width = dateWidth;
-              valueDateHeaderCell.style.minWidth = dateWidth;
-              }
-            }
-          });
-
-          // Also sync Total column header width
-          const valueTotalHeaderCell = valueDateHeaderCells[valueDateHeaderCells.length - 1] as HTMLElement;
-          const netTotalHeaderCell = netDateHeaderCells[netDateHeaderCells.length - 1] as HTMLElement;
-
-          if (valueTotalHeaderCell && netTotalHeaderCell && valueTotalHeaderCell.offsetWidth > 0) {
-            const totalWidth = `${valueTotalHeaderCell.offsetWidth}px`;
-            netTotalHeaderCell.style.width = totalWidth;
-            netTotalHeaderCell.style.minWidth = totalWidth;
-            netTotalHeaderCell.style.maxWidth = totalWidth;
-          }
-        }
-
-        // Sync individual column widths using stored columnWidths or actual widths
-        const valueColumnHeaderRow = valueHeaderRows[1];
-        const netColumnHeaderRow = netHeaderRows[1];
+        // Still sync column widths for alignment, but don't force maxWidth
+        const valueHeaderRows = valueTable.querySelectorAll('thead tr');
+        const netHeaderRows = netTable.querySelectorAll('thead tr');
         
-        if (valueColumnHeaderRow && netColumnHeaderRow) {
-          // Apply column widths to NET table header cells
-          const netHeaderCells = netColumnHeaderRow.querySelectorAll('th');
-          const valueHeaderCells = valueColumnHeaderRow.querySelectorAll('th');
-          const columnOrder = ['BY', 'BLot', 'BVal', 'BAvg', 'hash', 'SL', 'SLot', 'SVal', 'SAvg'];
+        if (valueHeaderRows.length >= 2 && netHeaderRows.length >= 2) {
+          const valueColumnHeaderRow = valueHeaderRows[1];
+          const netColumnHeaderRow = netHeaderRows[1];
           
-          // Apply widths to each date column group
-          // Use actual number of date columns: (total header cells / 9) - 1 (excluding Total column)
-          // Each date has 9 columns (BY, BLot, BVal, BAvg, hash, SL, SLot, SVal, SAvg)
-          const numDateColumns = Math.max(0, Math.floor(valueHeaderCells.length / 9) - 1);
-          Array.from({ length: numDateColumns }).forEach((_, dateIndex) => {
-            const startIdx = dateIndex * 9;
-            columnOrder.forEach((colName, idx) => {
-              const netHeaderCell = netHeaderCells[startIdx + idx] as HTMLElement;
-              const valueHeaderCell = valueHeaderCells[startIdx + idx] as HTMLElement;
-
-              if (netHeaderCell && valueHeaderCell) {
-                let width: string | undefined;
-
-                // Try to use actual width from VALUE table first
-                if (valueHeaderCell.offsetWidth > 0) {
-                  width = `${valueHeaderCell.offsetWidth}px`;
-                } else if (columnWidths[colName as keyof typeof columnWidths] && columnWidths[colName as keyof typeof columnWidths].includes('px')) {
-                  // Fallback to stored width
-                  width = columnWidths[colName as keyof typeof columnWidths];
-                }
-
-                if (width) {
-                  netHeaderCell.style.width = width;
-                  netHeaderCell.style.minWidth = width;
-                  netHeaderCell.style.maxWidth = width; // Prevent Net from being wider
-                }
-              }
-            });
-          });
-          
-          // Sync Total column headers
-          // Use actual number of date columns: (total header cells / 9) - 1 (excluding Total column)
-          const numDateColumnsForTotal = Math.max(0, Math.floor(valueHeaderCells.length / 9) - 1);
-          const totalStartIdx = numDateColumnsForTotal * 9;
-          columnOrder.forEach((colName, idx) => {
-            const netHeaderCell = netHeaderCells[totalStartIdx + idx] as HTMLElement;
-            const valueHeaderCell = valueHeaderCells[totalStartIdx + idx] as HTMLElement;
-
-            if (netHeaderCell && valueHeaderCell && valueHeaderCell.offsetWidth > 0) {
-              const width = `${valueHeaderCell.offsetWidth}px`;
-              netHeaderCell.style.width = width;
-              netHeaderCell.style.minWidth = width;
-              netHeaderCell.style.maxWidth = width;
-            }
-          });
-
-          // Apply widths to body cells (including "No Data" row)
-          const valueBodyRows = valueTable.querySelectorAll('tbody tr');
-          const netBodyRows = netTable.querySelectorAll('tbody tr');
-          
-          // Sync all rows (including empty or "No Data" rows)
-          const maxRows = Math.max(valueBodyRows.length, netBodyRows.length);
-
-          for (let rowIndex = 0; rowIndex < maxRows; rowIndex++) {
-            const valueRow = valueBodyRows[rowIndex] as HTMLTableRowElement;
-            const netRow = netBodyRows[rowIndex] as HTMLTableRowElement;
-
-            if (!valueRow || !netRow) continue;
-
-            // Sync date column groups
-            // Use actual number of date columns: (total header cells / 9) - 1 (excluding Total column)
-            const numDateColumnsForBody = Math.max(0, Math.floor(valueHeaderCells.length / 9) - 1);
-            Array.from({ length: numDateColumnsForBody }).forEach((_, dateIndex) => {
-              const startIdx = dateIndex * 9;
-              columnOrder.forEach((colName, idx) => {
-                const netCell = netRow.children[startIdx + idx] as HTMLElement;
-                const valueCell = valueRow.children[startIdx + idx] as HTMLElement;
-
-                if (netCell && valueCell) {
-                  let width: string | undefined;
-
-                  // Try to use actual width from VALUE table first
-                  if (valueCell.offsetWidth > 0) {
-                    width = `${valueCell.offsetWidth}px`;
-                  } else if (columnWidths[colName as keyof typeof columnWidths] && columnWidths[colName as keyof typeof columnWidths].includes('px')) {
-                    // Fallback to stored width
-                    width = columnWidths[colName as keyof typeof columnWidths];
-                  }
-
-                  if (width) {
-                    netCell.style.width = width;
-                    netCell.style.minWidth = width;
-                    netCell.style.maxWidth = width; // Prevent Net from being wider
-                  }
+          if (valueColumnHeaderRow && netColumnHeaderRow) {
+            const valueHeaderCells = Array.from(valueColumnHeaderRow.querySelectorAll('th'));
+            const netHeaderCells = Array.from(netColumnHeaderRow.querySelectorAll('th'));
+            const valueBodyRows = valueTable.querySelectorAll('tbody tr');
+            
+            // Calculate min width for each column (for alignment)
+            const columnMinWidths: number[] = [];
+            
+            valueHeaderCells.forEach((valueCell, index) => {
+              const valueEl = valueCell as HTMLElement;
+              let minWidth = Math.max(valueEl.scrollWidth, valueEl.offsetWidth);
+              
+              // Check body cells
+              valueBodyRows.forEach((row) => {
+                const cells = row.querySelectorAll('td');
+                if (cells[index]) {
+                  const cellEl = cells[index] as HTMLElement;
+                  const cellWidth = Math.max(cellEl.scrollWidth, cellEl.offsetWidth);
+                  minWidth = Math.max(minWidth, cellWidth);
                 }
               });
+              
+              columnMinWidths[index] = minWidth;
             });
-
-            // Sync Total column cells
-            // Use actual number of date columns: (total header cells / 9) - 1 (excluding Total column)
-            const numDateColumnsForBodyTotal = Math.max(0, Math.floor(valueHeaderCells.length / 9) - 1);
-            const totalStartIdx = numDateColumnsForBodyTotal * 9;
-            columnOrder.forEach((colName, idx) => {
-              const netCell = netRow.children[totalStartIdx + idx] as HTMLElement;
-              const valueCell = valueRow.children[totalStartIdx + idx] as HTMLElement;
-
-              if (netCell && valueCell && valueCell.offsetWidth > 0) {
-                const width = `${valueCell.offsetWidth}px`;
-                netCell.style.width = width;
-                netCell.style.minWidth = width;
-                netCell.style.maxWidth = width;
+            
+            // Apply minWidth only (not fixed width) to allow natural expansion
+            valueHeaderCells.forEach((valueCell, index) => {
+              const valueEl = valueCell as HTMLElement;
+              const minWidth = columnMinWidths[index];
+              if (minWidth && minWidth > 0) {
+                valueEl.style.minWidth = `${minWidth}px`;
+                valueEl.style.width = '';
+                valueEl.style.maxWidth = '';
               }
             });
+            
+            netHeaderCells.forEach((netCell, index) => {
+              const netEl = netCell as HTMLElement;
+              const minWidth = columnMinWidths[index];
+              if (minWidth && minWidth > 0) {
+                netEl.style.minWidth = `${minWidth}px`;
+                netEl.style.width = '';
+                netEl.style.maxWidth = '';
+              }
+            });
+            
+            // Apply minWidth to body cells
+            const netBodyRows = netTable.querySelectorAll('tbody tr');
+            const maxRows = Math.max(valueBodyRows.length, netBodyRows.length);
+            
+            for (let rowIdx = 0; rowIdx < maxRows; rowIdx++) {
+              const valueRow = valueBodyRows[rowIdx] as HTMLTableRowElement;
+              const netRow = netBodyRows[rowIdx] as HTMLTableRowElement;
+              
+              if (valueRow && netRow) {
+                const valueCells = Array.from(valueRow.querySelectorAll('td'));
+                const netCells = Array.from(netRow.querySelectorAll('td'));
+                
+                valueCells.forEach((valueCell, cellIdx) => {
+                  if (cellIdx < columnMinWidths.length) {
+                    const minWidth = columnMinWidths[cellIdx];
+                    if (minWidth && minWidth > 0) {
+                      const valueEl = valueCell as HTMLElement;
+                      valueEl.style.minWidth = `${minWidth}px`;
+                      valueEl.style.width = '';
+                      valueEl.style.maxWidth = '';
+                      
+                      if (netCells[cellIdx]) {
+                        const netEl = netCells[cellIdx] as HTMLElement;
+                        netEl.style.minWidth = `${minWidth}px`;
+                        netEl.style.width = '';
+                        netEl.style.maxWidth = '';
+                      }
+                    }
+                  }
+                });
+              }
+            }
+          }
+        }
+      } else {
+        // For normal view (with date columns), use fixed layout with exact widths
+        // Step 1: Let VALUE table calculate column widths naturally with auto layout first
+        valueTable.style.tableLayout = 'auto';
+        
+        // Step 2: Measure all column widths from VALUE table (header + body cells)
+        const valueHeaderRows = valueTable.querySelectorAll('thead tr');
+        const netHeaderRows = netTable.querySelectorAll('thead tr');
+        
+        if (valueHeaderRows.length >= 2 && netHeaderRows.length >= 2) {
+          const valueColumnHeaderRow = valueHeaderRows[1];
+          const netColumnHeaderRow = netHeaderRows[1];
+          
+          if (valueColumnHeaderRow && netColumnHeaderRow) {
+            const valueHeaderCells = Array.from(valueColumnHeaderRow.querySelectorAll('th'));
+            const netHeaderCells = Array.from(netColumnHeaderRow.querySelectorAll('th'));
+            const valueBodyRows = valueTable.querySelectorAll('tbody tr');
+            
+            // Calculate exact width for each column from VALUE table
+            const columnWidths: number[] = [];
+            
+            valueHeaderCells.forEach((valueCell, index) => {
+              const valueEl = valueCell as HTMLElement;
+              // Start with header width
+              let maxWidth = Math.max(valueEl.scrollWidth, valueEl.offsetWidth);
+              
+              // Check all body cells in this column to find maximum width
+              valueBodyRows.forEach((row) => {
+                const cells = row.querySelectorAll('td');
+                if (cells[index]) {
+                  const cellEl = cells[index] as HTMLElement;
+                  const cellWidth = Math.max(cellEl.scrollWidth, cellEl.offsetWidth);
+                  maxWidth = Math.max(maxWidth, cellWidth);
+                }
+              });
+              
+              columnWidths[index] = maxWidth;
+            });
+            
+            // Step 3: Apply fixed layout to both tables with exact widths
+            valueTable.style.tableLayout = 'fixed';
+            netTable.style.tableLayout = 'fixed';
+            
+            // Step 4: Apply exact widths to VALUE table headers (to lock them)
+            valueHeaderCells.forEach((valueCell, index) => {
+              const valueEl = valueCell as HTMLElement;
+              const width = columnWidths[index];
+              if (width && width > 0) {
+                valueEl.style.width = `${width}px`;
+                valueEl.style.minWidth = `${width}px`;
+                valueEl.style.maxWidth = `${width}px`;
+              }
+            });
+            
+            // Step 5: Apply exact same widths to NET table headers
+            netHeaderCells.forEach((netCell, index) => {
+              const netEl = netCell as HTMLElement;
+              const width = columnWidths[index];
+              if (width && width > 0) {
+                netEl.style.width = `${width}px`;
+                netEl.style.minWidth = `${width}px`;
+                netEl.style.maxWidth = `${width}px`;
+              }
+            });
+            
+            // Step 6: Apply exact widths to all body cells in both tables
+            const netBodyRows = netTable.querySelectorAll('tbody tr');
+            const maxRows = Math.max(valueBodyRows.length, netBodyRows.length);
+            
+            for (let rowIdx = 0; rowIdx < maxRows; rowIdx++) {
+              const valueRow = valueBodyRows[rowIdx] as HTMLTableRowElement;
+              const netRow = netBodyRows[rowIdx] as HTMLTableRowElement;
+              
+              if (valueRow && netRow) {
+                const valueCells = Array.from(valueRow.querySelectorAll('td'));
+                const netCells = Array.from(netRow.querySelectorAll('td'));
+                
+                valueCells.forEach((valueCell, cellIdx) => {
+                  if (cellIdx < columnWidths.length) {
+                    const width = columnWidths[cellIdx];
+                    if (width && width > 0) {
+                      // Apply to VALUE body cell
+                      const valueEl = valueCell as HTMLElement;
+                      valueEl.style.width = `${width}px`;
+                      valueEl.style.minWidth = `${width}px`;
+                      valueEl.style.maxWidth = `${width}px`;
+                      
+                      // Apply to NET body cell
+                      if (netCells[cellIdx]) {
+                        const netEl = netCells[cellIdx] as HTMLElement;
+                        netEl.style.width = `${width}px`;
+                        netEl.style.minWidth = `${width}px`;
+                        netEl.style.maxWidth = `${width}px`;
+                      }
+                    }
+                  }
+                });
+              }
+            }
           }
         }
       }
     };
 
-    // Debounce function to avoid too frequent syncs
+    // OPTIMIZED: Sync column widths after data is visible (non-blocking)
+    // Single sync pass after data renders - faster approach
+    let dataTimeoutId: NodeJS.Timeout | null = null;
+    if (!isLoading && isDataReady) {
+      // Single sync after data renders (reduced from 3 passes to 1)
+      // Calculate showOnlyTotal here (not from dependency) to avoid effect re-run when dates change
+      const showOnlyTotalNow = summaryByDate.size > 0 && Array.from(summaryByDate.keys()).length > 7;
+      dataTimeoutId = setTimeout(() => {
+        syncTableWidths();
+      }, showOnlyTotalNow ? 100 : 50);
+    }
+
+    // Optimized: Use ResizeObserver with debouncing for resize events only
+    let resizeObserver: ResizeObserver | null = null;
     let debounceTimer: NodeJS.Timeout | null = null;
+    
     const debouncedSync = () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-      syncTableWidths();
-      }, 100);
+        syncTableWidths();
+      }, 200);
     };
     
-    // Initial sync with single delay (optimized)
-    const initialTimeoutId = setTimeout(() => {
-      syncTableWidths();
-    }, 400);
-    
-    // Sync after data finishes loading or when empty
-    // This ensures width sync works even when data is empty (showing "No Data" row)
-    let dataTimeoutId: NodeJS.Timeout | null = null;
-    if (!isLoading) {
-      dataTimeoutId = setTimeout(() => {
-      syncTableWidths();
-    }, 700);
-    }
-
-    // Use ResizeObserver to watch for changes in VALUE table width (with debouncing)
-    let resizeObserver: ResizeObserver | null = null;
-    
-    if (valueTableRef.current) {
+    if (valueTableRef.current && isDataReady) {
       resizeObserver = new ResizeObserver(() => {
         debouncedSync();
       });
       resizeObserver.observe(valueTableRef.current);
-    }
-
-    // Also watch the container
-    if (valueTableContainerRef.current) {
-      if (!resizeObserver) {
-        resizeObserver = new ResizeObserver(() => {
-          debouncedSync();
-        });
-      }
-      resizeObserver.observe(valueTableContainerRef.current);
     }
 
     // Also sync on window resize (with debouncing)
@@ -1005,33 +969,62 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     window.addEventListener('resize', handleResize);
       
       return () => {
-      clearTimeout(initialTimeoutId);
       if (dataTimeoutId) clearTimeout(dataTimeoutId);
       if (debounceTimer) clearTimeout(debounceTimer);
       if (resizeObserver) resizeObserver.disconnect();
       window.removeEventListener('resize', handleResize);
     };
-  }, [summaryByDate, selectedDates, selectedTickers, isLoading, columnWidths, dateColumnWidths]);
+  }, [summaryByDate, isLoading, isDataReady]); // Removed showOnlyTotal - only sync when data changes, not when dates change
 
-  // Synchronize horizontal scroll between Value and Net tables
+  // Synchronize horizontal scroll between Value and Net tables and re-sync column widths on scroll
   useEffect(() => {
     // Wait for tables to be ready (data loaded and DOM rendered)
     if (isLoading || !isDataReady) return;
 
     const valueContainer = valueTableContainerRef.current;
     const netContainer = netTableContainerRef.current;
+    const valueTable = valueTableRef.current;
+    const netTable = netTableRef.current;
 
-    if (!valueContainer || !netContainer) return;
+    if (!valueContainer || !netContainer || !valueTable || !netTable) return;
 
     // Flag to prevent infinite loop when programmatically updating scroll
     let isSyncing = false;
 
-    // Handle Value table scroll - sync to Net table
+    // Handle Value table scroll - sync to Net table and re-sync column widths
     const handleValueScroll = () => {
       if (!isSyncing && netContainer) {
         isSyncing = true;
         netContainer.scrollLeft = valueContainer.scrollLeft;
+        // Re-sync column widths after scroll to ensure alignment
         requestAnimationFrame(() => {
+          // Sync column widths after scroll - use minWidth to allow expansion
+          const valueHeaderRows = valueTable.querySelectorAll('thead tr');
+          const netHeaderRows = netTable.querySelectorAll('thead tr');
+          
+          if (valueHeaderRows.length >= 2 && netHeaderRows.length >= 2) {
+            const valueColumnHeaderRow = valueHeaderRows[1];
+            const netColumnHeaderRow = netHeaderRows[1];
+            
+            if (valueColumnHeaderRow && netColumnHeaderRow) {
+              const valueHeaderCells = valueColumnHeaderRow.querySelectorAll('th');
+              const netHeaderCells = netColumnHeaderRow.querySelectorAll('th');
+              
+              valueHeaderCells.forEach((valueCell, index) => {
+                const netCell = netHeaderCells[index];
+                if (netCell && valueCell) {
+                  const valueEl = valueCell as HTMLElement;
+                  const netEl = netCell as HTMLElement;
+                  const width = Math.max(valueEl.scrollWidth, valueEl.offsetWidth);
+                  if (width > 0) {
+                    // Apply exact width for alignment
+                    netEl.style.width = `${width}px`;
+                    netEl.style.minWidth = `${width}px`;
+                  }
+                }
+              });
+            }
+          }
           isSyncing = false;
         });
       }
@@ -1107,9 +1100,11 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     // Set new timeout for debounced stock loading
     const timeout = setTimeout(async () => {
       // Load stocks if not already loaded and user is typing
-      if (availableStocks.length === 0 && selectedDates.length > 0 && selectedDates[0]) {
+      // Use availableDates (from summaryByDate) instead of selectedDates to avoid dependency on date picker
+      const firstDate = availableDates.length > 0 ? availableDates[0] : null;
+      if (availableStocks.length === 0 && firstDate) {
         try {
-          const stocksResult = await api.getBrokerSummaryStocks(selectedDates[0]);
+          const stocksResult = await api.getBrokerSummaryStocks(firstDate);
           if (stocksResult.success && stocksResult.data?.stocks) {
             setAvailableStocks(stocksResult.data.stocks);
           }
@@ -1133,21 +1128,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   const filteredStocks = (availableStocks || []).filter(stock =>
     stock.toLowerCase().includes(tickerInput.toLowerCase()) && !selectedTickers.includes(stock)
   );
-
-  // Handle date range mode change for simple view
-  const handleDateRangeModeChange = (mode: '1day'|'3days'|'1week'|'custom') => {
-    setDateRangeMode(mode);
-    if (mode === 'custom') return;
-    const todayIso = new Date().toISOString().split('T')[0] ?? '';
-    const count = mode === '1day' ? 1 : mode === '3days' ? 3 : 5;
-    const days = getTradingDays(count);
-    if (days.length) {
-      setStartDate(days[0] || todayIso);
-      setEndDate(days[days.length - 1] || todayIso);
-      // For simple view, use only first date
-      setSelectedDates([days[0] || todayIso]);
-    }
-  };
 
   // Helper function to trigger date picker
   const triggerDatePicker = (inputRef: React.RefObject<HTMLInputElement>) => {
@@ -1176,12 +1156,13 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   };
 
   // Memoize availableDates to avoid recalculating on every render
+  // CRITICAL: Only depend on summaryByDate, not selectedDates
+  // This ensures NO recalculate when user changes dates - only when data changes (after Show button clicked)
   const availableDates = useMemo(() => {
-    return selectedDates.filter(date => {
-      const rows = summaryByDate.get(date);
-      return rows && rows.length > 0; // Only include dates with data
-    });
-  }, [selectedDates, summaryByDate]);
+    // Return dates that have data in summaryByDate, sorted by date
+    const datesWithData = Array.from(summaryByDate.keys()).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+    return datesWithData;
+  }, [summaryByDate]);
 
   // Memoize allBrokerData to avoid recalculating on every render
   const allBrokerData = useMemo(() => {
@@ -1206,9 +1187,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
       // No data yet, show loading
     return (
         <div className="w-full flex items-center justify-center py-12">
-          <div className="flex flex-col items-center gap-3">
+          <div className="flex flex-col items-center justify-center gap-3">
             <Loader2 className="w-8 h-8 animate-spin text-primary" />
-            <div className="text-sm text-muted-foreground">Loading broker summary...</div>
+            <div className="text-sm text-muted-foreground text-center">Loading broker summary...</div>
           </div>
         </div>
       );
@@ -1233,9 +1214,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         {/* Loading overlay - shown when processing */}
         {showLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-[#0a0f20]/80 z-50">
-            <div className="flex flex-col items-center gap-3">
+            <div className="flex flex-col items-center justify-center gap-3">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
-              <div className="text-sm text-muted-foreground">Loading broker summary...</div>
+              <div className="text-sm text-muted-foreground text-center">Loading broker summary...</div>
             </div>
           </div>
         )}
@@ -1248,46 +1229,46 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
             <h3 className="font-semibold text-sm">VALUE - {selectedTickers.join(', ')}</h3>
           </div>
-           <div className="w-full max-w-full">
-              <div ref={valueTableContainerRef} className="w-full max-w-full overflow-x-auto max-h-[480px] overflow-y-auto border-l-2 border-r-2 border-b-2 border-white">
-               <table ref={valueTableRef} className={`min-w-[1000px] ${getFontSizeClass()} table-auto`}>
+           <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
+              <div ref={valueTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} overflow-x-auto overflow-y-auto border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: 'calc(2 * 28px + 20 * 24px)' }}>
+               <table ref={valueTableRef} className={`${showOnlyTotal ? 'min-w-0' : 'min-w-[1000px]'} ${getFontSizeClass()} table-auto`} style={{ tableLayout: showOnlyTotal ? 'auto' : 'auto' }}>
                          <thead className="bg-[#3a4252]">
                          <tr className="border-t-2 border-white">
-                      {availableDates.map((date, dateIndex) => (
+                      {!showOnlyTotal && availableDates.map((date, dateIndex) => (
                         <th key={date} className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} colSpan={9}>
                          {formatDisplayDate(date)}
                             </th>
                           ))}
-                      <th className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${availableDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={9}>
+                      <th className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${showOnlyTotal || availableDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={9}>
                             Total
                           </th>
                         </tr>
                         <tr className="bg-[#3a4252]">
-                      {availableDates.map((date, dateIndex) => (
+                      {!showOnlyTotal && availableDates.map((date, dateIndex) => (
                       <React.Fragment key={`detail-${date}`}>
                               {/* BY Columns */}
-                          <th className={`text-center py-[1px] px-[4.2px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>BY</th>
-                              <th className={`text-right py-[1px] px-[4.2px] font-bold text-white w-6`}>BLot</th>
-                              <th className={`text-right py-[1px] px-[4.2px] font-bold text-white w-6`}>BVal</th>
-                              <th className={`text-right py-[1px] px-[4.2px] font-bold text-white w-6`}>BAvg</th>
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>BY</th>
+                              <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6`}>BLot</th>
+                              <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6`}>BVal</th>
+                              <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6`}>BAvg</th>
                               {/* SL Columns */}
-                              <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-4">#</th>
-                              <th className={`text-left py-[1px] px-[4.2px] font-bold text-white w-4`}>SL</th>
-                              <th className={`text-right py-[1px] px-[4.2px] font-bold text-white w-6`}>SLot</th>
-                              <th className={`text-right py-[1px] px-[4.2px] font-bold text-white w-6`}>SVal</th>
-                        <th className={`text-right py-[1px] px-[4.2px] font-bold text-white w-6 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>SAvg</th>
+                              <th className="text-center py-[1px] px-[6px] font-bold text-white bg-[#3a4252] w-4">#</th>
+                              <th className={`text-left py-[1px] px-[6px] font-bold text-white w-4`}>SL</th>
+                              <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6`}>SLot</th>
+                              <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6`}>SVal</th>
+                        <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>SAvg</th>
                             </React.Fragment>
                           ))}
                     {/* Total Columns - Include BAvg and SAvg */}
-                      <th className={`text-center py-[1px] px-[3.1px] font-bold text-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>BY</th>
-                          <th className={`text-right py-[1px] px-[3.1px] font-bold text-white`}>BLot</th>
-                          <th className={`text-right py-[1px] px-[3.1px] font-bold text-white`}>BVal</th>
-                          <th className={`text-right py-[1px] px-[3.1px] font-bold text-white`}>BAvg</th>
-                          <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252]">#</th>
-                          <th className={`text-left py-[1px] px-[3.1px] font-bold text-white`}>SL</th>
-                          <th className={`text-right py-[1px] px-[3.1px] font-bold text-white`}>SLot</th>
-                          <th className={`text-right py-[1px] px-[3.1px] font-bold text-white`}>SVal</th>
-                      <th className={`text-right py-[1px] px-[6px] font-bold text-white border-r-2 border-white`}>SAvg</th>
+                      <th className={`text-center py-[1px] px-[5px] font-bold text-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>BY</th>
+                          <th className={`text-right py-[1px] px-[5px] font-bold text-white`}>BLot</th>
+                          <th className={`text-right py-[1px] px-[5px] font-bold text-white`}>BVal</th>
+                          <th className={`text-right py-[1px] px-[5px] font-bold text-white`}>BAvg</th>
+                          <th className="text-center py-[1px] px-[6px] font-bold text-white bg-[#3a4252]">#</th>
+                          <th className={`text-left py-[1px] px-[5px] font-bold text-white`}>SL</th>
+                          <th className={`text-right py-[1px] px-[5px] font-bold text-white`}>SLot</th>
+                          <th className={`text-right py-[1px] px-[5px] font-bold text-white`}>SVal</th>
+                      <th className={`text-right py-[1px] px-[7px] font-bold text-white border-r-2 border-white`}>SAvg</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1377,10 +1358,14 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       );
                     }
                     
-                    // Render rows
-                    return Array.from({ length: maxRows }).map((_, rowIdx) => (
-                              <tr key={rowIdx} className={`hover:bg-accent/50 ${rowIdx === maxRows - 1 ? 'border-b-2 border-white' : ''}`}>
-                          {availableDates.map((date, dateIndex) => {
+                    // Limit display to 20 rows (rest will be scrollable)
+                    const MAX_DISPLAY_ROWS = 20;
+                    const displayRows = Math.min(maxRows, MAX_DISPLAY_ROWS);
+                    
+                    // Render rows (limited to 20)
+                    return Array.from({ length: displayRows }).map((_, rowIdx) => (
+                              <tr key={rowIdx} className={`hover:bg-accent/50 ${rowIdx === displayRows - 1 ? 'border-b-2 border-white' : ''}`}>
+                          {!showOnlyTotal && availableDates.map((date, dateIndex) => {
                           const dateData = allBrokerData.find(d => d.date === date);
                           
                                   // Sort brokers for this date: Buy uses BuyerValue, Sell uses SellerValue
@@ -1399,30 +1384,30 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   return (
                             <React.Fragment key={`${date}-${rowIdx}`}>
                                       {/* BY (Buyer) Columns - Using Buyer fields */}
-                                <td className={`text-center py-[1px] px-[4.2px] w-4 font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${buyData ? getBrokerColorClass(buyData.broker) : ''}`}>
+                                <td className={`text-center py-[1px] px-[6px] w-4 font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${buyData ? getBrokerColorClass(buyData.broker) : ''}`}>
                                         {buyData?.broker || '-'}
                                       </td>
-                              <td className="text-right py-[1px] px-[4.2px] text-green-600 font-bold w-6">
+                              <td className="text-right py-[1px] px-[6px] text-green-600 font-bold w-6">
                                 {buyData ? formatLot(buyData.buyerVol / 100) : '-'}
                               </td>
-                                      <td className="text-right py-[1px] px-[4.2px] text-green-600 font-bold w-6">
+                                      <td className="text-right py-[1px] px-[6px] text-green-600 font-bold w-6">
                                         {buyData ? formatNumber(buyData.buyerValue) : '-'}
                                       </td>
-                                      <td className="text-right py-[1px] px-[4.2px] text-green-600 font-bold w-6">
+                                      <td className="text-right py-[1px] px-[6px] text-green-600 font-bold w-6">
                                         {buyData ? formatAverage(buyData.bavg) : '-'}
                                       </td>
                                       {/* SL (Seller) Columns - Keep # column */}
-                                      <td className={`text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold w-4 ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>{sellData ? rowIdx + 1 : '-'}</td>
-                                      <td className={`py-[1px] px-[4.2px] font-bold w-4 ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>
+                                      <td className={`text-center py-[1px] px-[6px] text-white bg-[#3a4252] font-bold w-4 ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>{sellData ? rowIdx + 1 : '-'}</td>
+                                      <td className={`py-[1px] px-[6px] font-bold w-4 ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>
                                         {sellData?.broker || '-'}
                                       </td>
-                              <td className="text-right py-[1px] px-[4.2px] text-red-600 font-bold w-6">
+                              <td className="text-right py-[1px] px-[6px] text-red-600 font-bold w-6">
                                 {sellData ? formatLot(sellData.sellerVol / 100) : '-'}
                               </td>
-                                      <td className="text-right py-[1px] px-[4.2px] text-red-600 font-bold w-6">
+                                      <td className="text-right py-[1px] px-[6px] text-red-600 font-bold w-6">
                                         {sellData ? formatNumber(sellData.sellerValue) : '-'}
                                       </td>
-                              <td className={`text-right py-[1px] px-[4.2px] text-red-600 font-bold w-6 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
+                              <td className={`text-right py-[1px] px-[6px] text-red-600 font-bold w-6 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
                                         {sellData ? formatAverage(sellData.savg) : '-'}
                                       </td>
                                     </React.Fragment>
@@ -1438,29 +1423,29 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                           const totalSellAvg = totalSell && totalSell.nslot > 0 ? Math.abs(totalSell.nsval) / totalSell.nslot : 0;
                           return (
                             <React.Fragment>
-                                <td className={`text-center py-[1px] px-[3.1px] font-bold ${availableDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${totalBuy ? getBrokerColorClass(totalBuy.broker) : ''}`}>
+                                <td className={`text-center py-[1px] px-[5px] font-bold ${showOnlyTotal || availableDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${totalBuy ? getBrokerColorClass(totalBuy.broker) : ''}`}>
                                   {totalBuy?.broker || '-'}
                                 </td>
-                              <td className="text-right py-[1px] px-[3.1px] text-green-600 font-bold">
+                              <td className="text-right py-[1px] px-[5px] text-green-600 font-bold">
                                 {totalBuy ? formatLot(totalBuy.nblot / 100) : '-'}
                               </td>
-                                <td className="text-right py-[1px] px-[3.1px] text-green-600 font-bold">
+                                <td className="text-right py-[1px] px-[5px] text-green-600 font-bold">
                                   {totalBuy ? formatNumber(totalBuy.nbval) : '-'}
                                 </td>
-                                <td className="text-right py-[1px] px-[3.1px] text-green-600 font-bold">
+                                <td className="text-right py-[1px] px-[5px] text-green-600 font-bold">
                                   {totalBuy && totalBuyAvg > 0 ? formatAverage(totalBuyAvg) : '-'}
                                 </td>
-                                <td className={`text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>{totalSell ? rowIdx + 1 : '-'}</td>
-                                <td className={`py-[1px] px-[3.1px] font-bold ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>
+                                <td className={`text-center py-[1px] px-[6px] text-white bg-[#3a4252] font-bold ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>{totalSell ? rowIdx + 1 : '-'}</td>
+                                <td className={`py-[1px] px-[5px] font-bold ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>
                                   {totalSell?.broker || '-'}
                                 </td>
-                              <td className="text-right py-[1px] px-[3.1px] text-red-600 font-bold">
+                              <td className="text-right py-[1px] px-[5px] text-red-600 font-bold">
                                 {totalSell ? formatLot(totalSell.nslot / 100) : '-'}
                               </td>
-                              <td className="text-right py-[1px] px-[3.1px] text-red-600 font-bold">
+                              <td className="text-right py-[1px] px-[5px] text-red-600 font-bold">
                                   {totalSell ? formatNumber(totalSell.nsval) : '-'}
                                 </td>
-                                <td className="text-right py-[1px] px-[6px] text-red-600 font-bold border-r-2 border-white">
+                                <td className="text-right py-[1px] px-[7px] text-red-600 font-bold border-r-2 border-white">
                                   {totalSell && totalSellAvg > 0 ? formatAverage(totalSellAvg) : '-'}
                                 </td>
                             </React.Fragment>
@@ -1480,46 +1465,46 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
             <h3 className="font-semibold text-sm">NET - {selectedTickers.join(', ')}</h3>
           </div>
-          <div className="w-full max-w-full">
-              <div ref={netTableContainerRef} className="w-full max-w-full overflow-x-auto max-h-[480px] overflow-y-auto border-l-2 border-r-2 border-b-2 border-white">
-              <table ref={netTableRef} className={`min-w-[1000px] ${getFontSizeClass()} table-auto`}>
+          <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
+              <div ref={netTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} overflow-x-auto overflow-y-auto border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: 'calc(2 * 28px + 20 * 24px)' }}>
+              <table ref={netTableRef} className={`${showOnlyTotal ? 'min-w-0' : 'min-w-[1000px]'} ${getFontSizeClass()} table-auto`} style={{ tableLayout: showOnlyTotal ? 'auto' : 'auto' }}>
                         <thead className="bg-[#3a4252]">
                         <tr className="border-t-2 border-white">
-                      {availableDates.map((date, dateIndex) => (
+                      {!showOnlyTotal && availableDates.map((date, dateIndex) => (
                         <th key={date} className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} colSpan={9}>
                         {formatDisplayDate(date)}
                             </th>
                           ))}
-                      <th className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${availableDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={9}>
+                      <th className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${showOnlyTotal || availableDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={9}>
                             Total
                           </th>
                         </tr>
                         <tr className="bg-[#3a4252]">
-                      {availableDates.map((date, dateIndex) => (
+                      {!showOnlyTotal && availableDates.map((date, dateIndex) => (
                       <React.Fragment key={`detail-${date}`}>
                               {/* Net Buy Columns - No # */}
-                          <th className={`text-center py-[1px] px-[4.2px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>BY</th>
-                              <th className={`text-right py-[1px] px-[4.2px] font-bold text-white w-6`}>BLot</th>
-                              <th className={`text-right py-[1px] px-[4.2px] font-bold text-white w-6`}>BVal</th>
-                              <th className={`text-right py-[1px] px-[4.2px] font-bold text-white w-6`}>BAvg</th>
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>BY</th>
+                              <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6`}>BLot</th>
+                              <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6`}>BVal</th>
+                              <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6`}>BAvg</th>
                               {/* Net Sell Columns - Keep # */}
-                              <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-4">#</th>
-                              <th className={`text-left py-[1px] px-[4.2px] font-bold text-white w-4`}>SL</th>
-                              <th className={`text-right py-[1px] px-[4.2px] font-bold text-white w-6`}>SLot</th>
-                              <th className={`text-right py-[1px] px-[4.2px] font-bold text-white w-6`}>SVal</th>
-                          <th className={`text-right py-[1px] px-[4.2px] font-bold text-white w-6 ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>SAvg</th>
+                              <th className="text-center py-[1px] px-[6px] font-bold text-white bg-[#3a4252] w-4">#</th>
+                              <th className={`text-left py-[1px] px-[6px] font-bold text-white w-4`}>SL</th>
+                              <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6`}>SLot</th>
+                              <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6`}>SVal</th>
+                          <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6 ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>SAvg</th>
                             </React.Fragment>
                           ))}
                     {/* Total Columns - Include BAvg and SAvg */}
-                      <th className={`text-center py-[1px] px-[3.1px] font-bold text-white ${availableDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>BY</th>
-                          <th className={`text-right py-[1px] px-[3.1px] font-bold text-white`}>BLot</th>
-                          <th className={`text-right py-[1px] px-[3.1px] font-bold text-white`}>BVal</th>
-                          <th className={`text-right py-[1px] px-[3.1px] font-bold text-white`}>BAvg</th>
-                          <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252]">#</th>
-                          <th className={`text-left py-[1px] px-[3.1px] font-bold text-white`}>SL</th>
-                          <th className={`text-right py-[1px] px-[3.1px] font-bold text-white`}>SLot</th>
-                          <th className={`text-right py-[1px] px-[3.1px] font-bold text-white`}>SVal</th>
-                      <th className={`text-right py-[1px] px-[6px] font-bold text-white border-r-2 border-white`}>SAvg</th>
+                      <th className={`text-center py-[1px] px-[5px] font-bold text-white ${showOnlyTotal || availableDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>BY</th>
+                          <th className={`text-right py-[1px] px-[5px] font-bold text-white`}>BLot</th>
+                          <th className={`text-right py-[1px] px-[5px] font-bold text-white`}>BVal</th>
+                          <th className={`text-right py-[1px] px-[5px] font-bold text-white`}>BAvg</th>
+                          <th className="text-center py-[1px] px-[6px] font-bold text-white bg-[#3a4252]">#</th>
+                          <th className={`text-left py-[1px] px-[5px] font-bold text-white`}>SL</th>
+                          <th className={`text-right py-[1px] px-[5px] font-bold text-white`}>SLot</th>
+                          <th className={`text-right py-[1px] px-[5px] font-bold text-white`}>SVal</th>
+                      <th className={`text-right py-[1px] px-[7px] font-bold text-white border-r-2 border-white`}>SAvg</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1656,18 +1641,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       const color = netBuyBrokerBgMap.get(broker);
                       return color ? { backgroundColor: color, color: 'white' } : undefined;
                     };
-                    
-                    // Helper function to get background color style for net sell broker
-                    // Note: Sell background color disabled - only buy gets colored
-                    const getNetSellBgStyle = (broker: string): React.CSSProperties | undefined => {
-                      return undefined; // No background color for sell
-                    };
-
-                    // Helper function to check if broker is top 5 NetBuy (for underline styling in SL columns)
-                    // LOCKED: Top 5 NetBuy brokers from Total get underline in SL columns across all dates
-                    const isTop5NetSell = (broker: string): boolean => {
-                      return netSellBrokerIndexMap.has(broker);
-                    };
 
                     // Map top 5 NetBuy brokers (from Total) to their index (0-4) for getting underline color
                     // These brokers will have underline in SL columns across all dates
@@ -1719,13 +1692,17 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       );
                     }
                           
-                    // Render rows
-                          return Array.from({ length: maxRows }).map((_, rowIdx) => {
+                    // Limit display to 20 rows (rest will be scrollable)
+                    const MAX_DISPLAY_ROWS = 20;
+                    const displayRows = Math.min(maxRows, MAX_DISPLAY_ROWS);
+                          
+                    // Render rows (limited to 20)
+                          return Array.from({ length: displayRows }).map((_, rowIdx) => {
                       // Cek apakah broker pada row adalah top5
                       // (delete unused block: netBuyData/netSellData functions)
                             return (
-                              <tr key={rowIdx} className={`hover:bg-accent/50 ${rowIdx === maxRows - 1 ? 'border-b-2 border-white' : ''}`}>
-                            {availableDates.map((date, dateIndex) => {
+                              <tr key={rowIdx} className={`hover:bg-accent/50 ${rowIdx === displayRows - 1 ? 'border-b-2 border-white' : ''}`}>
+                            {!showOnlyTotal && availableDates.map((date, dateIndex) => {
                             const dateData = allBrokerData.find(d => d.date === date);
                               // Sort brokers for this date
                               // Backend already separates: NetBuy (netBuyVol > 0) and NetSell (netSellVol > 0)
@@ -1778,30 +1755,30 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   return (
                               <React.Fragment key={`${date}-${rowIdx}`}>
                                       {/* Net Buy Columns (BY) - Display NetSell Data - No # */}
-                                  <td className={`text-center py-[1px] px-[4.2px] w-4 font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`} style={netBuyBgStyle}>
+                                  <td className={`text-center py-[1px] px-[6px] w-4 font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`} style={netBuyBgStyle}>
                                         {netSellData?.broker || '-'}
                                       </td>
-                                <td className={`text-right py-[1px] px-[4.2px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
+                                <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
                                   {netSellData ? formatLot(nbLot / 100) : '-'}
                                 </td>
-                                      <td className={`text-right py-[1px] px-[4.2px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
+                                      <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
                                         {netSellData ? formatNumber(nbVal) : '-'}
                                       </td>
-                                      <td className={`text-right py-[1px] px-[4.2px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
+                                      <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
                                         {netSellData ? formatAverage(nbAvg) : '-'}
                                       </td>
                                       {/* Net Sell Columns (SL) - Display NetBuy Data - Keep # */}
-                                      <td className={`text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold w-4 ${netBuyData ? getBrokerColorClass(netBuyData.broker) : ''}`}>{netBuyData ? rowIdx + 1 : '-'}</td>
-                                  <td className={`py-[1px] px-[4.2px] w-4 font-bold ${netBuyData ? getBrokerColorClass(netBuyData.broker) : ''}`} style={sellUnderlineStyle}>
+                                      <td className={`text-center py-[1px] px-[6px] text-white bg-[#3a4252] font-bold w-4 ${netBuyData ? getBrokerColorClass(netBuyData.broker) : ''}`}>{netBuyData ? rowIdx + 1 : '-'}</td>
+                                  <td className={`py-[1px] px-[6px] w-4 font-bold ${netBuyData ? getBrokerColorClass(netBuyData.broker) : ''}`} style={sellUnderlineStyle}>
                                         {netBuyData?.broker || '-'}
                                       </td>
-                                  <td className="text-right py-[1px] px-[4.2px] w-6 font-bold text-red-600" style={sellUnderlineStyle}>
+                                  <td className="text-right py-[1px] px-[6px] w-6 font-bold text-red-600" style={sellUnderlineStyle}>
                                   {netBuyData ? formatLot(nsLot / 100) : '-'}
                                 </td>
-                                  <td className="text-right py-[1px] px-[4.2px] w-6 font-bold text-red-600" style={sellUnderlineStyle}>
+                                  <td className="text-right py-[1px] px-[6px] w-6 font-bold text-red-600" style={sellUnderlineStyle}>
                                         {netBuyData ? formatNumber(nsVal) : '-'}
                                       </td>
-                                  <td className={`text-right py-[1px] px-[4.2px] w-6 font-bold text-red-600 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={sellUnderlineStyle}>
+                                  <td className={`text-right py-[1px] px-[6px] w-6 font-bold text-red-600 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={sellUnderlineStyle}>
                                         {netBuyData ? formatAverage(nsAvg) : '-'}
                                       </td>
                                     </React.Fragment>
@@ -1837,30 +1814,30 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                             return (
                               <React.Fragment>
                                   {/* Total BY columns - Display totalNetSell data */}
-                                  <td className={`text-center py-[1px] px-[3.1px] font-bold ${availableDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${totalNetSell ? getBrokerColorClass(totalNetSell.broker) : ''}`} style={totalNetBuyBgStyle}>
+                                  <td className={`text-center py-[1px] px-[5px] font-bold ${showOnlyTotal || availableDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${totalNetSell ? getBrokerColorClass(totalNetSell.broker) : ''}`} style={totalNetBuyBgStyle}>
                                   {totalNetSell?.broker || '-'}
                                 </td>
-                                <td className={`text-right py-[1px] px-[3.1px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
+                                <td className={`text-right py-[1px] px-[5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
                                   {totalNetSell ? formatLot((totalNetSell.nslot || 0) / 100) : '-'}
                                 </td>
-                                <td className={`text-right py-[1px] px-[3.1px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
+                                <td className={`text-right py-[1px] px-[5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
                                   {totalNetSell ? formatNumber(totalNetSell.nsval || 0) : '-'}
                                 </td>
-                                <td className={`text-right py-[1px] px-[3.1px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
+                                <td className={`text-right py-[1px] px-[5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
                                   {totalNetSell && totalNetBuyAvg > 0 ? formatAverage(totalNetBuyAvg) : '-'}
                                 </td>
                                 {/* Total SL columns - Display totalNetBuy data */}
-                                <td className={`text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold ${totalNetBuy ? getBrokerColorClass(totalNetBuy.broker) : ''}`}>{totalNetBuy ? rowIdx + 1 : '-'}</td>
-                                  <td className={`py-[1px] px-[3.1px] font-bold ${totalNetBuy ? getBrokerColorClass(totalNetBuy.broker) : ''}`} style={totalSellUnderlineStyle}>
+                                <td className={`text-center py-[1px] px-[6px] text-white bg-[#3a4252] font-bold ${totalNetBuy ? getBrokerColorClass(totalNetBuy.broker) : ''}`}>{totalNetBuy ? rowIdx + 1 : '-'}</td>
+                                  <td className={`py-[1px] px-[5px] font-bold ${totalNetBuy ? getBrokerColorClass(totalNetBuy.broker) : ''}`} style={totalSellUnderlineStyle}>
                                   {totalNetBuy?.broker || '-'}
                                 </td>
-                                  <td className="text-right py-[1px] px-[3.1px] text-red-600 font-bold" style={totalSellUnderlineStyle}>
+                                  <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={totalSellUnderlineStyle}>
                                     {totalNetBuy ? formatLot(totalNetBuy.nblot / 100) : '-'}
                                 </td>
-                                  <td className="text-right py-[1px] px-[3.1px] text-red-600 font-bold" style={totalSellUnderlineStyle}>
+                                  <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={totalSellUnderlineStyle}>
                                     {totalNetBuy ? formatNumber(totalNetBuy.nbval) : '-'}
                                 </td>
-                                  <td className="text-right py-[1px] px-[6px] text-red-600 font-bold border-r-2 border-white" style={totalSellUnderlineStyle}>
+                                  <td className="text-right py-[1px] px-[7px] text-red-600 font-bold border-r-2 border-white" style={totalSellUnderlineStyle}>
                                   {totalNetBuy && totalNetSellAvg > 0 ? formatAverage(totalNetSellAvg) : '-'}
                                 </td>
                               </React.Fragment>
@@ -1880,230 +1857,12 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     );
   };
 
-  // Render simple view (similar to BrokerSummary component)
-  const renderSimpleView = () => {
-    const currentStock = selectedTickers[0] || 'BBCA';
-    const currentDate = startDate || selectedDates[0] || '';
-    const currentData = summaryByDate.get(currentDate) || [];
-
-    // Filter and prepare data for simple view
-    const filteredData = currentData
-      .filter(broker => brokerFDScreen(broker.broker))
-      .map(row => ({
-        broker: row.broker,
-        nblot: row.nblot || row.netBuyVol || 0,
-        nbval: row.nbval || row.netBuyValue || 0,
-        bavg: row.bavg || (row.nbval > 0 && row.nblot > 0 ? row.nbval / row.nblot : 0),
-        nslot: row.nslot || row.netSellVol || 0,
-        nsval: row.nsval || row.netSellValue || 0,
-      }));
-
-    const getBrokerRowClass = (broker: string): string => {
-      const isDarkMode = useDarkMode();
-      const backgroundClass = getBrokerBackgroundClass(broker, isDarkMode);
-      const textClass = getBrokerTextClass(broker, isDarkMode);
-      return `${backgroundClass} ${textClass} hover:opacity-80`;
-    };
-
-    return (
-      <div className="space-y-6">
-        {/* Date Range Selection - styling copied from BrokerSummary */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Calendar className="w-5 h-5" />
-              Date Range Selection
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col gap-4 md:grid md:grid-cols-2 lg:flex lg:flex-row items-center lg:items-end">
-              {/* Date Range */}
-              <div className="flex-1 min-w-0 w-full md:col-span-2">
-                <label className="block text-sm font-medium mb-2">Date Range:</label>
-                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-2 w-full">
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => {
-                      setStartDate(e.target.value);
-                      setSelectedDates([e.target.value]);
-                    }}
-                    className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
-                  />
-                  <span className="text-sm text-muted-foreground text-center whitespace-nowrap sm:px-2">to</span>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm"
-                  />
-                  <Button size="sm" className="w-auto justify-self-center" onClick={() => { /* hook for future filtering */ }}>
-                    Apply
-                  </Button>
-                </div>
-              </div>
-
-              {/* Quick Select */}
-              <div className="flex-1 min-w-0 w-full">
-                <label className="block text-sm font-medium mb-2">Quick Select:</label>
-                <div className="flex gap-2">
-                  <select 
-                    className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
-                    value={dateRangeMode}
-                    onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
-                  >
-                    <option value="1day">1 Day</option>
-                    <option value="3days">3 Days</option>
-                    <option value="1week">1 Week</option>
-                    <option value="custom">Custom</option>
-                  </select>
-                  {dateRangeMode === 'custom' && (
-                    <Button variant="outline" size="sm" onClick={() => { 
-                      const todayIso = new Date().toISOString().split('T')[0] ?? '';
-                      setStartDate(todayIso); 
-                      setEndDate(todayIso);
-                      setSelectedDates([todayIso]);
-                    }}>
-                      <RotateCcw className="w-4 h-4 mr-1" />
-                      Clear
-                    </Button>
-                  )}
-                </div>
-              </div>
-
-              {/* Layout Switch (same styling as BrokerSummary) */}
-              <div className="flex-1 min-w-0 w-full lg:w-auto lg:flex-none">
-                <label className="block text-sm font-medium mb-2">Layout:</label>
-                <div className="flex sm:inline-flex items-center gap-1 border border-border rounded-lg p-1 overflow-x-auto w-full sm:w-auto lg:w-auto">
-                  <div className="flex items-center gap-1 min-w-max">
-                    <Button
-                      variant={layoutMode === 'horizontal' ? 'default' : 'ghost'}
-                      size="sm"
-                      onClick={() => setLayoutMode('horizontal')}
-                      className="px-3 py-1 h-8 text-xs"
-                    >
-                      Horizontal
-                    </Button>
-                    <Button
-                      variant={layoutMode === 'vertical' ? 'default' : 'ghost'}
-                      size="sm"
-                      onClick={() => setLayoutMode('vertical')}
-                      className="px-3 py-1 h-8 text-xs"
-                    >
-                      Vertical
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Stock Selection for Simple View */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium">Stock Selection</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium">Stock:</label>
-              <input
-                type="text"
-                value={currentStock}
-                onChange={(e) => {
-                  const newStock = e.target.value.toUpperCase();
-                  setSelectedTickers([newStock]);
-                }}
-                className="px-3 py-2 border border-border rounded-md bg-input text-foreground text-sm w-32"
-                placeholder="Stock code"
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Simple Table */}
-        {isLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="w-6 h-6 animate-spin mr-2" />
-            <span>Loading broker data...</span>
-          </div>
-        ) : error ? (
-          <div className="flex items-center justify-center py-8 text-red-600">
-            <span>{error}</span>
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded-md">
-            <table className="w-full min-w-[560px] text-sm">
-              <thead>
-                <tr className="border-b border-border bg-muted/50">
-                  <th className="text-left py-2 px-3 font-medium">Broker</th>
-                  <th className="text-right py-2 px-3 font-medium">NBLot</th>
-                  <th className="text-right py-2 px-3 font-medium">NBVal</th>
-                  <th className="text-right py-2 px-3 font-medium">BAvg</th>
-                  <th className="text-right py-2 px-3 font-medium">Net</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredData.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="text-center py-8 text-muted-foreground">
-                      No broker data available for {currentStock} on {currentDate}
-                    </td>
-                  </tr>
-                ) : (
-                  filteredData.map((row, idx) => {
-                    const netPosition = row.nblot + row.nslot; // Same as BrokerSummary.tsx: nblot + nslot
-                    return (
-                      <tr key={idx} className={`border-b border-border/50 hover:bg-accent/50 ${getBrokerRowClass(row.broker)}`}>
-                        <td className="py-2 px-3 font-medium">{row.broker}</td>
-                        <td className="text-right py-2 px-3 text-green-600">{formatValueSimple(row.nblot)}</td>
-                        <td className="text-right py-2 px-3 text-green-600">{formatValueSimple(row.nbval)}</td>
-                        <td className="text-right py-2 px-3">{formatValueSimple(row.bavg)}</td>
-                        <td className={`text-right py-2 px-3 font-medium ${netPosition >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {netPosition >= 0 ? '+' : ''}{formatValueSimple(netPosition)}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    );
-  };
-
   return (
     <div className="w-full">
       {/* Top Controls - Compact without Card */}
       <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5">
             <div className="flex flex-wrap items-center gap-8">
-              {/* View Mode Toggle */}
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium whitespace-nowrap">View:</label>
-                <div className="flex items-center gap-1 border border-border rounded-lg p-1">
-                  <Button
-                    variant={viewMode === 'simple' ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => setViewMode('simple')}
-                    className="px-3 py-1 h-8 text-xs"
-                  >
-                    Simple
-                  </Button>
-                  <Button
-                    variant={viewMode === 'complex' ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => setViewMode('complex')}
-                    className="px-3 py-1 h-8 text-xs"
-                  >
-                    Complex
-                  </Button>
-                </div>
-              </div>
-
-              {/* Ticker Selection - Multi-select with chips (only show in complex mode) */}
-              {viewMode === 'complex' && (
+              {/* Ticker Selection - Multi-select with chips */}
               <div className="flex items-center gap-2">
                 <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
                 <div className="flex flex-wrap items-center gap-2">
@@ -2201,10 +1960,8 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                   </div>
                 </div>
               </div>
-              )}
 
-              {/* Date Range (only show in complex mode) */}
-              {viewMode === 'complex' && (
+              {/* Date Range */}
               <div className="flex items-center gap-2">
                 <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
               <div 
@@ -2216,10 +1973,69 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     type="date"
                   value={formatDateForInput(startDate)}
                     onChange={(e) => {
-                      const selectedDate = new Date(e.target.value);
+                      const selectedDateStr = e.target.value;
+                      const selectedDate = new Date(selectedDateStr);
+                      
+                      // Check if date is before minimum date
+                      if (selectedDateStr < MIN_DATE) {
+                        showToast({
+                          type: 'warning',
+                          title: 'Tanggal Tidak Valid',
+                          message: `Tanggal paling awal yang bisa dipilih adalah 19 September 2025. Silakan pilih tanggal setelahnya.`,
+                        });
+                        return;
+                      }
+                      
+                      // Check if date is after maximum available date - MUST BE FIRST CHECK
+                      if (maxAvailableDate && maxAvailableDate.trim() !== '') {
+                        // Compare dates properly (YYYY-MM-DD format)
+                        if (selectedDateStr > maxAvailableDate) {
+                          showToast({
+                            type: 'warning',
+                            title: 'Tanggal Tidak Valid',
+                            message: `Tanggal paling baru yang tersedia adalah ${new Date(maxAvailableDate + 'T00:00:00').toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}. Silakan pilih tanggal sebelum atau sama dengan tanggal tersebut.`,
+                          });
+                          // Reset to previous value - prevent any state changes
+                          e.target.value = formatDateForInput(startDate);
+                          e.preventDefault();
+                          e.stopPropagation();
+                          // Force update input value to prevent any changes
+                          if (startDateRef.current) {
+                            startDateRef.current.value = formatDateForInput(startDate);
+                          }
+                          return;
+                        }
+                      }
+                      
+                      // Check if start date is after end date
+                      if (endDate && selectedDateStr > endDate) {
+                        showToast({
+                          type: 'warning',
+                          title: 'Tanggal Tidak Valid',
+                          message: 'Tanggal mulai tidak boleh lebih dari tanggal akhir. Silakan pilih tanggal yang valid.',
+                        });
+                        e.target.value = startDate;
+                        if (startDateRef.current) {
+                          startDateRef.current.value = startDate;
+                        }
+                        return;
+                      }
+                      
                       const dayOfWeek = selectedDate.getDay();
                       if (dayOfWeek === 0 || dayOfWeek === 6) {
-                        alert('Tidak bisa memilih hari Sabtu atau Minggu');
+                        showToast({
+                          type: 'warning',
+                          title: 'Hari Tidak Valid',
+                          message: 'Tidak bisa memilih hari Sabtu atau Minggu. Silakan pilih hari kerja.',
+                        });
+                        // Reset input value to prevent any state changes
+                        e.target.value = formatDateForInput(startDate);
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (startDateRef.current) {
+                          startDateRef.current.value = formatDateForInput(startDate);
+                        }
+                        // IMPORTANT: Early return - don't update any state, so reminder toast won't trigger
                         return;
                       }
                     
@@ -2233,18 +2049,56 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       const dayOfWeek = current.getDay();
                       if (dayOfWeek !== 0 && dayOfWeek !== 6) {
                         const dateString = current.toISOString().split('T')[0];
-                        if (dateString) tradingDays.push(dateString);
+                        if (dateString && dateString >= MIN_DATE) {
+                          // Check if date is within maximum available date
+                          if (!maxAvailableDate || maxAvailableDate.trim() === '' || dateString <= maxAvailableDate) {
+                            tradingDays.push(dateString);
+                          } else {
+                            // If any date in range is after maxAvailableDate, show toast and prevent change
+                            showToast({
+                              type: 'warning',
+                              title: 'Tanggal Tidak Valid',
+                              message: `Tanggal paling baru yang tersedia adalah ${new Date(maxAvailableDate).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}. Range tanggal yang dipilih mengandung tanggal setelah batas maksimum.`,
+                            });
+                            // Reset to previous value - prevent any state changes
+                            e.target.value = startDate;
+                            e.preventDefault();
+                            e.stopPropagation();
+                            // Force update input value to prevent any changes
+                            if (startDateRef.current) {
+                              startDateRef.current.value = startDate;
+                            }
+                            return;
+                          }
+                        } else if (dateString && dateString < MIN_DATE) {
+                          // If any date in range is before MIN_DATE, show toast and prevent change
+                          showToast({
+                            type: 'warning',
+                            title: 'Tanggal Tidak Valid',
+                            message: `Tanggal paling awal yang bisa dipilih adalah 19 September 2025. Range tanggal yang dipilih mengandung tanggal sebelum batas minimum.`,
+                          });
+                          // Reset to previous value - prevent any state changes
+                          e.target.value = startDate;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          // Force update input value to prevent any changes
+                          if (startDateRef.current) {
+                            startDateRef.current.value = startDate;
+                          }
+                          return;
+                        }
                       }
                       current.setDate(current.getDate() + 1);
                     }
                     
-                    // Check if trading days exceed 7
-                    if (tradingDays.length > 7) {
-                      alert('Maksimal 7 hari kerja yang bisa dipilih');
-                      return;
+                    // Only update state if all validations passed
+                    // CRITICAL: Reset shouldFetchData silently BEFORE updating dates to prevent auto-load
+                    // Update ref first (synchronous) then state - NO LOGS, NO OPERATIONS
+                    if (hasInitialAutoFetchRef.current) {
+                      shouldFetchDataRef.current = false; // CRITICAL: Update ref first (synchronous) - SILENT
+                      setShouldFetchData(false); // SILENT
                     }
-                    
-                      setStartDate(e.target.value);
+                    setStartDate(e.target.value);
                     // Auto update end date if not set or if start > end
                     if (!endDate || new Date(e.target.value) > new Date(endDate)) {
                       setEndDate(e.target.value);
@@ -2254,17 +2108,19 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                   onKeyDown={(e) => e.preventDefault()}
                   onPaste={(e) => e.preventDefault()}
                   onInput={(e) => e.preventDefault()}
-                  max={formatDateForInput(endDate)}
+                  min={MIN_DATE}
+                  max={maxAvailableDate && maxAvailableDate.trim() !== '' ? formatDateForInput(maxAvailableDate) : (endDate ? formatDateForInput(endDate) : new Date().toISOString().split('T')[0] || undefined)}
+                  disabled={false}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   style={{ caretColor: 'transparent' }}
                 />
                 <div className="flex items-center justify-between h-full px-3 py-[2.06px]">
                   <span className="text-sm text-foreground">
-                    {new Date(startDate).toLocaleDateString('en-GB', { 
+                    {startDate ? new Date(startDate).toLocaleDateString('en-GB', { 
                       day: '2-digit', 
                       month: '2-digit', 
                       year: 'numeric' 
-                    })}
+                    }) : 'DD/MM/YYYY'}
                   </span>
                   <Calendar className="w-4 h-4 text-muted-foreground" />
                 </div>
@@ -2274,15 +2130,74 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                 className="relative h-9 w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
                 onClick={() => triggerDatePicker(endDateRef)}
               >
-                  <input
+                <input
                   ref={endDateRef}
                     type="date"
                   value={formatDateForInput(endDate)}
-                    onChange={(e) => {
-                      const selectedDate = new Date(e.target.value);
+                  onChange={(e) => {
+                      const selectedDateStr = e.target.value;
+                      const selectedDate = new Date(selectedDateStr);
+                      
+                      // Check if date is before minimum date
+                      if (selectedDateStr < MIN_DATE) {
+                        showToast({
+                          type: 'warning',
+                          title: 'Tanggal Tidak Valid',
+                          message: `Tanggal paling awal yang bisa dipilih adalah 19 September 2025. Silakan pilih tanggal setelahnya.`,
+                        });
+                        return;
+                      }
+                      
+                      // Check if date is after maximum available date - MUST BE FIRST CHECK
+                      if (maxAvailableDate && maxAvailableDate.trim() !== '') {
+                        // Compare dates properly (YYYY-MM-DD format)
+                        if (selectedDateStr > maxAvailableDate) {
+                          showToast({
+                            type: 'warning',
+                            title: 'Tanggal Tidak Valid',
+                            message: `Tanggal paling baru yang tersedia adalah ${new Date(maxAvailableDate + 'T00:00:00').toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}. Silakan pilih tanggal sebelum atau sama dengan tanggal tersebut.`,
+                          });
+                          // Reset to previous value - prevent any state changes
+                          e.target.value = formatDateForInput(endDate);
+                          e.preventDefault();
+                          e.stopPropagation();
+                          // Force update input value to prevent any changes
+                          if (endDateRef.current) {
+                            endDateRef.current.value = formatDateForInput(endDate);
+                          }
+                          return;
+                        }
+                      }
+                      
+                      // Check if end date is before start date
+                      if (startDate && selectedDateStr < startDate) {
+                        showToast({
+                          type: 'warning',
+                          title: 'Tanggal Tidak Valid',
+                          message: 'Tanggal akhir tidak boleh kurang dari tanggal mulai. Silakan pilih tanggal yang valid.',
+                        });
+                        e.target.value = endDate;
+                        if (endDateRef.current) {
+                          endDateRef.current.value = endDate;
+                        }
+                        return;
+                      }
+                      
                       const dayOfWeek = selectedDate.getDay();
                       if (dayOfWeek === 0 || dayOfWeek === 6) {
-                        alert('Tidak bisa memilih hari Sabtu atau Minggu');
+                        showToast({
+                          type: 'warning',
+                          title: 'Hari Tidak Valid',
+                          message: 'Tidak bisa memilih hari Sabtu atau Minggu. Silakan pilih hari kerja.',
+                        });
+                        // Reset input value to prevent any state changes
+                        e.target.value = formatDateForInput(endDate);
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (endDateRef.current) {
+                          endDateRef.current.value = formatDateForInput(endDate);
+                        }
+                        // IMPORTANT: Early return - don't update any state, so reminder toast won't trigger
                         return;
                       }
                     
@@ -2296,43 +2211,119 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       const dayOfWeek = current.getDay();
                       if (dayOfWeek !== 0 && dayOfWeek !== 6) {
                         const dateString = current.toISOString().split('T')[0];
-                        if (dateString) tradingDays.push(dateString);
+                        if (dateString && dateString >= MIN_DATE) {
+                          // Check if date is within maximum available date
+                          if (!maxAvailableDate || maxAvailableDate.trim() === '' || dateString <= maxAvailableDate) {
+                            tradingDays.push(dateString);
+                          } else {
+                            // If any date in range is after maxAvailableDate, show toast and prevent change
+                            showToast({
+                              type: 'warning',
+                              title: 'Tanggal Tidak Valid',
+                              message: `Tanggal paling baru yang tersedia adalah ${new Date(maxAvailableDate).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}. Range tanggal yang dipilih mengandung tanggal setelah batas maksimum.`,
+                            });
+                            // Reset to previous value - prevent any state changes
+                            e.target.value = formatDateForInput(endDate);
+                            e.preventDefault();
+                            e.stopPropagation();
+                            // Force update input value to prevent any changes
+                            if (endDateRef.current) {
+                              endDateRef.current.value = formatDateForInput(endDate);
+                            }
+                            return;
+                          }
+                        } else if (dateString && dateString < MIN_DATE) {
+                          // If any date in range is before MIN_DATE, show toast and prevent change
+                          showToast({
+                            type: 'warning',
+                            title: 'Tanggal Tidak Valid',
+                            message: `Tanggal paling awal yang bisa dipilih adalah 19 September 2025. Range tanggal yang dipilih mengandung tanggal sebelum batas minimum.`,
+                          });
+                          // Reset to previous value - prevent any state changes
+                          e.target.value = formatDateForInput(endDate);
+                          e.preventDefault();
+                          e.stopPropagation();
+                          // Force update input value to prevent any changes
+                          if (endDateRef.current) {
+                            endDateRef.current.value = formatDateForInput(endDate);
+                          }
+                          return;
+                        }
                       }
                       current.setDate(current.getDate() + 1);
                     }
                     
-                    // Check if trading days exceed 7
-                    if (tradingDays.length > 7) {
-                      alert('Maksimal 7 hari kerja yang bisa dipilih');
-                      return;
+                    // Only update state if all validations passed
+                    // CRITICAL: Reset shouldFetchData silently BEFORE updating dates to prevent auto-load
+                    // This must happen synchronously before any state updates - NO LOGS, NO OPERATIONS
+                    if (hasInitialAutoFetchRef.current) {
+                      shouldFetchDataRef.current = false; // CRITICAL: Update ref first (synchronous) - SILENT
+                      setShouldFetchData(false); // SILENT
                     }
-                    
-                      setEndDate(e.target.value);
+                    // Update dates - NO effect will run, completely silent
+                    setEndDate(e.target.value);
                     setSelectedDates(tradingDays);
                   }}
                   onKeyDown={(e) => e.preventDefault()}
                   onPaste={(e) => e.preventDefault()}
                   onInput={(e) => e.preventDefault()}
-                  min={formatDateForInput(startDate)}
+                  min={startDate ? formatDateForInput(startDate) : MIN_DATE}
+                  max={maxAvailableDate && maxAvailableDate.trim() !== '' ? formatDateForInput(maxAvailableDate) : new Date().toISOString().split('T')[0] || undefined}
+                  disabled={false}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   style={{ caretColor: 'transparent' }}
                 />
                 <div className="flex items-center justify-between h-full px-3 py-[2.06px]">
                   <span className="text-sm text-foreground">
-                    {new Date(endDate).toLocaleDateString('en-GB', { 
+                    {endDate ? new Date(endDate).toLocaleDateString('en-GB', { 
                       day: '2-digit', 
                       month: '2-digit', 
                       year: 'numeric' 
-                    })}
+                    }) : 'DD/MM/YYYY'}
                   </span>
                   <Calendar className="w-4 h-4 text-muted-foreground" />
                 </div>
                 </div>
               </div>
-              )}
 
-            {/* F/D Filter - visual only (only show in complex mode) */}
-              {viewMode === 'complex' && (
+              {/* Show Button */}
+              <button
+                onClick={() => {
+                  if (selectedTickers.length === 0 || selectedDates.length === 0) {
+                    showToast({
+                      type: 'warning',
+                      title: 'Data Tidak Lengkap',
+                      message: 'Silakan pilih ticker dan tanggal terlebih dahulu.',
+                    });
+                    return;
+                  }
+                  
+                  // Validate that all selected dates are within maxAvailableDate
+                  if (maxAvailableDate && maxAvailableDate.trim() !== '') {
+                    const invalidDates = selectedDates.filter(date => date > maxAvailableDate);
+                    if (invalidDates.length > 0) {
+                      showToast({
+                        type: 'warning',
+                        title: 'Tanggal Tidak Valid',
+                        message: `Tanggal paling baru yang tersedia adalah ${new Date(maxAvailableDate).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}. Beberapa tanggal yang dipilih (${invalidDates.join(', ')}) melebihi batas maksimum.`,
+                      });
+                      return;
+                    }
+                  }
+                  
+                  // Clear existing data before fetching new data
+                  setSummaryByDate(new Map());
+                  setIsDataReady(false);
+                  shouldFetchDataRef.current = true; // Update ref first (synchronous)
+                  setShouldFetchData(true);
+                }}
+                disabled={isLoading || selectedTickers.length === 0 || selectedDates.length === 0}
+                className="px-4 py-1.5 h-9 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap"
+              >
+                Show
+              </button>
+
+            {/* F/D Filter */}
               <div className="flex items-center gap-2">
                 <label className="text-sm font-medium whitespace-nowrap">F/D:</label>
                   <select 
@@ -2345,10 +2336,8 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                   <option value="Domestic">Domestic</option>
                   </select>
               </div>
-              )}
 
-            {/* Market Filter - visual only (only show in complex mode) */}
-              {viewMode === 'complex' && (
+            {/* Market Filter */}
               <div className="flex items-center gap-2">
                 <label className="text-sm font-medium whitespace-nowrap">Board:</label>
                 <select
@@ -2362,13 +2351,12 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                   <option value="NG">NG</option>
                 </select>
               </div>
-              )}
               </div>
             </div>
 
       {/* Main Data Display */}
       <div className="bg-[#0a0f20]">
-        {viewMode === 'simple' ? renderSimpleView() : renderHorizontalView()}
+        {renderHorizontalView()}
       </div>
     </div>
   );

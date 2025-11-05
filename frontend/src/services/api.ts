@@ -2293,10 +2293,37 @@ export const api = {
   // Get available dates for broker summary
   getBrokerSummaryDates: async () => {
     try {
-      const response = await fetch(`${API_URL}/api/broker/dates`);
+      // Increase timeout to 60 seconds for Azure Blob Storage operations
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+      
+      const response = await fetch(`${API_URL}/api/broker/dates`, {
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[API] getBrokerSummaryDates error response:', response.status, errorText);
+        return { 
+          success: false, 
+          error: `HTTP ${response.status}: ${errorText || 'Failed to get broker summary dates'}` 
+        };
+      }
+      
       const data = await response.json();
+      console.log('[API] getBrokerSummaryDates success:', data);
       return data;
     } catch (err: any) {
+      if (err.name === 'AbortError') {
+        console.error('[API] getBrokerSummaryDates timeout after 60 seconds');
+        return { success: false, error: 'Request timeout - Azure Blob Storage operation took too long' };
+      }
+      console.error('[API] getBrokerSummaryDates error:', err);
       return { success: false, error: err.message || 'Failed to get broker summary dates' };
     }
   },
