@@ -1,4 +1,5 @@
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
+import { BATCH_SIZE_PHASE_6 } from '../../services/dataUpdateService';
 
 // Type definitions
 type TransactionType = 'RG' | 'TN' | 'NG';
@@ -45,14 +46,40 @@ interface BrokerTransactionData {
 export class BrokerTransactionRGTNNGCalculator {
   constructor() { }
 
+  /**
+   * Check if broker transaction folder for specific date and type already exists
+   */
+  private async checkBrokerTransactionRGTNNGExists(dateSuffix: string, type: TransactionType): Promise<boolean> {
+    try {
+      const name = type.toLowerCase();
+      const prefix = `broker_transaction_${name}/broker_transaction_${name}_${dateSuffix}/`;
+      const existingFiles = await listPaths({ prefix, maxResults: 1 });
+      return existingFiles.length > 0;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Check if all types (RG, TN, NG) already exist for a date
+   */
+  private async checkAllTypesExist(dateSuffix: string): Promise<boolean> {
+    const types: TransactionType[] = ['RG', 'TN', 'NG'];
+    for (const type of types) {
+      const exists = await this.checkBrokerTransactionRGTNNGExists(dateSuffix, type);
+      if (!exists) {
+        return false; // At least one type is missing
+      }
+    }
+    return true; // All types exist
+  }
+
   private async findAllDtFiles(): Promise<string[]> {
     console.log('🔍 Scanning for DT files in done-summary folder...');
     try {
       const allFiles = await listPaths({ prefix: 'done-summary/' });
       console.log(`📁 Found ${allFiles.length} total files in done-summary folder`);
       const dtFiles = allFiles.filter(file => file.includes('/DT') && file.endsWith('.csv'));
-      
-      console.log(`📊 Found ${dtFiles.length} DT files (no date range filter - processing all)`);
       
       // Sort by date descending (newest first)
       const sortedFiles = dtFiles.sort((a, b) => {
@@ -61,9 +88,28 @@ export class BrokerTransactionRGTNNGCalculator {
         return dateB.localeCompare(dateA); // Descending order
       });
       
-      if (sortedFiles.length > 0) {
+      // OPTIMIZATION: Check which dates already have all broker_transaction_rg_tn_ng outputs
+      console.log("🔍 Checking existing broker_transaction_rg/tn/ng folders to skip...");
+      const filesToProcess: string[] = [];
+      let skippedCount = 0;
+      
+      for (const file of sortedFiles) {
+        const dateFolder = file.split('/')[1] || '';
+        const allExist = await this.checkAllTypesExist(dateFolder);
+        
+        if (allExist) {
+          skippedCount++;
+          console.log(`⏭️ Skipping ${file} - broker_transaction_rg/tn/ng folders already exist for ${dateFolder}`);
+        } else {
+          filesToProcess.push(file);
+        }
+      }
+      
+      console.log(`📊 Found ${sortedFiles.length} DT files: ${filesToProcess.length} to process, ${skippedCount} skipped (already processed)`);
+      
+      if (filesToProcess.length > 0) {
         console.log(`📋 Processing order (newest first):`);
-        const dates = sortedFiles.map(f => f.split('/')[1]).filter((v, i, arr) => arr.indexOf(v) === i);
+        const dates = filesToProcess.map(f => f.split('/')[1]).filter((v, i, arr) => arr.indexOf(v) === i);
         dates.slice(0, 10).forEach((date, idx) => {
           console.log(`   ${idx + 1}. ${date}`);
         });
@@ -72,10 +118,85 @@ export class BrokerTransactionRGTNNGCalculator {
         }
       }
       
-      return sortedFiles;
+      return filesToProcess;
     } catch (error: any) {
       console.error('❌ Error finding DT files:', error.message);
       return [];
+    }
+  }
+
+  /**
+   * Process a single DT file with broker transaction analysis (RG/TN/NG split)
+   * OPTIMIZED: Double-check folders don't exist before processing (race condition protection)
+   */
+  private async processSingleDtFile(blobName: string): Promise<{ success: boolean; dateSuffix: string; files: string[]; timing?: any }> {
+    // Extract date before loading to check early
+    const pathParts = blobName.split('/');
+    const dateFolder = pathParts[1] || 'unknown';
+    const dateSuffix = dateFolder;
+    
+    // OPTIMIZATION: Double-check all types don't exist (race condition protection)
+    const allExist = await this.checkAllTypesExist(dateFolder);
+    if (allExist) {
+      console.log(`⏭️ Skipping ${blobName} - broker_transaction_rg/tn/ng folders already exist for ${dateFolder} (race condition check)`);
+      return { success: false, dateSuffix: dateFolder, files: [] };
+    }
+    
+    try {
+      console.log(`📥 Downloading file: ${blobName}`);
+      const content = await downloadText(blobName);
+      if (!content || content.trim().length === 0) {
+        console.warn(`⚠️ Empty file or no content: ${blobName}`);
+        return { success: false, dateSuffix, files: [] };
+      }
+      console.log(`✅ Downloaded ${blobName} (${content.length} characters)`);
+      console.log(`📅 Extracted date suffix: ${dateSuffix} from ${blobName}`);
+      
+      const data = this.parseTransactionData(content);
+      console.log(`✅ Parsed ${data.length} transactions from ${blobName}`);
+      
+      if (data.length === 0) {
+        console.log(`⚠️ No transaction data in ${blobName} - skipping`);
+        return { success: false, dateSuffix, files: [] };
+      }
+      
+      console.log(`🔄 Processing ${blobName} (${data.length} transactions) for RG/TN/NG...`);
+      
+      // Track timing
+      const timing = {
+        brokerTransactionRG: 0,
+        brokerTransactionTN: 0,
+        brokerTransactionNG: 0
+      };
+      
+      const allFiles: string[] = [];
+      
+      // Process each type (RG, TN, NG)
+      for (const type of ['RG', 'TN', 'NG'] as const) {
+        const filtered = this.filterByType(data, type);
+        if (filtered.length === 0) {
+          console.log(`⏭️ Skipping ${dateSuffix} (${type}) - no ${type} transactions found`);
+          continue;
+        }
+        
+        const startTime = Date.now();
+        const transactionFiles = await this.createBrokerTransactionPerBroker(filtered, dateSuffix, type);
+        const duration = Math.round((Date.now() - startTime) / 1000);
+        
+        if (type === 'RG') timing.brokerTransactionRG = duration;
+        else if (type === 'TN') timing.brokerTransactionTN = duration;
+        else if (type === 'NG') timing.brokerTransactionNG = duration;
+        
+        allFiles.push(...transactionFiles);
+        console.log(`✅ Created ${transactionFiles.length} broker transaction files for ${dateSuffix} (${type})`);
+      }
+      
+      console.log(`✅ Completed processing ${blobName} - ${allFiles.length} files created`);
+      return { success: true, dateSuffix, files: allFiles, timing };
+      
+    } catch (error: any) {
+      console.error(`❌ Error processing file ${blobName}:`, error.message);
+      return { success: false, dateSuffix, files: [] };
     }
   }
 
@@ -300,23 +421,76 @@ export class BrokerTransactionRGTNNGCalculator {
     }
   }
 
+  /**
+   * Main function to generate broker transaction data for all DT files (RG/TN/NG split)
+   * OPTIMIZED: Batch processing with skip logic
+   */
   public async generateBrokerTransactionData(_dateSuffix?: string): Promise<{ success: boolean; message: string; data?: any }> {
     try {
+      console.log(`🔄 Starting Broker Transaction RG/TN/NG calculation...`);
       const dtFiles = await this.findAllDtFiles();
-      if (dtFiles.length === 0) return { success: true, message: `No DT files found - skipped broker transaction data generation` };
-      for (const blobName of dtFiles) {
-        const result = await this.loadAndProcessSingleDtFile(blobName);
-        if (!result) continue;
-        const { data, dateSuffix: date } = result;
-        for (const type of ['RG', 'TN', 'NG'] as const) {
-          const filtered = this.filterByType(data, type);
-          if (filtered.length === 0) continue;
-          await this.createBrokerTransactionPerBroker(filtered, date, type);
-        }
+      
+      if (dtFiles.length === 0) {
+        console.log(`✅ No DT files to process - skipped broker transaction RG/TN/NG data generation`);
+        return { success: true, message: `No DT files found - skipped broker transaction RG/TN/NG data generation` };
       }
-      return { success: true, message: 'Broker Transaction RG/TN/NG data generated' };
+      
+      console.log(`📊 Processing ${dtFiles.length} DT files in batches of ${BATCH_SIZE_PHASE_6}...`);
+      
+      let totalProcessed = 0;
+      let totalSkipped = 0;
+      let totalFilesCreated = 0;
+      let totalErrors = 0;
+      
+      // Process in batches to manage memory
+      for (let i = 0; i < dtFiles.length; i += BATCH_SIZE_PHASE_6) {
+        const batch = dtFiles.slice(i, i + BATCH_SIZE_PHASE_6);
+        const batchNum = Math.floor(i / BATCH_SIZE_PHASE_6) + 1;
+        const totalBatches = Math.ceil(dtFiles.length / BATCH_SIZE_PHASE_6);
+        
+        console.log(`\n📦 Processing batch ${batchNum}/${totalBatches} (${batch.length} files)...`);
+        
+        const batchResults = await Promise.allSettled(
+          batch.map(blobName => this.processSingleDtFile(blobName))
+        );
+        
+        // Collect results
+        for (const result of batchResults) {
+          if (result.status === 'fulfilled') {
+            const { success, files, dateSuffix } = result.value;
+            if (success) {
+              totalProcessed++;
+              totalFilesCreated += files.length;
+              console.log(`✅ ${dateSuffix}: ${files.length} files created`);
+            } else {
+              totalSkipped++;
+              console.log(`⏭️ ${dateSuffix}: Skipped (already exists or no data)`);
+            }
+          } else {
+            totalErrors++;
+            console.error(`❌ Error in batch:`, result.reason);
+          }
+        }
+        
+        console.log(`📊 Batch ${batchNum}/${totalBatches} complete: ${totalProcessed} processed, ${totalSkipped} skipped, ${totalErrors} errors`);
+      }
+      
+      const message = `Broker Transaction RG/TN/NG data generated: ${totalProcessed} dates processed, ${totalFilesCreated} files created, ${totalSkipped} skipped, ${totalErrors} errors`;
+      console.log(`✅ ${message}`);
+      return { 
+        success: true, 
+        message,
+        data: {
+          processed: totalProcessed,
+          filesCreated: totalFilesCreated,
+          skipped: totalSkipped,
+          errors: totalErrors
+        }
+      };
     } catch (e) {
-      return { success: false, message: (e as Error).message };
+      const error = e as Error;
+      console.error(`❌ Error in generateBrokerTransactionData:`, error.message);
+      return { success: false, message: error.message };
     }
   }
 

@@ -16,6 +16,8 @@ import BrokerBreakdownDataScheduler from './brokerBreakdownDataScheduler';
 import ForeignFlowDataScheduler from './foreignFlowDataScheduler';
 import MoneyFlowDataScheduler from './moneyFlowDataScheduler';
 import BreakDoneTradeDataScheduler from './breakDoneTradeDataScheduler';
+import BrokerTransactionDataScheduler from './brokerTransactionDataScheduler';
+import BrokerTransactionRGTNNGDataScheduler from './brokerTransactionRGTNNGDataScheduler';
 import { SchedulerLogService, SchedulerLog } from './schedulerLogService';
 import { updateDoneSummaryData } from './doneSummaryDataScheduler';
 import { updateStockData } from './stockDataScheduler';
@@ -39,7 +41,7 @@ let SCHEDULER_CONFIG = {
   // Phase 2: Market rotation (RRC, RRG, Seasonal, Trend Filter, Watchlist Snapshot)
   // Phase 3: Light calculations (Money Flow, Foreign Flow, Break Done Trade)
   // Phase 4: Medium calculations (Bid/Ask Footprint, Broker Breakdown)
-  // Phase 5: Heavy calculations (Broker Data)
+  // Phase 5: Heavy calculations (Broker Data (Broker Summary + Top Broker), Broker Summary by Type, Broker Summary IDX, Broker Transaction, Broker Transaction RG/TN/NG)
   // Phase 6: Very Heavy calculations (Broker Inventory, Accumulation Distribution)
   
   // Memory Management
@@ -97,6 +99,8 @@ const brokerSummaryIDXService = new BrokerSummaryIDXDataScheduler();
 const foreignFlowService = new ForeignFlowDataScheduler();
 const moneyFlowService = new MoneyFlowDataScheduler();
 const breakDoneTradeService = new BreakDoneTradeDataScheduler();
+const brokerTransactionService = new BrokerTransactionDataScheduler();
+const brokerTransactionRGTNNGService = new BrokerTransactionRGTNNGDataScheduler();
 
 // Memory monitoring variables
 let memoryMonitorInterval: NodeJS.Timeout | null = null;
@@ -696,7 +700,7 @@ export async function runPhase5HeavyCalculations(): Promise<void> {
   const phaseStartTime = Date.now();
   console.log(`\n🚀 ===== PHASE 5 HEAVY CALCULATIONS STARTED =====`);
   console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
-  console.log(`📋 Phase: Heavy Calculations (Broker Data, Broker Summary by Type, Broker Summary IDX)`);
+  console.log(`📋 Phase: Heavy Calculations (Broker Data, Broker Summary by Type, Broker Summary IDX, Broker Transaction, Broker Transaction RG/TN/NG)`);
   
   // Start memory monitoring for this phase
   startMemoryMonitoring();
@@ -728,10 +732,16 @@ export async function runPhase5HeavyCalculations(): Promise<void> {
     }
     
     console.log('🔄 Starting Broker Data calculation...');
+    const brokerDataStartTime = Date.now();
     const result = await brokerDataService.generateBrokerData('all');
+    const brokerDataDuration = Math.round((Date.now() - brokerDataStartTime) / 1000);
+    console.log(`📊 Broker Data completed in ${brokerDataDuration}s`);
 
     console.log('🔄 Starting Broker Summary by Type (RG/TN/NG) calculation...');
+    const brokerSummaryTypeStartTime = Date.now();
     const resultType = await brokerSummaryTypeService.generateBrokerSummaryTypeData('all');
+    const brokerSummaryTypeDuration = Math.round((Date.now() - brokerSummaryTypeStartTime) / 1000);
+    console.log(`📊 Broker Summary Type completed in ${brokerSummaryTypeDuration}s`);
     
     console.log('🔄 Starting Broker Summary IDX (aggregated all emiten) calculation...');
     const idxStartTime = Date.now();
@@ -739,28 +749,42 @@ export async function runPhase5HeavyCalculations(): Promise<void> {
     const idxDuration = Math.round((Date.now() - idxStartTime) / 1000);
     console.log(`📊 Broker Summary IDX completed in ${idxDuration}s`);
     
+    console.log('🔄 Starting Broker Transaction calculation...');
+    const brokerTransactionStartTime = Date.now();
+    const resultTransaction = await brokerTransactionService.generateBrokerTransactionData('all');
+    const brokerTransactionDuration = Math.round((Date.now() - brokerTransactionStartTime) / 1000);
+    console.log(`📊 Broker Transaction completed in ${brokerTransactionDuration}s`);
+    
+    console.log('🔄 Starting Broker Transaction RG/TN/NG calculation...');
+    const brokerTransactionRGTNNGStartTime = Date.now();
+    const resultTransactionRGTNNG = await brokerTransactionRGTNNGService.generateBrokerTransactionRGTNNGData('all');
+    const brokerTransactionRGTNNGDuration = Math.round((Date.now() - brokerTransactionRGTNNGStartTime) / 1000);
+    console.log(`📊 Broker Transaction RG/TN/NG completed in ${brokerTransactionRGTNNGDuration}s`);
+    
     const phaseEndTime = new Date();
     const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
     
     console.log(`\n📊 ===== PHASE 5 HEAVY COMPLETED =====`);
-    const successCount = (result.success ? 1 : 0) + (resultType.success ? 1 : 0) + (resultIDX.success ? 1 : 0);
-    console.log(`✅ Success: ${successCount}/3 calculations`);
-    console.log(`📊 Broker Data: ${result.success ? 'SUCCESS' : 'FAILED'}`);
-    console.log(`📊 Broker Summary Type: ${resultType.success ? 'SUCCESS' : 'FAILED'}`);
+    const successCount = (result.success ? 1 : 0) + (resultType.success ? 1 : 0) + (resultIDX.success ? 1 : 0) + (resultTransaction.success ? 1 : 0) + (resultTransactionRGTNNG.success ? 1 : 0);
+    console.log(`✅ Success: ${successCount}/5 calculations`);
+    console.log(`📊 Broker Data: ${result.success ? 'SUCCESS' : 'FAILED'} (${brokerDataDuration}s)`);
+    console.log(`📊 Broker Summary Type: ${resultType.success ? 'SUCCESS' : 'FAILED'} (${brokerSummaryTypeDuration}s)`);
     console.log(`📊 Broker Summary IDX: ${resultIDX.success ? 'SUCCESS' : 'FAILED'} (${idxDuration}s)`);
+    console.log(`📊 Broker Transaction: ${resultTransaction.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionDuration}s)`);
+    console.log(`📊 Broker Transaction RG/TN/NG: ${resultTransactionRGTNNG.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionRGTNNGDuration}s)`);
     console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
     console.log(`⏱️ Total Duration: ${totalDuration}s`);
     
     // Update database log
     if (logEntry) {
       await SchedulerLogService.updateLog(logEntry.id!, {
-        status: successCount >= 2 ? 'completed' : 'failed',
+        status: successCount >= 4 ? 'completed' : 'failed',
         completed_at: new Date().toISOString(),
-        total_files_processed: 3,
+        total_files_processed: 5,
         files_created: successCount,
-        files_failed: 3 - successCount,
+        files_failed: 5 - successCount,
         progress_percentage: 100,
-        current_processing: `Phase 5 Heavy complete: Broker Data (${result.success ? 'OK' : 'FAIL'}), Broker Summary Type (${resultType.success ? 'OK' : 'FAIL'}), Broker Summary IDX (${resultIDX.success ? 'OK' : 'FAIL'}) in ${totalDuration}s`
+        current_processing: `Phase 5 Heavy complete: Broker Data (${result.success ? 'OK' : 'FAIL'}), Broker Summary Type (${resultType.success ? 'OK' : 'FAIL'}), Broker Summary IDX (${resultIDX.success ? 'OK' : 'FAIL'}), Broker Transaction (${resultTransaction.success ? 'OK' : 'FAIL'}), Broker Transaction RG/TN/NG (${resultTransactionRGTNNG.success ? 'OK' : 'FAIL'}) in ${totalDuration}s`
       });
     }
     
@@ -770,8 +794,8 @@ export async function runPhase5HeavyCalculations(): Promise<void> {
     // Stop memory monitoring for this phase
     stopMemoryMonitoring();
     
-    // Trigger Phase 6 automatically if Phase 5 succeeded (at least 2/3 must succeed)
-    if (successCount >= 2) {
+    // Trigger Phase 6 automatically if Phase 5 succeeded (at least 4/5 must succeed)
+    if (successCount >= 4) {
       console.log('🔄 Triggering Phase 6 Very Heavy calculations...');
       await runPhase6VeryHeavyCalculations();
       } else {
@@ -1156,13 +1180,13 @@ export function getAllPhasesStatus() {
       {
         id: 'phase5_heavy',
         name: 'Phase 5 Heavy',
-        description: 'Broker Data, Broker Summary by Type, Broker Summary IDX (all dates)',
+        description: 'Broker Data (Broker Summary + Top Broker), Broker Summary by Type (RG/TN/NG split), Broker Summary IDX (aggregated all emiten), Broker Transaction (all types), Broker Transaction RG/TN/NG (split by type) - all dates',
         status: phaseStatus['phase5_heavy'],
         trigger: {
           type: 'auto',
           condition: 'Auto-triggered after Phase 4 completes'
         },
-        tasks: ['Broker Data', 'Broker Summary by Type', 'Broker Summary IDX'],
+        tasks: ['Broker Data', 'Broker Summary by Type', 'Broker Summary IDX', 'Broker Transaction', 'Broker Transaction RG/TN/NG'],
         mode: 'SEQUENTIAL'
       },
       {
@@ -1553,7 +1577,7 @@ export function startScheduler(): void {
   console.log(`  🚀 Phase 4 Medium (SEQUENTIAL): Auto-triggered after Phase 3`);
   console.log(`    └─ Bid/Ask Footprint, Broker Breakdown (all dates)`);
   console.log(`  🚀 Phase 5 Heavy (SEQUENTIAL): Auto-triggered after Phase 4`);
-  console.log(`    └─ Broker Data (all dates)`);
+  console.log(`    └─ Broker Data (Broker Summary + Top Broker), Broker Summary by Type (RG/TN/NG split), Broker Summary IDX (aggregated all emiten), Broker Transaction (all types), Broker Transaction RG/TN/NG (split by type) - all dates`);
   console.log(`  🚀 Phase 6 Very Heavy (SEQUENTIAL): Auto-triggered after Phase 5`);
   console.log(`    └─ Broker Inventory, Accumulation Distribution (sequential)`);
   console.log(`  🧠 Memory Monitoring: ENABLED (12GB threshold)`);

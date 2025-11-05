@@ -177,6 +177,26 @@ export class BrokerSummaryIDXCalculator {
    */
   public async generateIDX(dateSuffix: string, marketType: '' | 'RG' | 'TN' | 'NG' = ''): Promise<{ success: boolean; message: string; file?: string }> {
     try {
+      // Validate dateSuffix format (YYYYMMDD - 8 digits)
+      if (!dateSuffix || !/^\d{8}$/.test(dateSuffix)) {
+        const errorMsg = `Invalid dateSuffix format: ${dateSuffix}. Expected YYYYMMDD (8 digits)`;
+        console.error(`❌ ${errorMsg}`);
+        return {
+          success: false,
+          message: errorMsg
+        };
+      }
+
+      // Validate marketType
+      if (marketType && !['RG', 'TN', 'NG'].includes(marketType)) {
+        const errorMsg = `Invalid marketType: ${marketType}. Expected '', 'RG', 'TN', or 'NG'`;
+        console.error(`❌ ${errorMsg}`);
+        return {
+          success: false,
+          message: errorMsg
+        };
+      }
+
       // Determine folder path based on market type
       let folderPrefix: string;
       if (marketType === '') {
@@ -187,6 +207,24 @@ export class BrokerSummaryIDXCalculator {
       }
 
       console.log(`🔍 Scanning for emiten CSV files in: ${folderPrefix}/`);
+
+      // Check if IDX.csv already exists - skip if exists
+      const { exists } = await import('../../utils/azureBlob');
+      const idxFilePath = `${folderPrefix}/IDX.csv`;
+      try {
+        const idxExists = await exists(idxFilePath);
+        if (idxExists) {
+          console.log(`⏭️ Skipping ${idxFilePath} - IDX.csv already exists`);
+          return {
+            success: true,
+            message: `IDX.csv already exists for ${dateSuffix} (${marketType || 'All Trade'})`,
+            file: idxFilePath
+          };
+        }
+      } catch (error) {
+        // If check fails, continue with generation
+        console.log(`ℹ️ Could not check existence of ${idxFilePath}, proceeding with generation`);
+      }
 
       // List all files in the folder
       const allFiles = await listPaths({ prefix: `${folderPrefix}/` });
@@ -214,20 +252,51 @@ export class BrokerSummaryIDXCalculator {
 
       console.log(`📊 Found ${emitenFiles.length} emiten CSV files`);
 
-      // Read and parse all emiten CSV files
+      // Batch processing configuration
+      const BATCH_SIZE = 50; // Process 50 emiten files at a time to manage memory
+
+      // Read and parse all emiten CSV files in batches
       const allBrokerData: BrokerSummary[] = [];
       
-      for (const file of emitenFiles) {
-        try {
-          const csvContent = await downloadText(file);
-          const brokerData = this.parseCSV(csvContent);
-          allBrokerData.push(...brokerData);
-          
-          const emitenCode = file.split('/').pop()?.replace('.csv', '') || 'unknown';
-          console.log(`  ✓ Processed ${emitenCode}: ${brokerData.length} brokers`);
-        } catch (error: any) {
-          console.warn(`  ⚠️ Failed to process ${file}: ${error.message}`);
-          // Continue with other files even if one fails
+      for (let i = 0; i < emitenFiles.length; i += BATCH_SIZE) {
+        const batch = emitenFiles.slice(i, i + BATCH_SIZE);
+        const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(emitenFiles.length / BATCH_SIZE);
+        
+        console.log(`📦 Processing emiten batch ${batchNum}/${totalBatches} (${batch.length} files)...`);
+        
+        // Process batch in parallel
+        const batchResults = await Promise.allSettled(
+          batch.map(async (file) => {
+            try {
+              const csvContent = await downloadText(file);
+              const brokerData = this.parseCSV(csvContent);
+              const emitenCode = file.split('/').pop()?.replace('.csv', '') || 'unknown';
+              return { emitenCode, brokerData, success: true };
+            } catch (error: any) {
+              const emitenCode = file.split('/').pop()?.replace('.csv', '') || 'unknown';
+              console.warn(`  ⚠️ Failed to process ${emitenCode}: ${error.message}`);
+              return { emitenCode, brokerData: [], success: false };
+            }
+          })
+        );
+        
+        // Collect results from batch
+        batchResults.forEach((result) => {
+          if (result.status === 'fulfilled' && result.value.success) {
+            allBrokerData.push(...result.value.brokerData);
+            console.log(`  ✓ Processed ${result.value.emitenCode}: ${result.value.brokerData.length} brokers`);
+          }
+        });
+        
+        // Force garbage collection after each batch if available
+        if (global.gc) {
+          global.gc();
+        }
+        
+        // Small delay between batches to prevent overwhelming the system
+        if (i + BATCH_SIZE < emitenFiles.length) {
+          await new Promise(resolve => setTimeout(resolve, 50));
         }
       }
 
@@ -248,8 +317,7 @@ export class BrokerSummaryIDXCalculator {
       // Convert to CSV
       const csvContent = this.convertToCSV(aggregatedData);
 
-      // Save IDX.csv to the same folder
-      const idxFilePath = `${folderPrefix}/IDX.csv`;
+      // Save IDX.csv to the same folder (reuse variable from skip check)
       await uploadText(idxFilePath, csvContent, 'text/csv');
 
       console.log(`✅ Successfully created ${idxFilePath} with ${aggregatedData.length} brokers`);
@@ -273,28 +341,69 @@ export class BrokerSummaryIDXCalculator {
    * @param dateSuffixes Array of date strings in format YYYYMMDD
    * @param marketType Market type: '' (all), 'RG', 'TN', or 'NG'
    */
-  public async generateIDXBatch(dateSuffixes: string[], marketType: '' | 'RG' | 'TN' | 'NG' = ''): Promise<{ success: number; failed: number; results: Array<{ date: string; success: boolean; message: string; file?: string }> }> {
-    const results: Array<{ date: string; success: boolean; message: string; file?: string }> = [];
+  public async generateIDXBatch(dateSuffixes: string[], marketType: '' | 'RG' | 'TN' | 'NG' = ''): Promise<{ success: number; failed: number; skipped: number; results: Array<{ date: string; success: boolean; message: string; file?: string; skipped?: boolean }> }> {
+    const results: Array<{ date: string; success: boolean; message: string; file?: string; skipped?: boolean }> = [];
     let successCount = 0;
     let failedCount = 0;
+    let skippedCount = 0;
 
-    for (const dateSuffix of dateSuffixes) {
-      const result = await this.generateIDX(dateSuffix, marketType);
-      results.push({
-        date: dateSuffix,
-        ...result
-      });
+    console.log(`📊 Processing ${dateSuffixes.length} dates for market type: ${marketType || 'All Trade'}`);
 
-      if (result.success) {
-        successCount++;
-      } else {
+    for (let i = 0; i < dateSuffixes.length; i++) {
+      const dateSuffixRaw = dateSuffixes[i];
+      
+      // Skip if dateSuffix is undefined or empty
+      if (!dateSuffixRaw || typeof dateSuffixRaw !== 'string' || dateSuffixRaw.trim() === '') {
+        console.warn(`⚠️ Skipping invalid date at index ${i}: ${dateSuffixRaw}`);
+        continue;
+      }
+      
+      // At this point, TypeScript knows dateSuffix is a valid string
+      const dateSuffix: string = dateSuffixRaw;
+      const progress = `[${i + 1}/${dateSuffixes.length}]`;
+      
+      try {
+        console.log(`${progress} Processing date ${dateSuffix}...`);
+        const result = await this.generateIDX(dateSuffix, marketType);
+        
+        // Check if skipped (already exists)
+        const skipped = result.message.includes('already exists');
+        
+        results.push({
+          date: dateSuffix,
+          ...result,
+          skipped
+        });
+
+        if (skipped) {
+          skippedCount++;
+          console.log(`${progress} ✅ ${dateSuffix}: Skipped (already exists)`);
+        } else if (result.success) {
+          successCount++;
+          console.log(`${progress} ✅ ${dateSuffix}: Success`);
+        } else {
+          failedCount++;
+          console.log(`${progress} ❌ ${dateSuffix}: Failed - ${result.message}`);
+        }
+      } catch (error: any) {
         failedCount++;
+        const errorMsg = error?.message || 'Unknown error';
+        console.error(`${progress} ❌ ${dateSuffix}: Error - ${errorMsg}`);
+        results.push({
+          date: dateSuffix,
+          success: false,
+          message: `Error: ${errorMsg}`,
+          skipped: false
+        });
       }
     }
+
+    console.log(`📊 Batch completed: ${successCount} success, ${skippedCount} skipped, ${failedCount} failed`);
 
     return {
       success: successCount,
       failed: failedCount,
+      skipped: skippedCount,
       results
     };
   }

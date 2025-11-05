@@ -57,7 +57,11 @@ export class MoneyFlowCalculator {
     }
     
     // Sort by date ascending (oldest first) for proper MFI calculation
-    data.sort((a, b) => a.Date.localeCompare(b.Date));
+    data.sort((a, b) => {
+      const dateA = a.Date || '';
+      const dateB = b.Date || '';
+      return dateA.localeCompare(dateB);
+    });
     console.log(`Loaded ${data.length} OHLC records from ${filename}`);
     return data;
     } catch (error) {
@@ -170,7 +174,11 @@ export class MoneyFlowCalculator {
     
     // Convert back to array and sort by date (oldest first) - same as original file
     const mergedData = Array.from(dataMap.values());
-    mergedData.sort((a, b) => a.Date.localeCompare(b.Date));
+    mergedData.sort((a, b) => {
+      const dateA = a.Date || '';
+      const dateB = b.Date || '';
+      return dateA.localeCompare(dateB);
+    });
     
     return mergedData;
   }
@@ -282,7 +290,9 @@ export class MoneyFlowCalculator {
   private sortMoneyFlowDataByDate(data: MoneyFlowData[]): MoneyFlowData[] {
     return data.sort((a, b) => {
       // Parse dates and compare (newest first)
-      return b.Date.localeCompare(a.Date);
+      const dateA = a.Date || '';
+      const dateB = b.Date || '';
+      return dateB.localeCompare(dateA);
     });
   }
 
@@ -339,10 +349,104 @@ export class MoneyFlowCalculator {
   }
 
   /**
+   * Extract existing dates from existing CSV data
+   */
+  private extractExistingDates(existingData: MoneyFlowData[]): Set<string> {
+    const dates = new Set<string>();
+    existingData.forEach(item => dates.add(item.Date));
+    return dates;
+  }
+
+  /**
+   * Load existing dates for all stocks/indices from output files
+   * OPTIMIZED: Pre-load all existing dates to avoid filtering later
+   */
+  private async loadExistingDatesByStock(): Promise<Map<string, Set<string>>> {
+    console.log("📋 Loading existing dates from money_flow output files...");
+    const existingDatesByStock = new Map<string, Set<string>>();
+    
+    try {
+      // List all money flow files (both stock and index)
+      const stockFiles = await listPaths({ prefix: 'money_flow/stock/' });
+      const indexFiles = await listPaths({ prefix: 'money_flow/index/' });
+      const allFiles = [...stockFiles, ...indexFiles].filter(f => f.endsWith('.csv'));
+      
+      console.log(`Found ${allFiles.length} existing money flow files (${stockFiles.length} stock, ${indexFiles.length} index)`);
+      
+      // Load each file and extract dates (in batches to avoid memory issues)
+      const BATCH_SIZE = 50;
+      for (let i = 0; i < allFiles.length; i += BATCH_SIZE) {
+        const batch = allFiles.slice(i, i + BATCH_SIZE);
+        
+        await Promise.allSettled(
+          batch.map(async (filename) => {
+            try {
+              // Extract code from path: money_flow/stock/{code}.csv or money_flow/index/{code}.csv
+              const pathParts = filename.split('/');
+              const code = pathParts[pathParts.length - 1]?.replace('.csv', '') || '';
+              const key = filename.startsWith('money_flow/stock/') ? `stock:${code}` : `index:${code}`;
+              
+              const existingData = await this.readExistingCsvDataFromAzure(filename);
+              const dates = this.extractExistingDates(existingData);
+              if (dates.size > 0) {
+                existingDatesByStock.set(key, dates);
+              }
+            } catch (error) {
+              // Skip files that can't be read
+            }
+          })
+        );
+        
+        if ((i + BATCH_SIZE) % 200 === 0) {
+          console.log(`📋 Loaded existing dates for ${existingDatesByStock.size} stocks/indices...`);
+        }
+      }
+      
+      console.log(`✅ Loaded existing dates for ${existingDatesByStock.size} stocks/indices`);
+      return existingDatesByStock;
+    } catch (error) {
+      console.error('Error loading existing dates:', error);
+      return existingDatesByStock; // Return empty map if error
+    }
+  }
+
+  /**
+   * Filter OHLC data to only include dates that don't exist in output
+   * OPTIMIZED: Only calculate MFI for new dates
+   */
+  private filterOHLCDataForNewDates(ohlcData: OHLCData[], existingDates: Set<string>): OHLCData[] {
+    if (existingDates.size === 0) {
+      return ohlcData; // No existing dates, process all
+    }
+    
+    // Find the last existing date to determine cutoff
+    const sortedExistingDates = Array.from(existingDates).sort((a, b) => b.localeCompare(a));
+    const lastExistingDate = sortedExistingDates[0];
+    
+    // Safety check: if no last existing date found, process all
+    if (!lastExistingDate) {
+      return ohlcData;
+    }
+    
+    // Filter to only include dates after last existing date
+    const filteredData = ohlcData.filter(item => {
+      if (!item.Date) return false; // Skip items without date
+      return item.Date.localeCompare(lastExistingDate) > 0;
+    });
+    
+    if (filteredData.length < ohlcData.length) {
+      console.log(`🔍 Filtered ${ohlcData.length - filteredData.length} dates (already exist), processing ${filteredData.length} new dates`);
+    }
+    
+    return filteredData;
+  }
+
+  /**
    * Process all files (both stock and index) separately to avoid mixing
+   * OPTIMIZED: Only process dates that don't exist in output
    * Returns Map with composite key: "type:code" to preserve source folder info
    */
-  private async processAllFiles(_indexList: string[]): Promise<Map<string, { code: string; type: 'stock' | 'index'; mfiData: MoneyFlowData[] }>> {
+  private async processAllFiles(_indexList: string[], existingDatesByStock: Map<string, Set<string>>): Promise<Map<string, { code: string; type: 'stock' | 'index'; mfiData: MoneyFlowData[] }>> {
     console.log("\nProcessing all files (stock and index) separately...");
     
     const moneyFlowData = new Map<string, { code: string; type: 'stock' | 'index'; mfiData: MoneyFlowData[] }>();
@@ -362,15 +466,32 @@ export class MoneyFlowCalculator {
       const batchResults = await Promise.allSettled(
         batch.map(async (blobName) => {
           const code = this.extractStockCode(blobName);
+          const key = `stock:${code}`;
+          const existingDates = existingDatesByStock.get(key) || new Set<string>();
           
           try {
+            // Load OHLC data
             const ohlcData = await this.loadOHLCDataFromAzure(blobName);
-            const mfiData = this.calculateMFI(ohlcData);
             
-            if (mfiData.length > 0) {
-              return { code, mfiData, success: true, type: 'stock' as const };
+            // OPTIMIZATION: Filter to only new dates
+            const filteredOHLC = this.filterOHLCDataForNewDates(ohlcData, existingDates);
+            
+            if (filteredOHLC.length === 0) {
+              return { code, mfiData: [], success: false, error: 'No new dates to process', type: 'stock' as const, skipped: true };
             }
-            return { code, mfiData: [], success: false, error: 'No MFI data', type: 'stock' as const };
+            
+            // Calculate MFI only for new dates (but need full OHLC for proper calculation)
+            // We need to calculate from the beginning to get proper MFI values
+            // So we'll filter AFTER calculation
+            const allMfiData = this.calculateMFI(ohlcData);
+            
+            // Filter MFI data to only include new dates
+            const newMfiData = allMfiData.filter(item => !existingDates.has(item.Date));
+            
+            if (newMfiData.length > 0) {
+              return { code, mfiData: newMfiData, success: true, type: 'stock' as const };
+            }
+            return { code, mfiData: [], success: false, error: 'No new MFI data', type: 'stock' as const, skipped: true };
           } catch (error) {
             console.error(`Error processing stock ${blobName}:`, error);
             return { code, mfiData: [], success: false, error: error instanceof Error ? error.message : 'Unknown error', type: 'stock' as const };
@@ -381,15 +502,18 @@ export class MoneyFlowCalculator {
       // Process batch results
       let batchSuccess = 0;
       let batchFailed = 0;
+      let batchSkipped = 0;
       
       batchResults.forEach((result) => {
         if (result.status === 'fulfilled') {
-          const { code, mfiData, success, type } = result.value;
+          const { code, mfiData, success, type, skipped } = result.value;
           if (success && mfiData.length > 0) {
             // Use composite key to avoid collision
             const key = `stock:${code}`;
             moneyFlowData.set(key, { code, type, mfiData });
             batchSuccess++;
+          } else if (skipped) {
+            batchSkipped++;
           } else {
             batchFailed++;
           }
@@ -399,7 +523,7 @@ export class MoneyFlowCalculator {
         processed++;
       });
       
-      console.log(`📊 Stock batch complete: ✅ ${batchSuccess} success, ❌ ${batchFailed} failed (${processed}/${allStockFiles.length} total)`);
+      console.log(`📊 Stock batch complete: ✅ ${batchSuccess} success, ⏭️  ${batchSkipped} skipped (no new dates), ❌ ${batchFailed} failed (${processed}/${allStockFiles.length} total)`);
       
       // Force garbage collection after each batch
       if (global.gc) {
@@ -424,15 +548,32 @@ export class MoneyFlowCalculator {
       const batchResults = await Promise.allSettled(
         batch.map(async (blobName) => {
           const code = this.extractStockCode(blobName);
+          const key = `index:${code}`;
+          const existingDates = existingDatesByStock.get(key) || new Set<string>();
           
           try {
+            // Load OHLC data
             const ohlcData = await this.loadOHLCDataFromAzure(blobName);
-            const mfiData = this.calculateMFI(ohlcData);
             
-            if (mfiData.length > 0) {
-              return { code, mfiData, success: true, type: 'index' as const };
+            // OPTIMIZATION: Filter to only new dates
+            const filteredOHLC = this.filterOHLCDataForNewDates(ohlcData, existingDates);
+            
+            if (filteredOHLC.length === 0) {
+              return { code, mfiData: [], success: false, error: 'No new dates to process', type: 'index' as const, skipped: true };
             }
-            return { code, mfiData: [], success: false, error: 'No MFI data', type: 'index' as const };
+            
+            // Calculate MFI only for new dates (but need full OHLC for proper calculation)
+            // We need to calculate from the beginning to get proper MFI values
+            // So we'll filter AFTER calculation
+            const allMfiData = this.calculateMFI(ohlcData);
+            
+            // Filter MFI data to only include new dates
+            const newMfiData = allMfiData.filter(item => !existingDates.has(item.Date));
+            
+            if (newMfiData.length > 0) {
+              return { code, mfiData: newMfiData, success: true, type: 'index' as const };
+            }
+            return { code, mfiData: [], success: false, error: 'No new MFI data', type: 'index' as const, skipped: true };
           } catch (error) {
             console.error(`Error processing index ${blobName}:`, error);
             return { code, mfiData: [], success: false, error: error instanceof Error ? error.message : 'Unknown error', type: 'index' as const };
@@ -444,14 +585,17 @@ export class MoneyFlowCalculator {
       let batchSuccess = 0;
       let batchFailed = 0;
       
+      let batchSkipped = 0;
       batchResults.forEach((result) => {
         if (result.status === 'fulfilled') {
-          const { code, mfiData, success, type } = result.value;
+          const { code, mfiData, success, type, skipped } = result.value;
           if (success && mfiData.length > 0) {
             // Use composite key to avoid collision
             const key = `index:${code}`;
             moneyFlowData.set(key, { code, type, mfiData });
             batchSuccess++;
+          } else if (skipped) {
+            batchSkipped++;
           } else {
             batchFailed++;
           }
@@ -461,7 +605,7 @@ export class MoneyFlowCalculator {
         processed++;
       });
       
-      console.log(`📊 Index batch complete: ✅ ${batchSuccess} success, ❌ ${batchFailed} failed (${processed}/${allIndexFiles.length} total)`);
+      console.log(`📊 Index batch complete: ✅ ${batchSuccess} success, ⏭️  ${batchSkipped} skipped (no new dates), ❌ ${batchFailed} failed (${processed}/${allIndexFiles.length} total)`);
       
       // Force garbage collection after each batch
       if (global.gc) {
@@ -478,17 +622,22 @@ export class MoneyFlowCalculator {
 
   /**
    * Main function to generate money flow data
+   * OPTIMIZED: Pre-load existing dates to skip already processed dates
    */
   public async generateMoneyFlowData(dateSuffix: string): Promise<{ success: boolean; message: string; data?: any }> {
     try {
       console.log(`Starting money flow data extraction for date: ${dateSuffix}`);
+      
+      // OPTIMIZATION: Pre-load existing dates from output files
+      const existingDatesByStock = await this.loadExistingDatesByStock();
       
       // Load index list first (for reference/validation only, source folder is authoritative)
       const indexList = await this.loadIndexList();
       console.log(`📋 Index list loaded: ${indexList.length} indices`);
       
       // Process ALL files (both stock and index) - type preserved from source folder
-      const allMoneyFlowData = await this.processAllFiles(indexList);
+      // OPTIMIZED: Only process dates that don't exist in output
+      const allMoneyFlowData = await this.processAllFiles(indexList, existingDatesByStock);
       
       // Create or update individual CSV files (type from source folder)
       const createdFiles = await this.createMoneyFlowCsvFiles(allMoneyFlowData);

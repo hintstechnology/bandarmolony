@@ -197,7 +197,11 @@ export class BrokerInventoryCalculator {
     }
     
     // Sort by date in descending order (newest first)
-    return inventoryData.sort((a, b) => b.Date.localeCompare(a.Date));
+    return inventoryData.sort((a, b) => {
+      const dateA = a.Date || '';
+      const dateB = b.Date || '';
+      return dateB.localeCompare(dateA);
+    });
   }
 
   /**

@@ -149,7 +149,11 @@ export class AccumulationDistributionCalculator {
     }
     
     // Sort by date descending (newest first)
-    data.sort((a, b) => b.Date.localeCompare(a.Date));
+    data.sort((a, b) => {
+      const dateA = a.Date || '';
+      const dateB = b.Date || '';
+      return dateB.localeCompare(dateA);
+    });
     return data;
     } catch (error) {
       console.error(`Error loading stock data for ${stockCode}:`, error);

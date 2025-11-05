@@ -1,4 +1,4 @@
-import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
+import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_6 } from '../../services/dataUpdateService';
 
 // Type definitions
@@ -48,6 +48,7 @@ export class BrokerTransactionCalculator {
 
   /**
    * Find all DT files in done-summary folder
+   * OPTIMIZED: Skip files where broker_transaction folder already exists
    */
   private async findAllDtFiles(): Promise<string[]> {
     console.log("Scanning all DT files in done-summary folder...");
@@ -58,8 +59,32 @@ export class BrokerTransactionCalculator {
         file.includes('/DT') && file.endsWith('.csv')
       );
       
-      console.log(`Found ${dtFiles.length} DT files to process`);
-      return dtFiles;
+      // Sort by date descending (newest first)
+      const sortedFiles = dtFiles.sort((a, b) => {
+        const dateA = a.split('/')[1] || '';
+        const dateB = b.split('/')[1] || '';
+        return dateB.localeCompare(dateA); // Descending order (newest first)
+      });
+      
+      // OPTIMIZATION: Check which dates already have broker_transaction output
+      console.log("🔍 Checking existing broker_transaction folders to skip...");
+      const filesToProcess: string[] = [];
+      let skippedCount = 0;
+      
+      for (const file of sortedFiles) {
+        const dateFolder = file.split('/')[1] || '';
+        const exists = await this.checkBrokerTransactionExists(dateFolder);
+        
+        if (exists) {
+          skippedCount++;
+          console.log(`⏭️ Skipping ${file} - broker_transaction/broker_transaction_${dateFolder}/ already exists`);
+        } else {
+          filesToProcess.push(file);
+        }
+      }
+      
+      console.log(`📊 Found ${sortedFiles.length} DT files: ${filesToProcess.length} to process, ${skippedCount} skipped (already processed)`);
+      return filesToProcess;
     } catch (error) {
       console.error('Error scanning DT files:', error);
       return [];
@@ -156,7 +181,21 @@ export class BrokerTransactionCalculator {
   }
 
   /**
+   * Check if broker transaction folder for specific date already exists
+   */
+  private async checkBrokerTransactionExists(dateSuffix: string): Promise<boolean> {
+    try {
+      const prefix = `broker_transaction/broker_transaction_${dateSuffix}/`;
+      const existingFiles = await listPaths({ prefix, maxResults: 1 });
+      return existingFiles.length > 0;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
    * Create broker transaction files for each broker
+   * OPTIMIZED: Skip files that already exist
    */
   private async createBrokerTransactionPerBroker(
     data: TransactionData[], 
@@ -172,8 +211,24 @@ export class BrokerTransactionCalculator {
     console.log(`Found ${uniqueBrokers.length} unique brokers`);
     
     const createdFiles: string[] = [];
+    const skippedFiles: string[] = [];
     
     for (const broker of uniqueBrokers) {
+      const filename = `broker_transaction/broker_transaction_${dateSuffix}/${broker}.csv`;
+      
+      // OPTIMIZATION: Check if file already exists - skip if exists
+      try {
+        const fileExists = await exists(filename);
+        if (fileExists) {
+          console.log(`⏭️ Skipping ${filename} - file already exists`);
+          skippedFiles.push(filename);
+          continue;
+        }
+      } catch (error: any) {
+        // If check fails, continue with generation (might be folder not found yet)
+        console.log(`ℹ️ Could not check existence of ${filename}, proceeding with generation`);
+      }
+      
       console.log(`Processing broker: ${broker}`);
       
       // Filter data for this broker (both as buyer and seller)
@@ -290,11 +345,14 @@ export class BrokerTransactionCalculator {
       stockSummary.sort((a, b) => b.NetBuyValue - a.NetBuyValue);
       
       // Save to Azure
-      const filename = `broker_transaction/broker_transaction_${dateSuffix}/${broker}.csv`;
       await this.saveToAzure(filename, stockSummary);
       createdFiles.push(filename);
       
       console.log(`Created ${filename} with ${stockSummary.length} stocks`);
+    }
+    
+    if (skippedFiles.length > 0) {
+      console.log(`⏭️ Skipped ${skippedFiles.length} broker transaction files that already exist`);
     }
     
     console.log(`Created ${createdFiles.length} broker transaction files`);
@@ -324,12 +382,24 @@ export class BrokerTransactionCalculator {
 
   /**
    * Process a single DT file with broker transaction analysis
+   * OPTIMIZED: Double-check folder doesn't exist before processing (race condition protection)
    */
   private async processSingleDtFile(blobName: string): Promise<{ success: boolean; dateSuffix: string; files: string[]; timing?: any }> {
+    // Extract date before loading to check early
+    const pathParts = blobName.split('/');
+    const dateFolder = pathParts[1] || 'unknown';
+    
+    // OPTIMIZATION: Double-check folder doesn't exist (race condition protection)
+    const exists = await this.checkBrokerTransactionExists(dateFolder);
+    if (exists) {
+      console.log(`⏭️ Skipping ${blobName} - broker_transaction/broker_transaction_${dateFolder}/ already exists (race condition check)`);
+      return { success: false, dateSuffix: dateFolder, files: [] };
+    }
+    
     const result = await this.loadAndProcessSingleDtFile(blobName);
     
     if (!result) {
-      return { success: false, dateSuffix: '', files: [] };
+      return { success: false, dateSuffix: dateFolder, files: [] };
     }
     
     const { data, dateSuffix } = result;

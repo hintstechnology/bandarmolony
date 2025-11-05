@@ -57,7 +57,21 @@ export class BreakDoneTradeCalculator {
   }
 
   /**
+   * Check if done_detail folder for specific date already exists and has files
+   */
+  private async checkDoneDetailExists(dateSuffix: string): Promise<boolean> {
+    try {
+      const prefix = `done_detail/${dateSuffix}/`;
+      const existingFiles = await listPaths({ prefix, maxResults: 1 });
+      return existingFiles.length > 0;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
    * Find all DT files in done-summary folder
+   * OPTIMIZED: Skip files where done_detail/{date}/ already exists
    */
   private async findAllDtFiles(): Promise<string[]> {
     console.log("Scanning all DT files in done-summary folder...");
@@ -75,8 +89,25 @@ export class BreakDoneTradeCalculator {
         return dateB.localeCompare(dateA); // Descending order (newest first)
       });
       
-      console.log(`Found ${sortedFiles.length} DT files to process (sorted newest first)`);
-      return sortedFiles;
+      // OPTIMIZATION: Check which dates already have done_detail output
+      console.log("🔍 Checking existing done_detail folders to skip...");
+      const filesToProcess: string[] = [];
+      let skippedCount = 0;
+      
+      for (const file of sortedFiles) {
+        const dateFolder = file.split('/')[1] || '';
+        const exists = await this.checkDoneDetailExists(dateFolder);
+        
+        if (exists) {
+          skippedCount++;
+          console.log(`⏭️  Skipping ${file} - done_detail/${dateFolder}/ already exists`);
+        } else {
+          filesToProcess.push(file);
+        }
+      }
+      
+      console.log(`📊 Found ${sortedFiles.length} DT files: ${filesToProcess.length} to process, ${skippedCount} skipped (already processed)`);
+      return filesToProcess;
     } catch (error) {
       console.error('Error scanning DT files:', error);
       return [];
@@ -235,12 +266,24 @@ export class BreakDoneTradeCalculator {
 
   /**
    * Process a single DT file with break done trade analysis
+   * OPTIMIZED: Double-check folder doesn't exist before processing (race condition protection)
    */
   private async processSingleDtFile(blobName: string): Promise<{ success: boolean; dateSuffix: string; files: string[] }> {
+    // Extract date before loading to check early
+    const pathParts = blobName.split('/');
+    const dateFolder = pathParts[1] || 'unknown';
+    
+    // Double-check: Skip if folder already exists (race condition protection)
+    const exists = await this.checkDoneDetailExists(dateFolder);
+    if (exists) {
+      console.log(`⏭️  Skipping ${blobName} - done_detail/${dateFolder}/ already exists (race condition check)`);
+      return { success: false, dateSuffix: dateFolder, files: [] };
+    }
+    
     const result = await this.loadAndProcessSingleDtFile(blobName);
     
     if (!result) {
-      return { success: false, dateSuffix: '', files: [] };
+      return { success: false, dateSuffix: dateFolder, files: [] };
     }
     
     const { data, dateSuffix } = result;

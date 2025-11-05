@@ -150,10 +150,20 @@ export class ForeignFlowCalculator {
   // }
 
   /**
-   * Create foreign flow data for each stock
+   * Extract existing dates from existing CSV data
    */
-  private createForeignFlowData(data: TransactionData[]): Map<string, ForeignFlowData[]> {
-    console.log("\nCreating foreign flow data...");
+  private extractExistingDates(existingData: ForeignFlowData[]): Set<string> {
+    const dates = new Set<string>();
+    existingData.forEach(item => dates.add(item.Date));
+    return dates;
+  }
+
+  /**
+   * Create foreign flow data for each stock
+   * OPTIMIZED: Filter out dates that already exist in output
+   */
+  private createForeignFlowData(data: TransactionData[], existingDatesByStock: Map<string, Set<string>>): Map<string, ForeignFlowData[]> {
+    console.log("\nCreating foreign flow data (filtering existing dates)...");
     
     // Group by stock code and date
     const stockDateGroups = new Map<string, Map<string, TransactionData[]>>();
@@ -161,6 +171,12 @@ export class ForeignFlowCalculator {
     data.forEach(row => {
       const stock = row.STK_CODE;
       const date = row.TRX_DATE;
+      
+      // OPTIMIZATION: Skip if date already exists in output for this stock
+      const existingDates = existingDatesByStock.get(stock);
+      if (existingDates && existingDates.has(date)) {
+        return; // Skip this transaction - date already processed
+      }
       
       if (!stockDateGroups.has(stock)) {
         stockDateGroups.set(stock, new Map());
@@ -208,12 +224,19 @@ export class ForeignFlowCalculator {
       });
       
       // Sort by date in descending order (newest first)
-      stockForeignFlow.sort((a, b) => b.Date.localeCompare(a.Date));
+      stockForeignFlow.sort((a, b) => {
+        const dateA = a.Date || '';
+        const dateB = b.Date || '';
+        return dateB.localeCompare(dateA);
+      });
       
-      foreignFlowData.set(stock, stockForeignFlow);
+      if (stockForeignFlow.length > 0) {
+        foreignFlowData.set(stock, stockForeignFlow);
+      }
     });
     
-    console.log(`Foreign flow data created for ${foreignFlowData.size} stocks`);
+    const filteredCount = Array.from(stockDateGroups.values()).reduce((sum, dates) => sum + dates.size, 0);
+    console.log(`Foreign flow data created for ${foreignFlowData.size} stocks (${filteredCount} new dates)`);
     return foreignFlowData;
   }
 
@@ -272,7 +295,11 @@ export class ForeignFlowCalculator {
     
     // Convert back to array and sort by date in descending order (newest first)
     const mergedData = Array.from(dataMap.values());
-    mergedData.sort((a, b) => b.Date.localeCompare(a.Date));
+    mergedData.sort((a, b) => {
+      const dateA = a.Date || '';
+      const dateB = b.Date || '';
+      return dateB.localeCompare(dateA);
+    });
     
     return mergedData;
   }
@@ -338,9 +365,58 @@ export class ForeignFlowCalculator {
   }
 
   /**
-   * Process a single DT file with all foreign flow analysis
+   * Load existing dates for all stocks from output files
+   * OPTIMIZED: Pre-load all existing dates to avoid filtering later
    */
-  private async processSingleDtFile(blobName: string): Promise<{ success: boolean; dateSuffix: string; files: string[] }> {
+  private async loadExistingDatesByStock(): Promise<Map<string, Set<string>>> {
+    console.log("📋 Loading existing dates from foreign_flow output files...");
+    const existingDatesByStock = new Map<string, Set<string>>();
+    
+    try {
+      // List all foreign flow files
+      const allFiles = await listPaths({ prefix: 'foreign_flow/' });
+      const csvFiles = allFiles.filter(f => f.endsWith('.csv') && f.startsWith('foreign_flow/'));
+      
+      console.log(`Found ${csvFiles.length} existing foreign flow files`);
+      
+      // Load each file and extract dates (in batches to avoid memory issues)
+      const BATCH_SIZE = 50;
+      for (let i = 0; i < csvFiles.length; i += BATCH_SIZE) {
+        const batch = csvFiles.slice(i, i + BATCH_SIZE);
+        
+        await Promise.allSettled(
+          batch.map(async (filename) => {
+            try {
+              const stockCode = filename.replace('foreign_flow/', '').replace('.csv', '');
+              const existingData = await this.readExistingCsvDataFromAzure(filename);
+              const dates = this.extractExistingDates(existingData);
+              if (dates.size > 0) {
+                existingDatesByStock.set(stockCode, dates);
+              }
+            } catch (error) {
+              // Skip files that can't be read
+            }
+          })
+        );
+        
+        if ((i + BATCH_SIZE) % 200 === 0) {
+          console.log(`📋 Loaded existing dates for ${existingDatesByStock.size} stocks...`);
+        }
+      }
+      
+      console.log(`✅ Loaded existing dates for ${existingDatesByStock.size} stocks`);
+      return existingDatesByStock;
+    } catch (error) {
+      console.error('Error loading existing dates:', error);
+      return existingDatesByStock; // Return empty map if error
+    }
+  }
+
+  /**
+   * Process a single DT file with all foreign flow analysis
+   * OPTIMIZED: Only process dates that don't exist in output
+   */
+  private async processSingleDtFile(blobName: string, existingDatesByStock: Map<string, Set<string>>): Promise<{ success: boolean; dateSuffix: string; files: string[] }> {
     const result = await this.loadAndProcessSingleDtFile(blobName);
     
     if (!result) {
@@ -354,16 +430,37 @@ export class ForeignFlowCalculator {
       return { success: false, dateSuffix, files: [] };
     }
     
-    console.log(`🔄 Processing ${blobName} (${data.length} transactions)...`);
+    // OPTIMIZATION: Filter out transactions for dates that already exist
+    const filteredData = data.filter(row => {
+      const existingDates = existingDatesByStock.get(row.STK_CODE);
+      return !existingDates || !existingDates.has(row.TRX_DATE);
+    });
+    
+    if (filteredData.length === 0) {
+      console.log(`⏭️  Skipping ${blobName} - all dates already exist in output`);
+      return { success: false, dateSuffix, files: [] };
+    }
+    
+    const skippedCount = data.length - filteredData.length;
+    if (skippedCount > 0) {
+      console.log(`🔍 Filtered ${skippedCount} transactions (dates already exist), processing ${filteredData.length} new transactions`);
+    }
+    
+    console.log(`🔄 Processing ${blobName} (${filteredData.length} new transactions)...`);
     
     try {
-      // Create foreign flow data
-      const foreignFlowData = this.createForeignFlowData(data);
+      // Create foreign flow data (will only include new dates)
+      const foreignFlowData = this.createForeignFlowData(filteredData, existingDatesByStock);
+      
+      if (foreignFlowData.size === 0) {
+        console.log(`⏭️  Skipping ${blobName} - no new dates to process`);
+        return { success: false, dateSuffix, files: [] };
+      }
       
       // Create or update individual CSV files for each stock
       const createdFiles = await this.createForeignFlowCsvFiles(foreignFlowData, dateSuffix);
       
-      console.log(`✅ Completed processing ${blobName} - ${createdFiles.length} files created`);
+      console.log(`✅ Completed processing ${blobName} - ${createdFiles.length} files updated`);
       return { success: true, dateSuffix, files: createdFiles };
       
     } catch (error) {
@@ -374,10 +471,14 @@ export class ForeignFlowCalculator {
 
   /**
    * Main function to generate foreign flow data for all DT files
+   * OPTIMIZED: Pre-load existing dates to skip already processed dates
    */
   public async generateForeignFlowData(_dateSuffix: string): Promise<{ success: boolean; message: string; data?: any }> {
     try {
       console.log(`Starting foreign flow data extraction for all DT files...`);
+      
+      // OPTIMIZATION: Pre-load existing dates from output files
+      const existingDatesByStock = await this.loadExistingDatesByStock();
       
       // Find all DT files
       const dtFiles = await this.findAllDtFiles();
@@ -398,6 +499,7 @@ export class ForeignFlowCalculator {
       const allResults: { success: boolean; dateSuffix: string; files: string[] }[] = [];
       let processed = 0;
       let successful = 0;
+      let skippedCount = 0;
       
       for (let i = 0; i < dtFiles.length; i += BATCH_SIZE) {
         const batch = dtFiles.slice(i, i + BATCH_SIZE);
@@ -405,7 +507,7 @@ export class ForeignFlowCalculator {
         
         // Process batch in parallel
         const batchResults = await Promise.allSettled(
-          batch.map(blobName => this.processSingleDtFile(blobName))
+          batch.map(blobName => this.processSingleDtFile(blobName, existingDatesByStock))
         );
         
         // Force garbage collection after each batch
@@ -420,6 +522,8 @@ export class ForeignFlowCalculator {
             processed++;
             if (result.value.success) {
               successful++;
+            } else if (result.value.files.length === 0) {
+              skippedCount++;
             }
           } else {
             console.error(`Error processing ${batch[index]}:`, result.reason);
@@ -427,7 +531,7 @@ export class ForeignFlowCalculator {
           }
         });
         
-        console.log(`📊 Batch complete: ${successful}/${processed} successful`);
+        console.log(`📊 Batch complete: ${successful}/${processed} successful, ${skippedCount} skipped (no new dates)`);
         
         // Small delay between batches
         if (i + BATCH_SIZE < dtFiles.length) {
@@ -440,15 +544,17 @@ export class ForeignFlowCalculator {
       console.log(`✅ Foreign flow data extraction completed!`);
       console.log(`📊 Processed: ${processed}/${dtFiles.length} DT files`);
       console.log(`📊 Successful: ${successful}/${processed} files`);
-      console.log(`📊 Total output files: ${totalFiles}`);
+      console.log(`📊 Skipped: ${skippedCount} files (no new dates)`);
+      console.log(`📊 Total output files updated: ${totalFiles}`);
       
       return {
         success: true,
-        message: `Foreign flow data generated successfully for ${successful}/${processed} DT files`,
+        message: `Foreign flow data generated successfully for ${successful}/${processed} DT files (${skippedCount} skipped - no new dates)`,
         data: {
           totalDtFiles: dtFiles.length,
           processedFiles: processed,
           successfulFiles: successful,
+          skippedFiles: skippedCount,
           totalOutputFiles: totalFiles,
           results: allResults.filter(r => r.success)
         }
