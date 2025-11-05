@@ -252,20 +252,51 @@ export class BrokerSummaryIDXCalculator {
 
       console.log(`📊 Found ${emitenFiles.length} emiten CSV files`);
 
-      // Read and parse all emiten CSV files
+      // Batch processing configuration
+      const BATCH_SIZE = 50; // Process 50 emiten files at a time to manage memory
+
+      // Read and parse all emiten CSV files in batches
       const allBrokerData: BrokerSummary[] = [];
       
-      for (const file of emitenFiles) {
-        try {
-          const csvContent = await downloadText(file);
-          const brokerData = this.parseCSV(csvContent);
-          allBrokerData.push(...brokerData);
-          
-          const emitenCode = file.split('/').pop()?.replace('.csv', '') || 'unknown';
-          console.log(`  ✓ Processed ${emitenCode}: ${brokerData.length} brokers`);
-        } catch (error: any) {
-          console.warn(`  ⚠️ Failed to process ${file}: ${error.message}`);
-          // Continue with other files even if one fails
+      for (let i = 0; i < emitenFiles.length; i += BATCH_SIZE) {
+        const batch = emitenFiles.slice(i, i + BATCH_SIZE);
+        const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(emitenFiles.length / BATCH_SIZE);
+        
+        console.log(`📦 Processing emiten batch ${batchNum}/${totalBatches} (${batch.length} files)...`);
+        
+        // Process batch in parallel
+        const batchResults = await Promise.allSettled(
+          batch.map(async (file) => {
+            try {
+              const csvContent = await downloadText(file);
+              const brokerData = this.parseCSV(csvContent);
+              const emitenCode = file.split('/').pop()?.replace('.csv', '') || 'unknown';
+              return { emitenCode, brokerData, success: true };
+            } catch (error: any) {
+              const emitenCode = file.split('/').pop()?.replace('.csv', '') || 'unknown';
+              console.warn(`  ⚠️ Failed to process ${emitenCode}: ${error.message}`);
+              return { emitenCode, brokerData: [], success: false };
+            }
+          })
+        );
+        
+        // Collect results from batch
+        batchResults.forEach((result) => {
+          if (result.status === 'fulfilled' && result.value.success) {
+            allBrokerData.push(...result.value.brokerData);
+            console.log(`  ✓ Processed ${result.value.emitenCode}: ${result.value.brokerData.length} brokers`);
+          }
+        });
+        
+        // Force garbage collection after each batch if available
+        if (global.gc) {
+          global.gc();
+        }
+        
+        // Small delay between batches to prevent overwhelming the system
+        if (i + BATCH_SIZE < emitenFiles.length) {
+          await new Promise(resolve => setTimeout(resolve, 50));
         }
       }
 
