@@ -31,12 +31,9 @@ export function SchedulerConfigControl() {
   const [editTime, setEditTime] = useState<string>('');
   const [triggering, setTriggering] = useState<Record<string, boolean>>({});
 
-  // Load phases on mount
+  // Load phases on mount (no auto refresh - manual refresh only)
   useEffect(() => {
     loadPhases();
-    // Auto-refresh every 5 seconds
-    const interval = setInterval(loadPhases, 5000);
-    return () => clearInterval(interval);
   }, []);
 
   const loadPhases = async () => {
@@ -358,7 +355,7 @@ export function SchedulerConfigControl() {
           <AlertCircle className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
           <p className="text-xs text-blue-700 dark:text-blue-300">
             <strong>Note:</strong> Phase 1 phases are scheduled (can edit time). Phase 2-6 are auto-triggered sequentially. 
-            You can trigger any phase manually at any time. Status updates automatically every 5 seconds.
+            You can trigger any phase manually at any time. Click "Refresh" button to update status.
           </p>
         </div>
       </CardContent>
