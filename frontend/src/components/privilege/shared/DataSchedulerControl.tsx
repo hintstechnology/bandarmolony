@@ -790,10 +790,16 @@ export function DataSchedulerControl() {
         <div className="p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg">
           <p className="text-sm text-blue-700 dark:text-blue-300">
             <strong>Note:</strong> All data operations run in the background and won't affect the server performance. 
-            Users can continue using charts while data is being updated. Stock, Index, and Done Summary run daily at 19:00. 
-            Shareholders and Holding run monthly on the last day at 00:00. The 6 new calculations run in 2 phases: 
-            Phase 1 (19:00) - Broker Data, Bid/Ask, Money Flow, Foreign Flow; Phase 2 (Auto-triggered) - Broker Inventory, Accumulation Distribution.
-            RRC, RRG, Seasonal, and Trend Filter calculations run daily at 19:00.
+            Users can continue using charts while data is being updated. 
+            <br/><br/>
+            <strong>Scheduled (Phase 1):</strong> Stock, Index, and Done Summary run daily at 19:00. Shareholders and Holding run monthly on the 1st at 00:01.
+            <br/><br/>
+            <strong>Auto-triggered Phases:</strong>
+            <br/>• Phase 2 (Market Rotation): RRC, RRG, Seasonal, Trend Filter, Watchlist Snapshot
+            <br/>• Phase 3 (Light): Money Flow, Foreign Flow, Break Done Trade
+            <br/>• Phase 4 (Medium): Bid/Ask Footprint, Broker Breakdown
+            <br/>• Phase 5 (Heavy): Broker Data (Broker Summary + Top Broker), Broker Summary by Type, Broker Summary IDX, Broker Transaction, Broker Transaction RG/TN/NG
+            <br/>• Phase 6 (Very Heavy): Broker Inventory, Accumulation Distribution
           </p>
         </div>
       </CardContent>

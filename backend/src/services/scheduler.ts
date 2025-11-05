@@ -41,7 +41,7 @@ let SCHEDULER_CONFIG = {
   // Phase 2: Market rotation (RRC, RRG, Seasonal, Trend Filter, Watchlist Snapshot)
   // Phase 3: Light calculations (Money Flow, Foreign Flow, Break Done Trade)
   // Phase 4: Medium calculations (Bid/Ask Footprint, Broker Breakdown)
-  // Phase 5: Heavy calculations (Broker Data)
+  // Phase 5: Heavy calculations (Broker Data (Broker Summary + Top Broker), Broker Summary by Type, Broker Summary IDX, Broker Transaction, Broker Transaction RG/TN/NG)
   // Phase 6: Very Heavy calculations (Broker Inventory, Accumulation Distribution)
   
   // Memory Management
@@ -1180,7 +1180,7 @@ export function getAllPhasesStatus() {
       {
         id: 'phase5_heavy',
         name: 'Phase 5 Heavy',
-        description: 'Broker Data, Broker Summary by Type, Broker Summary IDX, Broker Transaction, Broker Transaction RG/TN/NG (all dates)',
+        description: 'Broker Data (Broker Summary + Top Broker), Broker Summary by Type (RG/TN/NG split), Broker Summary IDX (aggregated all emiten), Broker Transaction (all types), Broker Transaction RG/TN/NG (split by type) - all dates',
         status: phaseStatus['phase5_heavy'],
         trigger: {
           type: 'auto',
@@ -1577,7 +1577,7 @@ export function startScheduler(): void {
   console.log(`  🚀 Phase 4 Medium (SEQUENTIAL): Auto-triggered after Phase 3`);
   console.log(`    └─ Bid/Ask Footprint, Broker Breakdown (all dates)`);
   console.log(`  🚀 Phase 5 Heavy (SEQUENTIAL): Auto-triggered after Phase 4`);
-  console.log(`    └─ Broker Data, Broker Summary by Type, Broker Summary IDX, Broker Transaction, Broker Transaction RG/TN/NG (all dates)`);
+  console.log(`    └─ Broker Data (Broker Summary + Top Broker), Broker Summary by Type (RG/TN/NG split), Broker Summary IDX (aggregated all emiten), Broker Transaction (all types), Broker Transaction RG/TN/NG (split by type) - all dates`);
   console.log(`  🚀 Phase 6 Very Heavy (SEQUENTIAL): Auto-triggered after Phase 5`);
   console.log(`    └─ Broker Inventory, Accumulation Distribution (sequential)`);
   console.log(`  🧠 Memory Monitoring: ENABLED (12GB threshold)`);
