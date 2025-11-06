@@ -555,6 +555,66 @@ const parseBrokerTransactionCSV = (csvData: string, _brokerCode: string): any[] 
 };
 
 /**
+ * GET /api/broker/transaction/dates
+ * Get available dates for broker transaction data
+ * IMPORTANT: This route must be defined BEFORE /transaction/:brokerCode to avoid route conflict
+ */
+router.get('/transaction/dates', async (_req, res) => {
+  try {
+    const { listPaths } = await import('../utils/azureBlob');
+    
+    const dates = new Set<string>();
+    
+    // List all broker_transaction files (for All brokers)
+    try {
+      const allFiles = await listPaths({ prefix: 'broker_transaction/' });
+      allFiles.forEach(file => {
+        // Extract date from broker_transaction/broker_transaction_YYYYMMDD pattern
+        const match = file.match(/broker_transaction\/broker_transaction_(\d{8})(?:\.csv)?$/);
+        if (match && match[1]) {
+          dates.add(match[1]);
+        }
+      });
+    } catch (error: any) {
+      console.error('[AZURE] Error listing broker_transaction files:', error.message);
+    }
+    
+    // List all broker_transaction_rg files (for RG broker)
+    try {
+      const rgFiles = await listPaths({ prefix: 'broker_transaction_rg/' });
+      rgFiles.forEach(file => {
+        // Extract date from broker_transaction_rg/broker_transaction_rg_YYYYMMDD pattern
+        const match = file.match(/broker_transaction_rg\/broker_transaction_rg_(\d{8})(?:\.csv)?$/);
+        if (match && match[1]) {
+          dates.add(match[1]);
+        }
+      });
+    } catch (error: any) {
+      console.error('[AZURE] Error listing broker_transaction_rg files:', error.message);
+    }
+    
+    const sortedDates = Array.from(dates).sort().reverse(); // Newest first
+    
+    console.log(`[AZURE] Found ${sortedDates.length} available dates for broker transaction data`);
+    
+    return res.json({
+      success: true,
+      data: {
+        dates: sortedDates,
+        total: sortedDates.length
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('Error fetching broker transaction dates:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch broker transaction dates'
+    });
+  }
+});
+
+/**
  * GET /api/broker/transaction/:brokerCode
  * Get broker transaction data for a specific broker and date
  */
@@ -619,65 +679,6 @@ router.get('/transaction/:brokerCode', async (req, res) => {
     return res.status(500).json({
       success: false,
       error: error.message || 'Failed to fetch broker transaction data'
-    });
-  }
-});
-
-/**
- * GET /api/broker/transaction/dates
- * Get available dates for broker transaction data
- */
-router.get('/transaction/dates', async (_req, res) => {
-  try {
-    const { listPaths } = await import('../utils/azureBlob');
-    
-    const dates = new Set<string>();
-    
-    // List all broker_transaction files (for All brokers)
-    try {
-      const allFiles = await listPaths({ prefix: 'broker_transaction/' });
-      allFiles.forEach(file => {
-        // Extract date from broker_transaction/broker_transaction_YYYYMMDD pattern
-        const match = file.match(/broker_transaction\/broker_transaction_(\d{8})(?:\.csv)?$/);
-        if (match && match[1]) {
-          dates.add(match[1]);
-        }
-      });
-    } catch (error: any) {
-      console.error('[AZURE] Error listing broker_transaction files:', error.message);
-    }
-    
-    // List all broker_transaction_rg files (for RG broker)
-    try {
-      const rgFiles = await listPaths({ prefix: 'broker_transaction_rg/' });
-      rgFiles.forEach(file => {
-        // Extract date from broker_transaction_rg/broker_transaction_rg_YYYYMMDD pattern
-        const match = file.match(/broker_transaction_rg\/broker_transaction_rg_(\d{8})(?:\.csv)?$/);
-        if (match && match[1]) {
-          dates.add(match[1]);
-        }
-      });
-    } catch (error: any) {
-      console.error('[AZURE] Error listing broker_transaction_rg files:', error.message);
-    }
-    
-    const sortedDates = Array.from(dates).sort().reverse(); // Newest first
-    
-    console.log(`[AZURE] Found ${sortedDates.length} available dates for broker transaction data`);
-    
-    return res.json({
-      success: true,
-      data: {
-        dates: sortedDates,
-        total: sortedDates.length
-      }
-    });
-    
-  } catch (error: any) {
-    console.error('Error fetching broker transaction dates:', error);
-    return res.status(500).json({
-      success: false,
-      error: error.message || 'Failed to fetch broker transaction dates'
     });
   }
 });
