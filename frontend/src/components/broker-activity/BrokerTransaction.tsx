@@ -53,20 +53,62 @@ interface BrokerTransactionData {
   NetSellAvg?: number; // Calculated Net Sell Average
 }
 
+// Cache expiration time: 5 minutes
+const CACHE_EXPIRY_MS = 5 * 60 * 1000;
 
-// Fetch broker transaction data from API
-const fetchBrokerTransactionData = async (brokerCode: string, date: string, market?: 'RG' | 'TN' | 'NG' | ''): Promise<BrokerTransactionData[]> => {
+// Fetch broker transaction data from API (with caching)
+const fetchBrokerTransactionData = async (
+  brokerCode: string, 
+  date: string, 
+  market: 'RG' | 'TN' | 'NG' | '',
+  cache: Map<string, { data: BrokerTransactionData[]; timestamp: number }>,
+  abortSignal?: AbortSignal
+): Promise<BrokerTransactionData[]> => {
+  // Check if aborted
+  if (abortSignal?.aborted) {
+    throw new Error('Fetch aborted');
+  }
+  
+  const cacheKey = `${brokerCode}-${date}-${market}`;
+  const now = Date.now();
+  const cached = cache.get(cacheKey);
+  
+  // Check cache first
+  if (cached && (now - cached.timestamp) <= CACHE_EXPIRY_MS) {
+    console.log(`[BrokerTransaction] Using cached data for ${brokerCode} on ${date}`);
+    return cached.data;
+  }
+  
+  // Check if aborted before API call
+  if (abortSignal?.aborted) {
+    throw new Error('Fetch aborted');
+  }
+  
   try {
     console.log(`[BrokerTransaction] Fetching data for broker: ${brokerCode}, date: ${date}, market: ${market || 'All'}`);
     const response = await api.getBrokerTransactionData(brokerCode, date, market);
+    
+    // Check if aborted after API call
+    if (abortSignal?.aborted) {
+      throw new Error('Fetch aborted');
+    }
+    
     if (response.success && response.data?.transactionData) {
       const data = response.data.transactionData;
       console.log(`[BrokerTransaction] Received ${data.length} rows for ${brokerCode} on ${date}`);
+      
+      // Store in cache
+      cache.set(cacheKey, { data, timestamp: now });
+      console.log(`[BrokerTransaction] Cached data for ${brokerCode} on ${date}`);
+      
       return data;
     }
     console.warn(`[BrokerTransaction] No data received for ${brokerCode} on ${date}`);
     return [];
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.message === 'Fetch aborted' || abortSignal?.aborted) {
+      throw error;
+    }
     console.error(`[BrokerTransaction] Error fetching data for ${brokerCode} on ${date}:`, error);
     return [];
   }
@@ -99,14 +141,14 @@ const formatLot = (value: number): string => {
   const absValue = Math.abs(rounded);
   
   // Format: < 1,000,000 → full number with comma (100,000)
-  // Format: >= 1,000,000 → rounded to thousands with 'k' (1,164k)
+  // Format: >= 1,000,000 → rounded to thousands with 'K' (1,164K)
   if (absValue >= 1000000) {
-    // Use 'k' suffix for millions: 1,164,152 → 1,164k
+    // Use 'K' suffix for millions: 1,164,152 → 1,164K
     const thousands = Math.round(rounded / 1000);
-    return `${thousands.toLocaleString('en-US')}k`;
+    return `${thousands.toLocaleString('en-US')}K`;
   } else {
     // < 1,000,000: Show full number with comma separator
-    // Example: 100,000 → 100,000 (not 100k)
+    // Example: 100,000 → 100,000 (not 100K)
   return rounded.toLocaleString('en-US');
   }
 };
@@ -162,32 +204,33 @@ const getLastThreeDays = (): string[] => {
 export function BrokerTransaction() {
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
 
-// Get available dates from backend and return recent trading days (oldest first for display)
-const getAvailableTradingDays = async (count: number): Promise<string[]> => {
-  try {
-    // Get available dates from backend
-    const response = await api.getBrokerTransactionDates();
-    if (response.success && response.data?.dates) {
-      // Backend returns dates in YYYYMMDD format, convert to YYYY-MM-DD for frontend
-      const convertedDates = response.data.dates.map(dateStr => {
-        // If date is in YYYYMMDD format, convert to YYYY-MM-DD
-        if (dateStr.length === 8 && !dateStr.includes('-')) {
-          return `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
-        }
-        return dateStr; // Already in YYYY-MM-DD format
-      });
-      
-      // Sort from newest to oldest, then take first count, then reverse for display (oldest first)
-      const availableDates = convertedDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
-      return availableDates.slice(0, count).reverse(); // Reverse to get oldest first
+  // Get available dates from backend and return recent trading days (oldest first for display)
+  const getAvailableTradingDays = async (count: number): Promise<string[]> => {
+    try {
+      // Get available dates from backend
+      const response = await api.getBrokerTransactionDates();
+      if (response.success && response.data?.dates) {
+        // Backend returns dates in YYYYMMDD format, convert to YYYY-MM-DD for frontend
+        const convertedDates = response.data.dates.map(dateStr => {
+          // If date is in YYYYMMDD format, convert to YYYY-MM-DD
+          if (dateStr.length === 8 && !dateStr.includes('-')) {
+            return `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
+          }
+          return dateStr; // Already in YYYY-MM-DD format
+        });
+        
+        // Sort from newest to oldest, then take first count, then reverse for display (oldest first)
+        const availableDates = convertedDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+        return availableDates.slice(0, count).reverse(); // Reverse to get oldest first
+      }
+    } catch (error) {
+      console.error('Error fetching available dates:', error);
     }
-  } catch (error) {
-    console.error('Error fetching available dates:', error);
-  }
-  
-  // Fallback to local calculation if backend fails (already sorted oldest first)
-  return getTradingDays(count);
-};
+    
+    // Fallback to local calculation if backend fails (already sorted oldest first)
+    return getTradingDays(count);
+  };
+
   const [startDate, setStartDate] = useState(() => {
     const threeDays = getLastThreeDays();
     if (threeDays.length > 0) {
@@ -251,6 +294,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
 
   // Request cancellation ref
   const abortControllerRef = useRef<AbortController | null>(null);
+  const shouldFetchDataRef = useRef<boolean>(false); // Ref to track shouldFetchData for async functions (always up-to-date)
+  
+  // Cache for API responses to avoid redundant calls
+  // Key format: `${broker}-${date}-${market}`
+  const dataCacheRef = useRef<Map<string, { data: BrokerTransactionData[]; timestamp: number }>>(new Map());
   
   // Pagination states for performance
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -331,96 +379,161 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       abortControllerRef.current.abort();
     }
     
+    // Create new AbortController for this request
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    
     const loadTransactionData = async () => {
+      // CRITICAL: Check ref instead of state - ref is always up-to-date even in async context
+      if (!shouldFetchDataRef.current) {
+        console.log('[BrokerTransaction] loadTransactionData: shouldFetchDataRef is false, aborting fetch');
+        setIsLoading(false);
+        setIsDataReady(false);
+        return;
+      }
+      
       if (selectedBrokers.length === 0 || selectedDates.length === 0) {
         setTransactionData(new Map());
         setIsDataReady(false);
         setShouldFetchData(false);
+        shouldFetchDataRef.current = false;
         return;
       }
       
-      // Create new AbortController for this request
-      const abortController = new AbortController();
-      abortControllerRef.current = abortController;
+      // CRITICAL: Check ref again after validation
+      if (!shouldFetchDataRef.current || abortController.signal.aborted) {
+        console.log('[BrokerTransaction] loadTransactionData: shouldFetchDataRef became false after validation, aborting');
+        setIsLoading(false);
+        setIsDataReady(false);
+        return;
+      }
       
       setIsLoading(true);
       setError(null);
       
       try {
         const newTransactionData = new Map<string, BrokerTransactionData[]>();
+        const cache = dataCacheRef.current;
+        const now = Date.now();
         
-        // Create all API call promises in parallel
-        const apiPromises: Array<{ date: string; broker: string; promise: Promise<BrokerTransactionData[]> }> = [];
-        
-        for (const date of selectedDates) {
-          for (const broker of selectedBrokers) {
-            // Use marketFilter when fetching data
-            apiPromises.push({
-              date,
-              broker,
-              promise: fetchBrokerTransactionData(broker, date, marketFilter)
-            });
+        // Clear expired cache entries
+        for (const [key, value] of cache.entries()) {
+          if (now - value.timestamp > CACHE_EXPIRY_MS) {
+            cache.delete(key);
           }
         }
         
-        console.log(`[BrokerTransaction] Fetching data for ${apiPromises.length} combinations:`, {
-          dates: selectedDates,
-          brokers: selectedBrokers,
-          market: marketFilter
-        });
+        // OPTIMIZED: Fetch all data in parallel with batching to avoid overwhelming browser
+        // Batch size: 10 concurrent requests at a time for better performance and stability
+        const BATCH_SIZE = 10;
         
-        // Execute all API calls in parallel with error handling
-        const results = await Promise.allSettled(
-          apiPromises.map(({ promise }) => promise)
+        // Create all fetch task descriptions (NOT promises yet - create promises only when needed)
+        const allFetchTasks = selectedDates.flatMap(date =>
+          selectedBrokers.map(broker => ({ broker, date }))
         );
         
-        // Check if request was aborted
-        if (abortController.signal.aborted) {
+        console.log(`[BrokerTransaction] Fetching ${allFetchTasks.length} broker-date combinations in batches of ${BATCH_SIZE}...`);
+        
+        // Process in batches to avoid overwhelming browser with too many concurrent requests
+        const allDataResults: Array<{ date: string; broker: string; data: BrokerTransactionData[] }> = [];
+        
+        for (let i = 0; i < allFetchTasks.length; i += BATCH_SIZE) {
+          // CRITICAL: Check ref before each batch - user might have changed dates
+          if (!shouldFetchDataRef.current || abortController.signal.aborted) {
+            console.log('[BrokerTransaction] Fetch aborted before batch processing');
+            setIsLoading(false);
+            setIsDataReady(false);
+            return;
+          }
+          
+          const batch = allFetchTasks.slice(i, i + BATCH_SIZE);
+          const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+          const totalBatches = Math.ceil(allFetchTasks.length / BATCH_SIZE);
+          
+          console.log(`[BrokerTransaction] Processing batch ${batchNum}/${totalBatches} (${batch.length} requests)...`);
+          
+          try {
+            // Create promises only for this batch (not all at once)
+            const batchPromises = batch.map(({ broker, date }) => 
+              fetchBrokerTransactionData(broker, date, marketFilter, cache, abortController.signal)
+            );
+            
+            // Wait for current batch to complete
+            const batchResults = await Promise.allSettled(batchPromises);
+            
+            // CRITICAL: Check ref after each batch - user might have changed dates
+            if (!shouldFetchDataRef.current || abortController.signal.aborted) {
+              console.log('[BrokerTransaction] Fetch aborted after batch processing');
+              setIsLoading(false);
+              setIsDataReady(false);
+              return;
+            }
+            
+            // Process batch results
+            batchResults.forEach((result, idx) => {
+              const task = batch[idx];
+              if (!task) return;
+              const { broker, date } = task;
+              if (result.status === 'fulfilled') {
+                const data = result.value;
+                if (data && data.length > 0) {
+                  allDataResults.push({ date, broker, data });
+                  console.log(`[BrokerTransaction] Success for ${broker} on ${date}: ${data.length} rows`);
+                }
+              } else {
+                console.error(`[BrokerTransaction] Error for ${broker} on ${date}:`, result.status === 'rejected' ? result.reason : 'Unknown error');
+              }
+            });
+            
+            console.log(`[BrokerTransaction] Batch ${batchNum}/${totalBatches} completed`);
+          } catch (error: any) {
+            // If aborted, silently abort
+            if (error?.message === 'Fetch aborted' || !shouldFetchDataRef.current || abortController.signal.aborted) {
+              console.log('[BrokerTransaction] Batch aborted');
+              setIsLoading(false);
+              setIsDataReady(false);
+              return;
+            }
+            
+            // For other errors, log but continue with next batch
+            console.error(`[BrokerTransaction] Error in batch ${batchNum}:`, error);
+          }
+        }
+        
+        // CRITICAL: Final check after all batches - user might have changed dates during fetch
+        if (!shouldFetchDataRef.current || abortController.signal.aborted) {
+          console.log('[BrokerTransaction] loadTransactionData: shouldFetchDataRef became false after all batches, aborting aggregation');
+          setIsLoading(false);
+          setIsDataReady(false);
           return;
         }
         
-        // Log results for debugging
-        let successCount = 0;
-        let errorCount = 0;
-        results.forEach((result, index) => {
-          const promise = apiPromises[index];
-          if (!promise) return;
-          
-          if (result.status === 'fulfilled') {
-            successCount++;
-            const data = result.value;
-            if (data && data.length > 0) {
-              console.log(`[BrokerTransaction] Success for ${promise.broker} on ${promise.date}: ${data.length} rows`);
-            }
-          } else {
-            errorCount++;
-            console.error(`[BrokerTransaction] Error for ${promise.broker} on ${promise.date}:`, result.status === 'rejected' ? result.reason : 'Unknown error');
-          }
-        });
-        console.log(`[BrokerTransaction] Results: ${successCount} success, ${errorCount} errors`);
+        console.log(`[BrokerTransaction] Completed ${allDataResults.length}/${allFetchTasks.length} successful fetches`);
         
         // Process data per date - AGGREGATE per Emiten and per section (Buy, Sell, Net Buy, Net Sell)
         // When multiple brokers are selected, sum values for the same Emiten
         for (const date of selectedDates) {
+          // CRITICAL: Check ref during aggregation - user might have changed dates
+          if (!shouldFetchDataRef.current) {
+            console.log('[BrokerTransaction] loadTransactionData: shouldFetchDataRef became false during aggregation, aborting');
+            return;
+          }
+          
           // Map to aggregate data per Emiten and per section
           // Key: Emiten, Value: aggregated BrokerTransactionData
           const aggregatedMap = new Map<string, BrokerTransactionData>();
           
           // Process results for this date from all brokers
-          apiPromises.forEach(({ date: promiseDate }, index) => {
-            if (promiseDate !== date) return;
+          allDataResults.forEach(({ date: resultDate, data }) => {
+            if (resultDate !== date) return;
             
-            const result = results[index];
-            if (result && result.status === 'fulfilled' && 'value' in result && result.value) {
-              const data = result.value;
+            // Aggregate rows by Emiten
+            for (const row of data) {
+              const emiten = row.Emiten || '';
+              if (!emiten) continue;
               
-              // Aggregate rows by Emiten
-              for (const row of data) {
-                const emiten = row.Emiten || '';
-                if (!emiten) continue;
-                
-                const existing = aggregatedMap.get(emiten);
-                if (existing) {
+              const existing = aggregatedMap.get(emiten);
+              if (existing) {
                   // Sum values for the same Emiten from different brokers
                   // Buyer section
                   existing.BuyerVol = (existing.BuyerVol || 0) + (row.BuyerVol || 0);
@@ -565,7 +678,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   aggregatedMap.set(emiten, { ...row });
                 }
               }
-            }
           });
           
           // Convert map to array
@@ -574,43 +686,75 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           console.log(`[BrokerTransaction] Aggregated data for ${date}: ${allRows.length} unique Emiten(s) from ${selectedBrokers.length} broker(s)`);
         }
         
-        // Check if request was aborted before setting state
-        if (!abortController.signal.aborted) {
-          console.log(`[BrokerTransaction] Setting transaction data:`, {
-            datesCount: newTransactionData.size,
-            totalRows: Array.from(newTransactionData.values()).reduce((sum, arr) => sum + arr.length, 0)
-          });
-        setTransactionData(newTransactionData);
-          setIsDataReady(true);
-          setShouldFetchData(false);
+        // CRITICAL: Check ref again before setting data - user might have changed dates during aggregation
+        if (!shouldFetchDataRef.current || abortController.signal.aborted) {
+          console.log('[BrokerTransaction] loadTransactionData: shouldFetchDataRef became false before setting data, aborting');
+          setIsLoading(false);
+          setIsDataReady(false);
+          return;
         }
         
-      } catch (err: any) {
-        if (err.name === 'AbortError') {
-          return; // Request was cancelled, don't update state
+        // Store data first (but tables won't show yet because isDataReady is still false)
+        setTransactionData(newTransactionData);
+        
+        const totalRows = Array.from(newTransactionData.values()).reduce((sum, arr) => sum + arr.length, 0);
+        console.log(`[BrokerTransaction] Total aggregated rows: ${totalRows} across ${newTransactionData.size} dates from ${selectedBrokers.join(', ')}`);
+        
+        // CRITICAL: Final check before marking data ready
+        if (!shouldFetchDataRef.current || abortController.signal.aborted) {
+          console.log('[BrokerTransaction] loadTransactionData: shouldFetchDataRef became false before marking data ready, aborting');
+          setIsLoading(false);
+          setIsDataReady(false);
+          return;
         }
-        if (!abortController.signal.aborted) {
-        setError('Failed to load transaction data');
-        console.error('Error loading transaction data:', err);
+        
+        // Mark loading as complete and show data immediately
+        setIsLoading(false);
+        
+        // OPTIMIZED: Show data immediately after state update
+        // Column width sync will happen after data is visible (non-blocking)
+        setIsDataReady(true);
+        setShouldFetchData(false);
+        shouldFetchDataRef.current = false;
+        
+        // Clear abort controller after successful fetch
+        abortControllerRef.current = null;
+      } catch (err: any) {
+        // If aborted, don't show error - just reset state
+        // Check abortControllerRef.current instead of local abortController (which might be stale)
+        const wasAborted = abortControllerRef.current?.signal.aborted || err?.message === 'Fetch aborted' || !shouldFetchDataRef.current;
+        if (wasAborted) {
+          console.log('[BrokerTransaction] Fetch aborted, cleaning up');
+          setIsLoading(false);
           setIsDataReady(false);
           setShouldFetchData(false);
+          shouldFetchDataRef.current = false;
+          abortControllerRef.current = null;
+          return;
         }
-      } finally {
-        if (!abortController.signal.aborted) {
+        console.error('[BrokerTransaction] Error loading transaction data:', err);
+        setError(err?.message || 'Failed to load transaction data');
         setIsLoading(false);
-        }
+        setIsDataReady(false);
+        setShouldFetchData(false);
+        shouldFetchDataRef.current = false;
+        abortControllerRef.current = null;
       }
     };
 
     loadTransactionData();
     
-    // Cleanup: abort request on unmount or dependency change
+    // Cleanup: abort fetch if component unmounts or effect re-runs
     return () => {
       if (abortControllerRef.current) {
+        console.log('[BrokerTransaction] Cleaning up: aborting fetch');
         abortControllerRef.current.abort();
+        abortControllerRef.current = null;
       }
     };
-  }, [shouldFetchData, selectedBrokers, selectedDates, marketFilter]);
+    // Only depend on shouldFetchData - selectedBrokers, selectedDates, marketFilter are already accessed inside
+    // This prevents auto-fetch when dates/brokers change - only fetch when Show button is clicked
+  }, [shouldFetchData]);
 
   // Update date range when startDate or endDate changes
   useEffect(() => {
@@ -751,205 +895,163 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     };
   }, []);
 
-  // Synchronize table widths between Value and Net tables - Optimized with throttling
+  // OPTIMIZED: Sync table widths between Value and Net tables - Simplified and more efficient
   useEffect(() => {
-    if (isLoading || selectedDates.length === 0) return;
-    
-    // Clear stored widths when dates change
-    dateColumnWidthsRef.current.clear();
+    // Wait for tables to be ready (data loaded and DOM rendered)
+    if (isLoading || !isDataReady) return;
 
-    let rafId: number | null = null;
     const syncTableWidths = () => {
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId);
-      }
-      rafId = requestAnimationFrame(() => {
       const valueTable = valueTableRef.current;
       const netTable = netTableRef.current;
 
-        if (!valueTable || !netTable) {
-          rafId = null;
-          return;
-        }
+      if (!valueTable || !netTable) return;
 
-      // Sync overall table width
-      const valueTableWidth = valueTable.scrollWidth || valueTable.offsetWidth;
-      
-      if (valueTableWidth > 0) {
-        netTable.style.width = `${valueTableWidth}px`;
-        netTable.style.minWidth = `${valueTableWidth}px`;
-        netTable.style.maxWidth = `${valueTableWidth}px`;
-      }
+      // ROOT CAUSE FIX: Use table-layout: fixed to ensure exact column width matching
+      // Step 1: Let VALUE table calculate column widths naturally with auto layout first
+      valueTable.style.tableLayout = 'auto';
 
-      // Sync date column group widths (colspan=17 headers)
+      // Step 2: Measure all column widths from VALUE table (header + body cells)
       const valueHeaderRows = valueTable.querySelectorAll('thead tr');
       const netHeaderRows = netTable.querySelectorAll('thead tr');
-      
-      if (valueHeaderRows.length >= 2 && netHeaderRows.length >= 2) {
-        // Get first header row (date headers with colspan=17)
-        const valueDateHeaderRow = valueHeaderRows[0];
-        const netDateHeaderRow = netHeaderRows[0];
-        
-        if (valueDateHeaderRow && netDateHeaderRow) {
-          const valueDateHeaderCells = valueDateHeaderRow.querySelectorAll('th[colspan="17"]');
-          const netDateHeaderCells = netDateHeaderRow.querySelectorAll('th[colspan="17"]');
-          
-            // Store widths from Value table and apply to Net table - only sync visible headers
-          valueDateHeaderCells.forEach((valueCell, index) => {
-            const netCell = netDateHeaderCells[index] as HTMLElement;
-            if (netCell && valueCell) {
-              const valueWidth = (valueCell as HTMLElement).offsetWidth;
-              
-              // Store width by date index (excluding Total column)
-              if (index < selectedDates.length) {
-                const date = selectedDates[index];
-                if (date) {
-                  dateColumnWidthsRef.current.set(date, valueWidth);
-                }
-              }
-              
-              // Apply width to Net table
-              const width = `${valueWidth}px`;
-              netCell.style.width = width;
-              netCell.style.minWidth = width;
-              netCell.style.maxWidth = width;
-            }
-          });
-          
-            // Only sync visible rows (paginated) to improve performance
-          const valueBodyRows = valueTable.querySelectorAll('tbody tr');
-          const netBodyRows = netTable.querySelectorAll('tbody tr');
-            const maxRowsToSync = Math.min(valueBodyRows.length, itemsPerPage + 10); // Sync a bit more than visible for smooth scrolling
-          
-            for (let rowIndex = 0; rowIndex < Math.min(valueBodyRows.length, maxRowsToSync); rowIndex++) {
-              const valueRow = valueBodyRows[rowIndex];
-            const netRow = netBodyRows[rowIndex] as HTMLTableRowElement;
-              if (!valueRow || !netRow) continue;
-            
-            // For each date column group (17 cells), sync all cells
-            selectedDates.forEach((date, dateIndex) => {
-              const startCellIndex = dateIndex * 17;
-              const storedWidth = dateColumnWidthsRef.current.get(date);
-              
-              if (storedWidth) {
-                // Sync each cell in this date column group
-                for (let i = 0; i < 17; i++) {
-                  const valueCell = valueRow.children[startCellIndex + i] as HTMLElement;
-                  const netCell = netRow.children[startCellIndex + i] as HTMLElement;
-                  
-                  if (valueCell && netCell) {
-                    const cellWidth = valueCell.offsetWidth;
-                    const width = `${cellWidth}px`;
-                    netCell.style.width = width;
-                    netCell.style.minWidth = width;
-                    netCell.style.maxWidth = width;
-                  }
-                }
-              }
-            });
-            
-            // Also sync Total column if exists
-            const totalStartIndex = selectedDates.length * 17;
-            const valueTotalCells = Array.from(valueRow.children).slice(totalStartIndex);
-            const netTotalCells = Array.from(netRow.children).slice(totalStartIndex);
-            
-            valueTotalCells.forEach((valueCell, idx) => {
-              const netCell = netTotalCells[idx] as HTMLElement;
-              if (netCell && valueCell) {
-                const cellWidth = (valueCell as HTMLElement).offsetWidth;
-                const width = `${cellWidth}px`;
-                netCell.style.width = width;
-                netCell.style.minWidth = width;
-                netCell.style.maxWidth = width;
-              }
-          });
-            }
-        }
 
-        // Sync individual column header widths
+      if (valueHeaderRows.length >= 2 && netHeaderRows.length >= 2) {
         const valueColumnHeaderRow = valueHeaderRows[1];
         const netColumnHeaderRow = netHeaderRows[1];
-        
+
         if (valueColumnHeaderRow && netColumnHeaderRow) {
-          const valueHeaderCells = valueColumnHeaderRow.querySelectorAll('th');
-          const netHeaderCells = netColumnHeaderRow.querySelectorAll('th');
-          
+          const valueHeaderCells = Array.from(valueColumnHeaderRow.querySelectorAll('th'));
+          const netHeaderCells = Array.from(netColumnHeaderRow.querySelectorAll('th'));
+          const valueBodyRows = valueTable.querySelectorAll('tbody tr');
+
+          // Calculate exact width for each column from VALUE table
+          const columnWidths: number[] = [];
+
           valueHeaderCells.forEach((valueCell, index) => {
-            const netCell = netHeaderCells[index] as HTMLElement;
-            if (netCell && valueCell) {
-              const width = `${(valueCell as HTMLElement).offsetWidth}px`;
-              netCell.style.width = width;
-              netCell.style.minWidth = width;
-              netCell.style.maxWidth = width;
+            const valueEl = valueCell as HTMLElement;
+            // Start with header width
+            let maxWidth = Math.max(valueEl.scrollWidth, valueEl.offsetWidth);
+
+            // Check visible body cells in this column to find maximum width (limit to visible rows for performance)
+            const maxRowsToCheck = Math.min(valueBodyRows.length, itemsPerPage + 10);
+            for (let rowIdx = 0; rowIdx < maxRowsToCheck; rowIdx++) {
+              const row = valueBodyRows[rowIdx];
+              if (!row) continue;
+              const cells = row.querySelectorAll('td');
+              if (cells[index]) {
+                const cellEl = cells[index] as HTMLElement;
+                const cellWidth = Math.max(cellEl.scrollWidth, cellEl.offsetWidth);
+                maxWidth = Math.max(maxWidth, cellWidth);
+              }
+            }
+
+            columnWidths[index] = maxWidth;
+          });
+
+          // Step 3: Apply fixed layout to both tables with exact widths
+          valueTable.style.tableLayout = 'fixed';
+          netTable.style.tableLayout = 'fixed';
+
+          // Step 4: Apply exact widths to VALUE table headers (to lock them)
+          valueHeaderCells.forEach((valueCell, index) => {
+            const valueEl = valueCell as HTMLElement;
+            const width = columnWidths[index];
+            if (width && width > 0) {
+              valueEl.style.width = `${width}px`;
+              valueEl.style.minWidth = `${width}px`;
+              valueEl.style.maxWidth = `${width}px`;
             }
           });
+
+          // Step 5: Apply exact same widths to NET table headers
+          netHeaderCells.forEach((netCell, index) => {
+            const netEl = netCell as HTMLElement;
+            const width = columnWidths[index];
+            if (width && width > 0) {
+              netEl.style.width = `${width}px`;
+              netEl.style.minWidth = `${width}px`;
+              netEl.style.maxWidth = `${width}px`;
+            }
+          });
+
+          // Step 6: Apply exact widths to visible body cells in both tables
+          const netBodyRows = netTable.querySelectorAll('tbody tr');
+          const maxRows = Math.min(Math.max(valueBodyRows.length, netBodyRows.length), itemsPerPage + 10);
+
+          for (let rowIdx = 0; rowIdx < maxRows; rowIdx++) {
+            const valueRow = valueBodyRows[rowIdx] as HTMLTableRowElement;
+            const netRow = netBodyRows[rowIdx] as HTMLTableRowElement;
+
+            if (valueRow && netRow) {
+              const valueCells = Array.from(valueRow.querySelectorAll('td'));
+              const netCells = Array.from(netRow.querySelectorAll('td'));
+
+              valueCells.forEach((valueCell, cellIdx) => {
+                if (cellIdx < columnWidths.length) {
+                  const width = columnWidths[cellIdx];
+                  if (width && width > 0) {
+                    // Apply to VALUE body cell
+                    const valueEl = valueCell as HTMLElement;
+                    valueEl.style.width = `${width}px`;
+                    valueEl.style.minWidth = `${width}px`;
+                    valueEl.style.maxWidth = `${width}px`;
+
+                    // Apply to NET body cell
+                    if (netCells[cellIdx]) {
+                      const netEl = netCells[cellIdx] as HTMLElement;
+                      netEl.style.width = `${width}px`;
+                      netEl.style.minWidth = `${width}px`;
+                      netEl.style.maxWidth = `${width}px`;
+                    }
+                  }
+                }
+              });
+            }
+          }
         }
       }
-        rafId = null;
-      });
     };
 
-    // Debounce function to avoid too frequent syncs - increased delay for better performance
+    // OPTIMIZED: Sync column widths after data is visible (non-blocking)
+    // Single sync pass after data renders - faster approach
+    let dataTimeoutId: NodeJS.Timeout | null = null;
+    if (isDataReady) {
+      // Single sync after data renders (reduced from multiple passes to 1)
+      dataTimeoutId = setTimeout(() => {
+        syncTableWidths();
+      }, 50);
+    }
+
+    // Optimized: Use ResizeObserver with debouncing for resize events only
+    let resizeObserver: ResizeObserver | null = null;
     let debounceTimer: NodeJS.Timeout | null = null;
+
     const debouncedSync = () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         syncTableWidths();
-      }, 200); // Increased from 100ms to 200ms
+      }, 200);
     };
-    
-    // Initial sync with delay - only sync if table exists
-    let initialTimeoutId: NodeJS.Timeout | null = null;
-    if (valueTableRef.current && netTableRef.current) {
-      initialTimeoutId = setTimeout(() => {
-      syncTableWidths();
-      }, 500); // Increased from 400ms to 500ms
-    }
-    
-    // Sync after data finishes loading - only if tables exist
-    let dataTimeoutId: NodeJS.Timeout | null = null;
-    if (!isLoading && valueTableRef.current && netTableRef.current) {
-      dataTimeoutId = setTimeout(() => {
-        syncTableWidths();
-      }, 800); // Increased from 700ms to 800ms
-    }
 
-    // Use ResizeObserver to watch for changes
-    let resizeObserver: ResizeObserver | null = null;
-    
-    if (valueTableRef.current) {
+    if (valueTableRef.current && isDataReady) {
       resizeObserver = new ResizeObserver(() => {
         debouncedSync();
       });
       resizeObserver.observe(valueTableRef.current);
     }
 
-    if (valueTableContainerRef.current) {
-      if (!resizeObserver) {
-        resizeObserver = new ResizeObserver(() => {
-          debouncedSync();
-        });
-      }
-      resizeObserver.observe(valueTableContainerRef.current);
-    }
-
-    // Also sync on window resize
+    // Also sync on window resize (with debouncing)
     const handleResize = () => {
       debouncedSync();
     };
     window.addEventListener('resize', handleResize);
-      
+
     return () => {
-      if (initialTimeoutId) clearTimeout(initialTimeoutId);
       if (dataTimeoutId) clearTimeout(dataTimeoutId);
       if (debounceTimer) clearTimeout(debounceTimer);
       if (resizeObserver) resizeObserver.disconnect();
       window.removeEventListener('resize', handleResize);
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId);
-      }
     };
-  }, [selectedDates, isLoading, transactionData, itemsPerPage]);
+  }, [transactionData, isLoading, isDataReady, itemsPerPage]); // Removed selectedDates - only sync when data changes, not when dates change
 
   // Synchronize horizontal scroll between Value and Net tables
   useEffect(() => {
@@ -2821,6 +2923,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               // Clear existing data before fetching new data
               setTransactionData(new Map());
               setIsDataReady(false);
+              // Set ref first (synchronous), then state (async)
+              shouldFetchDataRef.current = true;
               setShouldFetchData(true);
             }}
             disabled={isLoading || selectedBrokers.length === 0 || selectedDates.length === 0}
