@@ -1828,6 +1828,21 @@ export const api = {
     }
   },
 
+  // Get sector mapping (stock code -> sector name)
+  async getSectorMapping(): Promise<{ success: boolean; data?: { stockToSector: { [stock: string]: string }; sectors: string[]; sectorMapping: { [sector: string]: string[] } }; error?: string }> {
+    try {
+      const res = await fetch(`${API_URL}/api/stock/sector-mapping`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get sector mapping');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get sector mapping' };
+    }
+  },
+
   // Get latest available date for a specific stock
   async getLatestStockDate(stockCode: string): Promise<{ success: boolean; data?: { latestDate: string; stockCode: string }; error?: string }> {
     try {
@@ -2430,12 +2445,38 @@ export const api = {
   // Get available dates for broker transaction data
   async getBrokerTransactionDates(): Promise<{ success: boolean; data?: { dates: string[] }; error?: string }> {
     try {
-      const response = await fetch(`${API_URL}/api/broker/transaction/dates`);
+      // Increase timeout to 60 seconds for Azure Blob Storage operations
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+      
+      const response = await fetch(`${API_URL}/api/broker/transaction/dates`, {
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[API] getBrokerTransactionDates error response:', response.status, errorText);
+        return { 
+          success: false, 
+          error: `HTTP ${response.status}: ${errorText || 'Failed to get broker transaction dates'}` 
+        };
+      }
+      
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Failed to get available dates');
+      console.log('[API] getBrokerTransactionDates success:', data);
       return { success: true, data: data.data };
     } catch (err: any) {
-      return { success: false, error: err.message || 'Failed to get available dates' };
+      if (err.name === 'AbortError') {
+        console.error('[API] getBrokerTransactionDates timeout after 60 seconds');
+        return { success: false, error: 'Request timeout - Azure Blob Storage operation took too long' };
+      }
+      console.error('[API] getBrokerTransactionDates error:', err);
+      return { success: false, error: err.message || 'Failed to get broker transaction dates' };
     }
   },
 

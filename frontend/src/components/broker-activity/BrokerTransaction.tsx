@@ -53,8 +53,8 @@ interface BrokerTransactionData {
   NetSellAvg?: number; // Calculated Net Sell Average
 }
 
-// Cache expiration time: 5 minutes
-const CACHE_EXPIRY_MS = 5 * 60 * 1000;
+// Cache expiration time: 30 minutes (increased for better performance)
+const CACHE_EXPIRY_MS = 30 * 60 * 1000;
 
 // Fetch broker transaction data from API (with caching)
 const fetchBrokerTransactionData = async (
@@ -70,12 +70,10 @@ const fetchBrokerTransactionData = async (
   }
   
   const cacheKey = `${brokerCode}-${date}-${market}`;
-  const now = Date.now();
   const cached = cache.get(cacheKey);
   
-  // Check cache first
-  if (cached && (now - cached.timestamp) <= CACHE_EXPIRY_MS) {
-    console.log(`[BrokerTransaction] Using cached data for ${brokerCode} on ${date}`);
+  // Check cache first (optimized - no timestamp check needed here, already checked in loadTransactionData)
+  if (cached) {
     return cached.data;
   }
   
@@ -85,7 +83,6 @@ const fetchBrokerTransactionData = async (
   }
   
   try {
-    console.log(`[BrokerTransaction] Fetching data for broker: ${brokerCode}, date: ${date}, market: ${market || 'All'}`);
     const response = await api.getBrokerTransactionData(brokerCode, date, market);
     
     // Check if aborted after API call
@@ -95,21 +92,18 @@ const fetchBrokerTransactionData = async (
     
     if (response.success && response.data?.transactionData) {
       const data = response.data.transactionData;
-      console.log(`[BrokerTransaction] Received ${data.length} rows for ${brokerCode} on ${date}`);
       
       // Store in cache
-      cache.set(cacheKey, { data, timestamp: now });
-      console.log(`[BrokerTransaction] Cached data for ${brokerCode} on ${date}`);
+      cache.set(cacheKey, { data, timestamp: Date.now() });
       
       return data;
     }
-    console.warn(`[BrokerTransaction] No data received for ${brokerCode} on ${date}`);
     return [];
   } catch (error: any) {
     if (error?.message === 'Fetch aborted' || abortSignal?.aborted) {
       throw error;
     }
-    console.error(`[BrokerTransaction] Error fetching data for ${brokerCode} on ${date}:`, error);
+    // Silently return empty array on error to not slow down with console.error
     return [];
   }
 };
@@ -201,6 +195,9 @@ const getLastThreeDays = (): string[] => {
   return getTradingDays(3);
 };
 
+// Note: Sector filter is now used instead of F/D filter
+// Sector mapping is loaded from backend API
+
 export function BrokerTransaction() {
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
 
@@ -261,29 +258,30 @@ export function BrokerTransaction() {
   const valueTableContainerRef = useRef<HTMLDivElement>(null);
   const netTableContainerRef = useRef<HTMLDivElement>(null);
   
-  // Store date column widths from Value table
-  const dateColumnWidthsRef = useRef<Map<string, number>>(new Map());
+  // Refs for lazy loading intersection observer
+  const valueTableSentinelRef = useRef<HTMLTableCellElement>(null);
+  const netTableSentinelRef = useRef<HTMLTableCellElement>(null);
+  
+  // Ref to track if column width sync has been done (prevent infinite loop)
+  const hasSyncedColumnWidthsRef = useRef<boolean>(false);
+  // Store column widths to maintain consistency after lazy loading
+  const columnWidthsRef = useRef<number[]>([]);
   
   // API data states
   const [transactionData, setTransactionData] = useState<Map<string, BrokerTransactionData[]>>(new Map());
+  // Store raw data (before ticker filtering) for availableTickers extraction
+  const [rawTransactionData, setRawTransactionData] = useState<Map<string, BrokerTransactionData[]>>(new Map());
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [availableBrokers, setAvailableBrokers] = useState<string[]>([]);
   const [isDataReady, setIsDataReady] = useState<boolean>(false); // Control when to show tables
   const [shouldFetchData, setShouldFetchData] = useState<boolean>(false); // Control when to fetch data (only when Show button clicked)
   
-  // F/D Filter states
-  const [fdFilter, setFdFilter] = useState<'All' | 'Foreign' | 'Domestic'>('All');
-  const [marketFilter, setMarketFilter] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Default to RG
-  
-  // Foreign brokers (red background) - same as BrokerSummaryPage
-  const FOREIGN_BROKERS = [
-    "AG", "AH", "AI", "AK", "BK", "BQ", "CG", "CS", "DP", "DR", "DU", "FS", "GW", "HD", "KK", 
-    "KZ", "LH", "LG", "LS", "MS", "NI", "RB", "RX", "TX", "YP", "YU", "ZP"
-  ];
-  
-  // Government brokers (green background) - same as BrokerSummaryPage
-  const GOVERNMENT_BROKERS: string[] = []; // Add if needed
+  // Sector Filter states (changed from F/D filter)
+  const [sectorFilter, setSectorFilter] = useState<string>('All'); // 'All' or sector name
+  const [availableSectors, setAvailableSectors] = useState<string[]>([]); // List of available sectors
+  const [stockToSectorMap, setStockToSectorMap] = useState<{ [stock: string]: string }>({}); // Stock code -> sector name mapping
+  const [marketFilter, setMarketFilter] = useState<'RG' | 'TN' | 'NG' | ''>(''); // Default to All Trade
   
   // Multi-select ticker states
   const [tickerInput, setTickerInput] = useState('');
@@ -291,49 +289,100 @@ export function BrokerTransaction() {
   const [showTickerSuggestions, setShowTickerSuggestions] = useState(false);
   const [highlightedTickerIndex, setHighlightedTickerIndex] = useState<number>(-1);
   const dropdownTickerRef = useRef<HTMLDivElement>(null);
+  
+  // OPTIMIZED: Memoize ticker extraction to prevent freeze on dropdown
+  // FIXED: Use rawTransactionData (before ticker filtering) to show all available tickers for selected broker(s)
+  const availableTickers = useMemo(() => {
+    const allTickers = new Set<string>();
+    if (isDataReady && rawTransactionData.size > 0) {
+      // Extract from all dates in rawTransactionData (before filtering) to show all available tickers
+      rawTransactionData.forEach((dateData) => {
+        dateData.forEach(item => {
+          if (item.BCode) allTickers.add(item.BCode);
+          if (item.SCode) allTickers.add(item.SCode);
+          if (item.NBCode) allTickers.add(item.NBCode);
+          if (item.NSCode) allTickers.add(item.NSCode);
+        });
+      });
+    }
+    return Array.from(allTickers).sort();
+  }, [rawTransactionData, isDataReady]); // Use rawTransactionData instead of transactionData to show all tickers
 
   // Request cancellation ref
   const abortControllerRef = useRef<AbortController | null>(null);
   const shouldFetchDataRef = useRef<boolean>(false); // Ref to track shouldFetchData for async functions (always up-to-date)
+  const hasInitialAutoFetchRef = useRef<boolean>(false); // Track if initial auto-fetch has been triggered
   
   // Cache for API responses to avoid redundant calls
   // Key format: `${broker}-${date}-${market}`
   const dataCacheRef = useRef<Map<string, { data: BrokerTransactionData[]; timestamp: number }>>(new Map());
   
-  // Pagination states for performance
-  const [currentPage, setCurrentPage] = useState<number>(1);
-  const [itemsPerPage, setItemsPerPage] = useState<number>(50); // Limit to 50 rows per page
-
-  // Helper function to filter brokers by F/D
-  const brokerFDScreen = (broker: string): boolean => {
-    if (fdFilter === 'Foreign') {
-      return FOREIGN_BROKERS.includes(broker) && !GOVERNMENT_BROKERS.includes(broker);
-    }
-    if (fdFilter === 'Domestic') {
-      return (!FOREIGN_BROKERS.includes(broker) || GOVERNMENT_BROKERS.includes(broker));
-    }
-    return true; // All
-  };
+  // Virtual scrolling states for performance
+  // FIXED: Always start with exactly 20 rows (like BrokerSummary MAX_DISPLAY_ROWS)
+  const MAX_DISPLAY_ROWS = 20;
+  const [visibleRowCount, setVisibleRowCount] = useState<number>(MAX_DISPLAY_ROWS); // Start with 20 visible rows
   
-  // Reset to first page when filters change
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [fdFilter, selectedBrokers, selectedDates]);
+  // FIXED: Don't reset visible rows on input change - only reset when data actually changes
+  // This prevents unnecessary re-renders when user changes input
+  // Visible rows will reset automatically when new data is loaded (via transactionData change)
 
-  // Load available brokers and initial dates on component mount
+  // Load available brokers, tickers, and initial dates on component mount
+  // IMPORTANT: This effect runs ONLY ONCE on mount - auto-load default data
   useEffect(() => {
     const loadInitialData = async () => {
+      setIsLoading(true);
       try {
-        // Load broker list from csv_input/broker_list.csv
-        const brokerResponse = await api.getBrokerList();
+        // OPTIMIZED: Try to load sector mapping from localStorage first for instant colors
+        const SECTOR_MAPPING_CACHE_KEY = 'broker_transaction_sector_mapping';
+        const SECTOR_MAPPING_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+        
+        let cachedSectorMapping: { stockToSector: { [stock: string]: string }; sectors: string[]; timestamp: number } | null = null;
+        try {
+          const cached = localStorage.getItem(SECTOR_MAPPING_CACHE_KEY);
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (parsed.timestamp && (Date.now() - parsed.timestamp) < SECTOR_MAPPING_CACHE_TTL) {
+              cachedSectorMapping = parsed;
+              // Set cached sector mapping immediately for instant colors
+              setStockToSectorMap(parsed.stockToSector);
+              setAvailableSectors(['All', ...parsed.sectors]);
+            }
+          }
+        } catch (e) {
+          // Ignore cache errors
+        }
+        
+        // OPTIMIZED: Load broker list, dates, and sector mapping in parallel for faster initial load
+        // Sector mapping is needed for stock coloring, so we load it early but still in parallel
+        const [brokerResponse, initialDates, sectorResponse] = await Promise.all([
+          api.getBrokerList(),
+          getAvailableTradingDays(3),
+          cachedSectorMapping ? Promise.resolve({ success: true, data: cachedSectorMapping }) : api.getSectorMapping()
+        ]);
+        
         if (brokerResponse.success && brokerResponse.data?.brokers) {
           setAvailableBrokers(brokerResponse.data.brokers);
         } else {
           throw new Error('Failed to load broker list');
         }
         
-        // Load initial dates based on available data - default to last 3 trading days
-        const initialDates = await getAvailableTradingDays(3);
+        // Update sector mapping if we got fresh data (not from cache)
+        if (sectorResponse.success && sectorResponse.data && !cachedSectorMapping) {
+          setStockToSectorMap(sectorResponse.data.stockToSector);
+          setAvailableSectors(['All', ...sectorResponse.data.sectors]);
+          // Cache for next time
+          try {
+            localStorage.setItem(SECTOR_MAPPING_CACHE_KEY, JSON.stringify({
+              stockToSector: sectorResponse.data.stockToSector,
+              sectors: sectorResponse.data.sectors,
+              timestamp: Date.now()
+            }));
+          } catch (e) {
+            // Ignore cache errors
+          }
+        } else if (!cachedSectorMapping && (!sectorResponse.success || !sectorResponse.data)) {
+          console.warn('[BrokerTransaction] Failed to load sector mapping, sector filter will not work');
+        }
         // Sort by date (oldest first) for display
         const sortedDates = [...initialDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
         
@@ -344,8 +393,44 @@ export function BrokerTransaction() {
           setEndDate(sortedDates[sortedDates.length - 1]);
         }
         
+        // Capture current values for auto-fetch
+        const currentBrokers = ['AK']; // Default broker
+        const currentTickers: string[] = []; // Empty array - show all tickers (no filter)
+        const datesToUse = [...sortedDates];
+        
+        // Trigger initial auto-fetch AFTER all states are set
+        // CRITICAL: Use setTimeout to ensure all state updates are batched and applied
+        setTimeout(() => {
+          // Only trigger if initial fetch hasn't happened AND we have dates and brokers
+          // Note: tickers can be empty (show all) - so we don't require currentTickers.length > 0
+          if (!hasInitialAutoFetchRef.current && 
+              datesToUse.length > 0 && 
+              currentBrokers.length > 0) {
+            // Mark as triggered IMMEDIATELY (synchronously) before any async operations
+            hasInitialAutoFetchRef.current = true;
+            console.log('[BrokerTransaction] Initial auto-fetch triggered', {
+              dates: datesToUse,
+              brokers: currentBrokers,
+              tickers: currentTickers.length > 0 ? currentTickers : 'ALL (no filter)'
+            });
+            // Set ref first (synchronous), then state (async)
+            shouldFetchDataRef.current = true;
+            setShouldFetchData(true);
+          } else {
+            console.log('[BrokerTransaction] Initial auto-fetch skipped', {
+              hasInitialAutoFetchRef: hasInitialAutoFetchRef.current,
+              datesLength: datesToUse.length,
+              brokersLength: currentBrokers.length
+            });
+            setIsLoading(false);
+          }
+        }, 0);
+        
+        // Loading akan di-reset oleh loadTransactionData
+        
       } catch (error) {
         console.error('Error loading initial data:', error);
+        setIsLoading(false);
         
         // Fallback to hardcoded broker list and local date calculation
         const brokers = ['MG','CIMB','UOB','COIN','NH','TRIM','DEWA','BNCA','PNLF','VRNA','SD','LMGA','DEAL','ESA','SSA','AK'];
@@ -365,7 +450,7 @@ export function BrokerTransaction() {
     };
 
     loadInitialData();
-  }, []);
+  }, []); // IMPORTANT: Empty dependency array - only run once on mount
 
   // Load transaction data only when shouldFetchData is true (triggered by Show button)
   useEffect(() => {
@@ -394,11 +479,16 @@ export function BrokerTransaction() {
       
       if (selectedBrokers.length === 0 || selectedDates.length === 0) {
         setTransactionData(new Map());
+        setRawTransactionData(new Map()); // Clear raw data too
         setIsDataReady(false);
         setShouldFetchData(false);
         shouldFetchDataRef.current = false;
         return;
       }
+      
+      // CRITICAL: No need to filter brokers by sector - we filter by stock sector after fetching
+      // All selected brokers will be fetched, then data will be filtered by stock sector
+      const filteredBrokers = selectedBrokers;
       
       // CRITICAL: Check ref again after validation
       if (!shouldFetchDataRef.current || abortController.signal.aborted) {
@@ -413,6 +503,7 @@ export function BrokerTransaction() {
       
       try {
         const newTransactionData = new Map<string, BrokerTransactionData[]>();
+        const newRawTransactionData = new Map<string, BrokerTransactionData[]>(); // Store raw data before filtering
         const cache = dataCacheRef.current;
         const now = Date.now();
         
@@ -423,80 +514,125 @@ export function BrokerTransaction() {
           }
         }
         
-        // OPTIMIZED: Fetch all data in parallel with batching to avoid overwhelming browser
-        // Batch size: 10 concurrent requests at a time for better performance and stability
-        const BATCH_SIZE = 10;
-        
-        // Create all fetch task descriptions (NOT promises yet - create promises only when needed)
+        // OPTIMIZED: Fetch all data in parallel with smart batching
+        // Separate cached and uncached requests for optimal performance
+        // CRITICAL: Use filteredBrokers (already filtered by F/D) instead of selectedBrokers
         const allFetchTasks = selectedDates.flatMap(date =>
-          selectedBrokers.map(broker => ({ broker, date }))
+          filteredBrokers.map((broker: string) => ({ broker, date }))
         );
         
-        console.log(`[BrokerTransaction] Fetching ${allFetchTasks.length} broker-date combinations in batches of ${BATCH_SIZE}...`);
+        // Check cache first and separate cached vs uncached requests
+        const cachedResults: Array<{ date: string; broker: string; data: BrokerTransactionData[] }> = [];
+        const uncachedTasks: Array<{ broker: string; date: string }> = [];
         
-        // Process in batches to avoid overwhelming browser with too many concurrent requests
-        const allDataResults: Array<{ date: string; broker: string; data: BrokerTransactionData[] }> = [];
+        allFetchTasks.forEach(({ broker, date }) => {
+          const cacheKey = `${broker}-${date}-${marketFilter}`;
+          const cached = cache.get(cacheKey);
+          if (cached && (now - cached.timestamp) <= CACHE_EXPIRY_MS) {
+            cachedResults.push({ date, broker, data: cached.data });
+          } else {
+            uncachedTasks.push({ broker, date });
+          }
+        });
         
-        for (let i = 0; i < allFetchTasks.length; i += BATCH_SIZE) {
-          // CRITICAL: Check ref before each batch - user might have changed dates
+        console.log(`[BrokerTransaction] Cache hit: ${cachedResults.length}/${allFetchTasks.length}, Fetching ${uncachedTasks.length} uncached requests...`);
+        
+        // Use cached data immediately
+        const allDataResults: Array<{ date: string; broker: string; data: BrokerTransactionData[] }> = [...cachedResults];
+        
+        // OPTIMIZED: Fetch all uncached data in parallel with concurrency limit for maximum speed
+        // Using concurrency limit prevents browser from being overwhelmed while still being fast
+        // Increased to 50 for faster loading (browser can handle this easily)
+        const CONCURRENCY_LIMIT = 50;
+        
+        if (uncachedTasks.length > 0) {
+          // Show cached data immediately if available
+          if (cachedResults.length > 0) {
+            const cachedDataMap = new Map<string, BrokerTransactionData[]>();
+            const cachedRawDataMap = new Map<string, BrokerTransactionData[]>();
+            cachedResults.forEach(({ date, data }) => {
+              const existing = cachedDataMap.get(date) || [];
+              cachedDataMap.set(date, [...existing, ...data]);
+              const existingRaw = cachedRawDataMap.get(date) || [];
+              cachedRawDataMap.set(date, [...existingRaw, ...data]);
+            });
+            setTransactionData(cachedDataMap);
+            setRawTransactionData(cachedRawDataMap);
+            setIsDataReady(true);
+          }
+          
+          // Process all uncached tasks with concurrency limit
+          const processWithConcurrency = async () => {
+            let completedCount = 0;
+            let hasShownFirstData = cachedResults.length > 0;
+            
+            // Process in chunks with concurrency limit
+            for (let i = 0; i < uncachedTasks.length; i += CONCURRENCY_LIMIT) {
+              // CRITICAL: Check ref before each chunk
           if (!shouldFetchDataRef.current || abortController.signal.aborted) {
-            console.log('[BrokerTransaction] Fetch aborted before batch processing');
-            setIsLoading(false);
-            setIsDataReady(false);
             return;
           }
           
-          const batch = allFetchTasks.slice(i, i + BATCH_SIZE);
-          const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-          const totalBatches = Math.ceil(allFetchTasks.length / BATCH_SIZE);
-          
-          console.log(`[BrokerTransaction] Processing batch ${batchNum}/${totalBatches} (${batch.length} requests)...`);
-          
-          try {
-            // Create promises only for this batch (not all at once)
-            const batchPromises = batch.map(({ broker, date }) => 
+              const chunk = uncachedTasks.slice(i, i + CONCURRENCY_LIMIT);
+              
+              // Fetch all in this chunk in parallel
+              const chunkPromises = chunk.map(({ broker, date }) => 
               fetchBrokerTransactionData(broker, date, marketFilter, cache, abortController.signal)
+                  .then(data => ({ success: true, broker, date, data }))
+                  .catch(error => ({ success: false, broker, date, error }))
             );
             
-            // Wait for current batch to complete
-            const batchResults = await Promise.allSettled(batchPromises);
+              // Wait for chunk to complete
+              const chunkResults = await Promise.all(chunkPromises);
             
-            // CRITICAL: Check ref after each batch - user might have changed dates
+              // CRITICAL: Check ref after chunk
             if (!shouldFetchDataRef.current || abortController.signal.aborted) {
-              console.log('[BrokerTransaction] Fetch aborted after batch processing');
-              setIsLoading(false);
-              setIsDataReady(false);
               return;
             }
             
-            // Process batch results
-            batchResults.forEach((result, idx) => {
-              const task = batch[idx];
-              if (!task) return;
-              const { broker, date } = task;
-              if (result.status === 'fulfilled') {
-                const data = result.value;
-                if (data && data.length > 0) {
-                  allDataResults.push({ date, broker, data });
-                  console.log(`[BrokerTransaction] Success for ${broker} on ${date}: ${data.length} rows`);
+              // Process chunk results
+              chunkResults.forEach((result) => {
+                if (result.success && 'data' in result && result.data && result.data.length > 0) {
+                  allDataResults.push({ date: result.date, broker: result.broker, data: result.data });
+                  completedCount++;
                 }
-              } else {
-                console.error(`[BrokerTransaction] Error for ${broker} on ${date}:`, result.status === 'rejected' ? result.reason : 'Unknown error');
+              });
+              
+              // OPTIMIZED: Update UI incrementally every chunk for faster perceived performance
+              // This makes the UI feel much faster - user sees data updating progressively
+              if (allDataResults.length > 0) {
+                const currentDataMap = new Map<string, BrokerTransactionData[]>();
+                const currentRawDataMap = new Map<string, BrokerTransactionData[]>();
+                
+                allDataResults.forEach(({ date, data }) => {
+                  const existing = currentDataMap.get(date) || [];
+                  currentDataMap.set(date, [...existing, ...data]);
+                  const existingRaw = currentRawDataMap.get(date) || [];
+                  currentRawDataMap.set(date, [...existingRaw, ...data]);
+                });
+                
+                // Update state incrementally
+                setTransactionData(currentDataMap);
+                setRawTransactionData(currentRawDataMap);
+                
+                // Show data immediately on first chunk if not shown yet
+                if (!hasShownFirstData) {
+                  setIsDataReady(true);
+                  hasShownFirstData = true;
+                }
               }
-            });
-            
-            console.log(`[BrokerTransaction] Batch ${batchNum}/${totalBatches} completed`);
+            }
+          };
+          
+          try {
+            await processWithConcurrency();
           } catch (error: any) {
             // If aborted, silently abort
             if (error?.message === 'Fetch aborted' || !shouldFetchDataRef.current || abortController.signal.aborted) {
-              console.log('[BrokerTransaction] Batch aborted');
-              setIsLoading(false);
-              setIsDataReady(false);
               return;
             }
-            
-            // For other errors, log but continue with next batch
-            console.error(`[BrokerTransaction] Error in batch ${batchNum}:`, error);
+            // For other errors, log but continue
+            console.error('[BrokerTransaction] Error in parallel fetch:', error);
           }
         }
         
@@ -508,7 +644,7 @@ export function BrokerTransaction() {
           return;
         }
         
-        console.log(`[BrokerTransaction] Completed ${allDataResults.length}/${allFetchTasks.length} successful fetches`);
+        // Reduced logging for better performance
         
         // Process data per date - AGGREGATE per Emiten and per section (Buy, Sell, Net Buy, Net Sell)
         // When multiple brokers are selected, sum values for the same Emiten
@@ -681,9 +817,34 @@ export function BrokerTransaction() {
           });
           
           // Convert map to array
-          const allRows = Array.from(aggregatedMap.values());
+          let allRows = Array.from(aggregatedMap.values());
+          
+          // FIXED: Store raw data (before filtering) for availableTickers extraction
+          // This ensures dropdown always shows all available tickers for selected broker(s)
+          const rawRows = [...allRows]; // Copy before filtering
+          
+          // Filter by selectedTickers if provided (only when Show button is clicked)
+          if (selectedTickers.length > 0) {
+            allRows = allRows.filter(row => {
+              // Check if row matches any selected ticker in any section (BCode, SCode, NBCode, NSCode)
+              const bCode = row.BCode || '';
+              const sCode = row.SCode || '';
+              const nbCode = row.NBCode || '';
+              const nsCode = row.NSCode || '';
+              const emiten = row.Emiten || '';
+              
+              return selectedTickers.includes(bCode) || 
+                     selectedTickers.includes(sCode) || 
+                     selectedTickers.includes(nbCode) || 
+                     selectedTickers.includes(nsCode) ||
+                     selectedTickers.includes(emiten);
+            });
+          }
+          
+          // Store raw data (before filtering) for availableTickers
+          newRawTransactionData.set(date, rawRows);
+          // Store filtered data for display
           newTransactionData.set(date, allRows);
-          console.log(`[BrokerTransaction] Aggregated data for ${date}: ${allRows.length} unique Emiten(s) from ${selectedBrokers.length} broker(s)`);
         }
         
         // CRITICAL: Check ref again before setting data - user might have changed dates during aggregation
@@ -695,10 +856,14 @@ export function BrokerTransaction() {
         }
         
         // Store data first (but tables won't show yet because isDataReady is still false)
+        // FIXED: Store both raw data (for availableTickers) and filtered data (for display)
+        setRawTransactionData(newRawTransactionData);
         setTransactionData(newTransactionData);
         
-        const totalRows = Array.from(newTransactionData.values()).reduce((sum, arr) => sum + arr.length, 0);
-        console.log(`[BrokerTransaction] Total aggregated rows: ${totalRows} across ${newTransactionData.size} dates from ${selectedBrokers.join(', ')}`);
+        // CRITICAL: Reset column width sync flag when new data is loaded
+        // This ensures sync happens for new data (not just first time)
+        hasSyncedColumnWidthsRef.current = false;
+        columnWidthsRef.current = [];
         
         // CRITICAL: Final check before marking data ready
         if (!shouldFetchDataRef.current || abortController.signal.aborted) {
@@ -713,6 +878,9 @@ export function BrokerTransaction() {
         
         // OPTIMIZED: Show data immediately after state update
         // Column width sync will happen after data is visible (non-blocking)
+        // CRITICAL: Update both transactionData and rawTransactionData
+        setTransactionData(newTransactionData);
+        setRawTransactionData(newRawTransactionData);
         setIsDataReady(true);
         setShouldFetchData(false);
         shouldFetchDataRef.current = false;
@@ -752,8 +920,9 @@ export function BrokerTransaction() {
         abortControllerRef.current = null;
       }
     };
-    // Only depend on shouldFetchData - selectedBrokers, selectedDates, marketFilter are already accessed inside
-    // This prevents auto-fetch when dates/brokers change - only fetch when Show button is clicked
+    // CRITICAL: Only depend on shouldFetchData - selectedBrokers, selectedDates, marketFilter, sectorFilter are already accessed inside
+    // This prevents auto-fetch when dates/brokers/filters change - only fetch when Show button is clicked
+    // sectorFilter and marketFilter are accessed inside the function, but should NOT trigger auto-fetch
   }, [shouldFetchData]);
 
   // Update date range when startDate or endDate changes
@@ -900,17 +1069,73 @@ export function BrokerTransaction() {
     // Wait for tables to be ready (data loaded and DOM rendered)
     if (isLoading || !isDataReady) return;
 
+    // FIXED: Flag to prevent infinite loop from ResizeObserver
+    let isSyncing = false;
+
     const syncTableWidths = () => {
+      // GUARD: Prevent recursive calls
+      if (isSyncing) return;
+      
+      const valueContainer = valueTableContainerRef.current;
+      const netContainer = netTableContainerRef.current;
       const valueTable = valueTableRef.current;
       const netTable = netTableRef.current;
 
-      if (!valueTable || !netTable) return;
+      if (!valueContainer || !netContainer || !valueTable || !netTable) return;
+      
+      // Set flag to prevent recursive calls
+      isSyncing = true;
 
-      // ROOT CAUSE FIX: Use table-layout: fixed to ensure exact column width matching
-      // Step 1: Let VALUE table calculate column widths naturally with auto layout first
+      // Step 1: Sync container widths first - ensure both use full available width
+      // Get the actual available width from parent container
+      const valueParentWrapper = valueContainer.parentElement;
+      const netParentWrapper = netContainer.parentElement;
+      const valueTableWrapper = valueParentWrapper?.parentElement;
+      const netTableWrapper = netParentWrapper?.parentElement;
+      
+      // Ensure all wrappers use full width
+      if (valueParentWrapper && netParentWrapper) {
+        valueParentWrapper.style.width = '100%';
+        valueParentWrapper.style.minWidth = '100%';
+        valueParentWrapper.style.maxWidth = '100%';
+        netParentWrapper.style.width = '100%';
+        netParentWrapper.style.minWidth = '100%';
+        netParentWrapper.style.maxWidth = '100%';
+      }
+      
+      if (valueTableWrapper && netTableWrapper) {
+        valueTableWrapper.style.width = '100%';
+        valueTableWrapper.style.minWidth = '100%';
+        valueTableWrapper.style.maxWidth = '100%';
+        netTableWrapper.style.width = '100%';
+        netTableWrapper.style.minWidth = '100%';
+        netTableWrapper.style.maxWidth = '100%';
+      }
+      
+      // Sync container widths - use full width
+      valueContainer.style.width = '100%';
+      valueContainer.style.minWidth = '100%';
+      valueContainer.style.maxWidth = '100%';
+      netContainer.style.width = '100%';
+      netContainer.style.minWidth = '100%';
+      netContainer.style.maxWidth = '100%';
+      
+      // Sync widths between containers to ensure they match
+      const valueContainerWidth = valueContainer.offsetWidth || valueContainer.clientWidth;
+      if (valueContainerWidth > 0) {
+        netContainer.style.width = `${valueContainerWidth}px`;
+        netContainer.style.minWidth = `${valueContainerWidth}px`;
+      }
+
+      // Step 2: Let VALUE table calculate column widths naturally with auto layout first
       valueTable.style.tableLayout = 'auto';
-
-      // Step 2: Measure all column widths from VALUE table (header + body cells)
+      netTable.style.tableLayout = 'auto';
+      
+      // Force a reflow to ensure layout is stable before measuring
+      void valueTable.offsetWidth;
+      void netTable.offsetWidth;
+      
+      // Step 3: Measure column widths from VALUE table after it stabilizes
       const valueHeaderRows = valueTable.querySelectorAll('thead tr');
       const netHeaderRows = netTable.querySelectorAll('thead tr');
 
@@ -923,139 +1148,412 @@ export function BrokerTransaction() {
           const netHeaderCells = Array.from(netColumnHeaderRow.querySelectorAll('th'));
           const valueBodyRows = valueTable.querySelectorAll('tbody tr');
 
-          // Calculate exact width for each column from VALUE table
+          // Ensure both tables have same number of columns
+          if (valueHeaderCells.length === netHeaderCells.length) {
+            // Calculate column widths from VALUE table
           const columnWidths: number[] = [];
 
           valueHeaderCells.forEach((valueCell, index) => {
             const valueEl = valueCell as HTMLElement;
-            // Start with header width
-            let maxWidth = Math.max(valueEl.scrollWidth, valueEl.offsetWidth);
-
-            // Check visible body cells in this column to find maximum width (limit to visible rows for performance)
-            const maxRowsToCheck = Math.min(valueBodyRows.length, itemsPerPage + 10);
-            for (let rowIdx = 0; rowIdx < maxRowsToCheck; rowIdx++) {
-              const row = valueBodyRows[rowIdx];
-              if (!row) continue;
+              
+              // CRITICAL: For accurate measurement, prioritize body cells over header cells
+              // Body cells have actual data and more accurate widths, especially for first column
+              let maxWidth = 0;
+              let minWidth = Infinity;
+              let widthsWithBorder: number[] = [];
+              let widthsWithoutBorder: number[] = [];
+              
+              // First, measure from body cells (more accurate, especially for first column with border-l-2)
+              valueBodyRows.forEach((row) => {
               const cells = row.querySelectorAll('td');
               if (cells[index]) {
                 const cellEl = cells[index] as HTMLElement;
-                const cellWidth = Math.max(cellEl.scrollWidth, cellEl.offsetWidth);
+                  // Use getBoundingClientRect().width for more accurate measurement
+                  // This gives the actual rendered width including all borders and padding
+                  const cellRect = cellEl.getBoundingClientRect();
+                  const cellWidth = cellRect.width;
                 maxWidth = Math.max(maxWidth, cellWidth);
+                  minWidth = Math.min(minWidth, cellWidth);
+                  
+                  // For first column, check if this cell has border-l-2
+                  if (index === 0) {
+                    const computedStyle = window.getComputedStyle(cellEl);
+                    const borderLeft = parseFloat(computedStyle.borderLeftWidth) || 0;
+                    if (borderLeft >= 2) {
+                      widthsWithBorder.push(cellWidth);
+                    } else {
+                      widthsWithoutBorder.push(cellWidth);
+                    }
+                  }
+                }
+              });
+              
+              // If no body cells found, fallback to header cell
+              if (maxWidth === 0) {
+                const headerRect = valueEl.getBoundingClientRect();
+                maxWidth = headerRect.width;
+              } else {
+                // Ensure header cell matches the body cell width
+                // This is especially important for first column with border-l-2
+                const headerRect = valueEl.getBoundingClientRect();
+                // Use the larger of body width or header width to ensure consistency
+                maxWidth = Math.max(maxWidth, headerRect.width);
               }
+              
+              // CRITICAL: For first column (index 0), use the width from cells WITH border-l-2
+              // This ensures consistent width and eliminates the "space kosong" issue
+              if (index === 0 && widthsWithBorder.length > 0) {
+                // Use the average width of cells with border-l-2 (more accurate)
+                const avgWidthWithBorder = widthsWithBorder.reduce((sum, w) => sum + w, 0) / widthsWithBorder.length;
+                maxWidth = avgWidthWithBorder;
+              } else if (index === 0 && widthsWithoutBorder.length > 0 && widthsWithBorder.length === 0) {
+                // If no cells with border found, use cells without border and add border width
+                const avgWidthWithoutBorder = widthsWithoutBorder.reduce((sum, w) => sum + w, 0) / widthsWithoutBorder.length;
+                const computedStyle = window.getComputedStyle(valueEl);
+                const borderLeft = parseFloat(computedStyle.borderLeftWidth) || 0;
+                maxWidth = avgWidthWithoutBorder + borderLeft;
             }
 
             columnWidths[index] = maxWidth;
           });
 
-          // Step 3: Apply fixed layout to both tables with exact widths
+            // Store column widths in ref for later use
+            columnWidthsRef.current = columnWidths;
+            
+            // Step 4: Apply fixed layout and sync widths to both tables
+            // CRITICAL: Set fixed layout FIRST before applying widths
           valueTable.style.tableLayout = 'fixed';
           netTable.style.tableLayout = 'fixed';
 
-          // Step 4: Apply exact widths to VALUE table headers (to lock them)
+            // Force a reflow after setting fixed layout
+            void valueTable.offsetWidth;
+            void netTable.offsetWidth;
+            
+            // Apply widths to VALUE table headers (lock widths to prevent reflow changes)
           valueHeaderCells.forEach((valueCell, index) => {
             const valueEl = valueCell as HTMLElement;
             const width = columnWidths[index];
             if (width && width > 0) {
+                // Lock width with all three properties to prevent browser from changing it
               valueEl.style.width = `${width}px`;
               valueEl.style.minWidth = `${width}px`;
               valueEl.style.maxWidth = `${width}px`;
+                // Also set box-sizing to ensure border is included correctly
+                valueEl.style.boxSizing = 'border-box';
             }
           });
 
-          // Step 5: Apply exact same widths to NET table headers
+            // Apply same widths to NET table headers (to match VALUE table)
           netHeaderCells.forEach((netCell, index) => {
             const netEl = netCell as HTMLElement;
             const width = columnWidths[index];
             if (width && width > 0) {
+                // Lock width with all three properties to prevent browser from changing it
               netEl.style.width = `${width}px`;
               netEl.style.minWidth = `${width}px`;
               netEl.style.maxWidth = `${width}px`;
+                // Also set box-sizing to ensure border is included correctly
+                netEl.style.boxSizing = 'border-box';
             }
           });
 
-          // Step 6: Apply exact widths to visible body cells in both tables
+            // Apply widths to body cells in both tables (lock to prevent reflow changes)
           const netBodyRows = netTable.querySelectorAll('tbody tr');
-          const maxRows = Math.min(Math.max(valueBodyRows.length, netBodyRows.length), itemsPerPage + 10);
-
-          for (let rowIdx = 0; rowIdx < maxRows; rowIdx++) {
-            const valueRow = valueBodyRows[rowIdx] as HTMLTableRowElement;
-            const netRow = netBodyRows[rowIdx] as HTMLTableRowElement;
-
-            if (valueRow && netRow) {
-              const valueCells = Array.from(valueRow.querySelectorAll('td'));
-              const netCells = Array.from(netRow.querySelectorAll('td'));
-
-              valueCells.forEach((valueCell, cellIdx) => {
-                if (cellIdx < columnWidths.length) {
-                  const width = columnWidths[cellIdx];
-                  if (width && width > 0) {
-                    // Apply to VALUE body cell
-                    const valueEl = valueCell as HTMLElement;
-                    valueEl.style.width = `${width}px`;
-                    valueEl.style.minWidth = `${width}px`;
-                    valueEl.style.maxWidth = `${width}px`;
-
-                    // Apply to NET body cell
-                    if (netCells[cellIdx]) {
-                      const netEl = netCells[cellIdx] as HTMLElement;
-                      netEl.style.width = `${width}px`;
-                      netEl.style.minWidth = `${width}px`;
-                      netEl.style.maxWidth = `${width}px`;
-                    }
-                  }
+            
+            valueBodyRows.forEach((row) => {
+              const cells = row.querySelectorAll('td');
+              cells.forEach((cell, index) => {
+                const cellEl = cell as HTMLElement;
+                const width = columnWidths[index];
+                if (width && width > 0) {
+                  // Lock width to prevent browser from changing it during reflow
+                  cellEl.style.width = `${width}px`;
+                  cellEl.style.minWidth = `${width}px`;
+                  cellEl.style.maxWidth = `${width}px`;
+                  cellEl.style.boxSizing = 'border-box';
                 }
               });
-            }
+            });
+            
+            netBodyRows.forEach((row) => {
+              const cells = row.querySelectorAll('td');
+              cells.forEach((cell, index) => {
+                const cellEl = cell as HTMLElement;
+                const width = columnWidths[index];
+                  if (width && width > 0) {
+                  // Lock width to prevent browser from changing it during reflow
+                  cellEl.style.width = `${width}px`;
+                  cellEl.style.minWidth = `${width}px`;
+                  cellEl.style.maxWidth = `${width}px`;
+                  cellEl.style.boxSizing = 'border-box';
+                }
+              });
+            });
+            
+            // Force a final reflow to ensure all widths are applied and locked
+            void valueTable.offsetWidth;
+            void netTable.offsetWidth;
+            
+            // CRITICAL: Re-apply fixed layout after setting widths to ensure it sticks
+            // This prevents React re-render from overriding the layout
+            valueTable.style.tableLayout = 'fixed';
+            netTable.style.tableLayout = 'fixed';
           }
         }
       }
+      
+      // Reset flag after sync completes
+      isSyncing = false;
     };
 
-    // OPTIMIZED: Sync column widths after data is visible (non-blocking)
-    // Single sync pass after data renders - faster approach
-    let dataTimeoutId: NodeJS.Timeout | null = null;
-    if (isDataReady) {
-      // Single sync after data renders (reduced from multiple passes to 1)
-      dataTimeoutId = setTimeout(() => {
-        syncTableWidths();
-      }, 50);
+    // CRITICAL: Reset sync flag when data changes or when loading starts
+    // This ensures sync happens every time new data is loaded (not just first time)
+    if (transactionData.size === 0 || isLoading) {
+      hasSyncedColumnWidthsRef.current = false;
+      columnWidthsRef.current = [];
     }
-
-    // Optimized: Use ResizeObserver with debouncing for resize events only
-    let resizeObserver: ResizeObserver | null = null;
-    let debounceTimer: NodeJS.Timeout | null = null;
-
-    const debouncedSync = () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        syncTableWidths();
-      }, 200);
-    };
-
-    if (valueTableRef.current && isDataReady) {
-      resizeObserver = new ResizeObserver(() => {
-        debouncedSync();
+    
+    // FIXED: Sync container widths once when data is ready
+    // This ensures tables align without breaking column rendering
+    // CRITICAL: Only sync once per data load, not when visibleRowCount changes (lazy loading)
+    // IMPORTANT: Sync every time data is ready (not just first time) to handle data changes
+    if (isDataReady && visibleRowCount > 0 && maxRows > 0 && !hasSyncedColumnWidthsRef.current) {
+      // Use multiple RAF + timeout to ensure DOM is fully ready and all styles are applied
+      // This is critical for accurate column width measurement, especially for first column with border-l-2
+      let rafId1: number | null = null;
+      let rafId2: number | null = null;
+      let rafId3: number | null = null;
+      let timeoutId: NodeJS.Timeout | null = null;
+      
+      let doubleCheckTimeoutId: NodeJS.Timeout | null = null;
+      
+      rafId1 = requestAnimationFrame(() => {
+        rafId2 = requestAnimationFrame(() => {
+          rafId3 = requestAnimationFrame(() => {
+            timeoutId = setTimeout(() => {
+              // Double check ref hasn't changed (prevent race condition)
+              if (!hasSyncedColumnWidthsRef.current) {
+                syncTableWidths(); // Sync container widths and column widths
+                hasSyncedColumnWidthsRef.current = true;
+                
+                // CRITICAL: Double-check and re-apply after a short delay to ensure widths stick
+                // This prevents browser from changing widths during subsequent reflows
+                doubleCheckTimeoutId = setTimeout(() => {
+                  const valueTable = valueTableRef.current;
+                  const netTable = netTableRef.current;
+                  if (valueTable && netTable && columnWidthsRef.current.length > 0) {
+                    // Ensure fixed layout is still set
+                    valueTable.style.tableLayout = 'fixed';
+                    netTable.style.tableLayout = 'fixed';
+                    
+                    // Re-apply widths to ensure they stick
+                    const valueHeaderRows = valueTable.querySelectorAll('thead tr');
+                    const netHeaderRows = netTable.querySelectorAll('thead tr');
+                    if (valueHeaderRows.length >= 2 && netHeaderRows.length >= 2) {
+                      const valueColumnHeaderRow = valueHeaderRows[1];
+                      const netColumnHeaderRow = netHeaderRows[1];
+                      if (valueColumnHeaderRow && netColumnHeaderRow) {
+                        const valueHeaderCells = Array.from(valueColumnHeaderRow.querySelectorAll('th'));
+                        const netHeaderCells = Array.from(netColumnHeaderRow.querySelectorAll('th'));
+                        const columnWidths = columnWidthsRef.current;
+                        
+                        valueHeaderCells.forEach((cell, index) => {
+                          const el = cell as HTMLElement;
+                          const width = columnWidths[index];
+                          if (width && width > 0) {
+                            el.style.width = `${width}px`;
+                            el.style.minWidth = `${width}px`;
+                            el.style.maxWidth = `${width}px`;
+                            el.style.boxSizing = 'border-box';
+                          }
+                        });
+                        
+                        netHeaderCells.forEach((cell, index) => {
+                          const el = cell as HTMLElement;
+                          const width = columnWidths[index];
+                          if (width && width > 0) {
+                            el.style.width = `${width}px`;
+                            el.style.minWidth = `${width}px`;
+                            el.style.maxWidth = `${width}px`;
+                            el.style.boxSizing = 'border-box';
+                          }
+                        });
+                      }
+                    }
+                  }
+                }, 100); // Small delay to catch any reflows
+              }
+            }, 200); // Increased timeout to ensure all styles (including borders) are fully applied
+          });
+        });
       });
-      resizeObserver.observe(valueTableRef.current);
+      
+      return () => {
+        if (rafId1 !== null) cancelAnimationFrame(rafId1);
+        if (rafId2 !== null) cancelAnimationFrame(rafId2);
+        if (rafId3 !== null) cancelAnimationFrame(rafId3);
+        if (timeoutId !== null) clearTimeout(timeoutId);
+        if (doubleCheckTimeoutId !== null) clearTimeout(doubleCheckTimeoutId);
+      };
     }
+    
+    // No cleanup needed if condition not met
+    return undefined;
+  }, [transactionData, isLoading, isDataReady]); // FIXED: Removed visibleRowCount - only sync when data changes, not when lazy loading adds more rows
 
-    // Also sync on window resize (with debouncing)
-    const handleResize = () => {
-      debouncedSync();
+  // CRITICAL: Maintain column widths after lazy loading adds new rows
+  // This ensures widths don't change when visibleRowCount increases
+  useEffect(() => {
+    // Only maintain widths if sync has been done and we have data
+    if (!hasSyncedColumnWidthsRef.current || !isDataReady || isLoading) return;
+    
+    const valueTable = valueTableRef.current;
+    const netTable = netTableRef.current;
+    
+    if (!valueTable || !netTable) return;
+    
+    // Ensure fixed layout is maintained
+    if (valueTable.style.tableLayout !== 'fixed') {
+      valueTable.style.tableLayout = 'fixed';
+    }
+    if (netTable.style.tableLayout !== 'fixed') {
+      netTable.style.tableLayout = 'fixed';
+    }
+    
+    // Re-apply widths to new rows that were added by lazy loading
+    // Get stored column widths from existing cells
+    const valueHeaderRows = valueTable.querySelectorAll('thead tr');
+    const netHeaderRows = netTable.querySelectorAll('thead tr');
+    
+    if (valueHeaderRows.length >= 2 && netHeaderRows.length >= 2) {
+      const valueColumnHeaderRow = valueHeaderRows[1];
+      const netColumnHeaderRow = netHeaderRows[1];
+      
+      if (valueColumnHeaderRow && netColumnHeaderRow) {
+        const valueHeaderCells = Array.from(valueColumnHeaderRow.querySelectorAll('th'));
+        
+        // Get widths from stored ref first, fallback to reading from DOM
+        let columnWidths: number[] = [];
+        if (columnWidthsRef.current.length > 0) {
+          // Use stored widths from initial sync
+          columnWidths = [...columnWidthsRef.current];
+        } else {
+          // Fallback: read from header cells
+          valueHeaderCells.forEach((cell) => {
+            const el = cell as HTMLElement;
+            const width = parseFloat(el.style.width) || el.offsetWidth;
+            columnWidths.push(width);
+          });
+        }
+        
+        // Apply widths to all body cells (including newly added ones from lazy loading)
+        const valueBodyRows = valueTable.querySelectorAll('tbody tr');
+        const netBodyRows = netTable.querySelectorAll('tbody tr');
+        
+        valueBodyRows.forEach((row) => {
+          const cells = row.querySelectorAll('td');
+          cells.forEach((cell, index) => {
+            const cellEl = cell as HTMLElement;
+            const width = columnWidths[index];
+            if (width && width > 0) {
+              cellEl.style.width = `${width}px`;
+              cellEl.style.minWidth = `${width}px`;
+              cellEl.style.maxWidth = `${width}px`;
+              cellEl.style.boxSizing = 'border-box';
+            }
+          });
+        });
+        
+        netBodyRows.forEach((row) => {
+          const cells = row.querySelectorAll('td');
+          cells.forEach((cell, index) => {
+            const cellEl = cell as HTMLElement;
+            const width = columnWidths[index];
+            if (width && width > 0) {
+              cellEl.style.width = `${width}px`;
+              cellEl.style.minWidth = `${width}px`;
+              cellEl.style.maxWidth = `${width}px`;
+              cellEl.style.boxSizing = 'border-box';
+            }
+          });
+        });
+      }
+    }
+  }, [visibleRowCount, isDataReady, isLoading]); // Re-apply widths when lazy loading adds rows
+
+  // CRITICAL: Sync container widths on window resize to ensure full width
+  useEffect(() => {
+    if (isLoading || !isDataReady) return;
+
+    const syncContainerWidths = () => {
+      const valueContainer = valueTableContainerRef.current;
+      const netContainer = netTableContainerRef.current;
+      
+      if (!valueContainer || !netContainer) return;
+      
+      // Get all parent wrappers to ensure full width
+      const valueParentWrapper = valueContainer.parentElement;
+      const netParentWrapper = netContainer.parentElement;
+      const valueTableWrapper = valueParentWrapper?.parentElement;
+      const netTableWrapper = netParentWrapper?.parentElement;
+      
+      // Ensure all wrappers use full width
+      if (valueParentWrapper && netParentWrapper) {
+        valueParentWrapper.style.width = '100%';
+        valueParentWrapper.style.minWidth = '100%';
+        valueParentWrapper.style.maxWidth = '100%';
+        netParentWrapper.style.width = '100%';
+        netParentWrapper.style.minWidth = '100%';
+        netParentWrapper.style.maxWidth = '100%';
+      }
+      
+      if (valueTableWrapper && netTableWrapper) {
+        valueTableWrapper.style.width = '100%';
+        valueTableWrapper.style.minWidth = '100%';
+        valueTableWrapper.style.maxWidth = '100%';
+        netTableWrapper.style.width = '100%';
+        netTableWrapper.style.minWidth = '100%';
+        netTableWrapper.style.maxWidth = '100%';
+      }
+      
+      // Ensure both containers use full width
+      valueContainer.style.width = '100%';
+      valueContainer.style.minWidth = '100%';
+      valueContainer.style.maxWidth = '100%';
+      netContainer.style.width = '100%';
+      netContainer.style.minWidth = '100%';
+      netContainer.style.maxWidth = '100%';
+      
+      // Sync widths between containers to ensure they match
+      const valueWidth = valueContainer.offsetWidth || valueContainer.clientWidth;
+      if (valueWidth > 0) {
+        netContainer.style.width = `${valueWidth}px`;
+        netContainer.style.minWidth = `${valueWidth}px`;
+      }
     };
-    window.addEventListener('resize', handleResize);
+    
+    // Sync on mount and window resize with debounce
+    let timeoutId: NodeJS.Timeout | null = null;
+    const debouncedSync = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        syncContainerWidths();
+      }, 100);
+    };
+    
+    syncContainerWidths();
+    window.addEventListener('resize', debouncedSync);
 
     return () => {
-      if (dataTimeoutId) clearTimeout(dataTimeoutId);
-      if (debounceTimer) clearTimeout(debounceTimer);
-      if (resizeObserver) resizeObserver.disconnect();
-      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('resize', debouncedSync);
+      if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [transactionData, isLoading, isDataReady, itemsPerPage]); // Removed selectedDates - only sync when data changes, not when dates change
+  }, [isLoading, isDataReady]);
 
   // Synchronize horizontal scroll between Value and Net tables
+  // FIXED: Don't depend on selectedDates to prevent re-render on input change
   useEffect(() => {
-    if (isLoading || selectedDates.length === 0) return;
+    if (isLoading || !isDataReady) return;
 
     const valueContainer = valueTableContainerRef.current;
     const netContainer = netTableContainerRef.current;
@@ -1065,14 +1563,16 @@ export function BrokerTransaction() {
     // Flag to prevent infinite loop
     let isSyncing = false;
 
+    // OPTIMIZED: Direct scroll sync without requestAnimationFrame (faster)
     // Handle Value table scroll - sync to Net table
     const handleValueScroll = () => {
       if (!isSyncing && netContainer) {
         isSyncing = true;
         netContainer.scrollLeft = valueContainer.scrollLeft;
-        requestAnimationFrame(() => {
+        // Use setTimeout with 0ms instead of requestAnimationFrame for faster sync
+        setTimeout(() => {
           isSyncing = false;
-        });
+        }, 0);
       }
     };
 
@@ -1081,9 +1581,10 @@ export function BrokerTransaction() {
       if (!isSyncing && valueContainer) {
         isSyncing = true;
         valueContainer.scrollLeft = netContainer.scrollLeft;
-        requestAnimationFrame(() => {
+        // Use setTimeout with 0ms instead of requestAnimationFrame for faster sync
+        setTimeout(() => {
           isSyncing = false;
-        });
+        }, 0);
       }
     };
 
@@ -1095,10 +1596,10 @@ export function BrokerTransaction() {
       valueContainer.removeEventListener('scroll', handleValueScroll);
       netContainer.removeEventListener('scroll', handleNetScroll);
     };
-  }, [isLoading, selectedDates, transactionData]);
+  }, [isLoading, isDataReady, transactionData]); // FIXED: Removed selectedDates dependency to prevent re-render on input change
 
   // Memoize expensive calculations
-  const { uniqueStocks, filteredStocks, sortedStocksByDate, sortedNetStocksByDate, totalDataByStock, totalNetDataByStock, sortedTotalStocks, sortedTotalNetStocks, buyStocksByDate, sellStocksByDate, netBuyStocksByDate, netSellStocksByDate, totalNetBuyDataByStock, totalNetSellDataByStock, shouldFilterBySelectedTickers } = useMemo<{
+  const { uniqueStocks, filteredStocks, sortedStocksByDate, sortedNetStocksByDate, totalDataByStock, totalNetDataByStock, sortedTotalStocks, sortedTotalNetStocks, buyStocksByDate, sellStocksByDate, netBuyStocksByDate, netSellStocksByDate, totalNetBuyDataByStock, totalNetSellDataByStock } = useMemo<{
     uniqueStocks: string[];
     filteredStocks: string[];
     sortedStocksByDate: Map<string, string[]>;
@@ -1139,9 +1640,9 @@ export function BrokerTransaction() {
     netSellStocksByDate: Map<string, Array<{ stock: string; data: BrokerTransactionData }>>;
     totalNetBuyDataByStock: Map<string, { netBuyVol: number; netBuyValue: number; netBuyAvg: number; netBuyFreq: number; netBuyOrdNum: number; netBuyAvgCount: number; }>;
     totalNetSellDataByStock: Map<string, { netSellVol: number; netSellValue: number; netSellAvg: number; netSellFreq: number; netSellOrdNum: number; netSellAvgCount: number; }>;
-    shouldFilterBySelectedTickers: boolean;
   }>(() => {
-    if (selectedBrokers.length === 0 || selectedDates.length === 0 || transactionData.size === 0) {
+    // FIXED: Only check transactionData - don't depend on selectedBrokers/selectedDates to prevent re-calculation on input change
+    if (transactionData.size === 0) {
       return {
         uniqueStocks: [],
         filteredStocks: [],
@@ -1156,20 +1657,22 @@ export function BrokerTransaction() {
         netBuyStocksByDate: new Map(),
         netSellStocksByDate: new Map(),
         totalNetBuyDataByStock: new Map(),
-        totalNetSellDataByStock: new Map(),
-        shouldFilterBySelectedTickers: false
+        totalNetSellDataByStock: new Map()
       };
     }
     
     // Treat 4 sections independently: Buy (BCode), Sell (SCode), Net Buy (NBCode), Net Sell (NSCode)
     // Each section filters and sorts separately
-    // Support multi-select tickers: if selectedTickers is not empty, filter by those tickers
-    const shouldFilterBySelectedTickers = selectedTickers.length > 0;
+    // FIXED: Don't filter by selectedTickers here - filtering will be done at render time to prevent re-calculation on ticker change
+    // FIXED: Use all dates from transactionData, not selectedDates (to prevent re-calculation on input change)
+    const datesToProcess = Array.from(transactionData.keys());
     
+    // CRITICAL: Don't filter by sector here - filter will be applied at render time
+    // This prevents re-computation when sector filter changes
     // SECTION 1: Buy (BCode) - Filter and sort independently
     // Each row represents a separate entry in Value Buy section using BCode (column 1)
     const buyStocksByDate = new Map<string, Array<{ stock: string; data: BrokerTransactionData }>>();
-    selectedDates.forEach(date => {
+    datesToProcess.forEach(date => {
       const dateData = transactionData.get(date) || [];
       const buyData = dateData
         .filter(d => {
@@ -1177,10 +1680,7 @@ export function BrokerTransaction() {
           const bCode = d.BCode || '';
           if (!bCode) return false;
           
-          // Filter by selected tickers if provided
-          if (shouldFilterBySelectedTickers) {
-            if (!selectedTickers.includes(bCode)) return false;
-          }
+          // FIXED: Don't filter by selectedTickers or sector here - will be filtered at render time
           
           return true;
         })
@@ -1201,7 +1701,7 @@ export function BrokerTransaction() {
     // SECTION 2: Sell (SCode) - Filter and sort independently
     // Each row represents a separate entry in Value Sell section using SCode (column 9)
     const sellStocksByDate = new Map<string, Array<{ stock: string; data: BrokerTransactionData }>>();
-    selectedDates.forEach(date => {
+    datesToProcess.forEach(date => {
       const dateData = transactionData.get(date) || [];
       const sellData = dateData
         .filter(d => {
@@ -1209,10 +1709,7 @@ export function BrokerTransaction() {
           const sCode = d.SCode || '';
           if (!sCode) return false;
           
-          // Filter by selected tickers if provided
-          if (shouldFilterBySelectedTickers) {
-            if (!selectedTickers.includes(sCode)) return false;
-          }
+          // FIXED: Don't filter by selectedTickers or sector here - will be filtered at render time
           
           return true;
         })
@@ -1233,7 +1730,7 @@ export function BrokerTransaction() {
     // SECTION 3: Net Buy (NBCode) - Filter and sort independently
     // Each row represents a separate entry in Net Buy section using NBCode (column 17)
     const netBuyStocksByDate = new Map<string, Array<{ stock: string; data: BrokerTransactionData }>>();
-    selectedDates.forEach(date => {
+    datesToProcess.forEach(date => {
       const dateData = transactionData.get(date) || [];
       const netBuyData = dateData
         .filter(d => {
@@ -1241,10 +1738,7 @@ export function BrokerTransaction() {
           const nbCode = d.NBCode || '';
           if (!nbCode) return false;
           
-          // Filter by selected tickers if provided
-          if (shouldFilterBySelectedTickers) {
-            if (!selectedTickers.includes(nbCode)) return false;
-          }
+          // FIXED: Don't filter by selectedTickers or sector here - will be filtered at render time
           
           return true;
         })
@@ -1261,7 +1755,7 @@ export function BrokerTransaction() {
     // SECTION 4: Net Sell (NSCode) - Filter and sort independently
     // Each row represents a separate entry in Net Sell section using NSCode (column 25)
     const netSellStocksByDate = new Map<string, Array<{ stock: string; data: BrokerTransactionData }>>();
-    selectedDates.forEach(date => {
+    datesToProcess.forEach(date => {
       const dateData = transactionData.get(date) || [];
       const netSellData = dateData
         .filter(d => {
@@ -1269,10 +1763,7 @@ export function BrokerTransaction() {
           const nsCode = d.NSCode || '';
           if (!nsCode) return false;
           
-          // Filter by selected tickers if provided
-          if (shouldFilterBySelectedTickers) {
-            if (!selectedTickers.includes(nsCode)) return false;
-          }
+          // FIXED: Don't filter by selectedTickers or sector here - will be filtered at render time
           
           return true;
         })
@@ -1292,7 +1783,7 @@ export function BrokerTransaction() {
     const allNetBuyStocks = new Set<string>();
     const allNetSellStocks = new Set<string>();
     
-    selectedDates.forEach(date => {
+    datesToProcess.forEach(date => {
       const dateData = transactionData.get(date) || [];
       dateData.forEach(item => {
         if (item.BCode) allBuyStocks.add(item.BCode);
@@ -1308,13 +1799,13 @@ export function BrokerTransaction() {
     
     // For backward compatibility, create sortedStocksByDate and sortedNetStocksByDate
     const sortedStocksByDate = new Map<string, string[]>();
-    selectedDates.forEach(date => {
+    datesToProcess.forEach(date => {
       const buyData = buyStocksByDate.get(date) || [];
       sortedStocksByDate.set(date, buyData.map(d => d.stock));
     });
     
     const sortedNetStocksByDate = new Map<string, string[]>();
-    selectedDates.forEach(date => {
+    datesToProcess.forEach(date => {
       const sellData = sellStocksByDate.get(date) || [];
       sortedNetStocksByDate.set(date, sellData.map(d => d.stock));
     });
@@ -1339,7 +1830,7 @@ export function BrokerTransaction() {
         sellerAvgCount: number;
       }>();
       
-      selectedDates.forEach(date => {
+      datesToProcess.forEach(date => {
         const dateData = transactionData.get(date) || [];
         dateData.forEach(dayData => {
         // Aggregate Buy section by BCode
@@ -1478,7 +1969,7 @@ export function BrokerTransaction() {
       netSellAvgCount: number;
     }>();
     
-    selectedDates.forEach(date => {
+    datesToProcess.forEach(date => {
       const dateData = transactionData.get(date) || [];
       dateData.forEach(dayData => {
         // Aggregate Net Buy section by NBCode
@@ -1624,18 +2115,25 @@ export function BrokerTransaction() {
       netBuyStocksByDate,
       netSellStocksByDate,
       totalNetBuyDataByStock,
-      totalNetSellDataByStock,
-      shouldFilterBySelectedTickers
+      totalNetSellDataByStock
     };
-  }, [selectedBrokers, selectedDates, transactionData, selectedTickers, fdFilter]);
+  }, [transactionData]); // CRITICAL: Only depend on transactionData - sector filtering will be applied at render time, not during computation
 
-  // Calculate total pages for pagination - use max rows from all sections (Buy, Sell, Net Buy, Net Sell)
-  const totalPages = useMemo(() => {
+    // Calculate max rows for virtual scrolling - use max rows from all sections (Buy, Sell, Net Buy, Net Sell)
+  // FIXED: Use all dates from buyStocksByDate/sellStocksByDate/etc, not selectedDates to prevent re-calculation on input change
+  const maxRows = useMemo(() => {
     let maxBuyRows = 0;
     let maxSellRows = 0;
     let maxNetBuyRows = 0;
     let maxNetSellRows = 0;
-    selectedDates.forEach(date => {
+    // Use all dates from the Maps, not selectedDates (to prevent re-calculation on input change)
+    const allDates = new Set([
+      ...Array.from(buyStocksByDate.keys()),
+      ...Array.from(sellStocksByDate.keys()),
+      ...Array.from(netBuyStocksByDate.keys()),
+      ...Array.from(netSellStocksByDate.keys())
+    ]);
+    allDates.forEach(date => {
       const buyData = buyStocksByDate.get(date) || [];
       const sellData = sellStocksByDate.get(date) || [];
       const netBuyData = netBuyStocksByDate.get(date) || [];
@@ -1645,31 +2143,131 @@ export function BrokerTransaction() {
       maxNetBuyRows = Math.max(maxNetBuyRows, netBuyData.length);
       maxNetSellRows = Math.max(maxNetSellRows, netSellData.length);
     });
-    const maxRows = Math.max(maxBuyRows, maxSellRows, maxNetBuyRows, maxNetSellRows);
-    if (maxRows === 0) return 1;
-    return Math.ceil(maxRows / itemsPerPage);
-  }, [buyStocksByDate, sellStocksByDate, netBuyStocksByDate, netSellStocksByDate, selectedDates, itemsPerPage]);
+    const result = Math.max(maxBuyRows, maxSellRows, maxNetBuyRows, maxNetSellRows);
+    console.log('[BrokerTransaction] maxRows calculated:', {
+      maxBuyRows,
+      maxSellRows,
+      maxNetBuyRows,
+      maxNetSellRows,
+      result,
+      allDatesCount: allDates.size
+    });
+    return result;
+  }, [buyStocksByDate, sellStocksByDate, netBuyStocksByDate, netSellStocksByDate]); // FIXED: Removed selectedDates - only recalculate when data changes, not when input changes
+
+  // Calculate visible row indices for virtual scrolling
+  // OPTIMIZED: Simplify - always calculate if maxRows > 0
+  const visibleRowIndices = useMemo(() => {
+    if (maxRows === 0) return [];
+    
+    const maxVisible = Math.min(visibleRowCount, maxRows);
+    const indices: number[] = [];
+    for (let i = 0; i < maxVisible; i++) {
+      indices.push(i);
+    }
+    
+    console.log('[BrokerTransaction] visibleRowIndices calculated:', {
+      visibleRowCount,
+      maxRows,
+      maxVisible,
+      indicesLength: indices.length
+    });
+    
+    return indices;
+  }, [visibleRowCount, maxRows]);
+
+  // Lazy loading with Intersection Observer - load more rows when scrolling near bottom
+  // FIXED: Separate observers for Value and Net tables so they work independently
+  useEffect(() => {
+    if (!isDataReady || maxRows === 0) return;
+
+    // Only set up observer if we haven't reached max rows yet
+    if (visibleRowCount >= maxRows) return;
+
+    const valueSentinel = valueTableSentinelRef.current;
+    const netSentinel = netTableSentinelRef.current;
+    const valueContainer = valueTableContainerRef.current;
+    const netContainer = netTableContainerRef.current;
+
+    if (!valueSentinel || !netSentinel || !valueContainer || !netContainer) return;
+
+    // Handler for loading more rows
+    const loadMoreRows = () => {
+      setVisibleRowCount((prev) => {
+        // Use functional update to get latest maxRows value
+        const currentMaxRows = maxRows;
+        if (currentMaxRows === 0 || prev >= currentMaxRows) return prev;
+        const newCount = Math.min(prev + MAX_DISPLAY_ROWS, currentMaxRows);
+        console.log(`[BrokerTransaction] Loading more rows: ${prev} → ${newCount} (max: ${currentMaxRows})`);
+        return newCount;
+      });
+    };
+
+    // Create separate intersection observer for Value table
+    const valueObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            loadMoreRows();
+          }
+        });
+      },
+      {
+        root: valueContainer, // Use Value table container as root
+        rootMargin: '200px', // Trigger 200px before sentinel comes into view
+        threshold: 0.1
+      }
+    );
+
+    // Create separate intersection observer for Net table
+    const netObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            loadMoreRows();
+          }
+        });
+      },
+      {
+        root: netContainer, // Use Net table container as root
+        rootMargin: '200px', // Trigger 200px before sentinel comes into view
+        threshold: 0.1
+      }
+    );
+
+    // Observe sentinels with their respective observers
+    valueObserver.observe(valueSentinel);
+    netObserver.observe(netSentinel);
+
+    return () => {
+      valueObserver.disconnect();
+      netObserver.disconnect();
+    };
+  }, [isDataReady, maxRows, visibleRowCount]);
 
   const renderHorizontalView = useCallback(() => {
     console.log('[BrokerTransaction] renderHorizontalView called:', {
-      selectedBrokers: selectedBrokers.length,
-      selectedDates: selectedDates.length,
       isDataReady,
       uniqueStocks: uniqueStocks.length,
       transactionDataSize: transactionData.size
     });
     
-    if (selectedBrokers.length === 0 || selectedDates.length === 0 || !isDataReady) {
-      console.log('[BrokerTransaction] renderHorizontalView: Conditions not met, returning null');
+    // FIXED: Don't hide data when input changes - only check isDataReady
+    // Keep showing existing data even if user changes input (until Show button is clicked)
+    if (!isDataReady) {
+      console.log('[BrokerTransaction] renderHorizontalView: Data not ready, returning null');
       return null;
     }
+    
+    // FIXED: Removed input validation check - we don't need to check selectedBrokers/selectedDates here
+    // Data is already filtered when fetched, so we just render what's available
     
     if (uniqueStocks.length === 0) {
       console.log('[BrokerTransaction] renderHorizontalView: No unique stocks found');
       return (
         <div className="text-center py-16">
           <div className="text-gray-400 text-sm">
-            No data available for {selectedBrokers.join(', ')} on selected dates
+            No data available
           </div>
         </div>
       );
@@ -1687,35 +2285,88 @@ export function BrokerTransaction() {
     
     // VALUE Table - Shows Buyer and Seller data
     const renderValueTable = () => {
+      // Helper function to get stock color class based on sector
+      const getStockColorClass = (stockCode: string): string => {
+        const stockSector = stockToSectorMap[stockCode.toUpperCase()];
+        if (!stockSector) return 'text-white font-semibold';
+        
+        // Color mapping based on sector (similar to broker coloring in BrokerSummaryPage)
+        // You can customize these colors as needed
+        const sectorColors: { [sector: string]: string } = {
+          'Financials': 'text-green-600 font-semibold',
+          'Energy': 'text-red-600 font-semibold',
+          'Basic Materials': 'text-blue-600 font-semibold',
+          'Consumer Cyclicals': 'text-yellow-600 font-semibold',
+          'Consumer Non-Cyclicals': 'text-purple-600 font-semibold',
+          'Healthcare': 'text-pink-600 font-semibold',
+          'Industrials': 'text-orange-600 font-semibold',
+          'Infrastructures': 'text-cyan-600 font-semibold',
+          'Properties & Real Estate': 'text-indigo-600 font-semibold',
+          'Technology': 'text-teal-600 font-semibold',
+          'Transportation & Logistic': 'text-lime-600 font-semibold'
+        };
+        
+        return sectorColors[stockSector] || 'text-white font-semibold';
+      };
+      
+      // Helper function to check if stock matches sector filter (for render-time filtering)
+      const stockSectorScreen = (stockCode: string): boolean => {
+        if (sectorFilter === 'All') return true;
+        const stockSector = stockToSectorMap[stockCode.toUpperCase()];
+        return stockSector === sectorFilter;
+      };
+      
       // For VALUE table: Get max row count across all dates for Buy and Sell sections separately
+      // CRITICAL: Filter by sector at render time, not during computation
       let maxBuyRows = 0;
       let maxSellRows = 0;
       selectedDates.forEach(date => {
-        const buyData = buyStocksByDate.get(date) || [];
-        const sellData = sellStocksByDate.get(date) || [];
+        const buyData = (buyStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
+        const sellData = (sellStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
         maxBuyRows = Math.max(maxBuyRows, buyData.length);
         maxSellRows = Math.max(maxSellRows, sellData.length);
       });
-      const maxRows = Math.max(maxBuyRows, maxSellRows);
+      const tableMaxRows = Math.max(maxBuyRows, maxSellRows);
       
-      // Get paginated rows for this table
-      const startIndex = (currentPage - 1) * itemsPerPage;
-      const endIndex = startIndex + itemsPerPage;
-      const rowIndices = Array.from({ length: Math.min(endIndex - startIndex, maxRows - startIndex) }, (_, i) => startIndex + i);
+      // Use visible row indices for virtual scrolling
+      // FIXED: Simplify logic - always show data if available, limit to 20 rows initially
+      // CRITICAL: Ensure rowIndices is never empty if tableMaxRows > 0
+      const displayRows = Math.min(tableMaxRows, Math.max(visibleRowCount, MAX_DISPLAY_ROWS));
+      
+      // ALWAYS use fallback if we have data - simpler and more reliable
+      const rowIndices = tableMaxRows > 0 
+        ? Array.from({ length: Math.min(displayRows, tableMaxRows) }, (_, i) => i)
+        : [];
+      
+      // CRITICAL: Debug logging to identify why data might not show
+      console.log('[BrokerTransaction] renderValueTable:', {
+        tableMaxRows,
+        visibleRowIndicesLength: visibleRowIndices.length,
+        visibleRowCount,
+        rowIndicesLength: rowIndices.length,
+        maxBuyRows,
+        maxSellRows,
+        hasData: tableMaxRows > 0,
+        rowIndices: rowIndices.slice(0, 5) // First 5 indices
+      });
+      
+      // CRITICAL: If no rowIndices but we have data, force render at least 1 row for debugging
+      if (tableMaxRows > 0 && rowIndices.length === 0) {
+        console.error('[BrokerTransaction] ERROR: tableMaxRows > 0 but rowIndices is empty!', {
+          tableMaxRows,
+          visibleRowCount,
+          displayRows: Math.min(tableMaxRows, Math.max(visibleRowCount, MAX_DISPLAY_ROWS))
+        });
+      }
       
       return (
         <div className="w-full max-w-full mt-1">
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border flex items-center justify-between">
-            <h3 className="font-semibold text-sm">VALUE - {selectedBrokers.join(', ')} ({maxRows} total, showing {rowIndices.length})</h3>
-            {totalPages > 1 && (
-              <span className="text-xs text-muted-foreground">
-                Page {currentPage} of {totalPages}
-              </span>
-            )}
+            <h3 className="font-semibold text-sm">B/S - {selectedBrokers.join(', ')}</h3>
           </div>
           <div className="w-full max-w-full">
             <div ref={valueTableContainerRef} className="w-full max-w-full overflow-x-auto max-h-[494px] overflow-y-auto border-l-2 border-r-2 border-b-2 border-white">
-              <table ref={valueTableRef} className={`min-w-[1000px] ${getFontSizeClass()} table-auto border-collapse`} style={{ borderSpacing: 0 }}>
+              <table ref={valueTableRef} className={`min-w-[1000px] ${getFontSizeClass()} border-collapse`} style={{ borderSpacing: 0 }}>
                 <thead className="bg-[#3a4252]">
                   {/* Date Header Row */}
                   <tr className="border-t-2 border-white">
@@ -1737,25 +2388,25 @@ export function BrokerTransaction() {
                     {selectedDates.map((date, dateIndex) => (
                       <React.Fragment key={date}>
                         {/* Buyer Columns */}
-                        <th className={`text-center py-[1px] px-[4.2px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} title={formatDisplayDate(date)}>BCode</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>BLot</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>BVal</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>BAvg</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>BFreq</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>BOrdNum</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-16" title={formatDisplayDate(date)}>Lot/ON</th>
+                        <th className={`text-center py-[1px] px-[6px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} title={formatDisplayDate(date)}>BCode</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BLot</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BVal</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BAvg</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BFreq</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BOrdNum</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-16" title={formatDisplayDate(date)}>Lot/ON</th>
                         {/* Separator */}
-                        <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-4" title={formatDisplayDate(date)}>#</th>
+                        <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap" title={formatDisplayDate(date)}>#</th>
                         {/* Seller Columns */}
-                        <th className="text-center py-[1px] px-[4.2px] font-bold text-white w-4" title={formatDisplayDate(date)}>SCode</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>SLot</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>SVal</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>SFreq</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>SOrdNum</th>
-                        <th className={`text-right py-[1px] px-[4.2px] font-bold text-white w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/ON</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-4" title={formatDisplayDate(date)}>SCode</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SLot</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SVal</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SFreq</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SOrdNum</th>
+                        <th className={`text-right py-[1px] px-[6px] font-bold text-white w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/ON</th>
                       </React.Fragment>
                     ))}
                     {/* Total Columns */}
@@ -1766,29 +2417,31 @@ export function BrokerTransaction() {
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BFreq</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BOrdNum</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-16">Lot/ON</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252]">#</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/ON</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap">#</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SCode</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SLot</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SVal</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SAvg</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SFreq</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-8">Lot/F</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SOrdNum</th>
-                    <th className="text-right py-[1px] px-[6px] font-bold text-white border-r-2 border-white w-16">Lot/ON</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white">Lot/ON</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rowIndices.map((rowIdx: number) => {
+                  {rowIndices.length > 0 ? rowIndices.map((rowIdx: number) => {
                           return (
                       <tr key={rowIdx}>
                         {selectedDates.map((date: string, dateIndex: number) => {
                           // Get Buy data at this row index for this date
-                          const buyDataForDate = buyStocksByDate.get(date) || [];
+                          // CRITICAL: Filter by sector at render time
+                          const buyDataForDate = (buyStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
                           const buyRowData = buyDataForDate[rowIdx];
                           
                           // Get Sell data at this row index for this date
-                          const sellDataForDate = sellStocksByDate.get(date) || [];
+                          // CRITICAL: Filter by sector at render time
+                          const sellDataForDate = (sellStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
                           const sellRowData = sellDataForDate[rowIdx];
                         
                         return (
@@ -1813,18 +2466,20 @@ export function BrokerTransaction() {
                                     // Use BLotPerOrdNum directly from CSV column 7, not calculated
                                     const buyerLotPerOrdNum = dayData.BLotPerOrdNum !== undefined ? dayData.BLotPerOrdNum : (buyerOrdNum > 0 ? buyerLot / buyerOrdNum : 0);
                                     
+                                    const bCode = dayData.BCode || buyRowData.stock;
+                                    const bCodeColorClass = getStockColorClass(bCode);
                                     return (
                                       <>
-                            <td className={`text-center py-[1px] px-[4.2px] font-bold text-green-600 w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>
-                                          {dayData.BCode || buyRowData.stock}
+                            <td className={`text-center py-[1px] px-[6px] font-bold w-4 ${bCodeColorClass} ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>
+                                          {bCode}
                             </td>
-                            <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600 w-6">{formatLot(buyerLot)}</td>
-                                        <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600 w-6">{formatValue(buyerVal)}</td>
-                            <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600 w-6">{formatAverage(buyerAvg)}</td>
-                            <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600 w-6">{buyerFreq}</td>
-                                        <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600 w-8">{formatAverage(buyerLotPerFreq)}</td>
-                            <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600 w-6">{buyerOrdNum}</td>
-                                        <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600 w-16">{formatAverage(buyerLotPerOrdNum)}</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6">{formatLot(buyerLot)}</td>
+                                        <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6">{formatValue(buyerVal)}</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6">{formatAverage(buyerAvg)}</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6">{buyerFreq}</td>
+                                        <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-8">{formatAverage(buyerLotPerFreq)}</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6">{buyerOrdNum}</td>
+                                        <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-16">{formatAverage(buyerLotPerOrdNum)}</td>
                                       </>
                                     );
                                   })()}
@@ -1832,18 +2487,18 @@ export function BrokerTransaction() {
                               ) : (
                                 // Show empty cells if no Buy data at this row index
                                 <>
-                                  <td className={`text-center py-[1px] px-[4.2px] text-gray-400 w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400 w-6">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400 w-6">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400 w-6">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400 w-6">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400 w-8">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400 w-6">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400 w-16">-</td>
+                                  <td className={`text-center py-[1px] px-[6px] text-gray-400 w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-8">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-16">-</td>
                                 </>
                               )}
                             {/* Separator */}
-                              <td className="text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold w-4">{rowIdx + 1}</td>
+                              <td className="text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold w-auto min-w-[2.5rem] whitespace-nowrap">{rowIdx + 1}</td>
                               {/* Seller Columns - from sellStocksByDate */}
                               {sellRowData ? (
                                 <>
@@ -1869,16 +2524,18 @@ export function BrokerTransaction() {
                                       console.log(`[BrokerTransaction] Sell section - Row ${rowIdx}: SCode="${dayData.SCode}" (type: ${typeof dayData.SCode}), SLot=${sellerLot}, SVal=${sellerVal}`);
                                     }
                                     
+                                    const sCode = String(dayData.SCode || sellRowData.stock || '');
+                                    const sCodeColorClass = getStockColorClass(sCode);
                                     return (
                                       <>
-                                        <td className="text-center py-[1px] px-[4.2px] font-bold text-red-600 w-4">{String(dayData.SCode || sellRowData.stock || '')}</td>
-                            <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600 w-6">{formatLot(sellerLot)}</td>
-                                        <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600 w-6">{formatValue(sellerVal)}</td>
-                            <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600 w-6">{formatAverage(sellerAvg)}</td>
-                            <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600 w-6">{sellerFreq}</td>
-                                        <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600 w-8">{formatAverage(sellerLotPerFreq)}</td>
-                            <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600 w-6">{sellerOrdNum}</td>
-                                        <td className={`text-right py-[1px] px-[4.2px] font-bold text-red-600 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
+                                        <td className={`text-center py-[1px] px-[6px] font-bold w-4 ${sCodeColorClass}`}>{sCode}</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6">{formatLot(sellerLot)}</td>
+                                        <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6">{formatValue(sellerVal)}</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6">{formatAverage(sellerAvg)}</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6">{sellerFreq}</td>
+                                        <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-8">{formatAverage(sellerLotPerFreq)}</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6">{sellerOrdNum}</td>
+                                        <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
                                           {formatAverage(sellerLotPerOrdNum)}
                             </td>
                                       </>
@@ -1888,14 +2545,14 @@ export function BrokerTransaction() {
                               ) : (
                                 // Show empty cells if no Sell data at this row index
                                 <>
-                                  <td className="text-center py-[1px] px-[4.2px] text-gray-400 w-4">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400 w-6">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400 w-6">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400 w-6">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400 w-6">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400 w-8">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400 w-6">-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>-</td>
+                                  <td className="text-center py-[1px] px-[6px] text-gray-400 w-4">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-8">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>-</td>
                                 </>
                               )}
                           </React.Fragment>
@@ -2005,56 +2662,56 @@ export function BrokerTransaction() {
                               {/* Buyer Total Columns */}
                               {totalBuyBCode !== '-' && Math.abs(totalBuyLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[4.2px] font-bold text-green-600 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>
+                            <td className={`text-center py-[1px] px-[6px] font-bold text-green-600 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>
                                     {totalBuyBCode}
                             </td>
-                                  <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600">{formatLot(totalBuyLot)}</td>
-                                  <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600">{formatValue(totalBuyValue)}</td>
-                                  <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600">{formatAverage(finalBuyAvg)}</td>
-                                  <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600">{totalBuyFreq}</td>
-                                  <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600 w-8">{formatAverage(totalBuyLotPerFreq)}</td>
-                                  <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600">{totalBuyOrdNum}</td>
-                                  <td className="text-right py-[1px] px-[4.2px] font-bold text-green-600 w-16">{formatAverage(totalBuyLotPerOrdNum)}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600">{formatLot(totalBuyLot)}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600">{formatValue(totalBuyValue)}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600">{formatAverage(finalBuyAvg)}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600">{totalBuyFreq}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-8">{formatAverage(totalBuyLotPerFreq)}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600">{totalBuyOrdNum}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-16">{formatAverage(totalBuyLotPerOrdNum)}</td>
                                 </>
                               ) : (
                                 <>
-                                  <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400 w-8">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400 w-16">-</td>
+                                  <td className={`text-center py-[1px] px-[6px] text-gray-400 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-8">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-16">-</td>
                                 </>
                               )}
                             {/* Separator */}
-                              <td className="text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold">{rowIdx + 1}</td>
+                              <td className="text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold w-auto min-w-[2.5rem] whitespace-nowrap">{rowIdx + 1}</td>
                               {/* Seller Total Columns */}
                               {totalSellSCode !== '-' && Math.abs(totalSellLot) > 0 ? (
                                 <>
-                            <td className="text-center py-[1px] px-[4.2px] font-bold text-red-600">
+                            <td className="text-center py-[1px] px-[6px] font-bold text-red-600">
                                     {totalSellSCode}
                             </td>
-                                  <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600">{formatLot(totalSellLot)}</td>
-                                  <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600">{formatValue(totalSellValue)}</td>
-                                  <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600">{formatAverage(finalSellAvg)}</td>
-                                  <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600">{totalSellFreq}</td>
-                                  <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600 w-8">{formatAverage(totalSellLotPerFreq)}</td>
-                                  <td className="text-right py-[1px] px-[4.2px] font-bold text-red-600">{totalSellOrdNum}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-red-600">{formatLot(totalSellLot)}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-red-600">{formatValue(totalSellValue)}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-red-600">{formatAverage(finalSellAvg)}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-red-600">{totalSellFreq}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-8">{formatAverage(totalSellLotPerFreq)}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-red-600">{totalSellOrdNum}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-red-600 border-r-2 border-white w-16">
                                     {formatAverage(totalSellLotPerOrdNum)}
                             </td>
                                 </>
                               ) : (
                                 <>
-                                  <td className="text-center py-[1px] px-[4.2px] text-gray-400">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400 w-8">-</td>
-                                  <td className="text-right py-[1px] px-[4.2px] text-gray-400">-</td>
+                                  <td className="text-center py-[1px] px-[6px] text-gray-400">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-8">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
                                   <td className="text-right py-[1px] px-[6px] text-gray-400 border-r-2 border-white w-16">-</td>
                                 </>
                               )}
@@ -2063,7 +2720,15 @@ export function BrokerTransaction() {
                       })()}
                     </tr>
                   );
-                })}
+                }) : null}
+                {/* Lazy loading sentinel - triggers load more when scrolled into view */}
+                {visibleRowCount < maxRows && rowIndices.length > 0 && (
+                  <tr>
+                    <td colSpan={selectedDates.length * 17 + 17} ref={valueTableSentinelRef} className="h-10">
+                      {/* Invisible sentinel for intersection observer */}
+                    </td>
+                  </tr>
+                )}
                 </tbody>
               </table>
             </div>
@@ -2074,35 +2739,66 @@ export function BrokerTransaction() {
     
     // NET Table - Shows Net Buy/Sell data
     const renderNetTable = () => {
+      // Helper function to get stock color class based on sector (same as Value table)
+      const getStockColorClass = (stockCode: string): string => {
+        const stockSector = stockToSectorMap[stockCode.toUpperCase()];
+        if (!stockSector) return 'text-white font-semibold';
+        
+        // Color mapping based on sector (same as Value table)
+        const sectorColors: { [sector: string]: string } = {
+          'Financials': 'text-green-600 font-semibold',
+          'Energy': 'text-red-600 font-semibold',
+          'Basic Materials': 'text-blue-600 font-semibold',
+          'Consumer Cyclicals': 'text-yellow-600 font-semibold',
+          'Consumer Non-Cyclicals': 'text-purple-600 font-semibold',
+          'Healthcare': 'text-pink-600 font-semibold',
+          'Industrials': 'text-orange-600 font-semibold',
+          'Infrastructures': 'text-cyan-600 font-semibold',
+          'Properties & Real Estate': 'text-indigo-600 font-semibold',
+          'Technology': 'text-teal-600 font-semibold',
+          'Transportation & Logistic': 'text-lime-600 font-semibold'
+        };
+        
+        return sectorColors[stockSector] || 'text-white font-semibold';
+      };
+      
+      // Helper function to check if stock matches sector filter (for render-time filtering)
+      const stockSectorScreen = (stockCode: string): boolean => {
+        if (sectorFilter === 'All') return true;
+        const stockSector = stockToSectorMap[stockCode.toUpperCase()];
+        return stockSector === sectorFilter;
+      };
+      
       // For NET table: Get max row count across all dates for Net Buy and Net Sell sections separately
+      // CRITICAL: Filter by sector at render time, not during computation
       let maxNetBuyRows = 0;
       let maxNetSellRows = 0;
       selectedDates.forEach(date => {
-        const netBuyData = netBuyStocksByDate.get(date) || [];
-        const netSellData = netSellStocksByDate.get(date) || [];
+        const netBuyData = (netBuyStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
+        const netSellData = (netSellStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
         maxNetBuyRows = Math.max(maxNetBuyRows, netBuyData.length);
         maxNetSellRows = Math.max(maxNetSellRows, netSellData.length);
       });
-      const maxRows = Math.max(maxNetBuyRows, maxNetSellRows);
+      const tableMaxRows = Math.max(maxNetBuyRows, maxNetSellRows);
       
-      // Get paginated rows for this table
-      const startIndex = (currentPage - 1) * itemsPerPage;
-      const endIndex = startIndex + itemsPerPage;
-      const rowIndices = Array.from({ length: Math.min(endIndex - startIndex, maxRows - startIndex) }, (_, i) => startIndex + i);
+      // Use visible row indices for virtual scrolling
+      // FIXED: Simplify logic - always show data if available, limit to 20 rows initially
+      // CRITICAL: Ensure rowIndices is never empty if tableMaxRows > 0
+      const displayRows = Math.min(tableMaxRows, Math.max(visibleRowCount, MAX_DISPLAY_ROWS));
+      
+      // ALWAYS use fallback if we have data - simpler and more reliable
+      const rowIndices = tableMaxRows > 0 
+        ? Array.from({ length: Math.min(displayRows, tableMaxRows) }, (_, i) => i)
+        : [];
     
     return (
         <div className="w-full max-w-full mt-1">
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border flex items-center justify-between">
-            <h3 className="font-semibold text-sm">NET - {selectedBrokers.join(', ')} ({maxRows} total, showing {rowIndices.length})</h3>
-            {totalPages > 1 && (
-              <span className="text-xs text-muted-foreground">
-                Page {currentPage} of {totalPages}
-              </span>
-            )}
+            <h3 className="font-semibold text-sm">NET - {selectedBrokers.join(', ')}</h3>
           </div>
           <div className="w-full max-w-full">
             <div ref={netTableContainerRef} className="w-full max-w-full overflow-x-auto max-h-[494px] overflow-y-auto border-l-2 border-r-2 border-b-2 border-white">
-              <table ref={netTableRef} className={`min-w-[1000px] ${getFontSizeClass()} table-auto border-collapse`} style={{ borderSpacing: 0 }}>
+              <table ref={netTableRef} className={`min-w-[1000px] ${getFontSizeClass()} border-collapse`} style={{ borderSpacing: 0 }}>
                 <thead className="bg-[#3a4252]">
                   {/* Date Header Row */}
                   <tr className="border-t-2 border-white">
@@ -2124,25 +2820,25 @@ export function BrokerTransaction() {
                     {selectedDates.map((date, dateIndex) => (
                       <React.Fragment key={date}>
                         {/* Net Buy Columns (from CSV columns 17-23) */}
-                        <th className={`text-center py-[1px] px-[4.2px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} title={formatDisplayDate(date)}>NBCode</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>NBLot</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>NBVal</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>NBAvg</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>NBFreq</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>NBOrdNum</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-16" title={formatDisplayDate(date)}>Lot/ON</th>
+                        <th className={`text-center py-[1px] px-[6px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} title={formatDisplayDate(date)}>NBCode</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>NBLot</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>NBVal</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>NBAvg</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>NBFreq</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
+                        <th className="text-right py-[1px] px-[8px] font-bold text-white w-8" title={formatDisplayDate(date)}>NBOrdNum</th>
+                        <th className="text-right py-[1px] px-[8px] font-bold text-white w-20" title={formatDisplayDate(date)}>Lot/ON</th>
                         {/* Separator */}
-                        <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-4" title={formatDisplayDate(date)}>#</th>
+                        <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap" title={formatDisplayDate(date)}>#</th>
                         {/* Net Sell Columns (from CSV columns 24-30) */}
-                        <th className="text-center py-[1px] px-[4.2px] font-bold text-white w-4" title={formatDisplayDate(date)}>NSCode</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>NSLot</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>NSVal</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>NSAvg</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>NSFreq</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
-                        <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-6" title={formatDisplayDate(date)}>NSOrdNum</th>
-                        <th className={`text-right py-[1px] px-[4.2px] font-bold text-white w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/ON</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-4" title={formatDisplayDate(date)}>NSCode</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>NSLot</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>NSVal</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>NSAvg</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>NSFreq</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
+                        <th className="text-right py-[1px] px-[8px] font-bold text-white w-8" title={formatDisplayDate(date)}>NSOrdNum</th>
+                        <th className={`text-right py-[1px] px-[8px] font-bold text-white w-20 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/ON</th>
                       </React.Fragment>
                     ))}
                     {/* Total Columns - Net Buy/Net Sell */}
@@ -2151,31 +2847,33 @@ export function BrokerTransaction() {
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">NBVal</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">NBAvg</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">NBFreq</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-8">Lot/F</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">NBOrdNum</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-16">Lot/ON</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252]">#</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
+                    <th className="text-right py-[1px] px-[6px] font-bold text-white w-8">NBOrdNum</th>
+                    <th className="text-right py-[1px] px-[6px] font-bold text-white w-20">Lot/ON</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap">#</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">NSCode</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">NSLot</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">NSVal</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">NSAvg</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">NSFreq</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white w-8">Lot/F</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">NSOrdNum</th>
-                    <th className="text-right py-[1px] px-[6px] font-bold text-white border-r-2 border-white w-16">Lot/ON</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
+                    <th className="text-right py-[1px] px-[6px] font-bold text-white w-8">NSOrdNum</th>
+                    <th className="text-right py-[1px] px-[6px] font-bold text-white w-20 border-r-2 border-white">Lot/ON</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rowIndices.map((rowIdx: number) => {
+                  {rowIndices.length > 0 ? rowIndices.map((rowIdx: number) => {
                           return (
                       <tr key={rowIdx}>
                         {selectedDates.map((date: string, dateIndex: number) => {
                           // Get Net Buy data at this row index for this date
-                          const netBuyDataForDate = netBuyStocksByDate.get(date) || [];
+                          // CRITICAL: Filter by sector at render time
+                          const netBuyDataForDate = (netBuyStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
                           const netBuyRowData = netBuyDataForDate[rowIdx];
                           
                           // Get Net Sell data at this row index for this date
-                          const netSellDataForDate = netSellStocksByDate.get(date) || [];
+                          // CRITICAL: Filter by sector at render time
+                          const netSellDataForDate = (netSellStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
                           const netSellRowData = netSellDataForDate[rowIdx];
                         
                         return (
@@ -2186,6 +2884,7 @@ export function BrokerTransaction() {
                                   {(() => {
                                     const dayData = netBuyRowData.data;
                                     const nbCode = dayData.NBCode || netBuyRowData.stock;
+                                    const nbCodeColorClass = getStockColorClass(nbCode);
                                     const nbLot = dayData.NBLot || 0;
                                     const nbVal = dayData.NBVal || 0;
                                     const nbAvg = dayData.NBAvg !== undefined && dayData.NBAvg !== null ? dayData.NBAvg : (nbLot > 0 ? nbVal / (nbLot * 100) : 0);
@@ -2198,28 +2897,28 @@ export function BrokerTransaction() {
                                     
                                     return (
                                       <>
-                                        <td className={`text-center py-[1px] px-[4.2px] font-bold text-green-600 w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>
+                                        <td className={`text-center py-[1px] px-[6px] font-bold w-4 ${nbCodeColorClass} ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>
                                           {nbCode}
                             </td>
-                                        <td className={`text-right py-[1px] px-[4.2px] font-bold text-green-600 w-6`}>
+                                        <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`}>
                                           {formatLot(nbLot)}
                             </td>
-                                        <td className={`text-right py-[1px] px-[4.2px] font-bold text-green-600 w-6`}>
+                                        <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`}>
                                           {formatValue(nbVal)}
                             </td>
-                                        <td className={`text-right py-[1px] px-[4.2px] font-bold text-green-600 w-6`}>
+                                        <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`}>
                                           {formatAverage(nbAvg)}
                             </td>
-                                        <td className={`text-right py-[1px] px-[4.2px] font-bold text-green-600 w-6`}>
+                                        <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`}>
                                           {nbFreq}
                                         </td>
-                                        <td className={`text-right py-[1px] px-[4.2px] font-bold text-green-600 w-8`}>
+                                        <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-8`}>
                                           {formatAverage(nbLotPerFreq)}
                                         </td>
-                                        <td className={`text-right py-[1px] px-[4.2px] font-bold text-green-600 w-6`}>
+                                        <td className={`text-right py-[1px] px-[8px] font-bold text-green-600 w-8`}>
                                           {nbOrdNum}
                                         </td>
-                                        <td className={`text-right py-[1px] px-[4.2px] font-bold text-green-600 w-16`}>
+                                        <td className={`text-right py-[1px] px-[8px] font-bold text-green-600 w-20`}>
                                           {formatAverage(nbLotPerOrdNum)}
                                         </td>
                                       </>
@@ -2235,18 +2934,19 @@ export function BrokerTransaction() {
                                   <td className={`text-right py-[1px] px-[4.2px] text-gray-400 w-6`}>-</td>
                                   <td className={`text-right py-[1px] px-[4.2px] text-gray-400 w-6`}>-</td>
                                   <td className={`text-right py-[1px] px-[4.2px] text-gray-400 w-8`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400 w-6`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400 w-16`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-8`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-20`}>-</td>
                                 </>
                               )}
                             {/* Separator */}
-                              <td className="text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold w-4">{rowIdx + 1}</td>
+                              <td className="text-center py-[1px] px-[4.2px] text-white bg-[#3a4252] font-bold w-auto min-w-[2.5rem] whitespace-nowrap">{rowIdx + 1}</td>
                               {/* Net Sell Columns - from netSellStocksByDate */}
                               {netSellRowData ? (
                                 <>
                                   {(() => {
                                     const dayData = netSellRowData.data;
                                     const nsCode = dayData.NSCode || netSellRowData.stock;
+                                    const nsCodeColorClass = getStockColorClass(nsCode);
                                     const nsLot = dayData.NSLot || 0;
                                     const nsVal = dayData.NSVal || 0;
                                     const nsAvg = dayData.NSAvg !== undefined && dayData.NSAvg !== null ? dayData.NSAvg : (nsLot > 0 ? nsVal / (nsLot * 100) : 0);
@@ -2259,28 +2959,28 @@ export function BrokerTransaction() {
                                     
                                     return (
                                       <>
-                                        <td className={`text-center py-[1px] px-[4.2px] font-bold text-red-600 w-4`}>
+                                        <td className={`text-center py-[1px] px-[6px] font-bold w-4 ${nsCodeColorClass}`}>
                                           {nsCode}
                             </td>
-                                        <td className={`text-right py-[1px] px-[4.2px] font-bold text-red-600 w-6`}>
+                                        <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`}>
                                           {formatLot(nsLot)}
                             </td>
-                                        <td className={`text-right py-[1px] px-[4.2px] font-bold text-red-600 w-6`}>
+                                        <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`}>
                                           {formatValue(nsVal)}
                             </td>
-                                        <td className={`text-right py-[1px] px-[4.2px] font-bold text-red-600 w-6`}>
+                                        <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`}>
                                           {formatAverage(nsAvg)}
                             </td>
-                                        <td className={`text-right py-[1px] px-[4.2px] font-bold text-red-600 w-6`}>
+                                        <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`}>
                                           {nsFreq}
                             </td>
-                                        <td className={`text-right py-[1px] px-[4.2px] font-bold text-red-600 w-8`}>
+                                        <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-8`}>
                                           {formatAverage(nsLotPerFreq)}
                                         </td>
-                                        <td className={`text-right py-[1px] px-[4.2px] font-bold text-red-600 w-6`}>
+                                        <td className={`text-right py-[1px] px-[8px] font-bold text-red-600 w-8`}>
                                           {nsOrdNum}
                                         </td>
-                                        <td className={`text-right py-[1px] px-[4.2px] font-bold text-red-600 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
+                                        <td className={`text-right py-[1px] px-[8px] font-bold text-red-600 w-20 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
                                           {formatAverage(nsLotPerOrdNum)}
                                         </td>
                                       </>
@@ -2290,14 +2990,14 @@ export function BrokerTransaction() {
                               ) : (
                                 // Show empty cells if no Net Sell data at this row index
                                 <>
-                                  <td className={`text-center py-[1px] px-[4.2px] text-gray-400 w-4`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400 w-6`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400 w-6`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400 w-6`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400 w-6`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400 w-8`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400 w-6`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>-</td>
+                                  <td className={`text-center py-[1px] px-[6px] text-gray-400 w-4`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-8`}>-</td>
+                                  <td className={`text-right py-[1px] px-[8px] text-gray-400 w-8`}>-</td>
+                                  <td className={`text-right py-[1px] px-[8px] text-gray-400 w-20 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>-</td>
                                 </>
                               )}
                           </React.Fragment>
@@ -2312,13 +3012,8 @@ export function BrokerTransaction() {
                               const nbLot = data.netBuyVol / 100;
                               return Math.abs(nbLot) > 0;
                             })
-                            .filter(([stock]) => {
-                              // Filter by selected tickers if provided
-                              if (shouldFilterBySelectedTickers) {
-                                return selectedTickers.includes(stock);
-                              }
-                              return true;
-                            })
+                            // FIXED: Don't filter by selectedTickers here - filtering will only happen when Show button is clicked
+                            // This prevents auto-update of displayed data when ticker changes
                             .sort((a, b) => b[1].netBuyValue - a[1].netBuyValue)
                             .map(([stock]) => stock);
                           
@@ -2328,13 +3023,8 @@ export function BrokerTransaction() {
                               const nsLot = data.netSellVol / 100;
                               return Math.abs(nsLot) > 0;
                             })
-                            .filter(([stock]) => {
-                              // Filter by selected tickers if provided
-                              if (shouldFilterBySelectedTickers) {
-                                return selectedTickers.includes(stock);
-                              }
-                              return true;
-                            })
+                            // FIXED: Don't filter by selectedTickers here - filtering will only happen when Show button is clicked
+                            // This prevents auto-update of displayed data when ticker changes
                             .sort((a, b) => b[1].netSellValue - a[1].netSellValue)
                             .map(([stock]) => stock);
                           
@@ -2396,41 +3086,41 @@ export function BrokerTransaction() {
                               {/* Net Buy Total Columns */}
                               {netBuyData && Math.abs(totalNetBuyLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[4.2px] font-bold ${totalNetBuyColor} ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>
+                            <td className={`text-center py-[1px] px-[6px] font-bold ${totalNetBuyColor} ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>
                                     {totalNetBuyNBCode}
                             </td>
-                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetBuyColor}`}>
+                            <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`}>
                                     {formatLot(totalNetBuyLot)}
                             </td>
-                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetBuyColor}`}>
+                            <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`}>
                                     {formatValue(totalNetBuyValue)}
                             </td>
-                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetBuyColor}`}>
+                            <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`}>
                                     {formatAverage(finalNetBuyAvg)}
                             </td>
-                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetBuyColor}`}>
+                            <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`}>
                                     {totalNetBuyFreq}
                             </td>
-                                  <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetBuyColor} w-8`}>
+                                  <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor} w-8`}>
                                     {formatAverage(totalNetBuyLotPerFreq)}
                                   </td>
-                                  <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetBuyColor}`}>
+                                  <td className={`text-right py-[1px] px-[8px] font-bold ${totalNetBuyColor} w-8`}>
                                     {totalNetBuyOrdNum}
                                   </td>
-                                  <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetBuyColor} w-16`}>
+                                  <td className={`text-right py-[1px] px-[8px] font-bold ${totalNetBuyColor} w-20`}>
                                     {formatAverage(totalNetBuyLotPerOrdNum)}
                                   </td>
                                 </>
                               ) : (
                                 <>
-                                  <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400 w-8`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400 w-16`}>-</td>
+                                  <td className={`text-center py-[1px] px-[6px] text-gray-400 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-8`}>-</td>
+                                  <td className={`text-right py-[1px] px-[8px] text-gray-400 w-8`}>-</td>
+                                  <td className={`text-right py-[1px] px-[8px] text-gray-400 w-20`}>-</td>
                                 </>
                               )}
                             {/* Separator */}
@@ -2438,41 +3128,41 @@ export function BrokerTransaction() {
                               {/* Net Sell Total Columns */}
                               {netSellData && Math.abs(totalNetSellLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[4.2px] font-bold ${totalNetSellColor}`}>
+                            <td className={`text-center py-[1px] px-[6px] font-bold ${totalNetSellColor}`}>
                                     {totalNetSellNSCode}
                             </td>
-                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetSellColor}`}>
+                            <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor}`}>
                                     {formatLot(totalNetSellLot)}
                             </td>
-                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetSellColor}`}>
+                            <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor}`}>
                                     {formatValue(totalNetSellValue)}
                             </td>
-                            <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetSellColor}`}>
+                            <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor}`}>
                                     {formatAverage(finalNetSellAvg)}
                             </td>
-                                  <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetSellColor}`}>
+                                  <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor}`}>
                                     {totalNetSellFreq}
                             </td>
-                                  <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetSellColor} w-8`}>
+                                  <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-8`}>
                                     {formatAverage(totalNetSellLotPerFreq)}
                                   </td>
-                                  <td className={`text-right py-[1px] px-[4.2px] font-bold ${totalNetSellColor}`}>
+                                  <td className={`text-right py-[1px] px-[8px] font-bold ${totalNetSellColor} w-8`}>
                                     {totalNetSellOrdNum}
                                   </td>
-                                  <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} border-r-2 border-white w-16`}>
+                                  <td className={`text-right py-[1px] px-[8px] font-bold ${totalNetSellColor} w-20 border-r-2 border-white`}>
                                     {formatAverage(totalNetSellLotPerOrdNum)}
                                   </td>
                                 </>
                               ) : (
                                 <>
-                                  <td className={`text-center py-[1px] px-[4.2px] text-gray-400`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400 w-8`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 border-r-2 border-white w-12`}>-</td>
+                                  <td className={`text-center py-[1px] px-[6px] text-gray-400`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-8`}>-</td>
+                                  <td className={`text-right py-[1px] px-[8px] text-gray-400 w-8`}>-</td>
+                                  <td className={`text-right py-[1px] px-[8px] text-gray-400 w-20 border-r-2 border-white`}>-</td>
                                 </>
                               )}
                           </React.Fragment>
@@ -2480,7 +3170,15 @@ export function BrokerTransaction() {
                       })()}
                     </tr>
                   );
-                })}
+                }) : null}
+                {/* Lazy loading sentinel - triggers load more when scrolled into view */}
+                {visibleRowCount < maxRows && rowIndices.length > 0 && (
+                  <tr>
+                    <td colSpan={selectedDates.length * 17 + 17} ref={netTableSentinelRef} className="h-10">
+                      {/* Invisible sentinel for intersection observer */}
+                    </td>
+                  </tr>
+                )}
                 </tbody>
               </table>
             </div>
@@ -2493,64 +3191,9 @@ export function BrokerTransaction() {
       <div className="w-full">
         {renderValueTable()}
         {renderNetTable()}
-        
-        {/* Pagination Controls */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 bg-[#0a0f20] border-t border-[#3a4252]">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">
-                {(() => {
-                  let maxRows = 0;
-                  selectedDates.forEach(date => {
-                    const buyData = buyStocksByDate.get(date) || [];
-                    const sellData = sellStocksByDate.get(date) || [];
-                    const netBuyData = netBuyStocksByDate.get(date) || [];
-                    const netSellData = netSellStocksByDate.get(date) || [];
-                    maxRows = Math.max(maxRows, buyData.length, sellData.length, netBuyData.length, netSellData.length);
-                  });
-                  const startRow = ((currentPage - 1) * itemsPerPage) + 1;
-                  const endRow = Math.min(currentPage * itemsPerPage, maxRows);
-                  return `Showing ${startRow} to ${endRow} of ${maxRows} rows`;
-                })()}
-              </span>
-              <select
-                value={itemsPerPage}
-                onChange={(e) => {
-                  setItemsPerPage(Number(e.target.value));
-                  setCurrentPage(1); // Reset to first page when changing page size
-                }}
-                className="px-2 py-1 text-sm border border-[#3a4252] rounded-md bg-input text-foreground"
-              >
-                <option value={25}>25 per page</option>
-                <option value={50}>50 per page</option>
-                <option value={100}>100 per page</option>
-                <option value={200}>200 per page</option>
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                disabled={currentPage === 1}
-                className="px-3 py-1 text-sm border border-[#3a4252] rounded-md bg-input text-foreground disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent"
-              >
-                Previous
-              </button>
-              <span className="text-sm text-muted-foreground">
-                Page {currentPage} of {totalPages}
-              </span>
-              <button
-                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                disabled={currentPage === totalPages}
-                className="px-3 py-1 text-sm border border-[#3a4252] rounded-md bg-input text-foreground disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     );
-  }, [selectedBrokers, selectedDates, filteredStocks, uniqueStocks, sortedStocksByDate, sortedNetStocksByDate, totalDataByStock, totalNetDataByStock, sortedTotalStocks, sortedTotalNetStocks, transactionData, selectedTickers, fdFilter, currentPage, itemsPerPage, totalPages, buyStocksByDate, sellStocksByDate, netBuyStocksByDate, netSellStocksByDate, totalNetBuyDataByStock, totalNetSellDataByStock, shouldFilterBySelectedTickers]);
+  }, [filteredStocks, uniqueStocks, sortedStocksByDate, sortedNetStocksByDate, totalDataByStock, totalNetDataByStock, sortedTotalStocks, sortedTotalNetStocks, transactionData, visibleRowIndices, buyStocksByDate, sellStocksByDate, netBuyStocksByDate, netSellStocksByDate, totalNetBuyDataByStock, totalNetSellDataByStock, isDataReady]); // CRITICAL: Removed sectorFilter - sector filtering is applied at render time, not in dependencies
 
 
   return (
@@ -2714,21 +3357,11 @@ export function BrokerTransaction() {
                 }}
                 onFocus={() => setShowTickerSuggestions(true)}
                 onKeyDown={(e) => {
-                  // Get unique tickers from all sections (BCode, SCode, NBCode, NSCode)
-                  const allTickers = new Set<string>();
-                  selectedDates.forEach(date => {
-                    const dateData = transactionData.get(date) || [];
-                    dateData.forEach(item => {
-                      if (item.BCode) allTickers.add(item.BCode);
-                      if (item.SCode) allTickers.add(item.SCode);
-                      if (item.NBCode) allTickers.add(item.NBCode);
-                      if (item.NSCode) allTickers.add(item.NSCode);
-                    });
-                  });
-                  const availableTickers = Array.from(allTickers).filter(t => !selectedTickers.includes(t));
+                  // OPTIMIZED: Use memoized availableTickers instead of extracting every time
+                  const availableTickersFiltered = availableTickers.filter(t => !selectedTickers.includes(t));
                   const filteredTickers = tickerInput === '' 
-                    ? availableTickers
-                    : availableTickers.filter(t => 
+                    ? availableTickersFiltered
+                    : availableTickersFiltered.filter(t => 
                         t.toLowerCase().includes(tickerInput.toLowerCase())
                       );
                   const suggestions = filteredTickers.slice(0, 10);
@@ -2750,26 +3383,24 @@ export function BrokerTransaction() {
                 }}
                 className="w-32 h-9 px-3 py-1 text-sm border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
               />
-              {showTickerSuggestions && isDataReady && (
+              {showTickerSuggestions && (
                 <div id="ticker-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
                   {(() => {
-                    // Get unique tickers from all sections (BCode, SCode, NBCode, NSCode)
-                    const allTickers = new Set<string>();
-                    selectedDates.forEach(date => {
-                      const dateData = transactionData.get(date) || [];
-                      dateData.forEach(item => {
-                        if (item.BCode) allTickers.add(item.BCode);
-                        if (item.SCode) allTickers.add(item.SCode);
-                        if (item.NBCode) allTickers.add(item.NBCode);
-                        if (item.NSCode) allTickers.add(item.NSCode);
-                      });
-                    });
-                    const availableTickers = Array.from(allTickers).filter(t => !selectedTickers.includes(t));
+                    // OPTIMIZED: Use memoized availableTickers instead of extracting every render
+                    const availableTickersFiltered = availableTickers.filter(t => !selectedTickers.includes(t));
                     
-                    if (availableTickers.length === 0) {
+                    if (availableTickersFiltered.length === 0) {
+                      if (!isDataReady) {
+                        return (
+                          <div className="px-3 py-2 text-sm text-muted-foreground flex items-center">
+                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                            Loading tickers... (Please load data first)
+                          </div>
+                        );
+                      }
                       return (
                         <div className="px-3 py-2 text-sm text-muted-foreground">
-                          No tickers available
+                          No tickers available for selected broker(s)
                         </div>
                       );
                     }
@@ -2778,9 +3409,9 @@ export function BrokerTransaction() {
                       return (
                         <>
                           <div className="px-3 py-2 text-xs text-muted-foreground border-b border-[#3a4252]">
-                            Available Tickers ({availableTickers.length})
+                            Available Tickers ({availableTickersFiltered.length})
                           </div>
-                          {availableTickers.slice(0, 20).map(ticker => (
+                          {availableTickersFiltered.slice(0, 20).map(ticker => (
                             <div
                               key={ticker}
                               onClick={() => handleTickerSelect(ticker)}
@@ -2792,7 +3423,7 @@ export function BrokerTransaction() {
                         </>
                       );
                     } else {
-                      const filteredTickers = availableTickers.filter(t => 
+                      const filteredTickers = availableTickersFiltered.filter(t => 
                         t.toLowerCase().includes(tickerInput.toLowerCase())
                       );
                       return (
@@ -2912,27 +3543,6 @@ export function BrokerTransaction() {
               </div>
             </div>
 
-          {/* Show Button */}
-          <button
-            onClick={() => {
-              console.log('[BrokerTransaction] Show button clicked:', {
-                selectedBrokers,
-                selectedDates,
-                marketFilter
-              });
-              // Clear existing data before fetching new data
-              setTransactionData(new Map());
-              setIsDataReady(false);
-              // Set ref first (synchronous), then state (async)
-              shouldFetchDataRef.current = true;
-              setShouldFetchData(true);
-            }}
-            disabled={isLoading || selectedBrokers.length === 0 || selectedDates.length === 0}
-            className="px-4 py-1.5 h-9 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap"
-          >
-            Show
-          </button>
-
           {/* Market Filter */}
           <div className="flex items-center gap-2">
             <label className="text-sm font-medium whitespace-nowrap">Board:</label>
@@ -2948,19 +3558,46 @@ export function BrokerTransaction() {
             </select>
             </div>
 
-          {/* F/D Filter */}
+          {/* Sector Filter */}
           <div className="flex items-center gap-2">
-            <label className="text-sm font-medium whitespace-nowrap">F/D:</label>
+            <label className="text-sm font-medium whitespace-nowrap">Sector:</label>
             <select
-              value={fdFilter}
-              onChange={(e) => setFdFilter(e.target.value as 'All' | 'Foreign' | 'Domestic')}
+              value={sectorFilter}
+              onChange={(e) => setSectorFilter(e.target.value)}
               className="px-3 py-1.5 border border-[#3a4252] rounded-md bg-background text-foreground text-sm"
             >
-              <option value="All">All</option>
-              <option value="Foreign">Foreign</option>
-              <option value="Domestic">Domestic</option>
+              {availableSectors.map(sector => (
+                <option key={sector} value={sector}>{sector}</option>
+              ))}
             </select>
           </div>
+
+          {/* Show Button */}
+          <button
+            onClick={() => {
+              console.log('[BrokerTransaction] Show button clicked:', {
+                selectedBrokers,
+                selectedDates,
+                marketFilter,
+                sectorFilter
+              });
+              // Clear existing data before fetching new data
+              setTransactionData(new Map());
+              setRawTransactionData(new Map()); // Clear raw data too
+              setIsDataReady(false);
+              
+              // CRITICAL: Reset column width sync flag when clearing data
+              hasSyncedColumnWidthsRef.current = false;
+              columnWidthsRef.current = [];
+              // Set ref first (synchronous), then state (async)
+              shouldFetchDataRef.current = true;
+              setShouldFetchData(true);
+            }}
+            disabled={isLoading || selectedBrokers.length === 0 || selectedDates.length === 0}
+            className="px-4 py-1.5 h-9 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap"
+          >
+            Show
+          </button>
         </div>
       </div>
 

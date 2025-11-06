@@ -935,6 +935,10 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
   const [isTypingTicker, setIsTypingTicker] = useState(false);
   const [availableStocks, setAvailableStocks] = useState<string[]>([]);
   const [isLoadingStocks, setIsLoadingStocks] = useState(false);
+  // Sector Filter states
+  const [sectorFilter, setSectorFilter] = useState<string>('All'); // 'All' or sector name
+  const [availableSectors, setAvailableSectors] = useState<string[]>([]); // List of available sectors
+  const [stockToSectorMap, setStockToSectorMap] = useState<{ [stock: string]: string }>({}); // Stock code -> sector name mapping
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isLoadingBrokerData, setIsLoadingBrokerData] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
@@ -1122,6 +1126,16 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
           console.log(`📊 Loaded ${response.data.stocks.length} stocks from API`);
         } else {
           console.warn('⚠️ No stocks data received from API');
+        }
+        
+        // Load sector mapping for sector filter
+        const sectorResponse = await api.getSectorMapping();
+        if (sectorResponse.success && sectorResponse.data) {
+          setStockToSectorMap(sectorResponse.data.stockToSector);
+          setAvailableSectors(['All', ...sectorResponse.data.sectors]);
+          console.log(`[BrokerInventory] Loaded sector mapping: ${Object.keys(sectorResponse.data.stockToSector).length} stocks, ${sectorResponse.data.sectors.length} sectors`);
+        } else {
+          console.warn('[BrokerInventory] Failed to load sector mapping, sector filter will not work');
         }
         
       } catch (error) {
@@ -1716,9 +1730,21 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
     !selectedBrokers.includes(broker)
   );
 
-  const filteredTickers = availableStocks.filter(ticker =>
-    ticker.toLowerCase().includes(tickerSearch.toLowerCase())
-  );
+  const filteredTickers = useMemo(() => {
+    let filtered = availableStocks.filter(ticker =>
+      ticker.toLowerCase().includes(tickerSearch.toLowerCase())
+    );
+    
+    // Filter by sector if sector filter is not 'All'
+    if (sectorFilter !== 'All') {
+      filtered = filtered.filter(ticker => {
+        const stockSector = stockToSectorMap[ticker.toUpperCase()];
+        return stockSector === sectorFilter;
+      });
+    }
+    
+    return filtered;
+  }, [availableStocks, tickerSearch, sectorFilter, stockToSectorMap]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -2471,6 +2497,20 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
                   </Button>
                 )}
               </div>
+            </div>
+            
+            {/* Sector Filter */}
+            <div>
+              <label className="block text-sm font-medium mb-2">Sector:</label>
+              <select
+                value={sectorFilter}
+                onChange={(e) => setSectorFilter(e.target.value)}
+                className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm"
+              >
+                {availableSectors.map(sector => (
+                  <option key={sector} value={sector}>{sector}</option>
+                ))}
+              </select>
             </div>
           </div>
 
