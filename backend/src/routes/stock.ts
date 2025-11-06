@@ -545,4 +545,46 @@ router.get('/latest-date/:stockCode', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/stock/sector-mapping
+ * Get sector mapping (stock code -> sector name)
+ */
+router.get('/sector-mapping', async (_req, res) => {
+  try {
+    console.log('📊 Getting sector mapping...');
+    
+    // Build sector mapping first
+    await buildSectorMappingFromAzure();
+    
+    // Build reverse mapping: stock -> sector
+    const stockToSector: { [stock: string]: string } = {};
+    for (const [sector, stocks] of Object.entries(SECTOR_MAPPING)) {
+      stocks.forEach(stock => {
+        stockToSector[stock.toUpperCase()] = sector;
+      });
+    }
+    
+    // Also get list of all sectors
+    const sectors = Object.keys(SECTOR_MAPPING).filter(sector => SECTOR_MAPPING[sector] && SECTOR_MAPPING[sector].length > 0);
+    
+    console.log(`📊 Found ${Object.keys(stockToSector).length} stocks mapped to ${sectors.length} sectors`);
+    
+    return res.json({
+      success: true,
+      data: {
+        stockToSector,
+        sectors: sectors.sort(),
+        sectorMapping: SECTOR_MAPPING
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error getting sector mapping:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get sector mapping'
+    });
+  }
+});
+
 export default router;

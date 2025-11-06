@@ -189,18 +189,30 @@ router.get('/summary/:stockCode', async (req, res) => {
  * Helper function to determine Azure Storage path based on broker code and market filter
  * For All brokers: stock-trading-data/broker_transaction/broker_transaction_YYYYMMDD/{brokerCode}.csv
  * For RG market: stock-trading-data/broker_transaction_rg/broker_transaction_rg_YYYYMMDD/{brokerCode}.csv
+ * For TN market: stock-trading-data/broker_transaction_tn/broker_transaction_tn_YYYYMMDD/{brokerCode}.csv
+ * For NG market: stock-trading-data/broker_transaction_ng/broker_transaction_ng_YYYYMMDD/{brokerCode}.csv
  */
 const getAzurePath = (brokerCode: string, dateStr: string, marketFilter?: string): string => {
-  // Check if market filter is RG
-  const isRG = marketFilter?.toUpperCase() === 'RG';
-  
-  if (isRG) {
-    // For RG market: stock-trading-data/broker_transaction_rg/broker_transaction_rg_YYYYMMDD/{brokerCode}.csv
-    return `broker_transaction_rg/broker_transaction_rg_${dateStr}/${brokerCode}.csv`;
-  } else {
+  // If market filter is empty or undefined, use All Trade path
+  if (!marketFilter || marketFilter === '') {
     // For All brokers: stock-trading-data/broker_transaction/broker_transaction_YYYYMMDD/{brokerCode}.csv
     return `broker_transaction/broker_transaction_${dateStr}/${brokerCode}.csv`;
   }
+  
+  // Normalize market filter to uppercase
+  const market = marketFilter.toUpperCase();
+  
+  // Map market to folder name (RG -> rg, TN -> tn, NG -> ng)
+  const folderMap: { [key: string]: string } = {
+    'RG': 'rg',
+    'TN': 'tn',
+    'NG': 'ng'
+  };
+  
+  const folderType = folderMap[market] || market.toLowerCase();
+  
+  // For specific markets: stock-trading-data/broker_transaction_{type}/broker_transaction_{type}_YYYYMMDD/{brokerCode}.csv
+  return `broker_transaction_${folderType}/broker_transaction_${folderType}_${dateStr}/${brokerCode}.csv`;
 };
 
 /**
@@ -561,36 +573,75 @@ const parseBrokerTransactionCSV = (csvData: string, _brokerCode: string): any[] 
  */
 router.get('/transaction/dates', async (_req, res) => {
   try {
-    const { listPaths } = await import('../utils/azureBlob');
+    const { listPrefixes } = await import('../utils/azureBlob');
     
     const dates = new Set<string>();
     
-    // List all broker_transaction files (for All brokers)
+    // Use listPrefixes to directly get folder names (much faster than listPaths)
+    // This lists only the folder structure, not all files
+    
+    // List all broker_transaction folders (for All brokers)
+    // Structure: broker_transaction/broker_transaction_YYYYMMDD/{brokerCode}.csv
     try {
-      const allFiles = await listPaths({ prefix: 'broker_transaction/' });
-      allFiles.forEach(file => {
-        // Extract date from broker_transaction/broker_transaction_YYYYMMDD pattern
-        const match = file.match(/broker_transaction\/broker_transaction_(\d{8})(?:\.csv)?$/);
+      const allPrefixes = await listPrefixes('broker_transaction/');
+      allPrefixes.forEach(prefix => {
+        // Extract date from broker_transaction/broker_transaction_YYYYMMDD/ pattern
+        const match = prefix.match(/broker_transaction\/broker_transaction_(\d{8})\//);
         if (match && match[1]) {
           dates.add(match[1]);
         }
       });
+      console.log(`[AZURE] Found ${dates.size} dates from broker_transaction/ (${allPrefixes.length} folders)`);
     } catch (error: any) {
-      console.error('[AZURE] Error listing broker_transaction files:', error.message);
+      console.error('[AZURE] Error listing broker_transaction folders:', error.message);
     }
     
-    // List all broker_transaction_rg files (for RG broker)
+    // List all broker_transaction_rg folders (for RG market)
+    // Structure: broker_transaction_rg/broker_transaction_rg_YYYYMMDD/{brokerCode}.csv
     try {
-      const rgFiles = await listPaths({ prefix: 'broker_transaction_rg/' });
-      rgFiles.forEach(file => {
-        // Extract date from broker_transaction_rg/broker_transaction_rg_YYYYMMDD pattern
-        const match = file.match(/broker_transaction_rg\/broker_transaction_rg_(\d{8})(?:\.csv)?$/);
+      const rgPrefixes = await listPrefixes('broker_transaction_rg/');
+      rgPrefixes.forEach(prefix => {
+        // Extract date from broker_transaction_rg/broker_transaction_rg_YYYYMMDD/ pattern
+        const match = prefix.match(/broker_transaction_rg\/broker_transaction_rg_(\d{8})\//);
         if (match && match[1]) {
           dates.add(match[1]);
         }
       });
+      console.log(`[AZURE] Found ${dates.size} dates from broker_transaction_rg/ (${rgPrefixes.length} folders)`);
     } catch (error: any) {
-      console.error('[AZURE] Error listing broker_transaction_rg files:', error.message);
+      console.error('[AZURE] Error listing broker_transaction_rg folders:', error.message);
+    }
+    
+    // List all broker_transaction_tn folders (for TN market)
+    // Structure: broker_transaction_tn/broker_transaction_tn_YYYYMMDD/{brokerCode}.csv
+    try {
+      const tnPrefixes = await listPrefixes('broker_transaction_tn/');
+      tnPrefixes.forEach(prefix => {
+        // Extract date from broker_transaction_tn/broker_transaction_tn_YYYYMMDD/ pattern
+        const match = prefix.match(/broker_transaction_tn\/broker_transaction_tn_(\d{8})\//);
+        if (match && match[1]) {
+          dates.add(match[1]);
+        }
+      });
+      console.log(`[AZURE] Found ${dates.size} dates from broker_transaction_tn/ (${tnPrefixes.length} folders)`);
+    } catch (error: any) {
+      console.error('[AZURE] Error listing broker_transaction_tn folders:', error.message);
+    }
+    
+    // List all broker_transaction_ng folders (for NG market)
+    // Structure: broker_transaction_ng/broker_transaction_ng_YYYYMMDD/{brokerCode}.csv
+    try {
+      const ngPrefixes = await listPrefixes('broker_transaction_ng/');
+      ngPrefixes.forEach(prefix => {
+        // Extract date from broker_transaction_ng/broker_transaction_ng_YYYYMMDD/ pattern
+        const match = prefix.match(/broker_transaction_ng\/broker_transaction_ng_(\d{8})\//);
+        if (match && match[1]) {
+          dates.add(match[1]);
+        }
+      });
+      console.log(`[AZURE] Found ${dates.size} dates from broker_transaction_ng/ (${ngPrefixes.length} folders)`);
+    } catch (error: any) {
+      console.error('[AZURE] Error listing broker_transaction_ng folders:', error.message);
     }
     
     const sortedDates = Array.from(dates).sort().reverse(); // Newest first
