@@ -1303,7 +1303,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
             <h3 className="font-semibold text-sm">VALUE - {selectedTickers.join(', ')}</h3>
           </div>
            <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
-              <div ref={valueTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} overflow-x-auto overflow-y-auto border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: 'calc(2 * 28px + 20 * 24px)' }}>
+              <div ref={valueTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} overflow-x-auto overflow-y-auto border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '494px' }}>
                <table ref={valueTableRef} className={`${showOnlyTotal ? 'min-w-0' : 'min-w-[1000px]'} ${getFontSizeClass()} table-auto`} style={{ tableLayout: showOnlyTotal ? 'auto' : 'auto' }}>
                          <thead className="bg-[#3a4252]">
                          <tr className="border-t-2 border-white">
@@ -1431,13 +1431,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       );
                     }
                     
-                    // Limit display to 20 rows (rest will be scrollable)
-                    const MAX_DISPLAY_ROWS = 20;
-                    const displayRows = Math.min(maxRows, MAX_DISPLAY_ROWS);
-                    
-                    // Render rows (limited to 20)
-                    return Array.from({ length: displayRows }).map((_, rowIdx) => (
-                              <tr key={rowIdx} className={`hover:bg-accent/50 ${rowIdx === displayRows - 1 ? 'border-b-2 border-white' : ''}`}>
+                    // Render all rows (scrollable container handles overflow)
+                    return Array.from({ length: maxRows }).map((_, rowIdx) => (
+                              <tr key={rowIdx} className={`hover:bg-accent/50 ${rowIdx === maxRows - 1 ? 'border-b-2 border-white' : ''}`}>
                           {!showOnlyTotal && availableDates.map((date, dateIndex) => {
                           const dateData = allBrokerData.find(d => d.date === date);
                           
@@ -1539,7 +1535,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
             <h3 className="font-semibold text-sm">NET - {selectedTickers.join(', ')}</h3>
           </div>
           <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
-              <div ref={netTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} overflow-x-auto overflow-y-auto border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: 'calc(2 * 28px + 20 * 24px)' }}>
+              <div ref={netTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} overflow-x-auto overflow-y-auto border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '516px' }}>
               <table ref={netTableRef} className={`${showOnlyTotal ? 'min-w-0' : 'min-w-[1000px]'} ${getFontSizeClass()} table-auto`} style={{ tableLayout: showOnlyTotal ? 'auto' : 'auto' }}>
                         <thead className="bg-[#3a4252]">
                         <tr className="border-t-2 border-white">
@@ -1765,16 +1761,12 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       );
                     }
                           
-                    // Limit display to 20 rows (rest will be scrollable)
-                    const MAX_DISPLAY_ROWS = 20;
-                    const displayRows = Math.min(maxRows, MAX_DISPLAY_ROWS);
-                          
-                    // Render rows (limited to 20)
-                          return Array.from({ length: displayRows }).map((_, rowIdx) => {
+                    // Render all rows (scrollable container handles overflow)
+                          return Array.from({ length: maxRows }).map((_, rowIdx) => {
                       // Cek apakah broker pada row adalah top5
                       // (delete unused block: netBuyData/netSellData functions)
                             return (
-                              <tr key={rowIdx} className={`hover:bg-accent/50 ${rowIdx === displayRows - 1 ? 'border-b-2 border-white' : ''}`}>
+                              <tr key={rowIdx} className={`hover:bg-accent/50 ${rowIdx === maxRows - 1 ? 'border-b-2 border-white' : ''}`}>
                             {!showOnlyTotal && availableDates.map((date, dateIndex) => {
                             const dateData = allBrokerData.find(d => d.date === date);
                               // Sort brokers for this date
@@ -2359,42 +2351,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                 </div>
               </div>
 
-              {/* Show Button */}
-              <button
-                onClick={() => {
-                  if (selectedTickers.length === 0 || selectedDates.length === 0) {
-                    showToast({
-                      type: 'warning',
-                      title: 'Data Tidak Lengkap',
-                      message: 'Silakan pilih ticker dan tanggal terlebih dahulu.',
-                    });
-                    return;
-                  }
-                  
-                  // Validate that all selected dates are within maxAvailableDate
-                  if (maxAvailableDate && maxAvailableDate.trim() !== '') {
-                    const invalidDates = selectedDates.filter(date => date > maxAvailableDate);
-                    if (invalidDates.length > 0) {
-                      showToast({
-                        type: 'warning',
-                        title: 'Tanggal Tidak Valid',
-                        message: `Tanggal paling baru yang tersedia adalah ${new Date(maxAvailableDate).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}. Beberapa tanggal yang dipilih (${invalidDates.join(', ')}) melebihi batas maksimum.`,
-                      });
-                      return;
-                    }
-                  }
-                  
-                  // Clear existing data before fetching new data
-                  setSummaryByDate(new Map());
-                  setIsDataReady(false);
-                  shouldFetchDataRef.current = true; // Update ref first (synchronous)
-                  setShouldFetchData(true);
-                }}
-                disabled={isLoading || selectedTickers.length === 0 || selectedDates.length === 0}
-                className="px-4 py-1.5 h-9 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap"
-              >
-                Show
-              </button>
+              
 
             {/* F/D Filter */}
               <div className="flex items-center gap-2">
@@ -2424,6 +2381,51 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                   <option value="NG">NG</option>
                 </select>
               </div>
+
+              {/* Show Button - moved to far right */}
+              <button
+                onClick={() => {
+                  if (selectedTickers.length === 0 || selectedDates.length === 0) {
+                    showToast({
+                      type: 'warning',
+                      title: 'Data Tidak Lengkap',
+                      message: 'Silakan pilih ticker dan tanggal terlebih dahulu.',
+                    });
+                    return;
+                  }
+                  
+                  // Validate that all selected dates are within maxAvailableDate
+                  if (maxAvailableDate && maxAvailableDate.trim() !== '') {
+                    const invalidDates = selectedDates.filter(date => date > maxAvailableDate);
+                    if (invalidDates.length > 0) {
+                      showToast({
+                        type: 'warning',
+                        title: 'Tanggal Tidak Valid',
+                        message: `Tanggal paling baru yang tersedia adalah ${new Date(maxAvailableDate).toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })}. Beberapa tanggal yang dipilih (${invalidDates.join(', ')}) melebihi batas maksimum.`,
+                      });
+                      return;
+                    }
+                  }
+                  
+                  // Clear existing data and cache before fetching new data
+                  setSummaryByDate(new Map());
+                  setIsDataReady(false);
+                  // Clear cache to force fresh fetch with current filters
+                  dataCacheRef.current.clear();
+                  // Force re-trigger fetch by toggling shouldFetchData
+                  shouldFetchDataRef.current = false;
+                  setShouldFetchData(false);
+                  // Use setTimeout to ensure state update completes before triggering fetch
+                  setTimeout(() => {
+                    shouldFetchDataRef.current = true;
+                    setShouldFetchData(true);
+                  }, 0);
+                }}
+                disabled={isLoading || selectedTickers.length === 0 || selectedDates.length === 0}
+                className="px-4 py-1.5 h-9 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap"
+              >
+                Show
+              </button>
               </div>
             </div>
 
