@@ -100,7 +100,8 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   const [endDate, setEndDate] = useState<string>('');
   const [selectedTickers, setSelectedTickers] = useState<string[]>(propSelectedStock ? [propSelectedStock] : ['BBCA']);
   const [tickerInput, setTickerInput] = useState<string>('');
-  const [fdFilter, setFdFilter] = useState<'All' | 'Foreign' | 'Domestic'>('All');
+  const [fdFilter, setFdFilter] = useState<'All' | 'Foreign' | 'Domestic'>('All'); // Temporary filter (can be changed before Show button clicked)
+  const [displayedFdFilter, setDisplayedFdFilter] = useState<'All' | 'Foreign' | 'Domestic'>('All'); // Actual filter used for data display (updated when Show button clicked)
   const [marketFilter, setMarketFilter] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Default to RG
   
   // Stock selection state
@@ -117,7 +118,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   const netTableContainerRef = useRef<HTMLDivElement>(null);
 
   // API-driven broker summary data by date
-  const [summaryByDate, setSummaryByDate] = useState<Map<string, BrokerSummaryData[]>>(new Map());
+  const [summaryByDate, setSummaryByDate] = useState<Map<string, BrokerSummaryData[]>>(new Map()); // Filtered data (based on displayedFdFilter)
+  const [rawSummaryByDate, setRawSummaryByDate] = useState<Map<string, BrokerSummaryData[]>>(new Map()); // Raw data without investor filter (for client-side filtering)
+  const [lastFetchParams, setLastFetchParams] = useState<{ tickers: string[]; dates: string[]; market: string } | null>(null); // Track last fetch parameters
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [isDataReady, setIsDataReady] = useState<boolean>(false); // Control when to show tables
@@ -403,18 +406,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
 
       try {
         const market = marketFilter || '';
-        const now = Date.now();
         const cache = dataCacheRef.current;
 
-        // Clear expired cache entries
-        for (const [key, value] of cache.entries()) {
-          if (now - value.timestamp > CACHE_EXPIRY_MS) {
-            cache.delete(key);
-          }
-        }
-
         // Helper function to fetch data for a single ticker-date combination (with cache)
-        const fetchSingleData = async (ticker: string, date: string): Promise<{ ticker: string; date: string; data: BrokerSummaryData[] }> => {
+        const fetchSingleData = async (ticker: string, date: string, skipCache: boolean = false): Promise<{ ticker: string; date: string; data: BrokerSummaryData[] }> => {
           // CRITICAL: Check if fetch was aborted
           if (abortController.signal.aborted || !shouldFetchDataRef.current) {
             console.log(`[BrokerSummary] Fetch aborted for ${ticker} on ${date}`);
@@ -422,10 +417,11 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           }
           
           const cacheKey = `${ticker}-${date}-${market}`;
+          const now = Date.now();
           const cached = cache.get(cacheKey);
 
-          // Check cache first
-          if (cached && (now - cached.timestamp) <= CACHE_EXPIRY_MS) {
+          // Check cache first (skip cache on retry)
+          if (!skipCache && cached && (now - cached.timestamp) <= CACHE_EXPIRY_MS) {
             console.log(`[BrokerSummary] Using cached data for ${ticker} on ${date}`);
             return { ticker, date, data: cached.data };
           }
@@ -490,81 +486,133 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         // OPTIMIZED: Fetch all data in parallel with batching to avoid overwhelming browser
         // Batch size: 10 concurrent requests at a time for better performance and stability
         const BATCH_SIZE = 10;
-        const allDataResults: Array<{ ticker: string; date: string; data: BrokerSummaryData[] }> = [];
         
         // Create all fetch task descriptions (NOT promises yet - create promises only when needed)
         const allFetchTasks = selectedDates.flatMap(date =>
           selectedTickers.map(ticker => ({ ticker, date }))
         );
         
-        console.log(`[BrokerSummary] Fetching ${allFetchTasks.length} ticker-date combinations in batches of ${BATCH_SIZE}...`);
+        // Retry mechanism: try up to 3 times if no valid data fetched
+        const MAX_RETRIES = 3;
+        let validResults: Array<{ ticker: string; date: string; data: BrokerSummaryData[] }> = [];
+        let retryAttempt = 0;
         
-        // Process in batches to avoid overwhelming browser with too many concurrent requests
-        // Create promises only when needed (not all at once)
-        for (let i = 0; i < allFetchTasks.length; i += BATCH_SIZE) {
-          // CRITICAL: Check ref before each batch - user might have changed dates
+        while (retryAttempt < MAX_RETRIES) {
+          // CRITICAL: Check ref before each retry attempt
           if (!shouldFetchDataRef.current || abortController.signal.aborted) {
-            console.log('[BrokerSummary] Fetch aborted before batch processing');
+            console.log('[BrokerSummary] Fetch aborted before retry attempt');
             setIsLoading(false);
             setIsDataReady(false);
             return;
           }
           
-          const batch = allFetchTasks.slice(i, i + BATCH_SIZE);
-          const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-          const totalBatches = Math.ceil(allFetchTasks.length / BATCH_SIZE);
+          const now = Date.now();
           
-          console.log(`[BrokerSummary] Processing batch ${batchNum}/${totalBatches} (${batch.length} requests)...`);
+          // Clear expired cache entries
+          for (const [key, value] of cache.entries()) {
+            if (now - value.timestamp > CACHE_EXPIRY_MS) {
+              cache.delete(key);
+            }
+          }
           
-          try {
-            // Create promises only for this batch (not all at once)
-            const batchPromises = batch.map(({ ticker, date }) => fetchSingleData(ticker, date));
-            
-            // Wait for current batch to complete
-            const batchResults = await Promise.all(batchPromises);
-            
-            // CRITICAL: Check ref after each batch - user might have changed dates
+          const allDataResults: Array<{ ticker: string; date: string; data: BrokerSummaryData[] }> = [];
+          
+          if (retryAttempt > 0) {
+            console.log(`[BrokerSummary] Retry attempt ${retryAttempt + 1}/${MAX_RETRIES} - fetching ${allFetchTasks.length} ticker-date combinations...`);
+            // Add delay between retries (500ms)
+            await new Promise(resolve => setTimeout(resolve, 500));
+          } else {
+            console.log(`[BrokerSummary] Fetching ${allFetchTasks.length} ticker-date combinations in batches of ${BATCH_SIZE}...`);
+          }
+          
+          // Process in batches to avoid overwhelming browser with too many concurrent requests
+          // Create promises only when needed (not all at once)
+          for (let i = 0; i < allFetchTasks.length; i += BATCH_SIZE) {
+            // CRITICAL: Check ref before each batch - user might have changed dates
             if (!shouldFetchDataRef.current || abortController.signal.aborted) {
-              console.log('[BrokerSummary] Fetch aborted after batch processing');
+              console.log('[BrokerSummary] Fetch aborted before batch processing');
               setIsLoading(false);
               setIsDataReady(false);
               return;
             }
             
-            allDataResults.push(...batchResults);
-            console.log(`[BrokerSummary] Batch ${batchNum}/${totalBatches} completed (${batchResults.length} results)`);
-          } catch (error: any) {
-            // If aborted, silently abort
-            if (error?.message === 'Fetch aborted' || !shouldFetchDataRef.current || abortController.signal.aborted) {
-              console.log('[BrokerSummary] Batch aborted');
-              setIsLoading(false);
-              setIsDataReady(false);
-              return;
-            }
+            const batch = allFetchTasks.slice(i, i + BATCH_SIZE);
+            const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+            const totalBatches = Math.ceil(allFetchTasks.length / BATCH_SIZE);
             
-            // For other errors, log but continue with next batch
-            console.error(`[BrokerSummary] Error in batch ${batchNum}:`, error);
-            // Don't add empty results - just skip failed items
+            console.log(`[BrokerSummary] Processing batch ${batchNum}/${totalBatches} (${batch.length} requests)...`);
+            
+            try {
+              // Create promises only for this batch (not all at once)
+              // Skip cache on retry attempts (retryAttempt > 0)
+              const batchPromises = batch.map(({ ticker, date }) => fetchSingleData(ticker, date, retryAttempt > 0));
+              
+              // Wait for current batch to complete
+              const batchResults = await Promise.all(batchPromises);
+              
+              // CRITICAL: Check ref after each batch - user might have changed dates
+              if (!shouldFetchDataRef.current || abortController.signal.aborted) {
+                console.log('[BrokerSummary] Fetch aborted after batch processing');
+                setIsLoading(false);
+                setIsDataReady(false);
+                return;
+              }
+              
+              allDataResults.push(...batchResults);
+              console.log(`[BrokerSummary] Batch ${batchNum}/${totalBatches} completed (${batchResults.length} results)`);
+            } catch (error: any) {
+              // If aborted, silently abort
+              if (error?.message === 'Fetch aborted' || !shouldFetchDataRef.current || abortController.signal.aborted) {
+                console.log('[BrokerSummary] Batch aborted');
+                setIsLoading(false);
+                setIsDataReady(false);
+                return;
+              }
+              
+              // For other errors, log but continue with next batch
+              console.error(`[BrokerSummary] Error in batch ${batchNum}:`, error);
+              // Don't add empty results - just skip failed items
+            }
+          }
+          
+          // CRITICAL: Final check after all batches - user might have changed dates during fetch
+          if (!shouldFetchDataRef.current) {
+            console.log('[BrokerSummary] fetchAll: shouldFetchDataRef became false after all batches, aborting aggregation');
+            setIsLoading(false);
+            setIsDataReady(false);
+            return;
+          }
+          
+          // Filter out empty results (failed fetches)
+          validResults = allDataResults.filter(result => result.ticker && result.date && result.data.length > 0);
+          console.log(`[BrokerSummary] Completed ${validResults.length}/${allFetchTasks.length} successful fetches (attempt ${retryAttempt + 1}/${MAX_RETRIES})`);
+          
+          // If we have valid results, break out of retry loop
+          if (validResults.length > 0) {
+            console.log(`[BrokerSummary] Successfully fetched data on attempt ${retryAttempt + 1}`);
+            break;
+          }
+          
+          // If no valid results and we haven't reached max retries, try again
+          if (retryAttempt < MAX_RETRIES - 1) {
+            console.warn(`[BrokerSummary] No valid data fetched on attempt ${retryAttempt + 1}, retrying...`);
+            retryAttempt++;
+          } else {
+            // Last attempt failed, break and show error
+            console.warn(`[BrokerSummary] No valid data fetched after ${MAX_RETRIES} attempts`);
+            break;
           }
         }
         
-        // CRITICAL: Final check after all batches - user might have changed dates during fetch
-        if (!shouldFetchDataRef.current) {
-          console.log('[BrokerSummary] fetchAll: shouldFetchDataRef became false after all batches, aborting aggregation');
-          setIsLoading(false);
-          setIsDataReady(false);
-          return;
-        }
-        
-        // Filter out empty results (failed fetches)
-        const validResults = allDataResults.filter(result => result.ticker && result.date && result.data.length > 0);
-        console.log(`[BrokerSummary] Completed ${validResults.length}/${allFetchTasks.length} successful fetches`);
-        
+        // If still no valid results after all retries, show "No Data Available" in table
         if (validResults.length === 0) {
-          console.warn('[BrokerSummary] No valid data fetched');
+          console.warn('[BrokerSummary] No valid data fetched after all retry attempts');
+          // Clear data to show "No Data Available" in table
+          setRawSummaryByDate(new Map());
+          setSummaryByDate(new Map());
           setIsLoading(false);
-          setIsDataReady(false);
-          setError('No data available for selected tickers and dates');
+          setIsDataReady(true); // Set to true so table can render "No Data Available"
+          setError(null); // Clear error so table can render
           return;
         }
         
@@ -647,11 +695,13 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           return;
         }
         
-        // Store data first (but tables won't show yet because isDataReady is still false)
-        setSummaryByDate(finalMap);
+        // Store raw data (without investor filter) for client-side filtering
+        setRawSummaryByDate(finalMap);
         
         const totalRows = Array.from(finalMap.values()).reduce((sum, rows) => sum + rows.length, 0);
         console.log(`[BrokerSummary] Total aggregated rows: ${totalRows} across ${finalMap.size} dates from ${selectedTickers.join(', ')}`);
+        
+        // Note: summaryByDate will be updated by the filter effect below based on displayedFdFilter
 
         // CRITICAL: Check ref again before showing toast and setting data ready
         // User might have changed dates during aggregation
@@ -1049,72 +1099,46 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     };
   }, [summaryByDate, isLoading, isDataReady]); // Removed showOnlyTotal - only sync when data changes, not when dates change
 
-  // Synchronize horizontal scroll between Value and Net tables and re-sync column widths on scroll
+  // Synchronize horizontal scroll between Value and Net tables - optimized for smooth scrolling
   useEffect(() => {
     // Wait for tables to be ready (data loaded and DOM rendered)
     if (isLoading || !isDataReady) return;
 
     const valueContainer = valueTableContainerRef.current;
     const netContainer = netTableContainerRef.current;
-    const valueTable = valueTableRef.current;
-    const netTable = netTableRef.current;
 
-    if (!valueContainer || !netContainer || !valueTable || !netTable) return;
+    if (!valueContainer || !netContainer) return;
 
-    // Flag to prevent infinite loop when programmatically updating scroll
-    let isSyncing = false;
+    // Track which container is being scrolled to prevent circular updates
+    // Use a more robust flag system that resets immediately after sync
+    let isValueScrolling = false;
+    let isNetScrolling = false;
 
-    // Handle Value table scroll - sync to Net table and re-sync column widths
+    // Handle Value table scroll - sync to Net table immediately
     const handleValueScroll = () => {
-      if (!isSyncing && netContainer) {
-        isSyncing = true;
+      // Only sync if net container is not currently being scrolled
+      if (!isNetScrolling && netContainer) {
+        isValueScrolling = true;
+        // Immediate synchronization - no delay for smooth scrolling
         netContainer.scrollLeft = valueContainer.scrollLeft;
-        // Re-sync column widths after scroll to ensure alignment
-        requestAnimationFrame(() => {
-          // Sync column widths after scroll - use minWidth to allow expansion
-          const valueHeaderRows = valueTable.querySelectorAll('thead tr');
-          const netHeaderRows = netTable.querySelectorAll('thead tr');
-          
-          if (valueHeaderRows.length >= 2 && netHeaderRows.length >= 2) {
-            const valueColumnHeaderRow = valueHeaderRows[1];
-            const netColumnHeaderRow = netHeaderRows[1];
-            
-            if (valueColumnHeaderRow && netColumnHeaderRow) {
-              const valueHeaderCells = valueColumnHeaderRow.querySelectorAll('th');
-              const netHeaderCells = netColumnHeaderRow.querySelectorAll('th');
-              
-              valueHeaderCells.forEach((valueCell, index) => {
-                const netCell = netHeaderCells[index];
-                if (netCell && valueCell) {
-                  const valueEl = valueCell as HTMLElement;
-                  const netEl = netCell as HTMLElement;
-                  const width = Math.max(valueEl.scrollWidth, valueEl.offsetWidth);
-                  if (width > 0) {
-                    // Apply exact width for alignment
-                    netEl.style.width = `${width}px`;
-                    netEl.style.minWidth = `${width}px`;
-                  }
-                }
-              });
-            }
-          }
-          isSyncing = false;
-        });
+        // Reset flag immediately to allow continuous smooth scrolling
+        isValueScrolling = false;
       }
     };
 
-    // Handle Net table scroll - sync to Value table
+    // Handle Net table scroll - sync to Value table immediately
     const handleNetScroll = () => {
-      if (!isSyncing && valueContainer) {
-        isSyncing = true;
+      // Only sync if value container is not currently being scrolled
+      if (!isValueScrolling && valueContainer) {
+        isNetScrolling = true;
+        // Immediate synchronization - no delay for smooth scrolling
         valueContainer.scrollLeft = netContainer.scrollLeft;
-        requestAnimationFrame(() => {
-          isSyncing = false;
-        });
+        // Reset flag immediately to allow continuous smooth scrolling
+        isNetScrolling = false;
       }
     };
 
-    // Add event listeners
+    // Add event listeners with passive flag for better performance
     valueContainer.addEventListener('scroll', handleValueScroll, { passive: true });
     netContainer.addEventListener('scroll', handleNetScroll, { passive: true });
 
@@ -1217,15 +1241,52 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   // Font size fixed to normal (no menu)
   const getFontSizeClass = () => 'text-[13px]';
 
-  // Helper function to filter brokers by F/D
+  // Filter raw data by investor filter (client-side filtering)
+  useEffect(() => {
+    if (rawSummaryByDate.size === 0) {
+      // No raw data, clear filtered data
+      setSummaryByDate(new Map());
+      return;
+    }
+    
+    // Apply investor filter to raw data
+    const filteredMap = new Map<string, BrokerSummaryData[]>();
+    
+    rawSummaryByDate.forEach((rows, date) => {
+      const filteredRows = rows.filter(row => {
+        if (displayedFdFilter === 'Foreign') {
+          return FOREIGN_BROKERS.includes(row.broker) && !GOVERNMENT_BROKERS.includes(row.broker);
+        }
+        if (displayedFdFilter === 'Domestic') {
+          return (!FOREIGN_BROKERS.includes(row.broker) || GOVERNMENT_BROKERS.includes(row.broker));
+        }
+        return true; // All
+      });
+      
+      if (filteredRows.length > 0) {
+        filteredMap.set(date, filteredRows);
+      }
+    });
+    
+    setSummaryByDate(filteredMap);
+  }, [rawSummaryByDate, displayedFdFilter]);
+
+  // Helper function to filter brokers by F/D (uses displayedFdFilter - the filter that was applied when Show button was clicked)
   const brokerFDScreen = (broker: string): boolean => {
-    if (fdFilter === 'Foreign') {
+    if (displayedFdFilter === 'Foreign') {
       return FOREIGN_BROKERS.includes(broker) && !GOVERNMENT_BROKERS.includes(broker);
     }
-    if (fdFilter === 'Domestic') {
+    if (displayedFdFilter === 'Domestic') {
       return (!FOREIGN_BROKERS.includes(broker) || GOVERNMENT_BROKERS.includes(broker));
     }
     return true; // All
+  };
+  
+  // Helper function to get investor label for display
+  const getInvestorLabel = (filter: 'All' | 'Foreign' | 'Domestic'): string => {
+    if (filter === 'Foreign') return 'Foreign';
+    if (filter === 'Domestic') return 'Domestic';
+    return 'All';
   };
 
   // Memoize availableDates to avoid recalculating on every render
@@ -1282,6 +1343,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
       );
     }
 
+    // Use selectedDates for header when data is empty (to show table structure like screenshot)
+    // Use availableDates when data exists (to show only dates with data)
+    const datesForHeader = summaryByDate.size === 0 ? selectedDates : availableDates;
+
     return (
       <div className="w-full relative">
         {/* Loading overlay - shown when processing */}
@@ -1300,48 +1365,48 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         {/* Combined Buy & Sell Side Table */}
         <div className="w-full max-w-full">
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
-            <h3 className="font-semibold text-sm">VALUE - {selectedTickers.join(', ')}</h3>
+            <h3 className="font-semibold text-sm">VALUE - {selectedTickers.join(', ')} - {getInvestorLabel(displayedFdFilter)}</h3>
           </div>
            <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
-              <div ref={valueTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} overflow-x-auto overflow-y-auto border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '494px' }}>
-               <table ref={valueTableRef} className={`${showOnlyTotal ? 'min-w-0' : 'min-w-[1000px]'} ${getFontSizeClass()} table-auto`} style={{ tableLayout: showOnlyTotal ? 'auto' : 'auto' }}>
+              <div ref={valueTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto overflow-y-auto'} border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '494px' }}>
+               <table ref={valueTableRef} className={`${showOnlyTotal ? 'min-w-0' : summaryByDate.size === 0 ? 'w-full' : 'min-w-[1000px]'} ${getFontSizeClass()} table-auto`} style={{ tableLayout: summaryByDate.size === 0 ? 'fixed' : (showOnlyTotal ? 'auto' : 'auto'), width: summaryByDate.size === 0 ? '100%' : undefined }}>
                          <thead className="bg-[#3a4252]">
                          <tr className="border-t-2 border-white">
-                      {!showOnlyTotal && availableDates.map((date, dateIndex) => (
-                        <th key={date} className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} colSpan={9}>
+                      {!showOnlyTotal && datesForHeader.map((date, dateIndex) => (
+                        <th key={date} className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} colSpan={9} style={{ textAlign: 'center' }}>
                          {formatDisplayDate(date)}
                             </th>
                           ))}
-                      <th className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${showOnlyTotal || availableDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={9}>
+                      <th className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={9} style={{ textAlign: 'center' }}>
                             Total
                           </th>
                         </tr>
                         <tr className="bg-[#3a4252]">
-                      {!showOnlyTotal && availableDates.map((date, dateIndex) => (
+                      {!showOnlyTotal && datesForHeader.map((date, dateIndex) => (
                       <React.Fragment key={`detail-${date}`}>
                               {/* BY Columns */}
-                          <th className={`text-center py-[1px] px-[6px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>BY</th>
-                              <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6`}>BLot</th>
-                              <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6`}>BVal</th>
-                              <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6`}>BAvg</th>
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ textAlign: 'center' }}>BY</th>
+                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BLot</th>
+                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BVal</th>
+                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BAvg</th>
                               {/* SL Columns */}
-                              <th className="text-center py-[1px] px-[6px] font-bold text-white bg-[#3a4252] w-4">#</th>
-                              <th className={`text-left py-[1px] px-[6px] font-bold text-white w-4`}>SL</th>
-                              <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6`}>SLot</th>
-                              <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6`}>SVal</th>
-                        <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>SAvg</th>
+                              <th className="text-center py-[1px] px-[6px] font-bold text-white bg-[#3a4252] w-4" style={{ textAlign: 'center' }}>#</th>
+                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-4`} style={{ textAlign: 'center' }}>SL</th>
+                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>SLot</th>
+                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>SVal</th>
+                        <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6 ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ textAlign: 'center' }}>SAvg</th>
                             </React.Fragment>
                           ))}
                     {/* Total Columns - Include BAvg and SAvg */}
-                      <th className={`text-center py-[1px] px-[5px] font-bold text-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>BY</th>
-                          <th className={`text-right py-[1px] px-[5px] font-bold text-white`}>BLot</th>
-                          <th className={`text-right py-[1px] px-[5px] font-bold text-white`}>BVal</th>
-                          <th className={`text-right py-[1px] px-[5px] font-bold text-white`}>BAvg</th>
-                          <th className="text-center py-[1px] px-[6px] font-bold text-white bg-[#3a4252]">#</th>
-                          <th className={`text-left py-[1px] px-[5px] font-bold text-white`}>SL</th>
-                          <th className={`text-right py-[1px] px-[5px] font-bold text-white`}>SLot</th>
-                          <th className={`text-right py-[1px] px-[5px] font-bold text-white`}>SVal</th>
-                      <th className={`text-right py-[1px] px-[7px] font-bold text-white border-r-2 border-white`}>SAvg</th>
+                      <th className={`text-center py-[1px] px-[5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ textAlign: 'center' }}>BY</th>
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>BLot</th>
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>BVal</th>
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>BAvg</th>
+                          <th className="text-center py-[1px] px-[6px] font-bold text-white bg-[#3a4252]" style={{ textAlign: 'center' }}>#</th>
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>SL</th>
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>SLot</th>
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>SVal</th>
+                      <th className={`text-center py-[1px] px-[7px] font-bold text-white border-r-2 border-white`} style={{ textAlign: 'center' }}>SAvg</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1419,13 +1484,17 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     const totalSellCount = sortedTotalSell.length;
                     maxRows = Math.max(maxRows, totalBuyCount, totalSellCount);
                     
-                    // If no data, show "No Data" message
-                    if (maxRows === 0) {
-                        const totalCols = availableDates.length * 9 + 9; // 9 cols per date + 9 for Total
+                    // If no data, show "No Data Available" message
+                    if (maxRows === 0 || summaryByDate.size === 0) {
+                        const totalCols = datesForHeader.length * 9 + 9; // 9 cols per date + 9 for Total
                       return (
                         <tr className="border-b-2 border-white">
-                          <td colSpan={totalCols} className="text-center py-[2.06px] text-muted-foreground font-bold">
-                            No Data
+                          <td 
+                            colSpan={totalCols} 
+                            className="text-center py-[2.06px] text-muted-foreground font-bold"
+                            style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}
+                          >
+                            No Data Available
                           </td>
                         </tr>
                       );
@@ -1462,7 +1531,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                       <td className="text-right py-[1px] px-[6px] text-green-600 font-bold w-6">
                                         {buyData ? formatNumber(buyData.buyerValue) : '-'}
                                       </td>
-                                      <td className="text-right py-[1px] px-[6px] text-green-600 font-bold w-6">
+                                      <td className="text-left py-[1px] px-[6px] text-green-600 font-bold w-6">
                                         {buyData ? formatAverage(buyData.bavg) : '-'}
                                       </td>
                                       {/* SL (Seller) Columns - Keep # column */}
@@ -1476,7 +1545,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                       <td className="text-right py-[1px] px-[6px] text-red-600 font-bold w-6">
                                         {sellData ? formatNumber(sellData.sellerValue) : '-'}
                                       </td>
-                              <td className={`text-right py-[1px] px-[6px] text-red-600 font-bold w-6 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
+                              <td className={`text-left py-[1px] px-[6px] text-red-600 font-bold w-6 ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
                                         {sellData ? formatAverage(sellData.savg) : '-'}
                                       </td>
                                     </React.Fragment>
@@ -1492,7 +1561,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                           const totalSellAvg = totalSell && totalSell.nslot > 0 ? Math.abs(totalSell.nsval) / totalSell.nslot : 0;
                           return (
                             <React.Fragment>
-                                <td className={`text-center py-[1px] px-[5px] font-bold ${showOnlyTotal || availableDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${totalBuy ? getBrokerColorClass(totalBuy.broker) : ''}`}>
+                                <td className={`text-center py-[1px] px-[5px] font-bold ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${totalBuy ? getBrokerColorClass(totalBuy.broker) : ''}`}>
                                   {totalBuy?.broker || '-'}
                                 </td>
                               <td className="text-right py-[1px] px-[5px] text-green-600 font-bold">
@@ -1501,7 +1570,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                 <td className="text-right py-[1px] px-[5px] text-green-600 font-bold">
                                   {totalBuy ? formatNumber(totalBuy.nbval) : '-'}
                                 </td>
-                                <td className="text-right py-[1px] px-[5px] text-green-600 font-bold">
+                                <td className="text-left py-[1px] px-[5px] text-green-600 font-bold">
                                   {totalBuy && totalBuyAvg > 0 ? formatAverage(totalBuyAvg) : '-'}
                                 </td>
                                 <td className={`text-center py-[1px] px-[6px] text-white bg-[#3a4252] font-bold ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>{totalSell ? rowIdx + 1 : '-'}</td>
@@ -1514,7 +1583,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                               <td className="text-right py-[1px] px-[5px] text-red-600 font-bold">
                                   {totalSell ? formatNumber(totalSell.nsval) : '-'}
                                 </td>
-                                <td className="text-right py-[1px] px-[7px] text-red-600 font-bold border-r-2 border-white">
+                                <td className="text-left py-[1px] px-[7px] text-red-600 font-bold border-r-2 border-white">
                                   {totalSell && totalSellAvg > 0 ? formatAverage(totalSellAvg) : '-'}
                                 </td>
                             </React.Fragment>
@@ -1532,48 +1601,48 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         {/* Net Table */}
         <div className="w-full max-w-full mt-1">
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
-            <h3 className="font-semibold text-sm">NET - {selectedTickers.join(', ')}</h3>
+            <h3 className="font-semibold text-sm">NET - {selectedTickers.join(', ')} - {getInvestorLabel(displayedFdFilter)}</h3>
           </div>
           <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
-              <div ref={netTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} overflow-x-auto overflow-y-auto border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '516px' }}>
-              <table ref={netTableRef} className={`${showOnlyTotal ? 'min-w-0' : 'min-w-[1000px]'} ${getFontSizeClass()} table-auto`} style={{ tableLayout: showOnlyTotal ? 'auto' : 'auto' }}>
+              <div ref={netTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto overflow-y-auto'} border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '516px' }}>
+              <table ref={netTableRef} className={`${showOnlyTotal ? 'min-w-0' : summaryByDate.size === 0 ? 'w-full' : 'min-w-[1000px]'} ${getFontSizeClass()} table-auto`} style={{ tableLayout: summaryByDate.size === 0 ? 'fixed' : (showOnlyTotal ? 'auto' : 'auto'), width: summaryByDate.size === 0 ? '100%' : undefined }}>
                         <thead className="bg-[#3a4252]">
                         <tr className="border-t-2 border-white">
-                      {!showOnlyTotal && availableDates.map((date, dateIndex) => (
-                        <th key={date} className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} colSpan={9}>
+                      {!showOnlyTotal && datesForHeader.map((date, dateIndex) => (
+                        <th key={date} className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} colSpan={9} style={{ textAlign: 'center' }}>
                         {formatDisplayDate(date)}
                             </th>
                           ))}
-                      <th className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${showOnlyTotal || availableDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={9}>
+                      <th className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={9} style={{ textAlign: 'center' }}>
                             Total
                           </th>
                         </tr>
                         <tr className="bg-[#3a4252]">
-                      {!showOnlyTotal && availableDates.map((date, dateIndex) => (
+                      {!showOnlyTotal && datesForHeader.map((date, dateIndex) => (
                       <React.Fragment key={`detail-${date}`}>
                               {/* Net Buy Columns - No # */}
-                          <th className={`text-center py-[1px] px-[6px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>BY</th>
-                              <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6`}>BLot</th>
-                              <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6`}>BVal</th>
-                              <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6`}>BAvg</th>
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ textAlign: 'center' }}>BY</th>
+                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BLot</th>
+                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BVal</th>
+                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BAvg</th>
                               {/* Net Sell Columns - Keep # */}
-                              <th className="text-center py-[1px] px-[6px] font-bold text-white bg-[#3a4252] w-4">#</th>
-                              <th className={`text-left py-[1px] px-[6px] font-bold text-white w-4`}>SL</th>
-                              <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6`}>SLot</th>
-                              <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6`}>SVal</th>
-                          <th className={`text-right py-[1px] px-[6px] font-bold text-white w-6 ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>SAvg</th>
+                              <th className="text-center py-[1px] px-[6px] font-bold text-white bg-[#3a4252] w-4" style={{ textAlign: 'center' }}>#</th>
+                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-4`} style={{ textAlign: 'center' }}>SL</th>
+                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>SLot</th>
+                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>SVal</th>
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6 ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ textAlign: 'center' }}>SAvg</th>
                             </React.Fragment>
                           ))}
                     {/* Total Columns - Include BAvg and SAvg */}
-                      <th className={`text-center py-[1px] px-[5px] font-bold text-white ${showOnlyTotal || availableDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>BY</th>
-                          <th className={`text-right py-[1px] px-[5px] font-bold text-white`}>BLot</th>
-                          <th className={`text-right py-[1px] px-[5px] font-bold text-white`}>BVal</th>
-                          <th className={`text-right py-[1px] px-[5px] font-bold text-white`}>BAvg</th>
-                          <th className="text-center py-[1px] px-[6px] font-bold text-white bg-[#3a4252]">#</th>
-                          <th className={`text-left py-[1px] px-[5px] font-bold text-white`}>SL</th>
-                          <th className={`text-right py-[1px] px-[5px] font-bold text-white`}>SLot</th>
-                          <th className={`text-right py-[1px] px-[5px] font-bold text-white`}>SVal</th>
-                      <th className={`text-right py-[1px] px-[7px] font-bold text-white border-r-2 border-white`}>SAvg</th>
+                      <th className={`text-center py-[1px] px-[5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ textAlign: 'center' }}>BY</th>
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>BLot</th>
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>BVal</th>
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>BAvg</th>
+                          <th className="text-center py-[1px] px-[6px] font-bold text-white bg-[#3a4252]" style={{ textAlign: 'center' }}>#</th>
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>SL</th>
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>SLot</th>
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>SVal</th>
+                      <th className={`text-center py-[1px] px-[7px] font-bold text-white border-r-2 border-white`} style={{ textAlign: 'center' }}>SAvg</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1749,13 +1818,17 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     const totalNetSellCount = sortedTotalNetSell.length;
                     maxRows = Math.max(maxRows, totalNetBuyCount, totalNetSellCount);
                           
-                    // If no data, show "No Data" message
-                    if (maxRows === 0) {
-                        const totalCols = availableDates.length * 9 + 9; // 9 cols per date + 9 for Total
+                    // If no data, show "No Data Available" message
+                    if (maxRows === 0 || summaryByDate.size === 0) {
+                        const totalCols = datesForHeader.length * 9 + 9; // 9 cols per date + 9 for Total
                       return (
                         <tr className="border-b-2 border-white">
-                          <td colSpan={totalCols} className="text-center py-[2.06px] text-muted-foreground font-bold">
-                            No Data
+                          <td 
+                            colSpan={totalCols} 
+                            className="text-center py-[2.06px] text-muted-foreground font-bold"
+                            style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}
+                          >
+                            No Data Available
                           </td>
                         </tr>
                       );
@@ -1829,7 +1902,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                       <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
                                         {netSellData ? formatNumber(nbVal) : '-'}
                                       </td>
-                                      <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
+                                      <td className={`text-left py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
                                         {netSellData ? formatAverage(nbAvg) : '-'}
                                       </td>
                                       {/* Net Sell Columns (SL) - Display NetBuy Data - Keep # */}
@@ -1843,7 +1916,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   <td className="text-right py-[1px] px-[6px] w-6 font-bold text-red-600" style={sellUnderlineStyle}>
                                         {netBuyData ? formatNumber(nsVal) : '-'}
                                       </td>
-                                  <td className={`text-right py-[1px] px-[6px] w-6 font-bold text-red-600 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={sellUnderlineStyle}>
+                                  <td className={`text-left py-[1px] px-[6px] w-6 font-bold text-red-600 ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={sellUnderlineStyle}>
                                         {netBuyData ? formatAverage(nsAvg) : '-'}
                                       </td>
                                     </React.Fragment>
@@ -1879,7 +1952,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                             return (
                               <React.Fragment>
                                   {/* Total BY columns - Display totalNetSell data */}
-                                  <td className={`text-center py-[1px] px-[5px] font-bold ${showOnlyTotal || availableDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${totalNetSell ? getBrokerColorClass(totalNetSell.broker) : ''}`} style={totalNetBuyBgStyle}>
+                                  <td className={`text-center py-[1px] px-[5px] font-bold ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${totalNetSell ? getBrokerColorClass(totalNetSell.broker) : ''}`} style={totalNetBuyBgStyle}>
                                   {totalNetSell?.broker || '-'}
                                 </td>
                                 <td className={`text-right py-[1px] px-[5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
@@ -1888,7 +1961,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                 <td className={`text-right py-[1px] px-[5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
                                   {totalNetSell ? formatNumber(totalNetSell.nsval || 0) : '-'}
                                 </td>
-                                <td className={`text-right py-[1px] px-[5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
+                                <td className={`text-left py-[1px] px-[5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
                                   {totalNetSell && totalNetBuyAvg > 0 ? formatAverage(totalNetBuyAvg) : '-'}
                                 </td>
                                 {/* Total SL columns - Display totalNetBuy data */}
@@ -1902,7 +1975,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={totalSellUnderlineStyle}>
                                     {totalNetBuy ? formatNumber(totalNetBuy.nbval) : '-'}
                                 </td>
-                                  <td className="text-right py-[1px] px-[7px] text-red-600 font-bold border-r-2 border-white" style={totalSellUnderlineStyle}>
+                                  <td className="text-left py-[1px] px-[7px] text-red-600 font-bold border-r-2 border-white" style={totalSellUnderlineStyle}>
                                   {totalNetBuy && totalNetSellAvg > 0 ? formatAverage(totalNetSellAvg) : '-'}
                                 </td>
                               </React.Fragment>
@@ -1926,16 +1999,16 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     <div className="w-full">
       {/* Top Controls - Compact without Card */}
       <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5">
-            <div className="flex flex-wrap items-center gap-8">
+            <div className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-4">
               {/* Ticker Selection - Multi-select with chips */}
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
                 <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
                   {/* Selected Ticker Chips */}
                   {selectedTickers.map(ticker => (
                     <div
                       key={ticker}
-                      className="flex items-center gap-1 px-2 py-1 bg-primary/20 text-primary rounded-md text-sm"
+                      className="flex items-center gap-1 px-2 h-9 bg-primary/20 text-primary rounded-md text-sm"
                     >
                       <span>{ticker}</span>
                       <button
@@ -1949,7 +2022,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     </div>
                   ))}
                   {/* Ticker Input */}
-                  <div className="relative" ref={dropdownRef}>
+                  <div className="relative flex-1 md:flex-none" ref={dropdownRef}>
                     <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                     <input
                       type="text"
@@ -1976,7 +2049,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                         }
                       }}
                       placeholder="Add ticker"
-                      className="w-24 pl-10 pr-3 py-[2.06px] text-sm border border-[#3a4252] rounded-md bg-input text-foreground"
+                      className="w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground"
                     />
                     {showStockSuggestions && (
                       <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
@@ -2027,10 +2100,11 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
               </div>
 
               {/* Date Range */}
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
                 <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
+                <div className="flex items-center gap-2 w-full md:w-auto">
               <div 
-                className="relative h-9 w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                className="relative h-9 flex-1 md:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
                 onClick={() => triggerDatePicker(startDateRef)}
               >
                   <input
@@ -2179,7 +2253,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   style={{ caretColor: 'transparent' }}
                 />
-                <div className="flex items-center justify-between h-full px-3 py-[2.06px]">
+                <div className="flex items-center justify-between h-full px-3">
                   <span className="text-sm text-foreground">
                     {startDate ? new Date(startDate).toLocaleDateString('en-GB', { 
                       day: '2-digit', 
@@ -2190,9 +2264,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                   <Calendar className="w-4 h-4 text-muted-foreground" />
                 </div>
               </div>
-                  <span className="text-sm text-muted-foreground">to</span>
+                  <span className="text-sm text-muted-foreground whitespace-nowrap hidden md:inline">to</span>
               <div 
-                className="relative h-9 w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                className="relative h-9 flex-1 md:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
                 onClick={() => triggerDatePicker(endDateRef)}
               >
                 <input
@@ -2338,7 +2412,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   style={{ caretColor: 'transparent' }}
                 />
-                <div className="flex items-center justify-between h-full px-3 py-[2.06px]">
+                <div className="flex items-center justify-between h-full px-3">
                   <span className="text-sm text-foreground">
                     {endDate ? new Date(endDate).toLocaleDateString('en-GB', { 
                       day: '2-digit', 
@@ -2349,17 +2423,16 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                   <Calendar className="w-4 h-4 text-muted-foreground" />
                 </div>
                 </div>
+                </div>
               </div>
 
-              
-
             {/* F/D Filter */}
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium whitespace-nowrap">F/D:</label>
+              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+                <label className="text-sm font-medium whitespace-nowrap">Investor:</label>
                   <select 
                   value={fdFilter}
                   onChange={(e) => setFdFilter(e.target.value as 'All' | 'Foreign' | 'Domestic')}
-                  className="px-3 py-1.5 border border-[#3a4252] rounded-md bg-background text-foreground text-sm"
+                  className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
                 >
                   <option value="All">All</option>
                   <option value="Foreign">Foreign</option>
@@ -2368,17 +2441,17 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
               </div>
 
             {/* Market Filter */}
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
                 <label className="text-sm font-medium whitespace-nowrap">Board:</label>
                 <select
                   value={marketFilter}
                   onChange={(e) => setMarketFilter(e.target.value as 'RG' | 'TN' | 'NG' | '')}
-                  className="px-3 py-1.5 border border-[#3a4252] rounded-md bg-background text-foreground text-sm"
+                  className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
                 >
                   <option value="">All Trade</option>
-                  <option value="RG">RG</option>
-                  <option value="TN">TN</option>
-                  <option value="NG">NG</option>
+                  <option value="RG">Reguler (RG)</option>
+                  <option value="TN">Tunai (TN)</option>
+                  <option value="NG">Nego (NG)</option>
                 </select>
               </div>
 
@@ -2407,26 +2480,67 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     }
                   }
                   
-                  // Clear existing data and cache before fetching new data
-                  setSummaryByDate(new Map());
-                  setIsDataReady(false);
-                  // Clear cache to force fresh fetch with current filters
-                  dataCacheRef.current.clear();
-                  // Force re-trigger fetch by toggling shouldFetchData
-                  shouldFetchDataRef.current = false;
-                  setShouldFetchData(false);
-                  // Use setTimeout to ensure state update completes before triggering fetch
-                  setTimeout(() => {
-                    shouldFetchDataRef.current = true;
-                    setShouldFetchData(true);
-                  }, 0);
+                  // Update displayedFdFilter from fdFilter when Show button is clicked
+                  setDisplayedFdFilter(fdFilter);
+                  
+                  // Check if only investor filter changed (ticker, dates, and market are the same)
+                  const currentParams = {
+                    tickers: [...selectedTickers].sort().join(','),
+                    dates: [...selectedDates].sort().join(','),
+                    market: marketFilter || ''
+                  };
+                  const lastParams = lastFetchParams ? {
+                    tickers: [...lastFetchParams.tickers].sort().join(','),
+                    dates: [...lastFetchParams.dates].sort().join(','),
+                    market: lastFetchParams.market || ''
+                  } : null;
+                  
+                  const onlyInvestorChanged = lastParams !== null && 
+                    currentParams.tickers === lastParams.tickers &&
+                    currentParams.dates === lastParams.dates &&
+                    currentParams.market === lastParams.market &&
+                    rawSummaryByDate.size > 0;
+                  
+                  if (onlyInvestorChanged) {
+                    // Only investor filter changed - filter existing data without calling API
+                    console.log('[BrokerSummary] Only investor filter changed, filtering existing data without API call');
+                    // Data is already in rawSummaryByDate, just apply investor filter
+                    // summaryByDate will be updated by the filter effect below
+                    setIsLoading(false);
+                    setIsDataReady(true);
+                    // No need to fetch API
+                  } else {
+                    // Ticker, dates, or market changed - need to fetch new data from API
+                    console.log('[BrokerSummary] Parameters changed, fetching new data from API');
+                    // Update last fetch params
+                    setLastFetchParams({
+                      tickers: [...selectedTickers],
+                      dates: [...selectedDates],
+                      market: marketFilter || ''
+                    });
+                    
+                    // Clear existing data and cache before fetching new data
+                    setSummaryByDate(new Map());
+                    setRawSummaryByDate(new Map());
+                    setIsDataReady(false);
+                    // Clear cache to force fresh fetch with current filters
+                    dataCacheRef.current.clear();
+                    // Force re-trigger fetch by toggling shouldFetchData
+                    shouldFetchDataRef.current = false;
+                    setShouldFetchData(false);
+                    // Use setTimeout to ensure state update completes before triggering fetch
+                    setTimeout(() => {
+                      shouldFetchDataRef.current = true;
+                      setShouldFetchData(true);
+                    }, 0);
+                  }
                 }}
                 disabled={isLoading || selectedTickers.length === 0 || selectedDates.length === 0}
-                className="px-4 py-1.5 h-9 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap"
+                className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full md:w-auto"
               >
                 Show
               </button>
-              </div>
+            </div>
             </div>
 
       {/* Main Data Display */}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Loader2, Calendar } from 'lucide-react';
+import { Loader2, Calendar, Search } from 'lucide-react';
 import { api } from '../../services/api';
 
 interface BrokerTransactionData {
@@ -93,11 +93,22 @@ const fetchBrokerTransactionData = async (
     if (response.success && response.data?.transactionData) {
       const data = response.data.transactionData;
       
+      // DEBUG: Log fetched data
+      console.log(`[BrokerTransaction] Fetched data for ${brokerCode}-${date}-${market}:`, {
+        dataLength: data.length,
+        sampleData: data.length > 0 ? data[0] : null,
+        hasBCode: data.length > 0 ? !!data[0]?.BCode : false,
+        hasSCode: data.length > 0 ? !!data[0]?.SCode : false,
+        hasNBCode: data.length > 0 ? !!data[0]?.NBCode : false,
+        hasNSCode: data.length > 0 ? !!data[0]?.NSCode : false
+      });
+      
       // Store in cache
       cache.set(cacheKey, { data, timestamp: Date.now() });
       
       return data;
     }
+    console.warn(`[BrokerTransaction] No data returned for ${brokerCode}-${date}-${market}:`, response);
     return [];
   } catch (error: any) {
     if (error?.message === 'Fetch aborted' || abortSignal?.aborted) {
@@ -595,6 +606,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 if (result.success && 'data' in result && result.data && result.data.length > 0) {
                   allDataResults.push({ date: result.date, broker: result.broker, data: result.data });
                   completedCount++;
+                  // DEBUG: Log successful fetch
+                  console.log(`[BrokerTransaction] Successfully fetched ${result.data.length} rows for ${result.broker}-${result.date}`);
+                } else if (!result.success && 'error' in result) {
+                  console.warn(`[BrokerTransaction] Failed to fetch data for ${result.broker}-${result.date}:`, result.error);
                 }
               });
               
@@ -644,7 +659,24 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           return;
         }
         
-        // Reduced logging for better performance
+        // DEBUG: Log allDataResults before aggregation
+        console.log('[BrokerTransaction] Starting aggregation:', {
+          allDataResultsCount: allDataResults.length,
+          selectedDatesCount: selectedDates.length,
+          selectedDates: selectedDates,
+          sampleResults: allDataResults.slice(0, 3).map(r => ({
+            date: r.date,
+            broker: r.broker,
+            dataLength: r.data.length,
+            sampleRow: r.data.length > 0 ? {
+              Emiten: r.data[0]?.Emiten,
+              BCode: r.data[0]?.BCode,
+              SCode: r.data[0]?.SCode,
+              NBCode: r.data[0]?.NBCode,
+              NSCode: r.data[0]?.NSCode
+            } : null
+          }))
+        });
         
         // Process data per date - AGGREGATE per Emiten and per section (Buy, Sell, Net Buy, Net Sell)
         // When multiple brokers are selected, sum values for the same Emiten
@@ -812,6 +844,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           // Convert map to array
           let allRows = Array.from(aggregatedMap.values());
           
+          // DEBUG: Log aggregation result for this date
+          console.log(`[BrokerTransaction] Aggregation for ${date}:`, {
+            aggregatedCount: allRows.length,
+            sampleRows: allRows.slice(0, 2).map(r => ({
+              Emiten: r.Emiten,
+              BCode: r.BCode,
+              SCode: r.SCode,
+              NBCode: r.NBCode,
+              NSCode: r.NSCode
+            }))
+          });
+          
           // FIXED: Store raw data (before filtering) for availableTickers extraction
           // This ensures dropdown always shows all available tickers for selected broker(s)
           const rawRows = [...allRows]; // Copy before filtering
@@ -865,6 +909,14 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           setIsDataReady(false);
           return;
         }
+        
+        // DEBUG: Log data before setting state
+        console.log('[BrokerTransaction] Data aggregation complete:', {
+          datesCount: newTransactionData.size,
+          totalRows: Array.from(newTransactionData.values()).reduce((sum, arr) => sum + arr.length, 0),
+          dates: Array.from(newTransactionData.keys()),
+          sampleData: newTransactionData.size > 0 ? newTransactionData.get(Array.from(newTransactionData.keys())[0] || '')?.slice(0, 2) : null
+        });
         
         // Mark loading as complete and show data immediately
         setIsLoading(false);
@@ -1731,7 +1783,14 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     totalNetSellDataByStock: Map<string, { netSellVol: number; netSellValue: number; netSellAvg: number; netSellFreq: number; netSellOrdNum: number; netSellLot: number; netSellLotPerFreq: number; netSellLotPerOrdNum: number; netSellAvgCount: number; }>;
   }>(() => {
     // FIXED: Only check transactionData - don't depend on selectedBrokers/selectedDates to prevent re-calculation on input change
+    console.log('[BrokerTransaction] useMemo: Processing transactionData', {
+      transactionDataSize: transactionData.size,
+      dates: Array.from(transactionData.keys()),
+      totalRows: Array.from(transactionData.values()).reduce((sum, arr) => sum + arr.length, 0)
+    });
+    
     if (transactionData.size === 0) {
+      console.log('[BrokerTransaction] useMemo: transactionData is empty, returning empty results');
       return {
         uniqueStocks: [],
         filteredStocks: [],
@@ -1887,6 +1946,16 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     // For backward compatibility
     const uniqueStocks = Array.from(new Set([...allBuyStocks, ...allSellStocks, ...allNetBuyStocks, ...allNetSellStocks]));
     const filteredStocks = uniqueStocks;
+    
+    // DEBUG: Log unique stocks calculation
+    console.log('[BrokerTransaction] useMemo: Unique stocks calculated', {
+      uniqueStocksCount: uniqueStocks.length,
+      allBuyStocksCount: allBuyStocks.size,
+      allSellStocksCount: allSellStocks.size,
+      allNetBuyStocksCount: allNetBuyStocks.size,
+      allNetSellStocksCount: allNetSellStocks.size,
+      sampleStocks: uniqueStocks.slice(0, 10)
+    });
     
     // For backward compatibility, create sortedStocksByDate and sortedNetStocksByDate
     const sortedStocksByDate = new Map<string, string[]>();
@@ -3494,7 +3563,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     <div className="w-full">
       {/* Top Controls - Compact without Card */}
       <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5">
-        <div className="flex flex-wrap items-center gap-8">
+        <div className="flex flex-wrap items-center gap-4">
           {/* Broker Selection - Multi-select with chips */}
           <div className="flex items-center gap-2">
             <label className="text-sm font-medium whitespace-nowrap">Broker:</label>
@@ -3620,11 +3689,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               {/* Ticker Multi-Select */}
           <div className="flex items-center gap-2 flex-wrap">
             <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap items-center gap-2">
               {selectedTickers.map(ticker => (
                 <div
                   key={ticker}
-                  className="flex items-center gap-1 px-2 py-1 bg-primary/20 text-primary rounded-md text-sm"
+                  className="flex items-center gap-1 px-2 h-9 bg-primary/20 text-primary rounded-md text-sm"
                 >
                   <span>{ticker}</span>
                   <button
@@ -3637,46 +3706,46 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   </button>
                 </div>
               ))}
-            </div>
-            <div className="relative" ref={dropdownTickerRef}>
-              <input
-                type="text"
-                placeholder="Type ticker..."
-                value={tickerInput}
-                onChange={(e) => {
-                  const v = e.target.value.toUpperCase();
-                  setTickerInput(v);
-                  setShowTickerSuggestions(true);
-                  setHighlightedTickerIndex(0);
-                }}
-                onFocus={() => setShowTickerSuggestions(true)}
-                onKeyDown={(e) => {
-                  // OPTIMIZED: Use memoized availableTickers instead of extracting every time
-                  const availableTickersFiltered = availableTickers.filter(t => !selectedTickers.includes(t));
-                  const filteredTickers = tickerInput === '' 
-                    ? availableTickersFiltered
-                    : availableTickersFiltered.filter(t => 
-                        t.toLowerCase().includes(tickerInput.toLowerCase())
-                      );
-                  const suggestions = filteredTickers.slice(0, 10);
-                  
-                  if (e.key === 'ArrowDown' && suggestions.length) {
-                    e.preventDefault();
-                    setHighlightedTickerIndex(prev => (prev < suggestions.length - 1 ? prev + 1 : prev));
-                  } else if (e.key === 'ArrowUp' && highlightedTickerIndex > 0) {
-                    e.preventDefault();
-                    setHighlightedTickerIndex(prev => prev - 1);
-                  } else if (e.key === 'Enter' && highlightedTickerIndex >= 0 && highlightedTickerIndex < suggestions.length) {
-                    e.preventDefault();
-                    const choice = suggestions[highlightedTickerIndex];
-                    if (choice) handleTickerSelect(choice);
-                  } else if (e.key === 'Escape') {
-                    setShowTickerSuggestions(false);
-                    setHighlightedTickerIndex(-1);
-                  }
-                }}
-                className="w-32 h-9 px-3 py-1 text-sm border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
-              />
+              <div className="relative" ref={dropdownTickerRef}>
+                <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+                <input
+                  type="text"
+                  placeholder="Add ticker"
+                  value={tickerInput}
+                  onChange={(e) => {
+                    const v = e.target.value.toUpperCase();
+                    setTickerInput(v);
+                    setShowTickerSuggestions(true);
+                    setHighlightedTickerIndex(0);
+                  }}
+                  onFocus={() => setShowTickerSuggestions(true)}
+                  onKeyDown={(e) => {
+                    // OPTIMIZED: Use memoized availableTickers instead of extracting every time
+                    const availableTickersFiltered = availableTickers.filter(t => !selectedTickers.includes(t));
+                    const filteredTickers = tickerInput === '' 
+                      ? availableTickersFiltered
+                      : availableTickersFiltered.filter(t => 
+                          t.toLowerCase().includes(tickerInput.toLowerCase())
+                        );
+                    const suggestions = filteredTickers.slice(0, 10);
+                    
+                    if (e.key === 'ArrowDown' && suggestions.length) {
+                      e.preventDefault();
+                      setHighlightedTickerIndex(prev => (prev < suggestions.length - 1 ? prev + 1 : prev));
+                    } else if (e.key === 'ArrowUp' && highlightedTickerIndex > 0) {
+                      e.preventDefault();
+                      setHighlightedTickerIndex(prev => prev - 1);
+                    } else if (e.key === 'Enter' && highlightedTickerIndex >= 0 && highlightedTickerIndex < suggestions.length) {
+                      e.preventDefault();
+                      const choice = suggestions[highlightedTickerIndex];
+                      if (choice) handleTickerSelect(choice);
+                    } else if (e.key === 'Escape') {
+                      setShowTickerSuggestions(false);
+                      setHighlightedTickerIndex(-1);
+                    }
+                  }}
+                  className="w-24 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground"
+                />
               {showTickerSuggestions && (
                 <div id="ticker-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
                   {(() => {
@@ -3747,10 +3816,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   })()}
                 </div>
               )}
+              </div>
             </div>
           </div>
 
-              {/* Date Range */}
+          {/* Date Range */}
           <div className="flex items-center gap-2">
             <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
             <div 
@@ -3781,18 +3851,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 style={{ caretColor: 'transparent' }}
               />
-              <div className="flex items-center justify-between h-full px-3 py-2">
+              <div className="flex items-center justify-between h-full px-3">
                 <span className="text-sm text-foreground">
                   {startDate ? new Date(startDate).toLocaleDateString('en-GB', { 
                     day: '2-digit', 
                     month: '2-digit', 
                     year: 'numeric' 
-                  }) : ''}
+                  }) : 'DD/MM/YYYY'}
                 </span>
                 <Calendar className="w-4 h-4 text-muted-foreground" />
                 </div>
               </div>
-            <span className="text-sm text-muted-foreground">to</span>
+            <span className="text-sm text-muted-foreground whitespace-nowrap">to</span>
             <div 
               className="relative h-9 w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
               onClick={() => triggerDatePicker(endDateRef)}
@@ -3824,13 +3894,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 style={{ caretColor: 'transparent' }}
               />
-              <div className="flex items-center justify-between h-full px-3 py-2">
+              <div className="flex items-center justify-between h-full px-3">
                 <span className="text-sm text-foreground">
                   {endDate ? new Date(endDate).toLocaleDateString('en-GB', { 
                     day: '2-digit', 
                     month: '2-digit', 
                     year: 'numeric' 
-                  }) : ''}
+                  }) : 'DD/MM/YYYY'}
                 </span>
                 <Calendar className="w-4 h-4 text-muted-foreground" />
                 </div>
@@ -3843,7 +3913,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             <select
               value={marketFilter}
               onChange={(e) => setMarketFilter(e.target.value as 'RG' | 'TN' | 'NG' | '')}
-              className="px-3 py-1.5 border border-[#3a4252] rounded-md bg-background text-foreground text-sm"
+              className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm"
             >
               <option value="">All Trade</option>
               <option value="RG">RG</option>
@@ -3858,7 +3928,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             <select
               value={sectorFilter}
               onChange={(e) => setSectorFilter(e.target.value)}
-              className="px-3 py-1.5 border border-[#3a4252] rounded-md bg-background text-foreground text-sm"
+              className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm"
             >
               {availableSectors.map(sector => (
                 <option key={sector} value={sector}>{sector}</option>
@@ -3888,7 +3958,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               setShouldFetchData(true);
             }}
             disabled={isLoading || selectedBrokers.length === 0 || selectedDates.length === 0}
-            className="px-4 py-1.5 h-9 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap"
+            className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center"
           >
             Show
           </button>
@@ -3913,7 +3983,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       )}
 
       {/* Main Data Display */}
-        {!isLoading && !error && isDataReady && renderHorizontalView()}
+      {!isLoading && !error && isDataReady && renderHorizontalView()}
     </div>
   );
 }
