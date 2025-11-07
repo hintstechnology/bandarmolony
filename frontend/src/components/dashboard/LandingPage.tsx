@@ -21,7 +21,7 @@ export function LandingPage({ onStartTrial, onSignIn, onRegister }: LandingPageP
         <title>{`BandarmoloNY`}</title>
         <meta
           name="description"
-          content="Transform your trading strategy with intelligent market analysis and real-time insights."
+          content="Transform your trading strategy with intelligent market analysis & real-time insights."
         />
         <link rel="canonical" href="https://bandarmolony.com/" />
         <meta
