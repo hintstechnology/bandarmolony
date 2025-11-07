@@ -1659,59 +1659,133 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                           };
                           
                       // Calculate total net data across all dates
-                      // Backend already handles: NetBuy is always >= 0, NetSell is always >= 0
-                      const totalNetBuyData: { [broker: string]: { nblot: number; nbval: number; nbavg: number } } = {};
-                      const totalNetSellData: { [broker: string]: { nslot: number; nsval: number; nsavg: number } } = {};
+                      // NEW LOGIC: Aggregate all NetBuy and NetSell per broker, then determine which side they belong to
+                      // A broker can appear in both NetBuy and NetSell across different dates
+                      // In Total column, we need to compare total NetBuy vs total NetSell per broker
+                      // If NetBuy > NetSell: broker goes to NetBuy side (NetBuy - NetSell)
+                      // If NetSell > NetBuy: broker goes to NetSell side (NetSell - NetBuy)
+                      // IMPORTANT: Use same aggregation logic as Value table - sum bavg/savg and divide by count
+                      const brokerNetBuyTotals: { [broker: string]: { nblot: number; nbval: number; bavg: number; bavgCount: number } } = {};
+                      const brokerNetSellTotals: { [broker: string]: { nslot: number; nsval: number; savg: number; savgCount: number } } = {};
                     
                     allBrokerData.forEach(dateData => {
                             dateData.buyData.forEach(b => {
-                          // IMPORTANT: A broker can only be either NetBuy OR NetSell, not both
-                          // Determine if broker is NetBuy or NetSell based on which value is larger
-                          // If both are > 0, prioritize based on which value is larger
-                          const isNetBuy = (b.netBuyVol > 0 || b.netBuyValue > 0) && (b.netBuyValue >= b.netSellValue);
-                          const isNetSell = (b.netSellVol > 0 || b.netSellValue > 0) && (b.netSellValue > b.netBuyValue);
-                          
-                          // Use netBuyVol > 0 for NetBuy (backend already handles negative conversion)
-                          if (isNetBuy) {
-                          if (!totalNetBuyData[b.broker]) {
-                              totalNetBuyData[b.broker] = { nblot: 0, nbval: 0, nbavg: 0 };
-                                }
-                          const netBuyEntry = totalNetBuyData[b.broker];
-                                if (netBuyEntry) {
+                          // Aggregate NetBuy totals per broker (across all dates)
+                          // Use same logic as Value table: sum bavg and count occurrences
+                          if (b.netBuyVol > 0 || b.netBuyValue > 0) {
+                            if (!brokerNetBuyTotals[b.broker]) {
+                              brokerNetBuyTotals[b.broker] = { nblot: 0, nbval: 0, bavg: 0, bavgCount: 0 };
+                            }
+                            const netBuyEntry = brokerNetBuyTotals[b.broker];
+                            if (netBuyEntry) {
                               netBuyEntry.nblot += b.netBuyVol || 0;
                               netBuyEntry.nbval += b.netBuyValue || 0;
+                              // Sum bavg and count (same as Value table logic)
+                              if (b.bavg && b.bavg !== 0) {
+                                netBuyEntry.bavg += b.bavg;
+                                netBuyEntry.bavgCount += 1;
+                              }
                             }
                           }
                           
-                          // Use netSellVol > 0 for NetSell (backend already handles conversion)
-                          if (isNetSell) {
-                          if (!totalNetSellData[b.broker]) {
-                              totalNetSellData[b.broker] = { nslot: 0, nsval: 0, nsavg: 0 };
-                                }
-                          const netSellEntry = totalNetSellData[b.broker];
-                                if (netSellEntry) {
+                          // Aggregate NetSell totals per broker (across all dates)
+                          // Use same logic as Value table: sum savg and count occurrences
+                          if (b.netSellVol > 0 || b.netSellValue > 0) {
+                            if (!brokerNetSellTotals[b.broker]) {
+                              brokerNetSellTotals[b.broker] = { nslot: 0, nsval: 0, savg: 0, savgCount: 0 };
+                            }
+                            const netSellEntry = brokerNetSellTotals[b.broker];
+                            if (netSellEntry) {
                               netSellEntry.nslot += b.netSellVol || 0;
                               netSellEntry.nsval += b.netSellValue || 0;
-                                }
+                              // Sum savg and count (same as Value table logic)
+                              if (b.savg && b.savg !== 0) {
+                                netSellEntry.savg += b.savg;
+                                netSellEntry.savgCount += 1;
                               }
+                            }
+                          }
                             });
                           });
                           
-                      // Calculate averages from aggregated totals and sort
+                      // Determine final side for each broker based on which total is larger
+                      const totalNetBuyData: { [broker: string]: { nblot: number; nbval: number; bavg: number } } = {};
+                      const totalNetSellData: { [broker: string]: { nslot: number; nsval: number; savg: number } } = {};
+                      
+                      // Process all brokers that have NetBuy or NetSell totals
+                      const allBrokers = new Set([...Object.keys(brokerNetBuyTotals), ...Object.keys(brokerNetSellTotals)]);
+                      allBrokers.forEach(broker => {
+                        const netBuyTotal = brokerNetBuyTotals[broker] || { nblot: 0, nbval: 0, bavg: 0, bavgCount: 0 };
+                        const netSellTotal = brokerNetSellTotals[broker] || { nslot: 0, nsval: 0, savg: 0, savgCount: 0 };
+                        
+                        // Calculate average bavg and savg (same as Value table: sum / count)
+                        // If bavgCount/savgCount is 0 (no valid bavg/savg from CSV), use fallback: value / lot
+                        let bavg = netBuyTotal.bavgCount > 0 ? netBuyTotal.bavg / netBuyTotal.bavgCount : 0;
+                        let savg = netSellTotal.savgCount > 0 ? netSellTotal.savg / netSellTotal.savgCount : 0;
+                        
+                        // Fallback: if no valid bavg/savg from aggregation, calculate from value/lot
+                        if (bavg === 0 && netBuyTotal.nblot > 0 && netBuyTotal.nbval > 0) {
+                          bavg = netBuyTotal.nbval / netBuyTotal.nblot;
+                        }
+                        if (savg === 0 && netSellTotal.nslot > 0 && netSellTotal.nsval > 0) {
+                          savg = Math.abs(netSellTotal.nsval) / netSellTotal.nslot;
+                        }
+                        
+                        // Compare total NetBuy value vs total NetSell value
+                        // IMPORTANT: After netting, use bavg/savg that correspond to the side the broker ends up on
+                        // For NetBuy side: use bavg (from NetBuy aggregation)
+                        // For NetSell side: use savg (from NetSell aggregation)
+                        if (netBuyTotal.nbval > netSellTotal.nsval) {
+                          // NetBuy is larger: broker goes to NetBuy side, subtract NetSell from NetBuy
+                          totalNetBuyData[broker] = {
+                            nblot: Math.max(0, netBuyTotal.nblot - netSellTotal.nslot),
+                            nbval: Math.max(0, netBuyTotal.nbval - netSellTotal.nsval),
+                            bavg: bavg // Use bavg from NetBuy side (same as Value table BAvg)
+                          };
+                        } else if (netSellTotal.nsval > netBuyTotal.nbval) {
+                          // NetSell is larger: broker goes to NetSell side, subtract NetBuy from NetSell
+                          totalNetSellData[broker] = {
+                            nslot: Math.max(0, netSellTotal.nslot - netBuyTotal.nblot),
+                            nsval: Math.max(0, netSellTotal.nsval - netBuyTotal.nbval),
+                            savg: savg // Use savg from NetSell side (same as Value table SAvg)
+                          };
+                        } else {
+                          // Equal or both zero: default to NetBuy side (or NetSell if NetBuy is 0)
+                          if (netBuyTotal.nbval > 0) {
+                            totalNetBuyData[broker] = {
+                              nblot: netBuyTotal.nblot,
+                              nbval: netBuyTotal.nbval,
+                              bavg: bavg
+                            };
+                          } else if (netSellTotal.nsval > 0) {
+                            totalNetSellData[broker] = {
+                              nslot: netSellTotal.nslot,
+                              nsval: netSellTotal.nsval,
+                              savg: savg
+                            };
+                          }
+                        }
+                      });
+                          
+                      // Sort and filter
                     const sortedTotalNetBuy = Object.entries(totalNetBuyData)
                             .filter(([broker]) => brokerFDScreen(broker))
+                        .filter(([, data]) => data.nbval > 0) // Only include brokers with positive net value
                         .map(([broker, data]) => ({ 
                           broker, 
-                          ...data, 
-                          nbavg: data.nblot > 0 ? data.nbval / data.nblot : 0 
+                          nblot: data.nblot,
+                          nbval: data.nbval,
+                          nbavg: data.bavg // Use bavg (same as Value table)
                         }))
                             .sort((a, b) => b.nbval - a.nbval);
                     const sortedTotalNetSell = Object.entries(totalNetSellData)
                             .filter(([broker]) => brokerFDScreen(broker))
+                        .filter(([, data]) => data.nsval > 0) // Only include brokers with positive net value
                         .map(([broker, data]) => ({ 
                           broker, 
-                          ...data, 
-                          nsavg: data.nslot > 0 ? data.nsval / data.nslot : 0 
+                          nslot: data.nslot,
+                          nsval: data.nsval,
+                          nsavg: data.savg // Use savg (same as Value table)
                         }))
                             .sort((a, b) => b.nsval - a.nsval);
                           
@@ -1868,14 +1942,16 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                               // BLot, BVal, BAvg (Net Buy columns) display NetSell data
                               // SLot, SVal, SAvg (Net Sell columns) display NetBuy data
                               // Get NetSell data for BY columns (BLot, BVal, BAvg)
+                              // Use netSellerAvg from API (not savg from Value table)
                               const nbLot = netSellData?.netSellVol || 0;
                               const nbVal = netSellData?.netSellValue || 0;
-                              const nbAvg = netSellData?.netSellerAvg || 0;
+                              const nbAvg = netSellData?.netSellerAvg || 0; // Use netSellerAvg from API
 
                               // Get NetBuy data for SL columns (SLot, SVal, SAvg)
+                              // Use netBuyerAvg from API (not bavg from Value table)
                               const nsLot = netBuyData?.netBuyVol || 0;
                               const nsVal = netBuyData?.netBuyValue || 0;
-                              const nsAvg = netBuyData?.netBuyerAvg || 0;
+                              const nsAvg = netBuyData?.netBuyerAvg || 0; // Use netBuyerAvg from API
 
                               // Get background colors for this row (only for buy)
                               // Use netSellData for BY columns since they display NetSell data
@@ -1945,9 +2021,15 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                 ? { borderBottom: `4px solid ${totalSellUnderlineColor}` } 
                                 : undefined;
 
-                              // Use swapped data for averages
-                              const totalNetBuyAvg = totalNetSell?.nsavg || 0; // Use NetSell avg for BY column
-                              const totalNetSellAvg = totalNetBuy?.nbavg || 0; // Use NetBuy avg for SL column
+                              // IMPORTANT: Calculate avg from value/lot for Total columns (not from aggregated avg)
+                              // BY column displays NetSell data, so calculate from totalNetSell value/lot
+                              // SL column displays NetBuy data, so calculate from totalNetBuy value/lot
+                              const totalNetBuyAvg = totalNetSell && totalNetSell.nslot > 0 
+                                ? totalNetSell.nsval / totalNetSell.nslot 
+                                : 0; // Calculate from value/lot
+                              const totalNetSellAvg = totalNetBuy && totalNetBuy.nblot > 0 
+                                ? totalNetBuy.nbval / totalNetBuy.nblot 
+                                : 0; // Calculate from value/lot
                             
                             return (
                               <React.Fragment>
