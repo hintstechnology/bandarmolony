@@ -21,24 +21,36 @@ interface BrokerTransactionData {
   BuyerAvg: number;
   BuyerFreq: number; // Count of unique TRX_CODE
   BuyerOrdNum: number; // Unique count of TRX_ORD1
+  BLot: number; // Buyer Lot (BuyerVol / 100)
+  BLotPerFreq: number; // Buyer Lot per Frequency (BLot / BuyerFreq)
+  BLotPerOrdNum: number; // Buyer Lot per Order Number (BLot / BuyerOrdNum)
   // Sell side (when broker is seller - BRK_COD2)
   SellerVol: number;
   SellerValue: number;
   SellerAvg: number;
   SellerFreq: number; // Count of unique TRX_CODE
   SellerOrdNum: number; // Unique count of TRX_ORD2
+  SLot: number; // Seller Lot (SellerVol / 100)
+  SLotPerFreq: number; // Seller Lot per Frequency (SLot / SellerFreq)
+  SLotPerOrdNum: number; // Seller Lot per Order Number (SLot / SellerOrdNum)
   // Net Buy
   NetBuyVol: number;
   NetBuyValue: number;
   NetBuyAvg: number;
   NetBuyFreq: number; // BuyerFreq - SellerFreq (can be negative)
   NetBuyOrdNum: number; // BuyerOrdNum - SellerOrdNum (can be negative)
+  NBLot: number; // Net Buy Lot (NetBuyVol / 100)
+  NBLotPerFreq: number; // Net Buy Lot per Frequency (NBLot / |NetBuyFreq|)
+  NBLotPerOrdNum: number; // Net Buy Lot per Order Number (NBLot / |NetBuyOrdNum|)
   // Net Sell
   NetSellVol: number;
   NetSellValue: number;
   NetSellAvg: number;
   NetSellFreq: number; // SellerFreq - BuyerFreq (can be negative)
   NetSellOrdNum: number; // SellerOrdNum - BuyerOrdNum (can be negative)
+  NSLot: number; // Net Sell Lot (NetSellVol / 100)
+  NSLotPerFreq: number; // Net Sell Lot per Frequency (NSLot / |NetSellFreq|)
+  NSLotPerOrdNum: number; // Net Sell Lot per Order Number (NSLot / |NetSellOrdNum|)
 }
 
 export class BrokerTransactionCalculator {
@@ -316,6 +328,24 @@ export class BrokerTransactionCalculator {
         const netBuyAvg = netBuyVol > 0 ? netBuyValue / netBuyVol : 0;
         const netSellAvg = netSellVol > 0 ? netSellValue / netSellVol : 0;
         
+        // Calculate Lot values (Vol / 100)
+        const buyerLot = buyerVol / 100;
+        const sellerLot = sellerVol / 100;
+        const netBuyLot = netBuyVol / 100;
+        const netSellLot = netSellVol / 100;
+        
+        // Calculate Lot/F (Lot per Frequency)
+        const buyerLotPerFreq = buyerFreq > 0 ? buyerLot / buyerFreq : 0;
+        const sellerLotPerFreq = sellerFreq > 0 ? sellerLot / sellerFreq : 0;
+        const netBuyLotPerFreq = netBuyFreq !== 0 ? netBuyLot / Math.abs(netBuyFreq) : 0;
+        const netSellLotPerFreq = netSellFreq !== 0 ? netSellLot / Math.abs(netSellFreq) : 0;
+        
+        // Calculate Lot/ON (Lot per Order Number)
+        const buyerLotPerOrdNum = buyerOrdNum > 0 ? buyerLot / buyerOrdNum : 0;
+        const sellerLotPerOrdNum = sellerOrdNum > 0 ? sellerLot / sellerOrdNum : 0;
+        const netBuyLotPerOrdNum = netBuyOrdNum !== 0 ? netBuyLot / Math.abs(netBuyOrdNum) : 0;
+        const netSellLotPerOrdNum = netSellOrdNum !== 0 ? netSellLot / Math.abs(netSellOrdNum) : 0;
+        
         stockSummary.push({
           Emiten: stock,
           BuyerVol: buyerVol,
@@ -323,21 +353,33 @@ export class BrokerTransactionCalculator {
           BuyerAvg: buyerAvg,
           BuyerFreq: buyerFreq,
           BuyerOrdNum: buyerOrdNum,
+          BLot: buyerLot,
+          BLotPerFreq: buyerLotPerFreq,
+          BLotPerOrdNum: buyerLotPerOrdNum,
           SellerVol: sellerVol,
           SellerValue: sellerValue,
           SellerAvg: sellerAvg,
           SellerFreq: sellerFreq,
           SellerOrdNum: sellerOrdNum,
+          SLot: sellerLot,
+          SLotPerFreq: sellerLotPerFreq,
+          SLotPerOrdNum: sellerLotPerOrdNum,
           NetBuyVol: netBuyVol,
           NetBuyValue: netBuyValue,
           NetBuyAvg: netBuyAvg,
           NetBuyFreq: netBuyFreq, // Can be negative
           NetBuyOrdNum: netBuyOrdNum, // Can be negative
+          NBLot: netBuyLot,
+          NBLotPerFreq: netBuyLotPerFreq,
+          NBLotPerOrdNum: netBuyLotPerOrdNum,
           NetSellVol: netSellVol,
           NetSellValue: netSellValue,
           NetSellAvg: netSellAvg,
           NetSellFreq: netSellFreq, // Can be negative
           NetSellOrdNum: netSellOrdNum, // Can be negative
+          NSLot: netSellLot,
+          NSLotPerFreq: netSellLotPerFreq,
+          NSLotPerOrdNum: netSellLotPerOrdNum,
         });
       });
       
