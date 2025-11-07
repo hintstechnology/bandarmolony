@@ -2545,21 +2545,25 @@ export function BrokerTransaction() {
                                 <>
                                   {(() => {
                                     const dayData = buyRowData.data;
-                                    // Use BLot directly from CSV (column 1), not calculated from BuyerVol
-                                    const buyerLot = dayData.BLot !== undefined ? dayData.BLot : ((dayData.BuyerVol || 0) / 100);
+                                    // Use BLot directly from CSV (column 1), no fallback
+                                    const buyerLot = dayData.BLot ?? 0;
                                     // Use BVal (BuyerValue) from CSV column 2
                                     const buyerVal = dayData.BuyerValue || 0;
                                     // Use BAvg from CSV column 3, or calculate from BLot and BVal
-                                    const buyerAvg = dayData.BuyerAvg || (buyerLot > 0 ? buyerVal / (buyerLot * 100) : 0);
+                                    // const buyerAvg = dayData.BuyerAvg || (buyerLot > 0 ? buyerVal / (buyerLot * 100) : 0);
+                                    const buyerAvg = dayData.BuyerAvg;
+
                                     // Use BFreq from CSV column 4
                                     const buyerFreq = dayData.BFreq || 0;
                                     // Use BLotPerFreq directly from CSV column 5, not calculated
-                                    const buyerLotPerFreq = dayData.BLotPerFreq !== undefined ? dayData.BLotPerFreq : (buyerFreq > 0 ? buyerLot / buyerFreq : 0);
+                                    // const buyerLotPerFreq = dayData.BLotPerFreq !== undefined ? dayData.BLotPerFreq : (buyerFreq > 0 ? buyerLot / buyerFreq : 0);
+                                    const buyerLotPerFreq = dayData.BLotPerFreq;
                                     // Use BOrdNum from CSV column 6
                                     const buyerOrdNum = dayData.BOrdNum || 0;
                                     // Use BLotPerOrdNum directly from CSV column 7, not calculated
-                                    const buyerLotPerOrdNum = dayData.BLotPerOrdNum !== undefined ? dayData.BLotPerOrdNum : (buyerOrdNum > 0 ? buyerLot / buyerOrdNum : 0);
-                                    
+                                    // const buyerLotPerOrdNum = dayData.BLotPerOrdNum !== undefined ? dayData.BLotPerOrdNum : (buyerOrdNum > 0 ? buyerLot / buyerOrdNum : 0);
+                                    const buyerLotPerOrdNum = dayData.BLotPerOrdNum;
+
                                     const bCode = dayData.BCode || buyRowData.stock;
                                     const bCodeColorClass = getStockColorClass(bCode);
                                     return (
@@ -2569,11 +2573,11 @@ export function BrokerTransaction() {
                             </td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6">{formatLot(buyerLot)}</td>
                                         <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6">{formatValue(buyerVal)}</td>
-                            <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6">{formatAverage(buyerAvg)}</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6">{formatAverage(buyerAvg ?? 0)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6">{buyerFreq}</td>
-                                        <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-8">{formatAverage(buyerLotPerFreq)}</td>
+                                        <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-8">{formatAverage(buyerLotPerFreq ?? 0)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6">{buyerOrdNum}</td>
-                                        <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-16">{formatAverage(buyerLotPerOrdNum)}</td>
+                                        <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-16">{formatAverage(buyerLotPerOrdNum ?? 0)}</td>
                                       </>
                                     );
                                   })()}
@@ -2598,20 +2602,20 @@ export function BrokerTransaction() {
                                 <>
                                   {(() => {
                                     const dayData = sellRowData.data;
-                                    // Use SLot directly from CSV (column 9), not calculated from SellerVol
-                                    const sellerLot = dayData.SLot !== undefined ? dayData.SLot : ((dayData.SellerVol || 0) / 100);
+                                    // Use SLot directly from CSV (column 9), no fallback
+                                    const sellerLot = dayData.SLot ?? 0;
                                     // Use SVal (SellerValue) from CSV column 10
                                     const sellerVal = dayData.SellerValue || 0;
-                                    // Use SAvg from CSV column 11, or calculate from SLot and SVal
-                                    const sellerAvg = dayData.SellerAvg || (sellerLot > 0 ? sellerVal / (sellerLot * 100) : 0);
+                                    // Use SAvg from CSV column 11, no fallback
+                                    const sellerAvg = dayData.SellerAvg;
                                     // Use SFreq from CSV column 12
                                     const sellerFreq = dayData.SFreq || 0;
-                                    // Use SLotPerFreq directly from CSV column 13, not calculated
-                                    const sellerLotPerFreq = dayData.SLotPerFreq !== undefined ? dayData.SLotPerFreq : (sellerFreq > 0 ? sellerLot / sellerFreq : 0);
+                                    // Use SLotPerFreq directly from CSV column 13, no fallback
+                                    const sellerLotPerFreq = dayData.SLotPerFreq;
                                     // Use SOrdNum from CSV column 14
                                     const sellerOrdNum = dayData.SOrdNum || 0;
-                                    // Use SLotPerOrdNum directly from CSV column 15, not calculated
-                                    const sellerLotPerOrdNum = dayData.SLotPerOrdNum !== undefined ? dayData.SLotPerOrdNum : (sellerOrdNum > 0 ? sellerLot / sellerOrdNum : 0);
+                                    // Use SLotPerOrdNum directly from CSV column 15, no fallback
+                                    const sellerLotPerOrdNum = dayData.SLotPerOrdNum;
                                     
                                     // Debug: log SCode to verify it's correct
                                     if (rowIdx <= 2 && dateIndex === 0) {
@@ -2625,12 +2629,12 @@ export function BrokerTransaction() {
                                         <td className={`text-center py-[1px] px-[3px] font-bold ${sCodeColorClass}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>{sCode}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6">{formatLot(sellerLot)}</td>
                                         <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6">{formatValue(sellerVal)}</td>
-                            <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6">{formatAverage(sellerAvg)}</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6">{formatAverage(sellerAvg ?? 0)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6">{sellerFreq}</td>
-                                        <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-8">{formatAverage(sellerLotPerFreq)}</td>
+                                        <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-8">{formatAverage(sellerLotPerFreq ?? 0)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6">{sellerOrdNum}</td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
-                                          {formatAverage(sellerLotPerOrdNum)}
+                                          {formatAverage(sellerLotPerOrdNum ?? 0)}
                             </td>
                                       </>
                                     );
@@ -2981,13 +2985,13 @@ export function BrokerTransaction() {
                                     const nbCodeColorClass = getStockColorClass(nbCode);
                                     const nbLot = dayData.NBLot || 0;
                                     const nbVal = dayData.NBVal || 0;
-                                    const nbAvg = dayData.NBAvg !== undefined && dayData.NBAvg !== null ? dayData.NBAvg : (nbLot > 0 ? nbVal / (nbLot * 100) : 0);
+                                    const nbAvg = dayData.NBAvg;
                                     const nbFreq = dayData.NBFreq || 0;
-                                    // Use value from CSV if available (including negative values), otherwise calculate
-                                    const nbLotPerFreq = dayData.NBLotPerFreq !== undefined && dayData.NBLotPerFreq !== null ? dayData.NBLotPerFreq : (nbFreq > 0 ? nbLot / nbFreq : 0);
+                                    // Use value from CSV, no fallback
+                                    const nbLotPerFreq = dayData.NBLotPerFreq;
                                     const nbOrdNum = dayData.NBOrdNum || 0;
-                                    // Use value from CSV if available (including negative values), otherwise calculate
-                                    const nbLotPerOrdNum = dayData.NBLotPerOrdNum !== undefined && dayData.NBLotPerOrdNum !== null ? dayData.NBLotPerOrdNum : (nbOrdNum > 0 ? nbLot / nbOrdNum : 0);
+                                    // Use value from CSV, no fallback
+                                    const nbLotPerOrdNum = dayData.NBLotPerOrdNum;
                                     
                                     return (
                                       <>
@@ -3001,19 +3005,19 @@ export function BrokerTransaction() {
                                           {formatValue(nbVal)}
                             </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`}>
-                                          {formatAverage(nbAvg)}
+                                          {formatAverage(nbAvg ?? 0)}
                             </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`}>
                                           {nbFreq}
                                         </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-8`}>
-                                          {formatAverage(nbLotPerFreq)}
+                                          {formatAverage(nbLotPerFreq ?? 0)}
                                         </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`}>
                                           {nbOrdNum}
                                         </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-16`}>
-                                          {formatAverage(nbLotPerOrdNum)}
+                                          {formatAverage(nbLotPerOrdNum ?? 0)}
                                         </td>
                                       </>
                                     );
@@ -3043,13 +3047,13 @@ export function BrokerTransaction() {
                                     const nsCodeColorClass = getStockColorClass(nsCode);
                                     const nsLot = dayData.NSLot || 0;
                                     const nsVal = dayData.NSVal || 0;
-                                    const nsAvg = dayData.NSAvg !== undefined && dayData.NSAvg !== null ? dayData.NSAvg : (nsLot > 0 ? nsVal / (nsLot * 100) : 0);
+                                    const nsAvg = dayData.NSAvg;
                                     const nsFreq = dayData.NSFreq || 0;
-                                    // Use value from CSV if available (including negative values), otherwise calculate
-                                    const nsLotPerFreq = dayData.NSLotPerFreq !== undefined && dayData.NSLotPerFreq !== null ? dayData.NSLotPerFreq : (nsFreq > 0 ? nsLot / nsFreq : 0);
+                                    // Use value from CSV, no fallback
+                                    const nsLotPerFreq = dayData.NSLotPerFreq;
                                     const nsOrdNum = dayData.NSOrdNum || 0;
-                                    // Use value from CSV if available (including negative values), otherwise calculate
-                                    const nsLotPerOrdNum = dayData.NSLotPerOrdNum !== undefined && dayData.NSLotPerOrdNum !== null ? dayData.NSLotPerOrdNum : (nsOrdNum > 0 ? nsLot / nsOrdNum : 0);
+                                    // Use value from CSV, no fallback
+                                    const nsLotPerOrdNum = dayData.NSLotPerOrdNum;
                                     
                                     return (
                                       <>
@@ -3063,19 +3067,19 @@ export function BrokerTransaction() {
                                           {formatValue(nsVal)}
                             </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`}>
-                                          {formatAverage(nsAvg)}
+                                          {formatAverage(nsAvg ?? 0)}
                             </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`}>
                                           {nsFreq}
                             </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-8`}>
-                                          {formatAverage(nsLotPerFreq)}
+                                          {formatAverage(nsLotPerFreq ?? 0)}
                                         </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`}>
                                           {nsOrdNum}
                                         </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
-                                          {formatAverage(nsLotPerOrdNum)}
+                                          {formatAverage(nsLotPerOrdNum ?? 0)}
                                         </td>
                                       </>
                                     );
