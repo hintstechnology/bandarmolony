@@ -11,7 +11,7 @@ env:
   REGISTRY: ${{ secrets.CONTAINER_REGISTRY }}
   IMAGE_REPO: bandarmolony-frontend
   RESOURCE_GROUP: ${{ secrets.RESOURCE_GROUP }}
-  CONTAINER_APP_NAME: ${{ secrets.CONTAINER_APP_NAME }}
+  CONTAINER_APP_NAME: ${{ secrets.FE_CONTAINER_APP_NAME }}
 
 jobs:
   build-and-deploy:
@@ -62,7 +62,7 @@ jobs:
           VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_API_URL=${{ secrets.VITE_API_URL }}
           VITE_MIDTRANS_CLIENT_KEY=${{ secrets.VITE_MIDTRANS_CLIENT_KEY }}
-          VITE_NODE_ENV=production
+          VITE_NODE_ENV=${{ secrets.VITE_NODE_ENV }}
 
     - name: Azure Login
       uses: azure/login@v1

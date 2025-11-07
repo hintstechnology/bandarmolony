@@ -158,7 +158,7 @@ process.on('uncaughtException', (error: Error) => {
 const PORT = config.PORT;
 app.listen(PORT, async () => {
   console.log(`Backend listening on port ${PORT}`);
-  console.log(`Environment: ${config.NODE_ENV}`);
+  console.log(`Environment used: ${config.NODE_ENV}`);
   console.log(`Frontend URL: ${config.FRONTEND_URL}`);
   console.log(`CORS Origin: ${config.CORS_ORIGIN}`);
   
