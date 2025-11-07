@@ -18,7 +18,7 @@ export function LandingPage({ onStartTrial, onSignIn, onRegister }: LandingPageP
   return (
     <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-background via-muted/20 to-background">
       <Helmet>
-        <title>{`BandarmoloNY \u2014 Intelligent Market Analysis`}</title>
+        <title>{`BandarmoloNY`}</title>
         <meta
           name="description"
           content="Transform your trading strategy with intelligent market analysis and real-time insights."
@@ -26,7 +26,7 @@ export function LandingPage({ onStartTrial, onSignIn, onRegister }: LandingPageP
         <link rel="canonical" href="https://bandarmolony.com/" />
         <meta
           property="og:title"
-          content="BandarmoloNY \u2014 Intelligent Market Analysis"
+          content="BandarmoloNY"
         />
         <meta
           property="og:description"
@@ -54,7 +54,10 @@ export function LandingPage({ onStartTrial, onSignIn, onRegister }: LandingPageP
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(0,0,0,0.1),transparent_50%)] dark:bg-[radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.1),transparent_50%)]" />
       </div>
 
-      <Navbar onSignIn={onSignIn} onRegister={onRegister} />
+      <Navbar 
+        {...(onSignIn && { onSignIn })}
+        {...(onRegister && { onRegister })}
+      />
 
       <main className="relative z-10 flex h-[calc(100vh-200px)] flex-col items-center justify-center px-6 text-center">
         <motion.div
