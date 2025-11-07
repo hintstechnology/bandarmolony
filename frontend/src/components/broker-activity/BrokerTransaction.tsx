@@ -201,32 +201,32 @@ const getLastThreeDays = (): string[] => {
 export function BrokerTransaction() {
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
 
-  // Get available dates from backend and return recent trading days (oldest first for display)
-  const getAvailableTradingDays = async (count: number): Promise<string[]> => {
-    try {
-      // Get available dates from backend
-      const response = await api.getBrokerTransactionDates();
-      if (response.success && response.data?.dates) {
-        // Backend returns dates in YYYYMMDD format, convert to YYYY-MM-DD for frontend
-        const convertedDates = response.data.dates.map(dateStr => {
-          // If date is in YYYYMMDD format, convert to YYYY-MM-DD
-          if (dateStr.length === 8 && !dateStr.includes('-')) {
-            return `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
-          }
-          return dateStr; // Already in YYYY-MM-DD format
-        });
-        
-        // Sort from newest to oldest, then take first count, then reverse for display (oldest first)
-        const availableDates = convertedDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
-        return availableDates.slice(0, count).reverse(); // Reverse to get oldest first
-      }
-    } catch (error) {
-      console.error('Error fetching available dates:', error);
+// Get available dates from backend and return recent trading days (oldest first for display)
+const getAvailableTradingDays = async (count: number): Promise<string[]> => {
+  try {
+    // Get available dates from backend
+    const response = await api.getBrokerTransactionDates();
+    if (response.success && response.data?.dates) {
+      // Backend returns dates in YYYYMMDD format, convert to YYYY-MM-DD for frontend
+      const convertedDates = response.data.dates.map(dateStr => {
+        // If date is in YYYYMMDD format, convert to YYYY-MM-DD
+        if (dateStr.length === 8 && !dateStr.includes('-')) {
+          return `${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}`;
+        }
+        return dateStr; // Already in YYYY-MM-DD format
+      });
+      
+      // Sort from newest to oldest, then take first count, then reverse for display (oldest first)
+      const availableDates = convertedDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+      return availableDates.slice(0, count).reverse(); // Reverse to get oldest first
     }
-    
-    // Fallback to local calculation if backend fails (already sorted oldest first)
-    return getTradingDays(count);
-  };
+  } catch (error) {
+    console.error('Error fetching available dates:', error);
+  }
+  
+  // Fallback to local calculation if backend fails (already sorted oldest first)
+  return getTradingDays(count);
+};
 
   const [startDate, setStartDate] = useState(() => {
     const threeDays = getLastThreeDays();
@@ -587,9 +587,9 @@ export function BrokerTransaction() {
             
               // CRITICAL: Check ref after chunk
             if (!shouldFetchDataRef.current || abortController.signal.aborted) {
-              return;
-            }
-            
+          return;
+        }
+        
               // Process chunk results
               chunkResults.forEach((result) => {
                 if (result.success && 'data' in result && result.data && result.data.length > 0) {
@@ -662,25 +662,25 @@ export function BrokerTransaction() {
           // Process results for this date from all brokers
           allDataResults.forEach(({ date: resultDate, data }) => {
             if (resultDate !== date) return;
-            
-            // Aggregate rows by Emiten
-            for (const row of data) {
-              const emiten = row.Emiten || '';
-              if (!emiten) continue;
               
-              const existing = aggregatedMap.get(emiten);
-              if (existing) {
+              // Aggregate rows by Emiten
+              for (const row of data) {
+                const emiten = row.Emiten || '';
+                if (!emiten) continue;
+                
+                const existing = aggregatedMap.get(emiten);
+                if (existing) {
                   // Sum values for the same Emiten from different brokers
                   // Buyer section
                   existing.BuyerVol = (existing.BuyerVol || 0) + (row.BuyerVol || 0);
                   existing.BuyerValue = (existing.BuyerValue || 0) + (row.BuyerValue || 0);
                   existing.BFreq = (existing.BFreq || 0) + (row.BFreq || 0);
                   existing.BOrdNum = (existing.BOrdNum || 0) + (row.BOrdNum || 0);
-                  // Preserve Lot/F and Lot/ON from CSV if available, otherwise calculate
+                  // Use Lot/F and Lot/ON from CSV only - no manual calculation
+                  // Use weighted average when both values exist, otherwise use the one that exists
                   if (row.BLotPerFreq !== undefined && row.BLotPerFreq !== null) {
-                    // If both have values, use weighted average, otherwise use the one that exists
                     if (existing.BLotPerFreq !== undefined && existing.BLotPerFreq !== null) {
-                      // Weighted average based on frequency
+                      // Weighted average based on frequency (both values from CSV)
                       const totalFreq = (existing.BFreq || 0) + (row.BFreq || 0);
                       if (totalFreq > 0) {
                         existing.BLotPerFreq = ((existing.BLotPerFreq * (existing.BFreq || 0)) + (row.BLotPerFreq * (row.BFreq || 0))) / totalFreq;
@@ -688,12 +688,10 @@ export function BrokerTransaction() {
                     } else {
                       existing.BLotPerFreq = row.BLotPerFreq;
                     }
-                  } else if (existing.BLotPerFreq === undefined || existing.BLotPerFreq === null) {
-                    existing.BLotPerFreq = (existing.BFreq || 0) > 0 ? (existing.BLot || 0) / (existing.BFreq || 0) : 0;
                   }
                   if (row.BLotPerOrdNum !== undefined && row.BLotPerOrdNum !== null) {
                     if (existing.BLotPerOrdNum !== undefined && existing.BLotPerOrdNum !== null) {
-                      // Weighted average based on order number
+                      // Weighted average based on order number (both values from CSV)
                       const totalOrdNum = (existing.BOrdNum || 0) + (row.BOrdNum || 0);
                       if (totalOrdNum !== 0) {
                         existing.BLotPerOrdNum = ((existing.BLotPerOrdNum * Math.abs(existing.BOrdNum || 0)) + (row.BLotPerOrdNum * Math.abs(row.BOrdNum || 0))) / Math.abs(totalOrdNum);
@@ -701,8 +699,6 @@ export function BrokerTransaction() {
                     } else {
                       existing.BLotPerOrdNum = row.BLotPerOrdNum;
                     }
-                  } else if (existing.BLotPerOrdNum === undefined || existing.BLotPerOrdNum === null) {
-                    existing.BLotPerOrdNum = (existing.BOrdNum || 0) !== 0 ? (existing.BLot || 0) / (existing.BOrdNum || 0) : 0;
                   }
                   existing.BLot = (existing.BLot || 0) + (row.BLot || 0);
                   // Recalculate BuyerAvg from aggregated values
@@ -713,8 +709,10 @@ export function BrokerTransaction() {
                   existing.SellerValue = (existing.SellerValue || 0) + (row.SellerValue || 0);
                   existing.SFreq = (existing.SFreq || 0) + (row.SFreq || 0);
                   existing.SOrdNum = (existing.SOrdNum || 0) + (row.SOrdNum || 0);
+                  // Use Lot/F and Lot/ON from CSV only - no manual calculation
                   if (row.SLotPerFreq !== undefined && row.SLotPerFreq !== null) {
                     if (existing.SLotPerFreq !== undefined && existing.SLotPerFreq !== null) {
+                      // Weighted average based on frequency (both values from CSV)
                       const totalFreq = (existing.SFreq || 0) + (row.SFreq || 0);
                       if (totalFreq > 0) {
                         existing.SLotPerFreq = ((existing.SLotPerFreq * (existing.SFreq || 0)) + (row.SLotPerFreq * (row.SFreq || 0))) / totalFreq;
@@ -722,11 +720,10 @@ export function BrokerTransaction() {
                     } else {
                       existing.SLotPerFreq = row.SLotPerFreq;
                     }
-                  } else if (existing.SLotPerFreq === undefined || existing.SLotPerFreq === null) {
-                    existing.SLotPerFreq = (existing.SFreq || 0) > 0 ? (existing.SLot || 0) / (existing.SFreq || 0) : 0;
                   }
                   if (row.SLotPerOrdNum !== undefined && row.SLotPerOrdNum !== null) {
                     if (existing.SLotPerOrdNum !== undefined && existing.SLotPerOrdNum !== null) {
+                      // Weighted average based on order number (both values from CSV)
                       const totalOrdNum = (existing.SOrdNum || 0) + (row.SOrdNum || 0);
                       if (totalOrdNum !== 0) {
                         existing.SLotPerOrdNum = ((existing.SLotPerOrdNum * Math.abs(existing.SOrdNum || 0)) + (row.SLotPerOrdNum * Math.abs(row.SOrdNum || 0))) / Math.abs(totalOrdNum);
@@ -734,8 +731,6 @@ export function BrokerTransaction() {
                     } else {
                       existing.SLotPerOrdNum = row.SLotPerOrdNum;
                     }
-                  } else if (existing.SLotPerOrdNum === undefined || existing.SLotPerOrdNum === null) {
-                    existing.SLotPerOrdNum = (existing.SOrdNum || 0) !== 0 ? (existing.SLot || 0) / (existing.SOrdNum || 0) : 0;
                   }
                   existing.SLot = (existing.SLot || 0) + (row.SLot || 0);
                   existing.SellerAvg = (existing.SellerVol || 0) > 0 ? (existing.SellerValue || 0) / (existing.SellerVol || 0) : 0;
@@ -745,20 +740,21 @@ export function BrokerTransaction() {
                   existing.NetBuyValue = (existing.NetBuyValue || 0) + (row.NetBuyValue || 0);
                   existing.NBFreq = (existing.NBFreq || 0) + (row.NBFreq || 0);
                   existing.NBOrdNum = (existing.NBOrdNum || 0) + (row.NBOrdNum || 0);
+                  // Use Lot/F and Lot/ON from CSV only - no manual calculation
                   if (row.NBLotPerFreq !== undefined && row.NBLotPerFreq !== null) {
                     if (existing.NBLotPerFreq !== undefined && existing.NBLotPerFreq !== null) {
+                      // Weighted average based on frequency (both values from CSV)
                       const totalFreq = (existing.NBFreq || 0) + (row.NBFreq || 0);
-                      if (totalFreq > 0) {
-                        existing.NBLotPerFreq = ((existing.NBLotPerFreq * (existing.NBFreq || 0)) + (row.NBLotPerFreq * (row.NBFreq || 0))) / totalFreq;
+                      if (totalFreq !== 0) {
+                        existing.NBLotPerFreq = ((existing.NBLotPerFreq * Math.abs(existing.NBFreq || 0)) + (row.NBLotPerFreq * Math.abs(row.NBFreq || 0))) / Math.abs(totalFreq);
                       }
                     } else {
                       existing.NBLotPerFreq = row.NBLotPerFreq;
                     }
-                  } else if (existing.NBLotPerFreq === undefined || existing.NBLotPerFreq === null) {
-                    existing.NBLotPerFreq = (existing.NBFreq || 0) > 0 ? (existing.NBLot || 0) / (existing.NBFreq || 0) : 0;
                   }
                   if (row.NBLotPerOrdNum !== undefined && row.NBLotPerOrdNum !== null) {
                     if (existing.NBLotPerOrdNum !== undefined && existing.NBLotPerOrdNum !== null) {
+                      // Weighted average based on order number (both values from CSV)
                       const totalOrdNum = (existing.NBOrdNum || 0) + (row.NBOrdNum || 0);
                       if (totalOrdNum !== 0) {
                         existing.NBLotPerOrdNum = ((existing.NBLotPerOrdNum * Math.abs(existing.NBOrdNum || 0)) + (row.NBLotPerOrdNum * Math.abs(row.NBOrdNum || 0))) / Math.abs(totalOrdNum);
@@ -766,8 +762,6 @@ export function BrokerTransaction() {
                     } else {
                       existing.NBLotPerOrdNum = row.NBLotPerOrdNum;
                     }
-                  } else if (existing.NBLotPerOrdNum === undefined || existing.NBLotPerOrdNum === null) {
-                    existing.NBLotPerOrdNum = (existing.NBOrdNum || 0) !== 0 ? (existing.NBLot || 0) / (existing.NBOrdNum || 0) : 0;
                   }
                   existing.NBLot = (existing.NBLot || 0) + (row.NBLot || 0);
                   existing.NBAvg = (existing.NetBuyVol || 0) > 0 ? (existing.NetBuyValue || 0) / (existing.NetBuyVol || 0) : 0;
@@ -777,20 +771,21 @@ export function BrokerTransaction() {
                   existing.NetSellValue = (existing.NetSellValue || 0) + (row.NetSellValue || 0);
                   existing.NSFreq = (existing.NSFreq || 0) + (row.NSFreq || 0);
                   existing.NSOrdNum = (existing.NSOrdNum || 0) + (row.NSOrdNum || 0);
+                  // Use Lot/F and Lot/ON from CSV only - no manual calculation
                   if (row.NSLotPerFreq !== undefined && row.NSLotPerFreq !== null) {
                     if (existing.NSLotPerFreq !== undefined && existing.NSLotPerFreq !== null) {
+                      // Weighted average based on frequency (both values from CSV)
                       const totalFreq = (existing.NSFreq || 0) + (row.NSFreq || 0);
-                      if (totalFreq > 0) {
-                        existing.NSLotPerFreq = ((existing.NSLotPerFreq * (existing.NSFreq || 0)) + (row.NSLotPerFreq * (row.NSFreq || 0))) / totalFreq;
+                      if (totalFreq !== 0) {
+                        existing.NSLotPerFreq = ((existing.NSLotPerFreq * Math.abs(existing.NSFreq || 0)) + (row.NSLotPerFreq * Math.abs(row.NSFreq || 0))) / Math.abs(totalFreq);
                       }
                     } else {
                       existing.NSLotPerFreq = row.NSLotPerFreq;
                     }
-                  } else if (existing.NSLotPerFreq === undefined || existing.NSLotPerFreq === null) {
-                    existing.NSLotPerFreq = (existing.NSFreq || 0) > 0 ? (existing.NSLot || 0) / (existing.NSFreq || 0) : 0;
                   }
                   if (row.NSLotPerOrdNum !== undefined && row.NSLotPerOrdNum !== null) {
                     if (existing.NSLotPerOrdNum !== undefined && existing.NSLotPerOrdNum !== null) {
+                      // Weighted average based on order number (both values from CSV)
                       const totalOrdNum = (existing.NSOrdNum || 0) + (row.NSOrdNum || 0);
                       if (totalOrdNum !== 0) {
                         existing.NSLotPerOrdNum = ((existing.NSLotPerOrdNum * Math.abs(existing.NSOrdNum || 0)) + (row.NSLotPerOrdNum * Math.abs(row.NSOrdNum || 0))) / Math.abs(totalOrdNum);
@@ -798,8 +793,6 @@ export function BrokerTransaction() {
                     } else {
                       existing.NSLotPerOrdNum = row.NSLotPerOrdNum;
                     }
-                  } else if (existing.NSLotPerOrdNum === undefined || existing.NSLotPerOrdNum === null) {
-                    existing.NSLotPerOrdNum = (existing.NSOrdNum || 0) !== 0 ? (existing.NSLot || 0) / (existing.NSOrdNum || 0) : 0;
                   }
                   existing.NSLot = (existing.NSLot || 0) + (row.NSLot || 0);
                   existing.NSAvg = (existing.NetSellVol || 0) > 0 ? (existing.NetSellValue || 0) / (existing.NetSellVol || 0) : 0;
@@ -812,8 +805,8 @@ export function BrokerTransaction() {
                 } else {
                   // First occurrence of this Emiten - clone row
                   aggregatedMap.set(emiten, { ...row });
-                }
               }
+            }
           });
           
           // Convert map to array
@@ -881,8 +874,8 @@ export function BrokerTransaction() {
         // CRITICAL: Update both transactionData and rawTransactionData
         setTransactionData(newTransactionData);
         setRawTransactionData(newRawTransactionData);
-        setIsDataReady(true);
-        setShouldFetchData(false);
+          setIsDataReady(true);
+          setShouldFetchData(false);
         shouldFetchDataRef.current = false;
         
         // Clear abort controller after successful fetch
@@ -1068,7 +1061,7 @@ export function BrokerTransaction() {
   useEffect(() => {
     // Wait for tables to be ready (data loaded and DOM rendered)
     if (isLoading || !isDataReady) return;
-
+    
     // FIXED: Flag to prevent infinite loop from ResizeObserver
     let isSyncing = false;
 
@@ -1138,7 +1131,7 @@ export function BrokerTransaction() {
       // Step 3: Measure column widths from VALUE table after it stabilizes
       const valueHeaderRows = valueTable.querySelectorAll('thead tr');
       const netHeaderRows = netTable.querySelectorAll('thead tr');
-
+      
       if (valueHeaderRows.length >= 2 && netHeaderRows.length >= 2) {
         const valueColumnHeaderRow = valueHeaderRows[1];
         const netColumnHeaderRow = netHeaderRows[1];
@@ -1398,9 +1391,9 @@ export function BrokerTransaction() {
                     const valueHeaderRows = valueTable.querySelectorAll('thead tr');
                     const netHeaderRows = netTable.querySelectorAll('thead tr');
                     if (valueHeaderRows.length >= 2 && netHeaderRows.length >= 2) {
-                      const valueColumnHeaderRow = valueHeaderRows[1];
-                      const netColumnHeaderRow = netHeaderRows[1];
-                      if (valueColumnHeaderRow && netColumnHeaderRow) {
+        const valueColumnHeaderRow = valueHeaderRows[1];
+        const netColumnHeaderRow = netHeaderRows[1];
+        if (valueColumnHeaderRow && netColumnHeaderRow) {
                         const valueHeaderCells = Array.from(valueColumnHeaderRow.querySelectorAll('th'));
                         const netHeaderCells = Array.from(netColumnHeaderRow.querySelectorAll('th'));
                         const columnWidths = columnWidthsRef.current;
@@ -1637,7 +1630,7 @@ export function BrokerTransaction() {
     
     syncContainerWidths();
     window.addEventListener('resize', debouncedSync);
-
+      
     return () => {
       window.removeEventListener('resize', debouncedSync);
       if (timeoutId) clearTimeout(timeoutId);
@@ -1693,7 +1686,7 @@ export function BrokerTransaction() {
   }, [isLoading, isDataReady, transactionData]); // FIXED: Removed selectedDates dependency to prevent re-render on input change
 
   // Memoize expensive calculations
-  const { uniqueStocks, filteredStocks, sortedStocksByDate, sortedNetStocksByDate, totalDataByStock, totalNetDataByStock, sortedTotalStocks, sortedTotalNetStocks, buyStocksByDate, sellStocksByDate, netBuyStocksByDate, netSellStocksByDate, totalNetBuyDataByStock, totalNetSellDataByStock } = useMemo<{
+  const { uniqueStocks, filteredStocks, sortedStocksByDate, sortedNetStocksByDate, totalDataByStock, totalNetDataByStock, sortedTotalStocks, sortedTotalNetStocks, buyStocksByDate, sellStocksByDate, netBuyStocksByDate, netSellStocksByDate, totalBuyDataByStock, totalSellDataByStock, totalNetBuyDataByStock, totalNetSellDataByStock } = useMemo<{
     uniqueStocks: string[];
     filteredStocks: string[];
     sortedStocksByDate: Map<string, string[]>;
@@ -1732,8 +1725,10 @@ export function BrokerTransaction() {
     sellStocksByDate: Map<string, Array<{ stock: string; data: BrokerTransactionData }>>;
     netBuyStocksByDate: Map<string, Array<{ stock: string; data: BrokerTransactionData }>>;
     netSellStocksByDate: Map<string, Array<{ stock: string; data: BrokerTransactionData }>>;
-    totalNetBuyDataByStock: Map<string, { netBuyVol: number; netBuyValue: number; netBuyAvg: number; netBuyFreq: number; netBuyOrdNum: number; netBuyAvgCount: number; }>;
-    totalNetSellDataByStock: Map<string, { netSellVol: number; netSellValue: number; netSellAvg: number; netSellFreq: number; netSellOrdNum: number; netSellAvgCount: number; }>;
+    totalBuyDataByStock: Map<string, { buyerVol: number; buyerValue: number; buyerAvg: number; buyerFreq: number; buyerOrdNum: number; buyerLot: number; buyerLotPerFreq: number; buyerLotPerOrdNum: number; buyerAvgCount: number; }>;
+    totalSellDataByStock: Map<string, { sellerVol: number; sellerValue: number; sellerAvg: number; sellerFreq: number; sellerOrdNum: number; sellerLot: number; sellerLotPerFreq: number; sellerLotPerOrdNum: number; sellerAvgCount: number; }>;
+    totalNetBuyDataByStock: Map<string, { netBuyVol: number; netBuyValue: number; netBuyAvg: number; netBuyFreq: number; netBuyOrdNum: number; netBuyLot: number; netBuyLotPerFreq: number; netBuyLotPerOrdNum: number; netBuyAvgCount: number; }>;
+    totalNetSellDataByStock: Map<string, { netSellVol: number; netSellValue: number; netSellAvg: number; netSellFreq: number; netSellOrdNum: number; netSellLot: number; netSellLotPerFreq: number; netSellLotPerOrdNum: number; netSellAvgCount: number; }>;
   }>(() => {
     // FIXED: Only check transactionData - don't depend on selectedBrokers/selectedDates to prevent re-calculation on input change
     if (transactionData.size === 0) {
@@ -1750,6 +1745,8 @@ export function BrokerTransaction() {
         sellStocksByDate: new Map(),
         netBuyStocksByDate: new Map(),
         netSellStocksByDate: new Map(),
+        totalBuyDataByStock: new Map(),
+        totalSellDataByStock: new Map(),
         totalNetBuyDataByStock: new Map(),
         totalNetSellDataByStock: new Map()
       };
@@ -1912,7 +1909,14 @@ export function BrokerTransaction() {
         buyerAvg: number;
         buyerFreq: number;
         buyerOrdNum: number;
+        buyerLot: number;
+        buyerLotPerFreq: number;
+        buyerLotPerOrdNum: number;
       buyerAvgCount: number;
+        buyerLotPerFreqSum: number; // For weighted average calculation
+        buyerLotPerFreqWeight: number; // For weighted average calculation
+        buyerLotPerOrdNumSum: number; // For weighted average calculation
+        buyerLotPerOrdNumWeight: number; // For weighted average calculation
     }>();
     
     const totalSellDataByStock = new Map<string, {
@@ -1921,7 +1925,14 @@ export function BrokerTransaction() {
         sellerAvg: number;
         sellerFreq: number;
         sellerOrdNum: number;
+        sellerLot: number;
+        sellerLotPerFreq: number;
+        sellerLotPerOrdNum: number;
         sellerAvgCount: number;
+        sellerLotPerFreqSum: number; // For weighted average calculation
+        sellerLotPerFreqWeight: number; // For weighted average calculation
+        sellerLotPerOrdNumSum: number; // For weighted average calculation
+        sellerLotPerOrdNumWeight: number; // For weighted average calculation
       }>();
       
       datesToProcess.forEach(date => {
@@ -1937,14 +1948,40 @@ export function BrokerTransaction() {
               buyerAvg: 0,
               buyerFreq: 0,
               buyerOrdNum: 0,
+              buyerLot: 0,
+              buyerLotPerFreq: 0,
+              buyerLotPerOrdNum: 0,
               buyerAvgCount: 0,
+              buyerLotPerFreqSum: 0,
+              buyerLotPerFreqWeight: 0,
+              buyerLotPerOrdNumSum: 0,
+              buyerLotPerOrdNumWeight: 0,
             });
           }
           const total = totalBuyDataByStock.get(buyStock)!;
+          const dayFreq = Number(dayData.BFreq) || Number(dayData.TransactionCount) || 0;
+          const dayOrdNum = Number(dayData.BOrdNum) || 0;
+          const dayLot = Number(dayData.BLot) || 0;
+          // Use Lot/F and Lot/ON from CSV only - no manual calculation
+          const dayLotPerFreq = dayData.BLotPerFreq;
+          const dayLotPerOrdNum = dayData.BLotPerOrdNum;
+          
           total.buyerVol += Number(dayData.BuyerVol) || 0;
           total.buyerValue += Number(dayData.BuyerValue) || 0;
-          total.buyerFreq += Number(dayData.BFreq) || Number(dayData.TransactionCount) || 0;
-          total.buyerOrdNum += Number(dayData.BOrdNum) || 0;
+          total.buyerFreq += dayFreq;
+          total.buyerOrdNum += dayOrdNum;
+          total.buyerLot += dayLot;
+          
+          // Weighted average for Lot/F and Lot/ON
+          if (dayFreq > 0 && dayLotPerFreq !== undefined && dayLotPerFreq !== null) {
+            total.buyerLotPerFreqSum += dayLotPerFreq * dayFreq;
+            total.buyerLotPerFreqWeight += dayFreq;
+          }
+          if (dayOrdNum !== 0 && dayLotPerOrdNum !== undefined && dayLotPerOrdNum !== null) {
+            total.buyerLotPerOrdNumSum += dayLotPerOrdNum * Math.abs(dayOrdNum);
+            total.buyerLotPerOrdNumWeight += Math.abs(dayOrdNum);
+          }
+          
           if (dayData.BuyerAvg || (dayData.BuyerVol && dayData.BuyerVol > 0)) {
             total.buyerAvg += dayData.BuyerAvg || ((dayData.BuyerValue || 0) / (dayData.BuyerVol || 1));
             total.buyerAvgCount += 1;
@@ -1961,14 +1998,40 @@ export function BrokerTransaction() {
               sellerAvg: 0,
               sellerFreq: 0,
               sellerOrdNum: 0,
+              sellerLot: 0,
+              sellerLotPerFreq: 0,
+              sellerLotPerOrdNum: 0,
               sellerAvgCount: 0,
+              sellerLotPerFreqSum: 0,
+              sellerLotPerFreqWeight: 0,
+              sellerLotPerOrdNumSum: 0,
+              sellerLotPerOrdNumWeight: 0,
             });
           }
           const total = totalSellDataByStock.get(sellStock)!;
+          const dayFreq = Number(dayData.SFreq) || Number(dayData.TransactionCount) || 0;
+          const dayOrdNum = Number(dayData.SOrdNum) || 0;
+          const dayLot = Number(dayData.SLot) || 0;
+          // Use Lot/F and Lot/ON from CSV only - no manual calculation
+          const dayLotPerFreq = dayData.SLotPerFreq;
+          const dayLotPerOrdNum = dayData.SLotPerOrdNum;
+          
           total.sellerVol += Number(dayData.SellerVol) || 0;
           total.sellerValue += Number(dayData.SellerValue) || 0;
-          total.sellerFreq += Number(dayData.SFreq) || Number(dayData.TransactionCount) || 0;
-          total.sellerOrdNum += Number(dayData.SOrdNum) || 0;
+          total.sellerFreq += dayFreq;
+          total.sellerOrdNum += dayOrdNum;
+          total.sellerLot += dayLot;
+          
+          // Weighted average for Lot/F and Lot/ON
+          if (dayFreq > 0 && dayLotPerFreq !== undefined && dayLotPerFreq !== null) {
+            total.sellerLotPerFreqSum += dayLotPerFreq * dayFreq;
+            total.sellerLotPerFreqWeight += dayFreq;
+          }
+          if (dayOrdNum !== 0 && dayLotPerOrdNum !== undefined && dayLotPerOrdNum !== null) {
+            total.sellerLotPerOrdNumSum += dayLotPerOrdNum * Math.abs(dayOrdNum);
+            total.sellerLotPerOrdNumWeight += Math.abs(dayOrdNum);
+          }
+          
           if (dayData.SellerAvg || (dayData.SellerVol && dayData.SellerVol > 0)) {
             total.sellerAvg += dayData.SellerAvg || ((dayData.SellerValue || 0) / (dayData.SellerVol || 1));
             total.sellerAvgCount += 1;
@@ -1977,12 +2040,16 @@ export function BrokerTransaction() {
       });
     });
     
-      // Calculate final averages
+      // Calculate final averages and Lot/F, Lot/ON
     totalBuyDataByStock.forEach((total) => {
         total.buyerAvg = total.buyerAvgCount > 0 ? total.buyerAvg / total.buyerAvgCount : (total.buyerVol > 0 ? total.buyerValue / total.buyerVol : 0);
+        total.buyerLotPerFreq = total.buyerLotPerFreqWeight > 0 ? total.buyerLotPerFreqSum / total.buyerLotPerFreqWeight : 0;
+        total.buyerLotPerOrdNum = total.buyerLotPerOrdNumWeight > 0 ? total.buyerLotPerOrdNumSum / total.buyerLotPerOrdNumWeight : 0;
     });
     totalSellDataByStock.forEach((total) => {
         total.sellerAvg = total.sellerAvgCount > 0 ? total.sellerAvg / total.sellerAvgCount : (total.sellerVol > 0 ? total.sellerValue / total.sellerVol : 0);
+        total.sellerLotPerFreq = total.sellerLotPerFreqWeight > 0 ? total.sellerLotPerFreqSum / total.sellerLotPerFreqWeight : 0;
+        total.sellerLotPerOrdNum = total.sellerLotPerOrdNumWeight > 0 ? total.sellerLotPerOrdNumSum / total.sellerLotPerOrdNumWeight : 0;
       });
       
       // Sort stocks by total buyer value (highest to lowest) for Total column
@@ -1997,11 +2064,17 @@ export function BrokerTransaction() {
       buyerAvg: number;
       buyerFreq: number;
       buyerOrdNum: number;
+      buyerLot: number;
+      buyerLotPerFreq: number;
+      buyerLotPerOrdNum: number;
       sellerVol: number;
       sellerValue: number;
       sellerAvg: number;
       sellerFreq: number;
       sellerOrdNum: number;
+      sellerLot: number;
+      sellerLotPerFreq: number;
+      sellerLotPerOrdNum: number;
       buyerAvgCount: number;
       sellerAvgCount: number;
     }>();
@@ -2009,12 +2082,23 @@ export function BrokerTransaction() {
     // Combine Buy and Sell data (for backward compatibility with rendering code)
     Array.from(totalBuyDataByStock.entries()).forEach(([stock, buyData]) => {
       totalDataByStock.set(stock, {
-        ...buyData,
+        buyerVol: buyData.buyerVol,
+        buyerValue: buyData.buyerValue,
+        buyerAvg: buyData.buyerAvg,
+        buyerFreq: buyData.buyerFreq,
+        buyerOrdNum: buyData.buyerOrdNum,
+        buyerLot: buyData.buyerLot,
+        buyerLotPerFreq: buyData.buyerLotPerFreq,
+        buyerLotPerOrdNum: buyData.buyerLotPerOrdNum,
         sellerVol: 0,
         sellerValue: 0,
         sellerAvg: 0,
         sellerFreq: 0,
         sellerOrdNum: 0,
+        sellerLot: 0,
+        sellerLotPerFreq: 0,
+        sellerLotPerOrdNum: 0,
+        buyerAvgCount: buyData.buyerAvgCount,
         sellerAvgCount: 0,
       });
     });
@@ -2027,6 +2111,9 @@ export function BrokerTransaction() {
         existing.sellerAvg = sellData.sellerAvg;
         existing.sellerFreq = sellData.sellerFreq;
         existing.sellerOrdNum = sellData.sellerOrdNum;
+        existing.sellerLot = sellData.sellerLot;
+        existing.sellerLotPerFreq = sellData.sellerLotPerFreq;
+        existing.sellerLotPerOrdNum = sellData.sellerLotPerOrdNum;
         existing.sellerAvgCount = sellData.sellerAvgCount;
       } else {
         totalDataByStock.set(stock, {
@@ -2035,8 +2122,19 @@ export function BrokerTransaction() {
           buyerAvg: 0,
           buyerFreq: 0,
           buyerOrdNum: 0,
+          buyerLot: 0,
+          buyerLotPerFreq: 0,
+          buyerLotPerOrdNum: 0,
+          sellerVol: sellData.sellerVol,
+          sellerValue: sellData.sellerValue,
+          sellerAvg: sellData.sellerAvg,
+          sellerFreq: sellData.sellerFreq,
+          sellerOrdNum: sellData.sellerOrdNum,
+          sellerLot: sellData.sellerLot,
+          sellerLotPerFreq: sellData.sellerLotPerFreq,
+          sellerLotPerOrdNum: sellData.sellerLotPerOrdNum,
           buyerAvgCount: 0,
-          ...sellData,
+          sellerAvgCount: sellData.sellerAvgCount,
         });
       }
     });
@@ -2051,7 +2149,14 @@ export function BrokerTransaction() {
       netBuyAvg: number;
       netBuyFreq: number;
       netBuyOrdNum: number;
+      netBuyLot: number;
+      netBuyLotPerFreq: number;
+      netBuyLotPerOrdNum: number;
       netBuyAvgCount: number;
+      netBuyLotPerFreqSum: number; // For weighted average calculation
+      netBuyLotPerFreqWeight: number; // For weighted average calculation
+      netBuyLotPerOrdNumSum: number; // For weighted average calculation
+      netBuyLotPerOrdNumWeight: number; // For weighted average calculation
     }>();
     
     const totalNetSellDataByStock = new Map<string, {
@@ -2060,7 +2165,14 @@ export function BrokerTransaction() {
       netSellAvg: number;
       netSellFreq: number;
       netSellOrdNum: number;
+      netSellLot: number;
+      netSellLotPerFreq: number;
+      netSellLotPerOrdNum: number;
       netSellAvgCount: number;
+      netSellLotPerFreqSum: number; // For weighted average calculation
+      netSellLotPerFreqWeight: number; // For weighted average calculation
+      netSellLotPerOrdNumSum: number; // For weighted average calculation
+      netSellLotPerOrdNumWeight: number; // For weighted average calculation
     }>();
     
     datesToProcess.forEach(date => {
@@ -2076,22 +2188,44 @@ export function BrokerTransaction() {
               netBuyAvg: 0,
               netBuyFreq: 0,
               netBuyOrdNum: 0,
+              netBuyLot: 0,
+              netBuyLotPerFreq: 0,
+              netBuyLotPerOrdNum: 0,
               netBuyAvgCount: 0,
+              netBuyLotPerFreqSum: 0,
+              netBuyLotPerFreqWeight: 0,
+              netBuyLotPerOrdNumSum: 0,
+              netBuyLotPerOrdNumWeight: 0,
             });
           }
           const total = totalNetBuyDataByStock.get(netBuyStock)!;
-          const nbLot = (dayData.NBLot || 0) * 100; // Convert lot to volume
+          const nbVol = dayData.NetBuyVol || 0;
           const nbVal = dayData.NBVal || 0;
           const nbFreq = dayData.NBFreq || 0;
           const nbOrdNum = dayData.NBOrdNum || 0;
+          const nbLot = Number(dayData.NBLot) || 0;
+          // Use Lot/F and Lot/ON from CSV only - no manual calculation
+          const nbLotPerFreq = dayData.NBLotPerFreq;
+          const nbLotPerOrdNum = dayData.NBLotPerOrdNum;
           
-          total.netBuyVol += nbLot;
+          total.netBuyVol += nbVol;
           total.netBuyValue += nbVal;
           total.netBuyFreq += nbFreq;
           total.netBuyOrdNum += nbOrdNum;
+          total.netBuyLot += nbLot;
           
-          if (nbLot > 0) {
-            total.netBuyAvg += nbVal / nbLot;
+          // Weighted average for Lot/F and Lot/ON (using absolute values for Net)
+          if (nbFreq !== 0 && nbLotPerFreq !== undefined && nbLotPerFreq !== null) {
+            total.netBuyLotPerFreqSum += nbLotPerFreq * Math.abs(nbFreq);
+            total.netBuyLotPerFreqWeight += Math.abs(nbFreq);
+          }
+          if (nbOrdNum !== 0 && nbLotPerOrdNum !== undefined && nbLotPerOrdNum !== null) {
+            total.netBuyLotPerOrdNumSum += nbLotPerOrdNum * Math.abs(nbOrdNum);
+            total.netBuyLotPerOrdNumWeight += Math.abs(nbOrdNum);
+          }
+          
+          if (nbVol > 0) {
+            total.netBuyAvg += nbVal / nbVol;
             total.netBuyAvgCount += 1;
           }
         }
@@ -2106,34 +2240,60 @@ export function BrokerTransaction() {
               netSellAvg: 0,
               netSellFreq: 0,
               netSellOrdNum: 0,
+              netSellLot: 0,
+              netSellLotPerFreq: 0,
+              netSellLotPerOrdNum: 0,
               netSellAvgCount: 0,
+              netSellLotPerFreqSum: 0,
+              netSellLotPerFreqWeight: 0,
+              netSellLotPerOrdNumSum: 0,
+              netSellLotPerOrdNumWeight: 0,
             });
           }
           const total = totalNetSellDataByStock.get(netSellStock)!;
-          const nsLot = (dayData.NSLot || 0) * 100; // Convert lot to volume
+          const nsVol = dayData.NetSellVol || 0;
           const nsVal = dayData.NSVal || 0;
           const nsFreq = dayData.NSFreq || 0;
           const nsOrdNum = dayData.NSOrdNum || 0;
+          const nsLot = Number(dayData.NSLot) || 0;
+          // Use Lot/F and Lot/ON from CSV only - no manual calculation
+          const nsLotPerFreq = dayData.NSLotPerFreq;
+          const nsLotPerOrdNum = dayData.NSLotPerOrdNum;
           
-          total.netSellVol += nsLot;
+          total.netSellVol += nsVol;
           total.netSellValue += nsVal;
           total.netSellFreq += nsFreq;
           total.netSellOrdNum += nsOrdNum;
+          total.netSellLot += nsLot;
           
-          if (nsLot > 0) {
-            total.netSellAvg += nsVal / nsLot;
+          // Weighted average for Lot/F and Lot/ON (using absolute values for Net)
+          if (nsFreq !== 0 && nsLotPerFreq !== undefined && nsLotPerFreq !== null) {
+            total.netSellLotPerFreqSum += nsLotPerFreq * Math.abs(nsFreq);
+            total.netSellLotPerFreqWeight += Math.abs(nsFreq);
+          }
+          if (nsOrdNum !== 0 && nsLotPerOrdNum !== undefined && nsLotPerOrdNum !== null) {
+            total.netSellLotPerOrdNumSum += nsLotPerOrdNum * Math.abs(nsOrdNum);
+            total.netSellLotPerOrdNumWeight += Math.abs(nsOrdNum);
+          }
+          
+          if (nsVol > 0) {
+            total.netSellAvg += nsVal / nsVol;
             total.netSellAvgCount += 1;
           }
         }
       });
     });
     
-    // Calculate final averages
+    // Calculate final averages and Lot/F, Lot/ON
     totalNetBuyDataByStock.forEach((total) => {
       total.netBuyAvg = total.netBuyAvgCount > 0 ? total.netBuyAvg / total.netBuyAvgCount : (total.netBuyVol > 0 ? total.netBuyValue / total.netBuyVol : 0);
+      total.netBuyLotPerFreq = total.netBuyLotPerFreqWeight > 0 ? total.netBuyLotPerFreqSum / total.netBuyLotPerFreqWeight : 0;
+      total.netBuyLotPerOrdNum = total.netBuyLotPerOrdNumWeight > 0 ? total.netBuyLotPerOrdNumSum / total.netBuyLotPerOrdNumWeight : 0;
     });
     totalNetSellDataByStock.forEach((total) => {
       total.netSellAvg = total.netSellAvgCount > 0 ? total.netSellAvg / total.netSellAvgCount : (total.netSellVol > 0 ? total.netSellValue / total.netSellVol : 0);
+      total.netSellLotPerFreq = total.netSellLotPerFreqWeight > 0 ? total.netSellLotPerFreqSum / total.netSellLotPerFreqWeight : 0;
+      total.netSellLotPerOrdNum = total.netSellLotPerOrdNumWeight > 0 ? total.netSellLotPerOrdNumSum / total.netSellLotPerOrdNumWeight : 0;
     });
     
     // Sort stocks by total net sell value (highest to lowest) for Total column
@@ -2148,11 +2308,17 @@ export function BrokerTransaction() {
       netBuyAvg: number;
       netBuyFreq: number;
       netBuyOrdNum: number;
+      netBuyLot: number;
+      netBuyLotPerFreq: number;
+      netBuyLotPerOrdNum: number;
       netSellVol: number;
       netSellValue: number;
       netSellAvg: number;
       netSellFreq: number;
       netSellOrdNum: number;
+      netSellLot: number;
+      netSellLotPerFreq: number;
+      netSellLotPerOrdNum: number;
       netBuyAvgCount: number;
       netSellAvgCount: number;
     }>();
@@ -2160,12 +2326,23 @@ export function BrokerTransaction() {
     // Combine Net Buy and Net Sell data (for backward compatibility with rendering code)
     Array.from(totalNetBuyDataByStock.entries()).forEach(([stock, netBuyData]) => {
       totalNetDataByStock.set(stock, {
-        ...netBuyData,
+        netBuyVol: netBuyData.netBuyVol,
+        netBuyValue: netBuyData.netBuyValue,
+        netBuyAvg: netBuyData.netBuyAvg,
+        netBuyFreq: netBuyData.netBuyFreq,
+        netBuyOrdNum: netBuyData.netBuyOrdNum,
+        netBuyLot: netBuyData.netBuyLot,
+        netBuyLotPerFreq: netBuyData.netBuyLotPerFreq,
+        netBuyLotPerOrdNum: netBuyData.netBuyLotPerOrdNum,
         netSellVol: 0,
         netSellValue: 0,
         netSellAvg: 0,
         netSellFreq: 0,
         netSellOrdNum: 0,
+        netSellLot: 0,
+        netSellLotPerFreq: 0,
+        netSellLotPerOrdNum: 0,
+        netBuyAvgCount: netBuyData.netBuyAvgCount,
         netSellAvgCount: 0,
       });
     });
@@ -2178,6 +2355,9 @@ export function BrokerTransaction() {
         existing.netSellAvg = netSellData.netSellAvg;
         existing.netSellFreq = netSellData.netSellFreq;
         existing.netSellOrdNum = netSellData.netSellOrdNum;
+        existing.netSellLot = netSellData.netSellLot;
+        existing.netSellLotPerFreq = netSellData.netSellLotPerFreq;
+        existing.netSellLotPerOrdNum = netSellData.netSellLotPerOrdNum;
         existing.netSellAvgCount = netSellData.netSellAvgCount;
       } else {
         totalNetDataByStock.set(stock, {
@@ -2186,8 +2366,19 @@ export function BrokerTransaction() {
           netBuyAvg: 0,
           netBuyFreq: 0,
           netBuyOrdNum: 0,
+          netBuyLot: 0,
+          netBuyLotPerFreq: 0,
+          netBuyLotPerOrdNum: 0,
+          netSellVol: netSellData.netSellVol,
+          netSellValue: netSellData.netSellValue,
+          netSellAvg: netSellData.netSellAvg,
+          netSellFreq: netSellData.netSellFreq,
+          netSellOrdNum: netSellData.netSellOrdNum,
+          netSellLot: netSellData.netSellLot,
+          netSellLotPerFreq: netSellData.netSellLotPerFreq,
+          netSellLotPerOrdNum: netSellData.netSellLotPerOrdNum,
           netBuyAvgCount: 0,
-          ...netSellData,
+          netSellAvgCount: netSellData.netSellAvgCount,
         });
       }
     });
@@ -2208,6 +2399,8 @@ export function BrokerTransaction() {
       sellStocksByDate,
       netBuyStocksByDate,
       netSellStocksByDate,
+      totalBuyDataByStock,
+      totalSellDataByStock,
       totalNetBuyDataByStock,
       totalNetSellDataByStock
     };
@@ -2483,8 +2676,8 @@ export function BrokerTransaction() {
                       <React.Fragment key={date}>
                         {/* Buyer Columns */}
                         <th className={`text-center py-[1px] px-[3px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} title={formatDisplayDate(date)} style={dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>BCode</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BLot</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BVal</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BLot</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BAvg</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BFreq</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
@@ -2494,8 +2687,8 @@ export function BrokerTransaction() {
                         <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap" title={formatDisplayDate(date)}>#</th>
                         {/* Seller Columns */}
                         <th className="text-center py-[1px] px-[3px] font-bold text-white" title={formatDisplayDate(date)} style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>SCode</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SLot</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SVal</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SLot</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SFreq</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
@@ -2505,8 +2698,8 @@ export function BrokerTransaction() {
                     ))}
                     {/* Total Columns */}
                     <th className={`text-center py-[1px] px-[3px] font-bold text-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>BCode</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BLot</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BVal</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BLot</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BAvg</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BFreq</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
@@ -2514,8 +2707,8 @@ export function BrokerTransaction() {
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/ON</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap">#</th>
                     <th className="text-center py-[1px] px-[3px] font-bold text-white" style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>SCode</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SLot</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SVal</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SLot</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SAvg</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SFreq</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
@@ -2563,7 +2756,7 @@ export function BrokerTransaction() {
                                     // Use BLotPerOrdNum directly from CSV column 7, not calculated
                                     // const buyerLotPerOrdNum = dayData.BLotPerOrdNum !== undefined ? dayData.BLotPerOrdNum : (buyerOrdNum > 0 ? buyerLot / buyerOrdNum : 0);
                                     const buyerLotPerOrdNum = dayData.BLotPerOrdNum;
-
+                                    
                                     const bCode = dayData.BCode || buyRowData.stock;
                                     const bCodeColorClass = getStockColorClass(bCode);
                                     return (
@@ -2571,8 +2764,8 @@ export function BrokerTransaction() {
                             <td className={`text-center py-[1px] px-[3px] font-bold ${bCodeColorClass} ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>
                                           {bCode}
                             </td>
-                            <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6">{formatLot(buyerLot)}</td>
                                         <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6">{formatValue(buyerVal)}</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6">{formatLot(buyerLot)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6">{formatAverage(buyerAvg ?? 0)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6">{buyerFreq}</td>
                                         <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-8">{formatAverage(buyerLotPerFreq ?? 0)}</td>
@@ -2627,8 +2820,8 @@ export function BrokerTransaction() {
                                     return (
                                       <>
                                         <td className={`text-center py-[1px] px-[3px] font-bold ${sCodeColorClass}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>{sCode}</td>
-                            <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6">{formatLot(sellerLot)}</td>
                                         <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6">{formatValue(sellerVal)}</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6">{formatLot(sellerLot)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6">{formatAverage(sellerAvg ?? 0)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6">{sellerFreq}</td>
                                         <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-8">{formatAverage(sellerLotPerFreq ?? 0)}</td>
@@ -2738,12 +2931,15 @@ export function BrokerTransaction() {
                           const finalBuyAvg = totalBuyAvgCount > 0 ? totalBuyAvg / totalBuyAvgCount : (totalBuyVol > 0 ? totalBuyValue / totalBuyVol : 0);
                           const finalSellAvg = totalSellAvgCount > 0 ? totalSellAvg / totalSellAvgCount : (totalSellVol > 0 ? totalSellValue / totalSellVol : 0);
                           
-                          const totalBuyLot = totalBuyVol / 100;
-                          const totalSellLot = totalSellVol / 100;
-                          const totalBuyLotPerFreq = totalBuyFreq > 0 ? totalBuyLot / totalBuyFreq : 0;
-                          const totalSellLotPerFreq = totalSellFreq > 0 ? totalSellLot / totalSellFreq : 0;
-                          const totalBuyLotPerOrdNum = totalBuyOrdNum > 0 ? totalBuyLot / totalBuyOrdNum : 0;
-                          const totalSellLotPerOrdNum = totalSellOrdNum > 0 ? totalSellLot / totalSellOrdNum : 0;
+                          // Use Lot/F and Lot/ON from aggregated data (calculated from CSV values)
+                          const buyTotalData = buyStockCode ? totalBuyDataByStock.get(buyStockCode) : null;
+                          const sellTotalData = sellStockCode ? totalSellDataByStock.get(sellStockCode) : null;
+                          const totalBuyLot = buyTotalData?.buyerLot || 0;
+                          const totalSellLot = sellTotalData?.sellerLot || 0;
+                          const totalBuyLotPerFreq = buyTotalData?.buyerLotPerFreq || 0;
+                          const totalSellLotPerFreq = sellTotalData?.sellerLotPerFreq || 0;
+                          const totalBuyLotPerOrdNum = buyTotalData?.buyerLotPerOrdNum || 0;
+                          const totalSellLotPerOrdNum = sellTotalData?.sellerLotPerOrdNum || 0;
                           
                           // Hide Total row if both Buy and Sell are empty
                           if (totalBuyBCode === '-' && totalSellSCode === '-') {
@@ -2763,8 +2959,8 @@ export function BrokerTransaction() {
                             <td className={`text-center py-[1px] px-[3px] font-bold text-green-600 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>
                                     {totalBuyBCode}
                             </td>
-                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600">{formatLot(totalBuyLot)}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-green-600">{formatValue(totalBuyValue)}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600">{formatLot(totalBuyLot)}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-green-600">{formatAverage(finalBuyAvg)}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-green-600">{totalBuyFreq}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-8">{formatAverage(totalBuyLotPerFreq)}</td>
@@ -2791,8 +2987,8 @@ export function BrokerTransaction() {
                             <td className="text-center py-[1px] px-[3px] font-bold text-red-600" style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>
                                     {totalSellSCode}
                             </td>
-                                  <td className="text-right py-[1px] px-[6px] font-bold text-red-600">{formatLot(totalSellLot)}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-red-600">{formatValue(totalSellValue)}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-red-600">{formatLot(totalSellLot)}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-red-600">{formatAverage(finalSellAvg)}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-red-600">{totalSellFreq}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-8">{formatAverage(totalSellLotPerFreq)}</td>
@@ -2919,8 +3115,8 @@ export function BrokerTransaction() {
                       <React.Fragment key={date}>
                         {/* Net Buy Columns (from CSV columns 17-23) */}
                         <th className={`text-center py-[1px] px-[3px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} title={formatDisplayDate(date)} style={dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>BCode</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BLot</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BVal</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BLot</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BAvg</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BFreq</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
@@ -2930,8 +3126,8 @@ export function BrokerTransaction() {
                         <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap" title={formatDisplayDate(date)}>#</th>
                         {/* Net Sell Columns (from CSV columns 24-30) */}
                         <th className="text-center py-[1px] px-[3px] font-bold text-white" title={formatDisplayDate(date)} style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>SCode</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SLot</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SVal</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SLot</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SFreq</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
@@ -2941,8 +3137,8 @@ export function BrokerTransaction() {
                     ))}
                     {/* Total Columns - Net Buy/Net Sell */}
                     <th className={`text-center py-[1px] px-[3px] font-bold text-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>BCode</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BLot</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BVal</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BLot</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BAvg</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BFreq</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
@@ -2950,8 +3146,8 @@ export function BrokerTransaction() {
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/ON</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap">#</th>
                     <th className="text-center py-[1px] px-[3px] font-bold text-white" style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>SCode</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SLot</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SVal</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SLot</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SAvg</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SFreq</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
@@ -2999,10 +3195,10 @@ export function BrokerTransaction() {
                                           {nbCode}
                             </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`}>
-                                          {formatLot(nbLot)}
+                                          {formatValue(nbVal)}
                             </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`}>
-                                          {formatValue(nbVal)}
+                                          {formatLot(nbLot)}
                             </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`}>
                                           {formatAverage(nbAvg ?? 0)}
@@ -3061,10 +3257,10 @@ export function BrokerTransaction() {
                                           {nsCode}
                             </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`}>
-                                          {formatLot(nsLot)}
+                                          {formatValue(nsVal)}
                             </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`}>
-                                          {formatValue(nsVal)}
+                                          {formatLot(nsLot)}
                             </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`}>
                                           {formatAverage(nsAvg ?? 0)}
@@ -3107,7 +3303,7 @@ export function BrokerTransaction() {
                           const sortedTotalNetBuyStocks = Array.from(totalNetBuyDataByStock.entries())
                             .filter(([, data]) => {
                               // Hide if NBLot is 0
-                              const nbLot = data.netBuyVol / 100;
+                              const nbLot = data.netBuyLot;
                               return Math.abs(nbLot) > 0;
                             })
                             // FIXED: Don't filter by selectedTickers here - filtering will only happen when Show button is clicked
@@ -3118,7 +3314,7 @@ export function BrokerTransaction() {
                           const sortedTotalNetSellStocks = Array.from(totalNetSellDataByStock.entries())
                             .filter(([, data]) => {
                               // Hide if NSLot is 0
-                              const nsLot = data.netSellVol / 100;
+                              const nsLot = data.netSellLot;
                               return Math.abs(nsLot) > 0;
                             })
                             // FIXED: Don't filter by selectedTickers here - filtering will only happen when Show button is clicked
@@ -3145,24 +3341,24 @@ export function BrokerTransaction() {
                           
                           // Calculate values from aggregated data
                           const totalNetBuyNBCode = netBuyStockCode || '-';
-                          const totalNetBuyLot = netBuyData ? netBuyData.netBuyVol / 100 : 0;
+                          // Use Lot/F and Lot/ON from aggregated data (calculated from CSV values)
+                          const totalNetBuyLot = netBuyData ? netBuyData.netBuyLot : 0;
                           const totalNetBuyValue = netBuyData ? netBuyData.netBuyValue : 0;
                           const finalNetBuyAvg = netBuyData ? netBuyData.netBuyAvg : 0;
                           const totalNetBuyFreq = netBuyData ? netBuyData.netBuyFreq : 0;
                           const totalNetBuyOrdNum = netBuyData ? netBuyData.netBuyOrdNum : 0;
-                          // Calculate Lot/F and Lot/ON from aggregated data
-                          const totalNetBuyLotPerFreq = totalNetBuyFreq > 0 ? totalNetBuyLot / totalNetBuyFreq : 0;
-                          const totalNetBuyLotPerOrdNum = totalNetBuyOrdNum !== 0 ? totalNetBuyLot / totalNetBuyOrdNum : 0;
+                          const totalNetBuyLotPerFreq = netBuyData ? netBuyData.netBuyLotPerFreq : 0;
+                          const totalNetBuyLotPerOrdNum = netBuyData ? netBuyData.netBuyLotPerOrdNum : 0;
                           
                           const totalNetSellNSCode = netSellStockCode || '-';
-                          const totalNetSellLot = netSellData ? netSellData.netSellVol / 100 : 0;
+                          // Use Lot/F and Lot/ON from aggregated data (calculated from CSV values)
+                          const totalNetSellLot = netSellData ? netSellData.netSellLot : 0;
                           const totalNetSellValue = netSellData ? netSellData.netSellValue : 0;
                           const finalNetSellAvg = netSellData ? netSellData.netSellAvg : 0;
                           const totalNetSellFreq = netSellData ? netSellData.netSellFreq : 0;
                           const totalNetSellOrdNum = netSellData ? netSellData.netSellOrdNum : 0;
-                          // Calculate Lot/F and Lot/ON from aggregated data
-                          const totalNetSellLotPerFreq = totalNetSellFreq > 0 ? totalNetSellLot / totalNetSellFreq : 0;
-                          const totalNetSellLotPerOrdNum = totalNetSellOrdNum !== 0 ? totalNetSellLot / totalNetSellOrdNum : 0;
+                          const totalNetSellLotPerFreq = netSellData ? netSellData.netSellLotPerFreq : 0;
+                          const totalNetSellLotPerOrdNum = netSellData ? netSellData.netSellLotPerOrdNum : 0;
                           
                           // Hide Total row if both Net Buy and Net Sell are empty, or if both NBLot and NSLot are 0
                           if ((totalNetBuyNBCode === '-' || Math.abs(totalNetBuyLot) === 0) && 
@@ -3188,10 +3384,10 @@ export function BrokerTransaction() {
                                     {totalNetBuyNBCode}
                             </td>
                             <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`}>
-                                    {formatLot(totalNetBuyLot)}
+                                    {formatValue(totalNetBuyValue)}
                             </td>
                             <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`}>
-                                    {formatValue(totalNetBuyValue)}
+                                    {formatLot(totalNetBuyLot)}
                             </td>
                             <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`}>
                                     {formatAverage(finalNetBuyAvg)}
@@ -3230,10 +3426,10 @@ export function BrokerTransaction() {
                                     {totalNetSellNSCode}
                             </td>
                             <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor}`}>
-                                    {formatLot(totalNetSellLot)}
+                                    {formatValue(totalNetSellValue)}
                             </td>
                             <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor}`}>
-                                    {formatValue(totalNetSellValue)}
+                                    {formatLot(totalNetSellLot)}
                             </td>
                             <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor}`}>
                                     {formatAverage(finalNetSellAvg)}
