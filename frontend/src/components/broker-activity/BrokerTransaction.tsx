@@ -1233,13 +1233,25 @@ export function BrokerTransaction() {
           valueHeaderCells.forEach((valueCell, index) => {
             const valueEl = valueCell as HTMLElement;
             const width = columnWidths[index];
-            if (width && width > 0) {
+            // CRITICAL: Skip width sync for first column of first date (index % 17 === 0 and has border-l-2)
+            // This column should use auto width to fit content
+            const isFirstColOfDateGroup = index % 17 === 0;
+            const hasBorderLeft2 = valueEl.classList.contains('border-l-2') || 
+                                   window.getComputedStyle(valueEl).borderLeftWidth === '2px' ||
+                                   valueEl.style.borderLeftWidth === '2px';
+            
+            if (width && width > 0 && !(isFirstColOfDateGroup && hasBorderLeft2 && index === 0)) {
                 // Lock width with all three properties to prevent browser from changing it
               valueEl.style.width = `${width}px`;
               valueEl.style.minWidth = `${width}px`;
               valueEl.style.maxWidth = `${width}px`;
                 // Also set box-sizing to ensure border is included correctly
-                valueEl.style.boxSizing = 'border-box';
+              valueEl.style.boxSizing = 'border-box';
+            } else if (isFirstColOfDateGroup && hasBorderLeft2 && index === 0) {
+              // For first column of first date, ensure auto width is maintained
+              valueEl.style.width = 'auto';
+              valueEl.style.minWidth = 'fit-content';
+              valueEl.style.maxWidth = 'none';
             }
           });
 
@@ -1247,13 +1259,25 @@ export function BrokerTransaction() {
           netHeaderCells.forEach((netCell, index) => {
             const netEl = netCell as HTMLElement;
             const width = columnWidths[index];
-            if (width && width > 0) {
+            // CRITICAL: Skip width sync for first column of first date (index % 17 === 0 and has border-l-2)
+            // This column should use auto width to fit content
+            const isFirstColOfDateGroup = index % 17 === 0;
+            const hasBorderLeft2 = netEl.classList.contains('border-l-2') || 
+                                   window.getComputedStyle(netEl).borderLeftWidth === '2px' ||
+                                   netEl.style.borderLeftWidth === '2px';
+            
+            if (width && width > 0 && !(isFirstColOfDateGroup && hasBorderLeft2 && index === 0)) {
                 // Lock width with all three properties to prevent browser from changing it
               netEl.style.width = `${width}px`;
               netEl.style.minWidth = `${width}px`;
               netEl.style.maxWidth = `${width}px`;
                 // Also set box-sizing to ensure border is included correctly
-                netEl.style.boxSizing = 'border-box';
+              netEl.style.boxSizing = 'border-box';
+            } else if (isFirstColOfDateGroup && hasBorderLeft2 && index === 0) {
+              // For first column of first date, ensure auto width is maintained
+              netEl.style.width = 'auto';
+              netEl.style.minWidth = 'fit-content';
+              netEl.style.maxWidth = 'none';
             }
           });
 
@@ -1265,12 +1289,24 @@ export function BrokerTransaction() {
               cells.forEach((cell, index) => {
                 const cellEl = cell as HTMLElement;
                 const width = columnWidths[index];
-                if (width && width > 0) {
+                // CRITICAL: Skip width sync for first column of first date (index === 0 and has border-l-2)
+                // This column should use auto width to fit content
+                const isFirstColOfDateGroup = index % 17 === 0;
+                const hasBorderLeft2 = cellEl.classList.contains('border-l-2') || 
+                                       window.getComputedStyle(cellEl).borderLeftWidth === '2px' ||
+                                       cellEl.style.borderLeftWidth === '2px';
+                
+                if (width && width > 0 && !(isFirstColOfDateGroup && hasBorderLeft2 && index === 0)) {
                   // Lock width to prevent browser from changing it during reflow
                   cellEl.style.width = `${width}px`;
                   cellEl.style.minWidth = `${width}px`;
                   cellEl.style.maxWidth = `${width}px`;
                   cellEl.style.boxSizing = 'border-box';
+                } else if (isFirstColOfDateGroup && hasBorderLeft2 && index === 0) {
+                  // For first column of first date, ensure auto width is maintained
+                  cellEl.style.width = 'auto';
+                  cellEl.style.minWidth = 'fit-content';
+                  cellEl.style.maxWidth = 'none';
                 }
               });
             });
@@ -1280,12 +1316,24 @@ export function BrokerTransaction() {
               cells.forEach((cell, index) => {
                 const cellEl = cell as HTMLElement;
                 const width = columnWidths[index];
-                  if (width && width > 0) {
+                // CRITICAL: Skip width sync for first column of first date (index === 0 and has border-l-2)
+                // This column should use auto width to fit content
+                const isFirstColOfDateGroup = index % 17 === 0;
+                const hasBorderLeft2 = cellEl.classList.contains('border-l-2') || 
+                                       window.getComputedStyle(cellEl).borderLeftWidth === '2px' ||
+                                       cellEl.style.borderLeftWidth === '2px';
+                
+                if (width && width > 0 && !(isFirstColOfDateGroup && hasBorderLeft2 && index === 0)) {
                   // Lock width to prevent browser from changing it during reflow
                   cellEl.style.width = `${width}px`;
                   cellEl.style.minWidth = `${width}px`;
                   cellEl.style.maxWidth = `${width}px`;
                   cellEl.style.boxSizing = 'border-box';
+                } else if (isFirstColOfDateGroup && hasBorderLeft2 && index === 0) {
+                  // For first column of first date, ensure auto width is maintained
+                  cellEl.style.width = 'auto';
+                  cellEl.style.minWidth = 'fit-content';
+                  cellEl.style.maxWidth = 'none';
                 }
               });
             });
@@ -1360,22 +1408,44 @@ export function BrokerTransaction() {
                         valueHeaderCells.forEach((cell, index) => {
                           const el = cell as HTMLElement;
                           const width = columnWidths[index];
-                          if (width && width > 0) {
+                          // CRITICAL: Skip width sync for first column of first date (index % 17 === 0 and has border-l-2)
+                          const isFirstColOfDateGroup = index % 17 === 0;
+                          const hasBorderLeft2 = el.classList.contains('border-l-2') || 
+                                                 window.getComputedStyle(el).borderLeftWidth === '2px' ||
+                                                 el.style.borderLeftWidth === '2px';
+                          
+                          if (width && width > 0 && !(isFirstColOfDateGroup && hasBorderLeft2 && index === 0)) {
                             el.style.width = `${width}px`;
                             el.style.minWidth = `${width}px`;
                             el.style.maxWidth = `${width}px`;
                             el.style.boxSizing = 'border-box';
+                          } else if (isFirstColOfDateGroup && hasBorderLeft2 && index === 0) {
+                            // For first column of first date, ensure auto width is maintained
+                            el.style.width = 'auto';
+                            el.style.minWidth = 'fit-content';
+                            el.style.maxWidth = 'none';
                           }
                         });
                         
                         netHeaderCells.forEach((cell, index) => {
                           const el = cell as HTMLElement;
                           const width = columnWidths[index];
-                          if (width && width > 0) {
+                          // CRITICAL: Skip width sync for first column of first date (index % 17 === 0 and has border-l-2)
+                          const isFirstColOfDateGroup = index % 17 === 0;
+                          const hasBorderLeft2 = el.classList.contains('border-l-2') || 
+                                                 window.getComputedStyle(el).borderLeftWidth === '2px' ||
+                                                 el.style.borderLeftWidth === '2px';
+                          
+                          if (width && width > 0 && !(isFirstColOfDateGroup && hasBorderLeft2 && index === 0)) {
                             el.style.width = `${width}px`;
                             el.style.minWidth = `${width}px`;
                             el.style.maxWidth = `${width}px`;
                             el.style.boxSizing = 'border-box';
+                          } else if (isFirstColOfDateGroup && hasBorderLeft2 && index === 0) {
+                            // For first column of first date, ensure auto width is maintained
+                            el.style.width = 'auto';
+                            el.style.minWidth = 'fit-content';
+                            el.style.maxWidth = 'none';
                           }
                         });
                       }
@@ -1455,11 +1525,23 @@ export function BrokerTransaction() {
           cells.forEach((cell, index) => {
             const cellEl = cell as HTMLElement;
             const width = columnWidths[index];
-            if (width && width > 0) {
+            // CRITICAL: Skip width sync for first column of first date (index === 0 and has border-l-2)
+            // This column should use auto width to fit content
+            const isFirstColOfDateGroup = index % 17 === 0;
+            const hasBorderLeft2 = cellEl.classList.contains('border-l-2') || 
+                                   window.getComputedStyle(cellEl).borderLeftWidth === '2px' ||
+                                   cellEl.style.borderLeftWidth === '2px';
+            
+            if (width && width > 0 && !(isFirstColOfDateGroup && hasBorderLeft2 && index === 0)) {
               cellEl.style.width = `${width}px`;
               cellEl.style.minWidth = `${width}px`;
               cellEl.style.maxWidth = `${width}px`;
               cellEl.style.boxSizing = 'border-box';
+            } else if (isFirstColOfDateGroup && hasBorderLeft2 && index === 0) {
+              // For first column of first date, ensure auto width is maintained
+              cellEl.style.width = 'auto';
+              cellEl.style.minWidth = 'fit-content';
+              cellEl.style.maxWidth = 'none';
             }
           });
         });
@@ -1469,11 +1551,23 @@ export function BrokerTransaction() {
           cells.forEach((cell, index) => {
             const cellEl = cell as HTMLElement;
             const width = columnWidths[index];
-            if (width && width > 0) {
+            // CRITICAL: Skip width sync for first column of first date (index === 0 and has border-l-2)
+            // This column should use auto width to fit content
+            const isFirstColOfDateGroup = index % 17 === 0;
+            const hasBorderLeft2 = cellEl.classList.contains('border-l-2') || 
+                                   window.getComputedStyle(cellEl).borderLeftWidth === '2px' ||
+                                   cellEl.style.borderLeftWidth === '2px';
+            
+            if (width && width > 0 && !(isFirstColOfDateGroup && hasBorderLeft2 && index === 0)) {
               cellEl.style.width = `${width}px`;
               cellEl.style.minWidth = `${width}px`;
               cellEl.style.maxWidth = `${width}px`;
               cellEl.style.boxSizing = 'border-box';
+            } else if (isFirstColOfDateGroup && hasBorderLeft2 && index === 0) {
+              // For first column of first date, ensure auto width is maintained
+              cellEl.style.width = 'auto';
+              cellEl.style.minWidth = 'fit-content';
+              cellEl.style.maxWidth = 'none';
             }
           });
         });
@@ -2388,7 +2482,7 @@ export function BrokerTransaction() {
                     {selectedDates.map((date, dateIndex) => (
                       <React.Fragment key={date}>
                         {/* Buyer Columns */}
-                        <th className={`text-center py-[1px] px-[6px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} title={formatDisplayDate(date)}>BCode</th>
+                        <th className={`text-center py-[1px] px-[3px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} title={formatDisplayDate(date)} style={dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>BCode</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BLot</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BVal</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BAvg</th>
@@ -2399,7 +2493,7 @@ export function BrokerTransaction() {
                         {/* Separator */}
                         <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap" title={formatDisplayDate(date)}>#</th>
                         {/* Seller Columns */}
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-4" title={formatDisplayDate(date)}>SCode</th>
+                        <th className="text-center py-[1px] px-[3px] font-bold text-white" title={formatDisplayDate(date)} style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>SCode</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SLot</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SVal</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
@@ -2410,7 +2504,7 @@ export function BrokerTransaction() {
                       </React.Fragment>
                     ))}
                     {/* Total Columns */}
-                    <th className={`text-center py-[1px] px-[4.2px] font-bold text-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>BCode</th>
+                    <th className={`text-center py-[1px] px-[3px] font-bold text-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>BCode</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BLot</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BVal</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BAvg</th>
@@ -2419,7 +2513,7 @@ export function BrokerTransaction() {
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BOrdNum</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/ON</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap">#</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SCode</th>
+                    <th className="text-center py-[1px] px-[3px] font-bold text-white" style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>SCode</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SLot</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SVal</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SAvg</th>
@@ -2470,7 +2564,7 @@ export function BrokerTransaction() {
                                     const bCodeColorClass = getStockColorClass(bCode);
                                     return (
                                       <>
-                            <td className={`text-center py-[1px] px-[6px] font-bold w-4 ${bCodeColorClass} ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>
+                            <td className={`text-center py-[1px] px-[3px] font-bold ${bCodeColorClass} ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>
                                           {bCode}
                             </td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6">{formatLot(buyerLot)}</td>
@@ -2487,7 +2581,7 @@ export function BrokerTransaction() {
                               ) : (
                                 // Show empty cells if no Buy data at this row index
                                 <>
-                                  <td className={`text-center py-[1px] px-[6px] text-gray-400 w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>-</td>
+                                  <td className={`text-center py-[1px] px-[3px] text-gray-400 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>-</td>
                                   <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
                                   <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
                                   <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
@@ -2528,7 +2622,7 @@ export function BrokerTransaction() {
                                     const sCodeColorClass = getStockColorClass(sCode);
                                     return (
                                       <>
-                                        <td className={`text-center py-[1px] px-[6px] font-bold w-4 ${sCodeColorClass}`}>{sCode}</td>
+                                        <td className={`text-center py-[1px] px-[3px] font-bold ${sCodeColorClass}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>{sCode}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6">{formatLot(sellerLot)}</td>
                                         <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6">{formatValue(sellerVal)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6">{formatAverage(sellerAvg)}</td>
@@ -2545,7 +2639,7 @@ export function BrokerTransaction() {
                               ) : (
                                 // Show empty cells if no Sell data at this row index
                                 <>
-                                  <td className="text-center py-[1px] px-[6px] text-gray-400 w-4">-</td>
+                                  <td className="text-center py-[1px] px-[3px] text-gray-400" style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>-</td>
                                   <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
                                   <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
                                   <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
@@ -2662,7 +2756,7 @@ export function BrokerTransaction() {
                               {/* Buyer Total Columns */}
                               {totalBuyBCode !== '-' && Math.abs(totalBuyLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[6px] font-bold text-green-600 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>
+                            <td className={`text-center py-[1px] px-[3px] font-bold text-green-600 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>
                                     {totalBuyBCode}
                             </td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-green-600">{formatLot(totalBuyLot)}</td>
@@ -2675,7 +2769,7 @@ export function BrokerTransaction() {
                                 </>
                               ) : (
                                 <>
-                                  <td className={`text-center py-[1px] px-[6px] text-gray-400 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>-</td>
+                                  <td className={`text-center py-[1px] px-[3px] text-gray-400 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>-</td>
                                   <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
                                   <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
                                   <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
@@ -2690,7 +2784,7 @@ export function BrokerTransaction() {
                               {/* Seller Total Columns */}
                               {totalSellSCode !== '-' && Math.abs(totalSellLot) > 0 ? (
                                 <>
-                            <td className="text-center py-[1px] px-[6px] font-bold text-red-600">
+                            <td className="text-center py-[1px] px-[3px] font-bold text-red-600" style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>
                                     {totalSellSCode}
                             </td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-red-600">{formatLot(totalSellLot)}</td>
@@ -2705,7 +2799,7 @@ export function BrokerTransaction() {
                                 </>
                               ) : (
                                 <>
-                                  <td className="text-center py-[1px] px-[6px] text-gray-400">-</td>
+                                  <td className="text-center py-[1px] px-[3px] text-gray-400" style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>-</td>
                                   <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
                                   <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
                                   <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
@@ -2820,45 +2914,45 @@ export function BrokerTransaction() {
                     {selectedDates.map((date, dateIndex) => (
                       <React.Fragment key={date}>
                         {/* Net Buy Columns (from CSV columns 17-23) */}
-                        <th className={`text-center py-[1px] px-[6px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} title={formatDisplayDate(date)}>NBCode</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>NBLot</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>NBVal</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>NBAvg</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>NBFreq</th>
+                        <th className={`text-center py-[1px] px-[3px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} title={formatDisplayDate(date)} style={dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>BCode</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BLot</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BVal</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BAvg</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BFreq</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
-                        <th className="text-right py-[1px] px-[8px] font-bold text-white w-8" title={formatDisplayDate(date)}>NBOrdNum</th>
-                        <th className="text-right py-[1px] px-[8px] font-bold text-white w-20" title={formatDisplayDate(date)}>Lot/ON</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BOrdNum</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-16" title={formatDisplayDate(date)}>Lot/ON</th>
                         {/* Separator */}
                         <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap" title={formatDisplayDate(date)}>#</th>
                         {/* Net Sell Columns (from CSV columns 24-30) */}
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-4" title={formatDisplayDate(date)}>NSCode</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>NSLot</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>NSVal</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>NSAvg</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>NSFreq</th>
+                        <th className="text-center py-[1px] px-[3px] font-bold text-white" title={formatDisplayDate(date)} style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>SCode</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SLot</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SVal</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SFreq</th>
                         <th className="text-right py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
-                        <th className="text-right py-[1px] px-[8px] font-bold text-white w-8" title={formatDisplayDate(date)}>NSOrdNum</th>
-                        <th className={`text-right py-[1px] px-[8px] font-bold text-white w-20 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/ON</th>
+                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SOrdNum</th>
+                        <th className={`text-right py-[1px] px-[6px] font-bold text-white w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/ON</th>
                       </React.Fragment>
                     ))}
                     {/* Total Columns - Net Buy/Net Sell */}
-                    <th className={`text-center py-[1px] px-[4.2px] font-bold text-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>NBCode</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">NBLot</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">NBVal</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">NBAvg</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">NBFreq</th>
+                    <th className={`text-center py-[1px] px-[3px] font-bold text-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>BCode</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BLot</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BVal</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BAvg</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BFreq</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
-                    <th className="text-right py-[1px] px-[6px] font-bold text-white w-8">NBOrdNum</th>
-                    <th className="text-right py-[1px] px-[6px] font-bold text-white w-20">Lot/ON</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BOrdNum</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/ON</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap">#</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">NSCode</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">NSLot</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">NSVal</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">NSAvg</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">NSFreq</th>
+                    <th className="text-center py-[1px] px-[3px] font-bold text-white" style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>SCode</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SLot</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SVal</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SAvg</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SFreq</th>
                     <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
-                    <th className="text-right py-[1px] px-[6px] font-bold text-white w-8">NSOrdNum</th>
-                    <th className="text-right py-[1px] px-[6px] font-bold text-white w-20 border-r-2 border-white">Lot/ON</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SOrdNum</th>
+                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white">Lot/ON</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2897,7 +2991,7 @@ export function BrokerTransaction() {
                                     
                                     return (
                                       <>
-                                        <td className={`text-center py-[1px] px-[6px] font-bold w-4 ${nbCodeColorClass} ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>
+                                        <td className={`text-center py-[1px] px-[3px] font-bold ${nbCodeColorClass} ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>
                                           {nbCode}
                             </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`}>
@@ -2915,10 +3009,10 @@ export function BrokerTransaction() {
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-8`}>
                                           {formatAverage(nbLotPerFreq)}
                                         </td>
-                                        <td className={`text-right py-[1px] px-[8px] font-bold text-green-600 w-8`}>
+                                        <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`}>
                                           {nbOrdNum}
                                         </td>
-                                        <td className={`text-right py-[1px] px-[8px] font-bold text-green-600 w-20`}>
+                                        <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-16`}>
                                           {formatAverage(nbLotPerOrdNum)}
                                         </td>
                                       </>
@@ -2928,14 +3022,14 @@ export function BrokerTransaction() {
                               ) : (
                                 // Show empty cells if no Net Buy data at this row index
                                 <>
-                                  <td className={`text-center py-[1px] px-[4.2px] text-gray-400 w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400 w-6`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400 w-6`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400 w-6`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400 w-6`}>-</td>
-                                  <td className={`text-right py-[1px] px-[4.2px] text-gray-400 w-8`}>-</td>
+                                  <td className={`text-center py-[1px] px-[3px] text-gray-400 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400 w-8`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-20`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-16`}>-</td>
                                 </>
                               )}
                             {/* Separator */}
@@ -2959,7 +3053,7 @@ export function BrokerTransaction() {
                                     
                                     return (
                                       <>
-                                        <td className={`text-center py-[1px] px-[6px] font-bold w-4 ${nsCodeColorClass}`}>
+                                        <td className={`text-center py-[1px] px-[3px] font-bold ${nsCodeColorClass}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>
                                           {nsCode}
                             </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`}>
@@ -2977,10 +3071,10 @@ export function BrokerTransaction() {
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-8`}>
                                           {formatAverage(nsLotPerFreq)}
                                         </td>
-                                        <td className={`text-right py-[1px] px-[8px] font-bold text-red-600 w-8`}>
+                                        <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`}>
                                           {nsOrdNum}
                                         </td>
-                                        <td className={`text-right py-[1px] px-[8px] font-bold text-red-600 w-20 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
+                                        <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
                                           {formatAverage(nsLotPerOrdNum)}
                                         </td>
                                       </>
@@ -2990,14 +3084,14 @@ export function BrokerTransaction() {
                               ) : (
                                 // Show empty cells if no Net Sell data at this row index
                                 <>
-                                  <td className={`text-center py-[1px] px-[6px] text-gray-400 w-4`}>-</td>
+                                  <td className={`text-center py-[1px] px-[3px] text-gray-400`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400 w-8`}>-</td>
-                                  <td className={`text-right py-[1px] px-[8px] text-gray-400 w-8`}>-</td>
-                                  <td className={`text-right py-[1px] px-[8px] text-gray-400 w-20 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>-</td>
                                 </>
                               )}
                           </React.Fragment>
@@ -3086,7 +3180,7 @@ export function BrokerTransaction() {
                               {/* Net Buy Total Columns */}
                               {netBuyData && Math.abs(totalNetBuyLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[6px] font-bold ${totalNetBuyColor} ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>
+                            <td className={`text-center py-[1px] px-[3px] font-bold ${totalNetBuyColor} ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>
                                     {totalNetBuyNBCode}
                             </td>
                             <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`}>
@@ -3104,23 +3198,23 @@ export function BrokerTransaction() {
                                   <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor} w-8`}>
                                     {formatAverage(totalNetBuyLotPerFreq)}
                                   </td>
-                                  <td className={`text-right py-[1px] px-[8px] font-bold ${totalNetBuyColor} w-8`}>
+                                  <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`}>
                                     {totalNetBuyOrdNum}
                                   </td>
-                                  <td className={`text-right py-[1px] px-[8px] font-bold ${totalNetBuyColor} w-20`}>
+                                  <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor} w-16`}>
                                     {formatAverage(totalNetBuyLotPerOrdNum)}
                                   </td>
                                 </>
                               ) : (
                                 <>
-                                  <td className={`text-center py-[1px] px-[6px] text-gray-400 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>-</td>
+                                  <td className={`text-center py-[1px] px-[3px] text-gray-400 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400 w-8`}>-</td>
-                                  <td className={`text-right py-[1px] px-[8px] text-gray-400 w-8`}>-</td>
-                                  <td className={`text-right py-[1px] px-[8px] text-gray-400 w-20`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-16`}>-</td>
                                 </>
                               )}
                             {/* Separator */}
@@ -3128,7 +3222,7 @@ export function BrokerTransaction() {
                               {/* Net Sell Total Columns */}
                               {netSellData && Math.abs(totalNetSellLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[6px] font-bold ${totalNetSellColor}`}>
+                            <td className={`text-center py-[1px] px-[3px] font-bold ${totalNetSellColor}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>
                                     {totalNetSellNSCode}
                             </td>
                             <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor}`}>
@@ -3146,23 +3240,23 @@ export function BrokerTransaction() {
                                   <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-8`}>
                                     {formatAverage(totalNetSellLotPerFreq)}
                                   </td>
-                                  <td className={`text-right py-[1px] px-[8px] font-bold ${totalNetSellColor} w-8`}>
+                                  <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor}`}>
                                     {totalNetSellOrdNum}
                                   </td>
-                                  <td className={`text-right py-[1px] px-[8px] font-bold ${totalNetSellColor} w-20 border-r-2 border-white`}>
+                                  <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-16 border-r-2 border-white`}>
                                     {formatAverage(totalNetSellLotPerOrdNum)}
                                   </td>
                                 </>
                               ) : (
                                 <>
-                                  <td className={`text-center py-[1px] px-[6px] text-gray-400`}>-</td>
+                                  <td className={`text-center py-[1px] px-[3px] text-gray-400`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400 w-8`}>-</td>
-                                  <td className={`text-right py-[1px] px-[8px] text-gray-400 w-8`}>-</td>
-                                  <td className={`text-right py-[1px] px-[8px] text-gray-400 w-20 border-r-2 border-white`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-16 border-r-2 border-white`}>-</td>
                                 </>
                               )}
                           </React.Fragment>
