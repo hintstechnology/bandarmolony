@@ -293,6 +293,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     brokers: string[];
     dates: string[];
     market: string;
+    tickers: string[]; // Track selectedTickers to detect changes
   } | null>(null);
   
   // Sector Filter states (changed from F/D filter)
@@ -871,6 +872,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           // CRITICAL: Filter by selectedTickers if provided (only when Show button is clicked)
           // IMPORTANT: If selectedTickers is empty (length === 0), show ALL tickers (no filtering)
           // This means when user clears all tickers, it's equivalent to "show all tickers"
+          const rowsBeforeFilter = allRows.length;
           if (selectedTickers.length > 0) {
             allRows = allRows.filter(row => {
               // Check if row matches any selected ticker in any section (BCode, SCode, NBCode, NSCode)
@@ -886,6 +888,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                      selectedTickers.includes(nsCode) ||
                      selectedTickers.includes(emiten);
             });
+            console.log(`[BrokerTransaction] Filtered data for ${date}: ${rowsBeforeFilter} -> ${allRows.length} rows (filtered by tickers: ${selectedTickers.join(', ')})`);
+          } else {
+            // No filtering - show all tickers
+            console.log(`[BrokerTransaction] No ticker filter for ${date}: showing all ${allRows.length} rows (selectedTickers is empty)`);
           }
           // else: selectedTickers.length === 0 means show ALL tickers (no filtering applied)
           
@@ -942,7 +948,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         lastFetchParamsRef.current = {
           brokers: [...selectedBrokers],
           dates: [...selectedDates],
-          market: marketFilter || ''
+          market: marketFilter || '',
+          tickers: [...selectedTickers] // Track selectedTickers
         };
         
         setIsDataReady(true);
@@ -2636,7 +2643,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       const showOnlyTotal = selectedDates.length > 7;
       
       // Helper function to get stock color class based on sector
+      // CRITICAL: This should always work regardless of ticker selection - coloring is independent of filtering
       const getStockColorClass = (stockCode: string): string => {
+        if (!stockCode) return 'text-white font-semibold';
         const stockSector = stockToSectorMap[stockCode.toUpperCase()];
         if (!stockSector) return 'text-white font-semibold';
         
@@ -2660,16 +2669,28 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       };
       
       // Helper function to check if stock matches sector filter (for render-time filtering)
-      // Use activeSectorFilter (not sectorFilter) - only filter when Show button is clicked
+      // CRITICAL: Use activeSectorFilter (not sectorFilter) - only filter when Show button is clicked
+      // IMPORTANT BEHAVIOR:
+      // - When ticker is selected: filters data that's already filtered by ticker
+      // - When ticker is empty (all tickers) and sector is selected: only shows stocks from that sector
+      // - When sector is "All": shows all stocks (respects ticker filter if ticker is selected)
       const stockSectorScreen = (stockCode: string): boolean => {
-        if (activeSectorFilter === 'All') return true;
+        if (!stockCode) return false;
+        if (activeSectorFilter === 'All') return true; // Show all stocks when sector filter is "All"
         const stockSector = stockToSectorMap[stockCode.toUpperCase()];
+        if (!stockSector) {
+          // If stock has no sector mapping, don't show it when sector filter is active
+          // This ensures only stocks with matching sector are displayed
+          return false;
+        }
+        // Only show stocks that match the selected sector
         return stockSector === activeSectorFilter;
       };
       
       // For VALUE table: Get max row count across all dates for Buy and Sell sections separately
       // CRITICAL: Filter by sector at render time, not during computation
       // When showOnlyTotal is true, use sorted stocks from totalBuyDataByStock and totalSellDataByStock (filtered by sector)
+      // IMPORTANT: Sector filter works on data that's already filtered by ticker (if ticker is selected)
       let maxBuyRows = 0;
       let maxSellRows = 0;
       
@@ -2685,13 +2706,37 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           .map(([stock]) => stock);
         maxBuyRows = sortedBuyStocks.length;
         maxSellRows = sortedSellStocks.length;
+        
+        console.log(`[BrokerTransaction] renderValueTable (showOnlyTotal): Sector filter "${activeSectorFilter}"`, {
+          totalBuyStocksBeforeFilter: totalBuyDataByStock.size,
+          totalSellStocksBeforeFilter: totalSellDataByStock.size,
+          sortedBuyStocksAfterFilter: sortedBuyStocks.length,
+          sortedSellStocksAfterFilter: sortedSellStocks.length,
+          sampleBuyStocks: sortedBuyStocks.slice(0, 5),
+          sampleSellStocks: sortedSellStocks.slice(0, 5),
+          note: activeSectorFilter === 'All' ? 'Showing all stocks' : `Showing only stocks from sector: ${activeSectorFilter}`
+        });
       } else {
         // When showing per-date, use data from buyStocksByDate and sellStocksByDate (filtered by sector)
         selectedDates.forEach(date => {
-          const buyData = (buyStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
-          const sellData = (sellStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
+          const buyDataBeforeFilter = buyStocksByDate.get(date) || [];
+          const sellDataBeforeFilter = sellStocksByDate.get(date) || [];
+          const buyData = buyDataBeforeFilter.filter(item => stockSectorScreen(item.stock));
+          const sellData = sellDataBeforeFilter.filter(item => stockSectorScreen(item.stock));
           maxBuyRows = Math.max(maxBuyRows, buyData.length);
           maxSellRows = Math.max(maxSellRows, sellData.length);
+          
+          if (date === selectedDates[0]) {
+            console.log(`[BrokerTransaction] renderValueTable (per-date) for ${date}: Sector filter "${activeSectorFilter}"`, {
+              buyDataBeforeFilter: buyDataBeforeFilter.length,
+              sellDataBeforeFilter: sellDataBeforeFilter.length,
+              buyDataAfterFilter: buyData.length,
+              sellDataAfterFilter: sellData.length,
+              sampleBuyStocks: buyData.slice(0, 5).map(d => d.stock),
+              sampleSellStocks: sellData.slice(0, 5).map(d => d.stock),
+              note: activeSectorFilter === 'All' ? 'Showing all stocks' : `Showing only stocks from sector: ${activeSectorFilter}`
+            });
+          }
         });
       }
       const tableMaxRows = Math.max(maxBuyRows, maxSellRows);
@@ -3114,7 +3159,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       const showOnlyTotal = selectedDates.length > 7;
       
       // Helper function to get stock color class based on sector (same as Value table)
+      // CRITICAL: This should always work regardless of ticker selection - coloring is independent of filtering
       const getStockColorClass = (stockCode: string): string => {
+        if (!stockCode) return 'text-white font-semibold';
         const stockSector = stockToSectorMap[stockCode.toUpperCase()];
         if (!stockSector) return 'text-white font-semibold';
         
@@ -3137,16 +3184,28 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       };
       
       // Helper function to check if stock matches sector filter (for render-time filtering)
-      // Use activeSectorFilter (not sectorFilter) - only filter when Show button is clicked
+      // CRITICAL: Use activeSectorFilter (not sectorFilter) - only filter when Show button is clicked
+      // IMPORTANT BEHAVIOR:
+      // - When ticker is selected: filters data that's already filtered by ticker
+      // - When ticker is empty (all tickers) and sector is selected: only shows stocks from that sector
+      // - When sector is "All": shows all stocks (respects ticker filter if ticker is selected)
       const stockSectorScreen = (stockCode: string): boolean => {
-        if (activeSectorFilter === 'All') return true;
+        if (!stockCode) return false;
+        if (activeSectorFilter === 'All') return true; // Show all stocks when sector filter is "All"
         const stockSector = stockToSectorMap[stockCode.toUpperCase()];
+        if (!stockSector) {
+          // If stock has no sector mapping, don't show it when sector filter is active
+          // This ensures only stocks with matching sector are displayed
+          return false;
+        }
+        // Only show stocks that match the selected sector
         return stockSector === activeSectorFilter;
       };
       
       // For NET table: Get max row count across all dates for Net Buy and Net Sell sections separately
       // CRITICAL: Filter by sector at render time, not during computation
       // When showOnlyTotal is true, use sorted stocks from totalNetBuyDataByStock and totalNetSellDataByStock (filtered by sector)
+      // IMPORTANT: Sector filter works on data that's already filtered by ticker (if ticker is selected)
       let maxNetBuyRows = 0;
       let maxNetSellRows = 0;
       
@@ -4009,33 +4068,57 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               // IMPORTANT: selectedTickers can be empty (length === 0) which means "show all tickers"
               // This is handled in loadTransactionData where filtering only happens if selectedTickers.length > 0
               
+              // CRITICAL: Always update activeSectorFilter first - sector filter should always work
+              // Update activeSectorFilter from sectorFilter (UI state) BEFORE checking for changes
+              setActiveSectorFilter(sectorFilter);
+              
               // Check if only sector filter changed (and data already exists)
+              // CRITICAL: Also check if tickers changed - if tickers changed, need to refetch data
               const lastParams = lastFetchParamsRef.current;
+              const previousTickers = lastParams?.tickers || [];
+              const currentTickers = [...selectedTickers];
+              const tickersChanged = !lastParams || 
+                JSON.stringify(previousTickers.sort()) !== JSON.stringify(currentTickers.sort());
+              
+              console.log('[BrokerTransaction] Show button: Checking for changes', {
+                tickersChanged,
+                previousTickers: previousTickers.length > 0 ? previousTickers : 'EMPTY (was showing all)',
+                currentTickers: currentTickers.length > 0 ? currentTickers : 'EMPTY (will show all)',
+                hasLastParams: !!lastParams,
+                isDataReady,
+                sectorFilter,
+                activeSectorFilter
+              });
+              
               const onlySectorChanged = lastParams &&
                 isDataReady &&
+                !tickersChanged && // Tickers must not have changed
                 JSON.stringify(lastParams.brokers.sort()) === JSON.stringify([...selectedBrokers].sort()) &&
                 JSON.stringify(lastParams.dates.sort()) === JSON.stringify([...selectedDates].sort()) &&
                 lastParams.market === marketFilter;
               
-              // Update activeSectorFilter from sectorFilter (UI state)
-              setActiveSectorFilter(sectorFilter);
-              
               if (onlySectorChanged) {
-                // Only sector filter changed - just update activeSectorFilter and re-render
-                // No need to clear data or fetch API
-                console.log('[BrokerTransaction] Only sector filter changed, updating filter without fetching API');
+                // Only sector filter changed (and tickers didn't change) - just update activeSectorFilter and re-render
+                // CRITICAL: activeSectorFilter already updated above, so sector filtering and coloring will work
+                // No need to clear data or fetch API - sector filter works on existing data at render time
+                console.log('[BrokerTransaction] Only sector filter changed, updating filter without fetching API. Sector filtering and coloring will work on existing data.');
                 return;
               }
               
               // Brokers, dates, market, or tickers changed - need to fetch new data from API
               // NOTE: If selectedTickers is empty, it will show all tickers (no filtering)
-              console.log('[BrokerTransaction] Parameters changed, fetching new data from API');
+              console.log('[BrokerTransaction] Parameters changed, fetching new data from API', {
+                tickersChanged,
+                previousTickers: lastParams?.tickers || [],
+                currentTickers: selectedTickers.length > 0 ? selectedTickers : 'ALL (empty = show all)'
+              });
               
               // Update last fetch params
               lastFetchParamsRef.current = {
                 brokers: [...selectedBrokers],
                 dates: [...selectedDates],
-                market: marketFilter || ''
+                market: marketFilter || '',
+                tickers: [...selectedTickers] // Track selectedTickers
               };
               
               // Clear existing data before fetching new data
