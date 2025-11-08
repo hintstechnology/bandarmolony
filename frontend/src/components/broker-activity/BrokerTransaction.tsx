@@ -288,8 +288,16 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   const [isDataReady, setIsDataReady] = useState<boolean>(false); // Control when to show tables
   const [shouldFetchData, setShouldFetchData] = useState<boolean>(false); // Control when to fetch data (only when Show button clicked)
   
+  // Track last fetch parameters to detect if only sector filter changed
+  const lastFetchParamsRef = useRef<{
+    brokers: string[];
+    dates: string[];
+    market: string;
+  } | null>(null);
+  
   // Sector Filter states (changed from F/D filter)
-  const [sectorFilter, setSectorFilter] = useState<string>('All'); // 'All' or sector name
+  const [sectorFilter, setSectorFilter] = useState<string>('All'); // 'All' or sector name (UI state - dropdown value)
+  const [activeSectorFilter, setActiveSectorFilter] = useState<string>('All'); // 'All' or sector name (active filter - used for filtering displayed data)
   const [availableSectors, setAvailableSectors] = useState<string[]>([]); // List of available sectors
   const [stockToSectorMap, setStockToSectorMap] = useState<{ [stock: string]: string }>({}); // Stock code -> sector name mapping
   const [marketFilter, setMarketFilter] = useState<'RG' | 'TN' | 'NG' | ''>(''); // Default to All Trade
@@ -926,8 +934,16 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         // CRITICAL: Update both transactionData and rawTransactionData
         setTransactionData(newTransactionData);
         setRawTransactionData(newRawTransactionData);
-          setIsDataReady(true);
-          setShouldFetchData(false);
+        
+        // Update last fetch params after successful fetch
+        lastFetchParamsRef.current = {
+          brokers: [...selectedBrokers],
+          dates: [...selectedDates],
+          market: marketFilter || ''
+        };
+        
+        setIsDataReady(true);
+        setShouldFetchData(false);
         shouldFetchDataRef.current = false;
         
         // Clear abort controller after successful fetch
@@ -1024,17 +1040,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         currentDate.setDate(currentDate.getDate() + 1);
       }
       
-      // Check if trading days exceed 7
-      if (dateArray.length > 7) {
-        alert('Maksimal 7 hari kerja yang bisa dipilih');
-        // Still limit to 7 days but keep the selected range
-        const limitedDates = dateArray.slice(0, 7);
-        const sortedDates = limitedDates.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-        setSelectedDates(sortedDates);
-        return;
-      }
-      
       // Sort by date (oldest first) for display
+      // Allow more than 7 days - will show only Total column if > 7 days
       const sortedDates = dateArray.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
       setSelectedDates(sortedDates);
     }
@@ -2641,6 +2648,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     
     // VALUE Table - Shows Buyer and Seller data
     const renderValueTable = () => {
+      // Determine if we should show only Total column (when > 7 days selected)
+      const showOnlyTotal = selectedDates.length > 7;
+      
       // Helper function to get stock color class based on sector
       const getStockColorClass = (stockCode: string): string => {
         const stockSector = stockToSectorMap[stockCode.toUpperCase()];
@@ -2666,22 +2676,40 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       };
       
       // Helper function to check if stock matches sector filter (for render-time filtering)
+      // Use activeSectorFilter (not sectorFilter) - only filter when Show button is clicked
       const stockSectorScreen = (stockCode: string): boolean => {
-        if (sectorFilter === 'All') return true;
+        if (activeSectorFilter === 'All') return true;
         const stockSector = stockToSectorMap[stockCode.toUpperCase()];
-        return stockSector === sectorFilter;
+        return stockSector === activeSectorFilter;
       };
       
       // For VALUE table: Get max row count across all dates for Buy and Sell sections separately
       // CRITICAL: Filter by sector at render time, not during computation
+      // When showOnlyTotal is true, use sorted stocks from totalBuyDataByStock and totalSellDataByStock (filtered by sector)
       let maxBuyRows = 0;
       let maxSellRows = 0;
-      selectedDates.forEach(date => {
-        const buyData = (buyStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
-        const sellData = (sellStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
-        maxBuyRows = Math.max(maxBuyRows, buyData.length);
-        maxSellRows = Math.max(maxSellRows, sellData.length);
-      });
+      
+      if (showOnlyTotal) {
+        // When showing only Total, use sorted stocks from aggregated data (filtered by sector)
+        const sortedBuyStocks = Array.from(totalBuyDataByStock.entries())
+          .filter(([stock]) => stockSectorScreen(stock))
+          .sort((a, b) => b[1].buyerValue - a[1].buyerValue)
+          .map(([stock]) => stock);
+        const sortedSellStocks = Array.from(totalSellDataByStock.entries())
+          .filter(([stock]) => stockSectorScreen(stock))
+          .sort((a, b) => b[1].sellerValue - a[1].sellerValue)
+          .map(([stock]) => stock);
+        maxBuyRows = sortedBuyStocks.length;
+        maxSellRows = sortedSellStocks.length;
+      } else {
+        // When showing per-date, use data from buyStocksByDate and sellStocksByDate (filtered by sector)
+        selectedDates.forEach(date => {
+          const buyData = (buyStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
+          const sellData = (sellStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
+          maxBuyRows = Math.max(maxBuyRows, buyData.length);
+          maxSellRows = Math.max(maxSellRows, sellData.length);
+        });
+      }
       const tableMaxRows = Math.max(maxBuyRows, maxSellRows);
       
       // Use visible row indices for virtual scrolling
@@ -2726,7 +2754,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 <thead className="bg-[#3a4252]">
                   {/* Date Header Row */}
                   <tr className="border-t-2 border-white">
-                    {selectedDates.map((date, dateIndex) => (
+                    {!showOnlyTotal && selectedDates.map((date, dateIndex) => (
                       <th 
                         key={date} 
                         className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} 
@@ -2735,61 +2763,61 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         {formatDisplayDate(date)}
                       </th>
                     ))}
-                    <th className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={17}>
+                    <th className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={17}>
                       Total
                     </th>
                   </tr>
                   {/* Column Header Row */}
                   <tr className="bg-[#3a4252]">
-                    {selectedDates.map((date, dateIndex) => (
+                    {!showOnlyTotal && selectedDates.map((date, dateIndex) => (
                       <React.Fragment key={date}>
                         {/* Buyer Columns */}
                         <th className={`text-center py-[1px] px-[3px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} title={formatDisplayDate(date)} style={dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>BCode</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BVal</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BLot</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BAvg</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BFreq</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BOrdNum</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-16" title={formatDisplayDate(date)}>Lot/ON</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BVal</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BLot</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BAvg</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BFreq</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BOrdNum</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-16" title={formatDisplayDate(date)}>Lot/ON</th>
                         {/* Separator */}
                         <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap" title={formatDisplayDate(date)}>#</th>
                         {/* Seller Columns */}
                         <th className="text-center py-[1px] px-[3px] font-bold text-white" title={formatDisplayDate(date)} style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>SCode</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SVal</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SLot</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SFreq</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SOrdNum</th>
-                        <th className={`text-right py-[1px] px-[6px] font-bold text-white w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/ON</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SVal</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SLot</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SFreq</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SOrdNum</th>
+                        <th className={`text-center py-[1px] px-[6px] font-bold text-white w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/ON</th>
                       </React.Fragment>
                     ))}
                     {/* Total Columns */}
-                    <th className={`text-center py-[1px] px-[3px] font-bold text-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>BCode</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BVal</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BLot</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BAvg</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BFreq</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BOrdNum</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/ON</th>
+                    <th className={`text-center py-[1px] px-[3px] font-bold text-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>BCode</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BVal</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BLot</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BAvg</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BFreq</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BOrdNum</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/ON</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap">#</th>
                     <th className="text-center py-[1px] px-[3px] font-bold text-white" style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>SCode</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SVal</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SLot</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SAvg</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SFreq</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SOrdNum</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white">Lot/ON</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SVal</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SLot</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SAvg</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SFreq</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SOrdNum</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white">Lot/ON</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rowIndices.length > 0 ? rowIndices.map((rowIdx: number) => {
                           return (
                       <tr key={rowIdx}>
-                        {selectedDates.map((date: string, dateIndex: number) => {
+                        {!showOnlyTotal && selectedDates.map((date: string, dateIndex: number) => {
                           // Get Buy data at this row index for this date
                           // CRITICAL: Filter by sector at render time
                           const buyDataForDate = (buyStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
@@ -2920,89 +2948,73 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       })}
                         {/* Total Column - aggregate Buy and Sell data separately by stock code */}
                       {(() => {
-                          // Get Buy stock code at this row index (from first date that has data)
+                          // Get Buy stock code at this row index
+                          // When showOnlyTotal = true, use sorted stocks from totalBuyDataByStock (filtered by sector)
+                          // When showOnlyTotal = false, use stocks from first date that has data
                           let totalBuyBCode = '-';
                           let buyStockCode = '';
-                          for (const date of selectedDates) {
-                            const buyDataForDate = buyStocksByDate.get(date) || [];
-                            const buyRowData = buyDataForDate[rowIdx];
-                            if (buyRowData) {
-                              buyStockCode = buyRowData.stock; // This is BCode
-                              totalBuyBCode = buyRowData.stock;
-                              break;
+                          
+                          if (showOnlyTotal) {
+                            // Use sorted stocks from aggregated data (filtered by sector)
+                            const sortedBuyStocks = Array.from(totalBuyDataByStock.entries())
+                              .filter(([stock]) => stockSectorScreen(stock))
+                              .sort((a, b) => b[1].buyerValue - a[1].buyerValue)
+                              .map(([stock]) => stock);
+                            buyStockCode = sortedBuyStocks[rowIdx] || '';
+                            totalBuyBCode = buyStockCode || '-';
+                          } else {
+                            // Get from first date that has data (for backward compatibility)
+                            for (const date of selectedDates) {
+                              const buyDataForDate = (buyStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
+                              const buyRowData = buyDataForDate[rowIdx];
+                              if (buyRowData) {
+                                buyStockCode = buyRowData.stock; // This is BCode
+                                totalBuyBCode = buyRowData.stock;
+                                break;
+                              }
                             }
                           }
                           
-                          // Get Sell stock code at this row index (from first date that has data)
+                          // Get Sell stock code at this row index
+                          // When showOnlyTotal = true, use sorted stocks from totalSellDataByStock (filtered by sector)
+                          // When showOnlyTotal = false, use stocks from first date that has data
                           let totalSellSCode = '-';
                           let sellStockCode = '';
-                          for (const date of selectedDates) {
-                            const sellDataForDate = sellStocksByDate.get(date) || [];
-                            const sellRowData = sellDataForDate[rowIdx];
-                            if (sellRowData) {
-                              sellStockCode = sellRowData.stock; // This is SCode
-                              totalSellSCode = sellRowData.stock;
-                              break;
+                          
+                          if (showOnlyTotal) {
+                            // Use sorted stocks from aggregated data (filtered by sector)
+                            const sortedSellStocks = Array.from(totalSellDataByStock.entries())
+                              .filter(([stock]) => stockSectorScreen(stock))
+                              .sort((a, b) => b[1].sellerValue - a[1].sellerValue)
+                              .map(([stock]) => stock);
+                            sellStockCode = sortedSellStocks[rowIdx] || '';
+                            totalSellSCode = sellStockCode || '-';
+                          } else {
+                            // Get from first date that has data (for backward compatibility)
+                            for (const date of selectedDates) {
+                              const sellDataForDate = (sellStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
+                              const sellRowData = sellDataForDate[rowIdx];
+                              if (sellRowData) {
+                                sellStockCode = sellRowData.stock; // This is SCode
+                                totalSellSCode = sellRowData.stock;
+                                break;
+                              }
                             }
                           }
                           
-                          // Aggregate Buy data from all dates for this stock code (BCode)
-                          let totalBuyVol = 0;
-                          let totalBuyValue = 0;
-                          let totalBuyAvg = 0;
-                          let totalBuyAvgCount = 0;
-                          let totalBuyFreq = 0;
-                          let totalBuyOrdNum = 0;
-                          
-                          // Aggregate Sell data from all dates for this stock code (SCode)
-                          let totalSellVol = 0;
-                          let totalSellValue = 0;
-                          let totalSellAvg = 0;
-                          let totalSellAvgCount = 0;
-                          let totalSellFreq = 0;
-                          let totalSellOrdNum = 0;
-                          
-                          selectedDates.forEach(date => {
-                            // Aggregate Buy section: sum all rows with same BCode (not just row index)
-                            const buyDataForDate = buyStocksByDate.get(date) || [];
-                            buyDataForDate.forEach(buyRow => {
-                              if (buyRow.stock === buyStockCode && buyStockCode) {
-                                const dayData = buyRow.data;
-                                totalBuyVol += Number(dayData.BuyerVol) || 0;
-                                totalBuyValue += Number(dayData.BuyerValue) || 0;
-                                totalBuyFreq += Number(dayData.BFreq) || Number(dayData.TransactionCount) || 0;
-                                totalBuyOrdNum += Number(dayData.BOrdNum) || 0;
-                                if (dayData.BuyerAvg || (dayData.BuyerVol && dayData.BuyerVol > 0)) {
-                                  totalBuyAvg += dayData.BuyerAvg || ((dayData.BuyerValue || 0) / (dayData.BuyerVol || 1));
-                                  totalBuyAvgCount += 1;
-                                }
-                              }
-                            });
-                            
-                            // Aggregate Sell section: sum all rows with same SCode (not just row index)
-                            const sellDataForDate = sellStocksByDate.get(date) || [];
-                            sellDataForDate.forEach(sellRow => {
-                              if (sellRow.stock === sellStockCode && sellStockCode) {
-                                const dayData = sellRow.data;
-                                totalSellVol += Number(dayData.SellerVol) || 0;
-                                totalSellValue += Number(dayData.SellerValue) || 0;
-                                totalSellFreq += Number(dayData.SFreq) || Number(dayData.TransactionCount) || 0;
-                                totalSellOrdNum += Number(dayData.SOrdNum) || 0;
-                                if (dayData.SellerAvg || (dayData.SellerVol && dayData.SellerVol > 0)) {
-                                  totalSellAvg += dayData.SellerAvg || ((dayData.SellerValue || 0) / (dayData.SellerVol || 1));
-                                  totalSellAvgCount += 1;
-                                }
-                              }
-                            });
-                          });
-                          
-                          // Calculate final averages
-                          const finalBuyAvg = totalBuyAvgCount > 0 ? totalBuyAvg / totalBuyAvgCount : (totalBuyVol > 0 ? totalBuyValue / totalBuyVol : 0);
-                          const finalSellAvg = totalSellAvgCount > 0 ? totalSellAvg / totalSellAvgCount : (totalSellVol > 0 ? totalSellValue / totalSellVol : 0);
-                          
+                          // Get aggregated data for Buy and Sell
                           // Use Lot/F and Lot/ON from aggregated data (calculated from CSV values)
                           const buyTotalData = buyStockCode ? totalBuyDataByStock.get(buyStockCode) : null;
                           const sellTotalData = sellStockCode ? totalSellDataByStock.get(sellStockCode) : null;
+                          
+                          // Get aggregated values (always use from totalBuyDataByStock and totalSellDataByStock for consistency)
+                          const totalBuyValue = buyTotalData ? buyTotalData.buyerValue : 0;
+                          const totalBuyFreq = buyTotalData ? buyTotalData.buyerFreq : 0;
+                          const totalBuyOrdNum = buyTotalData ? buyTotalData.buyerOrdNum : 0;
+                          const totalSellValue = sellTotalData ? sellTotalData.sellerValue : 0;
+                          const totalSellFreq = sellTotalData ? sellTotalData.sellerFreq : 0;
+                          const totalSellOrdNum = sellTotalData ? sellTotalData.sellerOrdNum : 0;
+                          
                           const totalBuyLot = buyTotalData?.buyerLot || 0;
                           const totalSellLot = sellTotalData?.sellerLot || 0;
                           const totalBuyLotPerFreq = buyTotalData?.buyerLotPerFreq || 0;
@@ -3010,22 +3022,29 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           const totalBuyLotPerOrdNum = buyTotalData?.buyerLotPerOrdNum || 0;
                           const totalSellLotPerOrdNum = sellTotalData?.sellerLotPerOrdNum || 0;
                           
+                          // Calculate final averages (use from aggregated data)
+                          const finalBuyAvg = buyTotalData ? buyTotalData.buyerAvg : 0;
+                          const finalSellAvg = sellTotalData ? sellTotalData.sellerAvg : 0;
+                          
                           // Hide Total row if both Buy and Sell are empty
                           if (totalBuyBCode === '-' && totalSellSCode === '-') {
                           return (
-                            <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={17}>
+                            <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={17}>
                                 -
                             </td>
                           );
                         }
                         
+                        // Get color classes for stock codes based on sector
+                        const buyBCodeColorClass = totalBuyBCode !== '-' ? getStockColorClass(totalBuyBCode) : '';
+                        const sellSCodeColorClass = totalSellSCode !== '-' ? getStockColorClass(totalSellSCode) : '';
                         
                         return (
                           <React.Fragment>
                               {/* Buyer Total Columns */}
                               {totalBuyBCode !== '-' && Math.abs(totalBuyLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[3px] font-bold text-green-600 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>
+                            <td className={`text-center py-[1px] px-[3px] font-bold ${buyBCodeColorClass} ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>
                                     {totalBuyBCode}
                             </td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-green-600">{formatValue(totalBuyValue)}</td>
@@ -3038,7 +3057,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                 </>
                               ) : (
                                 <>
-                                  <td className={`text-center py-[1px] px-[3px] text-gray-400 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>-</td>
+                                  <td className={`text-center py-[1px] px-[3px] text-gray-400 ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>-</td>
                                   <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
                                   <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
                                   <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
@@ -3053,7 +3072,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                               {/* Seller Total Columns */}
                               {totalSellSCode !== '-' && Math.abs(totalSellLot) > 0 ? (
                                 <>
-                            <td className="text-center py-[1px] px-[3px] font-bold text-red-600" style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>
+                            <td className={`text-center py-[1px] px-[3px] font-bold ${sellSCodeColorClass}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>
                                     {totalSellSCode}
                             </td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-red-600">{formatValue(totalSellValue)}</td>
@@ -3087,7 +3106,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 {/* Lazy loading sentinel - triggers load more when scrolled into view */}
                 {visibleRowCount < maxRows && rowIndices.length > 0 && (
                   <tr>
-                    <td colSpan={selectedDates.length * 17 + 17} ref={valueTableSentinelRef} className="h-10">
+                    <td colSpan={showOnlyTotal ? 17 : (selectedDates.length * 17 + 17)} ref={valueTableSentinelRef} className="h-10">
                       {/* Invisible sentinel for intersection observer */}
                     </td>
                   </tr>
@@ -3102,6 +3121,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     
     // NET Table - Shows Net Buy/Sell data
     const renderNetTable = () => {
+      // Determine if we should show only Total column (when > 7 days selected)
+      const showOnlyTotal = selectedDates.length > 7;
+      
       // Helper function to get stock color class based on sector (same as Value table)
       const getStockColorClass = (stockCode: string): string => {
         const stockSector = stockToSectorMap[stockCode.toUpperCase()];
@@ -3126,22 +3148,40 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       };
       
       // Helper function to check if stock matches sector filter (for render-time filtering)
+      // Use activeSectorFilter (not sectorFilter) - only filter when Show button is clicked
       const stockSectorScreen = (stockCode: string): boolean => {
-        if (sectorFilter === 'All') return true;
+        if (activeSectorFilter === 'All') return true;
         const stockSector = stockToSectorMap[stockCode.toUpperCase()];
-        return stockSector === sectorFilter;
+        return stockSector === activeSectorFilter;
       };
       
       // For NET table: Get max row count across all dates for Net Buy and Net Sell sections separately
       // CRITICAL: Filter by sector at render time, not during computation
+      // When showOnlyTotal is true, use sorted stocks from totalNetBuyDataByStock and totalNetSellDataByStock (filtered by sector)
       let maxNetBuyRows = 0;
       let maxNetSellRows = 0;
-      selectedDates.forEach(date => {
-        const netBuyData = (netBuyStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
-        const netSellData = (netSellStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
-        maxNetBuyRows = Math.max(maxNetBuyRows, netBuyData.length);
-        maxNetSellRows = Math.max(maxNetSellRows, netSellData.length);
-      });
+      
+      if (showOnlyTotal) {
+        // When showing only Total, use sorted stocks from aggregated data (filtered by sector)
+        const sortedNetBuyStocks = Array.from(totalNetBuyDataByStock.entries())
+          .filter(([stock]) => stockSectorScreen(stock))
+          .sort((a, b) => b[1].netBuyValue - a[1].netBuyValue)
+          .map(([stock]) => stock);
+        const sortedNetSellStocks = Array.from(totalNetSellDataByStock.entries())
+          .filter(([stock]) => stockSectorScreen(stock))
+          .sort((a, b) => b[1].netSellValue - a[1].netSellValue)
+          .map(([stock]) => stock);
+        maxNetBuyRows = sortedNetBuyStocks.length;
+        maxNetSellRows = sortedNetSellStocks.length;
+      } else {
+        // When showing per-date, use data from netBuyStocksByDate and netSellStocksByDate (filtered by sector)
+        selectedDates.forEach(date => {
+          const netBuyData = (netBuyStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
+          const netSellData = (netSellStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
+          maxNetBuyRows = Math.max(maxNetBuyRows, netBuyData.length);
+          maxNetSellRows = Math.max(maxNetSellRows, netSellData.length);
+        });
+      }
       const tableMaxRows = Math.max(maxNetBuyRows, maxNetSellRows);
       
       // Use visible row indices for virtual scrolling
@@ -3165,7 +3205,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 <thead className="bg-[#3a4252]">
                   {/* Date Header Row */}
                   <tr className="border-t-2 border-white">
-                    {selectedDates.map((date, dateIndex) => (
+                    {!showOnlyTotal && selectedDates.map((date, dateIndex) => (
                       <th 
                         key={date} 
                         className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} 
@@ -3174,61 +3214,61 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         {formatDisplayDate(date)}
                       </th>
                     ))}
-                    <th className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={17}>
+                    <th className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={17}>
                       Total
                     </th>
                   </tr>
                   {/* Column Header Row */}
                   <tr className="bg-[#3a4252]">
-                    {selectedDates.map((date, dateIndex) => (
+                    {!showOnlyTotal && selectedDates.map((date, dateIndex) => (
                       <React.Fragment key={date}>
                         {/* Net Buy Columns (from CSV columns 17-23) */}
                         <th className={`text-center py-[1px] px-[3px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} title={formatDisplayDate(date)} style={dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>BCode</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BVal</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BLot</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BAvg</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BFreq</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BOrdNum</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-16" title={formatDisplayDate(date)}>Lot/ON</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BVal</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BLot</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BAvg</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BFreq</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BOrdNum</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-16" title={formatDisplayDate(date)}>Lot/ON</th>
                         {/* Separator */}
                         <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap" title={formatDisplayDate(date)}>#</th>
                         {/* Net Sell Columns (from CSV columns 24-30) */}
                         <th className="text-center py-[1px] px-[3px] font-bold text-white" title={formatDisplayDate(date)} style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>SCode</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SVal</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SLot</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SFreq</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
-                        <th className="text-right py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SOrdNum</th>
-                        <th className={`text-right py-[1px] px-[6px] font-bold text-white w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/ON</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SVal</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SLot</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SFreq</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SOrdNum</th>
+                        <th className={`text-center py-[1px] px-[6px] font-bold text-white w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/ON</th>
                       </React.Fragment>
                     ))}
                     {/* Total Columns - Net Buy/Net Sell */}
-                    <th className={`text-center py-[1px] px-[3px] font-bold text-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>BCode</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BVal</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BLot</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BAvg</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BFreq</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">BOrdNum</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/ON</th>
+                    <th className={`text-center py-[1px] px-[3px] font-bold text-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>BCode</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BVal</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BLot</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BAvg</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BFreq</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BOrdNum</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/ON</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap">#</th>
                     <th className="text-center py-[1px] px-[3px] font-bold text-white" style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>SCode</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SVal</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SLot</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SAvg</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SFreq</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white">SOrdNum</th>
-                    <th className="text-right py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white">Lot/ON</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SVal</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SLot</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SAvg</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SFreq</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SOrdNum</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white">Lot/ON</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rowIndices.length > 0 ? rowIndices.map((rowIdx: number) => {
                           return (
                       <tr key={rowIdx}>
-                        {selectedDates.map((date: string, dateIndex: number) => {
+                        {!showOnlyTotal && selectedDates.map((date: string, dateIndex: number) => {
                           // Get Net Buy data at this row index for this date
                           // CRITICAL: Filter by sector at render time
                           const netBuyDataForDate = (netBuyStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
@@ -3392,17 +3432,25 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                             .map(([stock]) => stock);
                           
                           // Get Net Buy stock at this row index
-                          const netBuyStockCode = sortedTotalNetBuyStocks[rowIdx] || '';
+                          // CRITICAL: Filter by sector when showOnlyTotal = true
+                          const netBuyStocksFiltered = showOnlyTotal 
+                            ? sortedTotalNetBuyStocks.filter(stock => stockSectorScreen(stock))
+                            : sortedTotalNetBuyStocks;
+                          const netBuyStockCode = netBuyStocksFiltered[rowIdx] || '';
                           const netBuyData = netBuyStockCode ? totalNetBuyDataByStock.get(netBuyStockCode) : null;
                           
                           // Get Net Sell stock at this row index
-                          const netSellStockCode = sortedTotalNetSellStocks[rowIdx] || '';
+                          // CRITICAL: Filter by sector when showOnlyTotal = true
+                          const netSellStocksFiltered = showOnlyTotal
+                            ? sortedTotalNetSellStocks.filter(stock => stockSectorScreen(stock))
+                            : sortedTotalNetSellStocks;
+                          const netSellStockCode = netSellStocksFiltered[rowIdx] || '';
                           const netSellData = netSellStockCode ? totalNetSellDataByStock.get(netSellStockCode) : null;
                           
                           // If both are empty, hide row
                           if (!netBuyData && !netSellData) {
                             return (
-                              <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={17}>
+                              <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={17}>
                                 -
                               </td>
                             );
@@ -3433,15 +3481,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           if ((totalNetBuyNBCode === '-' || Math.abs(totalNetBuyLot) === 0) && 
                               (totalNetSellNSCode === '-' || Math.abs(totalNetSellLot) === 0)) {
                             return (
-                              <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={17}>
+                              <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={17}>
                                 -
                               </td>
                             );
                           }
                           
-                          // Net Buy side (always green as it's net buy)
+                          // Get color classes for stock codes based on sector
+                          const netBuyNBCodeColorClass = totalNetBuyNBCode !== '-' ? getStockColorClass(totalNetBuyNBCode) : '';
+                          const netSellNSCodeColorClass = totalNetSellNSCode !== '-' ? getStockColorClass(totalNetSellNSCode) : '';
+                          
+                          // Color for values: Net Buy values are green, Net Sell values are red
                           const totalNetBuyColor = 'text-green-600';
-                          // Net Sell side (always red as it's net sell)
                           const totalNetSellColor = 'text-red-600';
                         
                         return (
@@ -3449,7 +3500,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                               {/* Net Buy Total Columns */}
                               {netBuyData && Math.abs(totalNetBuyLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[3px] font-bold ${totalNetBuyColor} ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>
+                            <td className={`text-center py-[1px] px-[3px] font-bold ${netBuyNBCodeColorClass} ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>
                                     {totalNetBuyNBCode}
                             </td>
                             <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`}>
@@ -3476,7 +3527,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                 </>
                               ) : (
                                 <>
-                                  <td className={`text-center py-[1px] px-[3px] text-gray-400 ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>-</td>
+                                  <td className={`text-center py-[1px] px-[3px] text-gray-400 ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
@@ -3491,7 +3542,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                               {/* Net Sell Total Columns */}
                               {netSellData && Math.abs(totalNetSellLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[3px] font-bold ${totalNetSellColor}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>
+                            <td className={`text-center py-[1px] px-[3px] font-bold ${netSellNSCodeColorClass}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>
                                     {totalNetSellNSCode}
                             </td>
                             <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor}`}>
@@ -3537,7 +3588,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 {/* Lazy loading sentinel - triggers load more when scrolled into view */}
                 {visibleRowCount < maxRows && rowIndices.length > 0 && (
                   <tr>
-                    <td colSpan={selectedDates.length * 17 + 17} ref={netTableSentinelRef} className="h-10">
+                    <td colSpan={showOnlyTotal ? 17 : (selectedDates.length * 17 + 17)} ref={netTableSentinelRef} className="h-10">
                       {/* Invisible sentinel for intersection observer */}
                     </td>
                   </tr>
@@ -3556,23 +3607,23 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         {renderNetTable()}
       </div>
     );
-  }, [filteredStocks, uniqueStocks, sortedStocksByDate, sortedNetStocksByDate, totalDataByStock, totalNetDataByStock, sortedTotalStocks, sortedTotalNetStocks, transactionData, visibleRowIndices, buyStocksByDate, sellStocksByDate, netBuyStocksByDate, netSellStocksByDate, totalNetBuyDataByStock, totalNetSellDataByStock, isDataReady]); // CRITICAL: Removed sectorFilter - sector filtering is applied at render time, not in dependencies
+  }, [filteredStocks, uniqueStocks, sortedStocksByDate, sortedNetStocksByDate, totalDataByStock, totalNetDataByStock, sortedTotalStocks, sortedTotalNetStocks, transactionData, visibleRowIndices, buyStocksByDate, sellStocksByDate, netBuyStocksByDate, netSellStocksByDate, totalNetBuyDataByStock, totalNetSellDataByStock, isDataReady, selectedDates, activeSectorFilter, stockToSectorMap]); // CRITICAL: Added selectedDates, activeSectorFilter, and stockToSectorMap to dependencies to react to showOnlyTotal and sector filter changes
 
 
   return (
     <div className="w-full">
       {/* Top Controls - Compact without Card */}
       <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5">
-        <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-4">
           {/* Broker Selection - Multi-select with chips */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             <label className="text-sm font-medium whitespace-nowrap">Broker:</label>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
               {/* Selected Broker Chips */}
               {selectedBrokers.map(broker => (
                 <div
                   key={broker}
-                  className="flex items-center gap-1 px-2 py-1 bg-primary/20 text-primary rounded-md text-sm"
+                  className="flex items-center gap-1 px-2 h-9 bg-primary/20 text-primary rounded-md text-sm"
                 >
                   <span>{broker}</span>
                   <button
@@ -3586,7 +3637,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               </div>
               ))}
               {/* Broker Input */}
-              <div className="relative" ref={dropdownBrokerRef}>
+              <div className="relative flex-1 md:flex-none" ref={dropdownBrokerRef}>
                   <input
                     type="text"
                     value={brokerInput}
@@ -3623,7 +3674,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       }
                     }}
                   placeholder="Add broker"
-                  className="w-24 px-3 py-2 text-sm border border-[#3a4252] rounded-md bg-input text-foreground"
+                  className="w-full md:w-32 h-9 px-3 text-sm border border-input rounded-md bg-background text-foreground"
                     role="combobox"
                     aria-expanded={showBrokerSuggestions}
                     aria-controls="broker-suggestions"
@@ -3632,20 +3683,20 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   {showBrokerSuggestions && (
                   <div id="broker-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
                       {availableBrokers.length === 0 ? (
-                        <div className="px-3 py-2 text-sm text-muted-foreground flex items-center">
+                        <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
                           <Loader2 className="w-4 h-4 animate-spin mr-2" />
                           Loading brokers...
                         </div>
                     ) : brokerInput === '' ? (
                       <>
-                        <div className="px-3 py-2 text-xs text-muted-foreground border-b border-[#3a4252]">
+                        <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
                           Available Brokers ({availableBrokers.filter(b => !selectedBrokers.includes(b)).length})
                         </div>
                         {availableBrokers.filter(b => !selectedBrokers.includes(b)).map(broker => (
                           <div
                             key={broker}
                             onClick={() => handleBrokerSelect(broker)}
-                            className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
+                            className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
                           >
                             {broker}
                           </div>
@@ -3658,7 +3709,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       );
                       return (
                             <>
-                          <div className="px-3 py-2 text-xs text-muted-foreground border-b border-[#3a4252]">
+                          <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
                             {filteredBrokers.length} broker(s) found
                           </div>
                           {filteredBrokers.length > 0 ? (
@@ -3666,14 +3717,14 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                               <div
                                 key={broker}
                                 onClick={() => handleBrokerSelect(broker)}
-                                className={`px-3 py-2 hover:bg-muted cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-accent' : ''}`}
+                                className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-accent' : ''}`}
                               onMouseEnter={() => setHighlightedIndex(idx)}
                               >
                                 {broker}
                               </div>
                             ))
                           ) : (
-                            <div className="px-3 py-2 text-sm text-muted-foreground">
+                            <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
                               No brokers found
                             </div>
                           )}
@@ -3687,9 +3738,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           </div>
 
               {/* Ticker Multi-Select */}
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
               {selectedTickers.map(ticker => (
                 <div
                   key={ticker}
@@ -3706,7 +3757,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   </button>
                 </div>
               ))}
-              <div className="relative" ref={dropdownTickerRef}>
+              <div className="relative flex-1 md:flex-none" ref={dropdownTickerRef}>
                 <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                 <input
                   type="text"
@@ -3744,7 +3795,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       setHighlightedTickerIndex(-1);
                     }
                   }}
-                  className="w-24 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground"
+                  className="w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground"
                 />
               {showTickerSuggestions && (
                 <div id="ticker-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
@@ -3755,14 +3806,14 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     if (availableTickersFiltered.length === 0) {
                       if (!isDataReady) {
                         return (
-                          <div className="px-3 py-2 text-sm text-muted-foreground flex items-center">
+                          <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
                             <Loader2 className="w-4 h-4 animate-spin mr-2" />
                             Loading tickers... (Please load data first)
                           </div>
                         );
                       }
                       return (
-                        <div className="px-3 py-2 text-sm text-muted-foreground">
+                        <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
                           No tickers available for selected broker(s)
                         </div>
                       );
@@ -3771,14 +3822,14 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     if (tickerInput === '') {
                       return (
                         <>
-                          <div className="px-3 py-2 text-xs text-muted-foreground border-b border-[#3a4252]">
+                          <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
                             Available Tickers ({availableTickersFiltered.length})
                           </div>
                           {availableTickersFiltered.slice(0, 20).map(ticker => (
                             <div
                               key={ticker}
                               onClick={() => handleTickerSelect(ticker)}
-                              className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
+                              className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
                             >
                               {ticker}
                             </div>
@@ -3791,7 +3842,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       );
                       return (
                         <>
-                          <div className="px-3 py-2 text-xs text-muted-foreground border-b border-[#3a4252]">
+                          <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
                             {filteredTickers.length} ticker(s) found
                           </div>
                           {filteredTickers.length > 0 ? (
@@ -3799,14 +3850,14 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                               <div
                                 key={ticker}
                                 onClick={() => handleTickerSelect(ticker)}
-                                className={`px-3 py-2 hover:bg-muted cursor-pointer text-sm ${idx === highlightedTickerIndex ? 'bg-accent' : ''}`}
+                                className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${idx === highlightedTickerIndex ? 'bg-accent' : ''}`}
                                 onMouseEnter={() => setHighlightedTickerIndex(idx)}
                               >
                                 {ticker}
                               </div>
                             ))
                           ) : (
-                            <div className="px-3 py-2 text-sm text-muted-foreground">
+                            <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
                               No tickers found
                             </div>
                           )}
@@ -3821,10 +3872,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           </div>
 
           {/* Date Range */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
+            <div className="flex items-center gap-2 w-full md:w-auto">
             <div 
-              className="relative h-9 w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+              className="relative h-9 flex-1 md:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
               onClick={() => triggerDatePicker(startDateRef)}
             >
                   <input
@@ -3862,9 +3914,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 <Calendar className="w-4 h-4 text-muted-foreground" />
                 </div>
               </div>
-            <span className="text-sm text-muted-foreground whitespace-nowrap">to</span>
+            <span className="text-sm text-muted-foreground whitespace-nowrap hidden md:inline">to</span>
             <div 
-              className="relative h-9 w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+              className="relative h-9 flex-1 md:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
               onClick={() => triggerDatePicker(endDateRef)}
             >
                   <input
@@ -3906,14 +3958,15 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 </div>
               </div>
             </div>
+            </div>
 
           {/* Market Filter */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             <label className="text-sm font-medium whitespace-nowrap">Board:</label>
             <select
               value={marketFilter}
               onChange={(e) => setMarketFilter(e.target.value as 'RG' | 'TN' | 'NG' | '')}
-              className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm"
+              className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
             >
               <option value="">All Trade</option>
               <option value="RG">RG</option>
@@ -3923,12 +3976,12 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             </div>
 
           {/* Sector Filter */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             <label className="text-sm font-medium whitespace-nowrap">Sector:</label>
             <select
               value={sectorFilter}
               onChange={(e) => setSectorFilter(e.target.value)}
-              className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm"
+              className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
             >
               {availableSectors.map(sector => (
                 <option key={sector} value={sector}>{sector}</option>
@@ -3943,8 +3996,40 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 selectedBrokers,
                 selectedDates,
                 marketFilter,
-                sectorFilter
+                sectorFilter,
+                activeSectorFilter,
+                lastFetchParams: lastFetchParamsRef.current,
+                isDataReady
               });
+              
+              // Check if only sector filter changed (and data already exists)
+              const lastParams = lastFetchParamsRef.current;
+              const onlySectorChanged = lastParams &&
+                isDataReady &&
+                JSON.stringify(lastParams.brokers.sort()) === JSON.stringify([...selectedBrokers].sort()) &&
+                JSON.stringify(lastParams.dates.sort()) === JSON.stringify([...selectedDates].sort()) &&
+                lastParams.market === marketFilter;
+              
+              // Update activeSectorFilter from sectorFilter (UI state)
+              setActiveSectorFilter(sectorFilter);
+              
+              if (onlySectorChanged) {
+                // Only sector filter changed - just update activeSectorFilter and re-render
+                // No need to clear data or fetch API
+                console.log('[BrokerTransaction] Only sector filter changed, updating filter without fetching API');
+                return;
+              }
+              
+              // Brokers, dates, or market changed - need to fetch new data from API
+              console.log('[BrokerTransaction] Parameters changed, fetching new data from API');
+              
+              // Update last fetch params
+              lastFetchParamsRef.current = {
+                brokers: [...selectedBrokers],
+                dates: [...selectedDates],
+                market: marketFilter || ''
+              };
+              
               // Clear existing data before fetching new data
               setTransactionData(new Map());
               setRawTransactionData(new Map()); // Clear raw data too
@@ -3958,7 +4043,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               setShouldFetchData(true);
             }}
             disabled={isLoading || selectedBrokers.length === 0 || selectedDates.length === 0}
-            className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center"
+            className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full md:w-auto"
           >
             Show
           </button>
