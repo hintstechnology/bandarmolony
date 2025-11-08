@@ -868,7 +868,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           // This ensures dropdown always shows all available tickers for selected broker(s)
           const rawRows = [...allRows]; // Copy before filtering
           
-          // Filter by selectedTickers if provided (only when Show button is clicked)
+          // CRITICAL: Filter by selectedTickers if provided (only when Show button is clicked)
+          // IMPORTANT: If selectedTickers is empty (length === 0), show ALL tickers (no filtering)
+          // This means when user clears all tickers, it's equivalent to "show all tickers"
           if (selectedTickers.length > 0) {
             allRows = allRows.filter(row => {
               // Check if row matches any selected ticker in any section (BCode, SCode, NBCode, NSCode)
@@ -885,6 +887,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                      selectedTickers.includes(emiten);
             });
           }
+          // else: selectedTickers.length === 0 means show ALL tickers (no filtering applied)
           
           // Store raw data (before filtering) for availableTickers
           newRawTransactionData.set(date, rawRows);
@@ -2624,27 +2627,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     
     // FIXED: Removed input validation check - we don't need to check selectedBrokers/selectedDates here
     // Data is already filtered when fetched, so we just render what's available
-    
-    if (uniqueStocks.length === 0) {
-      console.log('[BrokerTransaction] renderHorizontalView: No unique stocks found');
-      return (
-        <div className="text-center py-16">
-          <div className="text-gray-400 text-sm">
-            No data available
-          </div>
-        </div>
-      );
-    }
-    
-    if (filteredStocks.length === 0) {
-      return (
-        <div className="text-center py-16">
-          <div className="text-gray-400 text-sm">
-            No stocks found
-          </div>
-        </div>
-      );
-    }
+    // Even if there's no data, we should still render the tables to show "No Data Available" message inside the table
+    // (This matches BrokerSummaryPage.tsx behavior)
     
     // VALUE Table - Shows Buyer and Seller data
     const renderValueTable = () => {
@@ -2734,14 +2718,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         rowIndices: rowIndices.slice(0, 5) // First 5 indices
       });
       
-      // CRITICAL: If no rowIndices but we have data, force render at least 1 row for debugging
-      if (tableMaxRows > 0 && rowIndices.length === 0) {
-        console.error('[BrokerTransaction] ERROR: tableMaxRows > 0 but rowIndices is empty!', {
-          tableMaxRows,
-          visibleRowCount,
-          displayRows: Math.min(tableMaxRows, Math.max(visibleRowCount, MAX_DISPLAY_ROWS))
-        });
-      }
+      // Calculate total columns for "No Data Available" message
+      const totalCols = showOnlyTotal ? 17 : (selectedDates.length * 17 + 17);
       
       return (
         <div className="w-full max-w-full mt-1">
@@ -2814,7 +2792,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   </tr>
                 </thead>
                 <tbody>
-                  {rowIndices.length > 0 ? rowIndices.map((rowIdx: number) => {
+                  {tableMaxRows === 0 || transactionData.size === 0 ? (
+                    // If no data, show "No Data Available" message
+                    <tr className="border-b-2 border-white">
+                      <td 
+                        colSpan={totalCols} 
+                        className="text-center py-[2.06px] text-muted-foreground font-bold"
+                        style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}
+                      >
+                        No Data Available
+                      </td>
+                    </tr>
+                  ) : rowIndices.length > 0 ? rowIndices.map((rowIdx: number) => {
                           return (
                       <tr key={rowIdx}>
                         {!showOnlyTotal && selectedDates.map((date: string, dateIndex: number) => {
@@ -3193,6 +3182,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       const rowIndices = tableMaxRows > 0 
         ? Array.from({ length: Math.min(displayRows, tableMaxRows) }, (_, i) => i)
         : [];
+      
+      // Calculate total columns for "No Data Available" message
+      const totalCols = showOnlyTotal ? 17 : (selectedDates.length * 17 + 17);
     
     return (
         <div className="w-full max-w-full mt-1">
@@ -3265,7 +3257,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   </tr>
                 </thead>
                 <tbody>
-                  {rowIndices.length > 0 ? rowIndices.map((rowIdx: number) => {
+                  {tableMaxRows === 0 || transactionData.size === 0 ? (
+                    // If no data, show "No Data Available" message
+                    <tr className="border-b-2 border-white">
+                      <td 
+                        colSpan={totalCols} 
+                        className="text-center py-[2.06px] text-muted-foreground font-bold"
+                        style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}
+                      >
+                        No Data Available
+                      </td>
+                    </tr>
+                  ) : rowIndices.length > 0 ? rowIndices.map((rowIdx: number) => {
                           return (
                       <tr key={rowIdx}>
                         {!showOnlyTotal && selectedDates.map((date: string, dateIndex: number) => {
@@ -3994,6 +3997,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             onClick={() => {
               console.log('[BrokerTransaction] Show button clicked:', {
                 selectedBrokers,
+                selectedTickers: selectedTickers.length > 0 ? selectedTickers : 'ALL (empty = show all)',
                 selectedDates,
                 marketFilter,
                 sectorFilter,
@@ -4001,6 +4005,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 lastFetchParams: lastFetchParamsRef.current,
                 isDataReady
               });
+              
+              // IMPORTANT: selectedTickers can be empty (length === 0) which means "show all tickers"
+              // This is handled in loadTransactionData where filtering only happens if selectedTickers.length > 0
               
               // Check if only sector filter changed (and data already exists)
               const lastParams = lastFetchParamsRef.current;
@@ -4020,7 +4027,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 return;
               }
               
-              // Brokers, dates, or market changed - need to fetch new data from API
+              // Brokers, dates, market, or tickers changed - need to fetch new data from API
+              // NOTE: If selectedTickers is empty, it will show all tickers (no filtering)
               console.log('[BrokerTransaction] Parameters changed, fetching new data from API');
               
               // Update last fetch params
@@ -4043,6 +4051,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               setShouldFetchData(true);
             }}
             disabled={isLoading || selectedBrokers.length === 0 || selectedDates.length === 0}
+            // NOTE: selectedTickers can be empty (show all tickers) - it's not required for Show button
             className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full md:w-auto"
           >
             Show
