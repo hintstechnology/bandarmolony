@@ -3468,28 +3468,122 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           </React.Fragment>
                         );
                       })}
-                        {/* Total Column - use aggregated data from totalNetBuyDataByStock and totalNetSellDataByStock */}
+                        {/* Total Column - Calculate NET from B/S Total (Buy - Sell) */}
                       {(() => {
-                          // Get unique Net Buy and Net Sell stocks from aggregated data (sorted by value)
-                          const sortedTotalNetBuyStocks = Array.from(totalNetBuyDataByStock.entries())
-                            .filter(([, data]) => {
-                              // Hide if NBLot is 0
-                              const nbLot = data.netBuyLot;
-                              return Math.abs(nbLot) > 0;
-                            })
-                            // FIXED: Don't filter by selectedTickers here - filtering will only happen when Show button is clicked
-                            // This prevents auto-update of displayed data when ticker changes
+                          // CRITICAL: Calculate NET from B/S Total data, not from NET data
+                          // Get all unique stocks from totalBuyDataByStock and totalSellDataByStock
+                          const allStocksFromBS = new Set<string>();
+                          Array.from(totalBuyDataByStock.keys()).forEach(stock => allStocksFromBS.add(stock));
+                          Array.from(totalSellDataByStock.keys()).forEach(stock => allStocksFromBS.add(stock));
+                          
+                          // Calculate Net Buy and Net Sell for each stock from B/S Total
+                          const netBuyFromBS = new Map<string, {
+                            stock: string;
+                            netBuyLot: number;
+                            netBuyValue: number;
+                            netBuyAvg: number;
+                            netBuyFreq: number;
+                            netBuyOrdNum: number;
+                            netBuyLotPerFreq: number;
+                            netBuyLotPerOrdNum: number;
+                          }>();
+                          
+                          const netSellFromBS = new Map<string, {
+                            stock: string;
+                            netSellLot: number;
+                            netSellValue: number;
+                            netSellAvg: number;
+                            netSellFreq: number;
+                            netSellOrdNum: number;
+                            netSellLotPerFreq: number;
+                            netSellLotPerOrdNum: number;
+                          }>();
+                          
+                          // For each stock, calculate Net Buy and Net Sell from B/S Total
+                          allStocksFromBS.forEach(stock => {
+                            const buyData = totalBuyDataByStock.get(stock);
+                            const sellData = totalSellDataByStock.get(stock);
+                            
+                            const buyLot = buyData?.buyerLot || 0;
+                            const buyValue = buyData?.buyerValue || 0;
+                            const buyFreq = buyData?.buyerFreq || 0;
+                            const buyOrdNum = buyData?.buyerOrdNum || 0;
+                            
+                            const sellLot = sellData?.sellerLot || 0;
+                            const sellValue = sellData?.sellerValue || 0;
+                            const sellFreq = sellData?.sellerFreq || 0;
+                            const sellOrdNum = sellData?.sellerOrdNum || 0;
+                            
+                            // Calculate Net Buy = Buy - Sell (only if positive)
+                            const netBuyLot = buyLot - sellLot;
+                            const netBuyValue = buyValue - sellValue;
+                            
+                            if (netBuyLot > 0) {
+                              // Net Buy exists
+                              // Avg = val / (lot * 100) - because lot needs to be multiplied by 100 to get volume
+                              const netBuyLotVolume = netBuyLot * 100; // Convert lot to volume
+                              const netBuyAvg = netBuyLotVolume > 0 ? netBuyValue / netBuyLotVolume : 0;
+                              // Freq = Buy Freq - Sell Freq (netkan)
+                              const netBuyFreq = buyFreq - sellFreq;
+                              // OrdNum = Buy OrdNum - Sell OrdNum (netkan)
+                              const netBuyOrdNum = buyOrdNum - sellOrdNum;
+                              // Lot/F = lot / freq (can be negative if freq is negative)
+                              const netBuyLotPerFreq = netBuyFreq !== 0 ? netBuyLot / netBuyFreq : 0;
+                              // Lot/ON = lot / ordNum (can be negative if ordNum is negative)
+                              const netBuyLotPerOrdNum = netBuyOrdNum !== 0 ? netBuyLot / netBuyOrdNum : 0;
+                              
+                              netBuyFromBS.set(stock, {
+                                stock,
+                                netBuyLot,
+                                netBuyValue,
+                                netBuyAvg,
+                                netBuyFreq,
+                                netBuyOrdNum,
+                                netBuyLotPerFreq,
+                                netBuyLotPerOrdNum
+                              });
+                            }
+                            
+                            // Calculate Net Sell = Sell - Buy (only if positive)
+                            const netSellLot = sellLot - buyLot;
+                            const netSellValue = sellValue - buyValue;
+                            
+                            if (netSellLot > 0) {
+                              // Net Sell exists
+                              // Avg = val / (lot * 100) - because lot needs to be multiplied by 100 to get volume
+                              const netSellLotVolume = netSellLot * 100; // Convert lot to volume
+                              const netSellAvg = netSellLotVolume > 0 ? netSellValue / netSellLotVolume : 0;
+                              // Freq = Sell Freq - Buy Freq (netkan)
+                              const netSellFreq = sellFreq - buyFreq;
+                              // OrdNum = Sell OrdNum - Buy OrdNum (netkan)
+                              const netSellOrdNum = sellOrdNum - buyOrdNum;
+                              // Lot/F = lot / freq (can be negative if freq is negative)
+                              const netSellLotPerFreq = netSellFreq !== 0 ? netSellLot / netSellFreq : 0;
+                              // Lot/ON = lot / ordNum (can be negative if ordNum is negative)
+                              const netSellLotPerOrdNum = netSellOrdNum !== 0 ? netSellLot / netSellOrdNum : 0;
+                              
+                              netSellFromBS.set(stock, {
+                                stock,
+                                netSellLot,
+                                netSellValue,
+                                netSellAvg,
+                                netSellFreq,
+                                netSellOrdNum,
+                                netSellLotPerFreq,
+                                netSellLotPerOrdNum
+                              });
+                            }
+                          });
+                          
+                          // Sort Net Buy stocks by value (highest to lowest)
+                          const sortedTotalNetBuyStocks = Array.from(netBuyFromBS.entries())
+                            .filter(([, data]) => Math.abs(data.netBuyLot) > 0)
                             .sort((a, b) => b[1].netBuyValue - a[1].netBuyValue)
                             .map(([stock]) => stock);
                           
-                          const sortedTotalNetSellStocks = Array.from(totalNetSellDataByStock.entries())
-                            .filter(([, data]) => {
-                              // Hide if NSLot is 0
-                              const nsLot = data.netSellLot;
-                              return Math.abs(nsLot) > 0;
-                            })
-                            // FIXED: Don't filter by selectedTickers here - filtering will only happen when Show button is clicked
-                            // This prevents auto-update of displayed data when ticker changes
+                          // Sort Net Sell stocks by value (highest to lowest)
+                          const sortedTotalNetSellStocks = Array.from(netSellFromBS.entries())
+                            .filter(([, data]) => Math.abs(data.netSellLot) > 0)
                             .sort((a, b) => b[1].netSellValue - a[1].netSellValue)
                             .map(([stock]) => stock);
                           
@@ -3499,7 +3593,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                             ? sortedTotalNetBuyStocks.filter(stock => stockSectorScreen(stock))
                             : sortedTotalNetBuyStocks;
                           const netBuyStockCode = netBuyStocksFiltered[rowIdx] || '';
-                          const netBuyData = netBuyStockCode ? totalNetBuyDataByStock.get(netBuyStockCode) : null;
+                          const netBuyData = netBuyStockCode ? netBuyFromBS.get(netBuyStockCode) : null;
                           
                           // Get Net Sell stock at this row index
                           // CRITICAL: Filter by sector when showOnlyTotal = true
@@ -3507,7 +3601,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                             ? sortedTotalNetSellStocks.filter(stock => stockSectorScreen(stock))
                             : sortedTotalNetSellStocks;
                           const netSellStockCode = netSellStocksFiltered[rowIdx] || '';
-                          const netSellData = netSellStockCode ? totalNetSellDataByStock.get(netSellStockCode) : null;
+                          const netSellData = netSellStockCode ? netSellFromBS.get(netSellStockCode) : null;
                           
                           // If both are empty, hide row
                           if (!netBuyData && !netSellData) {
@@ -3518,9 +3612,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                             );
                           }
                           
-                          // Calculate values from aggregated data
+                          // Calculate values from NET calculated from B/S Total
                           const totalNetBuyNBCode = netBuyStockCode || '-';
-                          // Use Lot/F and Lot/ON from aggregated data (calculated from CSV values)
                           const totalNetBuyLot = netBuyData ? netBuyData.netBuyLot : 0;
                           const totalNetBuyValue = netBuyData ? netBuyData.netBuyValue : 0;
                           const finalNetBuyAvg = netBuyData ? netBuyData.netBuyAvg : 0;
@@ -3530,7 +3623,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           const totalNetBuyLotPerOrdNum = netBuyData ? netBuyData.netBuyLotPerOrdNum : 0;
                           
                           const totalNetSellNSCode = netSellStockCode || '-';
-                          // Use Lot/F and Lot/ON from aggregated data (calculated from CSV values)
                           const totalNetSellLot = netSellData ? netSellData.netSellLot : 0;
                           const totalNetSellValue = netSellData ? netSellData.netSellValue : 0;
                           const finalNetSellAvg = netSellData ? netSellData.netSellAvg : 0;
