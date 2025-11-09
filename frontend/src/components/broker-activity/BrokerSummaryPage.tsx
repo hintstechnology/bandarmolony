@@ -261,15 +261,23 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         console.log('[BrokerSummary] Loading stock list...');
         const result = await api.getStockList();
         if (result.success && result.data?.stocks && Array.isArray(result.data.stocks)) {
+          // Add IDX to the stock list if not already present
+          const stocksWithIdx = result.data.stocks.includes('IDX') 
+            ? result.data.stocks 
+            : [...result.data.stocks, 'IDX'];
           // Sort stocks alphabetically for better UX
-          const sortedStocks = result.data.stocks.sort((a: string, b: string) => a.localeCompare(b));
+          const sortedStocks = stocksWithIdx.sort((a: string, b: string) => a.localeCompare(b));
           setAvailableStocks(sortedStocks);
-          console.log(`[BrokerSummary] Loaded ${sortedStocks.length} stocks`);
+          console.log(`[BrokerSummary] Loaded ${sortedStocks.length} stocks (including IDX)`);
         } else {
-          console.warn('[BrokerSummary] No stocks found in API response');
+          // Even if API fails, ensure IDX is available
+          setAvailableStocks(['IDX']);
+          console.warn('[BrokerSummary] No stocks found in API response, using IDX only');
         }
       } catch (err) {
         console.error('[BrokerSummary] Error loading stock list:', err);
+        // Even if API fails, ensure IDX is available
+        setAvailableStocks(['IDX']);
       }
     };
     
@@ -1203,11 +1211,20 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           console.log('[BrokerSummary] Loading stock list on demand...');
           const result = await api.getStockList();
           if (result.success && result.data?.stocks && Array.isArray(result.data.stocks)) {
-            const sortedStocks = result.data.stocks.sort((a: string, b: string) => a.localeCompare(b));
+            // Add IDX to the stock list if not already present
+            const stocksWithIdx = result.data.stocks.includes('IDX') 
+              ? result.data.stocks 
+              : [...result.data.stocks, 'IDX'];
+            const sortedStocks = stocksWithIdx.sort((a: string, b: string) => a.localeCompare(b));
             setAvailableStocks(sortedStocks);
+          } else {
+            // Even if API fails, ensure IDX is available
+            setAvailableStocks(['IDX']);
           }
         } catch (err) {
           console.error('Error loading stocks:', err);
+          // Even if API fails, ensure IDX is available
+          setAvailableStocks(['IDX']);
         }
       }, 100); // Short delay only if needed
       setStockSearchTimeout(timeout);
@@ -1531,7 +1548,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                       <td className="text-right py-[1px] px-[6px] text-green-600 font-bold w-6">
                                         {buyData ? formatNumber(buyData.buyerValue) : '-'}
                                       </td>
-                                      <td className="text-left py-[1px] px-[6px] text-green-600 font-bold w-6">
+                                      <td className="text-right py-[1px] px-[6px] text-green-600 font-bold w-6">
                                         {buyData ? formatAverage(buyData.bavg) : '-'}
                                       </td>
                                       {/* SL (Seller) Columns - Keep # column */}
@@ -1545,7 +1562,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                       <td className="text-right py-[1px] px-[6px] text-red-600 font-bold w-6">
                                         {sellData ? formatNumber(sellData.sellerValue) : '-'}
                                       </td>
-                              <td className={`text-left py-[1px] px-[6px] text-red-600 font-bold w-6 ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
+                              <td className={`text-right py-[1px] px-[6px] text-red-600 font-bold w-6 ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
                                         {sellData ? formatAverage(sellData.savg) : '-'}
                                       </td>
                                     </React.Fragment>
@@ -1570,7 +1587,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                 <td className="text-right py-[1px] px-[5px] text-green-600 font-bold">
                                   {totalBuy ? formatNumber(totalBuy.nbval) : '-'}
                                 </td>
-                                <td className="text-left py-[1px] px-[5px] text-green-600 font-bold">
+                                <td className="text-right py-[1px] px-[5px] text-green-600 font-bold">
                                   {totalBuy && totalBuyAvg > 0 ? formatAverage(totalBuyAvg) : '-'}
                                 </td>
                                 <td className={`text-center py-[1px] px-[6px] text-white bg-[#3a4252] font-bold ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>{totalSell ? rowIdx + 1 : '-'}</td>
@@ -1583,7 +1600,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                               <td className="text-right py-[1px] px-[5px] text-red-600 font-bold">
                                   {totalSell ? formatNumber(totalSell.nsval) : '-'}
                                 </td>
-                                <td className="text-left py-[1px] px-[7px] text-red-600 font-bold border-r-2 border-white">
+                                <td className="text-right py-[1px] px-[7px] text-red-600 font-bold border-r-2 border-white">
                                   {totalSell && totalSellAvg > 0 ? formatAverage(totalSellAvg) : '-'}
                                 </td>
                             </React.Fragment>
@@ -1978,7 +1995,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                       <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
                                         {netSellData ? formatNumber(nbVal) : '-'}
                                       </td>
-                                      <td className={`text-left py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
+                                      <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
                                         {netSellData ? formatAverage(nbAvg) : '-'}
                                       </td>
                                       {/* Net Sell Columns (SL) - Display NetBuy Data - Keep # */}
@@ -1992,7 +2009,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   <td className="text-right py-[1px] px-[6px] w-6 font-bold text-red-600" style={sellUnderlineStyle}>
                                         {netBuyData ? formatNumber(nsVal) : '-'}
                                       </td>
-                                  <td className={`text-left py-[1px] px-[6px] w-6 font-bold text-red-600 ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={sellUnderlineStyle}>
+                                  <td className={`text-right py-[1px] px-[6px] w-6 font-bold text-red-600 ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={sellUnderlineStyle}>
                                         {netBuyData ? formatAverage(nsAvg) : '-'}
                                       </td>
                                     </React.Fragment>
@@ -2043,7 +2060,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                 <td className={`text-right py-[1px] px-[5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
                                   {totalNetSell ? formatNumber(totalNetSell.nsval || 0) : '-'}
                                 </td>
-                                <td className={`text-left py-[1px] px-[5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
+                                <td className={`text-right py-[1px] px-[5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
                                   {totalNetSell && totalNetBuyAvg > 0 ? formatAverage(totalNetBuyAvg) : '-'}
                                 </td>
                                 {/* Total SL columns - Display totalNetBuy data */}
@@ -2057,7 +2074,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={totalSellUnderlineStyle}>
                                     {totalNetBuy ? formatNumber(totalNetBuy.nbval) : '-'}
                                 </td>
-                                  <td className="text-left py-[1px] px-[7px] text-red-600 font-bold border-r-2 border-white" style={totalSellUnderlineStyle}>
+                                  <td className="text-right py-[1px] px-[7px] text-red-600 font-bold border-r-2 border-white" style={totalSellUnderlineStyle}>
                                   {totalNetBuy && totalNetSellAvg > 0 ? formatAverage(totalNetSellAvg) : '-'}
                                 </td>
                               </React.Fragment>

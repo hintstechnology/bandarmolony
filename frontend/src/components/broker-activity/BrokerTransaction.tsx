@@ -2801,8 +2801,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BAvg</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BFreq</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BOrdNum</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-16" title={formatDisplayDate(date)}>Lot/ON</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BOR</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-16" title={formatDisplayDate(date)}>Lot/OR</th>
                         {/* Separator */}
                         <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap" title={formatDisplayDate(date)}>#</th>
                         {/* Seller Columns */}
@@ -2812,8 +2812,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SFreq</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SOrdNum</th>
-                        <th className={`text-center py-[1px] px-[6px] font-bold text-white w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/ON</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SOR</th>
+                        <th className={`text-center py-[1px] px-[6px] font-bold text-white w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/OR</th>
                       </React.Fragment>
                     ))}
                     {/* Total Columns */}
@@ -2823,8 +2823,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BAvg</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BFreq</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BOrdNum</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/ON</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BOR</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/OR</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap">#</th>
                     <th className="text-center py-[1px] px-[3px] font-bold text-white" style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>SCode</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SVal</th>
@@ -2832,8 +2832,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SAvg</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SFreq</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SOrdNum</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white">Lot/ON</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SOR</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white">Lot/OR</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3280,8 +3280,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BAvg</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BFreq</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BOrdNum</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-16" title={formatDisplayDate(date)}>Lot/ON</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BOR</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-16" title={formatDisplayDate(date)}>Lot/OR</th>
                         {/* Separator */}
                         <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap" title={formatDisplayDate(date)}>#</th>
                         {/* Net Sell Columns (from CSV columns 24-30) */}
@@ -3291,8 +3291,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SFreq</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SOrdNum</th>
-                        <th className={`text-center py-[1px] px-[6px] font-bold text-white w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/ON</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SOR</th>
+                        <th className={`text-center py-[1px] px-[6px] font-bold text-white w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/OR</th>
                       </React.Fragment>
                     ))}
                     {/* Total Columns - Net Buy/Net Sell */}
@@ -3302,8 +3302,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BAvg</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BFreq</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BOrdNum</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/ON</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BOR</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/OR</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap">#</th>
                     <th className="text-center py-[1px] px-[3px] font-bold text-white" style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>SCode</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SVal</th>
@@ -3311,8 +3311,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SAvg</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SFreq</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SOrdNum</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white">Lot/ON</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SOR</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white">Lot/OR</th>
                   </tr>
                 </thead>
                 <tbody>
