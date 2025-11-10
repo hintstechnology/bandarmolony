@@ -681,7 +681,7 @@ export class BrokerDataCalculator {
   /**
    * Main function to generate broker data for all DT files
    */
-  public async generateBrokerData(_dateSuffix: string): Promise<{ success: boolean; message: string; data?: any }> {
+  public async generateBrokerData(_dateSuffix: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
     const startTime = Date.now();
     try {
       console.log(`Starting broker data analysis for all DT files...`);
@@ -709,6 +709,15 @@ export class BrokerDataCalculator {
       for (let i = 0; i < dtFiles.length; i += BATCH_SIZE) {
         const batch = dtFiles.slice(i, i + BATCH_SIZE);
         console.log(`📦 Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`);
+        
+        // Update progress
+        if (logId) {
+          const { SchedulerLogService } = await import('../../services/schedulerLogService');
+          await SchedulerLogService.updateLog(logId, {
+            progress_percentage: Math.round(((i + batch.length) / dtFiles.length) * 100),
+            current_processing: `Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`
+          });
+        }
         
       // Process batch in parallel
       const batchResults = await Promise.allSettled(

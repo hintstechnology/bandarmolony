@@ -261,7 +261,7 @@ async function processShareholdersEmiten(
 }
 
 // Main update function
-export async function updateShareholdersData(): Promise<void> {
+export async function updateShareholdersData(logId?: string | null): Promise<void> {
   const SCHEDULER_TYPE = 'shareholders';
   
   // Weekend skip temporarily disabled for testing
@@ -273,22 +273,26 @@ export async function updateShareholdersData(): Promise<void> {
   //   return;
   // }
   
-  const logEntry = await SchedulerLogService.createLog({
-    feature_name: 'shareholders',
-    trigger_type: 'scheduled',
-    triggered_by: 'system',
-    status: 'running',
-    force_override: false,
-    environment: process.env['NODE_ENV'] || 'development',
-    started_at: getJakartaTime()
-  });
+  // Only create log entry if logId is not provided (called from scheduler, not manual trigger)
+  let finalLogId = logId;
+  if (!finalLogId) {
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'shareholders',
+      trigger_type: 'scheduled',
+      triggered_by: 'system',
+      status: 'running',
+      force_override: false,
+      environment: process.env['NODE_ENV'] || 'development',
+      started_at: getJakartaTime()
+    });
 
-  if (!logEntry) {
-    console.error('❌ Failed to create scheduler log entry');
-    return;
+    if (!logEntry) {
+      console.error('❌ Failed to create scheduler log entry');
+      return;
+    }
+
+    finalLogId = logEntry.id!;
   }
-
-  const logId = logEntry.id!;
   
   try {
     await AzureLogger.logSchedulerStart(SCHEDULER_TYPE, 'Optimized daily shareholders data update');
@@ -328,7 +332,7 @@ export async function updateShareholdersData(): Promise<void> {
           todayDate,
           baseUrl,
           cache,
-          logId
+          finalLogId
         );
       },
       BATCH_SIZE_PHASE_1_2,
@@ -350,8 +354,8 @@ export async function updateShareholdersData(): Promise<void> {
       total: emitenList.length
     });
 
-    if (logId) {
-      await SchedulerLogService.updateLog(logId, {
+    if (finalLogId) {
+      await SchedulerLogService.updateLog(finalLogId, {
         status: 'completed',
         progress_percentage: 100,
         total_files_processed: successCount,
@@ -365,8 +369,8 @@ export async function updateShareholdersData(): Promise<void> {
 
   } catch (error: any) {
     await AzureLogger.logSchedulerError(SCHEDULER_TYPE, error.message);
-    if (logId) {
-      await SchedulerLogService.updateLog(logId, {
+    if (finalLogId) {
+      await SchedulerLogService.updateLog(finalLogId, {
         status: 'failed',
         error_message: error.message
       });

@@ -7,8 +7,6 @@ import {
   ParallelProcessor, 
   CacheService,
   getTodayDate,
-  removeDuplicates,
-  convertToCsv,
   parseCsvString,
   BATCH_SIZE_PHASE_1_2,
   MAX_CONCURRENT_REQUESTS
@@ -211,30 +209,11 @@ async function processEmiten(
     const response = await httpClient.get(baseUrl, params);
     
     if (!response.data || response.data === null) {
-      const placeholderData = [{
-        date: todayDate,
-        emiten: emiten,
-        sector: sector,
-        status: 'EMPTY',
-        note: 'Data kosong dari TICMI API'
-      }];
-      
-      const combinedData = [...placeholderData, ...existingData];
-      combinedData.sort((a, b) => {
-        const dateA = a.date || a.tanggal || a.Date || '';
-        const dateB = b.date || b.tanggal || b.Date || '';
-        return new Date(dateB).getTime() - new Date(dateA).getTime();
-      });
-      
-      const deduplicatedData = removeDuplicates(combinedData);
-      const csvData = convertToCsv(deduplicatedData);
-      
-      await azureStorage.uploadCsvData(azureBlobName, csvData);
-      
-      // Cache the result
+      // Jika API return null/empty, jangan ubah data existing sama sekali
+      // Return error atau skip, jangan upload placeholder yang bisa mempengaruhi existing data
+      await AzureLogger.logItemProcess('stock', 'ERROR', emiten, `TICMI API returned null/empty data. Existing data preserved, no changes made.`);
       cache.set(cacheKey, { processed: true });
-      
-      return { success: true, skipped: false };
+      return { success: false, skipped: false, error: 'TICMI API returned null/empty data' };
     }
 
     const payload = response.data;
@@ -249,22 +228,110 @@ async function processEmiten(
       return { success: true, skipped: true };
     }
     
-    const combinedData = [...normalizedData, ...existingData];
-    combinedData.sort((a, b) => {
-      const dateA = a.date || a.tanggal || a.Date || '';
-      const dateB = b.date || b.tanggal || b.Date || '';
-      return dateB.localeCompare(dateA);
+    // Filter: Hanya ambil data untuk tanggal yang belum ada (missing dates)
+    const missingDatesSet = new Set(missingDates);
+    const newDataOnly = normalizedData.filter(row => {
+      const rowDate = row.date || row.tanggal || row.Date || '';
+      if (!rowDate) return false;
+      
+      // Normalize date format to YYYY-MM-DD for comparison
+      let rowDateNormalized: string = '';
+      if (rowDate.includes('/')) {
+        const parts = rowDate.split('/');
+        if (parts.length === 3) {
+          const dateObj = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+          if (!isNaN(dateObj.getTime())) {
+            const isoString = dateObj.toISOString();
+            rowDateNormalized = isoString ? isoString.split('T')[0] || '' : '';
+          }
+        } else {
+          const dateObj = new Date(rowDate);
+          if (!isNaN(dateObj.getTime())) {
+            const isoString = dateObj.toISOString();
+            rowDateNormalized = isoString ? isoString.split('T')[0] || '' : '';
+          }
+        }
+      } else if (rowDate.includes('-')) {
+        const dateObj = new Date(rowDate);
+        if (!isNaN(dateObj.getTime())) {
+          const isoString = dateObj.toISOString();
+          rowDateNormalized = isoString ? isoString.split('T')[0] || '' : '';
+        }
+      } else {
+        const dateObj = new Date(rowDate);
+        if (!isNaN(dateObj.getTime())) {
+          const isoString = dateObj.toISOString();
+          rowDateNormalized = isoString ? isoString.split('T')[0] || '' : '';
+        }
+      }
+      
+      // Hanya include jika tanggal ini ada di missing dates
+      return rowDateNormalized && missingDatesSet.has(rowDateNormalized);
     });
     
-    const deduplicatedData = removeDuplicates(combinedData);
-    const csvData = convertToCsv(deduplicatedData);
+    // Jika tidak ada data baru setelah filter, skip update (preserve existing)
+    if (newDataOnly.length === 0) {
+      await AzureLogger.logItemProcess('stock', 'SKIP', emiten, `No new data for missing dates after filtering. Existing data preserved.`);
+      cache.set(cacheKey, { processed: true });
+      return { success: true, skipped: true };
+    }
     
-    await azureStorage.uploadCsvData(azureBlobName, csvData);
+    // IMPORTANT: Jangan ubah existing data sama sekali, hanya append data baru untuk tanggal yang belum ada
+    // Data existing sudah di-check di awal (existingDates), jadi newDataOnly hanya berisi tanggal yang benar-benar belum ada
+    
+    // Baca existing CSV sebagai string untuk append (preserve format as-is, jangan parse/modify)
+    let existingCsvContent = '';
+    if (await azureStorage.blobExists(azureBlobName)) {
+      existingCsvContent = await azureStorage.downloadCsvData(azureBlobName);
+      // Pastikan ada newline di akhir jika belum ada
+      if (existingCsvContent && !existingCsvContent.endsWith('\n')) {
+        existingCsvContent += '\n';
+      }
+    } else {
+      // Jika file belum ada, buat header dulu
+      const firstRow = newDataOnly[0];
+      if (firstRow) {
+        const headers = Object.keys(firstRow);
+        existingCsvContent = headers.join(',') + '\n';
+      }
+    }
+    
+    // Convert new data to CSV rows (tanpa header, karena header sudah ada di existing)
+    const newCsvRows: string[] = [];
+    for (const row of newDataOnly) {
+      // Gunakan header dari existing CSV atau dari row pertama
+      let headers: string[] = [];
+      if (existingCsvContent) {
+        const lines = existingCsvContent.split('\n');
+        const firstLine = lines[0];
+        if (firstLine) {
+          headers = firstLine.split(',').map(h => h.trim());
+        } else {
+          headers = Object.keys(row);
+        }
+      } else {
+        headers = Object.keys(row);
+      }
+      
+      const values = headers.map(header => {
+        // Cari value dari row dengan berbagai kemungkinan field name
+        const value = row[header] || row[header.toLowerCase()] || row[header.toUpperCase()] || '';
+        return typeof value === 'string' && value.includes(',') ? `"${value}"` : (value || '');
+      });
+      newCsvRows.push(values.join(','));
+    }
+    
+    // Append new data ke existing CSV (tanpa parse/modify existing)
+    const combinedCsv = existingCsvContent + newCsvRows.join('\n');
+    
+    // Upload langsung tanpa parse/sort/deduplicate untuk preserve existing data as-is
+    // Deduplicate sudah di-handle di awal dengan existingDates check
+    await azureStorage.uploadCsvData(azureBlobName, combinedCsv);
     
     // Cache the result
     cache.set(cacheKey, { processed: true });
     
-    await AzureLogger.logItemProcess('stock', 'SUCCESS', emiten, 'Data updated successfully');
+    await AzureLogger.logItemProcess('stock', 'SUCCESS', emiten, `Appended ${newDataOnly.length} new rows for missing dates, existing ${existingData.length} rows preserved as-is`);
     return { success: true, skipped: false };
 
   } catch (error: any) {
@@ -288,7 +355,7 @@ async function processEmiten(
 }
 
 // Main update function
-export async function updateStockData(): Promise<void> {
+export async function updateStockData(logId?: string | null): Promise<void> {
   const SCHEDULER_TYPE = 'stock';
   
   // Skip if weekend
@@ -301,22 +368,26 @@ export async function updateStockData(): Promise<void> {
     return;
   }
   
-  const logEntry = await SchedulerLogService.createLog({
-    feature_name: 'stock',
-    trigger_type: 'scheduled',
-    triggered_by: 'system',
-    status: 'running',
-    force_override: false,
-    environment: process.env['NODE_ENV'] || 'development',
-    started_at: getJakartaTime()
-  });
+  // Only create log entry if logId is not provided (called from scheduler, not manual trigger)
+  let finalLogId = logId;
+  if (!finalLogId) {
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'stock',
+      trigger_type: 'scheduled',
+      triggered_by: 'system',
+      status: 'running',
+      force_override: false,
+      environment: process.env['NODE_ENV'] || 'development',
+      started_at: getJakartaTime()
+    });
 
-  if (!logEntry) {
-    console.error('❌ Failed to create scheduler log entry');
-    return;
+    if (!logEntry) {
+      console.error('❌ Failed to create scheduler log entry');
+      return;
+    }
+
+    finalLogId = logEntry.id!;
   }
-
-  const logId = logEntry.id!;
   
   try {
     await AzureLogger.logSchedulerStart(SCHEDULER_TYPE, 'Optimized daily stock data update');
@@ -356,7 +427,7 @@ export async function updateStockData(): Promise<void> {
           todayDate,
           baseUrl,
           cache,
-          logId
+          finalLogId
         );
       },
       BATCH_SIZE_PHASE_1_2,
@@ -381,8 +452,8 @@ export async function updateStockData(): Promise<void> {
       total: emitenList.length
     });
 
-    if (logId) {
-      await SchedulerLogService.updateLog(logId, {
+    if (finalLogId) {
+      await SchedulerLogService.updateLog(finalLogId, {
         status: 'completed',
         progress_percentage: 100,
         total_files_processed: successCount,
@@ -396,8 +467,8 @@ export async function updateStockData(): Promise<void> {
 
   } catch (error: any) {
     await AzureLogger.logSchedulerError(SCHEDULER_TYPE, error.message);
-    if (logId) {
-      await SchedulerLogService.updateLog(logId, {
+    if (finalLogId) {
+      await SchedulerLogService.updateLog(finalLogId, {
         status: 'failed',
         error_message: error.message
       });

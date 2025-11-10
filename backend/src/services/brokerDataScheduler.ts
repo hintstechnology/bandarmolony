@@ -10,12 +10,12 @@ export class BrokerDataScheduler {
   /**
    * Generate broker data
    */
-  async generateBrokerData(dateSuffix?: string): Promise<{ success: boolean; message: string; data?: any }> {
+  async generateBrokerData(dateSuffix?: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
     try {
       const targetDate = dateSuffix || this.getCurrentDateSuffix();
       console.log(`🔄 Starting Broker Data calculation for date: ${targetDate}`);
       
-      const result = await this.calculator.generateBrokerData(targetDate);
+      const result = await this.calculator.generateBrokerData(targetDate, logId);
       
       if (result.success) {
         console.log('✅ Broker Data calculation completed successfully');

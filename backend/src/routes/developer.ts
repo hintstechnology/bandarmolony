@@ -9,7 +9,9 @@ import {
   startScheduler, 
   getSchedulerStatus,
   getAllPhasesStatus,
-  triggerPhase
+  triggerPhase,
+  togglePhaseEnabled,
+  updatePhaseTriggerConfig
 } from '../services/scheduler';
 
 const router = Router();
@@ -413,6 +415,65 @@ router.get('/scheduler/config', requireDeveloper, async (_req, res) => {
 });
 
 /**
+ * PUT /api/developer/scheduler/phases/:phaseId/trigger-config
+ * Update phase trigger configuration (schedule time or trigger after phase)
+ */
+router.put('/scheduler/phases/:phaseId/trigger-config', requireDeveloper, async (req, res) => {
+  try {
+    const { phaseId } = req.params;
+    const { triggerType, schedule, triggerAfterPhase } = req.body;
+    
+    if (!triggerType || (triggerType !== 'scheduled' && triggerType !== 'auto')) {
+      return res.status(400).json(createErrorResponse(
+        'triggerType is required and must be "scheduled" or "auto"',
+        'VALIDATION_ERROR',
+        'triggerType',
+        400
+      ));
+    }
+    
+    if (triggerType === 'scheduled' && !schedule) {
+      return res.status(400).json(createErrorResponse(
+        'schedule is required when triggerType is "scheduled"',
+        'VALIDATION_ERROR',
+        'schedule',
+        400
+      ));
+    }
+    
+    if (triggerType === 'auto' && !triggerAfterPhase) {
+      return res.status(400).json(createErrorResponse(
+        'triggerAfterPhase is required when triggerType is "auto"',
+        'VALIDATION_ERROR',
+        'triggerAfterPhase',
+        400
+      ));
+    }
+    
+    const result = await updatePhaseTriggerConfig(phaseId, triggerType, schedule, triggerAfterPhase);
+    
+    if (result.success) {
+      return res.json(createSuccessResponse(result, result.message));
+    } else {
+      return res.status(400).json(createErrorResponse(
+        result.message,
+        'UPDATE_FAILED',
+        undefined,
+        400
+      ));
+    }
+  } catch (error) {
+    console.error('Update phase trigger config error:', error);
+    return res.status(500).json(createErrorResponse(
+      'Failed to update phase trigger configuration',
+      'INTERNAL_SERVER_ERROR',
+      undefined,
+      500
+    ));
+  }
+});
+
+/**
  * PUT /api/developer/scheduler/config
  * Update scheduler configuration and restart scheduler
  */
@@ -424,7 +485,8 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
       TIMEZONE,
       MEMORY_CLEANUP_INTERVAL,
       FORCE_GC_INTERVAL,
-      MEMORY_THRESHOLD_GB
+      MEMORY_THRESHOLD_GB,
+      WEEKEND_SKIP
     } = req.body;
     
     // Validate time format (HH:MM)
@@ -494,6 +556,18 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
         ));
       }
       newConfig.MEMORY_THRESHOLD = MEMORY_THRESHOLD_GB * 1024 * 1024 * 1024;
+    }
+    
+    if (WEEKEND_SKIP !== undefined) {
+      if (typeof WEEKEND_SKIP !== 'boolean') {
+        return res.status(400).json(createErrorResponse(
+          'WEEKEND_SKIP must be a boolean',
+          'VALIDATION_ERROR',
+          'WEEKEND_SKIP',
+          400
+        ));
+      }
+      newConfig.WEEKEND_SKIP = WEEKEND_SKIP;
     }
     
     // Update configuration
@@ -633,6 +707,47 @@ router.post('/scheduler/phases/:phaseId/trigger', requireDeveloper, async (req, 
     console.error('Trigger phase error:', error);
     return res.status(500).json(createErrorResponse(
       'Failed to trigger phase',
+      'INTERNAL_SERVER_ERROR',
+      undefined,
+      500
+    ));
+  }
+});
+
+/**
+ * PUT /api/developer/scheduler/phases/:phaseId/enable
+ * Enable or disable a specific phase
+ */
+router.put('/scheduler/phases/:phaseId/enable', requireDeveloper, async (req, res) => {
+  try {
+    const { phaseId } = req.params;
+    const { enabled } = req.body;
+    
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json(createErrorResponse(
+        'Enabled status is required (boolean)',
+        'VALIDATION_ERROR',
+        'enabled',
+        400
+      ));
+    }
+    
+    const result = await togglePhaseEnabled(phaseId, enabled);
+    
+    if (result.success) {
+      return res.json(createSuccessResponse(result, result.message));
+    } else {
+      return res.status(400).json(createErrorResponse(
+        result.message,
+        'TOGGLE_FAILED',
+        undefined,
+        400
+      ));
+    }
+  } catch (error) {
+    console.error('Toggle phase enabled error:', error);
+    return res.status(500).json(createErrorResponse(
+      'Failed to toggle phase enabled status',
       'INTERNAL_SERVER_ERROR',
       undefined,
       500

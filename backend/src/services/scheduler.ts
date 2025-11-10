@@ -34,7 +34,7 @@ import { updateWatchlistSnapshot } from './watchlistSnapshotService';
 // This is now a mutable object that can be updated at runtime
 let SCHEDULER_CONFIG = {
   // Scheduled Calculation Times - Only Phase 1 runs on schedule
-  PHASE1_DATA_COLLECTION_TIME: '19:00',    // Data collection (Stock, Index, Done Summary)
+  PHASE1_DATA_COLLECTION_TIME: '16:09',    // Data collection (Stock, Index, Done Summary)
   PHASE1_SHAREHOLDERS_TIME: '00:01',       // Shareholders & Holding (if first day of month)
   
   // Phase 2-6 are auto-triggered sequentially after Phase 1 completes
@@ -50,7 +50,10 @@ let SCHEDULER_CONFIG = {
   MEMORY_THRESHOLD: 12 * 1024 * 1024 * 1024, // 12GB threshold
   
   // Timezone
-  TIMEZONE: 'Asia/Jakarta'
+  TIMEZONE: 'Asia/Jakarta',
+  
+  // Weekend Skip
+  WEEKEND_SKIP: true
 };
 
 // Extract times for scheduler (will be updated when config changes)
@@ -87,6 +90,34 @@ let phaseStatus: Record<string, 'idle' | 'running' | 'stopped'> = {
   phase4_medium: 'idle',
   phase5_heavy: 'idle',
   phase6_very_heavy: 'idle'
+};
+
+// Phase enabled/disabled tracking
+let phaseEnabled: Record<string, boolean> = {
+  phase1_data_collection: true,
+  phase1_shareholders: true,
+  phase2_market_rotation: true,
+  phase3_light: true,
+  phase4_medium: true,
+  phase5_heavy: true,
+  phase6_very_heavy: true
+};
+
+// Phase trigger configuration: 'scheduled' (with time) or 'auto' (trigger after another phase)
+interface PhaseTriggerConfig {
+  type: 'scheduled' | 'auto';
+  schedule?: string | undefined; // For scheduled type: HH:MM format
+  triggerAfterPhase?: string | undefined; // For auto type: phase ID to trigger after
+}
+
+let phaseTriggerConfig: Record<string, PhaseTriggerConfig> = {
+  phase1_data_collection: { type: 'scheduled', schedule: PHASE1_DATA_COLLECTION_TIME },
+  phase1_shareholders: { type: 'scheduled', schedule: PHASE1_SHAREHOLDERS_TIME },
+  phase2_market_rotation: { type: 'auto', triggerAfterPhase: 'phase1_data_collection' },
+  phase3_light: { type: 'auto', triggerAfterPhase: 'phase2_market_rotation' },
+  phase4_medium: { type: 'auto', triggerAfterPhase: 'phase3_light' },
+  phase5_heavy: { type: 'auto', triggerAfterPhase: 'phase4_medium' },
+  phase6_very_heavy: { type: 'auto', triggerAfterPhase: 'phase5_heavy' }
 };
 const trendFilterService = new TrendFilterDataScheduler();
 const accumulationService = new AccumulationDataScheduler();
@@ -274,6 +305,13 @@ async function checkMemoryBeforeLargeOperation(operationName: string): Promise<b
  * Run Phase 2 - Market Rotation Calculations (RRC, RRG, Seasonal, Trend Filter)
  */
 export async function runPhase2MarketRotationCalculations(): Promise<void> {
+  // Check if phase is enabled before starting
+  if (!phaseEnabled['phase2_market_rotation']) {
+    console.log('⚠️ Phase 2 Market Rotation is disabled - skipping');
+    phaseStatus['phase2_market_rotation'] = 'idle';
+    return;
+  }
+  
   phaseStatus['phase2_market_rotation'] = 'running';
   const phaseStartTime = Date.now();
   console.log(`\n🚀 ===== PHASE 2 MARKET ROTATION STARTED =====`);
@@ -406,12 +444,16 @@ export async function runPhase2MarketRotationCalculations(): Promise<void> {
     // Stop memory monitoring for this phase
     stopMemoryMonitoring();
     
-    // Trigger Phase 3 automatically if Phase 2 succeeded
-    if (successCount >= 4) { // Trigger Phase 3 if at least 4/5 succeed
+    // Trigger Phase 3 automatically if Phase 2 succeeded and Phase 3 is enabled
+    if (successCount >= 4 && phaseEnabled['phase3_light']) { // Trigger Phase 3 if at least 4/5 succeed
       console.log('🔄 Triggering Phase 3 Light calculations...');
       await runPhase3LightCalculations();
     } else {
-      console.log('⚠️ Skipping Phase 3 due to insufficient Phase 2 success rate');
+      if (!phaseEnabled['phase3_light']) {
+        console.log('⚠️ Skipping Phase 3 - Phase 3 is disabled');
+      } else {
+        console.log('⚠️ Skipping Phase 3 due to insufficient Phase 2 success rate');
+      }
     }
     
     } catch (error) {
@@ -433,6 +475,12 @@ export async function runPhase2MarketRotationCalculations(): Promise<void> {
  * Run Phase 3 - Light Calculations (Money Flow, Foreign Flow, Break Done Trade)
  */
 export async function runPhase3LightCalculations(): Promise<void> {
+  // Check if phase is enabled before starting
+  if (!phaseEnabled['phase3_light']) {
+    console.log('⚠️ Phase 3 Light is disabled - skipping');
+    return;
+  }
+  
   phaseStatus['phase3_light'] = 'running';
   const phaseStartTime = Date.now();
   console.log(`\n🚀 ===== PHASE 3 LIGHT CALCULATIONS STARTED =====`);
@@ -561,12 +609,16 @@ export async function runPhase3LightCalculations(): Promise<void> {
     // Stop memory monitoring for this phase
     stopMemoryMonitoring();
     
-    // Trigger Phase 4 automatically if Phase 3 succeeded
-    if (successCount >= 2) { // Trigger Phase 4 if at least 2/3 succeed
+    // Trigger Phase 4 automatically if Phase 3 succeeded and Phase 4 is enabled
+    if (successCount >= 2 && phaseEnabled['phase4_medium']) { // Trigger Phase 4 if at least 2/3 succeed
       console.log('🔄 Triggering Phase 4 Medium calculations...');
       await runPhase4MediumCalculations();
       } else {
-      console.log('⚠️ Skipping Phase 4 due to insufficient Phase 3 success rate');
+        if (!phaseEnabled['phase4_medium']) {
+          console.log('⚠️ Skipping Phase 4 - Phase 4 is disabled');
+        } else {
+          console.log('⚠️ Skipping Phase 4 due to insufficient Phase 3 success rate');
+        }
       }
       
     } catch (error) {
@@ -624,7 +676,7 @@ export async function runPhase4MediumCalculations(): Promise<void> {
     console.log('🔄 Starting Bid/Ask Footprint calculation...');
     
     const bidAskStartTime = Date.now();
-    const bidAskResult = await bidAskService.generateBidAskData('all');
+    const bidAskResult = await bidAskService.generateBidAskData('all', logEntry?.id || null);
     const bidAskDuration = Math.round((Date.now() - bidAskStartTime) / 1000);
     
     console.log(`📊 Bid/Ask Footprint completed in ${bidAskDuration}s`);
@@ -669,12 +721,16 @@ export async function runPhase4MediumCalculations(): Promise<void> {
     // Stop memory monitoring for this phase
     stopMemoryMonitoring();
     
-    // Trigger Phase 5 automatically if Phase 4 succeeded
-    if (successCount >= 1) { // Trigger Phase 5 if at least 1/2 succeed
+    // Trigger Phase 5 automatically if Phase 4 succeeded and Phase 5 is enabled
+    if (successCount >= 1 && phaseEnabled['phase5_heavy']) { // Trigger Phase 5 if at least 1/2 succeed
       console.log('🔄 Triggering Phase 5 Heavy calculations...');
       await runPhase5HeavyCalculations();
     } else {
-      console.log('⚠️ Skipping Phase 5 due to Phase 4 failure');
+      if (!phaseEnabled['phase5_heavy']) {
+        console.log('⚠️ Skipping Phase 5 - Phase 5 is disabled');
+      } else {
+        console.log('⚠️ Skipping Phase 5 due to Phase 4 failure');
+      }
     }
     
     } catch (error) {
@@ -696,6 +752,12 @@ export async function runPhase4MediumCalculations(): Promise<void> {
  * Run Phase 5 - Heavy Calculations (Broker Data)
  */
 export async function runPhase5HeavyCalculations(): Promise<void> {
+  // Check if phase is enabled before starting
+  if (!phaseEnabled['phase5_heavy']) {
+    console.log('⚠️ Phase 5 Heavy is disabled - skipping');
+    return;
+  }
+  
   phaseStatus['phase5_heavy'] = 'running';
   const phaseStartTime = Date.now();
   console.log(`\n🚀 ===== PHASE 5 HEAVY CALCULATIONS STARTED =====`);
@@ -733,7 +795,7 @@ export async function runPhase5HeavyCalculations(): Promise<void> {
     
     console.log('🔄 Starting Broker Data calculation...');
     const brokerDataStartTime = Date.now();
-    const result = await brokerDataService.generateBrokerData('all');
+    const result = await brokerDataService.generateBrokerData('all', logEntry?.id || null);
     const brokerDataDuration = Math.round((Date.now() - brokerDataStartTime) / 1000);
     console.log(`📊 Broker Data completed in ${brokerDataDuration}s`);
 
@@ -794,12 +856,16 @@ export async function runPhase5HeavyCalculations(): Promise<void> {
     // Stop memory monitoring for this phase
     stopMemoryMonitoring();
     
-    // Trigger Phase 6 automatically if Phase 5 succeeded (at least 4/5 must succeed)
-    if (successCount >= 4) {
+    // Trigger Phase 6 automatically if Phase 5 succeeded and Phase 6 is enabled (at least 4/5 must succeed)
+    if (successCount >= 4 && phaseEnabled['phase6_very_heavy']) {
       console.log('🔄 Triggering Phase 6 Very Heavy calculations...');
       await runPhase6VeryHeavyCalculations();
       } else {
-      console.log('⚠️ Skipping Phase 6 due to Phase 5 failure');
+        if (!phaseEnabled['phase6_very_heavy']) {
+          console.log('⚠️ Skipping Phase 6 - Phase 6 is disabled');
+        } else {
+          console.log('⚠️ Skipping Phase 6 due to Phase 5 failure');
+        }
     }
     
   } catch (error) {
@@ -879,7 +945,8 @@ export async function runPhase6VeryHeavyCalculations(): Promise<void> {
       
       const calcStartTime = Date.now();
       try {
-        const result = await (calc.service as any)[calc.method]('all');
+        // Pass logId to calculator for progress tracking
+        const result = await (calc.service as any)[calc.method]('all', logEntry?.id || null);
         const calcDuration = Math.round((Date.now() - calcStartTime) / 1000);
       
       if (result.success) {
@@ -1017,6 +1084,13 @@ export async function runPhase1DataCollection(): Promise<void> {
         const startTime = Date.now();
         
         try {
+          // Check if phase is still enabled before starting task
+          if (!phaseEnabled['phase1_data_collection']) {
+            console.log(`⚠️ Phase 1 Data Collection disabled - stopping ${task.name}`);
+            phaseStatus['phase1_data_collection'] = 'idle';
+            return { name: task.name, success: false, error: 'Phase disabled', duration: 0 };
+          }
+          
           console.log(`🔄 Starting ${task.name} (${index + 1}/${totalTasks})...`);
           
           // Update progress in database
@@ -1029,6 +1103,13 @@ export async function runPhase1DataCollection(): Promise<void> {
           
           // Run calculation
           await (task.service as any)();
+          
+          // Check again after task completes
+          if (!phaseEnabled['phase1_data_collection']) {
+            console.log(`⚠️ Phase 1 Data Collection disabled during ${task.name} execution`);
+            phaseStatus['phase1_data_collection'] = 'idle';
+            return { name: task.name, success: false, error: 'Phase disabled during execution', duration: Date.now() - startTime };
+          }
           
           const duration = Date.now() - startTime;
           
@@ -1046,6 +1127,20 @@ export async function runPhase1DataCollection(): Promise<void> {
       
       // Wait for all calculations to complete
       const dataCollectionResults = await Promise.allSettled(dataCollectionPromises);
+      
+      // Check if phase was disabled during execution
+      if (!phaseEnabled['phase1_data_collection']) {
+        console.log('⚠️ Phase 1 Data Collection was disabled during execution - stopping');
+        phaseStatus['phase1_data_collection'] = 'idle';
+        if (logEntry) {
+          await SchedulerLogService.updateLog(logEntry.id!, {
+            status: 'cancelled',
+            completed_at: new Date().toISOString(),
+            current_processing: 'Phase disabled during execution'
+          });
+        }
+        return;
+      }
       
       // Process results
       const results: Array<{ name: string; success: boolean; error?: string; duration?: number }> = [];
@@ -1086,12 +1181,16 @@ export async function runPhase1DataCollection(): Promise<void> {
       // Cleanup after Phase 1
       await aggressiveMemoryCleanup();
       
-      // Trigger Phase 2 automatically if Phase 1 succeeded
-      if (successCount === totalTasks) {
+      // Trigger Phase 2 automatically if Phase 1 succeeded and Phase 2 is enabled
+      if (successCount === totalTasks && phaseEnabled['phase2_market_rotation']) {
         console.log('🔄 Triggering Phase 2 Market Rotation calculations...');
         await runPhase2MarketRotationCalculations();
       } else {
-        console.log('⚠️ Skipping Phase 2 due to Phase 1 failure');
+        if (!phaseEnabled['phase2_market_rotation']) {
+          console.log('⚠️ Skipping Phase 2 - Phase 2 is disabled');
+        } else {
+          console.log('⚠️ Skipping Phase 2 due to Phase 1 failure');
+        }
       }
       
     } catch (error) {
@@ -1107,6 +1206,30 @@ export async function runPhase1DataCollection(): Promise<void> {
   }
 }
 
+// Helper function to get phase name by ID
+function getPhaseName(phaseId: string): string {
+  const phaseNames: Record<string, string> = {
+    'phase1_data_collection': 'Phase 1 Data Collection',
+    'phase1_shareholders': 'Phase 1 Shareholders & Holding',
+    'phase2_market_rotation': 'Phase 2 Market Rotation',
+    'phase3_light': 'Phase 3 Light',
+    'phase4_medium': 'Phase 4 Medium',
+    'phase5_heavy': 'Phase 5 Heavy',
+    'phase6_very_heavy': 'Phase 6 Very Heavy'
+  };
+  return phaseNames[phaseId] || phaseId;
+}
+
+// Helper function to format trigger condition
+function formatTriggerCondition(config: PhaseTriggerConfig): string {
+  if (config.type === 'scheduled' && config.schedule) {
+    return `Daily at ${config.schedule} (${TIMEZONE})`;
+  } else if (config.type === 'auto' && config.triggerAfterPhase) {
+    return `Auto-triggered after ${getPhaseName(config.triggerAfterPhase)} completes`;
+  }
+  return 'Not configured';
+}
+
 /**
  * Get all phases status and configuration
  */
@@ -1115,92 +1238,132 @@ export function getAllPhasesStatus() {
   
   return {
     phases: [
-      {
-        id: 'phase1_data_collection',
-        name: 'Phase 1 Data Collection',
-        description: 'Stock Data, Index Data, Done Summary Data (7 days)',
-        status: phaseStatus['phase1_data_collection'],
-        trigger: {
-          type: 'scheduled',
-          schedule: PHASE1_DATA_COLLECTION_TIME,
-          condition: `Daily at ${PHASE1_DATA_COLLECTION_TIME} (${TIMEZONE})`
-        },
-        tasks: ['Stock Data', 'Index Data', 'Done Summary Data'],
-        mode: 'PARALLEL'
-      },
-      {
-        id: 'phase1_shareholders',
-        name: 'Phase 1 Shareholders & Holding',
-        description: 'Shareholders Data, Holding Data (Monthly check)',
-        status: phaseStatus['phase1_shareholders'],
-        trigger: {
-          type: 'scheduled',
-          schedule: PHASE1_SHAREHOLDERS_TIME,
-          condition: `Daily at ${PHASE1_SHAREHOLDERS_TIME} (${TIMEZONE}) - Only on 1st of month`
-        },
-        tasks: ['Shareholders Data', 'Holding Data'],
-        mode: 'PARALLEL'
-      },
-      {
-        id: 'phase2_market_rotation',
-        name: 'Phase 2 Market Rotation',
-        description: 'RRC, RRG, Seasonal, Trend Filter, Watchlist Snapshot',
-        status: phaseStatus['phase2_market_rotation'],
-        trigger: {
-          type: 'auto',
-          condition: 'Auto-triggered after Phase 1 Data Collection completes'
-        },
-        tasks: ['RRC', 'RRG', 'Seasonal', 'Trend Filter', 'Watchlist Snapshot'],
-        mode: 'PARALLEL'
-      },
-      {
-        id: 'phase3_light',
-        name: 'Phase 3 Light',
-        description: 'Money Flow, Foreign Flow, Break Done Trade',
-        status: phaseStatus['phase3_light'],
-        trigger: {
-          type: 'auto',
-          condition: 'Auto-triggered after Phase 2 completes'
-        },
-        tasks: ['Money Flow', 'Foreign Flow', 'Break Done Trade'],
-        mode: 'PARALLEL'
-      },
-      {
-        id: 'phase4_medium',
-        name: 'Phase 4 Medium',
-        description: 'Bid/Ask Footprint, Broker Breakdown (all dates)',
-        status: phaseStatus['phase4_medium'],
-        trigger: {
-          type: 'auto',
-          condition: 'Auto-triggered after Phase 3 completes'
-        },
-        tasks: ['Bid/Ask Footprint', 'Broker Breakdown'],
-        mode: 'SEQUENTIAL'
-      },
-      {
-        id: 'phase5_heavy',
-        name: 'Phase 5 Heavy',
-        description: 'Broker Data (Broker Summary + Top Broker), Broker Summary by Type (RG/TN/NG split), Broker Summary IDX (aggregated all emiten), Broker Transaction (all types), Broker Transaction RG/TN/NG (split by type) - all dates',
-        status: phaseStatus['phase5_heavy'],
-        trigger: {
-          type: 'auto',
-          condition: 'Auto-triggered after Phase 4 completes'
-        },
-        tasks: ['Broker Data', 'Broker Summary by Type', 'Broker Summary IDX', 'Broker Transaction', 'Broker Transaction RG/TN/NG'],
-        mode: 'SEQUENTIAL'
-      },
-      {
-        id: 'phase6_very_heavy',
-        name: 'Phase 6 Very Heavy',
-        description: 'Broker Inventory, Accumulation Distribution (sequential)',
-        status: phaseStatus['phase6_very_heavy'],
-        trigger: {
-          type: 'auto',
-          condition: 'Auto-triggered after Phase 5 completes'
-        },
-        tasks: ['Broker Inventory', 'Accumulation Distribution'],
-        mode: 'SEQUENTIAL'
-      }
+      (() => {
+        const config1 = phaseTriggerConfig['phase1_data_collection']!;
+        return {
+          id: 'phase1_data_collection',
+          name: 'Phase 1 Data Collection',
+          description: 'Stock Data, Index Data, Done Summary Data (7 days)',
+          status: phaseStatus['phase1_data_collection'],
+          enabled: phaseEnabled['phase1_data_collection'],
+          trigger: {
+            type: config1.type,
+            schedule: config1.schedule,
+            triggerAfterPhase: config1.triggerAfterPhase,
+            condition: formatTriggerCondition(config1)
+          },
+          tasks: ['Stock Data', 'Index Data', 'Done Summary Data'],
+          mode: 'PARALLEL' as const
+        };
+      })(),
+      (() => {
+        const config2 = phaseTriggerConfig['phase1_shareholders']!;
+        return {
+          id: 'phase1_shareholders',
+          name: 'Phase 1 Shareholders & Holding',
+          description: 'Shareholders Data, Holding Data (Monthly check)',
+          status: phaseStatus['phase1_shareholders'],
+          enabled: phaseEnabled['phase1_shareholders'],
+          trigger: {
+            type: config2.type,
+            schedule: config2.schedule,
+            triggerAfterPhase: config2.triggerAfterPhase,
+            condition: formatTriggerCondition(config2)
+          },
+          tasks: ['Shareholders Data', 'Holding Data'],
+          mode: 'PARALLEL' as const
+        };
+      })(),
+      (() => {
+        const config3 = phaseTriggerConfig['phase2_market_rotation']!;
+        return {
+          id: 'phase2_market_rotation',
+          name: 'Phase 2 Market Rotation',
+          description: 'RRC, RRG, Seasonal, Trend Filter, Watchlist Snapshot',
+          status: phaseStatus['phase2_market_rotation'],
+          enabled: phaseEnabled['phase2_market_rotation'],
+          trigger: {
+            type: config3.type,
+            schedule: config3.schedule,
+            triggerAfterPhase: config3.triggerAfterPhase,
+            condition: formatTriggerCondition(config3)
+          },
+          tasks: ['RRC', 'RRG', 'Seasonal', 'Trend Filter', 'Watchlist Snapshot'],
+          mode: 'PARALLEL' as const
+        };
+      })(),
+      (() => {
+        const config4 = phaseTriggerConfig['phase3_light']!;
+        return {
+          id: 'phase3_light',
+          name: 'Phase 3 Light',
+          description: 'Money Flow, Foreign Flow, Break Done Trade',
+          status: phaseStatus['phase3_light'],
+          enabled: phaseEnabled['phase3_light'],
+          trigger: {
+            type: config4.type,
+            schedule: config4.schedule,
+            triggerAfterPhase: config4.triggerAfterPhase,
+            condition: formatTriggerCondition(config4)
+          },
+          tasks: ['Money Flow', 'Foreign Flow', 'Break Done Trade'],
+          mode: 'PARALLEL' as const
+        };
+      })(),
+      (() => {
+        const config5 = phaseTriggerConfig['phase4_medium']!;
+        return {
+          id: 'phase4_medium',
+          name: 'Phase 4 Medium',
+          description: 'Bid/Ask Footprint, Broker Breakdown (all dates)',
+          status: phaseStatus['phase4_medium'],
+          enabled: phaseEnabled['phase4_medium'],
+          trigger: {
+            type: config5.type,
+            schedule: config5.schedule,
+            triggerAfterPhase: config5.triggerAfterPhase,
+            condition: formatTriggerCondition(config5)
+          },
+          tasks: ['Bid/Ask Footprint', 'Broker Breakdown'],
+          mode: 'SEQUENTIAL' as const
+        };
+      })(),
+      (() => {
+        const config6 = phaseTriggerConfig['phase5_heavy']!;
+        return {
+          id: 'phase5_heavy',
+          name: 'Phase 5 Heavy',
+          description: 'Broker Data (Broker Summary + Top Broker), Broker Summary by Type (RG/TN/NG split), Broker Summary IDX (aggregated all emiten), Broker Transaction (all types), Broker Transaction RG/TN/NG (split by type) - all dates',
+          status: phaseStatus['phase5_heavy'],
+          enabled: phaseEnabled['phase5_heavy'],
+          trigger: {
+            type: config6.type,
+            schedule: config6.schedule,
+            triggerAfterPhase: config6.triggerAfterPhase,
+            condition: formatTriggerCondition(config6)
+          },
+          tasks: ['Broker Data', 'Broker Summary by Type', 'Broker Summary IDX', 'Broker Transaction', 'Broker Transaction RG/TN/NG'],
+          mode: 'SEQUENTIAL' as const
+        };
+      })(),
+      (() => {
+        const config7 = phaseTriggerConfig['phase6_very_heavy']!;
+        return {
+          id: 'phase6_very_heavy',
+          name: 'Phase 6 Very Heavy',
+          description: 'Broker Inventory, Accumulation Distribution (sequential)',
+          status: phaseStatus['phase6_very_heavy'],
+          enabled: phaseEnabled['phase6_very_heavy'],
+          trigger: {
+            type: config7.type,
+            schedule: config7.schedule,
+            triggerAfterPhase: config7.triggerAfterPhase,
+            condition: formatTriggerCondition(config7)
+          },
+          tasks: ['Broker Inventory', 'Accumulation Distribution'],
+          mode: 'SEQUENTIAL' as const
+        };
+      })()
     ],
     scheduler: {
       running: status.running,
@@ -1212,10 +1375,146 @@ export function getAllPhasesStatus() {
 }
 
 /**
+ * Stop a running phase by setting its status to idle
+ */
+function stopRunningPhase(phaseId: string): void {
+  if (phaseStatus[phaseId] === 'running') {
+    phaseStatus[phaseId] = 'idle';
+    console.log(`🛑 Phase ${phaseId} stopped (was running)`);
+  }
+}
+
+/**
+ * Toggle phase enabled/disabled status
+ */
+export function togglePhaseEnabled(phaseId: string, enabled: boolean): { success: boolean; message: string } {
+  if (!phaseEnabled.hasOwnProperty(phaseId)) {
+    return { success: false, message: `Unknown phase: ${phaseId}` };
+  }
+  
+  // If disabling and phase is currently running, stop it
+  if (!enabled && phaseStatus[phaseId] === 'running') {
+    stopRunningPhase(phaseId);
+  }
+  
+  phaseEnabled[phaseId] = enabled;
+  console.log(`✅ Phase ${phaseId} ${enabled ? 'enabled' : 'disabled'}`);
+  
+  return { 
+    success: true, 
+    message: `Phase ${phaseId} ${enabled ? 'enabled' : 'disabled'} successfully` 
+  };
+}
+
+/**
+ * Toggle all phases enabled/disabled status
+ */
+export function toggleAllPhasesEnabled(enabled: boolean): { success: boolean; message: string } {
+  const phaseIds = Object.keys(phaseEnabled);
+  
+  // If disabling, stop all running phases
+  if (!enabled) {
+    phaseIds.forEach(phaseId => {
+      if (phaseStatus[phaseId] === 'running') {
+        stopRunningPhase(phaseId);
+      }
+    });
+  }
+  
+  phaseIds.forEach(phaseId => {
+    phaseEnabled[phaseId] = enabled;
+  });
+  console.log(`✅ All phases ${enabled ? 'enabled' : 'disabled'}`);
+  
+  return { 
+    success: true, 
+    message: `All phases ${enabled ? 'enabled' : 'disabled'} successfully` 
+  };
+}
+
+/**
+ * Update phase trigger configuration
+ */
+export function updatePhaseTriggerConfig(
+  phaseId: string, 
+  triggerType: 'scheduled' | 'auto', 
+  schedule?: string, 
+  triggerAfterPhase?: string
+): { success: boolean; message: string } {
+  if (!phaseTriggerConfig.hasOwnProperty(phaseId)) {
+    return { success: false, message: `Unknown phase: ${phaseId}` };
+  }
+  
+  // Validate time format if scheduled
+  if (triggerType === 'scheduled' && schedule) {
+    const timeFormatRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    if (!timeFormatRegex.test(schedule)) {
+      return { success: false, message: 'Invalid time format. Use HH:MM format (e.g., 19:00)' };
+    }
+    
+    // Update config for Phase 1 phases
+    if (phaseId === 'phase1_data_collection') {
+      SCHEDULER_CONFIG.PHASE1_DATA_COLLECTION_TIME = schedule;
+      PHASE1_DATA_COLLECTION_TIME = schedule;
+      PHASE1_DATA_COLLECTION_SCHEDULE = timeToCron(schedule);
+    } else if (phaseId === 'phase1_shareholders') {
+      SCHEDULER_CONFIG.PHASE1_SHAREHOLDERS_TIME = schedule;
+      PHASE1_SHAREHOLDERS_TIME = schedule;
+      PHASE1_SHAREHOLDERS_SCHEDULE = timeToCron(schedule);
+    }
+  }
+  
+  // Validate triggerAfterPhase if auto
+  if (triggerType === 'auto' && triggerAfterPhase) {
+    if (!phaseTriggerConfig.hasOwnProperty(triggerAfterPhase)) {
+      return { success: false, message: `Unknown triggerAfterPhase: ${triggerAfterPhase}` };
+    }
+    // Prevent circular dependency
+    if (triggerAfterPhase === phaseId) {
+      return { success: false, message: 'Phase cannot trigger after itself' };
+    }
+  }
+  
+  // Update trigger config
+  const newConfig: PhaseTriggerConfig = {
+    type: triggerType
+  };
+  if (triggerType === 'scheduled' && schedule) {
+    newConfig.schedule = schedule;
+  }
+  if (triggerType === 'auto' && triggerAfterPhase) {
+    newConfig.triggerAfterPhase = triggerAfterPhase;
+  }
+  phaseTriggerConfig[phaseId] = newConfig;
+  
+  console.log(`✅ Phase ${phaseId} trigger config updated:`, phaseTriggerConfig[phaseId]);
+  
+  // Restart scheduler if Phase 1 schedule changed
+  if (triggerType === 'scheduled' && (phaseId === 'phase1_data_collection' || phaseId === 'phase1_shareholders')) {
+    restartScheduler();
+  }
+  
+  return { 
+    success: true, 
+    message: `Phase ${phaseId} trigger configuration updated successfully` 
+  };
+}
+
+/**
  * Trigger a specific phase manually
  */
 export async function triggerPhase(phaseId: string): Promise<{ success: boolean; message: string }> {
   try {
+    // Check if phase is enabled
+    if (!phaseEnabled[phaseId]) {
+      return { success: false, message: `Phase ${phaseId} is disabled. Please enable it first.` };
+    }
+    
+    // Check if phase is already running
+    if (phaseStatus[phaseId] === 'running') {
+      return { success: false, message: `Phase ${phaseId} is already running` };
+    }
+    
     switch (phaseId) {
       case 'phase1_data_collection':
         await runPhase1DataCollection();
@@ -1261,6 +1560,13 @@ export function startScheduler(): void {
 
   // 1. Schedule Phase 1 - Data Collection (Stock, Index, Done Summary)
   const phase1DataCollectionTask = cron.schedule(PHASE1_DATA_COLLECTION_SCHEDULE, async () => {
+    // Check if phase is enabled before starting
+    if (!phaseEnabled['phase1_data_collection']) {
+      console.log('⚠️ Phase 1 Data Collection is disabled - skipping');
+      phaseStatus['phase1_data_collection'] = 'idle';
+      return;
+    }
+    
     phaseStatus['phase1_data_collection'] = 'running';
     try {
       const phaseStartTime = Date.now();
@@ -1316,14 +1622,21 @@ export function startScheduler(): void {
       const totalTasks = dataCollectionTasks.length;
       
       const dataCollectionPromises = dataCollectionTasks.map(async (task, index) => {
-    const startTime = Date.now();
-    
-    try {
+        const startTime = Date.now();
+        
+        try {
+          // Check if phase is still enabled before starting task
+          if (!phaseEnabled['phase1_data_collection']) {
+            console.log(`⚠️ Phase 1 Data Collection disabled - stopping ${task.name}`);
+            phaseStatus['phase1_data_collection'] = 'idle';
+            return { name: task.name, success: false, error: 'Phase disabled', duration: 0 };
+          }
+          
           console.log(`🔄 Starting ${task.name} (${index + 1}/${totalTasks})...`);
-      
-      // Update progress in database
-      if (logEntry) {
-        await SchedulerLogService.updateLog(logEntry.id!, {
+          
+          // Update progress in database
+          if (logEntry) {
+            await SchedulerLogService.updateLog(logEntry.id!, {
               progress_percentage: Math.round((index / totalTasks) * 100),
               current_processing: `Running ${task.name}...`
             });
@@ -1331,37 +1644,58 @@ export function startScheduler(): void {
           
           // Run calculation
           await (task.service as any)();
-      
-      const duration = Date.now() - startTime;
-      
-        // If we reach here without throwing an error, the task succeeded
-        console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
-        return { name: task.name, success: true, duration };
-      
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          
+          // Check again after task completes
+          if (!phaseEnabled['phase1_data_collection']) {
+            console.log(`⚠️ Phase 1 Data Collection disabled during ${task.name} execution`);
+            phaseStatus['phase1_data_collection'] = 'idle';
+            return { name: task.name, success: false, error: 'Phase disabled during execution', duration: Date.now() - startTime };
+          }
+          
+          const duration = Date.now() - startTime;
+          
+          // If we reach here without throwing an error, the task succeeded
+          console.log(`✅ ${task.name} completed in ${Math.round(duration / 1000)}s`);
+          return { name: task.name, success: true, duration };
+          
+        } catch (error) {
+          const duration = Date.now() - startTime;
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
           console.error(`❌ ${task.name} failed:`, errorMessage);
           return { name: task.name, success: false, error: errorMessage, duration };
-    }
-  });
-  
-  // Wait for all calculations to complete
+        }
+      });
+      
+      // Wait for all calculations to complete
       const dataCollectionResults = await Promise.allSettled(dataCollectionPromises);
-  
-  // Process results
+      
+      // Check if phase was disabled during execution
+      if (!phaseEnabled['phase1_data_collection']) {
+        console.log('⚠️ Phase 1 Data Collection was disabled during execution - stopping');
+        phaseStatus['phase1_data_collection'] = 'idle';
+        if (logEntry) {
+          await SchedulerLogService.updateLog(logEntry.id!, {
+            status: 'cancelled',
+            completed_at: new Date().toISOString(),
+            current_processing: 'Phase disabled during execution'
+          });
+        }
+        return;
+      }
+      
+      // Process results
       const results: Array<{ name: string; success: boolean; error?: string; duration?: number }> = [];
       dataCollectionResults.forEach((result, index) => {
-    if (result.status === 'fulfilled') {
-      results.push(result.value);
-    } else {
-      results.push({
+        if (result.status === 'fulfilled') {
+          results.push(result.value);
+        } else {
+          results.push({
             name: dataCollectionTasks[index]?.name || 'Unknown',
-        success: false,
-        error: result.reason instanceof Error ? result.reason.message : 'Unknown error'
+            success: false,
+            error: result.reason instanceof Error ? result.reason.message : 'Unknown error'
+          });
+        }
       });
-    }
-  });
   
       const successCount = results.filter(r => r.success).length;
       const phaseEndTime = new Date();
@@ -1388,12 +1722,16 @@ export function startScheduler(): void {
       // Cleanup after Phase 1 Data Collection
       await aggressiveMemoryCleanup();
       
-      // Trigger Phase 2 automatically if Phase 1 succeeded
-      if (successCount >= Math.ceil(totalTasks * 0.67)) { // Trigger Phase 2 if at least ~2/3 succeed
+      // Trigger Phase 2 automatically if Phase 1 succeeded and Phase 2 is enabled
+      if (successCount >= Math.ceil(totalTasks * 0.67) && phaseEnabled['phase2_market_rotation']) { // Trigger Phase 2 if at least ~2/3 succeed
         console.log('🔄 Triggering Phase 2 Market Rotation calculations...');
         await runPhase2MarketRotationCalculations();
       } else {
-        console.log('⚠️ Skipping Phase 2 due to insufficient Phase 1 success rate');
+        if (!phaseEnabled['phase2_market_rotation']) {
+          console.log('⚠️ Skipping Phase 2 - Phase 2 is disabled');
+        } else {
+          console.log('⚠️ Skipping Phase 2 due to insufficient Phase 1 success rate');
+        }
       }
       
       } catch (error) {
@@ -1585,6 +1923,10 @@ export function startScheduler(): void {
   console.log(`  ⏭️  Weekend skip: ENABLED (Sat/Sun) - All scheduled phases skip weekend\n`);
 
   schedulerRunning = true;
+  
+  // Enable all phases when scheduler starts
+  toggleAllPhasesEnabled(true);
+  
   console.log('✅ Scheduler started successfully');
 }
 
@@ -1605,6 +1947,10 @@ export function stopScheduler(): void {
   scheduledTasks = [];
   
   schedulerRunning = false;
+  
+  // Disable all phases when scheduler stops
+  toggleAllPhasesEnabled(false);
+  
   console.log('✅ Scheduler stopped');
 }
 
@@ -1625,8 +1971,11 @@ export function getSchedulerStatus() {
       phase5Heavy: 'Auto-triggered after Phase 4',
       phase6VeryHeavy: 'Auto-triggered after Phase 5'
     },
-    memoryThreshold: '12GB',
-    weekendSkip: true
+    memoryThreshold: (() => {
+      const memoryGB = SCHEDULER_CONFIG.MEMORY_THRESHOLD / (1024 * 1024 * 1024);
+      return `${memoryGB}GB`;
+    })(),
+    weekendSkip: SCHEDULER_CONFIG.WEEKEND_SKIP
   };
 }
 

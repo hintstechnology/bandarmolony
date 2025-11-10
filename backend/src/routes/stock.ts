@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express from 'express';
 import { downloadText, listPaths } from '../utils/azureBlob';
 
 // Sector mapping (same as stockDataUpdateService.ts)
@@ -695,7 +695,7 @@ async function handleStockListWithCompany(_req: express.Request, res: express.Re
       error: 'Failed to get stock list with company names'
     });
   }
-});
+}
 
 // Handler function for stock detail (shared logic)
 async function handleStockDetail(req: express.Request, res: express.Response) {
@@ -821,7 +821,7 @@ router.get('/:stockCode', async (req, res, next) => {
     return handleStockDetail(req, res);
   }
   // If not a valid stock code, pass to next middleware (might be handled by other routes)
-  next();
+  return next();
 });
 
 export default router;

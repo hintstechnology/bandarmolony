@@ -2650,5 +2650,46 @@ export const api = {
     }
   },
 
+  async togglePhaseEnabled(phaseId: string, enabled: boolean): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const response = await fetch(`${API_URL}/api/developer/scheduler/phases/${phaseId}/enable`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+        },
+        body: JSON.stringify({ enabled })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to toggle phase enabled status');
+      return { success: true, message: data.message };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to toggle phase enabled status' };
+    }
+  },
+
+  async updatePhaseTriggerConfig(
+    phaseId: string, 
+    triggerType: 'scheduled' | 'auto', 
+    schedule?: string, 
+    triggerAfterPhase?: string
+  ): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const response = await fetch(`${API_URL}/api/developer/scheduler/phases/${phaseId}/trigger-config`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+        },
+        body: JSON.stringify({ triggerType, schedule, triggerAfterPhase })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to update phase trigger config');
+      return { success: true, message: data.message };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to update phase trigger config' };
+    }
+  },
+
 
 };

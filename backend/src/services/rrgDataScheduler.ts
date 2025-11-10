@@ -29,7 +29,7 @@ let generationProgress = {
 // Helper functions removed as they're not used in current implementation
 
 // Main RRG auto-generation function
-export async function preGenerateAllRRG(forceOverride: boolean = false, triggerType: 'startup' | 'scheduled' | 'manual' | 'debug' = 'startup'): Promise<void> {
+export async function preGenerateAllRRG(forceOverride: boolean = false, triggerType: 'startup' | 'scheduled' | 'manual' | 'debug' = 'startup', logId?: string | null): Promise<void> {
   const SCHEDULER_TYPE = 'rrg';
   
   if (isGenerating) {
@@ -40,23 +40,26 @@ export async function preGenerateAllRRG(forceOverride: boolean = false, triggerT
   isGenerating = true;
   lastGenerationTime = new Date();
   
-  // Create log entry
-  const logEntry = await SchedulerLogService.createLog({
-    feature_name: 'rrg',
-    trigger_type: triggerType,
-    triggered_by: triggerType === 'manual' ? 'user' : 'system',
-    status: 'running',
-    force_override: forceOverride,
-    environment: process.env['NODE_ENV'] || 'development'
-  });
+  // Only create log entry if logId is not provided (called from scheduler, not manual trigger)
+  let finalLogId = logId;
+  if (!finalLogId) {
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'rrg',
+      trigger_type: triggerType,
+      triggered_by: triggerType === 'manual' ? 'user' : 'system',
+      status: 'running',
+      force_override: forceOverride,
+      environment: process.env['NODE_ENV'] || 'development'
+    });
 
-  if (!logEntry) {
-    console.error('❌ Failed to create scheduler log entry');
-    isGenerating = false;
-    return;
+    if (!logEntry) {
+      console.error('❌ Failed to create scheduler log entry');
+      isGenerating = false;
+      return;
+    }
+
+    finalLogId = logEntry.id!;
   }
-
-  const logId = logEntry.id!;
   
   try {
     await AzureLogger.logSchedulerStart(SCHEDULER_TYPE, `RRG auto-generation (${triggerType}) - ${forceOverride ? 'FORCE OVERRIDE' : 'SKIP EXISTING FILES'}`);
@@ -87,13 +90,15 @@ export async function preGenerateAllRRG(forceOverride: boolean = false, triggerT
         console.log(`   - Stocks: ${completenessCheck.missingCounts.stocks} files exist`);
         console.log(`   - Sectors: ${completenessCheck.missingCounts.sectors} files exist`);
         console.log(`   - Indexes: ${completenessCheck.missingCounts.indexes} files exist`);
-        await SchedulerLogService.updateLog(logId, {
-          status: 'completed',
-          progress_percentage: 100.00,
-          current_processing: 'All files already processed',
-          total_files_processed: completenessCheck.missingCounts.stocks + completenessCheck.missingCounts.sectors + completenessCheck.missingCounts.indexes,
-          files_skipped: completenessCheck.missingCounts.stocks + completenessCheck.missingCounts.sectors + completenessCheck.missingCounts.indexes
-        });
+        if (finalLogId) {
+          await SchedulerLogService.updateLog(finalLogId, {
+            status: 'completed',
+            progress_percentage: 100.00,
+            current_processing: 'All files already processed',
+            total_files_processed: completenessCheck.missingCounts.stocks + completenessCheck.missingCounts.sectors + completenessCheck.missingCounts.indexes,
+            files_skipped: completenessCheck.missingCounts.stocks + completenessCheck.missingCounts.sectors + completenessCheck.missingCounts.indexes
+          });
+        }
         isGenerating = false;
         return;
       }
@@ -166,10 +171,12 @@ export async function preGenerateAllRRG(forceOverride: boolean = false, triggerT
       generationProgress.completed = stockProcessed;
       generationProgress.errors = stockFailed;
       
-      await SchedulerLogService.updateLog(logId, {
-        progress_percentage: Math.round((generationProgress.completed / generationProgress.total) * 100),
-        current_processing: `Completed stock batch ${Math.floor(i / STOCK_BATCH_SIZE) + 1}/${Math.ceil(stocks.length / STOCK_BATCH_SIZE)} - ${stockProcessed}/${stocks.length} stocks`
-      });
+      if (finalLogId) {
+        await SchedulerLogService.updateLog(finalLogId, {
+          progress_percentage: Math.round((generationProgress.completed / generationProgress.total) * 100),
+          current_processing: `Completed stock batch ${Math.floor(i / STOCK_BATCH_SIZE) + 1}/${Math.ceil(stocks.length / STOCK_BATCH_SIZE)} - ${stockProcessed}/${stocks.length} stocks`
+        });
+      }
       
       // Small delay for event loop breathing room
       if (i + STOCK_BATCH_SIZE < stocks.length) {
@@ -187,10 +194,12 @@ export async function preGenerateAllRRG(forceOverride: boolean = false, triggerT
       generationProgress.completed = stockProcessed + sectorProcessed;
       generationProgress.errors = stockFailed + sectorFailed;
       
-      await SchedulerLogService.updateLog(logId, {
-        progress_percentage: Math.round((generationProgress.completed / generationProgress.total) * 100),
-        current_processing: generationProgress.current
-      });
+      if (finalLogId) {
+        await SchedulerLogService.updateLog(finalLogId, {
+          progress_percentage: Math.round((generationProgress.completed / generationProgress.total) * 100),
+          current_processing: generationProgress.current
+        });
+      }
 
       sectorProcessed++;
       
@@ -229,10 +238,12 @@ export async function preGenerateAllRRG(forceOverride: boolean = false, triggerT
       generationProgress.completed = stockProcessed + sectorProcessed + indexProcessed;
       generationProgress.errors = stockFailed + sectorFailed + indexFailed;
       
-      await SchedulerLogService.updateLog(logId, {
-        progress_percentage: Math.round((generationProgress.completed / generationProgress.total) * 100),
-        current_processing: generationProgress.current
-      });
+      if (finalLogId) {
+        await SchedulerLogService.updateLog(finalLogId, {
+          progress_percentage: Math.round((generationProgress.completed / generationProgress.total) * 100),
+          current_processing: generationProgress.current
+        });
+      }
 
       indexProcessed++;
       
@@ -260,10 +271,12 @@ export async function preGenerateAllRRG(forceOverride: boolean = false, triggerT
     generationProgress.current = 'Generating stock scanner...';
     generationProgress.completed = stockProcessed + sectorProcessed + indexProcessed;
     
-    await SchedulerLogService.updateLog(logId, {
-      progress_percentage: Math.round((generationProgress.completed / generationProgress.total) * 100),
-      current_processing: generationProgress.current
-    });
+    if (finalLogId) {
+      await SchedulerLogService.updateLog(finalLogId, {
+        progress_percentage: Math.round((generationProgress.completed / generationProgress.total) * 100),
+        current_processing: generationProgress.current
+      });
+    }
 
     try {
       await generateRrgStockScanner();
@@ -277,10 +290,12 @@ export async function preGenerateAllRRG(forceOverride: boolean = false, triggerT
     generationProgress.current = 'Generating sector scanner...';
     generationProgress.completed = stockProcessed + sectorProcessed + indexProcessed + 1;
     
-    await SchedulerLogService.updateLog(logId, {
-      progress_percentage: Math.round((generationProgress.completed / generationProgress.total) * 100),
-      current_processing: generationProgress.current
-    });
+    if (finalLogId) {
+      await SchedulerLogService.updateLog(finalLogId, {
+        progress_percentage: Math.round((generationProgress.completed / generationProgress.total) * 100),
+        current_processing: generationProgress.current
+      });
+    }
 
     try {
       await generateRrgSectorScanner();
@@ -295,22 +310,24 @@ export async function preGenerateAllRRG(forceOverride: boolean = false, triggerT
     generationProgress.completed = generationProgress.total;
     generationProgress.current = 'Completed';
     
-    await SchedulerLogService.markCompleted(logId, {
-      total_files_processed: stockProcessed + sectorProcessed + indexProcessed + 2,
-      files_created: filesCreated,
-      files_updated: filesUpdated,
-      files_skipped: filesSkipped,
-      files_failed: filesFailed,
-      stock_processed: stockProcessed,
-      stock_success: stockSuccess,
-      stock_failed: stockFailed,
-      sector_processed: sectorProcessed,
-      sector_success: sectorSuccess,
-      sector_failed: sectorFailed,
-      index_processed: indexProcessed,
-      index_success: indexSuccess,
-      index_failed: indexFailed
-    });
+    if (finalLogId) {
+      await SchedulerLogService.markCompleted(finalLogId, {
+        total_files_processed: stockProcessed + sectorProcessed + indexProcessed + 2,
+        files_created: filesCreated,
+        files_updated: filesUpdated,
+        files_skipped: filesSkipped,
+        files_failed: filesFailed,
+        stock_processed: stockProcessed,
+        stock_success: stockSuccess,
+        stock_failed: stockFailed,
+        sector_processed: sectorProcessed,
+        sector_success: sectorSuccess,
+        sector_failed: sectorFailed,
+        index_processed: indexProcessed,
+        index_success: indexSuccess,
+        index_failed: indexFailed
+      });
+    }
 
     await AzureLogger.logSchedulerEnd(SCHEDULER_TYPE, {
       success: filesCreated,
@@ -324,7 +341,9 @@ export async function preGenerateAllRRG(forceOverride: boolean = false, triggerT
   } catch (error) {
     await AzureLogger.logSchedulerError(SCHEDULER_TYPE, error instanceof Error ? error.message : 'Unknown error');
     
-    await SchedulerLogService.markFailed(logId, 'RRG auto-generation failed', error);
+    if (finalLogId) {
+      await SchedulerLogService.markFailed(finalLogId, 'RRG auto-generation failed', error);
+    }
     
     generationProgress.errors++;
   } finally {

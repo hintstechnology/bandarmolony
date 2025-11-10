@@ -23,7 +23,7 @@ export function ManualTriggerControl() {
   const [runningTasks, setRunningTasks] = useState<RunningTask[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Load running tasks
+  // Load running tasks - only manual triggers from Data Input Updates or Data Calculations (not from SchedulerConfigControl)
   const loadRunningTasks = async () => {
     setLoading(true);
     try {
@@ -34,16 +34,22 @@ export function ManualTriggerControl() {
       });
 
       if (result.success && result.data) {
-        const tasks: RunningTask[] = result.data.map((log: any) => ({
-          logId: log.id,
-          featureName: log.feature_name,
-          triggerType: log.trigger_type,
-          status: log.status,
-          progress: log.progress_percentage || 0,
-          currentProcessing: log.current_processing,
-          startedAt: log.started_at,
-          triggeredBy: log.triggered_by
-        }));
+        // Filter: only manual triggers that are NOT phase triggers (phase triggers go to Scheduler Data Progress)
+        const tasks: RunningTask[] = result.data
+          .filter((log: any) => 
+            log.trigger_type === 'manual' && 
+            !log.feature_name.startsWith('phase')
+          )
+          .map((log: any) => ({
+            logId: log.id,
+            featureName: log.feature_name,
+            triggerType: log.trigger_type,
+            status: log.status,
+            progress: log.progress_percentage || 0,
+            currentProcessing: log.current_processing,
+            startedAt: log.started_at,
+            triggeredBy: log.triggered_by
+          }));
         setRunningTasks(tasks);
       }
     } catch (error) {

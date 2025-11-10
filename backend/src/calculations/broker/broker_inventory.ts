@@ -279,7 +279,7 @@ export class BrokerInventoryCalculator {
   /**
    * Main function to generate broker inventory data
    */
-  public async generateBrokerInventoryData(_dateSuffix: string): Promise<void> {
+  public async generateBrokerInventoryData(_dateSuffix: string, logId?: string | null): Promise<void> {
     console.log("Starting broker inventory analysis for ALL available dates...");
     
     try {
@@ -295,9 +295,23 @@ export class BrokerInventoryCalculator {
       const allBrokerData = new Map<string, Map<string, BrokerTransactionData[]>>();
       
       // For each date, list brokers available for that date
-      for (const date of dates) {
+      for (let dateIndex = 0; dateIndex < dates.length; dateIndex++) {
+        const date = dates[dateIndex];
+        if (!date) {
+          console.log(`Skip undefined date at index ${dateIndex}`);
+          continue;
+        }
+        
         console.log(`Loading data for date: ${date}`);
         
+        // Update progress
+        if (logId) {
+          const { SchedulerLogService } = await import('../../services/schedulerLogService');
+          await SchedulerLogService.updateLog(logId, {
+            progress_percentage: Math.round(((dateIndex + 1) / dates.length) * 50), // First 50% for loading data
+            current_processing: `Loading broker transaction data for date ${date} (${dateIndex + 1}/${dates.length})`
+          });
+        }
         
         const brokerMap = new Map<string, BrokerTransactionData[]>();
         
@@ -312,6 +326,9 @@ export class BrokerInventoryCalculator {
         }
         
         for (const brokerCode of brokersForDate) {
+          if (!brokerCode) {
+            continue;
+          }
           const brokerData = await this.loadBrokerTransactionDataFromAzure(brokerCode, date);
           if (brokerData.length > 0) {
             brokerMap.set(brokerCode, brokerData);
@@ -319,6 +336,15 @@ export class BrokerInventoryCalculator {
         }
         
         allBrokerData.set(date, brokerMap);
+      }
+      
+      // Update progress for file creation phase
+      if (logId) {
+        const { SchedulerLogService } = await import('../../services/schedulerLogService');
+        await SchedulerLogService.updateLog(logId, {
+          progress_percentage: 50,
+          current_processing: 'Creating broker inventory files...'
+        });
       }
       
       // Create broker inventory files (per broker-emiten combination)

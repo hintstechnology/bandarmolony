@@ -190,7 +190,7 @@ async function processIndex(
 }
 
 // Main update function
-export async function updateIndexData(): Promise<void> {
+export async function updateIndexData(logId?: string | null): Promise<void> {
   const SCHEDULER_TYPE = 'index';
   
   // Skip if weekend
@@ -203,22 +203,26 @@ export async function updateIndexData(): Promise<void> {
     return;
   }
   
-  const logEntry = await SchedulerLogService.createLog({
-    feature_name: 'index',
-    trigger_type: 'scheduled',
-    triggered_by: 'system',
-    status: 'running',
-    force_override: false,
-    environment: process.env['NODE_ENV'] || 'development',
-    started_at: getJakartaTime()
-  });
+  // Only create log entry if logId is not provided (called from scheduler, not manual trigger)
+  let finalLogId = logId;
+  if (!finalLogId) {
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'index',
+      trigger_type: 'scheduled',
+      triggered_by: 'system',
+      status: 'running',
+      force_override: false,
+      environment: process.env['NODE_ENV'] || 'development',
+      started_at: getJakartaTime()
+    });
 
-  if (!logEntry) {
-    console.error('❌ Failed to create scheduler log entry');
-    return;
+    if (!logEntry) {
+      console.error('❌ Failed to create scheduler log entry');
+      return;
+    }
+
+    finalLogId = logEntry.id!;
   }
-
-  const logId = logEntry.id!;
   
   try {
     await AzureLogger.logSchedulerStart(SCHEDULER_TYPE, 'Optimized daily index data update');
@@ -258,7 +262,7 @@ export async function updateIndexData(): Promise<void> {
           todayDate,
           baseUrl,
           cache,
-          logId
+          finalLogId
         );
       },
       BATCH_SIZE_PHASE_1_2,
@@ -280,8 +284,8 @@ export async function updateIndexData(): Promise<void> {
       total: indexList.length
     });
 
-    if (logId) {
-      await SchedulerLogService.updateLog(logId, {
+    if (finalLogId) {
+      await SchedulerLogService.updateLog(finalLogId, {
         status: 'completed',
         progress_percentage: 100,
         total_files_processed: successCount,
@@ -295,8 +299,8 @@ export async function updateIndexData(): Promise<void> {
 
   } catch (error: any) {
     await AzureLogger.logSchedulerError(SCHEDULER_TYPE, error.message);
-    if (logId) {
-      await SchedulerLogService.updateLog(logId, {
+    if (finalLogId) {
+      await SchedulerLogService.updateLog(finalLogId, {
         status: 'failed',
         error_message: error.message
       });
