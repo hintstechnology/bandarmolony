@@ -151,7 +151,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
       setIsLoading(true);
       try {
         const result = await api.getBrokerSummaryDates();
-        console.log('[BrokerSummary] getBrokerSummaryDates result:', result);
         
         if (result.success && result.data?.dates && Array.isArray(result.data.dates) && result.data.dates.length > 0) {
           // Backend sudah memberikan dates sorted newest first
@@ -169,8 +168,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           // Set maxAvailableDate (tanggal terbaru)
           const latestDateStr = result.data.dates[0];
           const formattedDate = `${latestDateStr.slice(0, 4)}-${latestDateStr.slice(4, 6)}-${latestDateStr.slice(6, 8)}`;
-          console.log('[BrokerSummary] Max available date:', formattedDate);
-          console.log('[BrokerSummary] 3 latest dates:', lastThreeDates);
           
           // Set semua state sekaligus
           setMaxAvailableDate(formattedDate);
@@ -194,19 +191,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
               // Mark as triggered IMMEDIATELY (synchronously) before any async operations
               hasInitialAutoFetchRef.current = true;
               initialAutoFetchTriggeredRef.current = true;
-              console.log('[BrokerSummary] Initial auto-fetch triggered from loadMaxDate', {
-                dates: datesToUse,
-                tickers: currentTickers
-              });
               // Set ref first (synchronous), then state (async)
               shouldFetchDataRef.current = true;
               setShouldFetchData(true);
-            } else {
-              console.log('[BrokerSummary] Initial auto-fetch skipped', {
-                hasInitialAutoFetchRef: hasInitialAutoFetchRef.current,
-                datesLength: datesToUse.length,
-                tickersLength: currentTickers.length
-              });
             }
           }, 0);
           
@@ -268,7 +255,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           // Sort stocks alphabetically for better UX
           const sortedStocks = stocksWithIdx.sort((a: string, b: string) => a.localeCompare(b));
           setAvailableStocks(sortedStocks);
-          console.log(`[BrokerSummary] Loaded ${sortedStocks.length} stocks (including IDX)`);
         } else {
           // Even if API fails, ensure IDX is available
           setAvailableStocks(['IDX']);
@@ -323,13 +309,11 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     // CRITICAL: Check ref FIRST (before anything else) - ref is always up-to-date
     // This is the most reliable check to prevent unwanted fetches
     if (!shouldFetchDataRef.current) {
-      console.log('[BrokerSummary] fetchAll effect: shouldFetchDataRef is false, aborting immediately');
       return; // Early return if ref is false - this is the primary guard
     }
     
     // CRITICAL: Also check state for consistency
     if (!shouldFetchData) {
-      console.log('[BrokerSummary] fetchAll effect: shouldFetchData state is false, aborting');
       // Reset ref to match state
       shouldFetchDataRef.current = false;
       return; // Early return if shouldFetchData is false
@@ -337,14 +321,12 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     
     // CRITICAL: Cancel any ongoing fetch before starting new one
     if (abortControllerRef.current) {
-      console.log('[BrokerSummary] Cancelling previous fetch before starting new one');
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
     
     // Final check: make sure ref is still true after cleanup
     if (!shouldFetchDataRef.current) {
-      console.log('[BrokerSummary] fetchAll effect: shouldFetchDataRef became false after cleanup, aborting');
       return;
     }
     
@@ -356,7 +338,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
       // CRITICAL: Check ref instead of state - ref is always up-to-date even in async context
       // This is especially important if user changes dates while fetch is queued
       if (!shouldFetchDataRef.current) {
-        console.log('[BrokerSummary] fetchAll function: shouldFetchDataRef is false, aborting fetch');
         setIsLoading(false);
         setIsDataReady(false);
         return;
@@ -375,7 +356,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
 
       // CRITICAL: Check ref again after validation - user might have changed dates
       if (!shouldFetchDataRef.current) {
-        console.log('[BrokerSummary] fetchAll: shouldFetchDataRef became false after validation, aborting');
         setIsLoading(false);
         setIsDataReady(false);
         return;
@@ -400,7 +380,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
 
       // CRITICAL: Final check before starting fetch - user might have changed dates during validation
       if (!shouldFetchDataRef.current) {
-        console.log('[BrokerSummary] fetchAll: shouldFetchDataRef became false before starting fetch, aborting');
         setIsLoading(false);
         setIsDataReady(false);
         return;
@@ -420,7 +399,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         const fetchSingleData = async (ticker: string, date: string, skipCache: boolean = false): Promise<{ ticker: string; date: string; data: BrokerSummaryData[] }> => {
           // CRITICAL: Check if fetch was aborted
           if (abortController.signal.aborted || !shouldFetchDataRef.current) {
-            console.log(`[BrokerSummary] Fetch aborted for ${ticker} on ${date}`);
             throw new Error('Fetch aborted');
           }
           
@@ -430,18 +408,15 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
 
           // Check cache first (skip cache on retry)
           if (!skipCache && cached && (now - cached.timestamp) <= CACHE_EXPIRY_MS) {
-            console.log(`[BrokerSummary] Using cached data for ${ticker} on ${date}`);
             return { ticker, date, data: cached.data };
           }
 
           // CRITICAL: Check again before API call
           if (abortController.signal.aborted || !shouldFetchDataRef.current) {
-            console.log(`[BrokerSummary] Fetch aborted before API call for ${ticker} on ${date}`);
             throw new Error('Fetch aborted');
           }
 
           // Fetch from API
-                console.log(`[BrokerSummary] Fetching data for ${ticker} on ${date} with market: ${market || 'All Trade'}`);
                 const res = await api.getBrokerSummaryData(ticker, date, market as 'RG' | 'TN' | 'NG' | '');
                 
                 // Check if response is successful
@@ -486,7 +461,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                 
           // Store in cache
           cache.set(cacheKey, { data: rows, timestamp: now });
-          console.log(`[BrokerSummary] Cached data for ${ticker} on ${date}`);
                 
             return { ticker, date, data: rows };
         };
@@ -508,7 +482,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         while (retryAttempt < MAX_RETRIES) {
           // CRITICAL: Check ref before each retry attempt
           if (!shouldFetchDataRef.current || abortController.signal.aborted) {
-            console.log('[BrokerSummary] Fetch aborted before retry attempt');
             setIsLoading(false);
             setIsDataReady(false);
             return;
@@ -526,11 +499,8 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           const allDataResults: Array<{ ticker: string; date: string; data: BrokerSummaryData[] }> = [];
           
           if (retryAttempt > 0) {
-            console.log(`[BrokerSummary] Retry attempt ${retryAttempt + 1}/${MAX_RETRIES} - fetching ${allFetchTasks.length} ticker-date combinations...`);
             // Add delay between retries (500ms)
             await new Promise(resolve => setTimeout(resolve, 500));
-          } else {
-            console.log(`[BrokerSummary] Fetching ${allFetchTasks.length} ticker-date combinations in batches of ${BATCH_SIZE}...`);
           }
           
           // Process in batches to avoid overwhelming browser with too many concurrent requests
@@ -538,17 +508,12 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           for (let i = 0; i < allFetchTasks.length; i += BATCH_SIZE) {
             // CRITICAL: Check ref before each batch - user might have changed dates
             if (!shouldFetchDataRef.current || abortController.signal.aborted) {
-              console.log('[BrokerSummary] Fetch aborted before batch processing');
               setIsLoading(false);
               setIsDataReady(false);
               return;
             }
             
             const batch = allFetchTasks.slice(i, i + BATCH_SIZE);
-            const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-            const totalBatches = Math.ceil(allFetchTasks.length / BATCH_SIZE);
-            
-            console.log(`[BrokerSummary] Processing batch ${batchNum}/${totalBatches} (${batch.length} requests)...`);
             
             try {
               // Create promises only for this batch (not all at once)
@@ -560,18 +525,15 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
               
               // CRITICAL: Check ref after each batch - user might have changed dates
               if (!shouldFetchDataRef.current || abortController.signal.aborted) {
-                console.log('[BrokerSummary] Fetch aborted after batch processing');
                 setIsLoading(false);
                 setIsDataReady(false);
                 return;
               }
               
               allDataResults.push(...batchResults);
-              console.log(`[BrokerSummary] Batch ${batchNum}/${totalBatches} completed (${batchResults.length} results)`);
             } catch (error: any) {
               // If aborted, silently abort
               if (error?.message === 'Fetch aborted' || !shouldFetchDataRef.current || abortController.signal.aborted) {
-                console.log('[BrokerSummary] Batch aborted');
                 setIsLoading(false);
                 setIsDataReady(false);
                 return;
@@ -634,7 +596,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         validResults.forEach(({ date, data }) => {
           // CRITICAL: Check ref during aggregation - user might have changed dates
           if (!shouldFetchDataRef.current) {
-            console.log('[BrokerSummary] fetchAll: shouldFetchDataRef became false during aggregation, aborting');
             return;
           }
           
@@ -680,8 +641,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         });
         
         // CRITICAL: Check ref again before setting data - user might have changed dates during aggregation
-        if (!shouldFetchDataRef.current) {
-          console.log('[BrokerSummary] fetchAll: shouldFetchDataRef became false before setting data, aborting');
+        if (!shouldFetchDataRef.current || abortController.signal.aborted) {
           setIsLoading(false);
           setIsDataReady(false);
           return;
@@ -692,12 +652,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         aggregatedMap.forEach((brokerMap, date) => {
           const rows = Array.from(brokerMap.values());
           finalMap.set(date, rows);
-          console.log(`[BrokerSummary] Aggregated ${rows.length} brokers for date ${date} from ${selectedTickers.length} ticker(s)`);
         });
         
         // CRITICAL: Final check before storing data - user might have changed dates
-        if (!shouldFetchDataRef.current) {
-          console.log('[BrokerSummary] fetchAll: shouldFetchDataRef became false before storing data, aborting');
+        if (!shouldFetchDataRef.current || abortController.signal.aborted) {
           setIsLoading(false);
           setIsDataReady(false);
           return;
@@ -706,15 +664,11 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         // Store raw data (without investor filter) for client-side filtering
         setRawSummaryByDate(finalMap);
         
-        const totalRows = Array.from(finalMap.values()).reduce((sum, rows) => sum + rows.length, 0);
-        console.log(`[BrokerSummary] Total aggregated rows: ${totalRows} across ${finalMap.size} dates from ${selectedTickers.join(', ')}`);
-        
         // Note: summaryByDate will be updated by the filter effect below based on displayedFdFilter
 
         // CRITICAL: Check ref again before showing toast and setting data ready
         // User might have changed dates during aggregation
-        if (!shouldFetchDataRef.current) {
-          console.log('[BrokerSummary] fetchAll: shouldFetchDataRef became false before marking data ready, aborting');
+        if (!shouldFetchDataRef.current || abortController.signal.aborted) {
           setIsLoading(false);
           setIsDataReady(false);
           return;
@@ -731,8 +685,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         }
 
         // CRITICAL: Final check before marking data ready
-        if (!shouldFetchDataRef.current) {
-          console.log('[BrokerSummary] fetchAll: shouldFetchDataRef became false before final data ready, aborting');
+        if (!shouldFetchDataRef.current || abortController.signal.aborted) {
           setIsLoading(false);
           setIsDataReady(false);
           return;
@@ -752,7 +705,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         // Check abortControllerRef.current instead of local abortController (which might be stale)
         const wasAborted = abortControllerRef.current?.signal.aborted || e?.message === 'Fetch aborted' || !shouldFetchDataRef.current;
         if (wasAborted) {
-          console.log('[BrokerSummary] Fetch aborted, cleaning up');
           setIsLoading(false);
           setIsDataReady(false);
           abortControllerRef.current = null;
@@ -2602,7 +2554,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                   
                   if (onlyInvestorChanged) {
                     // Only investor filter changed - filter existing data without calling API
-                    console.log('[BrokerSummary] Only investor filter changed, filtering existing data without API call');
                     // Data is already in rawSummaryByDate, just apply investor filter
                     // summaryByDate will be updated by the filter effect below
                     setIsLoading(false);
@@ -2610,7 +2561,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     // No need to fetch API
                   } else {
                     // Ticker, dates, or market changed - need to fetch new data from API
-                    console.log('[BrokerSummary] Parameters changed, fetching new data from API');
                     // Update last fetch params
                     setLastFetchParams({
                       tickers: [...selectedTickers],
