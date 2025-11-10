@@ -54,14 +54,8 @@ router.post('/stock', async (_req, res) => {
     }
 
     // Run update in background
-    updateStockData().then(async () => {
+    updateStockData(logEntry.id || null).then(async () => {
       await AzureLogger.logInfo('stock', 'Manual stock data update completed');
-      if (logEntry.id) {
-        await SchedulerLogService.updateLog(logEntry.id, {
-          status: 'completed',
-          progress_percentage: 100
-        });
-      }
     }).catch(async (error) => {
       await AzureLogger.logSchedulerError('stock', error.message);
       if (logEntry.id) {
@@ -108,14 +102,8 @@ router.post('/index', async (_req, res) => {
       });
     }
 
-    updateIndexData().then(async () => {
+    updateIndexData(logEntry.id || null).then(async () => {
       await AzureLogger.logInfo('index', 'Manual index data update completed');
-      if (logEntry.id) {
-        await SchedulerLogService.updateLog(logEntry.id, {
-          status: 'completed',
-          progress_percentage: 100
-        });
-      }
     }).catch(async (error) => {
       await AzureLogger.logSchedulerError('index', error.message);
       if (logEntry.id) {
@@ -162,14 +150,8 @@ router.post('/shareholders', async (_req, res) => {
       });
     }
 
-    updateShareholdersData().then(async () => {
+    updateShareholdersData(logEntry.id || null).then(async () => {
       await AzureLogger.logInfo('shareholders', 'Manual shareholders data update completed');
-      if (logEntry.id) {
-        await SchedulerLogService.updateLog(logEntry.id, {
-          status: 'completed',
-          progress_percentage: 100
-        });
-      }
     }).catch(async (error) => {
       await AzureLogger.logSchedulerError('shareholders', error.message);
       if (logEntry.id) {
@@ -216,14 +198,8 @@ router.post('/holding', async (_req, res) => {
       });
     }
 
-    updateHoldingData().then(async () => {
+    updateHoldingData(logEntry.id || null).then(async () => {
       await AzureLogger.logInfo('holding', 'Manual holding data update completed');
-      if (logEntry.id) {
-        await SchedulerLogService.updateLog(logEntry.id, {
-          status: 'completed',
-          progress_percentage: 100
-        });
-      }
     }).catch(async (error) => {
       await AzureLogger.logSchedulerError('holding', error.message);
       if (logEntry.id) {
@@ -270,14 +246,8 @@ router.post('/done-summary', async (_req, res) => {
       });
     }
 
-    updateDoneSummaryData().then(async () => {
+    updateDoneSummaryData(logEntry.id || null).then(async () => {
       await AzureLogger.logInfo('done-summary', 'Manual done summary data update completed');
-      if (logEntry.id) {
-        await SchedulerLogService.updateLog(logEntry.id, {
-          status: 'completed',
-          progress_percentage: 100
-        });
-      }
     }).catch(async (error) => {
       await AzureLogger.logSchedulerError('done-summary', error.message);
       if (logEntry.id) {
@@ -330,7 +300,7 @@ router.post('/accumulation', async (_req, res) => {
 
     // Run calculation in background
     const accumulationService = new AccumulationDataScheduler();
-    accumulationService.generateAccumulationData(dateSuffix).then(async (result) => {
+    accumulationService.generateAccumulationData(dateSuffix, logEntry.id).then(async (result) => {
       await AzureLogger.logInfo('accumulation_distribution', `Manual accumulation calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -390,7 +360,7 @@ router.post('/bidask', async (_req, res) => {
 
     // Run calculation in background
     const bidAskService = new BidAskDataScheduler();
-    bidAskService.generateBidAskData(dateSuffix).then(async (result) => {
+    bidAskService.generateBidAskData(dateSuffix, logEntry.id).then(async (result) => {
       await AzureLogger.logInfo('bidask_footprint', `Manual bid/ask calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -509,7 +479,7 @@ router.post('/broker-data', async (_req, res) => {
 
     // Run calculation in background
     const brokerDataService = new BrokerDataScheduler();
-    brokerDataService.generateBrokerData(dateSuffix).then(async (result) => {
+    brokerDataService.generateBrokerData(dateSuffix, logEntry.id).then(async (result) => {
       await AzureLogger.logInfo('broker_data', `Manual broker data calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -645,7 +615,7 @@ router.post('/broker-inventory', async (_req, res) => {
 
     // Run calculation in background
     const brokerInventoryService = new BrokerInventoryDataScheduler();
-    brokerInventoryService.generateBrokerInventoryData(dateSuffix).then(async (result) => {
+    brokerInventoryService.generateBrokerInventoryData(dateSuffix, logEntry.id).then(async (result) => {
       await AzureLogger.logInfo('broker_inventory', `Manual broker inventory calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1054,14 +1024,8 @@ router.post('/rrc', async (_req, res) => {
       });
     }
 
-    preGenerateAllRRC(true, 'manual').then(async () => {
+    preGenerateAllRRC(true, 'manual', logEntry.id || null).then(async () => {
       await AzureLogger.logInfo('rrc', 'Manual RRC calculation completed');
-      if (logEntry.id) {
-        await SchedulerLogService.updateLog(logEntry.id, {
-          status: 'completed',
-          progress_percentage: 100
-        });
-      }
     }).catch(async (error) => {
       await AzureLogger.logSchedulerError('rrc', error.message);
       if (logEntry.id) {
@@ -1108,14 +1072,8 @@ router.post('/rrg', async (_req, res) => {
       });
     }
 
-    preGenerateAllRRG(true, 'manual').then(async () => {
+    preGenerateAllRRG(true, 'manual', logEntry.id || null).then(async () => {
       await AzureLogger.logInfo('rrg', 'Manual RRG calculation completed');
-      if (logEntry.id) {
-        await SchedulerLogService.updateLog(logEntry.id, {
-          status: 'completed',
-          progress_percentage: 100
-        });
-      }
     }).catch(async (error) => {
       await AzureLogger.logSchedulerError('rrg', error.message);
       if (logEntry.id) {

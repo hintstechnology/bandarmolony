@@ -152,7 +152,7 @@ export function DataSchedulerControl() {
     }
   };
 
-  // Load scheduled tasks (status = 'running' and trigger_type = 'scheduled')
+  // Load scheduled tasks (status = 'running' and trigger_type = 'scheduled' OR manual phase triggers from SchedulerConfigControl)
   const loadScheduledTasks = async () => {
     setLoading(true);
     try {
@@ -163,9 +163,12 @@ export function DataSchedulerControl() {
       });
 
       if (result.success && result.data) {
-        // Filter only scheduled tasks (not manual)
+        // Filter: scheduled tasks OR manual phase triggers (from SchedulerConfigControl trigger button)
         const tasks: ScheduledTask[] = result.data
-          .filter((log: any) => log.trigger_type === 'scheduled')
+          .filter((log: any) => 
+            log.trigger_type === 'scheduled' || 
+            (log.trigger_type === 'manual' && log.feature_name.startsWith('phase'))
+          )
           .map((log: any) => ({
             logId: log.id,
             featureName: log.feature_name,

@@ -92,8 +92,6 @@ router.get('/summary/:stockCode', async (req, res) => {
     const { stockCode } = paramsSchema.parse(req.params);
     const { date, market } = querySchema.parse(req.query);
 
-    console.log(`[BrokerSummary] Fetching data for ${stockCode} on ${date} with market: ${market || 'RG'}`);
-
     const { modernPrefix, legacyPrefix } = resolvePaths(date, market);
     
     let csvData: string | null = null;
@@ -102,7 +100,6 @@ router.get('/summary/:stockCode', async (req, res) => {
     // If modernPrefix is empty (All Trade), only try legacy path
     if (!modernPrefix) {
       const legacyPath = `${legacyPrefix}${stockCode}.csv`;
-      console.log(`[BrokerSummary] All Trade selected, trying legacy path: ${legacyPath}`);
       try {
         csvData = await downloadText(legacyPath);
         usedPath = legacyPath;
@@ -115,13 +112,10 @@ router.get('/summary/:stockCode', async (req, res) => {
       // If not found, return empty (don't show wrong data from legacy path)
       const modernPath = `${modernPrefix}${stockCode}.csv`;
 
-      console.log(`[BrokerSummary] Market: ${market}, trying modern path: ${modernPath}`);
-
       try {
         csvData = await downloadText(modernPath);
         usedPath = modernPath;
       } catch (error: any) {
-        console.log(`[BrokerSummary] Modern path not found: ${modernPath}`, error.message);
         // Don't fallback to legacy - return empty instead of wrong data
         csvData = null;
       }
@@ -132,18 +126,13 @@ router.get('/summary/:stockCode', async (req, res) => {
       return res.status(404).json({ success: false, error: `No data for ${stockCode} on ${date}` });
     }
 
-    console.log(`[BrokerSummary] File found at: ${usedPath}, size: ${csvData.length} characters`);
-
     const lines = csvData.trim().split('\n');
     if (lines.length < 2) {
       console.error(`[BrokerSummary] Invalid CSV format: only ${lines.length} lines`);
       return res.status(404).json({ success: false, error: 'Invalid CSV format' });
     }
 
-    console.log(`[BrokerSummary] CSV has ${lines.length} lines (including header)`);
-
     const headers = (lines[0] || '').split(',').map(h => h.trim());
-    console.log(`[BrokerSummary] CSV headers:`, headers);
 
     const brokerData: any[] = [];
     for (let i = 1; i < lines.length; i++) {
@@ -164,10 +153,6 @@ router.get('/summary/:stockCode', async (req, res) => {
       brokerData.push(row);
     }
 
-    console.log(`[BrokerSummary] Parsed ${brokerData.length} broker rows for ${stockCode} on ${date}`);
-    if (brokerData.length > 0) {
-      console.log(`[BrokerSummary] Sample row:`, brokerData[0]);
-    }
 
     return res.json({ success: true, data: { stockCode, date, market: normalizeMarket(market) || 'RG', path: usedPath, brokerData } });
   } catch (error: any) {

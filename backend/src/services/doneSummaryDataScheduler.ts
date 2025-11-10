@@ -134,7 +134,7 @@ async function streamToBuffer(readableStream: NodeJS.ReadableStream): Promise<Bu
 }
 
 // Main update function
-export async function updateDoneSummaryData(): Promise<void> {
+export async function updateDoneSummaryData(logId?: string | null): Promise<void> {
   const SCHEDULER_TYPE = 'done-summary';
   
   // Skip if weekend
@@ -147,22 +147,26 @@ export async function updateDoneSummaryData(): Promise<void> {
     return;
   }
   
-  const logEntry = await SchedulerLogService.createLog({
-    feature_name: 'done-summary',
-    trigger_type: 'scheduled',
-    triggered_by: 'system',
-    status: 'running',
-    force_override: false,
-    environment: process.env['NODE_ENV'] || 'development',
-    started_at: getJakartaTime()
-  });
+  // Only create log entry if logId is not provided (called from scheduler, not manual trigger)
+  let finalLogId = logId;
+  if (!finalLogId) {
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'done-summary',
+      trigger_type: 'scheduled',
+      triggered_by: 'system',
+      status: 'running',
+      force_override: false,
+      environment: process.env['NODE_ENV'] || 'development',
+      started_at: getJakartaTime()
+    });
 
-  if (!logEntry) {
-    console.error('❌ Failed to create scheduler log entry');
-    return;
+    if (!logEntry) {
+      console.error('❌ Failed to create scheduler log entry');
+      return;
+    }
+
+    finalLogId = logEntry.id!;
   }
-
-  const logId = logEntry.id!;
   
   try {
     await AzureLogger.logSchedulerStart(SCHEDULER_TYPE, 'Daily done summary data update');
@@ -245,8 +249,8 @@ export async function updateDoneSummaryData(): Promise<void> {
         total: sortedGcsFiles.length
       });
       
-      if (logId) {
-        await SchedulerLogService.updateLog(logId, {
+      if (finalLogId) {
+        await SchedulerLogService.updateLog(finalLogId, {
           status: 'completed',
           progress_percentage: 100,
           total_files_processed: 0,
@@ -277,8 +281,8 @@ export async function updateDoneSummaryData(): Promise<void> {
       try {
         if ((i + 1) % 5 === 0 || i === 0) {
           await AzureLogger.logProgress(SCHEDULER_TYPE, i + 1, filesToProcess.length, `Syncing ${gcsFileName}`);
-          if (logId) {
-            await SchedulerLogService.updateLog(logId, {
+          if (finalLogId) {
+            await SchedulerLogService.updateLog(finalLogId, {
               progress_percentage: Math.round(((i + 1) / filesToProcess.length) * 100),
               current_processing: `Syncing done summary ${i + 1}/${filesToProcess.length}`
             });
@@ -319,8 +323,8 @@ export async function updateDoneSummaryData(): Promise<void> {
       total: sortedGcsFiles.length
     });
 
-    if (logId) {
-      await SchedulerLogService.updateLog(logId, {
+    if (finalLogId) {
+      await SchedulerLogService.updateLog(finalLogId, {
         status: 'completed',
         progress_percentage: 100,
         total_files_processed: successCount,
@@ -331,8 +335,8 @@ export async function updateDoneSummaryData(): Promise<void> {
 
   } catch (error: any) {
     await AzureLogger.logSchedulerError(SCHEDULER_TYPE, error.message);
-    if (logId) {
-      await SchedulerLogService.updateLog(logId, {
+    if (finalLogId) {
+      await SchedulerLogService.updateLog(finalLogId, {
         status: 'failed',
         error_message: error.message
       });

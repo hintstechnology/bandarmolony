@@ -587,4 +587,241 @@ router.get('/sector-mapping', async (_req, res) => {
   }
 });
 
+// ============================================================================
+// Stock List with Company Names (from stock-list.ts)
+// ============================================================================
+
+interface StockDetail {
+  code: string;
+  companyName: string;
+  listingDate?: string;
+  shares?: string;
+  listingBoard?: string;
+}
+
+// Helper function to parse CSV line with quoted fields
+function parseCsvLineWithQuotes(line: string): string[] {
+  const values: string[] = [];
+  let currentValue = '';
+  let inQuotes = false;
+  
+  for (let j = 0; j < line.length; j++) {
+    const char = line[j];
+    
+    if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === ',' && !inQuotes) {
+      values.push(currentValue.trim());
+      currentValue = '';
+    } else {
+      currentValue += char;
+    }
+  }
+  values.push(currentValue.trim()); // Add last value
+  return values;
+}
+
+// Handler function for stock list with company names (shared logic)
+async function handleStockListWithCompany(_req: express.Request, res: express.Response) {
+  try {
+    console.log('📊 Getting stock list with company names...');
+    
+    // Download CSV data from Azure
+    const blobName = 'csv_input/emiten_detail_list.csv';
+    const csvData = await downloadText(blobName);
+    
+    // Parse CSV data
+    const lines = csvData.split('\n').filter(line => line.trim());
+    if (lines.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No data found in emiten_detail_list.csv'
+      });
+    }
+    
+    const headers = lines[0]?.split(',').map(h => h.trim()) || [];
+    const stocks: StockDetail[] = [];
+    
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i]?.trim();
+      
+      // Skip empty lines or lines with only commas
+      if (!line || line === '' || /^,+\s*$/.test(line)) {
+        continue;
+      }
+      
+      // Parse CSV line - handle quoted fields
+      const values = parseCsvLineWithQuotes(line);
+      
+      if (values.length >= headers.length) {
+        const row: any = {};
+        headers.forEach((header, index) => {
+          row[header] = values[index] || '';
+        });
+        
+        const stockDetail: StockDetail = {
+          code: row.Code || row.code || '',
+          companyName: row['Company Name'] || row.CompanyName || row.companyName || '',
+          listingDate: row['Listing Date'] || row.ListingDate || row.listingDate || '',
+          shares: row.Shares || row.shares || '',
+          listingBoard: row['Listing Board'] || row.ListingBoard || row.listingBoard || ''
+        };
+        
+        // Only add if we have at least code
+        if (stockDetail.code && stockDetail.code.length === 4) {
+          stocks.push(stockDetail);
+        }
+      }
+    }
+    
+    // Sort by code
+    stocks.sort((a, b) => a.code.localeCompare(b.code));
+    
+    console.log(`📊 Found ${stocks.length} stocks with company names`);
+    
+    return res.json({
+      success: true,
+      data: {
+        stocks,
+        total: stocks.length,
+        generated_at: new Date().toISOString()
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error getting stock list with company names:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get stock list with company names'
+    });
+  }
+}
+
+// Handler function for stock detail (shared logic)
+async function handleStockDetail(req: express.Request, res: express.Response) {
+  try {
+    const { stockCode } = req.params;
+    
+    if (!stockCode || stockCode.length !== 4) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid stock code. Must be 4 characters.'
+      });
+    }
+    
+    console.log(`📊 Getting stock details for: ${stockCode}`);
+    
+    // Download CSV data from Azure
+    const blobName = 'csv_input/emiten_detail_list.csv';
+    const csvData = await downloadText(blobName);
+    
+    // Parse CSV data
+    const lines = csvData.split('\n').filter(line => line.trim());
+    if (lines.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No data found in emiten_detail_list.csv'
+      });
+    }
+    
+    const headers = lines[0]?.split(',').map(h => h.trim()) || [];
+    let stockDetail: StockDetail | null = null;
+    
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i]?.trim();
+      
+      // Skip empty lines
+      if (!line || line === '' || /^,+\s*$/.test(line)) {
+        continue;
+      }
+      
+      // Parse CSV line - handle quoted fields
+      const values = parseCsvLineWithQuotes(line);
+      
+      if (values.length >= headers.length) {
+        const row: any = {};
+        headers.forEach((header, index) => {
+          row[header] = values[index] || '';
+        });
+        
+        const code = row.Code || row.code || '';
+        
+        if (code.toUpperCase() === stockCode.toUpperCase()) {
+          stockDetail = {
+            code: code,
+            companyName: row['Company Name'] || row.CompanyName || row.companyName || '',
+            listingDate: row['Listing Date'] || row.ListingDate || row.listingDate || '',
+            shares: row.Shares || row.shares || '',
+            listingBoard: row['Listing Board'] || row.ListingBoard || row.listingBoard || ''
+          };
+          break;
+        }
+      }
+    }
+    
+    if (!stockDetail) {
+      return res.status(404).json({
+        success: false,
+        error: `Stock ${stockCode} not found in emiten_detail_list.csv`
+      });
+    }
+    
+    console.log(`📊 Found stock details for ${stockCode}: ${stockDetail.companyName}`);
+    
+    return res.json({
+      success: true,
+      data: stockDetail
+    });
+    
+  } catch (error) {
+    console.error('❌ Error getting stock details:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get stock details'
+    });
+  }
+}
+
+/**
+ * GET /api/stock/list-with-company
+ * Get list of stocks with company names (alternative path)
+ */
+router.get('/list-with-company', async (_req, res) => {
+  return handleStockListWithCompany(_req, res);
+});
+
+/**
+ * GET /api/stock/company/:stockCode
+ * Get stock details for a specific stock code (alternative path)
+ */
+router.get('/company/:stockCode', async (req, res) => {
+  return handleStockDetail(req, res);
+});
+
+/**
+ * GET /api/stock-list/ (root path - must be last to avoid conflicts)
+ * Get list of stocks with company names from emiten_detail_list.csv
+ * Note: This route is mounted at /api/stock-list, so / becomes the root
+ */
+router.get('/', async (_req, res) => {
+  return handleStockListWithCompany(_req, res);
+});
+
+/**
+ * GET /api/stock-list/:stockCode (must be after / to avoid conflicts)
+ * Get stock details for a specific stock code
+ * Note: This route is mounted at /api/stock-list, so :stockCode becomes the param
+ * IMPORTANT: This must be the last route to avoid conflicts with other routes like /list, /data, etc.
+ */
+router.get('/:stockCode', async (req, res, next) => {
+  // Check if this is a valid stock code (4 characters) to avoid conflicts with other routes
+  const { stockCode } = req.params;
+  // Only handle if it's a 4-character alphanumeric code (valid stock code)
+  if (stockCode && stockCode.length === 4 && /^[A-Z0-9]{4}$/i.test(stockCode)) {
+    return handleStockDetail(req, res);
+  }
+  // If not a valid stock code, pass to next middleware (might be handled by other routes)
+  return next();
+});
+
 export default router;

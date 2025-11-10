@@ -10,13 +10,13 @@ export class AccumulationDataScheduler {
   /**
    * Generate accumulation distribution data for specific date or all dates
    */
-  async generateAccumulationData(dateSuffix?: string): Promise<{ success: boolean; message: string; data?: any }> {
+  async generateAccumulationData(dateSuffix?: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
     try {
       const targetDate = dateSuffix || 'all';
       console.log(`🔄 Starting Accumulation Distribution calculation for: ${targetDate}`);
       
       // Accumulation distribution calculator processes specific date or all dates
-      const result = await this.calculator.generateAccumulationDistributionData(targetDate);
+      const result = await this.calculator.generateAccumulationDistributionData(targetDate, logId);
       
       if (result.success) {
         console.log('✅ Accumulation Distribution calculation completed successfully');

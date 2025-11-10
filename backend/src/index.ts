@@ -20,7 +20,6 @@ import brokerBreakdownRoutes from './routes/brokerbreakdown';
 import foreignRoutes from './routes/foreign';
 import moneyFlowRoutes from './routes/moneyflow';
 import stockRoutes from './routes/stock';
-import stockListRoutes from './routes/stock-list';
 import holdingRoutes from './routes/holding';
 import shareholdersRoutes from './routes/shareholders';
 import doneSummaryRoutes from './routes/done-summary';
@@ -98,7 +97,7 @@ app.use('/api/broker-breakdown', brokerBreakdownRoutes);
 app.use('/api/foreign', foreignRoutes);
 app.use('/api/moneyflow', moneyFlowRoutes);
 app.use('/api/stock', stockRoutes);
-app.use('/api/stock-list', stockListRoutes);
+app.use('/api/stock-list', stockRoutes); // Use same router, different endpoints
 app.use('/api/holding', holdingRoutes);
 app.use('/api/shareholders', shareholdersRoutes);
 app.use('/api/done-summary', doneSummaryRoutes);

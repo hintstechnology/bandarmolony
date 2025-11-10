@@ -10,12 +10,12 @@ export class BrokerInventoryDataScheduler {
   /**
    * Generate broker inventory data
    */
-  async generateBrokerInventoryData(dateSuffix?: string): Promise<{ success: boolean; message: string; data?: any }> {
+  async generateBrokerInventoryData(dateSuffix?: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
     try {
       const targetDate = dateSuffix || this.getCurrentDateSuffix();
       console.log(`🔄 Starting Broker Inventory calculation for date: ${targetDate}`);
       
-      await this.calculator.generateBrokerInventoryData(targetDate);
+      await this.calculator.generateBrokerInventoryData(targetDate, logId);
       console.log('✅ Broker Inventory calculation completed successfully');
       
       return {

@@ -1,10 +1,16 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
-import { Label } from "../../ui/label";
-import { Badge } from "../../ui/badge";
-import { Loader2, Clock, Save, Play, RefreshCw, AlertCircle, Edit2, X } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../ui/select";
+import { Loader2, Clock, Save, Play, RefreshCw, AlertCircle, Edit2, X, Info } from "lucide-react";
 import { useToast } from "../../../contexts/ToastContext";
 import { api } from "../../../services/api";
 
@@ -13,9 +19,11 @@ interface Phase {
   name: string;
   description: string;
   status: 'idle' | 'running' | 'stopped';
+  enabled?: boolean;
   trigger: {
     type: 'scheduled' | 'auto';
     schedule?: string;
+    triggerAfterPhase?: string;
     condition: string;
   };
   tasks: string[];
@@ -29,7 +37,37 @@ export function SchedulerConfigControl() {
   const [scheduler, setScheduler] = useState<any>(null);
   const [editingPhase, setEditingPhase] = useState<string | null>(null);
   const [editTime, setEditTime] = useState<string>('');
+  const [editTriggerType, setEditTriggerType] = useState<'scheduled' | 'auto'>('scheduled');
+  const [editTriggerAfterPhase, setEditTriggerAfterPhase] = useState<string>('');
   const [triggering, setTriggering] = useState<Record<string, boolean>>({});
+  const [toggling, setToggling] = useState<Record<string, boolean>>({});
+  const [saving, setSaving] = useState<Record<string, boolean>>({});
+  const [togglingScheduler, setTogglingScheduler] = useState(false);
+  const [editingConfig, setEditingConfig] = useState<{
+    timezone?: boolean;
+    memoryThreshold?: boolean;
+    weekendSkip?: boolean;
+  }>({});
+  const [editTimezone, setEditTimezone] = useState<string>('');
+  const [editMemoryThreshold, setEditMemoryThreshold] = useState<string>('');
+  const timeInputRef = useRef<HTMLInputElement>(null);
+
+  // Helper function to trigger time picker
+  const triggerTimePicker = (inputRef: React.RefObject<HTMLInputElement>) => {
+    if (inputRef.current) {
+      inputRef.current.showPicker();
+    }
+  };
+
+  // Helper function to format time for display (HH:MM)
+  const formatTimeForDisplay = (time: string) => {
+    if (!time) return '';
+    const parts = time.split(':');
+    if (parts.length >= 2) {
+      return `${parts[0]}:${parts[1]}`;
+    }
+    return time;
+  };
 
   // Load phases on mount (no auto refresh - manual refresh only)
   useEffect(() => {
@@ -91,78 +129,143 @@ export function SchedulerConfigControl() {
     }
   };
 
-  const handleEditTime = (phase: Phase) => {
+  const handleToggleEnabled = async (phaseId: string, enabled: boolean) => {
+    setToggling(prev => ({ ...prev, [phaseId]: true }));
+    try {
+      const result = await api.togglePhaseEnabled(phaseId, enabled);
+      if (result.success) {
+        showToast({
+          type: 'success',
+          title: enabled ? 'Phase Enabled' : 'Phase Disabled',
+          message: result.message || `Phase ${phaseId} ${enabled ? 'enabled' : 'disabled'} successfully`
+        });
+        // Reload phases after a short delay
+        setTimeout(() => loadPhases(), 500);
+      } else {
+        showToast({
+          type: 'error',
+          title: 'Toggle Failed',
+          message: result.error || `Failed to toggle phase ${phaseId}`
+        });
+      }
+    } catch (error: any) {
+      showToast({
+        type: 'error',
+        title: 'Toggle Error',
+        message: error.message || 'Failed to toggle phase'
+      });
+    } finally {
+      setToggling(prev => ({ ...prev, [phaseId]: false }));
+    }
+  };
+
+  const handleEditTrigger = (phase: Phase) => {
+    setEditTriggerType(phase.trigger.type);
     if (phase.trigger.type === 'scheduled' && phase.trigger.schedule) {
       // Convert HH:MM to time input format
       const parts = phase.trigger.schedule.split(':');
       const hours = parts[0] || '00';
       const minutes = parts[1] || '00';
       setEditTime(`${hours.padStart(2, '0')}:${minutes.padStart(2, '0')}`);
-      setEditingPhase(phase.id);
+    } else {
+      setEditTime('');
     }
+    if (phase.trigger.type === 'auto' && phase.trigger.triggerAfterPhase) {
+      setEditTriggerAfterPhase(phase.trigger.triggerAfterPhase);
+    } else {
+      setEditTriggerAfterPhase('');
+    }
+    setEditingPhase(phase.id);
   };
 
-  const handleSaveTime = async (phaseId: string) => {
-    if (!editTime) return;
-    
+  const handleToggleScheduler = async (enabled: boolean) => {
+    setTogglingScheduler(true);
     try {
-      const config: any = {};
-      
-      if (phaseId === 'phase1_data_collection') {
-        config.PHASE1_DATA_COLLECTION_TIME = editTime;
-      } else if (phaseId === 'phase1_shareholders') {
-        config.PHASE1_SHAREHOLDERS_TIME = editTime;
-      }
-      
-      const result = await api.updateSchedulerConfig(config);
+      const result = enabled ? await api.startScheduler() : await api.stopScheduler();
       if (result.success) {
         showToast({
           type: 'success',
-          title: 'Time Updated',
-          message: 'Scheduler time updated and scheduler restarted'
+          title: enabled ? 'Scheduler Started' : 'Scheduler Stopped',
+          message: `Scheduler ${enabled ? 'started' : 'stopped'} successfully`
+        });
+        setTimeout(() => loadPhases(), 500);
+      } else {
+        showToast({
+          type: 'error',
+          title: 'Toggle Failed',
+          message: result.error || `Failed to ${enabled ? 'start' : 'stop'} scheduler`
+        });
+      }
+    } catch (error: any) {
+      showToast({
+        type: 'error',
+        title: 'Toggle Error',
+        message: error.message || 'Failed to toggle scheduler'
+      });
+    } finally {
+      setTogglingScheduler(false);
+    }
+  };
+
+  const handleSaveTriggerConfig = async (phaseId: string) => {
+    setSaving(prev => ({ ...prev, [phaseId]: true }));
+    
+    try {
+      let schedule: string | undefined;
+      let triggerAfterPhase: string | undefined;
+      
+      if (editTriggerType === 'scheduled') {
+        if (!editTime) {
+          showToast({
+            type: 'error',
+            title: 'Validation Error',
+            message: 'Schedule time is required for scheduled trigger type'
+          });
+          setSaving(prev => ({ ...prev, [phaseId]: false }));
+          return;
+        }
+        schedule = editTime;
+      } else {
+        if (!editTriggerAfterPhase) {
+          showToast({
+            type: 'error',
+            title: 'Validation Error',
+            message: 'Trigger after phase is required for auto trigger type'
+          });
+          setSaving(prev => ({ ...prev, [phaseId]: false }));
+          return;
+        }
+        triggerAfterPhase = editTriggerAfterPhase;
+      }
+      
+      const result = await api.updatePhaseTriggerConfig(phaseId, editTriggerType, schedule, triggerAfterPhase);
+      
+      if (result.success) {
+        showToast({
+          type: 'success',
+          title: 'Trigger Config Updated',
+          message: result.message || 'Phase trigger configuration updated successfully'
         });
         setEditingPhase(null);
         setEditTime('');
+        setEditTriggerType('scheduled');
+        setEditTriggerAfterPhase('');
         setTimeout(() => loadPhases(), 1000);
       } else {
         showToast({
           type: 'error',
           title: 'Update Failed',
-          message: result.error || 'Failed to update time'
+          message: result.error || 'Failed to update trigger configuration'
         });
       }
     } catch (error: any) {
       showToast({
         type: 'error',
         title: 'Update Error',
-        message: error.message || 'Failed to update time'
+        message: error.message || 'Failed to update trigger configuration'
       });
-    }
-  };
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'running':
-        return <Badge variant="default" className="bg-blue-500">Running</Badge>;
-      case 'idle':
-        return <Badge variant="secondary">Idle</Badge>;
-      case 'stopped':
-        return <Badge variant="destructive">Stopped</Badge>;
-      default:
-        return <Badge variant="outline">{status}</Badge>;
-    }
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'running':
-        return <Loader2 className="w-4 h-4 animate-spin text-blue-500" />;
-      case 'idle':
-        return <Clock className="w-4 h-4 text-gray-500" />;
-      case 'stopped':
-        return <X className="w-4 h-4 text-red-500" />;
-      default:
-        return null;
+    } finally {
+      setSaving(prev => ({ ...prev, [phaseId]: false }));
     }
   };
 
@@ -193,11 +296,21 @@ export function SchedulerConfigControl() {
             <Clock className="w-5 h-5" />
             Scheduler Phases Configuration
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             {scheduler && (
-              <Badge variant={scheduler.running ? "default" : "secondary"}>
-                {scheduler.running ? "Scheduler Running" : "Scheduler Stopped"}
-              </Badge>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={scheduler.running}
+                  onChange={(e) => handleToggleScheduler(e.target.checked)}
+                  disabled={togglingScheduler}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"></div>
+                <span className="ml-3 text-sm font-medium text-foreground">
+                  {scheduler.running ? 'Scheduler Running' : 'Scheduler Stopped'}
+                </span>
+              </label>
             )}
             <Button
               onClick={loadPhases}
@@ -218,144 +331,439 @@ export function SchedulerConfigControl() {
           Monitor and control all scheduler phases. Edit schedule times and trigger phases manually.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="pb-2">
         {/* Scheduler Info */}
         {scheduler && (
-          <div className="p-4 bg-muted rounded-lg space-y-2">
+          <div className="p-4 bg-muted rounded-lg space-y-3 mb-6">
+            {/* Timezone */}
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Timezone:</span>
-              <span className="text-sm text-muted-foreground">{scheduler.timezone}</span>
+              {editingConfig.timezone ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="text"
+                    value={editTimezone}
+                    onChange={(e) => setEditTimezone(e.target.value)}
+                    className="w-48 h-8"
+                    placeholder="e.g., Asia/Jakarta"
+                  />
+                  <Button
+                    onClick={async () => {
+                      try {
+                        const result = await api.updateSchedulerConfig({ TIMEZONE: editTimezone });
+                        if (result.success) {
+                          showToast({
+                            type: 'success',
+                            title: 'Timezone Updated',
+                            message: 'Timezone updated successfully'
+                          });
+                          setEditingConfig(prev => ({ ...prev, timezone: false }));
+                          setTimeout(() => loadPhases(), 500);
+                        } else {
+                          showToast({
+                            type: 'error',
+                            title: 'Update Failed',
+                            message: result.error || 'Failed to update timezone'
+                          });
+                        }
+                      } catch (error: any) {
+                        showToast({
+                          type: 'error',
+                          title: 'Update Error',
+                          message: error.message || 'Failed to update timezone'
+                        });
+                      }
+                    }}
+                    size="sm"
+                    variant="default"
+                    className="h-8"
+                  >
+                    <Save className="w-3 h-3" />
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setEditingConfig(prev => ({ ...prev, timezone: false }));
+                      setEditTimezone('');
+                    }}
+                    size="sm"
+                    variant="outline"
+                    className="h-8"
+                  >
+                    <X className="w-3 h-3" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">{scheduler.timezone}</span>
+                  <Button
+                    onClick={() => {
+                      setEditTimezone(scheduler.timezone || '');
+                      setEditingConfig(prev => ({ ...prev, timezone: true }));
+                    }}
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-2"
+                  >
+                    <Edit2 className="w-3 h-3" />
+                  </Button>
+                </div>
+              )}
             </div>
+
+            {/* Memory Threshold */}
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Memory Threshold:</span>
-              <span className="text-sm text-muted-foreground">{scheduler.memoryThreshold}</span>
+              {editingConfig.memoryThreshold ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="text"
+                    value={editMemoryThreshold}
+                    onChange={(e) => setEditMemoryThreshold(e.target.value)}
+                    className="w-32 h-8"
+                    placeholder="e.g., 12GB"
+                  />
+                  <Button
+                    onClick={async () => {
+                      try {
+                        // Extract number from string (e.g., "12GB" -> 12)
+                        const match = editMemoryThreshold.match(/(\d+)/);
+                        if (!match || !match[1]) {
+                          showToast({
+                            type: 'error',
+                            title: 'Invalid Format',
+                            message: 'Please enter a valid memory threshold (e.g., 12GB)'
+                          });
+                          return;
+                        }
+                        const memoryGB = parseInt(match[1], 10);
+                        if (isNaN(memoryGB) || memoryGB < 1) {
+                          showToast({
+                            type: 'error',
+                            title: 'Invalid Value',
+                            message: 'Memory threshold must be at least 1GB'
+                          });
+                          return;
+                        }
+                        const result = await api.updateSchedulerConfig({ MEMORY_THRESHOLD_GB: memoryGB });
+                        if (result.success) {
+                          showToast({
+                            type: 'success',
+                            title: 'Memory Threshold Updated',
+                            message: 'Memory threshold updated successfully'
+                          });
+                          setEditingConfig(prev => ({ ...prev, memoryThreshold: false }));
+                          setTimeout(() => loadPhases(), 500);
+                        } else {
+                          showToast({
+                            type: 'error',
+                            title: 'Update Failed',
+                            message: result.error || 'Failed to update memory threshold'
+                          });
+                        }
+                      } catch (error: any) {
+                        showToast({
+                          type: 'error',
+                          title: 'Update Error',
+                          message: error.message || 'Failed to update memory threshold'
+                        });
+                      }
+                    }}
+                    size="sm"
+                    variant="default"
+                    className="h-8"
+                  >
+                    <Save className="w-3 h-3" />
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setEditingConfig(prev => ({ ...prev, memoryThreshold: false }));
+                      setEditMemoryThreshold('');
+                    }}
+                    size="sm"
+                    variant="outline"
+                    className="h-8"
+                  >
+                    <X className="w-3 h-3" />
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">{scheduler.memoryThreshold}</span>
+                  <Button
+                    onClick={() => {
+                      setEditMemoryThreshold(scheduler.memoryThreshold || '');
+                      setEditingConfig(prev => ({ ...prev, memoryThreshold: true }));
+                    }}
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-2"
+                  >
+                    <Edit2 className="w-3 h-3" />
+                  </Button>
+                </div>
+              )}
             </div>
+
+            {/* Weekend Skip */}
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Weekend Skip:</span>
-              <Badge variant={scheduler.weekendSkip ? "default" : "secondary"}>
-                {scheduler.weekendSkip ? "Enabled" : "Disabled"}
-              </Badge>
+              <div className="flex items-center gap-2">
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={scheduler.weekendSkip}
+                    onChange={async (e) => {
+                      try {
+                        const result = await api.updateSchedulerConfig({ WEEKEND_SKIP: e.target.checked });
+                        if (result.success) {
+                          showToast({
+                            type: 'success',
+                            title: 'Weekend Skip Updated',
+                            message: `Weekend skip ${e.target.checked ? 'enabled' : 'disabled'} successfully`
+                          });
+                          setTimeout(() => loadPhases(), 500);
+                        } else {
+                          showToast({
+                            type: 'error',
+                            title: 'Update Failed',
+                            message: result.error || 'Failed to update weekend skip'
+                          });
+                        }
+                      } catch (error: any) {
+                        showToast({
+                          type: 'error',
+                          title: 'Update Error',
+                          message: error.message || 'Failed to update weekend skip'
+                        });
+                      }
+                    }}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  <span className="ml-3 text-sm font-medium text-foreground">
+                    {scheduler.weekendSkip ? 'Enabled' : 'Disabled'}
+                  </span>
+                </label>
+              </div>
             </div>
           </div>
         )}
 
-        {/* Phases List */}
-        <div className="space-y-4">
-          {phases.map((phase) => (
-            <div
-              key={phase.id}
-              className="p-4 border rounded-lg space-y-3"
-            >
-              {/* Phase Header */}
-              <div className="flex items-start justify-between">
-                <div className="flex items-start gap-3 flex-1">
-                  {getStatusIcon(phase.status)}
-                  <div className="flex-1">
+        {/* Phases Table */}
+        <div className="overflow-x-auto -mx-6 pb-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[300px]">Phase</TableHead>
+                <TableHead className="w-[120px]">Status</TableHead>
+                <TableHead className="w-[200px]">Schedule Time</TableHead>
+                <TableHead className="w-[150px]">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody className="[&>tr:last-child]:border-b-0 [&>tr:last-child>td]:pb-0">
+              {phases.map((phase, index) => (
+                <TableRow key={phase.id} className={index === phases.length - 1 ? "!border-b-0" : ""}>
+                  {/* Phase Name with Info Tooltip */}
+                  <TableCell>
                     <div className="flex items-center gap-2">
-                      <h4 className="font-semibold">{phase.name}</h4>
-                      {getStatusBadge(phase.status)}
-                      <Badge variant="outline">{phase.mode}</Badge>
+                      <span className="font-semibold">{phase.name}</span>
+                      <div className="relative group">
+                        <Info className="w-4 h-4 text-muted-foreground cursor-help" />
+                        <div className="absolute left-0 top-full mt-2 w-72 p-3 bg-popover border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[100] pointer-events-none whitespace-normal">
+                          <div className="text-sm font-semibold mb-2">{phase.name}</div>
+                          <div className="text-xs text-muted-foreground mb-2">{phase.description}</div>
+                          <div className="text-xs font-medium mb-1">Calculations:</div>
+                          <ul className="text-xs text-muted-foreground space-y-1">
+                            {phase.tasks.map((task, idx) => (
+                              <li key={idx}>• {task}</li>
+                            ))}
+                          </ul>
+                          <div className="text-xs mt-2">
+                            <span className="font-medium">Mode:</span> {phase.mode}
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-sm text-muted-foreground mt-1">{phase.description}</p>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {phase.tasks.map((task, idx) => (
-                        <Badge key={idx} variant="outline" className="text-xs">
-                          {task}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
+                  </TableCell>
 
-              {/* Trigger Info */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t">
-                <div>
-                  <Label className="text-xs text-muted-foreground">Trigger</Label>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Badge variant={phase.trigger.type === 'scheduled' ? "default" : "secondary"}>
-                      {phase.trigger.type === 'scheduled' ? 'Scheduled' : 'Auto'}
-                    </Badge>
-                    <span className="text-sm text-muted-foreground">{phase.trigger.condition}</span>
-                  </div>
-                </div>
+                  {/* Status Switch */}
+                  <TableCell>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={phase.enabled !== false}
+                        onChange={(e) => handleToggleEnabled(phase.id, e.target.checked)}
+                        disabled={toggling[phase.id] || phase.status === 'running'}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"></div>
+                      <span className="ml-3 text-sm font-medium text-gray-700">
+                        {phase.enabled !== false ? 'On' : 'Off'}
+                      </span>
+                    </label>
+                  </TableCell>
 
-                {/* Edit Time for Scheduled Phases */}
-                {phase.trigger.type === 'scheduled' && (
-                  <div>
-                    <Label className="text-xs text-muted-foreground">Schedule Time</Label>
-                    <div className="flex items-center gap-2 mt-1">
-                      {editingPhase === phase.id ? (
-                        <>
-                          <Input
-                            type="time"
-                            value={editTime}
-                            onChange={(e) => setEditTime(e.target.value)}
-                            className="w-32"
-                          />
+                  {/* Schedule Time / Trigger Config */}
+                  <TableCell>
+                    {editingPhase === phase.id ? (
+                      <div className="space-y-3 py-1">
+                        {/* Trigger Type Selector */}
+                        <div className="flex justify-start">
+                          <Select
+                            value={editTriggerType}
+                            onValueChange={(value: 'scheduled' | 'auto') => setEditTriggerType(value)}
+                          >
+                            <SelectTrigger className="w-48">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="scheduled">Scheduled (Time)</SelectItem>
+                              <SelectItem value="auto">Auto (After Phase)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        
+                        {/* Conditional Inputs */}
+                        {editTriggerType === 'scheduled' ? (
+                          <div className="flex justify-start">
+                            <div 
+                              className="relative w-40 h-9 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                              onClick={() => triggerTimePicker(timeInputRef)}
+                            >
+                              <input
+                                ref={timeInputRef}
+                                type="time"
+                                value={editTime}
+                                onChange={(e) => setEditTime(e.target.value)}
+                                onKeyDown={(e) => {
+                                  // Prevent all keyboard input except navigation
+                                  if (e.key !== 'Tab' && e.key !== 'Enter' && e.key !== 'Escape') {
+                                    e.preventDefault();
+                                  }
+                                }}
+                                onPaste={(e) => e.preventDefault()}
+                                onInput={(e) => e.preventDefault()}
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                style={{ caretColor: 'transparent' }}
+                              />
+                              <div className="flex items-center justify-between h-full px-3">
+                                <span className="text-sm text-foreground">
+                                  {formatTimeForDisplay(editTime) || '00:00'}
+                                </span>
+                                <Clock className="w-4 h-4 text-foreground" />
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex justify-start">
+                            <Select
+                              value={editTriggerAfterPhase}
+                              onValueChange={setEditTriggerAfterPhase}
+                            >
+                              <SelectTrigger className="w-64">
+                                <SelectValue placeholder="Select phase to trigger after" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {phases
+                                  .filter(p => p.id !== phase.id)
+                                  .map(p => (
+                                    <SelectItem key={p.id} value={p.id}>
+                                      {p.name}
+                                    </SelectItem>
+                                  ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+                        
+                        {/* Action Buttons */}
+                        <div className="flex items-center justify-start gap-2 pt-1">
                           <Button
-                            onClick={() => handleSaveTime(phase.id)}
+                            onClick={() => handleSaveTriggerConfig(phase.id)}
                             size="sm"
                             variant="default"
+                            className="h-8 w-8 p-0"
+                            disabled={saving[phase.id]}
                           >
-                            <Save className="w-3 h-3 mr-1" />
-                            Save
+                            {saving[phase.id] ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Save className="w-4 h-4" />
+                            )}
                           </Button>
                           <Button
                             onClick={() => {
                               setEditingPhase(null);
                               setEditTime('');
+                              setEditTriggerType('scheduled');
+                              setEditTriggerAfterPhase('');
                             }}
                             size="sm"
                             variant="outline"
+                            className="h-8 w-8 p-0"
+                            disabled={saving[phase.id]}
                           >
-                            <X className="w-3 h-3" />
+                            <X className="w-4 h-4" />
                           </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        {phase.trigger.type === 'scheduled' ? (
+                          <span className="text-sm font-medium">{phase.trigger.schedule}</span>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">{phase.trigger.condition}</span>
+                        )}
+                        <Button
+                          onClick={() => handleEditTrigger(phase)}
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 px-2"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    )}
+                  </TableCell>
+
+                  {/* Trigger Button */}
+                  <TableCell>
+                    <Button
+                      onClick={() => handleTriggerPhase(phase.id)}
+                      disabled={triggering[phase.id] || phase.status === 'running' || phase.enabled === false}
+                      size="sm"
+                      variant={phase.status === 'running' ? "secondary" : "default"}
+                    >
+                      {triggering[phase.id] ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Triggering...
+                        </>
+                      ) : phase.status === 'running' ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Running...
                         </>
                       ) : (
                         <>
-                          <span className="text-sm font-medium">{phase.trigger.schedule}</span>
-                          <Button
-                            onClick={() => handleEditTime(phase)}
-                            size="sm"
-                            variant="ghost"
-                            className="h-6 px-2"
-                          >
-                            <Edit2 className="w-3 h-3" />
-                          </Button>
+                          <Play className="w-4 h-4 mr-2" />
+                          Trigger
                         </>
                       )}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Action Button */}
-              <div className="flex justify-end pt-2 border-t">
-                <Button
-                  onClick={() => handleTriggerPhase(phase.id)}
-                  disabled={triggering[phase.id] || phase.status === 'running'}
-                  size="sm"
-                  variant={phase.status === 'running' ? "secondary" : "default"}
-                >
-                  {triggering[phase.id] ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <Play className="w-4 h-4 mr-2" />
-                  )}
-                  {phase.status === 'running' ? 'Running...' : triggering[phase.id] ? 'Triggering...' : 'Trigger Phase'}
-                </Button>
-              </div>
-            </div>
-          ))}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
 
         {/* Info Note */}
-        <div className="flex items-start gap-2 p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg">
+        <div className="flex items-start gap-2 p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg mt-3">
           <AlertCircle className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
           <p className="text-xs text-blue-700 dark:text-blue-300">
             <strong>Note:</strong> Phase 1 phases are scheduled (can edit time). Phase 2-6 are auto-triggered sequentially. 
-            You can trigger any phase manually at any time. Click "Refresh" button to update status.
+            You can trigger any phase manually at any time. Hover over the info icon to see calculation details. Click "Refresh" button to update status.
           </p>
         </div>
       </CardContent>

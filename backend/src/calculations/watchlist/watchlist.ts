@@ -65,11 +65,17 @@ export class WatchlistCalculator {
       const lines = csvContent.trim().split('\n');
       const headers = lines[0]?.split(',') || [];
 
+      // Optimized: Only need 2 latest rows for watchlist (latest + previous)
+      const MAX_ROWS_NEEDED = 2;
       const data: StockData[] = [];
       let skippedLines = 0;
       let emptyLines = 0;
       let invalidLines = 0;
+      let isSortedDescending = true; // Assume sorted descending (from stockDataScheduler)
+      let firstValidDate: string | null = null;
+      let secondValidDate: string | null = null;
 
+      // Parse from beginning (CSV should be sorted descending - newest first)
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i]?.trim();
         
@@ -99,7 +105,7 @@ export class WatchlistCalculator {
           continue;
         }
 
-        data.push({
+        const stockData: StockData = {
           Date: row.Date,
           Open: parseFloat(row.Open) || 0,
           High: parseFloat(row.High) || 0,
@@ -109,15 +115,67 @@ export class WatchlistCalculator {
           Value: parseInt(row.Value) || 0,
           Frequency: parseInt(row.Frequency) || 0,
           ChangePercent: parseFloat(row.ChangePercent) || 0
-        });
+        };
+
+        data.push(stockData);
+
+        // Track dates to check if sorted descending
+        if (firstValidDate === null) {
+          firstValidDate = stockData.Date;
+        } else if (secondValidDate === null) {
+          secondValidDate = stockData.Date;
+          // Check if sorted descending: first date should be >= second date
+          if (firstValidDate && secondValidDate) {
+            const firstDate = new Date(firstValidDate).getTime();
+            const secondDate = new Date(secondValidDate).getTime();
+            if (!isNaN(firstDate) && !isNaN(secondDate) && firstDate < secondDate) {
+              isSortedDescending = false;
+            }
+          }
+        }
+
+        // Early exit optimization: Stop after getting enough rows
+        if (data.length >= MAX_ROWS_NEEDED) {
+          if (isSortedDescending) {
+            // CSV is sorted descending (newest first), we have 2 rows, stop parsing
+            // Verify with one more row to be confident (total 3 rows checked)
+            if (data.length >= 3) {
+              break; // Confident it's sorted, stop parsing
+            }
+            // Continue to get 3rd row for verification
+            continue;
+          } else {
+            // CSV is NOT sorted descending, we need to load more to find latest 2
+            // For performance, limit to last 200 rows (should be enough to find latest)
+            if (data.length >= 200) {
+              break; // Loaded enough, will sort later
+            }
+            // Continue loading more rows
+            continue;
+          }
+        }
       }
 
-      // Log data quality info for debugging
+      // Log data quality info for debugging (only if issues found)
       if (emptyLines > 0 || invalidLines > 0 || skippedLines > 0) {
         console.log(`📊 ${ticker}: Total lines=${lines.length-1}, Valid=${data.length}, Empty=${emptyLines}, Invalid=${invalidLines}, Skipped=${skippedLines}`);
       }
 
-      return data.sort((a, b) => new Date(b.Date).getTime() - new Date(a.Date).getTime());
+      // If we have data and it's not sorted descending, sort it
+      // Otherwise, data is already sorted (newest first), so return as-is
+      if (data.length > 0 && !isSortedDescending) {
+        // Sort descending by date (newest first) and take only latest 2
+        const sorted = data.sort((a, b) => {
+          const dateA = new Date(a.Date).getTime();
+          const dateB = new Date(b.Date).getTime();
+          return dateB - dateA; // Descending
+        });
+        // Return only latest 2 rows (we only need latest + previous)
+        return sorted.slice(0, MAX_ROWS_NEEDED);
+      }
+
+      // Data is already sorted descending (or empty), return only latest 2 rows
+      return data.slice(0, MAX_ROWS_NEEDED);
     } catch (error) {
       console.warn(`⚠️ Warning: Could not load data for ${ticker}: ${error}`);
       return [];

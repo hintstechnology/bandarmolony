@@ -558,11 +558,6 @@ const parseBrokerTransactionCSV = (csvData: string, _brokerCode: string): any[] 
     });
   }
   
-  console.log(`[PARSE] Parsing complete: ${transactionData.length} records, ${skippedCount} skipped`);
-  if (skippedCount > 0) {
-    console.log('[PARSE] Skip reasons:', skippedReasons);
-  }
-  
   return transactionData;
 };
 
@@ -591,7 +586,6 @@ router.get('/transaction/dates', async (_req, res) => {
           dates.add(match[1]);
         }
       });
-      console.log(`[AZURE] Found ${dates.size} dates from broker_transaction/ (${allPrefixes.length} folders)`);
     } catch (error: any) {
       console.error('[AZURE] Error listing broker_transaction folders:', error.message);
     }
@@ -607,7 +601,6 @@ router.get('/transaction/dates', async (_req, res) => {
           dates.add(match[1]);
         }
       });
-      console.log(`[AZURE] Found ${dates.size} dates from broker_transaction_rg/ (${rgPrefixes.length} folders)`);
     } catch (error: any) {
       console.error('[AZURE] Error listing broker_transaction_rg folders:', error.message);
     }
@@ -623,7 +616,6 @@ router.get('/transaction/dates', async (_req, res) => {
           dates.add(match[1]);
         }
       });
-      console.log(`[AZURE] Found ${dates.size} dates from broker_transaction_tn/ (${tnPrefixes.length} folders)`);
     } catch (error: any) {
       console.error('[AZURE] Error listing broker_transaction_tn folders:', error.message);
     }
@@ -639,14 +631,11 @@ router.get('/transaction/dates', async (_req, res) => {
           dates.add(match[1]);
         }
       });
-      console.log(`[AZURE] Found ${dates.size} dates from broker_transaction_ng/ (${ngPrefixes.length} folders)`);
     } catch (error: any) {
       console.error('[AZURE] Error listing broker_transaction_ng folders:', error.message);
     }
     
     const sortedDates = Array.from(dates).sort().reverse(); // Newest first
-    
-    console.log(`[AZURE] Found ${sortedDates.length} available dates for broker transaction data`);
     
     return res.json({
       success: true,
@@ -681,26 +670,18 @@ router.get('/transaction/:brokerCode', async (req, res) => {
     // Get Azure Storage path based on broker code and market filter
     const azurePath = getAzurePath(brokerCode, dateStr, marketFilter);
     
-    console.log(`Fetching broker transaction data for ${brokerCode} on ${dateStr} with market: ${marketFilter || 'All Trade'}`);
-    console.log(`Looking for file: ${azurePath}`);
-    
     // Download CSV data from Azure
     const csvData = await downloadText(azurePath);
     
     if (!csvData) {
-      console.log(`File not found: ${azurePath}`);
       return res.status(404).json({
         success: false,
         error: `No broker transaction data found for ${brokerCode} on ${dateStr}`
       });
     }
     
-    console.log(`File found, size: ${csvData.length} characters`);
-    
     // Parse CSV data (handle both comma and semicolon delimiters)
-    console.log(`[PARSE] Parsing CSV data, ${csvData.split('\n').length} lines`);
     const transactionData = parseBrokerTransactionCSV(csvData, brokerCode);
-    console.log(`[PARSE] Parsed ${transactionData.length} transaction records`);
     
     if (transactionData.length === 0) {
       return res.status(404).json({

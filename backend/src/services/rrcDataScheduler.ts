@@ -47,7 +47,7 @@ export function getGenerationStatus() {
 /**
  * Pre-generate all possible RRC outputs with optional force override
  */
-export async function preGenerateAllRRC(forceOverride: boolean = false, triggerType: 'startup' | 'scheduled' | 'manual' | 'debug' = 'startup'): Promise<void> {
+export async function preGenerateAllRRC(forceOverride: boolean = false, triggerType: 'startup' | 'scheduled' | 'manual' | 'debug' = 'startup', logId?: string | null): Promise<void> {
   const SCHEDULER_TYPE = 'rrc';
   
   if (isGenerating) {
@@ -66,27 +66,32 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
   await AzureLogger.logSchedulerStart(SCHEDULER_TYPE, `RRC auto-generation ${forceOverride ? '(FORCE OVERRIDE MODE)' : '(SKIP EXISTING FILES)'}`);
   const startTime = new Date();
 
-  // Create database log entry
-  const logData: Partial<SchedulerLog> = {
-    feature_name: 'rrc',
-    trigger_type: triggerType,
-    triggered_by: triggerType === 'manual' || triggerType === 'debug' ? 'user' : 'system',
-    status: 'running',
-    force_override: forceOverride,
-    progress_percentage: 0.00,
-    current_processing: 'Initializing...',
-    server_info: {
-      node_version: process.version,
-      platform: process.platform,
-      memory_usage: process.memoryUsage()
-    }
-  };
+  // Only create log entry if logId is not provided (called from scheduler, not manual trigger)
+  let finalLogId = logId;
+  if (!finalLogId) {
+    const logData: Partial<SchedulerLog> = {
+      feature_name: 'rrc',
+      trigger_type: triggerType,
+      triggered_by: triggerType === 'manual' || triggerType === 'debug' ? 'user' : 'system',
+      status: 'running',
+      force_override: forceOverride,
+      progress_percentage: 0.00,
+      current_processing: 'Initializing...',
+      server_info: {
+        node_version: process.version,
+        platform: process.platform,
+        memory_usage: process.memoryUsage()
+      }
+    };
 
-  const logEntry = await SchedulerLogService.createLog(logData);
-  if (logEntry) {
-    currentLogId = logEntry.id!;
-    console.log('📊 Database log created:', currentLogId);
+    const logEntry = await SchedulerLogService.createLog(logData);
+    if (logEntry) {
+      finalLogId = logEntry.id!;
+      console.log('📊 Database log created:', finalLogId);
+    }
   }
+  
+  currentLogId = finalLogId || null;
 
   try {
     // Get all available data

@@ -508,7 +508,7 @@ export class AccumulationDistributionCalculator {
   /**
    * Main function to generate accumulation distribution data
    */
-  public async generateAccumulationDistributionData(_dateSuffix: string): Promise<{ success: boolean; message: string; data?: any }> {
+  public async generateAccumulationDistributionData(_dateSuffix: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
     try {
       console.log(`Starting accumulation distribution calculation for ALL available bid_ask dates...`);
 
@@ -558,6 +558,8 @@ export class AccumulationDistributionCalculator {
       console.log(`📊 Found ${stockFilesList.length} stock files in Azure`);
       
       const createdFilesSummary: { date: string; file: string; count: number }[] = [];
+      let processedCount = 0;
+      let skippedCount = 0;
 
       for (let di = 0; di < limitedDates.length; di++) {
         const dateSuffix = limitedDates[di];
@@ -571,9 +573,29 @@ export class AccumulationDistributionCalculator {
         try {
           await downloadText(checkFilename);
           console.log(`⏭️ Skipping ${dateSuffix} - file already exists`);
+          skippedCount++;
+          // Update progress even for skipped files
+          if (logId) {
+            const { SchedulerLogService } = await import('../../services/schedulerLogService');
+            await SchedulerLogService.updateLog(logId, {
+              progress_percentage: Math.round(((di + 1) / limitedDates.length) * 100),
+              current_processing: `Processing accumulation for date ${dateSuffix} (${di + 1}/${limitedDates.length}) - Skipped (already exists)`
+            });
+          }
           continue;
         } catch (error) {
           // File doesn't exist, continue processing
+        }
+        
+        processedCount++;
+        
+        // Update progress
+        if (logId) {
+          const { SchedulerLogService } = await import('../../services/schedulerLogService');
+          await SchedulerLogService.updateLog(logId, {
+            progress_percentage: Math.round(((di + 1) / limitedDates.length) * 100),
+            current_processing: `Processing accumulation for date ${dateSuffix} (${di + 1}/${limitedDates.length})`
+          });
         }
         
         console.log(`\n===== Processing accumulation for date ${dateSuffix} (${di + 1}/${limitedDates.length}) =====`);

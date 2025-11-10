@@ -10,12 +10,12 @@ export class BidAskDataScheduler {
   /**
    * Generate bid/ask footprint data
    */
-  async generateBidAskData(dateSuffix?: string): Promise<{ success: boolean; message: string; data?: any }> {
+  async generateBidAskData(dateSuffix?: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
     try {
       const targetDate = dateSuffix || this.getCurrentDateSuffix();
       console.log(`🔄 Starting Bid/Ask Footprint calculation for date: ${targetDate}`);
       
-      const result = await this.calculator.generateBidAskData(targetDate);
+      const result = await this.calculator.generateBidAskData(targetDate, logId);
       
       if (result.success) {
         console.log('✅ Bid/Ask Footprint calculation completed successfully');
