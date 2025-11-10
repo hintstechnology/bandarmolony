@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Loader2, Calendar, Search } from 'lucide-react';
 import { api } from '../../services/api';
+import { useToast } from '../../contexts/ToastContext';
 
 interface BrokerTransactionData {
   Emiten: string;
@@ -210,6 +211,7 @@ const getLastThreeDays = (): string[] => {
 // Sector mapping is loaded from backend API
 
 export function BrokerTransaction() {
+  const { showToast } = useToast();
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
 
 // Get available dates from backend and return recent trading days (oldest first for display)
@@ -294,24 +296,26 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     dates: string[];
     market: string;
     tickers: string[]; // Track selectedTickers to detect changes
+    sectors: string[]; // Track selectedSectors to detect changes
   } | null>(null);
   
   // Sector Filter states (changed from F/D filter)
-  const [sectorFilter, setSectorFilter] = useState<string>('All'); // 'All' or sector name (UI state - dropdown value)
   const [activeSectorFilter, setActiveSectorFilter] = useState<string>('All'); // 'All' or sector name (active filter - used for filtering displayed data)
-  const [availableSectors, setAvailableSectors] = useState<string[]>([]); // List of available sectors
+  const [availableSectors, setAvailableSectors] = useState<string[]>([]); // List of available sectors (excluding 'All')
   const [stockToSectorMap, setStockToSectorMap] = useState<{ [stock: string]: string }>({}); // Stock code -> sector name mapping
   const [marketFilter, setMarketFilter] = useState<'RG' | 'TN' | 'NG' | ''>(''); // Default to All Trade
   
-  // Multi-select ticker states
+  // Multi-select ticker/sector states (combined)
   const [tickerInput, setTickerInput] = useState('');
   const [selectedTickers, setSelectedTickers] = useState<string[]>([]); // Empty by default - show all tickers
+  const [selectedSectors, setSelectedSectors] = useState<string[]>([]); // Selected sectors (for filtering)
   const [showTickerSuggestions, setShowTickerSuggestions] = useState(false);
   const [highlightedTickerIndex, setHighlightedTickerIndex] = useState<number>(-1);
   const dropdownTickerRef = useRef<HTMLDivElement>(null);
   
   // OPTIMIZED: Memoize ticker extraction to prevent freeze on dropdown
   // FIXED: Use rawTransactionData (before ticker filtering) to show all available tickers for selected broker(s)
+  // CRITICAL: If sector is selected, only show tickers from that sector
   const availableTickers = useMemo(() => {
     const allTickers = new Set<string>();
     if (isDataReady && rawTransactionData.size > 0) {
@@ -325,13 +329,23 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         });
       });
     }
+    
+    // If sector is selected, filter tickers by sector
+    if (selectedSectors.length > 0) {
+      const tickersFromSectors = Array.from(allTickers).filter(ticker => {
+        const tickerSector = stockToSectorMap[ticker.toUpperCase()];
+        return tickerSector && selectedSectors.includes(tickerSector);
+      });
+      return tickersFromSectors.sort();
+    }
+    
     return Array.from(allTickers).sort();
-  }, [rawTransactionData, isDataReady]); // Use rawTransactionData instead of transactionData to show all tickers
+  }, [rawTransactionData, isDataReady, selectedSectors, stockToSectorMap]); // Include selectedSectors and stockToSectorMap to filter by sector
 
   // Request cancellation ref
   const abortControllerRef = useRef<AbortController | null>(null);
   const shouldFetchDataRef = useRef<boolean>(false); // Ref to track shouldFetchData for async functions (always up-to-date)
-  const hasInitialAutoFetchRef = useRef<boolean>(false); // Track if initial auto-fetch has been triggered
+  const hasInitialAutoFetchRef = useRef<boolean>(false); // Track if initial auto-fetch has been triggered (only once on mount)
   
   // Cache for API responses to avoid redundant calls
   // Key format: `${broker}-${date}-${market}`
@@ -347,7 +361,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   // Visible rows will reset automatically when new data is loaded (via transactionData change)
 
   // Load available brokers, tickers, and initial dates on component mount
-  // IMPORTANT: This effect runs ONLY ONCE on mount - auto-load default data
+  // IMPORTANT: This effect runs ONLY ONCE on mount - auto-load default data (1x only)
   useEffect(() => {
     const loadInitialData = async () => {
       setIsLoading(true);
@@ -365,7 +379,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               cachedSectorMapping = parsed;
               // Set cached sector mapping immediately for instant colors
               setStockToSectorMap(parsed.stockToSector);
-              setAvailableSectors(['All', ...parsed.sectors]);
+              setAvailableSectors(parsed.sectors); // Exclude 'All' from available sectors
             }
           }
         } catch (e) {
@@ -389,7 +403,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         // Update sector mapping if we got fresh data (not from cache)
         if (sectorResponse.success && sectorResponse.data && !cachedSectorMapping) {
           setStockToSectorMap(sectorResponse.data.stockToSector);
-          setAvailableSectors(['All', ...sectorResponse.data.sectors]);
+          setAvailableSectors(sectorResponse.data.sectors); // Exclude 'All' from available sectors
           // Cache for next time
           try {
             localStorage.setItem(SECTOR_MAPPING_CACHE_KEY, JSON.stringify({
@@ -407,31 +421,37 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         const sortedDates = [...initialDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
         
         // Set default to last 3 trading days (skip weekends)
+        // CRITICAL: Set hasInitialAutoFetchRef BEFORE setting dates to prevent useEffect from triggering
+        // This ensures useEffect update selectedDates knows that initial load is in progress
+        hasInitialAutoFetchRef.current = false; // Mark as not yet completed
+        
         setSelectedDates(sortedDates);
         if (sortedDates.length > 0) {
           setStartDate(sortedDates[0]);
           setEndDate(sortedDates[sortedDates.length - 1]);
         }
         
-        // Capture current values for auto-fetch
+        // Capture current values for initial auto-fetch (default menu)
         const currentBrokers = ['AK']; // Default broker
         const currentTickers: string[] = []; // Empty array - show all tickers (no filter)
+        const currentSectors: string[] = []; // Empty array - show all sectors (no filter)
         const datesToUse = [...sortedDates];
         
-        // Trigger initial auto-fetch AFTER all states are set
+        // Trigger initial auto-fetch AFTER all states are set (only once on mount)
         // CRITICAL: Use setTimeout to ensure all state updates are batched and applied
         setTimeout(() => {
           // Only trigger if initial fetch hasn't happened AND we have dates and brokers
-          // Note: tickers can be empty (show all) - so we don't require currentTickers.length > 0
+          // Note: tickers and sectors can be empty (show all) - so we don't require them
           if (!hasInitialAutoFetchRef.current && 
               datesToUse.length > 0 && 
               currentBrokers.length > 0) {
             // Mark as triggered IMMEDIATELY (synchronously) before any async operations
             hasInitialAutoFetchRef.current = true;
-            console.log('[BrokerTransaction] Initial auto-fetch triggered', {
+            console.log('[BrokerTransaction] Initial auto-fetch triggered (1x only on mount)', {
               dates: datesToUse,
               brokers: currentBrokers,
-              tickers: currentTickers.length > 0 ? currentTickers : 'ALL (no filter)'
+              tickers: currentTickers.length > 0 ? currentTickers : 'ALL (no filter)',
+              sectors: currentSectors.length > 0 ? currentSectors : 'NONE (no filter)'
             });
             // Set ref first (synchronous), then state (async)
             shouldFetchDataRef.current = true;
@@ -446,7 +466,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           }
         }, 0);
         
-        // Loading akan di-reset oleh loadTransactionData
+        // Loading akan di-reset oleh loadTransactionData jika fetch dilakukan
         
       } catch (error) {
         console.error('Error loading initial data:', error);
@@ -869,11 +889,14 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           // This ensures dropdown always shows all available tickers for selected broker(s)
           const rawRows = [...allRows]; // Copy before filtering
           
-          // CRITICAL: Filter by selectedTickers if provided (only when Show button is clicked)
-          // IMPORTANT: If selectedTickers is empty (length === 0), show ALL tickers (no filtering)
-          // This means when user clears all tickers, it's equivalent to "show all tickers"
+          // CRITICAL: Filter logic priority:
+          // 1. If selectedTickers is provided (even if sector is selected), filter by ticker
+          // 2. If selectedSectors is provided (and no ticker), filter by sector
+          // 3. If both empty, show all
           const rowsBeforeFilter = allRows.length;
+          
           if (selectedTickers.length > 0) {
+            // Priority 1: Filter by ticker (even if sector is selected)
             allRows = allRows.filter(row => {
               // Check if row matches any selected ticker in any section (BCode, SCode, NBCode, NSCode)
               const bCode = row.BCode || '';
@@ -889,11 +912,30 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                      selectedTickers.includes(emiten);
             });
             console.log(`[BrokerTransaction] Filtered data for ${date}: ${rowsBeforeFilter} -> ${allRows.length} rows (filtered by tickers: ${selectedTickers.join(', ')})`);
+          } else if (selectedSectors.length > 0) {
+            // Priority 2: Filter by sector (only if no ticker selected)
+            allRows = allRows.filter(row => {
+              // Check if any stock code in row belongs to selected sectors
+              const bCode = row.BCode || '';
+              const sCode = row.SCode || '';
+              const nbCode = row.NBCode || '';
+              const nsCode = row.NSCode || '';
+              
+              const bCodeSector = bCode ? stockToSectorMap[bCode.toUpperCase()] : null;
+              const sCodeSector = sCode ? stockToSectorMap[sCode.toUpperCase()] : null;
+              const nbCodeSector = nbCode ? stockToSectorMap[nbCode.toUpperCase()] : null;
+              const nsCodeSector = nsCode ? stockToSectorMap[nsCode.toUpperCase()] : null;
+              
+              return (bCodeSector && selectedSectors.includes(bCodeSector)) ||
+                     (sCodeSector && selectedSectors.includes(sCodeSector)) ||
+                     (nbCodeSector && selectedSectors.includes(nbCodeSector)) ||
+                     (nsCodeSector && selectedSectors.includes(nsCodeSector));
+            });
+            console.log(`[BrokerTransaction] Filtered data for ${date}: ${rowsBeforeFilter} -> ${allRows.length} rows (filtered by sectors: ${selectedSectors.join(', ')})`);
           } else {
             // No filtering - show all tickers
-            console.log(`[BrokerTransaction] No ticker filter for ${date}: showing all ${allRows.length} rows (selectedTickers is empty)`);
+            console.log(`[BrokerTransaction] No filter for ${date}: showing all ${allRows.length} rows (no ticker or sector selected)`);
           }
-          // else: selectedTickers.length === 0 means show ALL tickers (no filtering applied)
           
           // Store raw data (before filtering) for availableTickers
           newRawTransactionData.set(date, rawRows);
@@ -949,7 +991,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           brokers: [...selectedBrokers],
           dates: [...selectedDates],
           market: marketFilter || '',
-          tickers: [...selectedTickers] // Track selectedTickers
+          tickers: [...selectedTickers], // Track selectedTickers
+          sectors: [...selectedSectors] // Track selectedSectors
         };
         
         setIsDataReady(true);
@@ -996,66 +1039,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     // sectorFilter and marketFilter are accessed inside the function, but should NOT trigger auto-fetch
   }, [shouldFetchData]);
 
-  // Update date range when startDate or endDate changes
-  useEffect(() => {
-    if (startDate && endDate) {
-      // Parse dates as local dates (YYYY-MM-DD format) to avoid timezone issues
-      // Split YYYY-MM-DD and create date in local timezone
-      const startParts = startDate.split('-').map(Number);
-      const endParts = endDate.split('-').map(Number);
-      
-      if (startParts.length !== 3 || endParts.length !== 3) {
-        console.warn('Invalid date format');
-        return;
-      }
-      
-      const startYear = startParts[0];
-      const startMonth = startParts[1];
-      const startDay = startParts[2];
-      const endYear = endParts[0];
-      const endMonth = endParts[1];
-      const endDay = endParts[2];
-      
-      if (startYear === undefined || startMonth === undefined || startDay === undefined ||
-          endYear === undefined || endMonth === undefined || endDay === undefined) {
-        console.warn('Invalid date format');
-        return;
-      }
-      
-      const start = new Date(startYear, startMonth - 1, startDay);
-      const end = new Date(endYear, endMonth - 1, endDay);
-      
-      // Check if range is valid
-      if (start > end) {
-        console.warn('Tanggal mulai harus sebelum tanggal akhir');
-        return;
-      }
-      
-      // Generate date array (only trading days)
-      const dateArray: string[] = [];
-      const currentDate = new Date(start);
-      
-      while (currentDate <= end) {
-        const dayOfWeek = currentDate.getDay();
-        // Skip weekends (Saturday = 6, Sunday = 0)
-        if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-          // Format as YYYY-MM-DD in local timezone
-          const year = currentDate.getFullYear();
-          const month = String(currentDate.getMonth() + 1).padStart(2, '0');
-          const day = String(currentDate.getDate()).padStart(2, '0');
-          const dateString = `${year}-${month}-${day}`;
-            dateArray.push(dateString);
-          }
-        // Move to next day
-        currentDate.setDate(currentDate.getDate() + 1);
-      }
-      
-      // Sort by date (oldest first) for display
-      // Allow more than 7 days - will show only Total column if > 7 days
-      const sortedDates = dateArray.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-      setSelectedDates(sortedDates);
-    }
-  }, [startDate, endDate]);
+  // CRITICAL: REMOVED useEffect that updates selectedDates when startDate/endDate changes
+  // selectedDates will ONLY be updated when user clicks Show button
+  // This ensures NO side effects when user changes date input - table and data remain unchanged
 
   const formatDisplayDate = (dateString: string): string => {
     const date = new Date(dateString);
@@ -1085,6 +1071,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   const handleBrokerSelect = (broker: string) => {
     if (!selectedBrokers.includes(broker)) {
       setSelectedBrokers([...selectedBrokers, broker]);
+      // CRITICAL: Keep existing data visible - no auto-fetch, no hide tables
+      // User must click Show button to fetch new data
     }
     setBrokerInput('');
     setShowBrokerSuggestions(false);
@@ -1093,12 +1081,16 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   // Handle broker removal
   const handleRemoveBroker = (broker: string) => {
     setSelectedBrokers(selectedBrokers.filter(b => b !== broker));
+    // CRITICAL: Keep existing data visible - no auto-fetch, no hide tables
+    // User must click Show button to fetch new data
   };
 
   // Handle ticker selection
   const handleTickerSelect = (ticker: string) => {
     if (!selectedTickers.includes(ticker)) {
       setSelectedTickers([...selectedTickers, ticker]);
+      // CRITICAL: Keep existing data visible - no auto-fetch, no hide tables
+      // User must click Show button to fetch new data
     }
     setTickerInput('');
     setShowTickerSuggestions(false);
@@ -1107,6 +1099,32 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   // Handle ticker removal
   const handleRemoveTicker = (ticker: string) => {
     setSelectedTickers(selectedTickers.filter(t => t !== ticker));
+    // CRITICAL: Keep existing data visible - no auto-fetch, no hide tables
+    // User must click Show button to fetch new data
+  };
+
+  // Handle sector selection (from combined dropdown)
+  const handleSectorSelect = (sector: string) => {
+    if (!selectedSectors.includes(sector)) {
+      setSelectedSectors([...selectedSectors, sector]);
+      // CRITICAL: Keep existing data visible - no auto-fetch, no hide tables
+      // User must click Show button to fetch new data
+    }
+    setTickerInput('');
+    setShowTickerSuggestions(false);
+  };
+
+  // Handle sector removal
+  const handleRemoveSector = (sector: string) => {
+    setSelectedSectors(selectedSectors.filter(s => s !== sector));
+    // CRITICAL: Keep existing data visible - no auto-fetch, no hide tables
+    // User must click Show button to fetch new data
+    // When sector is removed, clear selectedTickers to return to normal state
+    // This ensures dropdown shows all tickers again
+    if (selectedSectors.length === 1) {
+      // If this is the last sector being removed, clear tickers
+      setSelectedTickers([]);
+    }
   };
 
   // Handle click outside to close dropdowns
@@ -2644,99 +2662,57 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       
       // Helper function to get stock color class based on sector
       // CRITICAL: This should always work regardless of ticker selection - coloring is independent of filtering
-      const getStockColorClass = (stockCode: string): string => {
-        if (!stockCode) return 'text-white font-semibold';
+      const getStockColorClass = (stockCode: string): { color: string; className: string } => {
+        if (!stockCode) return { color: '#FFFFFF', className: 'font-semibold' };
         const stockSector = stockToSectorMap[stockCode.toUpperCase()];
-        if (!stockSector) return 'text-white font-semibold';
+        if (!stockSector) return { color: '#FFFFFF', className: 'font-semibold' };
         
-        // Color mapping based on sector (similar to broker coloring in BrokerSummaryPage)
-        // You can customize these colors as needed
+        // Color mapping based on sector - Using 11 distinct colors from provided palette
+        // NO GREEN/RED to avoid conflict with Buy/Sell colors
+        // Colors: Royal Blue, Sky Blue, Deep Purple, Gold, Orange, Cyan, Brown, Slate Gray, Hot Pink, Khaki, White
         const sectorColors: { [sector: string]: string } = {
-          'Financials': 'text-green-600 font-semibold',
-          'Energy': 'text-red-600 font-semibold',
-          'Basic Materials': 'text-blue-600 font-semibold',
-          'Consumer Cyclicals': 'text-yellow-600 font-semibold',
-          'Consumer Non-Cyclicals': 'text-purple-600 font-semibold',
-          'Healthcare': 'text-pink-600 font-semibold',
-          'Industrials': 'text-orange-600 font-semibold',
-          'Infrastructures': 'text-cyan-600 font-semibold',
-          'Properties & Real Estate': 'text-indigo-600 font-semibold',
-          'Technology': 'text-teal-600 font-semibold',
-          'Transportation & Logistic': 'text-lime-600 font-semibold'
+          'Financials': '#FFFFFF', // White
+          'Energy': '#4169E1', // Royal Blue
+          'Basic Materials': '#00BFFF', // Sky Blue
+          'Consumer Cyclicals': '#800080', // Deep Purple
+          'Consumer Non-Cyclicals': '#FFD700', // Gold
+          'Healthcare': '#FF8C00', // Orange
+          'Industrials': '#00FFFF', // Cyan
+          'Infrastructures': '#8B4513', // Brown
+          'Properties & Real Estate': '#708090', // Slate Gray
+          'Technology': '#FF69B4', // Hot Pink
+          'Transportation & Logistic': '#C3B091' // Khaki
         };
         
-        return sectorColors[stockSector] || 'text-white font-semibold';
-      };
-      
-      // Helper function to check if stock matches sector filter (for render-time filtering)
-      // CRITICAL: Use activeSectorFilter (not sectorFilter) - only filter when Show button is clicked
-      // IMPORTANT BEHAVIOR:
-      // - When ticker is selected: filters data that's already filtered by ticker
-      // - When ticker is empty (all tickers) and sector is selected: only shows stocks from that sector
-      // - When sector is "All": shows all stocks (respects ticker filter if ticker is selected)
-      const stockSectorScreen = (stockCode: string): boolean => {
-        if (!stockCode) return false;
-        if (activeSectorFilter === 'All') return true; // Show all stocks when sector filter is "All"
-        const stockSector = stockToSectorMap[stockCode.toUpperCase()];
-        if (!stockSector) {
-          // If stock has no sector mapping, don't show it when sector filter is active
-          // This ensures only stocks with matching sector are displayed
-          return false;
-        }
-        // Only show stocks that match the selected sector
-        return stockSector === activeSectorFilter;
+        const color = sectorColors[stockSector] || '#FFFFFF';
+        return { color, className: 'font-semibold' };
       };
       
       // For VALUE table: Get max row count across all dates for Buy and Sell sections separately
-      // CRITICAL: Filter by sector at render time, not during computation
-      // When showOnlyTotal is true, use sorted stocks from totalBuyDataByStock and totalSellDataByStock (filtered by sector)
-      // IMPORTANT: Sector filter works on data that's already filtered by ticker (if ticker is selected)
-      let maxBuyRows = 0;
-      let maxSellRows = 0;
+      // CRITICAL: Filtering is done in loadTransactionData, so no need to filter here
+      // Data is already filtered by ticker or sector at fetch time
       
-      if (showOnlyTotal) {
-        // When showing only Total, use sorted stocks from aggregated data (filtered by sector)
-        const sortedBuyStocks = Array.from(totalBuyDataByStock.entries())
-          .filter(([stock]) => stockSectorScreen(stock))
-          .sort((a, b) => b[1].buyerValue - a[1].buyerValue)
-          .map(([stock]) => stock);
-        const sortedSellStocks = Array.from(totalSellDataByStock.entries())
-          .filter(([stock]) => stockSectorScreen(stock))
-          .sort((a, b) => b[1].sellerValue - a[1].sellerValue)
-          .map(([stock]) => stock);
-        maxBuyRows = sortedBuyStocks.length;
-        maxSellRows = sortedSellStocks.length;
-        
-        console.log(`[BrokerTransaction] renderValueTable (showOnlyTotal): Sector filter "${activeSectorFilter}"`, {
-          totalBuyStocksBeforeFilter: totalBuyDataByStock.size,
-          totalSellStocksBeforeFilter: totalSellDataByStock.size,
-          sortedBuyStocksAfterFilter: sortedBuyStocks.length,
-          sortedSellStocksAfterFilter: sortedSellStocks.length,
-          sampleBuyStocks: sortedBuyStocks.slice(0, 5),
-          sampleSellStocks: sortedSellStocks.slice(0, 5),
-          note: activeSectorFilter === 'All' ? 'Showing all stocks' : `Showing only stocks from sector: ${activeSectorFilter}`
-        });
-      } else {
-        // When showing per-date, use data from buyStocksByDate and sellStocksByDate (filtered by sector)
+      // CRITICAL: Total column ALWAYS uses sorted stocks from aggregated data
+      // Sort by buyerValue (highest to lowest) for Buy section
+      const sortedTotalBuyStocks = Array.from(totalBuyDataByStock.entries())
+        .sort((a, b) => b[1].buyerValue - a[1].buyerValue)
+        .map(([stock]) => stock);
+      
+      // Sort by sellerValue (highest to lowest) for Sell section
+      const sortedTotalSellStocks = Array.from(totalSellDataByStock.entries())
+        .sort((a, b) => b[1].sellerValue - a[1].sellerValue)
+        .map(([stock]) => stock);
+      
+      let maxBuyRows = sortedTotalBuyStocks.length;
+      let maxSellRows = sortedTotalSellStocks.length;
+      
+      if (!showOnlyTotal) {
+        // When showing per-date, also check per-date rows to ensure we show all data
         selectedDates.forEach(date => {
-          const buyDataBeforeFilter = buyStocksByDate.get(date) || [];
-          const sellDataBeforeFilter = sellStocksByDate.get(date) || [];
-          const buyData = buyDataBeforeFilter.filter(item => stockSectorScreen(item.stock));
-          const sellData = sellDataBeforeFilter.filter(item => stockSectorScreen(item.stock));
+          const buyData = buyStocksByDate.get(date) || [];
+          const sellData = sellStocksByDate.get(date) || [];
           maxBuyRows = Math.max(maxBuyRows, buyData.length);
           maxSellRows = Math.max(maxSellRows, sellData.length);
-          
-          if (date === selectedDates[0]) {
-            console.log(`[BrokerTransaction] renderValueTable (per-date) for ${date}: Sector filter "${activeSectorFilter}"`, {
-              buyDataBeforeFilter: buyDataBeforeFilter.length,
-              sellDataBeforeFilter: sellDataBeforeFilter.length,
-              buyDataAfterFilter: buyData.length,
-              sellDataAfterFilter: sellData.length,
-              sampleBuyStocks: buyData.slice(0, 5).map(d => d.stock),
-              sampleSellStocks: sellData.slice(0, 5).map(d => d.stock),
-              note: activeSectorFilter === 'All' ? 'Showing all stocks' : `Showing only stocks from sector: ${activeSectorFilter}`
-            });
-          }
         });
       }
       const tableMaxRows = Math.max(maxBuyRows, maxSellRows);
@@ -2801,8 +2777,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BAvg</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BFreq</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BOR</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-16" title={formatDisplayDate(date)}>Lot/OR</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BOr</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-16" title={formatDisplayDate(date)}>Lot/Or</th>
                         {/* Separator */}
                         <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap" title={formatDisplayDate(date)}>#</th>
                         {/* Seller Columns */}
@@ -2812,8 +2788,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SFreq</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SOR</th>
-                        <th className={`text-center py-[1px] px-[6px] font-bold text-white w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/OR</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SOr</th>
+                        <th className={`text-center py-[1px] px-[6px] font-bold text-white w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/Or</th>
                       </React.Fragment>
                     ))}
                     {/* Total Columns */}
@@ -2823,8 +2799,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BAvg</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BFreq</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BOR</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/OR</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BOr</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/Or</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap">#</th>
                     <th className="text-center py-[1px] px-[3px] font-bold text-white" style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>SCode</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SVal</th>
@@ -2832,8 +2808,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SAvg</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SFreq</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SOR</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white">Lot/OR</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SOr</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white">Lot/Or</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2853,13 +2829,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       <tr key={rowIdx}>
                         {!showOnlyTotal && selectedDates.map((date: string, dateIndex: number) => {
                           // Get Buy data at this row index for this date
-                          // CRITICAL: Filter by sector at render time
-                          const buyDataForDate = (buyStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
+                          // CRITICAL: Data is already filtered in loadTransactionData
+                          const buyDataForDate = buyStocksByDate.get(date) || [];
                           const buyRowData = buyDataForDate[rowIdx];
                           
                           // Get Sell data at this row index for this date
-                          // CRITICAL: Filter by sector at render time
-                          const sellDataForDate = (sellStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
+                          // CRITICAL: Data is already filtered in loadTransactionData
+                          const sellDataForDate = sellStocksByDate.get(date) || [];
                           const sellRowData = sellDataForDate[rowIdx];
                         
                         return (
@@ -2889,10 +2865,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     const buyerLotPerOrdNum = dayData.BLotPerOrdNum;
                                     
                                     const bCode = dayData.BCode || buyRowData.stock;
-                                    const bCodeColorClass = getStockColorClass(bCode);
+                                    const bCodeColor = getStockColorClass(bCode);
                                     return (
                                       <>
-                            <td className={`text-center py-[1px] px-[3px] font-bold ${bCodeColorClass} ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>
+                            <td className={`text-center py-[1px] px-[3px] font-bold ${bCodeColor.className} ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ ...(dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }), color: bCodeColor.color }}>
                                           {bCode}
                             </td>
                                         <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6">{formatValue(buyerVal)}</td>
@@ -2947,10 +2923,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     }
                                     
                                     const sCode = String(dayData.SCode || sellRowData.stock || '');
-                                    const sCodeColorClass = getStockColorClass(sCode);
+                                    const sCodeColor = getStockColorClass(sCode);
                                     return (
                                       <>
-                                        <td className={`text-center py-[1px] px-[3px] font-bold ${sCodeColorClass}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>{sCode}</td>
+                                        <td className={`text-center py-[1px] px-[3px] font-bold ${sCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', color: sCodeColor.color }}>{sCode}</td>
                                         <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6">{formatValue(sellerVal)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6">{formatLot(sellerLot)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6">{formatAverage(sellerAvg ?? 0)}</td>
@@ -2982,59 +2958,24 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       })}
                         {/* Total Column - aggregate Buy and Sell data separately by stock code */}
                       {(() => {
-                          // Get Buy stock code at this row index
-                          // When showOnlyTotal = true, use sorted stocks from totalBuyDataByStock (filtered by sector)
-                          // When showOnlyTotal = false, use stocks from first date that has data
-                          let totalBuyBCode = '-';
-                          let buyStockCode = '';
+                          // CRITICAL: Total column ALWAYS uses sorted stocks from aggregated data
+                          // Sort by buyerValue (highest to lowest) for Buy section
+                          const sortedBuyStocks = Array.from(totalBuyDataByStock.entries())
+                            .sort((a, b) => b[1].buyerValue - a[1].buyerValue)
+                            .map(([stock]) => stock);
                           
-                          if (showOnlyTotal) {
-                            // Use sorted stocks from aggregated data (filtered by sector)
-                            const sortedBuyStocks = Array.from(totalBuyDataByStock.entries())
-                              .filter(([stock]) => stockSectorScreen(stock))
-                              .sort((a, b) => b[1].buyerValue - a[1].buyerValue)
-                              .map(([stock]) => stock);
-                            buyStockCode = sortedBuyStocks[rowIdx] || '';
-                            totalBuyBCode = buyStockCode || '-';
-                          } else {
-                            // Get from first date that has data (for backward compatibility)
-                            for (const date of selectedDates) {
-                              const buyDataForDate = (buyStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
-                              const buyRowData = buyDataForDate[rowIdx];
-                              if (buyRowData) {
-                                buyStockCode = buyRowData.stock; // This is BCode
-                                totalBuyBCode = buyRowData.stock;
-                                break;
-                              }
-                            }
-                          }
+                          // Sort by sellerValue (highest to lowest) for Sell section
+                          const sortedSellStocks = Array.from(totalSellDataByStock.entries())
+                            .sort((a, b) => b[1].sellerValue - a[1].sellerValue)
+                            .map(([stock]) => stock);
                           
-                          // Get Sell stock code at this row index
-                          // When showOnlyTotal = true, use sorted stocks from totalSellDataByStock (filtered by sector)
-                          // When showOnlyTotal = false, use stocks from first date that has data
-                          let totalSellSCode = '-';
-                          let sellStockCode = '';
+                          // Get Buy stock code at this row index (always from sorted stocks)
+                          const buyStockCode = sortedBuyStocks[rowIdx] || '';
+                          const totalBuyBCode = buyStockCode || '-';
                           
-                          if (showOnlyTotal) {
-                            // Use sorted stocks from aggregated data (filtered by sector)
-                            const sortedSellStocks = Array.from(totalSellDataByStock.entries())
-                              .filter(([stock]) => stockSectorScreen(stock))
-                              .sort((a, b) => b[1].sellerValue - a[1].sellerValue)
-                              .map(([stock]) => stock);
-                            sellStockCode = sortedSellStocks[rowIdx] || '';
-                            totalSellSCode = sellStockCode || '-';
-                          } else {
-                            // Get from first date that has data (for backward compatibility)
-                            for (const date of selectedDates) {
-                              const sellDataForDate = (sellStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
-                              const sellRowData = sellDataForDate[rowIdx];
-                              if (sellRowData) {
-                                sellStockCode = sellRowData.stock; // This is SCode
-                                totalSellSCode = sellRowData.stock;
-                                break;
-                              }
-                            }
-                          }
+                          // Get Sell stock code at this row index (always from sorted stocks)
+                          const sellStockCode = sortedSellStocks[rowIdx] || '';
+                          const totalSellSCode = sellStockCode || '-';
                           
                           // Get aggregated data for Buy and Sell
                           // Use Lot/F and Lot/ON from aggregated data (calculated from CSV values)
@@ -3070,15 +3011,15 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         }
                         
                         // Get color classes for stock codes based on sector
-                        const buyBCodeColorClass = totalBuyBCode !== '-' ? getStockColorClass(totalBuyBCode) : '';
-                        const sellSCodeColorClass = totalSellSCode !== '-' ? getStockColorClass(totalSellSCode) : '';
+                        const buyBCodeColor = totalBuyBCode !== '-' ? getStockColorClass(totalBuyBCode) : { color: '#FFFFFF', className: 'font-semibold' };
+                        const sellSCodeColor = totalSellSCode !== '-' ? getStockColorClass(totalSellSCode) : { color: '#FFFFFF', className: 'font-semibold' };
                         
                         return (
                           <React.Fragment>
                               {/* Buyer Total Columns */}
                               {totalBuyBCode !== '-' && Math.abs(totalBuyLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[3px] font-bold ${buyBCodeColorClass} ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>
+                            <td className={`text-center py-[1px] px-[3px] font-bold ${buyBCodeColor.className} ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box', color: buyBCodeColor.color }}>
                                     {totalBuyBCode}
                             </td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-green-600">{formatValue(totalBuyValue)}</td>
@@ -3106,7 +3047,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                               {/* Seller Total Columns */}
                               {totalSellSCode !== '-' && Math.abs(totalSellLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[3px] font-bold ${sellSCodeColorClass}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>
+                            <td className={`text-center py-[1px] px-[3px] font-bold ${sellSCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box', color: sellSCodeColor.color }}>
                                     {totalSellSCode}
                             </td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-red-600">{formatValue(totalSellValue)}</td>
@@ -3160,72 +3101,148 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       
       // Helper function to get stock color class based on sector (same as Value table)
       // CRITICAL: This should always work regardless of ticker selection - coloring is independent of filtering
-      const getStockColorClass = (stockCode: string): string => {
-        if (!stockCode) return 'text-white font-semibold';
+      const getStockColorClass = (stockCode: string): { color: string; className: string } => {
+        if (!stockCode) return { color: '#FFFFFF', className: 'font-semibold' };
         const stockSector = stockToSectorMap[stockCode.toUpperCase()];
-        if (!stockSector) return 'text-white font-semibold';
+        if (!stockSector) return { color: '#FFFFFF', className: 'font-semibold' };
         
-        // Color mapping based on sector (same as Value table)
+        // Color mapping based on sector - Using 11 distinct colors from provided palette
+        // NO GREEN/RED to avoid conflict with Buy/Sell colors (same as Value table)
+        // Colors: Royal Blue, Sky Blue, Deep Purple, Gold, Orange, Cyan, Brown, Slate Gray, Hot Pink, Khaki, White
         const sectorColors: { [sector: string]: string } = {
-          'Financials': 'text-green-600 font-semibold',
-          'Energy': 'text-red-600 font-semibold',
-          'Basic Materials': 'text-blue-600 font-semibold',
-          'Consumer Cyclicals': 'text-yellow-600 font-semibold',
-          'Consumer Non-Cyclicals': 'text-purple-600 font-semibold',
-          'Healthcare': 'text-pink-600 font-semibold',
-          'Industrials': 'text-orange-600 font-semibold',
-          'Infrastructures': 'text-cyan-600 font-semibold',
-          'Properties & Real Estate': 'text-indigo-600 font-semibold',
-          'Technology': 'text-teal-600 font-semibold',
-          'Transportation & Logistic': 'text-lime-600 font-semibold'
+          'Financials': '#FFFFFF', // White
+          'Energy': '#4169E1', // Royal Blue
+          'Basic Materials': '#00BFFF', // Sky Blue
+          'Consumer Cyclicals': '#800080', // Deep Purple
+          'Consumer Non-Cyclicals': '#FFD700', // Gold
+          'Healthcare': '#FF8C00', // Orange
+          'Industrials': '#00FFFF', // Cyan
+          'Infrastructures': '#8B4513', // Brown
+          'Properties & Real Estate': '#708090', // Slate Gray
+          'Technology': '#FF69B4', // Hot Pink
+          'Transportation & Logistic': '#C3B091' // Khaki
         };
         
-        return sectorColors[stockSector] || 'text-white font-semibold';
-      };
-      
-      // Helper function to check if stock matches sector filter (for render-time filtering)
-      // CRITICAL: Use activeSectorFilter (not sectorFilter) - only filter when Show button is clicked
-      // IMPORTANT BEHAVIOR:
-      // - When ticker is selected: filters data that's already filtered by ticker
-      // - When ticker is empty (all tickers) and sector is selected: only shows stocks from that sector
-      // - When sector is "All": shows all stocks (respects ticker filter if ticker is selected)
-      const stockSectorScreen = (stockCode: string): boolean => {
-        if (!stockCode) return false;
-        if (activeSectorFilter === 'All') return true; // Show all stocks when sector filter is "All"
-        const stockSector = stockToSectorMap[stockCode.toUpperCase()];
-        if (!stockSector) {
-          // If stock has no sector mapping, don't show it when sector filter is active
-          // This ensures only stocks with matching sector are displayed
-          return false;
-        }
-        // Only show stocks that match the selected sector
-        return stockSector === activeSectorFilter;
+        const color = sectorColors[stockSector] || '#FFFFFF';
+        return { color, className: 'font-semibold' };
       };
       
       // For NET table: Get max row count across all dates for Net Buy and Net Sell sections separately
-      // CRITICAL: Filter by sector at render time, not during computation
-      // When showOnlyTotal is true, use sorted stocks from totalNetBuyDataByStock and totalNetSellDataByStock (filtered by sector)
-      // IMPORTANT: Sector filter works on data that's already filtered by ticker (if ticker is selected)
-      let maxNetBuyRows = 0;
-      let maxNetSellRows = 0;
+      // CRITICAL: Filtering is done in loadTransactionData, so no need to filter here
+      // Data is already filtered by ticker or sector at fetch time
       
-      if (showOnlyTotal) {
-        // When showing only Total, use sorted stocks from aggregated data (filtered by sector)
-        const sortedNetBuyStocks = Array.from(totalNetBuyDataByStock.entries())
-          .filter(([stock]) => stockSectorScreen(stock))
-          .sort((a, b) => b[1].netBuyValue - a[1].netBuyValue)
-          .map(([stock]) => stock);
-        const sortedNetSellStocks = Array.from(totalNetSellDataByStock.entries())
-          .filter(([stock]) => stockSectorScreen(stock))
-          .sort((a, b) => b[1].netSellValue - a[1].netSellValue)
-          .map(([stock]) => stock);
-        maxNetBuyRows = sortedNetBuyStocks.length;
-        maxNetSellRows = sortedNetSellStocks.length;
-      } else {
-        // When showing per-date, use data from netBuyStocksByDate and netSellStocksByDate (filtered by sector)
+      // CRITICAL: Total column ALWAYS uses sorted stocks from aggregated NET data
+      // Calculate NET from B/S Total data first
+      const allStocksFromBS = new Set<string>();
+      Array.from(totalBuyDataByStock.keys()).forEach(stock => allStocksFromBS.add(stock));
+      Array.from(totalSellDataByStock.keys()).forEach(stock => allStocksFromBS.add(stock));
+      
+      const netBuyFromBS = new Map<string, {
+        stock: string;
+        netBuyLot: number;
+        netBuyValue: number;
+        netBuyAvg: number;
+        netBuyFreq: number;
+        netBuyOrdNum: number;
+        netBuyLotPerFreq: number;
+        netBuyLotPerOrdNum: number;
+      }>();
+      
+      const netSellFromBS = new Map<string, {
+        stock: string;
+        netSellLot: number;
+        netSellValue: number;
+        netSellAvg: number;
+        netSellFreq: number;
+        netSellOrdNum: number;
+        netSellLotPerFreq: number;
+        netSellLotPerOrdNum: number;
+      }>();
+      
+      // Calculate Net Buy and Net Sell for each stock from B/S Total
+      allStocksFromBS.forEach(stock => {
+        const buyData = totalBuyDataByStock.get(stock);
+        const sellData = totalSellDataByStock.get(stock);
+        
+        const buyLot = buyData?.buyerLot || 0;
+        const buyValue = buyData?.buyerValue || 0;
+        const buyFreq = buyData?.buyerFreq || 0;
+        const buyOrdNum = buyData?.buyerOrdNum || 0;
+        
+        const sellLot = sellData?.sellerLot || 0;
+        const sellValue = sellData?.sellerValue || 0;
+        const sellFreq = sellData?.sellerFreq || 0;
+        const sellOrdNum = sellData?.sellerOrdNum || 0;
+        
+        // Calculate Net Buy = Buy - Sell (only if positive)
+        const netBuyLot = buyLot - sellLot;
+        const netBuyValue = buyValue - sellValue;
+        
+        if (netBuyLot > 0) {
+          const netBuyLotVolume = netBuyLot * 100;
+          const netBuyAvg = netBuyLotVolume > 0 ? netBuyValue / netBuyLotVolume : 0;
+          const netBuyFreq = buyFreq - sellFreq;
+          const netBuyOrdNum = buyOrdNum - sellOrdNum;
+          const netBuyLotPerFreq = netBuyFreq !== 0 ? netBuyLot / netBuyFreq : 0;
+          const netBuyLotPerOrdNum = netBuyOrdNum !== 0 ? netBuyLot / netBuyOrdNum : 0;
+          
+          netBuyFromBS.set(stock, {
+            stock,
+            netBuyLot,
+            netBuyValue,
+            netBuyAvg,
+            netBuyFreq,
+            netBuyOrdNum,
+            netBuyLotPerFreq,
+            netBuyLotPerOrdNum
+          });
+        }
+        
+        // Calculate Net Sell = Sell - Buy (only if positive)
+        const netSellLot = sellLot - buyLot;
+        const netSellValue = sellValue - buyValue;
+        
+        if (netSellLot > 0) {
+          const netSellLotVolume = netSellLot * 100;
+          const netSellAvg = netSellLotVolume > 0 ? netSellValue / netSellLotVolume : 0;
+          const netSellFreq = sellFreq - buyFreq;
+          const netSellOrdNum = sellOrdNum - buyOrdNum;
+          const netSellLotPerFreq = netSellFreq !== 0 ? netSellLot / netSellFreq : 0;
+          const netSellLotPerOrdNum = netSellOrdNum !== 0 ? netSellLot / netSellOrdNum : 0;
+          
+          netSellFromBS.set(stock, {
+            stock,
+            netSellLot,
+            netSellValue,
+            netSellAvg,
+            netSellFreq,
+            netSellOrdNum,
+            netSellLotPerFreq,
+            netSellLotPerOrdNum
+          });
+        }
+      });
+      
+      // Sort Net Buy stocks by value (highest to lowest)
+      const sortedTotalNetBuyStocks = Array.from(netBuyFromBS.entries())
+        .filter(([, data]) => Math.abs(data.netBuyLot) > 0)
+        .sort((a, b) => b[1].netBuyValue - a[1].netBuyValue)
+        .map(([stock]) => stock);
+      
+      // Sort Net Sell stocks by value (highest to lowest)
+      const sortedTotalNetSellStocks = Array.from(netSellFromBS.entries())
+        .filter(([, data]) => Math.abs(data.netSellLot) > 0)
+        .sort((a, b) => b[1].netSellValue - a[1].netSellValue)
+        .map(([stock]) => stock);
+      
+      let maxNetBuyRows = sortedTotalNetBuyStocks.length;
+      let maxNetSellRows = sortedTotalNetSellStocks.length;
+      
+      if (!showOnlyTotal) {
+        // When showing per-date, also check per-date rows to ensure we show all data
         selectedDates.forEach(date => {
-          const netBuyData = (netBuyStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
-          const netSellData = (netSellStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
+          const netBuyData = netBuyStocksByDate.get(date) || [];
+          const netSellData = netSellStocksByDate.get(date) || [];
           maxNetBuyRows = Math.max(maxNetBuyRows, netBuyData.length);
           maxNetSellRows = Math.max(maxNetSellRows, netSellData.length);
         });
@@ -3280,8 +3297,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BAvg</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BFreq</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BOR</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-16" title={formatDisplayDate(date)}>Lot/OR</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BOr</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-16" title={formatDisplayDate(date)}>Lot/Or</th>
                         {/* Separator */}
                         <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap" title={formatDisplayDate(date)}>#</th>
                         {/* Net Sell Columns (from CSV columns 24-30) */}
@@ -3291,8 +3308,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SFreq</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SOR</th>
-                        <th className={`text-center py-[1px] px-[6px] font-bold text-white w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/OR</th>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SOr</th>
+                        <th className={`text-center py-[1px] px-[6px] font-bold text-white w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/Or</th>
                       </React.Fragment>
                     ))}
                     {/* Total Columns - Net Buy/Net Sell */}
@@ -3302,8 +3319,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BAvg</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BFreq</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BOR</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/OR</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BOr</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/Or</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap">#</th>
                     <th className="text-center py-[1px] px-[3px] font-bold text-white" style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>SCode</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SVal</th>
@@ -3311,8 +3328,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SAvg</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SFreq</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SOR</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white">Lot/OR</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SOr</th>
+                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white">Lot/Or</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3332,13 +3349,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       <tr key={rowIdx}>
                         {!showOnlyTotal && selectedDates.map((date: string, dateIndex: number) => {
                           // Get Net Buy data at this row index for this date
-                          // CRITICAL: Filter by sector at render time
-                          const netBuyDataForDate = (netBuyStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
+                          // CRITICAL: Data is already filtered in loadTransactionData
+                          const netBuyDataForDate = netBuyStocksByDate.get(date) || [];
                           const netBuyRowData = netBuyDataForDate[rowIdx];
                           
                           // Get Net Sell data at this row index for this date
-                          // CRITICAL: Filter by sector at render time
-                          const netSellDataForDate = (netSellStocksByDate.get(date) || []).filter(item => stockSectorScreen(item.stock));
+                          // CRITICAL: Data is already filtered in loadTransactionData
+                          const netSellDataForDate = netSellStocksByDate.get(date) || [];
                           const netSellRowData = netSellDataForDate[rowIdx];
                         
                         return (
@@ -3349,7 +3366,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   {(() => {
                                     const dayData = netBuyRowData.data;
                                     const nbCode = dayData.NBCode || netBuyRowData.stock;
-                                    const nbCodeColorClass = getStockColorClass(nbCode);
+                                    const nbCodeColor = getStockColorClass(nbCode);
                                     const nbLot = dayData.NBLot || 0;
                                     const nbVal = dayData.NBVal || 0;
                                     const nbAvg = dayData.NBAvg;
@@ -3362,7 +3379,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     
                                     return (
                                       <>
-                                        <td className={`text-center py-[1px] px-[3px] font-bold ${nbCodeColorClass} ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>
+                                        <td className={`text-center py-[1px] px-[3px] font-bold ${nbCodeColor.className} ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ ...(dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }), color: nbCodeColor.color }}>
                                           {nbCode}
                             </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`}>
@@ -3411,7 +3428,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   {(() => {
                                     const dayData = netSellRowData.data;
                                     const nsCode = dayData.NSCode || netSellRowData.stock;
-                                    const nsCodeColorClass = getStockColorClass(nsCode);
+                                    const nsCodeColor = getStockColorClass(nsCode);
                                     const nsLot = dayData.NSLot || 0;
                                     const nsVal = dayData.NSVal || 0;
                                     const nsAvg = dayData.NSAvg;
@@ -3424,7 +3441,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     
                                     return (
                                       <>
-                                        <td className={`text-center py-[1px] px-[3px] font-bold ${nsCodeColorClass}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>
+                                        <td className={`text-center py-[1px] px-[3px] font-bold ${nsCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', color: nsCodeColor.color }}>
                                           {nsCode}
                             </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`}>
@@ -3470,137 +3487,15 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       })}
                         {/* Total Column - Calculate NET from B/S Total (Buy - Sell) */}
                       {(() => {
-                          // CRITICAL: Calculate NET from B/S Total data, not from NET data
-                          // Get all unique stocks from totalBuyDataByStock and totalSellDataByStock
-                          const allStocksFromBS = new Set<string>();
-                          Array.from(totalBuyDataByStock.keys()).forEach(stock => allStocksFromBS.add(stock));
-                          Array.from(totalSellDataByStock.keys()).forEach(stock => allStocksFromBS.add(stock));
+                          // CRITICAL: Use sorted stocks already calculated above (sortedTotalNetBuyStocks and sortedTotalNetSellStocks)
+                          // These are already sorted by netBuyValue and netSellValue (highest to lowest)
                           
-                          // Calculate Net Buy and Net Sell for each stock from B/S Total
-                          const netBuyFromBS = new Map<string, {
-                            stock: string;
-                            netBuyLot: number;
-                            netBuyValue: number;
-                            netBuyAvg: number;
-                            netBuyFreq: number;
-                            netBuyOrdNum: number;
-                            netBuyLotPerFreq: number;
-                            netBuyLotPerOrdNum: number;
-                          }>();
-                          
-                          const netSellFromBS = new Map<string, {
-                            stock: string;
-                            netSellLot: number;
-                            netSellValue: number;
-                            netSellAvg: number;
-                            netSellFreq: number;
-                            netSellOrdNum: number;
-                            netSellLotPerFreq: number;
-                            netSellLotPerOrdNum: number;
-                          }>();
-                          
-                          // For each stock, calculate Net Buy and Net Sell from B/S Total
-                          allStocksFromBS.forEach(stock => {
-                            const buyData = totalBuyDataByStock.get(stock);
-                            const sellData = totalSellDataByStock.get(stock);
-                            
-                            const buyLot = buyData?.buyerLot || 0;
-                            const buyValue = buyData?.buyerValue || 0;
-                            const buyFreq = buyData?.buyerFreq || 0;
-                            const buyOrdNum = buyData?.buyerOrdNum || 0;
-                            
-                            const sellLot = sellData?.sellerLot || 0;
-                            const sellValue = sellData?.sellerValue || 0;
-                            const sellFreq = sellData?.sellerFreq || 0;
-                            const sellOrdNum = sellData?.sellerOrdNum || 0;
-                            
-                            // Calculate Net Buy = Buy - Sell (only if positive)
-                            const netBuyLot = buyLot - sellLot;
-                            const netBuyValue = buyValue - sellValue;
-                            
-                            if (netBuyLot > 0) {
-                              // Net Buy exists
-                              // Avg = val / (lot * 100) - because lot needs to be multiplied by 100 to get volume
-                              const netBuyLotVolume = netBuyLot * 100; // Convert lot to volume
-                              const netBuyAvg = netBuyLotVolume > 0 ? netBuyValue / netBuyLotVolume : 0;
-                              // Freq = Buy Freq - Sell Freq (netkan)
-                              const netBuyFreq = buyFreq - sellFreq;
-                              // OrdNum = Buy OrdNum - Sell OrdNum (netkan)
-                              const netBuyOrdNum = buyOrdNum - sellOrdNum;
-                              // Lot/F = lot / freq (can be negative if freq is negative)
-                              const netBuyLotPerFreq = netBuyFreq !== 0 ? netBuyLot / netBuyFreq : 0;
-                              // Lot/ON = lot / ordNum (can be negative if ordNum is negative)
-                              const netBuyLotPerOrdNum = netBuyOrdNum !== 0 ? netBuyLot / netBuyOrdNum : 0;
-                              
-                              netBuyFromBS.set(stock, {
-                                stock,
-                                netBuyLot,
-                                netBuyValue,
-                                netBuyAvg,
-                                netBuyFreq,
-                                netBuyOrdNum,
-                                netBuyLotPerFreq,
-                                netBuyLotPerOrdNum
-                              });
-                            }
-                            
-                            // Calculate Net Sell = Sell - Buy (only if positive)
-                            const netSellLot = sellLot - buyLot;
-                            const netSellValue = sellValue - buyValue;
-                            
-                            if (netSellLot > 0) {
-                              // Net Sell exists
-                              // Avg = val / (lot * 100) - because lot needs to be multiplied by 100 to get volume
-                              const netSellLotVolume = netSellLot * 100; // Convert lot to volume
-                              const netSellAvg = netSellLotVolume > 0 ? netSellValue / netSellLotVolume : 0;
-                              // Freq = Sell Freq - Buy Freq (netkan)
-                              const netSellFreq = sellFreq - buyFreq;
-                              // OrdNum = Sell OrdNum - Buy OrdNum (netkan)
-                              const netSellOrdNum = sellOrdNum - buyOrdNum;
-                              // Lot/F = lot / freq (can be negative if freq is negative)
-                              const netSellLotPerFreq = netSellFreq !== 0 ? netSellLot / netSellFreq : 0;
-                              // Lot/ON = lot / ordNum (can be negative if ordNum is negative)
-                              const netSellLotPerOrdNum = netSellOrdNum !== 0 ? netSellLot / netSellOrdNum : 0;
-                              
-                              netSellFromBS.set(stock, {
-                                stock,
-                                netSellLot,
-                                netSellValue,
-                                netSellAvg,
-                                netSellFreq,
-                                netSellOrdNum,
-                                netSellLotPerFreq,
-                                netSellLotPerOrdNum
-                              });
-                            }
-                          });
-                          
-                          // Sort Net Buy stocks by value (highest to lowest)
-                          const sortedTotalNetBuyStocks = Array.from(netBuyFromBS.entries())
-                            .filter(([, data]) => Math.abs(data.netBuyLot) > 0)
-                            .sort((a, b) => b[1].netBuyValue - a[1].netBuyValue)
-                            .map(([stock]) => stock);
-                          
-                          // Sort Net Sell stocks by value (highest to lowest)
-                          const sortedTotalNetSellStocks = Array.from(netSellFromBS.entries())
-                            .filter(([, data]) => Math.abs(data.netSellLot) > 0)
-                            .sort((a, b) => b[1].netSellValue - a[1].netSellValue)
-                            .map(([stock]) => stock);
-                          
-                          // Get Net Buy stock at this row index
-                          // CRITICAL: Filter by sector when showOnlyTotal = true
-                          const netBuyStocksFiltered = showOnlyTotal 
-                            ? sortedTotalNetBuyStocks.filter(stock => stockSectorScreen(stock))
-                            : sortedTotalNetBuyStocks;
-                          const netBuyStockCode = netBuyStocksFiltered[rowIdx] || '';
+                          // Get Net Buy stock at this row index (from sorted stocks calculated above)
+                          const netBuyStockCode = sortedTotalNetBuyStocks[rowIdx] || '';
                           const netBuyData = netBuyStockCode ? netBuyFromBS.get(netBuyStockCode) : null;
                           
-                          // Get Net Sell stock at this row index
-                          // CRITICAL: Filter by sector when showOnlyTotal = true
-                          const netSellStocksFiltered = showOnlyTotal
-                            ? sortedTotalNetSellStocks.filter(stock => stockSectorScreen(stock))
-                            : sortedTotalNetSellStocks;
-                          const netSellStockCode = netSellStocksFiltered[rowIdx] || '';
+                          // Get Net Sell stock at this row index (from sorted stocks calculated above)
+                          const netSellStockCode = sortedTotalNetSellStocks[rowIdx] || '';
                           const netSellData = netSellStockCode ? netSellFromBS.get(netSellStockCode) : null;
                           
                           // If both are empty, hide row
@@ -3642,8 +3537,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           }
                           
                           // Get color classes for stock codes based on sector
-                          const netBuyNBCodeColorClass = totalNetBuyNBCode !== '-' ? getStockColorClass(totalNetBuyNBCode) : '';
-                          const netSellNSCodeColorClass = totalNetSellNSCode !== '-' ? getStockColorClass(totalNetSellNSCode) : '';
+                          const netBuyNBCodeColor = totalNetBuyNBCode !== '-' ? getStockColorClass(totalNetBuyNBCode) : { color: '#FFFFFF', className: 'font-semibold' };
+                          const netSellNSCodeColor = totalNetSellNSCode !== '-' ? getStockColorClass(totalNetSellNSCode) : { color: '#FFFFFF', className: 'font-semibold' };
                           
                           // Color for values: Net Buy values are green, Net Sell values are red
                           const totalNetBuyColor = 'text-green-600';
@@ -3654,7 +3549,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                               {/* Net Buy Total Columns */}
                               {netBuyData && Math.abs(totalNetBuyLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[3px] font-bold ${netBuyNBCodeColorClass} ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>
+                            <td className={`text-center py-[1px] px-[3px] font-bold ${netBuyNBCodeColor.className} ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box', color: netBuyNBCodeColor.color }}>
                                     {totalNetBuyNBCode}
                             </td>
                             <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`}>
@@ -3696,7 +3591,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                               {/* Net Sell Total Columns */}
                               {netSellData && Math.abs(totalNetSellLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[3px] font-bold ${netSellNSCodeColorClass}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>
+                            <td className={`text-center py-[1px] px-[3px] font-bold ${netSellNSCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box', color: netSellNSCodeColor.color }}>
                                     {totalNetSellNSCode}
                             </td>
                             <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor}`}>
@@ -3761,7 +3656,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         {renderNetTable()}
       </div>
     );
-  }, [filteredStocks, uniqueStocks, sortedStocksByDate, sortedNetStocksByDate, totalDataByStock, totalNetDataByStock, sortedTotalStocks, sortedTotalNetStocks, transactionData, visibleRowIndices, buyStocksByDate, sellStocksByDate, netBuyStocksByDate, netSellStocksByDate, totalNetBuyDataByStock, totalNetSellDataByStock, isDataReady, selectedDates, activeSectorFilter, stockToSectorMap]); // CRITICAL: Added selectedDates, activeSectorFilter, and stockToSectorMap to dependencies to react to showOnlyTotal and sector filter changes
+    }, [filteredStocks, uniqueStocks, sortedStocksByDate, sortedNetStocksByDate, totalDataByStock, totalNetDataByStock, sortedTotalStocks, sortedTotalNetStocks, transactionData, visibleRowIndices, buyStocksByDate, sellStocksByDate, netBuyStocksByDate, netSellStocksByDate, totalNetBuyDataByStock, totalNetSellDataByStock, isDataReady, selectedDates, activeSectorFilter, selectedSectors, stockToSectorMap]); // CRITICAL: Added selectedDates, activeSectorFilter, selectedSectors, and stockToSectorMap to dependencies to react to showOnlyTotal and sector filter changes
 
 
   return (
@@ -3891,10 +3786,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             </div>
           </div>
 
-              {/* Ticker Multi-Select */}
+              {/* Ticker/Sector Multi-Select (Combined) */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-            <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
+            <label className="text-sm font-medium whitespace-nowrap">Ticker/Sector:</label>
             <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+              {/* Selected Tickers */}
               {selectedTickers.map(ticker => (
                 <div
                   key={ticker}
@@ -3911,28 +3807,59 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   </button>
                 </div>
               ))}
+              {/* Selected Sectors */}
+              {selectedSectors.map(sector => (
+                <div
+                  key={sector}
+                  className="flex items-center gap-1 px-2 h-9 bg-blue-500/20 text-blue-400 rounded-md text-sm"
+                >
+                  <span>{sector}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveSector(sector)}
+                    className="hover:bg-blue-500/30 rounded px-1"
+                    aria-label={`Remove ${sector}`}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
               <div className="relative flex-1 md:flex-none" ref={dropdownTickerRef}>
                 <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                 <input
                   type="text"
-                  placeholder="Add ticker"
+                  placeholder="Add ticker/sector"
                   value={tickerInput}
                   onChange={(e) => {
-                    const v = e.target.value.toUpperCase();
+                    const v = e.target.value;
                     setTickerInput(v);
                     setShowTickerSuggestions(true);
                     setHighlightedTickerIndex(0);
                   }}
                   onFocus={() => setShowTickerSuggestions(true)}
                   onKeyDown={(e) => {
-                    // OPTIMIZED: Use memoized availableTickers instead of extracting every time
+                    // Get filtered suggestions (tickers + sectors)
                     const availableTickersFiltered = availableTickers.filter(t => !selectedTickers.includes(t));
+                    const availableSectorsFiltered = availableSectors.filter(s => !selectedSectors.includes(s));
+                    
+                    const inputLower = tickerInput.toLowerCase();
                     const filteredTickers = tickerInput === '' 
                       ? availableTickersFiltered
                       : availableTickersFiltered.filter(t => 
-                          t.toLowerCase().includes(tickerInput.toLowerCase())
+                          t.toLowerCase().includes(inputLower)
                         );
-                    const suggestions = filteredTickers.slice(0, 10);
+                    const filteredSectors = tickerInput === '' 
+                      ? availableSectorsFiltered
+                      : availableSectorsFiltered.filter(s => 
+                          s.toLowerCase().includes(inputLower)
+                        );
+                    
+                    // Combine suggestions: tickers first, then sectors
+                    const allSuggestions: Array<{ type: 'ticker' | 'sector'; value: string }> = [
+                      ...filteredTickers.map(t => ({ type: 'ticker' as const, value: t })),
+                      ...filteredSectors.map(s => ({ type: 'sector' as const, value: s }))
+                    ];
+                    const suggestions = allSuggestions.slice(0, 20);
                     
                     if (e.key === 'ArrowDown' && suggestions.length) {
                       e.preventDefault();
@@ -3943,7 +3870,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     } else if (e.key === 'Enter' && highlightedTickerIndex >= 0 && highlightedTickerIndex < suggestions.length) {
                       e.preventDefault();
                       const choice = suggestions[highlightedTickerIndex];
-                      if (choice) handleTickerSelect(choice);
+                      if (choice) {
+                        if (choice.type === 'ticker') {
+                          handleTickerSelect(choice.value);
+                        } else {
+                          handleSectorSelect(choice.value);
+                        }
+                      }
                     } else if (e.key === 'Escape') {
                       setShowTickerSuggestions(false);
                       setHighlightedTickerIndex(-1);
@@ -3952,72 +3885,83 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   className="w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground"
                 />
               {showTickerSuggestions && (
-                <div id="ticker-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                <div id="ticker-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-64 overflow-y-auto">
                   {(() => {
-                    // OPTIMIZED: Use memoized availableTickers instead of extracting every render
                     const availableTickersFiltered = availableTickers.filter(t => !selectedTickers.includes(t));
+                    const availableSectorsFiltered = availableSectors.filter(s => !selectedSectors.includes(s));
                     
-                    if (availableTickersFiltered.length === 0) {
-                      if (!isDataReady) {
+                    const inputLower = tickerInput.toLowerCase();
+                    const filteredTickers = tickerInput === '' 
+                      ? availableTickersFiltered
+                      : availableTickersFiltered.filter(t => 
+                          t.toLowerCase().includes(inputLower)
+                        );
+                    const filteredSectors = tickerInput === '' 
+                      ? availableSectorsFiltered
+                      : availableSectorsFiltered.filter(s => 
+                          s.toLowerCase().includes(inputLower)
+                        );
+                    
+                    if (filteredTickers.length === 0 && filteredSectors.length === 0) {
+                      if (!isDataReady && availableTickers.length === 0) {
                         return (
                           <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
                             <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                            Loading tickers... (Please load data first)
+                            Loading... (Please load data first)
                           </div>
                         );
                       }
                       return (
                         <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
-                          No tickers available for selected broker(s)
+                          No results found
                         </div>
                       );
                     }
                     
-                    if (tickerInput === '') {
-                      return (
-                        <>
-                          <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
-                            Available Tickers ({availableTickersFiltered.length})
-                          </div>
-                          {availableTickersFiltered.slice(0, 20).map(ticker => (
-                            <div
-                              key={ticker}
-                              onClick={() => handleTickerSelect(ticker)}
-                              className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
-                            >
-                              {ticker}
+                    return (
+                      <>
+                        {filteredTickers.length > 0 && (
+                          <>
+                            <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] bg-muted/30">
+                              Tickers ({filteredTickers.length})
                             </div>
-                          ))}
-                        </>
-                      );
-                    } else {
-                      const filteredTickers = availableTickersFiltered.filter(t => 
-                        t.toLowerCase().includes(tickerInput.toLowerCase())
-                      );
-                      return (
-                        <>
-                          <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
-                            {filteredTickers.length} ticker(s) found
-                          </div>
-                          {filteredTickers.length > 0 ? (
-                            filteredTickers.slice(0, 20).map((ticker, idx) => (
-                              <div
-                                key={ticker}
-                                onClick={() => handleTickerSelect(ticker)}
-                                className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${idx === highlightedTickerIndex ? 'bg-accent' : ''}`}
-                                onMouseEnter={() => setHighlightedTickerIndex(idx)}
-                              >
-                                {ticker}
-                              </div>
-                            ))
-                          ) : (
-                            <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
-                              No tickers found
+                            {filteredTickers.slice(0, 15).map((ticker, idx) => {
+                              const itemIndex = idx;
+                              return (
+                                <div
+                                  key={`ticker-${ticker}`}
+                                  onClick={() => handleTickerSelect(ticker)}
+                                  className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${itemIndex === highlightedTickerIndex ? 'bg-accent' : ''}`}
+                                  onMouseEnter={() => setHighlightedTickerIndex(itemIndex)}
+                                >
+                                  {ticker}
+                                </div>
+                              );
+                            })}
+                          </>
+                        )}
+                        {filteredSectors.length > 0 && (
+                          <>
+                            <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] bg-muted/30 border-t border-[#3a4252]">
+                              Sectors ({filteredSectors.length})
                             </div>
-                          )}
-                        </>
-                      );
-                    }
+                            {filteredSectors.slice(0, 15).map((sector, idx) => {
+                              const itemIndex = filteredTickers.length + idx;
+                              return (
+                                <div
+                                  key={`sector-${sector}`}
+                                  onClick={() => handleSectorSelect(sector)}
+                                  className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${itemIndex === highlightedTickerIndex ? 'bg-accent' : ''}`}
+                                  onMouseEnter={() => setHighlightedTickerIndex(itemIndex)}
+                                >
+                                  {sector}
+                                </div>
+                              );
+                            })}
+                          </>
+                        )}
+                      </>
+                    );
                   })()}
                 </div>
               )}
@@ -4041,7 +3985,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   const selectedDate = new Date(e.target.value);
                   const dayOfWeek = selectedDate.getDay();
                   if (dayOfWeek === 0 || dayOfWeek === 6) {
-                    alert('Tidak bisa memilih hari Sabtu atau Minggu');
+                    showToast({
+                      type: 'warning',
+                      title: 'Peringatan',
+                      message: 'Tidak bisa memilih hari Sabtu atau Minggu'
+                    });
                     return;
                   }
                   
@@ -4081,7 +4029,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   const selectedDate = new Date(e.target.value);
                   const dayOfWeek = selectedDate.getDay();
                   if (dayOfWeek === 0 || dayOfWeek === 6) {
-                    alert('Tidak bisa memilih hari Sabtu atau Minggu');
+                    showToast({
+                      type: 'warning',
+                      title: 'Peringatan',
+                      message: 'Tidak bisa memilih hari Sabtu atau Minggu'
+                    });
                     return;
                   }
                   
@@ -4119,7 +4071,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             <label className="text-sm font-medium whitespace-nowrap">Board:</label>
             <select
               value={marketFilter}
-              onChange={(e) => setMarketFilter(e.target.value as 'RG' | 'TN' | 'NG' | '')}
+              onChange={(e) => {
+                setMarketFilter(e.target.value as 'RG' | 'TN' | 'NG' | '');
+                // CRITICAL: Keep existing data visible - no auto-fetch, no hide tables
+                // User must click Show button to fetch new data
+              }}
               className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
             >
               <option value="">All Trade</option>
@@ -4129,88 +4085,197 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             </select>
             </div>
 
-          {/* Sector Filter */}
-          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-            <label className="text-sm font-medium whitespace-nowrap">Sector:</label>
-            <select
-              value={sectorFilter}
-              onChange={(e) => setSectorFilter(e.target.value)}
-              className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
-            >
-              {availableSectors.map(sector => (
-                <option key={sector} value={sector}>{sector}</option>
-              ))}
-            </select>
-          </div>
-
           {/* Show Button */}
           <button
             onClick={() => {
-              console.log('[BrokerTransaction] Show button clicked:', {
-                selectedBrokers,
-                selectedTickers: selectedTickers.length > 0 ? selectedTickers : 'ALL (empty = show all)',
-                selectedDates,
-                marketFilter,
-                sectorFilter,
-                activeSectorFilter,
-                lastFetchParams: lastFetchParamsRef.current,
-                isDataReady
-              });
+              // CRITICAL: Update selectedDates from startDate and endDate when Show button is clicked
+              // This is the ONLY place where selectedDates should be updated
+              let datesToUse: string[] = [];
+              if (startDate && endDate) {
+                // Parse dates as local dates (YYYY-MM-DD format) to avoid timezone issues
+                const startParts = startDate.split('-').map(Number);
+                const endParts = endDate.split('-').map(Number);
+                
+                if (startParts.length === 3 && endParts.length === 3) {
+                  const startYear = startParts[0];
+                  const startMonth = startParts[1];
+                  const startDay = startParts[2];
+                  const endYear = endParts[0];
+                  const endMonth = endParts[1];
+                  const endDay = endParts[2];
+                  
+                  if (startYear !== undefined && startMonth !== undefined && startDay !== undefined &&
+                      endYear !== undefined && endMonth !== undefined && endDay !== undefined) {
+                    const start = new Date(startYear, startMonth - 1, startDay);
+                    const end = new Date(endYear, endMonth - 1, endDay);
+                    
+                    // Check if range is valid
+                    if (start <= end) {
+                      // Generate date array (only trading days)
+                      const dateArray: string[] = [];
+                      const currentDate = new Date(start);
+                      
+                      while (currentDate <= end) {
+                        const dayOfWeek = currentDate.getDay();
+                        // Skip weekends (Saturday = 6, Sunday = 0)
+                        if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+                          // Format as YYYY-MM-DD in local timezone
+                          const year = currentDate.getFullYear();
+                          const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+                          const day = String(currentDate.getDate()).padStart(2, '0');
+                          const dateString = `${year}-${month}-${day}`;
+                          dateArray.push(dateString);
+                        }
+                        // Move to next day
+                        currentDate.setDate(currentDate.getDate() + 1);
+                      }
+                      
+                      // Sort by date (oldest first) for display
+                      datesToUse = dateArray.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+                    }
+                  }
+                }
+              }
               
-              // IMPORTANT: selectedTickers can be empty (length === 0) which means "show all tickers"
-              // This is handled in loadTransactionData where filtering only happens if selectedTickers.length > 0
+              // Determine active sector filter from selectedSectors
+              // If multiple sectors selected, use first one (or could combine logic)
+              // For now, if any sector selected, use first one; otherwise 'All'
+              const newActiveSectorFilter: string = selectedSectors.length > 0 ? (selectedSectors[0] ?? 'All') : 'All';
               
               // CRITICAL: Always update activeSectorFilter first - sector filter should always work
-              // Update activeSectorFilter from sectorFilter (UI state) BEFORE checking for changes
-              setActiveSectorFilter(sectorFilter);
+              // Update activeSectorFilter from selectedSectors BEFORE checking for changes
+              setActiveSectorFilter(newActiveSectorFilter);
               
               // Check if only sector filter changed (and data already exists)
               // CRITICAL: Also check if tickers changed - if tickers changed, need to refetch data
               const lastParams = lastFetchParamsRef.current;
               const previousTickers = lastParams?.tickers || [];
+              const previousSectors = lastParams?.sectors || [];
               const currentTickers = [...selectedTickers];
+              const currentSectors = [...selectedSectors];
               const tickersChanged = !lastParams || 
                 JSON.stringify(previousTickers.sort()) !== JSON.stringify(currentTickers.sort());
+              const sectorsChanged = !lastParams ||
+                JSON.stringify(previousSectors.sort()) !== JSON.stringify(currentSectors.sort());
               
-              console.log('[BrokerTransaction] Show button: Checking for changes', {
-                tickersChanged,
-                previousTickers: previousTickers.length > 0 ? previousTickers : 'EMPTY (was showing all)',
-                currentTickers: currentTickers.length > 0 ? currentTickers : 'EMPTY (will show all)',
-                hasLastParams: !!lastParams,
+              console.log('[BrokerTransaction] Show button clicked:', {
+                selectedBrokers,
+                selectedTickers: selectedTickers.length > 0 ? selectedTickers : 'ALL (empty = show all)',
+                selectedSectors: selectedSectors.length > 0 ? selectedSectors : 'NONE (show all)',
+                selectedDates: datesToUse,
+                marketFilter,
+                activeSectorFilter: newActiveSectorFilter,
+                lastFetchParams: lastFetchParamsRef.current,
                 isDataReady,
-                sectorFilter,
-                activeSectorFilter
+                tickersChanged,
+                sectorsChanged
               });
+              
+              // IMPORTANT: selectedTickers can be empty (length === 0) which means "show all tickers"
+              // This is handled in loadTransactionData where filtering only happens if selectedTickers.length > 0
+              
+              // CRITICAL: Update selectedDates FIRST before checking for changes
+              // This ensures that date comparison works correctly
+              setSelectedDates(datesToUse);
+              
+              // CRITICAL: Check if only sector filter changed (and data already exists)
+              // This allows sector filter to work without re-fetching data
+              // Compare dates using datesToUse (what user selected) - now that selectedDates is updated
+              const datesUnchanged = lastParams && 
+                JSON.stringify(lastParams.dates.sort()) === JSON.stringify([...datesToUse].sort());
+              
+              const brokersUnchanged = lastParams &&
+                JSON.stringify(lastParams.brokers.sort()) === JSON.stringify([...selectedBrokers].sort());
+              
+              const marketUnchanged = lastParams && lastParams.market === marketFilter;
               
               const onlySectorChanged = lastParams &&
                 isDataReady &&
                 !tickersChanged && // Tickers must not have changed
-                JSON.stringify(lastParams.brokers.sort()) === JSON.stringify([...selectedBrokers].sort()) &&
-                JSON.stringify(lastParams.dates.sort()) === JSON.stringify([...selectedDates].sort()) &&
-                lastParams.market === marketFilter;
+                sectorsChanged && // Sectors must have changed
+                brokersUnchanged && // Brokers must not have changed
+                datesUnchanged && // Dates must not have changed (compare with datesToUse)
+                marketUnchanged; // Market must not have changed
+              
+              console.log('[BrokerTransaction] Checking onlySectorChanged:', {
+                hasLastParams: !!lastParams,
+                isDataReady,
+                tickersChanged,
+                sectorsChanged,
+                brokersUnchanged,
+                datesUnchanged,
+                marketUnchanged,
+                onlySectorChanged,
+                previousSectors: lastParams?.sectors || [],
+                currentSectors: currentSectors
+              });
               
               if (onlySectorChanged) {
-                // Only sector filter changed (and tickers didn't change) - just update activeSectorFilter and re-render
-                // CRITICAL: activeSectorFilter already updated above, so sector filtering and coloring will work
-                // No need to clear data or fetch API - sector filter works on existing data at render time
-                console.log('[BrokerTransaction] Only sector filter changed, updating filter without fetching API. Sector filtering and coloring will work on existing data.');
+                // Only sector filter changed (and tickers didn't change) - filter existing data without re-fetching
+                // CRITICAL: We need to re-filter rawTransactionData based on new selectedSectors
+                console.log('[BrokerTransaction] Only sector filter changed, re-filtering existing data without fetching API.');
+                
+                // Re-filter rawTransactionData based on new selectedSectors
+                const newFilteredData = new Map<string, BrokerTransactionData[]>();
+                rawTransactionData.forEach((rawRows, date) => {
+                  let filteredRows = [...rawRows];
+                  
+                  // Apply sector filter (same logic as in loadTransactionData)
+                  if (currentSectors.length > 0) {
+                    filteredRows = filteredRows.filter(row => {
+                      const bCode = row.BCode || '';
+                      const sCode = row.SCode || '';
+                      const nbCode = row.NBCode || '';
+                      const nsCode = row.NSCode || '';
+                      
+                      const bCodeSector = bCode ? stockToSectorMap[bCode.toUpperCase()] : null;
+                      const sCodeSector = sCode ? stockToSectorMap[sCode.toUpperCase()] : null;
+                      const nbCodeSector = nbCode ? stockToSectorMap[nbCode.toUpperCase()] : null;
+                      const nsCodeSector = nsCode ? stockToSectorMap[nsCode.toUpperCase()] : null;
+                      
+                      return (bCodeSector && currentSectors.includes(bCodeSector)) ||
+                             (sCodeSector && currentSectors.includes(sCodeSector)) ||
+                             (nbCodeSector && currentSectors.includes(nbCodeSector)) ||
+                             (nsCodeSector && currentSectors.includes(nsCodeSector));
+                    });
+                  }
+                  
+                  newFilteredData.set(date, filteredRows);
+                });
+                
+                // Update transactionData with filtered data
+                setTransactionData(newFilteredData);
+                
+                // Update last fetch params to track sector change
+                lastFetchParamsRef.current = {
+                  ...lastParams,
+                  sectors: currentSectors,
+                  dates: [...datesToUse] // Update dates in case they changed
+                };
+                // CRITICAL: Ensure data is ready and visible after sector filter change
+                setIsDataReady(true);
                 return;
               }
               
-              // Brokers, dates, market, or tickers changed - need to fetch new data from API
+              // Brokers, dates, market, tickers, or sectors changed - need to fetch new data from API
               // NOTE: If selectedTickers is empty, it will show all tickers (no filtering)
               console.log('[BrokerTransaction] Parameters changed, fetching new data from API', {
                 tickersChanged,
+                sectorsChanged,
                 previousTickers: lastParams?.tickers || [],
-                currentTickers: selectedTickers.length > 0 ? selectedTickers : 'ALL (empty = show all)'
+                currentTickers: selectedTickers.length > 0 ? selectedTickers : 'ALL (empty = show all)',
+                currentSectors: selectedSectors.length > 0 ? selectedSectors : 'NONE',
+                datesUnchanged,
+                onlySectorChanged: false
               });
               
               // Update last fetch params
               lastFetchParamsRef.current = {
                 brokers: [...selectedBrokers],
-                dates: [...selectedDates],
+                dates: [...datesToUse],
                 market: marketFilter || '',
-                tickers: [...selectedTickers] // Track selectedTickers
+                tickers: [...selectedTickers], // Track selectedTickers
+                sectors: [...selectedSectors] // Track selectedSectors
               };
               
               // Clear existing data before fetching new data
@@ -4225,7 +4290,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               shouldFetchDataRef.current = true;
               setShouldFetchData(true);
             }}
-            disabled={isLoading || selectedBrokers.length === 0 || selectedDates.length === 0}
+            disabled={isLoading || selectedBrokers.length === 0 || !startDate || !endDate}
             // NOTE: selectedTickers can be empty (show all tickers) - it's not required for Show button
             className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full md:w-auto"
           >
