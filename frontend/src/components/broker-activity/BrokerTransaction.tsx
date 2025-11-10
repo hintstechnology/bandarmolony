@@ -94,22 +94,11 @@ const fetchBrokerTransactionData = async (
     if (response.success && response.data?.transactionData) {
       const data = response.data.transactionData;
       
-      // DEBUG: Log fetched data
-      console.log(`[BrokerTransaction] Fetched data for ${brokerCode}-${date}-${market}:`, {
-        dataLength: data.length,
-        sampleData: data.length > 0 ? data[0] : null,
-        hasBCode: data.length > 0 ? !!data[0]?.BCode : false,
-        hasSCode: data.length > 0 ? !!data[0]?.SCode : false,
-        hasNBCode: data.length > 0 ? !!data[0]?.NBCode : false,
-        hasNSCode: data.length > 0 ? !!data[0]?.NSCode : false
-      });
-      
       // Store in cache
       cache.set(cacheKey, { data, timestamp: Date.now() });
       
       return data;
     }
-    console.warn(`[BrokerTransaction] No data returned for ${brokerCode}-${date}-${market}:`, response);
     return [];
   } catch (error: any) {
     if (error?.message === 'Fetch aborted' || abortSignal?.aborted) {
@@ -433,8 +422,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         
         // Capture current values for initial auto-fetch (default menu)
         const currentBrokers = ['AK']; // Default broker
-        const currentTickers: string[] = []; // Empty array - show all tickers (no filter)
-        const currentSectors: string[] = []; // Empty array - show all sectors (no filter)
         const datesToUse = [...sortedDates];
         
         // Trigger initial auto-fetch AFTER all states are set (only once on mount)
@@ -447,21 +434,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               currentBrokers.length > 0) {
             // Mark as triggered IMMEDIATELY (synchronously) before any async operations
             hasInitialAutoFetchRef.current = true;
-            console.log('[BrokerTransaction] Initial auto-fetch triggered (1x only on mount)', {
-              dates: datesToUse,
-              brokers: currentBrokers,
-              tickers: currentTickers.length > 0 ? currentTickers : 'ALL (no filter)',
-              sectors: currentSectors.length > 0 ? currentSectors : 'NONE (no filter)'
-            });
             // Set ref first (synchronous), then state (async)
             shouldFetchDataRef.current = true;
             setShouldFetchData(true);
           } else {
-            console.log('[BrokerTransaction] Initial auto-fetch skipped', {
-              hasInitialAutoFetchRef: hasInitialAutoFetchRef.current,
-              datesLength: datesToUse.length,
-              brokersLength: currentBrokers.length
-            });
             setIsLoading(false);
           }
         }, 0);
@@ -511,7 +487,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     const loadTransactionData = async () => {
       // CRITICAL: Check ref instead of state - ref is always up-to-date even in async context
       if (!shouldFetchDataRef.current) {
-        console.log('[BrokerTransaction] loadTransactionData: shouldFetchDataRef is false, aborting fetch');
         setIsLoading(false);
         setIsDataReady(false);
         return;
@@ -532,7 +507,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       
       // CRITICAL: Check ref again after validation
       if (!shouldFetchDataRef.current || abortController.signal.aborted) {
-        console.log('[BrokerTransaction] loadTransactionData: shouldFetchDataRef became false after validation, aborting');
         setIsLoading(false);
         setIsDataReady(false);
         return;
@@ -574,8 +548,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             uncachedTasks.push({ broker, date });
           }
         });
-        
-        console.log(`[BrokerTransaction] Cache hit: ${cachedResults.length}/${allFetchTasks.length}, Fetching ${uncachedTasks.length} uncached requests...`);
         
         // Use cached data immediately
         const allDataResults: Array<{ date: string; broker: string; data: BrokerTransactionData[] }> = [...cachedResults];
@@ -635,8 +607,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 if (result.success && 'data' in result && result.data && result.data.length > 0) {
                   allDataResults.push({ date: result.date, broker: result.broker, data: result.data });
                   completedCount++;
-                  // DEBUG: Log successful fetch
-                  console.log(`[BrokerTransaction] Successfully fetched ${result.data.length} rows for ${result.broker}-${result.date}`);
                 } else if (!result.success && 'error' in result) {
                   console.warn(`[BrokerTransaction] Failed to fetch data for ${result.broker}-${result.date}:`, result.error);
                 }
@@ -682,37 +652,16 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         
         // CRITICAL: Final check after all batches - user might have changed dates during fetch
         if (!shouldFetchDataRef.current || abortController.signal.aborted) {
-          console.log('[BrokerTransaction] loadTransactionData: shouldFetchDataRef became false after all batches, aborting aggregation');
           setIsLoading(false);
           setIsDataReady(false);
           return;
         }
-        
-        // DEBUG: Log allDataResults before aggregation
-        console.log('[BrokerTransaction] Starting aggregation:', {
-          allDataResultsCount: allDataResults.length,
-          selectedDatesCount: selectedDates.length,
-          selectedDates: selectedDates,
-          sampleResults: allDataResults.slice(0, 3).map(r => ({
-            date: r.date,
-            broker: r.broker,
-            dataLength: r.data.length,
-            sampleRow: r.data.length > 0 ? {
-              Emiten: r.data[0]?.Emiten,
-              BCode: r.data[0]?.BCode,
-              SCode: r.data[0]?.SCode,
-              NBCode: r.data[0]?.NBCode,
-              NSCode: r.data[0]?.NSCode
-            } : null
-          }))
-        });
         
         // Process data per date - AGGREGATE per Emiten and per section (Buy, Sell, Net Buy, Net Sell)
         // When multiple brokers are selected, sum values for the same Emiten
         for (const date of selectedDates) {
           // CRITICAL: Check ref during aggregation - user might have changed dates
           if (!shouldFetchDataRef.current) {
-            console.log('[BrokerTransaction] loadTransactionData: shouldFetchDataRef became false during aggregation, aborting');
             return;
           }
           
@@ -873,18 +822,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           // Convert map to array
           let allRows = Array.from(aggregatedMap.values());
           
-          // DEBUG: Log aggregation result for this date
-          console.log(`[BrokerTransaction] Aggregation for ${date}:`, {
-            aggregatedCount: allRows.length,
-            sampleRows: allRows.slice(0, 2).map(r => ({
-              Emiten: r.Emiten,
-              BCode: r.BCode,
-              SCode: r.SCode,
-              NBCode: r.NBCode,
-              NSCode: r.NSCode
-            }))
-          });
-          
           // FIXED: Store raw data (before filtering) for availableTickers extraction
           // This ensures dropdown always shows all available tickers for selected broker(s)
           const rawRows = [...allRows]; // Copy before filtering
@@ -893,7 +830,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           // 1. If selectedTickers is provided (even if sector is selected), filter by ticker
           // 2. If selectedSectors is provided (and no ticker), filter by sector
           // 3. If both empty, show all
-          const rowsBeforeFilter = allRows.length;
           
           if (selectedTickers.length > 0) {
             // Priority 1: Filter by ticker (even if sector is selected)
@@ -911,7 +847,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                      selectedTickers.includes(nsCode) ||
                      selectedTickers.includes(emiten);
             });
-            console.log(`[BrokerTransaction] Filtered data for ${date}: ${rowsBeforeFilter} -> ${allRows.length} rows (filtered by tickers: ${selectedTickers.join(', ')})`);
           } else if (selectedSectors.length > 0) {
             // Priority 2: Filter by sector (only if no ticker selected)
             allRows = allRows.filter(row => {
@@ -931,10 +866,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                      (nbCodeSector && selectedSectors.includes(nbCodeSector)) ||
                      (nsCodeSector && selectedSectors.includes(nsCodeSector));
             });
-            console.log(`[BrokerTransaction] Filtered data for ${date}: ${rowsBeforeFilter} -> ${allRows.length} rows (filtered by sectors: ${selectedSectors.join(', ')})`);
-          } else {
-            // No filtering - show all tickers
-            console.log(`[BrokerTransaction] No filter for ${date}: showing all ${allRows.length} rows (no ticker or sector selected)`);
           }
           
           // Store raw data (before filtering) for availableTickers
@@ -945,7 +876,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         
         // CRITICAL: Check ref again before setting data - user might have changed dates during aggregation
         if (!shouldFetchDataRef.current || abortController.signal.aborted) {
-          console.log('[BrokerTransaction] loadTransactionData: shouldFetchDataRef became false before setting data, aborting');
           setIsLoading(false);
           setIsDataReady(false);
           return;
@@ -963,19 +893,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         
         // CRITICAL: Final check before marking data ready
         if (!shouldFetchDataRef.current || abortController.signal.aborted) {
-          console.log('[BrokerTransaction] loadTransactionData: shouldFetchDataRef became false before marking data ready, aborting');
           setIsLoading(false);
           setIsDataReady(false);
           return;
         }
-        
-        // DEBUG: Log data before setting state
-        console.log('[BrokerTransaction] Data aggregation complete:', {
-          datesCount: newTransactionData.size,
-          totalRows: Array.from(newTransactionData.values()).reduce((sum, arr) => sum + arr.length, 0),
-          dates: Array.from(newTransactionData.keys()),
-          sampleData: newTransactionData.size > 0 ? newTransactionData.get(Array.from(newTransactionData.keys())[0] || '')?.slice(0, 2) : null
-        });
         
         // Mark loading as complete and show data immediately
         setIsLoading(false);
@@ -1006,7 +927,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         // Check abortControllerRef.current instead of local abortController (which might be stale)
         const wasAborted = abortControllerRef.current?.signal.aborted || err?.message === 'Fetch aborted' || !shouldFetchDataRef.current;
         if (wasAborted) {
-          console.log('[BrokerTransaction] Fetch aborted, cleaning up');
           setIsLoading(false);
           setIsDataReady(false);
           setShouldFetchData(false);
@@ -1029,7 +949,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     // Cleanup: abort fetch if component unmounts or effect re-runs
     return () => {
       if (abortControllerRef.current) {
-        console.log('[BrokerTransaction] Cleaning up: aborting fetch');
         abortControllerRef.current.abort();
         abortControllerRef.current = null;
       }
@@ -1818,14 +1737,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     totalNetSellDataByStock: Map<string, { netSellVol: number; netSellValue: number; netSellAvg: number; netSellFreq: number; netSellOrdNum: number; netSellLot: number; netSellLotPerFreq: number; netSellLotPerOrdNum: number; netSellAvgCount: number; }>;
   }>(() => {
     // FIXED: Only check transactionData - don't depend on selectedBrokers/selectedDates to prevent re-calculation on input change
-    console.log('[BrokerTransaction] useMemo: Processing transactionData', {
-      transactionDataSize: transactionData.size,
-      dates: Array.from(transactionData.keys()),
-      totalRows: Array.from(transactionData.values()).reduce((sum, arr) => sum + arr.length, 0)
-    });
-    
     if (transactionData.size === 0) {
-      console.log('[BrokerTransaction] useMemo: transactionData is empty, returning empty results');
       return {
         uniqueStocks: [],
         filteredStocks: [],
@@ -1981,16 +1893,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     // For backward compatibility
     const uniqueStocks = Array.from(new Set([...allBuyStocks, ...allSellStocks, ...allNetBuyStocks, ...allNetSellStocks]));
     const filteredStocks = uniqueStocks;
-    
-    // DEBUG: Log unique stocks calculation
-    console.log('[BrokerTransaction] useMemo: Unique stocks calculated', {
-      uniqueStocksCount: uniqueStocks.length,
-      allBuyStocksCount: allBuyStocks.size,
-      allSellStocksCount: allSellStocks.size,
-      allNetBuyStocksCount: allNetBuyStocks.size,
-      allNetSellStocksCount: allNetSellStocks.size,
-      sampleStocks: uniqueStocks.slice(0, 10)
-    });
     
     // For backward compatibility, create sortedStocksByDate and sortedNetStocksByDate
     const sortedStocksByDate = new Map<string, string[]>();
@@ -2535,14 +2437,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       maxNetSellRows = Math.max(maxNetSellRows, netSellData.length);
     });
     const result = Math.max(maxBuyRows, maxSellRows, maxNetBuyRows, maxNetSellRows);
-    console.log('[BrokerTransaction] maxRows calculated:', {
-      maxBuyRows,
-      maxSellRows,
-      maxNetBuyRows,
-      maxNetSellRows,
-      result,
-      allDatesCount: allDates.size
-    });
     return result;
   }, [buyStocksByDate, sellStocksByDate, netBuyStocksByDate, netSellStocksByDate]); // FIXED: Removed selectedDates - only recalculate when data changes, not when input changes
 
@@ -2556,14 +2450,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     for (let i = 0; i < maxVisible; i++) {
       indices.push(i);
     }
-    
-    console.log('[BrokerTransaction] visibleRowIndices calculated:', {
-      visibleRowCount,
-      maxRows,
-      maxVisible,
-      indicesLength: indices.length
-    });
-    
     return indices;
   }, [visibleRowCount, maxRows]);
 
@@ -2589,7 +2475,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         const currentMaxRows = maxRows;
         if (currentMaxRows === 0 || prev >= currentMaxRows) return prev;
         const newCount = Math.min(prev + MAX_DISPLAY_ROWS, currentMaxRows);
-        console.log(`[BrokerTransaction] Loading more rows: ${prev} → ${newCount} (max: ${currentMaxRows})`);
         return newCount;
       });
     };
@@ -2637,16 +2522,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   }, [isDataReady, maxRows, visibleRowCount]);
 
   const renderHorizontalView = useCallback(() => {
-    console.log('[BrokerTransaction] renderHorizontalView called:', {
-      isDataReady,
-      uniqueStocks: uniqueStocks.length,
-      transactionDataSize: transactionData.size
-    });
-    
     // FIXED: Don't hide data when input changes - only check isDataReady
     // Keep showing existing data even if user changes input (until Show button is clicked)
     if (!isDataReady) {
-      console.log('[BrokerTransaction] renderHorizontalView: Data not ready, returning null');
       return null;
     }
     
@@ -2726,18 +2604,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       const rowIndices = tableMaxRows > 0 
         ? Array.from({ length: Math.min(displayRows, tableMaxRows) }, (_, i) => i)
         : [];
-      
-      // CRITICAL: Debug logging to identify why data might not show
-      console.log('[BrokerTransaction] renderValueTable:', {
-        tableMaxRows,
-        visibleRowIndicesLength: visibleRowIndices.length,
-        visibleRowCount,
-        rowIndicesLength: rowIndices.length,
-        maxBuyRows,
-        maxSellRows,
-        hasData: tableMaxRows > 0,
-        rowIndices: rowIndices.slice(0, 5) // First 5 indices
-      });
       
       // Calculate total columns for "No Data Available" message
       const totalCols = showOnlyTotal ? 17 : (selectedDates.length * 17 + 17);
@@ -4151,25 +4017,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               const lastParams = lastFetchParamsRef.current;
               const previousTickers = lastParams?.tickers || [];
               const previousSectors = lastParams?.sectors || [];
-              const currentTickers = [...selectedTickers];
-              const currentSectors = [...selectedSectors];
               const tickersChanged = !lastParams || 
-                JSON.stringify(previousTickers.sort()) !== JSON.stringify(currentTickers.sort());
+                JSON.stringify(previousTickers.sort()) !== JSON.stringify(selectedTickers.sort());
               const sectorsChanged = !lastParams ||
-                JSON.stringify(previousSectors.sort()) !== JSON.stringify(currentSectors.sort());
-              
-              console.log('[BrokerTransaction] Show button clicked:', {
-                selectedBrokers,
-                selectedTickers: selectedTickers.length > 0 ? selectedTickers : 'ALL (empty = show all)',
-                selectedSectors: selectedSectors.length > 0 ? selectedSectors : 'NONE (show all)',
-                selectedDates: datesToUse,
-                marketFilter,
-                activeSectorFilter: newActiveSectorFilter,
-                lastFetchParams: lastFetchParamsRef.current,
-                isDataReady,
-                tickersChanged,
-                sectorsChanged
-              });
+                JSON.stringify(previousSectors.sort()) !== JSON.stringify(selectedSectors.sort());
               
               // IMPORTANT: selectedTickers can be empty (length === 0) which means "show all tickers"
               // This is handled in loadTransactionData where filtering only happens if selectedTickers.length > 0
@@ -4197,23 +4048,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 datesUnchanged && // Dates must not have changed (compare with datesToUse)
                 marketUnchanged; // Market must not have changed
               
-              console.log('[BrokerTransaction] Checking onlySectorChanged:', {
-                hasLastParams: !!lastParams,
-                isDataReady,
-                tickersChanged,
-                sectorsChanged,
-                brokersUnchanged,
-                datesUnchanged,
-                marketUnchanged,
-                onlySectorChanged,
-                previousSectors: lastParams?.sectors || [],
-                currentSectors: currentSectors
-              });
-              
               if (onlySectorChanged) {
                 // Only sector filter changed (and tickers didn't change) - filter existing data without re-fetching
                 // CRITICAL: We need to re-filter rawTransactionData based on new selectedSectors
-                console.log('[BrokerTransaction] Only sector filter changed, re-filtering existing data without fetching API.');
                 
                 // Re-filter rawTransactionData based on new selectedSectors
                 const newFilteredData = new Map<string, BrokerTransactionData[]>();
@@ -4221,7 +4058,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   let filteredRows = [...rawRows];
                   
                   // Apply sector filter (same logic as in loadTransactionData)
-                  if (currentSectors.length > 0) {
+                  if (selectedSectors.length > 0) {
                     filteredRows = filteredRows.filter(row => {
                       const bCode = row.BCode || '';
                       const sCode = row.SCode || '';
@@ -4233,10 +4070,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       const nbCodeSector = nbCode ? stockToSectorMap[nbCode.toUpperCase()] : null;
                       const nsCodeSector = nsCode ? stockToSectorMap[nsCode.toUpperCase()] : null;
                       
-                      return (bCodeSector && currentSectors.includes(bCodeSector)) ||
-                             (sCodeSector && currentSectors.includes(sCodeSector)) ||
-                             (nbCodeSector && currentSectors.includes(nbCodeSector)) ||
-                             (nsCodeSector && currentSectors.includes(nsCodeSector));
+                      return (bCodeSector && selectedSectors.includes(bCodeSector)) ||
+                             (sCodeSector && selectedSectors.includes(sCodeSector)) ||
+                             (nbCodeSector && selectedSectors.includes(nbCodeSector)) ||
+                             (nsCodeSector && selectedSectors.includes(nsCodeSector));
                     });
                   }
                   
@@ -4249,7 +4086,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 // Update last fetch params to track sector change
                 lastFetchParamsRef.current = {
                   ...lastParams,
-                  sectors: currentSectors,
+                  sectors: [...selectedSectors],
                   dates: [...datesToUse] // Update dates in case they changed
                 };
                 // CRITICAL: Ensure data is ready and visible after sector filter change
@@ -4259,15 +4096,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               
               // Brokers, dates, market, tickers, or sectors changed - need to fetch new data from API
               // NOTE: If selectedTickers is empty, it will show all tickers (no filtering)
-              console.log('[BrokerTransaction] Parameters changed, fetching new data from API', {
-                tickersChanged,
-                sectorsChanged,
-                previousTickers: lastParams?.tickers || [],
-                currentTickers: selectedTickers.length > 0 ? selectedTickers : 'ALL (empty = show all)',
-                currentSectors: selectedSectors.length > 0 ? selectedSectors : 'NONE',
-                datesUnchanged,
-                onlySectorChanged: false
-              });
               
               // Update last fetch params
               lastFetchParamsRef.current = {
