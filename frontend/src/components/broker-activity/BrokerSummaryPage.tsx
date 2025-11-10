@@ -103,6 +103,8 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   const [fdFilter, setFdFilter] = useState<'All' | 'Foreign' | 'Domestic'>('All'); // Temporary filter (can be changed before Show button clicked)
   const [displayedFdFilter, setDisplayedFdFilter] = useState<'All' | 'Foreign' | 'Domestic'>('All'); // Actual filter used for data display (updated when Show button clicked)
   const [marketFilter, setMarketFilter] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Default to RG
+  const [displayedTickers, setDisplayedTickers] = useState<string[]>(propSelectedStock ? [propSelectedStock] : ['BBCA']); // Tickers displayed in header (updated when Show button clicked)
+  const [displayedMarket, setDisplayedMarket] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Market/Board displayed in header (updated when Show button clicked)
   
   // Stock selection state
   const [availableStocks, setAvailableStocks] = useState<string[]>([]);
@@ -540,7 +542,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
               }
               
               // For other errors, log but continue with next batch
-              console.error(`[BrokerSummary] Error in batch ${batchNum}:`, error);
+              console.error(`[BrokerSummary] Error in batch:`, error);
               // Don't add empty results - just skip failed items
             }
           }
@@ -690,6 +692,11 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           setIsDataReady(false);
           return;
         }
+
+        // Update displayed values when data is successfully fetched
+        // This ensures header shows correct tickers and market after data is loaded
+        setDisplayedTickers([...selectedTickers]);
+        setDisplayedMarket(marketFilter);
 
         // Mark loading as complete and show data immediately
         setIsLoading(false);
@@ -1251,11 +1258,12 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     return true; // All
   };
   
-  // Helper function to get investor label for display
-  const getInvestorLabel = (filter: 'All' | 'Foreign' | 'Domestic'): string => {
-    if (filter === 'Foreign') return 'Foreign';
-    if (filter === 'Domestic') return 'Domestic';
-    return 'All';
+  // Helper function to get market/board label for display
+  const getMarketLabel = (market: 'RG' | 'TN' | 'NG' | ''): string => {
+    if (market === 'RG') return 'RG';
+    if (market === 'TN') return 'TN';
+    if (market === 'NG') return 'NG';
+    return 'All Trade';
   };
 
   // Memoize availableDates to avoid recalculating on every render
@@ -1334,7 +1342,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         {/* Combined Buy & Sell Side Table */}
         <div className="w-full max-w-full">
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
-            <h3 className="font-semibold text-sm">VALUE - {selectedTickers.join(', ')} - {getInvestorLabel(displayedFdFilter)}</h3>
+            <h3 className="font-semibold text-sm">VALUE - {displayedTickers.join(', ')} - {getMarketLabel(displayedMarket)}</h3>
           </div>
            <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
               <div ref={valueTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto overflow-y-auto'} border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '494px' }}>
@@ -1570,7 +1578,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         {/* Net Table */}
         <div className="w-full max-w-full mt-1">
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
-            <h3 className="font-semibold text-sm">NET - {selectedTickers.join(', ')} - {getInvestorLabel(displayedFdFilter)}</h3>
+            <h3 className="font-semibold text-sm">NET - {displayedTickers.join(', ')} - {getMarketLabel(displayedMarket)}</h3>
           </div>
           <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
               <div ref={netTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto overflow-y-auto'} border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '516px' }}>
@@ -1646,7 +1654,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                               brokerNetBuyTotals[b.broker] = { nblot: 0, nbval: 0, bavg: 0, bavgCount: 0 };
                             }
                             const netBuyEntry = brokerNetBuyTotals[b.broker];
-                            if (netBuyEntry) {
+                                if (netBuyEntry) {
                               netBuyEntry.nblot += b.netBuyVol || 0;
                               netBuyEntry.nbval += b.netBuyValue || 0;
                               // Sum bavg and count (same as Value table logic)
@@ -1664,7 +1672,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                               brokerNetSellTotals[b.broker] = { nslot: 0, nsval: 0, savg: 0, savgCount: 0 };
                             }
                             const netSellEntry = brokerNetSellTotals[b.broker];
-                            if (netSellEntry) {
+                                if (netSellEntry) {
                               netSellEntry.nslot += b.netSellVol || 0;
                               netSellEntry.nsval += b.netSellValue || 0;
                               // Sum savg and count (same as Value table logic)
@@ -1672,8 +1680,8 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                 netSellEntry.savg += b.savg;
                                 netSellEntry.savgCount += 1;
                               }
-                            }
-                          }
+                                }
+                              }
                             });
                           });
                           
@@ -1758,62 +1766,55 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                         }))
                             .sort((a, b) => b.nsval - a.nsval);
                           
-                          // Generate contrast colors like BrokerInventoryPage (HSL with high saturation)
-                          const generateContrastColor = (index: number): string => {
-                            const baseHues = [150, 270, 50, 200, 330]; // dark green, violet, yellow, cyan, fuchsia
-                            const hue = baseHues[index % baseHues.length];
-                            const saturation = 60 + (index * 3) % 20; // 60-80% saturation
-                            const lightness = 40 + (index * 2) % 15; // 40-55% lightness (darker for contrast)
-                            return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-                          };
-                          
-                          // Generate contrast colors array for top 5
-                          const bgColors = Array.from({ length: 5 }, (_, idx) => generateContrastColor(idx));
-                          
-                          // Helper function to shift color slightly for sell (shift hue and adjust lightness)
-                          const shiftColorForSell = (color: string): string => {
-                            // Parse HSL color: hsl(hue, saturation%, lightness%)
-                            const match = color.match(/hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/);
-                            if (!match || !match[1] || !match[2] || !match[3]) return color;
-                            
-                            const hue = parseInt(match[1], 10);
-                            const saturation = parseInt(match[2], 10);
-                            const lightness = parseInt(match[3], 10);
-                            
-                            // Shift hue by 15 degrees (subtle difference)
-                            const shiftedHue = (hue + 15) % 360;
-                            
-                            // For yellow colors (original hue around 50, shifted to ~65), darken instead of lighten
-                            // Also check for yellow range (45-70 degrees)
-                            const isYellow = (hue >= 45 && hue <= 70) || (shiftedHue >= 45 && shiftedHue <= 70);
-                            
-                            let shiftedLightness: number;
-                            if (isYellow) {
-                              // Darken yellow colors - reduce lightness by 5-10% instead of increasing
-                              shiftedLightness = Math.max(35, lightness - 8); // Darker for yellow
-                            } else {
-                              // Slightly lighter for other colors
-                              shiftedLightness = Math.min(95, Math.max(35, lightness + 8));
-                            }
-                            
-                            return `hsl(${shiftedHue}, ${saturation}%, ${shiftedLightness}%)`;
-                          };
+                          // Top 5 broker colors: Merah, Kuning, Hijau, Biru, Coklat
+                          const bgColors = [
+                            'hsl(0, 70%, 50%)',    // Merah (Red)
+                            'hsl(50, 100%, 50%)',  // Kuning (Yellow)
+                            'hsl(120, 70%, 50%)',  // Hijau (Green)
+                            'hsl(210, 70%, 50%)',  // Biru (Blue)
+                            'hsl(25, 80%, 40%)'    // Coklat (Brown)
+                          ];
                           
                     // IMPORTANT: Data is SWAPPED - mapping must be adjusted
                     // Kolom BY (BLot, BVal, BAvg) displays NetSell data → lock top 5 NetSell from Total
-                    // Kolom SL (SLot, SVal, SAvg) displays NetBuy data → lock top 5 NetBuy from Total
+                    // Kolom SL (SLot, SVal, SAvg) displays NetBuy data → use same brokers as top 5 NetSell
                     
-                    // Map top 5 NetSell brokers (from Total) to background colors for BY columns
+                    // CRITICAL: Top 5 NetSell brokers from Total (for BY columns)
+                    const top5NetSellBrokers = sortedTotalNetSell.slice(0, 5);
+                    
+                    // Create a map of NetBuy data by broker for quick lookup
+                    const netBuyDataByBroker = new Map<string, typeof sortedTotalNetBuy[0]>();
+                    sortedTotalNetBuy.forEach(item => {
+                      netBuyDataByBroker.set(item.broker, item);
+                    });
+                    
+                    // Also add NetBuy data for brokers that have NetBuy data but ended up in NetSell side
+                    // We need to get their NetBuy data from brokerNetBuyTotals
+                    sortedTotalNetSell.forEach(sellItem => {
+                      if (!netBuyDataByBroker.has(sellItem.broker)) {
+                        const netBuyTotal = brokerNetBuyTotals[sellItem.broker];
+                        if (netBuyTotal && (netBuyTotal.nblot > 0 || netBuyTotal.nbval > 0)) {
+                          // Calculate bavg
+                          let bavg = netBuyTotal.bavgCount > 0 ? netBuyTotal.bavg / netBuyTotal.bavgCount : 0;
+                          if (bavg === 0 && netBuyTotal.nblot > 0 && netBuyTotal.nbval > 0) {
+                            bavg = netBuyTotal.nbval / netBuyTotal.nblot;
+                          }
+                          // Store NetBuy data (original, before netting)
+                          netBuyDataByBroker.set(sellItem.broker, {
+                            broker: sellItem.broker,
+                            nblot: netBuyTotal.nblot || 0,
+                            nbval: netBuyTotal.nbval || 0,
+                            nbavg: bavg
+                          });
+                        }
+                      }
+                    });
+                    
+                    // Map top 5 NetSell brokers to background colors for BY columns
                     // These brokers will have background color in BY columns across all dates
                     const netBuyBrokerBgMap = new Map<string, string>();
-                    sortedTotalNetSell.slice(0, 5).forEach((item, idx) => {
+                    top5NetSellBrokers.forEach((item, idx) => {
                       netBuyBrokerBgMap.set(item.broker, bgColors[idx] || '');
-                          });
-                          
-                    // Map top 5 NetSell brokers (not used for background, but kept for consistency)
-                    const netSellBrokerBgMap = new Map<string, string>();
-                          sortedTotalNetSell.slice(0, 5).forEach((item, idx) => {
-                      netSellBrokerBgMap.set(item.broker, shiftColorForSell(bgColors[idx] || ''));
                     });
                     
                     // Helper function to get background color style for BY columns
@@ -1823,15 +1824,15 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       return color ? { backgroundColor: color, color: 'white' } : undefined;
                     };
 
-                    // Map top 5 NetBuy brokers (from Total) to their index (0-4) for getting underline color
-                    // These brokers will have underline in SL columns across all dates
+                    // Map top 5 NetSell brokers to their index (0-4) for getting underline color on SL columns
+                    // CRITICAL: SL columns will show NetBuy data from the SAME brokers as BY columns (top 5 NetSell)
                     const netSellBrokerIndexMap = new Map<string, number>();
-                    sortedTotalNetBuy.slice(0, 5).forEach((item, idx) => {
+                    top5NetSellBrokers.forEach((item, idx) => {
                       netSellBrokerIndexMap.set(item.broker, idx);
                     });
 
-                    // Helper function to get underline color for top 5 NetBuy broker (uses same colors as top 5 buy)
-                    // LOCKED: Color is locked per broker based on Total ranking (consistent across all dates)
+                    // Helper function to get underline color for top 5 NetSell broker (uses same colors)
+                    // LOCKED: Color is locked per broker based on NetSell ranking (consistent across all dates)
                     const getNetSellUnderlineColor = (broker: string): string | undefined => {
                       const index = netSellBrokerIndexMap.get(broker);
                       return index !== undefined ? bgColors[index] : undefined;
@@ -1890,6 +1891,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                               // IMPORTANT: A broker can only be either NetBuy OR NetSell, not both
                               // Filter: NetBuy brokers (netBuyVol > 0 AND netSellVol === 0, or netBuyValue > netSellValue)
                               // Filter: NetSell brokers (netSellVol > 0 AND netBuyVol === 0, or netSellValue > netBuyValue)
+                              // Sort brokers for per-date columns
                             const sortedNetBuy = (dateData?.buyData || [])
                                 .filter(b => {
                                   if (!brokerFDScreen(b.broker)) return false;
@@ -1904,6 +1906,8 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   return (b.netSellVol > 0 || b.netSellValue > 0) && (b.netSellValue > b.netBuyValue);
                                 })
                                 .sort((a, b) => (b.netSellValue || 0) - (a.netSellValue || 0));
+                              
+                              // Per-date columns: each side uses its own sorted data
                                   const netBuyData = sortedNetBuy[rowIdx];
                                   const netSellData = sortedNetSell[rowIdx];
                               
@@ -1911,25 +1915,21 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                               // BLot, BVal, BAvg (Net Buy columns) display NetSell data
                               // SLot, SVal, SAvg (Net Sell columns) display NetBuy data
                               // Get NetSell data for BY columns (BLot, BVal, BAvg)
-                              // Use netSellerAvg from API (not savg from Value table)
                               const nbLot = netSellData?.netSellVol || 0;
                               const nbVal = netSellData?.netSellValue || 0;
-                              const nbAvg = netSellData?.netSellerAvg || 0; // Use netSellerAvg from API
+                              const nbAvg = netSellData?.netSellerAvg || 0;
 
                               // Get NetBuy data for SL columns (SLot, SVal, SAvg)
-                              // Use netBuyerAvg from API (not bavg from Value table)
                               const nsLot = netBuyData?.netBuyVol || 0;
                               const nsVal = netBuyData?.netBuyValue || 0;
-                              const nsAvg = netBuyData?.netBuyerAvg || 0; // Use netBuyerAvg from API
+                              const nsAvg = netBuyData?.netBuyerAvg || 0;
 
                               // Get background colors for this row (only for buy)
                               // Use netSellData for BY columns since they display NetSell data
                             const netBuyBgStyle = netSellData ? getNetBuyBgStyle(netSellData.broker) : undefined;
-                              // Note: Sell background color disabled - only buy gets colored
 
                               // Get underline color for top 5 sell (locked per broker based on Total ranking)
                               // Use netBuyData for SL columns since they display NetBuy data
-                              // Same broker will have same underline color across all dates
                               const sellUnderlineColor = netBuyData ? getNetSellUnderlineColor(netBuyData.broker) : undefined;
                               const sellUnderlineStyle = sellUnderlineColor 
                                 ? { borderBottom: `4px solid ${sellUnderlineColor}` } 
@@ -1969,23 +1969,38 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                 })}
                           {/* Total Columns - Include BAvg and SAvg - Data is SWAPPED */}
                           {(() => {
-                            const totalNetBuy = sortedTotalNetBuy[rowIdx];
+                            // BY side: use all brokers from sortedTotalNetSell
                             const totalNetSell = sortedTotalNetSell[rowIdx];
+                            
+                            // CRITICAL: SL side must show NetBuy data from the SAME broker as BY side
+                            // For top 5: use the same broker from top5NetSellBrokers
+                            // For others: fall back to index-based access
+                            let totalNetBuy = null;
+                            if (rowIdx < top5NetSellBrokers.length) {
+                              // Top 5: get NetBuy data from the SAME broker as NetSell broker
+                              const netSellBroker = top5NetSellBrokers[rowIdx];
+                              if (netSellBroker) {
+                                totalNetBuy = netBuyDataByBroker.get(netSellBroker.broker) || null;
+                              }
+                            } else {
+                              // After top 5: use index-based access (fallback)
+                              totalNetBuy = sortedTotalNetBuy[rowIdx] || null;
+                            }
                             
                             // IMPORTANT: Total columns data is SWAPPED for display
                             // Total BY columns (BLot, BVal, BAvg) display totalNetSell data
-                            // Total SL columns (SLot, SVal, SAvg) display totalNetBuy data
+                            // Total SL columns (SLot, SVal, SAvg) display totalNetBuy data (from SAME broker for top 5)
                             
                             // Get background colors for total columns using locked functions
                             // LOCKED: Use getNetBuyBgStyle which locks based on top 5 NetSell from Total
                             // This ensures consistent styling across all dates
                             const totalNetBuyBgStyle = totalNetSell ? getNetBuyBgStyle(totalNetSell.broker) : undefined;
-                              // Note: Sell background color disabled - only buy gets colored
 
                               // Get underline color for top 5 sell (total column) using locked function
-                              // LOCKED: Use getNetSellUnderlineColor which locks based on top 5 NetBuy from Total
-                              // This ensures consistent styling across all dates
-                              const totalSellUnderlineColor = totalNetBuy ? getNetSellUnderlineColor(totalNetBuy.broker) : undefined;
+                              // CRITICAL: Use the same broker as BY side (top 5 NetSell) for underline
+                              const totalSellUnderlineColor = totalNetSell && rowIdx < top5NetSellBrokers.length 
+                                ? getNetSellUnderlineColor(totalNetSell.broker) 
+                                : (totalNetBuy ? getNetSellUnderlineColor(totalNetBuy.broker) : undefined);
                               const totalSellUnderlineStyle = totalSellUnderlineColor 
                                 ? { borderBottom: `4px solid ${totalSellUnderlineColor}` } 
                                 : undefined;
@@ -2016,9 +2031,19 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   {totalNetSell && totalNetBuyAvg > 0 ? formatAverage(totalNetBuyAvg) : '-'}
                                 </td>
                                 {/* Total SL columns - Display totalNetBuy data */}
-                                <td className={`text-center py-[1px] px-[6px] text-white bg-[#3a4252] font-bold ${totalNetBuy ? getBrokerColorClass(totalNetBuy.broker) : ''}`}>{totalNetBuy ? rowIdx + 1 : '-'}</td>
-                                  <td className={`py-[1px] px-[5px] font-bold ${totalNetBuy ? getBrokerColorClass(totalNetBuy.broker) : ''}`} style={totalSellUnderlineStyle}>
-                                  {totalNetBuy?.broker || '-'}
+                                {/* CRITICAL: For top 5, show the SAME broker as BY side. For others, show NetBuy broker or NetSell broker. */}
+                                {(() => {
+                                  // For top 5: use the same broker as BY side (totalNetSell broker)
+                                  // For others: use NetBuy broker if available, otherwise use NetSell broker
+                                  const slBroker = rowIdx < top5NetSellBrokers.length && totalNetSell
+                                    ? totalNetSell.broker
+                                    : (totalNetBuy ? totalNetBuy.broker : (totalNetSell ? totalNetSell.broker : ''));
+                                  
+                                  return (
+                                    <>
+                                      <td className={`text-center py-[1px] px-[6px] text-white bg-[#3a4252] font-bold ${slBroker ? getBrokerColorClass(slBroker) : ''}`}>{totalNetBuy || totalNetSell ? rowIdx + 1 : '-'}</td>
+                                      <td className={`py-[1px] px-[5px] font-bold ${slBroker ? getBrokerColorClass(slBroker) : ''}`} style={totalSellUnderlineStyle}>
+                                        {slBroker || '-'}
                                 </td>
                                   <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={totalSellUnderlineStyle}>
                                     {totalNetBuy ? formatLot(totalNetBuy.nblot / 100) : '-'}
@@ -2026,9 +2051,12 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={totalSellUnderlineStyle}>
                                     {totalNetBuy ? formatNumber(totalNetBuy.nbval) : '-'}
                                 </td>
-                                  <td className="text-right py-[1px] px-[7px] text-red-600 font-bold border-r-2 border-white" style={totalSellUnderlineStyle}>
+                                      <td className="text-right py-[1px] px-[7px] text-red-600 font-bold border-r-2 border-white" style={totalSellUnderlineStyle}>
                                   {totalNetBuy && totalNetSellAvg > 0 ? formatAverage(totalNetSellAvg) : '-'}
                                 </td>
+                                    </>
+                                  );
+                                })()}
                               </React.Fragment>
                             );
                           })()}
@@ -2050,9 +2078,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     <div className="w-full">
       {/* Top Controls - Compact without Card */}
       <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5">
-            <div className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-4">
+            <div className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
               {/* Ticker Selection - Multi-select with chips */}
-              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto md:mr-2">
                 <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
                 <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
                   {/* Selected Ticker Chips */}
@@ -2151,7 +2179,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
               </div>
 
               {/* Date Range */}
-              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto md:mr-2">
                 <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
                 <div className="flex items-center gap-2 w-full md:w-auto">
               <div 
@@ -2478,7 +2506,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
               </div>
 
             {/* F/D Filter */}
-              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto md:mr-2">
                 <label className="text-sm font-medium whitespace-nowrap">Investor:</label>
                   <select 
                   value={fdFilter}
@@ -2492,7 +2520,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
               </div>
 
             {/* Market Filter */}
-              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto md:mr-2">
                 <label className="text-sm font-medium whitespace-nowrap">Board:</label>
                 <select
                   value={marketFilter}
@@ -2531,8 +2559,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     }
                   }
                   
-                  // Update displayedFdFilter from fdFilter when Show button is clicked
+                  // Update displayed values when Show button is clicked
                   setDisplayedFdFilter(fdFilter);
+                  setDisplayedTickers([...selectedTickers]);
+                  setDisplayedMarket(marketFilter);
                   
                   // Check if only investor filter changed (ticker, dates, and market are the same)
                   const currentParams = {
@@ -2556,6 +2586,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     // Only investor filter changed - filter existing data without calling API
                     // Data is already in rawSummaryByDate, just apply investor filter
                     // summaryByDate will be updated by the filter effect below
+                    // Note: displayedTickers and displayedMarket don't need to update (only investor changed)
                     setIsLoading(false);
                     setIsDataReady(true);
                     // No need to fetch API
