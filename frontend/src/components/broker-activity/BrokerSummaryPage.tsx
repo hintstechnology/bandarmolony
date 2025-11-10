@@ -103,6 +103,8 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   const [fdFilter, setFdFilter] = useState<'All' | 'Foreign' | 'Domestic'>('All'); // Temporary filter (can be changed before Show button clicked)
   const [displayedFdFilter, setDisplayedFdFilter] = useState<'All' | 'Foreign' | 'Domestic'>('All'); // Actual filter used for data display (updated when Show button clicked)
   const [marketFilter, setMarketFilter] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Default to RG
+  const [displayedTickers, setDisplayedTickers] = useState<string[]>(propSelectedStock ? [propSelectedStock] : ['BBCA']); // Tickers displayed in header (updated when Show button clicked)
+  const [displayedMarket, setDisplayedMarket] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Market/Board displayed in header (updated when Show button clicked)
   
   // Stock selection state
   const [availableStocks, setAvailableStocks] = useState<string[]>([]);
@@ -691,6 +693,11 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           return;
         }
 
+        // Update displayed values when data is successfully fetched
+        // This ensures header shows correct tickers and market after data is loaded
+        setDisplayedTickers([...selectedTickers]);
+        setDisplayedMarket(marketFilter);
+
         // Mark loading as complete and show data immediately
         setIsLoading(false);
         
@@ -1251,11 +1258,12 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     return true; // All
   };
   
-  // Helper function to get investor label for display
-  const getInvestorLabel = (filter: 'All' | 'Foreign' | 'Domestic'): string => {
-    if (filter === 'Foreign') return 'Foreign';
-    if (filter === 'Domestic') return 'Domestic';
-    return 'All';
+  // Helper function to get market/board label for display
+  const getMarketLabel = (market: 'RG' | 'TN' | 'NG' | ''): string => {
+    if (market === 'RG') return 'RG';
+    if (market === 'TN') return 'TN';
+    if (market === 'NG') return 'NG';
+    return 'All Trade';
   };
 
   // Memoize availableDates to avoid recalculating on every render
@@ -1334,7 +1342,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         {/* Combined Buy & Sell Side Table */}
         <div className="w-full max-w-full">
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
-            <h3 className="font-semibold text-sm">VALUE - {selectedTickers.join(', ')} - {getInvestorLabel(displayedFdFilter)}</h3>
+            <h3 className="font-semibold text-sm">VALUE - {displayedTickers.join(', ')} - {getMarketLabel(displayedMarket)}</h3>
           </div>
            <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
               <div ref={valueTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto overflow-y-auto'} border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '494px' }}>
@@ -1570,7 +1578,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         {/* Net Table */}
         <div className="w-full max-w-full mt-1">
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
-            <h3 className="font-semibold text-sm">NET - {selectedTickers.join(', ')} - {getInvestorLabel(displayedFdFilter)}</h3>
+            <h3 className="font-semibold text-sm">NET - {displayedTickers.join(', ')} - {getMarketLabel(displayedMarket)}</h3>
           </div>
           <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
               <div ref={netTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto overflow-y-auto'} border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '516px' }}>
@@ -2070,9 +2078,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     <div className="w-full">
       {/* Top Controls - Compact without Card */}
       <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5">
-            <div className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-4">
+            <div className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
               {/* Ticker Selection - Multi-select with chips */}
-              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto md:mr-2">
                 <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
                 <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
                   {/* Selected Ticker Chips */}
@@ -2171,7 +2179,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
               </div>
 
               {/* Date Range */}
-              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto md:mr-2">
                 <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
                 <div className="flex items-center gap-2 w-full md:w-auto">
               <div 
@@ -2498,7 +2506,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
               </div>
 
             {/* F/D Filter */}
-              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto md:mr-2">
                 <label className="text-sm font-medium whitespace-nowrap">Investor:</label>
                   <select 
                   value={fdFilter}
@@ -2512,7 +2520,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
               </div>
 
             {/* Market Filter */}
-              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto md:mr-2">
                 <label className="text-sm font-medium whitespace-nowrap">Board:</label>
                 <select
                   value={marketFilter}
@@ -2551,8 +2559,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     }
                   }
                   
-                  // Update displayedFdFilter from fdFilter when Show button is clicked
+                  // Update displayed values when Show button is clicked
                   setDisplayedFdFilter(fdFilter);
+                  setDisplayedTickers([...selectedTickers]);
+                  setDisplayedMarket(marketFilter);
                   
                   // Check if only investor filter changed (ticker, dates, and market are the same)
                   const currentParams = {
@@ -2576,6 +2586,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     // Only investor filter changed - filter existing data without calling API
                     // Data is already in rawSummaryByDate, just apply investor filter
                     // summaryByDate will be updated by the filter effect below
+                    // Note: displayedTickers and displayedMarket don't need to update (only investor changed)
                     setIsLoading(false);
                     setIsDataReady(true);
                     // No need to fetch API
