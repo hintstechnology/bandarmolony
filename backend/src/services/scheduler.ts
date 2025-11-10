@@ -34,7 +34,7 @@ import { updateWatchlistSnapshot } from './watchlistSnapshotService';
 // This is now a mutable object that can be updated at runtime
 let SCHEDULER_CONFIG = {
   // Scheduled Calculation Times - Only Phase 1 runs on schedule
-  PHASE1_DATA_COLLECTION_TIME: '16:09',    // Data collection (Stock, Index, Done Summary)
+  PHASE1_DATA_COLLECTION_TIME: '19:00',    // Data collection (Stock, Index, Done Summary)
   PHASE1_SHAREHOLDERS_TIME: '00:01',       // Shareholders & Holding (if first day of month)
   
   // Phase 2-6 are auto-triggered sequentially after Phase 1 completes
