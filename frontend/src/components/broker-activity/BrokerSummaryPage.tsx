@@ -108,6 +108,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   
   // Stock selection state
   const [availableStocks, setAvailableStocks] = useState<string[]>([]);
+  const [sectorMapping, setSectorMapping] = useState<{ [sector: string]: string[] }>({}); // Sector -> list of stocks
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
   const [stockSearchTimeout, setStockSearchTimeout] = useState<NodeJS.Timeout | null>(null);
@@ -247,21 +248,41 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
       if (availableStocks.length > 0) return; // Already loaded
       
       try {
-        console.log('[BrokerSummary] Loading stock list...');
-        const result = await api.getStockList();
-        if (result.success && result.data?.stocks && Array.isArray(result.data.stocks)) {
-          // Add IDX to the stock list if not already present
-          const stocksWithIdx = result.data.stocks.includes('IDX') 
-            ? result.data.stocks 
-            : [...result.data.stocks, 'IDX'];
-          // Sort stocks alphabetically for better UX
-          const sortedStocks = stocksWithIdx.sort((a: string, b: string) => a.localeCompare(b));
-          setAvailableStocks(sortedStocks);
-        } else {
-          // Even if API fails, ensure IDX is available
-          setAvailableStocks(['IDX']);
-          console.warn('[BrokerSummary] No stocks found in API response, using IDX only');
+        console.log('[BrokerSummary] Loading stock list and sector mapping...');
+        
+        // Load both stock list and sector mapping in parallel
+        const [stockResult, sectorResult] = await Promise.all([
+          api.getStockList(),
+          api.getSectorMapping()
+        ]);
+        
+        let stocks: string[] = [];
+        let sectors: string[] = [];
+        let mapping: { [sector: string]: string[] } = {};
+        
+        if (stockResult.success && stockResult.data?.stocks && Array.isArray(stockResult.data.stocks)) {
+          stocks = stockResult.data.stocks;
         }
+        
+        if (sectorResult.success && sectorResult.data) {
+          sectors = sectorResult.data.sectors || [];
+          mapping = sectorResult.data.sectorMapping || {};
+          setSectorMapping(mapping);
+        }
+        
+        // Add IDX to the stock list if not already present
+        const stocksWithIdx = stocks.includes('IDX') 
+          ? stocks 
+          : [...stocks, 'IDX'];
+        
+        // Add sectors to the list (with prefix to distinguish from stocks)
+        const sectorsWithPrefix = sectors.map(sector => `[SECTOR] ${sector}`);
+        
+        // Combine stocks and sectors, then sort alphabetically
+        const allItems = [...stocksWithIdx, ...sectorsWithPrefix].sort((a: string, b: string) => a.localeCompare(b));
+        
+        setAvailableStocks(allItems);
+        console.log(`[BrokerSummary] Loaded ${stocks.length} stocks and ${sectors.length} sectors`);
       } catch (err) {
         console.error('[BrokerSummary] Error loading stock list:', err);
         // Even if API fails, ensure IDX is available
@@ -350,6 +371,29 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         setIsDataReady(false);
         shouldFetchDataRef.current = false;
         setShouldFetchData(false); // Reset fetch trigger
+        return;
+      }
+      
+      // Expand sectors to individual stocks for fetching
+      const expandedTickers: string[] = [];
+      selectedTickers.forEach(ticker => {
+        if (ticker.startsWith('[SECTOR] ')) {
+          const sectorName = ticker.replace('[SECTOR] ', '');
+          const stocksInSector = sectorMapping[sectorName] || [];
+          expandedTickers.push(...stocksInSector);
+        } else {
+          expandedTickers.push(ticker);
+        }
+      });
+      
+      // Remove duplicates
+      const uniqueTickers = Array.from(new Set(expandedTickers));
+      
+      if (uniqueTickers.length === 0) {
+        setIsLoading(false);
+        setIsDataReady(false);
+        shouldFetchDataRef.current = false;
+        setShouldFetchData(false);
         return;
       }
       
@@ -472,8 +516,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         const BATCH_SIZE = 10;
         
         // Create all fetch task descriptions (NOT promises yet - create promises only when needed)
+        // Use expandedTickers (with sectors expanded to individual stocks)
         const allFetchTasks = selectedDates.flatMap(date =>
-          selectedTickers.map(ticker => ({ ticker, date }))
+          uniqueTickers.map(ticker => ({ ticker, date }))
         );
         
         // Retry mechanism: try up to 3 times if no valid data fetched
@@ -1141,8 +1186,33 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   }, [stockSearchTimeout]);
 
   const handleStockSelect = (stock: string) => {
-    if (!selectedTickers.includes(stock)) {
-      setSelectedTickers([...selectedTickers, stock]);
+    // Check if it's a sector (has [SECTOR] prefix)
+    if (stock.startsWith('[SECTOR] ')) {
+      // Add sector name to selectedTickers (not individual stocks)
+      if (!selectedTickers.includes(stock)) {
+        const sectorName = stock.replace('[SECTOR] ', '');
+        const stocksInSector = sectorMapping[sectorName] || [];
+        
+        // Remove individual stocks from this sector from selectedTickers (to avoid duplication)
+        const updatedTickers = selectedTickers.filter(ticker => 
+          !stocksInSector.includes(ticker)
+        );
+        
+        setSelectedTickers([...updatedTickers, stock]);
+        console.log(`[BrokerSummary] Added sector: ${sectorName} (${stocksInSector.length} stocks)`);
+      }
+    } else {
+      // Regular stock selection - check if it's not already in a selected sector
+      const stockSector = Object.keys(sectorMapping).find(sector => 
+        sectorMapping[sector]?.includes(stock)
+      );
+      
+      // Check if this stock's sector is already selected
+      const sectorAlreadySelected = stockSector && selectedTickers.includes(`[SECTOR] ${stockSector}`);
+      
+      if (!sectorAlreadySelected && !selectedTickers.includes(stock)) {
+        setSelectedTickers([...selectedTickers, stock]);
+      }
     }
     setTickerInput('');
     setShowStockSuggestions(false);
@@ -1191,16 +1261,62 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
 
     // If exact match, select it immediately
     const upperValue = value.toUpperCase();
+    // Check for exact stock match
     if ((availableStocks || []).includes(upperValue) && !selectedTickers.includes(upperValue)) {
       setSelectedTickers([...selectedTickers, upperValue]);
       setTickerInput('');
       setShowStockSuggestions(false);
+      return;
+    }
+    // Check for exact sector match (case-insensitive)
+    const sectorMatch = availableStocks.find(stock => 
+      stock.startsWith('[SECTOR] ') && 
+      stock.replace('[SECTOR] ', '').toUpperCase() === upperValue &&
+      !selectedTickers.includes(stock)
+    );
+    if (sectorMatch) {
+      handleStockSelect(sectorMatch);
+      return;
     }
   };
 
-  const filteredStocks = (availableStocks || []).filter(stock =>
-    stock.toLowerCase().includes(tickerInput.toLowerCase()) && !selectedTickers.includes(stock)
-  );
+  // Separate stocks and sectors for display
+  const filteredStocksList = (availableStocks || []).filter(stock => {
+    const searchTerm = tickerInput.toLowerCase();
+    // Only include stocks (not sectors)
+    if (stock.startsWith('[SECTOR] ')) {
+      return false;
+    }
+    // Check if this stock's sector is already selected
+    const stockSector = Object.keys(sectorMapping).find(sector => 
+      sectorMapping[sector]?.includes(stock)
+    );
+    const sectorAlreadySelected = stockSector && selectedTickers.includes(`[SECTOR] ${stockSector}`);
+    
+    // For regular stocks, search normally and exclude if sector is selected
+    return stock.toLowerCase().includes(searchTerm) && !selectedTickers.includes(stock) && !sectorAlreadySelected;
+  });
+
+  const filteredSectorsList = (availableStocks || []).filter(stock => {
+    const searchTerm = tickerInput.toLowerCase();
+    // Only include sectors
+    if (stock.startsWith('[SECTOR] ')) {
+      const sectorName = stock.replace('[SECTOR] ', '').toLowerCase();
+      return sectorName.includes(searchTerm) && !selectedTickers.includes(stock);
+    }
+    return false;
+  });
+  
+  // For backward compatibility (used in exact match check)
+  const filteredStocks = [...filteredStocksList, ...filteredSectorsList];
+
+  // Helper function to format display name (remove [SECTOR] prefix for display)
+  const formatStockDisplayName = (stock: string): string => {
+    if (stock.startsWith('[SECTOR] ')) {
+      return stock.replace('[SECTOR] ', '');
+    }
+    return stock;
+  };
 
   // Helper function to trigger date picker
   const triggerDatePicker = (inputRef: React.RefObject<HTMLInputElement>) => {
@@ -1342,7 +1458,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         {/* Combined Buy & Sell Side Table */}
         <div className="w-full max-w-full">
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
-            <h3 className="font-semibold text-sm">VALUE - {displayedTickers.join(', ')} - {getMarketLabel(displayedMarket)}</h3>
+            <h3 className="font-semibold text-sm">VALUE - {displayedTickers.map(t => formatStockDisplayName(t)).join(', ')} - {getMarketLabel(displayedMarket)}</h3>
           </div>
            <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
               <div ref={valueTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto overflow-y-auto'} border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '494px' }}>
@@ -1578,7 +1694,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         {/* Net Table */}
         <div className="w-full max-w-full mt-1">
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
-            <h3 className="font-semibold text-sm">NET - {displayedTickers.join(', ')} - {getMarketLabel(displayedMarket)}</h3>
+            <h3 className="font-semibold text-sm">NET - {displayedTickers.map(t => formatStockDisplayName(t)).join(', ')} - {getMarketLabel(displayedMarket)}</h3>
           </div>
           <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
               <div ref={netTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto overflow-y-auto'} border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '516px' }}>
@@ -2030,12 +2146,12 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       key={ticker}
                       className="flex items-center gap-1 px-2 h-9 bg-primary/20 text-primary rounded-md text-sm"
                     >
-                      <span>{ticker}</span>
+                      <span>{formatStockDisplayName(ticker)}</span>
                       <button
                         type="button"
                         onClick={() => handleRemoveTicker(ticker)}
                         className="hover:bg-primary/30 rounded px-1"
-                        aria-label={`Remove ${ticker}`}
+                        aria-label={`Remove ${formatStockDisplayName(ticker)}`}
                       >
                         ×
                       </button>
@@ -2072,48 +2188,109 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       className="w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground"
                     />
                     {showStockSuggestions && (
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                      <div className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col min-w-[400px]">
                         {availableStocks.length === 0 ? (
                           <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
                             <Loader2 className="w-4 h-4 animate-spin mr-2" />
                             Loading stocks...
                           </div>
-                        ) : tickerInput === '' ? (
-                          <>
-                            <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
-                              Available Stocks ({availableStocks.filter(s => !selectedTickers.includes(s)).length})
-                            </div>
-                            {availableStocks.filter(s => !selectedTickers.includes(s)).map(stock => (
-                              <div
-                                key={stock}
-                                onClick={() => handleStockSelect(stock)}
-                                className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
-                              >
-                                {stock}
-                              </div>
-                            ))}
-                          </>
-                        ) : filteredStocks.length > 0 ? (
-                          <>
-                            <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
-                              {filteredStocks.length} stocks found
-                            </div>
-                            {filteredStocks.map(stock => (
-                              <div
-                                key={stock}
-                                onClick={() => handleStockSelect(stock)}
-                                className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
-                              >
-                                {stock}
-                              </div>
-                            ))}
-                          </>
                         ) : (
-                          <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
-                            No stocks found
+                          <div className="flex flex-row h-full max-h-96 overflow-hidden">
+                            {/* Left column: Stocks */}
+                            <div className="flex-1 border-r border-[#3a4252] overflow-y-auto">
+                              {tickerInput === '' ? (
+                                <>
+                                  <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                    Stocks ({availableStocks.filter(s => {
+                                      if (s.startsWith('[SECTOR] ')) return false;
+                                      // Check if stock's sector is already selected
+                                      const stockSector = Object.keys(sectorMapping).find(sector => 
+                                        sectorMapping[sector]?.includes(s)
+                                      );
+                                      const sectorAlreadySelected = stockSector && selectedTickers.includes(`[SECTOR] ${stockSector}`);
+                                      return !selectedTickers.includes(s) && !sectorAlreadySelected;
+                                    }).length})
+                                  </div>
+                                  {availableStocks.filter(s => {
+                                    if (s.startsWith('[SECTOR] ')) return false;
+                                    // Check if stock's sector is already selected
+                                    const stockSector = Object.keys(sectorMapping).find(sector => 
+                                      sectorMapping[sector]?.includes(s)
+                                    );
+                                    const sectorAlreadySelected = stockSector && selectedTickers.includes(`[SECTOR] ${stockSector}`);
+                                    return !selectedTickers.includes(s) && !sectorAlreadySelected;
+                                  }).map(stock => (
+                                    <div
+                                      key={stock}
+                                      onClick={() => handleStockSelect(stock)}
+                                      className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
+                                    >
+                                      {stock}
+                                    </div>
+                                  ))}
+                                </>
+                              ) : filteredStocksList.length > 0 ? (
+                                <>
+                                  <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                    Stocks ({filteredStocksList.length})
+                                  </div>
+                                  {filteredStocksList.map(stock => (
+                                    <div
+                                      key={stock}
+                                      onClick={() => handleStockSelect(stock)}
+                                      className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
+                                    >
+                                      {stock}
+                                    </div>
+                                  ))}
+                                </>
+                              ) : (
+                                <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                  Stocks (0)
+                                </div>
+                              )}
+                            </div>
+                            {/* Right column: Sectors */}
+                            <div className="flex-1 overflow-y-auto">
+                              {tickerInput === '' ? (
+                                <>
+                                  <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                    Sectors ({availableStocks.filter(s => s.startsWith('[SECTOR] ') && !selectedTickers.includes(s)).length})
+                                  </div>
+                                  {availableStocks.filter(s => s.startsWith('[SECTOR] ') && !selectedTickers.includes(s)).map(stock => (
+                                    <div
+                                      key={stock}
+                                      onClick={() => handleStockSelect(stock)}
+                                      className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
+                                    >
+                                      {formatStockDisplayName(stock)}
+                                    </div>
+                                  ))}
+                                </>
+                              ) : filteredSectorsList.length > 0 ? (
+                                <>
+                                  <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                    Sectors ({filteredSectorsList.length})
+                                  </div>
+                                  {filteredSectorsList.map(stock => (
+                                    <div
+                                      key={stock}
+                                      onClick={() => handleStockSelect(stock)}
+                                      className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
+                                    >
+                                      {formatStockDisplayName(stock)}
+                                    </div>
+                                  ))}
+                                </>
+                              ) : (
+                                <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                  Sectors (0)
+                                </div>
+                              )}
+                            </div>
                           </div>
-                          )}
-                        </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
