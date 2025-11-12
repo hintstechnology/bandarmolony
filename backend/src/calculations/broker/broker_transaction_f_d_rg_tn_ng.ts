@@ -3,6 +3,8 @@ import { BATCH_SIZE_PHASE_6 } from '../../services/dataUpdateService';
 
 // Type definitions
 type TransactionType = 'RG' | 'TN' | 'NG';
+type InvestorType = 'D' | 'F'; // D = Domestik (I), F = Foreign (A)
+
 interface TransactionData {
   STK_CODE: string;
   BRK_COD1: string; // Buyer broker
@@ -12,6 +14,8 @@ interface TransactionData {
   TRX_CODE: string;
   TRX_TYPE: string; // field tambahan
   TRX_TIME: string; // Transaction time (HH:MM:SS or HHMMSS)
+  INV_TYP1: string; // Investor type 1 (buyer) - I = Indonesia, A = Asing
+  INV_TYP2: string; // Investor type 2 (seller) - I = Indonesia, A = Asing
   TRX_ORD1: number; // Order reference 1 (buyer)
   TRX_ORD2: number; // Order reference 2 (seller)
 }
@@ -58,7 +62,7 @@ interface BrokerTransactionData {
   NSLotPerOrdNum: number; // Net Sell Lot per Order Number (NSLot / |NetSellOrdNum|)
 }
 
-export class BrokerTransactionRGTNNGCalculator {
+export class BrokerTransactionFDRGTNNGCalculator {
   private readonly OPEN_TIME = '08:58:00'; // Market open time
   
   constructor() { }
@@ -161,12 +165,23 @@ export class BrokerTransactionRGTNNGCalculator {
   }
 
   /**
-   * Check if broker transaction folder for specific date and type already exists
+   * Get investor type from INV_TYP value
    */
-  private async checkBrokerTransactionRGTNNGExists(dateSuffix: string, type: TransactionType): Promise<boolean> {
+  private getInvestorType(invTyp: string): InvestorType | null {
+    const normalized = invTyp?.trim().toUpperCase() || '';
+    if (normalized === 'I') return 'D'; // Indonesia = Domestik
+    if (normalized === 'A') return 'F'; // Asing = Foreign
+    return null;
+  }
+
+  /**
+   * Check if broker transaction folder for specific date, type, and investor type already exists
+   */
+  private async checkBrokerTransactionFDRGTNNGExists(dateSuffix: string, type: TransactionType, invType: InvestorType): Promise<boolean> {
     try {
-      const name = type.toLowerCase();
-      const prefix = `broker_transaction_${name}/broker_transaction_${name}_${dateSuffix}/`;
+      const typeName = type.toLowerCase();
+      const invTypeName = invType.toLowerCase();
+      const prefix = `broker_transaction_${typeName}_${invTypeName}/broker_transaction_${typeName}_${invTypeName}_${dateSuffix}/`;
       const existingFiles = await listPaths({ prefix, maxResults: 1 });
       return existingFiles.length > 0;
     } catch (error) {
@@ -175,17 +190,20 @@ export class BrokerTransactionRGTNNGCalculator {
   }
 
   /**
-   * Check if all types (RG, TN, NG) already exist for a date
+   * Check if all combinations (RG/TN/NG x D/F) already exist for a date
    */
-  private async checkAllTypesExist(dateSuffix: string): Promise<boolean> {
+  private async checkAllCombinationsExist(dateSuffix: string): Promise<boolean> {
     const types: TransactionType[] = ['RG', 'TN', 'NG'];
+    const invTypes: InvestorType[] = ['D', 'F'];
     for (const type of types) {
-      const exists = await this.checkBrokerTransactionRGTNNGExists(dateSuffix, type);
-      if (!exists) {
-        return false; // At least one type is missing
+      for (const invType of invTypes) {
+        const exists = await this.checkBrokerTransactionFDRGTNNGExists(dateSuffix, type, invType);
+        if (!exists) {
+          return false; // At least one combination is missing
+        }
       }
     }
-    return true; // All types exist
+    return true; // All combinations exist
   }
 
   private async findAllDtFiles(): Promise<string[]> {
@@ -202,18 +220,18 @@ export class BrokerTransactionRGTNNGCalculator {
         return dateB.localeCompare(dateA); // Descending order
       });
       
-      // OPTIMIZATION: Check which dates already have all broker_transaction_rg_tn_ng outputs
-      console.log("🔍 Checking existing broker_transaction_rg/tn/ng folders to skip...");
+      // OPTIMIZATION: Check which dates already have all broker_transaction combinations
+      console.log("🔍 Checking existing broker_transaction_rg/tn/ng_d/f folders to skip...");
       const filesToProcess: string[] = [];
       let skippedCount = 0;
       
       for (const file of sortedFiles) {
         const dateFolder = file.split('/')[1] || '';
-        const allExist = await this.checkAllTypesExist(dateFolder);
+        const allExist = await this.checkAllCombinationsExist(dateFolder);
         
         if (allExist) {
           skippedCount++;
-          console.log(`⏭️ Skipping ${file} - broker_transaction_rg/tn/ng folders already exist for ${dateFolder}`);
+          console.log(`⏭️ Skipping ${file} - broker_transaction_rg/tn/ng_d/f folders already exist for ${dateFolder}`);
         } else {
           filesToProcess.push(file);
         }
@@ -240,7 +258,7 @@ export class BrokerTransactionRGTNNGCalculator {
   }
 
   /**
-   * Process a single DT file with broker transaction analysis (RG/TN/NG split)
+   * Process a single DT file with broker transaction analysis (RG/TN/NG x D/F split)
    * OPTIMIZED: Double-check folders don't exist before processing (race condition protection)
    */
   private async processSingleDtFile(blobName: string): Promise<{ success: boolean; dateSuffix: string; files: string[]; timing?: any }> {
@@ -249,10 +267,10 @@ export class BrokerTransactionRGTNNGCalculator {
     const dateFolder = pathParts[1] || 'unknown';
     const dateSuffix = dateFolder;
     
-    // OPTIMIZATION: Double-check all types don't exist (race condition protection)
-    const allExist = await this.checkAllTypesExist(dateFolder);
+    // OPTIMIZATION: Double-check all combinations don't exist (race condition protection)
+    const allExist = await this.checkAllCombinationsExist(dateFolder);
     if (allExist) {
-      console.log(`⏭️ Skipping ${blobName} - broker_transaction_rg/tn/ng folders already exist for ${dateFolder} (race condition check)`);
+      console.log(`⏭️ Skipping ${blobName} - broker_transaction_rg/tn/ng_d/f folders already exist for ${dateFolder} (race condition check)`);
       return { success: false, dateSuffix: dateFolder, files: [] };
     }
     
@@ -274,35 +292,32 @@ export class BrokerTransactionRGTNNGCalculator {
         return { success: false, dateSuffix, files: [] };
       }
       
-      console.log(`🔄 Processing ${blobName} (${data.length} transactions) for RG/TN/NG...`);
+      console.log(`🔄 Processing ${blobName} (${data.length} transactions) for RG/TN/NG x D/F...`);
       
       // Track timing
-      const timing = {
-        brokerTransactionRG: 0,
-        brokerTransactionTN: 0,
-        brokerTransactionNG: 0
-      };
+      const timing: any = {};
       
       const allFiles: string[] = [];
       
-      // Process each type (RG, TN, NG)
+      // Process each combination (RG/TN/NG x D/F)
       for (const type of ['RG', 'TN', 'NG'] as const) {
-        const filtered = this.filterByType(data, type);
-        if (filtered.length === 0) {
+        const filteredByType = this.filterByType(data, type);
+        if (filteredByType.length === 0) {
           console.log(`⏭️ Skipping ${dateSuffix} (${type}) - no ${type} transactions found`);
           continue;
         }
         
-        const startTime = Date.now();
-        const transactionFiles = await this.createBrokerTransactionPerBroker(filtered, dateSuffix, type);
-        const duration = Math.round((Date.now() - startTime) / 1000);
-        
-        if (type === 'RG') timing.brokerTransactionRG = duration;
-        else if (type === 'TN') timing.brokerTransactionTN = duration;
-        else if (type === 'NG') timing.brokerTransactionNG = duration;
-        
-        allFiles.push(...transactionFiles);
-        console.log(`✅ Created ${transactionFiles.length} broker transaction files for ${dateSuffix} (${type})`);
+        for (const invType of ['D', 'F'] as const) {
+          const startTime = Date.now();
+          const transactionFiles = await this.createBrokerTransactionPerBroker(filteredByType, dateSuffix, type, invType);
+          const duration = Math.round((Date.now() - startTime) / 1000);
+          
+          const timingKey = `brokerTransaction${type}${invType}`;
+          timing[timingKey] = duration;
+          
+          allFiles.push(...transactionFiles);
+          console.log(`✅ Created ${transactionFiles.length} broker transaction files for ${dateSuffix} (${type}, ${invType === 'D' ? 'Domestik' : 'Foreign'})`);
+        }
       }
       
       console.log(`✅ Completed processing ${blobName} - ${allFiles.length} files created`);
@@ -348,9 +363,11 @@ export class BrokerTransactionRGTNNGCalculator {
     const iTRX_CODE = getIdx('TRX_CODE');
     const iTRX_TYPE = getIdx('TRX_TYPE');
     const iTRX_TIME = getIdx('TRX_TIME');
+    const iINV_TYP1 = getIdx('INV_TYP1');
+    const iINV_TYP2 = getIdx('INV_TYP2');
     const iTRX_ORD1 = getIdx('TRX_ORD1');
     const iTRX_ORD2 = getIdx('TRX_ORD2');
-    if ([iSTK_CODE, iBRK_COD1, iBRK_COD2, iSTK_VOLM, iSTK_PRIC, iTRX_CODE, iTRX_TYPE, iTRX_TIME, iTRX_ORD1, iTRX_ORD2].some(k => k === -1)) return [];
+    if ([iSTK_CODE, iBRK_COD1, iBRK_COD2, iSTK_VOLM, iSTK_PRIC, iTRX_CODE, iTRX_TYPE, iTRX_TIME, iINV_TYP1, iINV_TYP2, iTRX_ORD1, iTRX_ORD2].some(k => k === -1)) return [];
     const data: TransactionData[] = [];
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i];
@@ -367,6 +384,8 @@ export class BrokerTransactionRGTNNGCalculator {
           TRX_CODE: values[iTRX_CODE]?.trim() || '',
           TRX_TYPE: values[iTRX_TYPE]?.trim() || '',
           TRX_TIME: values[iTRX_TIME]?.trim() || '',
+          INV_TYP1: values[iINV_TYP1]?.trim() || '',
+          INV_TYP2: values[iINV_TYP2]?.trim() || '',
           TRX_ORD1: parseInt(values[iTRX_ORD1]?.trim() || '0', 10) || 0,
           TRX_ORD2: parseInt(values[iTRX_ORD2]?.trim() || '0', 10) || 0,
         };
@@ -380,16 +399,22 @@ export class BrokerTransactionRGTNNGCalculator {
     return data.filter(row => row.TRX_TYPE === type);
   }
 
-  private getTransactionPaths(type: TransactionType, dateSuffix: string) {
-    // Use lowercase type directly (RG -> rg, TN -> tn, NG -> ng)
-    const name = type.toLowerCase();
+  private getTransactionPaths(type: TransactionType, invType: InvestorType, dateSuffix: string) {
+    // Use lowercase type and invType directly
+    const typeName = type.toLowerCase();
+    const invTypeName = invType.toLowerCase();
     return {
-      brokerTransaction: `broker_transaction_${name}/broker_transaction_${name}_${dateSuffix}`
+      brokerTransaction: `broker_transaction_${typeName}_${invTypeName}/broker_transaction_${typeName}_${invTypeName}_${dateSuffix}`
     };
   }
 
-  private async createBrokerTransactionPerBroker(data: TransactionData[], dateSuffix: string, type: TransactionType): Promise<string[]> {
-    const paths = this.getTransactionPaths(type, dateSuffix);
+  private async createBrokerTransactionPerBroker(
+    data: TransactionData[], 
+    dateSuffix: string, 
+    type: TransactionType,
+    invType: InvestorType
+  ): Promise<string[]> {
+    const paths = this.getTransactionPaths(type, invType, dateSuffix);
     const uniqueBrokers = [...new Set([ ...data.map(r => r.BRK_COD1), ...data.map(r => r.BRK_COD2)])];
     const createdFiles: string[] = [];
     const skippedFiles: string[] = [];
@@ -410,7 +435,28 @@ export class BrokerTransactionRGTNNGCalculator {
         console.log(`ℹ️ Could not check existence of ${filename}, proceeding with generation`);
       }
       
-      const brokerData = data.filter(row => row.BRK_COD1 === broker || row.BRK_COD2 === broker);
+      // Filter data for this broker and investor type
+      // For buyer side: check INV_TYP1
+      // For seller side: check INV_TYP2
+      const brokerData = data.filter(row => {
+        const isBuyer = row.BRK_COD1 === broker;
+        const isSeller = row.BRK_COD2 === broker;
+        
+        if (isBuyer) {
+          const buyerInvType = this.getInvestorType(row.INV_TYP1);
+          return buyerInvType === invType;
+        }
+        if (isSeller) {
+          const sellerInvType = this.getInvestorType(row.INV_TYP2);
+          return sellerInvType === invType;
+        }
+        return false;
+      });
+      
+      if (brokerData.length === 0) {
+        continue; // Skip if no data for this broker and investor type
+      }
+      
       const stockGroups = new Map<string, TransactionData[]>();
       brokerData.forEach(row => {
         const stock = row.STK_CODE;
@@ -499,14 +545,14 @@ export class BrokerTransactionRGTNNGCalculator {
         // Calculate Lot/F (Lot per Frequency)
         const buyerLotPerFreq = buyerFreq > 0 ? buyerLot / buyerFreq : 0;
         const sellerLotPerFreq = sellerFreq > 0 ? sellerLot / sellerFreq : 0;
-        const netBuyLotPerFreq = netBuyFreq !== 0 ? netBuyLot / Math.abs(netBuyFreq) : 0;
-        const netSellLotPerFreq = netSellFreq !== 0 ? netSellLot / Math.abs(netSellFreq) : 0;
+        const netBuyLotPerFreq = netBuyFreq !== 0 ? netBuyLot / netBuyFreq : 0;
+        const netSellLotPerFreq = netSellFreq !== 0 ? netSellLot / netSellFreq : 0;
 
         // Calculate Lot/ON (Lot per Order Number) - use New values
         const buyerLotPerOrdNum = newBuyerOrdNum > 0 ? buyerLot / newBuyerOrdNum : 0;
         const sellerLotPerOrdNum = newSellerOrdNum > 0 ? sellerLot / newSellerOrdNum : 0;
-        const netBuyLotPerOrdNum = netBuyOrdNum !== 0 ? netBuyLot / Math.abs(netBuyOrdNum) : 0;
-        const netSellLotPerOrdNum = netSellOrdNum !== 0 ? netSellLot / Math.abs(netSellOrdNum) : 0;
+        const netBuyLotPerOrdNum = netBuyOrdNum !== 0 ? netBuyLot / netBuyOrdNum : 0;
+        const netSellLotPerOrdNum = netSellOrdNum !== 0 ? netSellLot / netSellOrdNum : 0;
         
         stockSummary.push({
           Emiten: stock,
@@ -546,7 +592,7 @@ export class BrokerTransactionRGTNNGCalculator {
           NSLotPerOrdNum: netSellLotPerOrdNum,
         });
       });
-      // Sort by net buy value descending (same as generateBrokerTransactionTest.ts)
+      // Sort by net buy value descending
       stockSummary.sort((a, b) => b.NetBuyValue - a.NetBuyValue);
       await this.saveToAzure(filename, stockSummary);
       createdFiles.push(filename);
@@ -578,17 +624,17 @@ export class BrokerTransactionRGTNNGCalculator {
   }
 
   /**
-   * Main function to generate broker transaction data for all DT files (RG/TN/NG split)
+   * Main function to generate broker transaction data for all DT files (RG/TN/NG x D/F split)
    * OPTIMIZED: Batch processing with skip logic
    */
   public async generateBrokerTransactionData(_dateSuffix?: string): Promise<{ success: boolean; message: string; data?: any }> {
     try {
-      console.log(`🔄 Starting Broker Transaction RG/TN/NG calculation...`);
+      console.log(`🔄 Starting Broker Transaction RG/TN/NG x D/F calculation...`);
       const dtFiles = await this.findAllDtFiles();
       
       if (dtFiles.length === 0) {
-        console.log(`✅ No DT files to process - skipped broker transaction RG/TN/NG data generation`);
-        return { success: true, message: `No DT files found - skipped broker transaction RG/TN/NG data generation` };
+        console.log(`✅ No DT files to process - skipped broker transaction RG/TN/NG x D/F data generation`);
+        return { success: true, message: `No DT files found - skipped broker transaction RG/TN/NG x D/F data generation` };
       }
       
       console.log(`📊 Processing ${dtFiles.length} DT files in batches of ${BATCH_SIZE_PHASE_6}...`);
@@ -631,7 +677,7 @@ export class BrokerTransactionRGTNNGCalculator {
         console.log(`📊 Batch ${batchNum}/${totalBatches} complete: ${totalProcessed} processed, ${totalSkipped} skipped, ${totalErrors} errors`);
       }
       
-      const message = `Broker Transaction RG/TN/NG data generated: ${totalProcessed} dates processed, ${totalFilesCreated} files created, ${totalSkipped} skipped, ${totalErrors} errors`;
+      const message = `Broker Transaction RG/TN/NG x D/F data generated: ${totalProcessed} dates processed, ${totalFilesCreated} files created, ${totalSkipped} skipped, ${totalErrors} errors`;
       console.log(`✅ ${message}`);
       return { 
         success: true, 
@@ -649,63 +695,7 @@ export class BrokerTransactionRGTNNGCalculator {
       return { success: false, message: error.message };
     }
   }
-
-  // Generate broker transaction data for specific type only (RG, TN, or NG)
-  public async generateBrokerTransactionDataForType(type: 'RG' | 'TN' | 'NG'): Promise<{ success: boolean; message: string; data?: any }> {
-    try {
-      console.log(`🔄 Starting Broker Transaction ${type} data generation...`);
-      const dtFiles = await this.findAllDtFiles();
-      console.log(`📊 Found ${dtFiles.length} DT files to process`);
-      
-      if (dtFiles.length === 0) {
-        console.warn(`⚠️ No DT files found - skipped broker transaction data generation for ${type}`);
-        return { success: true, message: `No DT files found - skipped broker transaction data generation for ${type}` };
-      }
-      
-      let processedDates = 0;
-      let totalFilesCreated = 0;
-      
-      for (const blobName of dtFiles) {
-        try {
-          console.log(`📂 Processing file: ${blobName}`);
-          const result = await this.loadAndProcessSingleDtFile(blobName);
-          if (!result) {
-            console.warn(`⚠️ Failed to load file: ${blobName}`);
-            continue;
-          }
-          
-          const { data, dateSuffix: date } = result;
-          console.log(`📊 Loaded ${data.length} transactions from ${date}`);
-          
-          const filtered = this.filterByType(data, type);
-          console.log(`🔍 Filtered to ${filtered.length} transactions for type ${type}`);
-          
-          if (filtered.length === 0) {
-            console.log(`⏭️ Skipping ${date} - no ${type} transactions found`);
-            continue;
-          }
-          
-          console.log(`📝 Creating broker transactions for ${date} (${type})...`);
-          const transactionFiles = await this.createBrokerTransactionPerBroker(filtered, date, type);
-          console.log(`✅ Created ${transactionFiles.length} broker transaction files for ${date} (skipped files that already exist)`);
-          
-          processedDates++;
-          totalFilesCreated += transactionFiles.length;
-        } catch (error: any) {
-          console.error(`❌ Error processing file ${blobName}:`, error.message);
-          continue;
-        }
-      }
-      
-      const message = `Broker Transaction ${type} data generated for ${processedDates} dates (${totalFilesCreated} files created)`;
-      console.log(`✅ ${message}`);
-      return { success: true, message };
-    } catch (e) {
-      const error = e as Error;
-      console.error(`❌ Error in generateBrokerTransactionDataForType (${type}):`, error.message);
-      return { success: false, message: error.message };
-    }
-  }
 }
 
-export default BrokerTransactionRGTNNGCalculator;
+export default BrokerTransactionFDRGTNNGCalculator;
+
