@@ -23,12 +23,14 @@ interface BrokerTransactionData {
   BFreq?: number;      // Buyer Frequency (from CSV column 4)
   BLotPerFreq?: number; // Buyer Lot/Frequency (Lot/F from CSV column 5)
   BOrdNum?: number;    // Buyer Order Number (from CSV column 6)
+  NewBuyerOrdNum?: number; // New Buyer Order Number (for BOR display)
   BLotPerOrdNum?: number; // Buyer Lot/Order Number (Lot/ON from CSV column 7)
   SCode?: string;      // Seller Code (from CSV column 8)
   SLot?: number;       // Seller Lot (from CSV column 9)
   SFreq?: number;      // Seller Frequency (from CSV column 12)
   SLotPerFreq?: number; // Seller Lot/Frequency (Lot/F from CSV column 13)
   SOrdNum?: number;    // Seller Order Number (from CSV column 14)
+  NewSellerOrdNum?: number; // New Seller Order Number (for SOR display)
   SLotPerOrdNum?: number; // Seller Lot/Order Number (Lot/ON from CSV column 15)
   // NET Table: Net Buy and Net Sell data (from CSV columns 16-31)
   NBCode?: string;     // Net Buy Code (from CSV column 16)
@@ -62,6 +64,7 @@ const fetchBrokerTransactionData = async (
   brokerCode: string, 
   date: string, 
   market: 'RG' | 'TN' | 'NG' | '',
+  board: 'F' | 'D' | '',
   cache: Map<string, { data: BrokerTransactionData[]; timestamp: number }>,
   abortSignal?: AbortSignal
 ): Promise<BrokerTransactionData[]> => {
@@ -70,7 +73,7 @@ const fetchBrokerTransactionData = async (
     throw new Error('Fetch aborted');
   }
   
-  const cacheKey = `${brokerCode}-${date}-${market}`;
+  const cacheKey = `${brokerCode}-${date}-${market}-${board}`;
   const cached = cache.get(cacheKey);
   
   // Check cache first (optimized - no timestamp check needed here, already checked in loadTransactionData)
@@ -84,7 +87,7 @@ const fetchBrokerTransactionData = async (
   }
   
   try {
-    const response = await api.getBrokerTransactionData(brokerCode, date, market);
+    const response = await api.getBrokerTransactionData(brokerCode, date, market, board);
     
     // Check if aborted after API call
     if (abortSignal?.aborted) {
@@ -284,6 +287,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     brokers: string[];
     dates: string[];
     market: string;
+    board: string; // Track boardFilter
     tickers: string[]; // Track selectedTickers to detect changes
     sectors: string[]; // Track selectedSectors to detect changes
   } | null>(null);
@@ -293,6 +297,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   const [availableSectors, setAvailableSectors] = useState<string[]>([]); // List of available sectors (excluding 'All')
   const [stockToSectorMap, setStockToSectorMap] = useState<{ [stock: string]: string }>({}); // Stock code -> sector name mapping
   const [marketFilter, setMarketFilter] = useState<'RG' | 'TN' | 'NG' | ''>(''); // Default to All Trade
+  const [boardFilter, setBoardFilter] = useState<'F' | 'D' | ''>(''); // Default to All (F = Foreign, D = Domestik)
   
   // Multi-select ticker/sector states (combined)
   const [tickerInput, setTickerInput] = useState('');
@@ -540,7 +545,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         const uncachedTasks: Array<{ broker: string; date: string }> = [];
         
         allFetchTasks.forEach(({ broker, date }) => {
-          const cacheKey = `${broker}-${date}-${marketFilter}`;
+          const cacheKey = `${broker}-${date}-${marketFilter}-${boardFilter}`;
           const cached = cache.get(cacheKey);
           if (cached && (now - cached.timestamp) <= CACHE_EXPIRY_MS) {
             cachedResults.push({ date, broker, data: cached.data });
@@ -589,7 +594,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               
               // Fetch all in this chunk in parallel
               const chunkPromises = chunk.map(({ broker, date }) => 
-              fetchBrokerTransactionData(broker, date, marketFilter, cache, abortController.signal)
+              fetchBrokerTransactionData(broker, date, marketFilter, boardFilter, cache, abortController.signal)
                   .then(data => ({ success: true, broker, date, data }))
                   .catch(error => ({ success: false, broker, date, error }))
             );
@@ -912,6 +917,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           brokers: [...selectedBrokers],
           dates: [...selectedDates],
           market: marketFilter || '',
+          board: boardFilter || '', // Track boardFilter
           tickers: [...selectedTickers], // Track selectedTickers
           sectors: [...selectedSectors] // Track selectedSectors
         };
@@ -1966,7 +1972,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           }
           const total = totalBuyDataByStock.get(buyStock)!;
           const dayFreq = Number(dayData.BFreq) || Number(dayData.TransactionCount) || 0;
-          const dayOrdNum = Number(dayData.BOrdNum) || 0;
+          // Use NewBuyerOrdNum for aggregation, fallback to BOrdNum if not available
+          const dayOrdNum = Number(dayData.NewBuyerOrdNum !== undefined ? dayData.NewBuyerOrdNum : dayData.BOrdNum) || 0;
           const dayLot = Number(dayData.BLot) || 0;
           // Use Lot/F and Lot/ON from CSV only - no manual calculation
           const dayLotPerFreq = dayData.BLotPerFreq;
@@ -1975,7 +1982,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           total.buyerVol += Number(dayData.BuyerVol) || 0;
           total.buyerValue += Number(dayData.BuyerValue) || 0;
           total.buyerFreq += dayFreq;
-          total.buyerOrdNum += dayOrdNum;
+          total.buyerOrdNum += dayOrdNum; // This now uses NewBuyerOrdNum
           total.buyerLot += dayLot;
           
           // Weighted average for Lot/F and Lot/ON
@@ -2016,7 +2023,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           }
           const total = totalSellDataByStock.get(sellStock)!;
           const dayFreq = Number(dayData.SFreq) || Number(dayData.TransactionCount) || 0;
-          const dayOrdNum = Number(dayData.SOrdNum) || 0;
+          // Use NewSellerOrdNum for aggregation, fallback to SOrdNum if not available
+          const dayOrdNum = Number(dayData.NewSellerOrdNum !== undefined ? dayData.NewSellerOrdNum : dayData.SOrdNum) || 0;
           const dayLot = Number(dayData.SLot) || 0;
           // Use Lot/F and Lot/ON from CSV only - no manual calculation
           const dayLotPerFreq = dayData.SLotPerFreq;
@@ -2025,7 +2033,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           total.sellerVol += Number(dayData.SellerVol) || 0;
           total.sellerValue += Number(dayData.SellerValue) || 0;
           total.sellerFreq += dayFreq;
-          total.sellerOrdNum += dayOrdNum;
+          total.sellerOrdNum += dayOrdNum; // This now uses NewSellerOrdNum
           total.sellerLot += dayLot;
           
           // Weighted average for Lot/F and Lot/ON
@@ -2724,8 +2732,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     // Use BLotPerFreq directly from CSV column 5, not calculated
                                     // const buyerLotPerFreq = dayData.BLotPerFreq !== undefined ? dayData.BLotPerFreq : (buyerFreq > 0 ? buyerLot / buyerFreq : 0);
                                     const buyerLotPerFreq = dayData.BLotPerFreq;
-                                    // Use BOrdNum from CSV column 6
-                                    const buyerOrdNum = dayData.BOrdNum || 0;
+                                    // Use NewBuyerOrdNum for BOR display, fallback to BOrdNum if not available
+                                    const buyerOrdNum = dayData.NewBuyerOrdNum !== undefined ? dayData.NewBuyerOrdNum : (dayData.BOrdNum || 0);
                                     // Use BLotPerOrdNum directly from CSV column 7, not calculated
                                     // const buyerLotPerOrdNum = dayData.BLotPerOrdNum !== undefined ? dayData.BLotPerOrdNum : (buyerOrdNum > 0 ? buyerLot / buyerOrdNum : 0);
                                     const buyerLotPerOrdNum = dayData.BLotPerOrdNum;
@@ -2778,8 +2786,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     const sellerFreq = dayData.SFreq || 0;
                                     // Use SLotPerFreq directly from CSV column 13, no fallback
                                     const sellerLotPerFreq = dayData.SLotPerFreq;
-                                    // Use SOrdNum from CSV column 14
-                                    const sellerOrdNum = dayData.SOrdNum || 0;
+                                    // Use NewSellerOrdNum for SOR display, fallback to SOrdNum if not available
+                                    const sellerOrdNum = dayData.NewSellerOrdNum !== undefined ? dayData.NewSellerOrdNum : (dayData.SOrdNum || 0);
                                     // Use SLotPerOrdNum directly from CSV column 15, no fallback
                                     const sellerLotPerOrdNum = dayData.SLotPerOrdNum;
                                     
@@ -3934,7 +3942,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
 
           {/* Market Filter */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-            <label className="text-sm font-medium whitespace-nowrap">Board:</label>
+            <label className="text-sm font-medium whitespace-nowrap">Market:</label>
             <select
               value={marketFilter}
               onChange={(e) => {
@@ -3948,6 +3956,24 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               <option value="RG">RG</option>
               <option value="TN">TN</option>
               <option value="NG">NG</option>
+            </select>
+            </div>
+
+          {/* Board Filter (F/D) */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+            <label className="text-sm font-medium whitespace-nowrap">Board:</label>
+            <select
+              value={boardFilter}
+              onChange={(e) => {
+                setBoardFilter(e.target.value as 'F' | 'D' | '');
+                // CRITICAL: Keep existing data visible - no auto-fetch, no hide tables
+                // User must click Show button to fetch new data
+              }}
+              className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
+            >
+              <option value="">All</option>
+              <option value="F">F</option>
+              <option value="D">D</option>
             </select>
             </div>
 
@@ -4039,6 +4065,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 JSON.stringify(lastParams.brokers.sort()) === JSON.stringify([...selectedBrokers].sort());
               
               const marketUnchanged = lastParams && lastParams.market === marketFilter;
+              const boardUnchanged = lastParams && lastParams.board === boardFilter;
               
               const onlySectorChanged = lastParams &&
                 isDataReady &&
@@ -4046,7 +4073,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 sectorsChanged && // Sectors must have changed
                 brokersUnchanged && // Brokers must not have changed
                 datesUnchanged && // Dates must not have changed (compare with datesToUse)
-                marketUnchanged; // Market must not have changed
+                marketUnchanged && // Market must not have changed
+                boardUnchanged; // Board must not have changed
               
               if (onlySectorChanged) {
                 // Only sector filter changed (and tickers didn't change) - filter existing data without re-fetching
@@ -4102,6 +4130,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 brokers: [...selectedBrokers],
                 dates: [...datesToUse],
                 market: marketFilter || '',
+                board: boardFilter || '', // Track boardFilter
                 tickers: [...selectedTickers], // Track selectedTickers
                 sectors: [...selectedSectors] // Track selectedSectors
               };
