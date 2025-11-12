@@ -192,7 +192,28 @@ router.get('/summary/:stockCode', async (req, res) => {
  * For TN market: stock-trading-data/broker_transaction_tn/broker_transaction_tn_YYYYMMDD/{brokerCode}.csv
  * For NG market: stock-trading-data/broker_transaction_ng/broker_transaction_ng_YYYYMMDD/{brokerCode}.csv
  */
-const getAzurePath = (brokerCode: string, dateStr: string, marketFilter?: string): string => {
+const getAzurePath = (brokerCode: string, dateStr: string, marketFilter?: string, boardFilter?: string): string => {
+  // Handle Board filter (F/D) - takes precedence over market filter for path structure
+  if (boardFilter && (boardFilter === 'F' || boardFilter === 'D')) {
+    const boardType = boardFilter.toLowerCase(); // 'f' or 'd'
+    
+    // If market filter is also provided, combine them
+    if (marketFilter && marketFilter !== '') {
+      const market = marketFilter.toUpperCase();
+      const folderMap: { [key: string]: string } = {
+        'RG': 'rg',
+        'TN': 'tn',
+        'NG': 'ng'
+      };
+      const folderType = folderMap[market] || market.toLowerCase();
+      // For market + board: broker_transaction_{type}_{board}/broker_transaction_{type}_{board}_YYYYMMDD/{brokerCode}.csv
+      return `broker_transaction_${folderType}_${boardType}/broker_transaction_${folderType}_${boardType}_${dateStr}/${brokerCode}.csv`;
+    } else {
+      // For board only: broker_transaction/broker_transaction_{board}_YYYYMMDD/{brokerCode}.csv
+      return `broker_transaction/broker_transaction_${boardType}_${dateStr}/${brokerCode}.csv`;
+    }
+  }
+  
   // If market filter is empty or undefined, use All Trade path
   if (!marketFilter || marketFilter === '') {
     // For All brokers: stock-trading-data/broker_transaction/broker_transaction_YYYYMMDD/{brokerCode}.csv
@@ -276,6 +297,7 @@ const parseBrokerTransactionCSV = (csvData: string, _brokerCode: string): any[] 
     let bAvg: number, sAvg: number, nbAvg: number, nsAvg: number;
     let bFreq: number, sFreq: number, nbFreq: number, nsFreq: number;
     let bOrdNum: number, sOrdNum: number, nbOrdNum: number, nsOrdNum: number;
+    let newBuyerOrdNum: number, newSellerOrdNum: number; // New order numbers for BOR/SOR display
     let bLotPerFreq: number, sLotPerFreq: number, nbLotPerFreq: number, nsLotPerFreq: number;
     let bLotPerOrdNum: number, sLotPerOrdNum: number, nbLotPerOrdNum: number, nsLotPerOrdNum: number;
     
@@ -295,6 +317,7 @@ const parseBrokerTransactionCSV = (csvData: string, _brokerCode: string): any[] 
       const buyerFreqIdx = getColumnIndex('BuyerFreq');
       const buyerLotPerFreqIdx = getColumnIndex('Lot/F'); // Value Buy: Lot/F
       const buyerOrdNumIdx = getColumnIndex('BuyerOrdNum');
+      const newBuyerOrdNumIdx = getColumnIndex('NewBuyerOrdNum'); // New Buyer Order Number
       const buyerLotPerOrdNumIdx = getColumnIndex('Lot/ON'); // Value Buy: Lot/ON
       const sellerVolIdx = getColumnIndex('SellerVol');
       const sellerValueIdx = getColumnIndex('SellerValue');
@@ -302,6 +325,7 @@ const parseBrokerTransactionCSV = (csvData: string, _brokerCode: string): any[] 
       const sellerFreqIdx = getColumnIndex('SellerFreq');
       const sellerLotPerFreqIdx = getColumnIndex('Lot/F.1'); // Value Sell: Lot/F.1
       const sellerOrdNumIdx = getColumnIndex('SellerOrdNum');
+      const newSellerOrdNumIdx = getColumnIndex('NewSellerOrdNum'); // New Seller Order Number
       const sellerLotPerOrdNumIdx = getColumnIndex('Lot/ON.1'); // Value Sell: Lot/ON.1
       const netBuyVolIdx = getColumnIndex('NetBuyVol');
       const netBuyValueIdx = getColumnIndex('NetBuyValue');
@@ -333,6 +357,8 @@ const parseBrokerTransactionCSV = (csvData: string, _brokerCode: string): any[] 
       // Preserve negative values: use parseFloat directly, only default to 0 if value is missing/empty
       bLotPerFreq = buyerLotPerFreqIdx >= 0 ? (values[buyerLotPerFreqIdx] ? parseFloat(values[buyerLotPerFreqIdx]) : 0) : 0;
       const buyerOrdNum = parseFloat(values[buyerOrdNumIdx] || '0') || 0;
+      // Read NewBuyerOrdNum if available, otherwise fallback to BuyerOrdNum
+      newBuyerOrdNum = newBuyerOrdNumIdx >= 0 ? (parseFloat(values[newBuyerOrdNumIdx] || '0') || 0) : buyerOrdNum;
       // Preserve negative values: use parseFloat directly, only default to 0 if value is missing/empty
       bLotPerOrdNum = buyerLotPerOrdNumIdx >= 0 ? (values[buyerLotPerOrdNumIdx] ? parseFloat(values[buyerLotPerOrdNumIdx]) : 0) : 0;
       
@@ -343,6 +369,8 @@ const parseBrokerTransactionCSV = (csvData: string, _brokerCode: string): any[] 
       // Preserve negative values: use parseFloat directly, only default to 0 if value is missing/empty
       sLotPerFreq = sellerLotPerFreqIdx >= 0 ? (values[sellerLotPerFreqIdx] ? parseFloat(values[sellerLotPerFreqIdx]) : 0) : 0;
       const sellerOrdNum = parseFloat(values[sellerOrdNumIdx] || '0') || 0;
+      // Read NewSellerOrdNum if available, otherwise fallback to SellerOrdNum
+      newSellerOrdNum = newSellerOrdNumIdx >= 0 ? (parseFloat(values[newSellerOrdNumIdx] || '0') || 0) : sellerOrdNum;
       // Preserve negative values: use parseFloat directly, only default to 0 if value is missing/empty
       sLotPerOrdNum = sellerLotPerOrdNumIdx >= 0 ? (values[sellerLotPerOrdNumIdx] ? parseFloat(values[sellerLotPerOrdNumIdx]) : 0) : 0;
       
@@ -414,10 +442,12 @@ const parseBrokerTransactionCSV = (csvData: string, _brokerCode: string): any[] 
       bAvg = buyerAvg;
       bFreq = buyerFreq;
       bOrdNum = buyerOrdNum;
+      // newBuyerOrdNum already defined above
       sVal = sellerValue;
       sAvg = sellerAvg;
       sFreq = sellerFreq;
       sOrdNum = sellerOrdNum;
+      // newSellerOrdNum already defined above
       nbVal = netBuyValue;
       nbAvg = netBuyAvg;
       nbFreq = netBuyFreq;
@@ -454,6 +484,10 @@ const parseBrokerTransactionCSV = (csvData: string, _brokerCode: string): any[] 
       sLotPerFreq = parseFloat(values[13] || '0') || 0;
       sOrdNum = parseFloat(values[14] || '0') || 0;
       sLotPerOrdNum = parseFloat(values[15] || '0') || 0;
+      
+      // For original format, NewBuyerOrdNum and NewSellerOrdNum are not available, use regular order numbers
+      newBuyerOrdNum = bOrdNum;
+      newSellerOrdNum = sOrdNum;
       
       // NET Table: Net Buy columns (16-23)
       nbCode = values[16] || '';
@@ -519,12 +553,14 @@ const parseBrokerTransactionCSV = (csvData: string, _brokerCode: string): any[] 
       BFreq: bFreq,
       BLotPerFreq: bLotPerFreq,
       BOrdNum: bOrdNum,
+      NewBuyerOrdNum: newBuyerOrdNum, // New Buyer Order Number (for BOR display)
       BLotPerOrdNum: bLotPerOrdNum, // Lot/ON from CSV
       SCode: sCode,
       SLot: sLot,
       SFreq: sFreq,
       SLotPerFreq: sLotPerFreq,
       SOrdNum: sOrdNum,
+      NewSellerOrdNum: newSellerOrdNum, // New Seller Order Number (for SOR display)
       SLotPerOrdNum: sLotPerOrdNum, // Lot/ON from CSV
       // NET Table: Net Buy and Net Sell data (from columns 16-31)
       NetBuyVol: netBuyVol,
@@ -663,12 +699,13 @@ router.get('/transaction/:brokerCode', async (req, res) => {
     const { brokerCode } = brokerTransactionParamsSchema.parse(req.params);
     const { date } = brokerTransactionQuerySchema.parse(req.query);
     const marketFilter = (req.query['market'] as string) || ''; // Get market filter from query
+    const boardFilter = (req.query['board'] as string) || ''; // Get board filter from query (F/D)
     
     // Convert YYYYMMDD to YYYYMMDD format for file path
     const dateStr = date;
     
-    // Get Azure Storage path based on broker code and market filter
-    const azurePath = getAzurePath(brokerCode, dateStr, marketFilter);
+    // Get Azure Storage path based on broker code, market filter, and board filter
+    const azurePath = getAzurePath(brokerCode, dateStr, marketFilter, boardFilter);
     
     // Download CSV data from Azure
     const csvData = await downloadText(azurePath);
