@@ -198,12 +198,12 @@ export function LoginForm({ onSwitchToSignUp, onSwitchToForgotPassword, onLogin 
 
       {/* General Error Message */}
       {errors.general && (
-        <div className="p-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg">
+        <div className="p-3 bg-red-950 border border-red-800 rounded-lg">
           <div className="flex items-start space-x-2">
             <svg className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
             </svg>
-            <p className="text-sm text-red-600 dark:text-red-400">{errors.general}</p>
+            <p className="text-sm text-red-400">{errors.general}</p>
           </div>
         </div>
       )}
@@ -212,12 +212,12 @@ export function LoginForm({ onSwitchToSignUp, onSwitchToForgotPassword, onLogin 
       {attemptsInfo && (
         <div className={`p-3 rounded-lg border ${
           attemptsInfo.isSuspended 
-            ? 'bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800'
+            ? 'bg-red-950 border-red-800'
             : attemptsInfo.isBlocked
-            ? 'bg-orange-50 dark:bg-orange-950 border-orange-200 dark:border-orange-800'
+            ? 'bg-orange-950 border-orange-800'
             : attemptsInfo.remainingAttempts <= 2
-            ? 'bg-yellow-50 dark:bg-yellow-950 border-yellow-200 dark:border-yellow-800'
-            : 'bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800'
+            ? 'bg-yellow-950 border-yellow-800'
+            : 'bg-blue-950 border-blue-800'
         }`}>
           <div className="flex items-start space-x-2">
             {attemptsInfo.isSuspended ? (
@@ -235,20 +235,20 @@ export function LoginForm({ onSwitchToSignUp, onSwitchToForgotPassword, onLogin 
             )}
             <div className="text-sm">
               {attemptsInfo.isSuspended ? (
-                <p className="text-red-600 dark:text-red-400">
+                <p className="text-red-400">
                   {attemptsInfo.suspensionReason || 'Account has been suspended due to repeated failed login attempts'}
                 </p>
               ) : attemptsInfo.isBlocked ? (
-                <p className="text-orange-600 dark:text-orange-400">
+                <p className="text-orange-400">
                   Account is temporarily blocked. Please try again in {attemptsInfo.timeRemaining || 'a few minutes'}.
                 </p>
               ) : attemptsInfo.remainingAttempts <= 2 ? (
-                <p className="text-yellow-600 dark:text-yellow-400">
+                <p className="text-yellow-400">
                   {attemptsInfo.remainingAttempts} login attempt{attemptsInfo.remainingAttempts !== 1 ? 's' : ''} remaining. 
                   {attemptsInfo.remainingAttempts === 0 && ' Account will be blocked after this attempt.'}
                 </p>
               ) : (
-                <p className="text-blue-600 dark:text-blue-400">
+                <p className="text-blue-400">
                   {attemptsInfo.remainingAttempts} login attempts remaining.
                 </p>
               )}
@@ -268,8 +268,8 @@ export function LoginForm({ onSwitchToSignUp, onSwitchToForgotPassword, onLogin 
             value={email}
             onChange={(e) => handleInputChange('email', e.target.value)}
             required
-            className={`bg-blue-50 dark:bg-blue-950 border focus:border-blue-400 dark:focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-600 dark:placeholder:text-gray-400 focus:placeholder:opacity-0 ${
-              errors.email ? 'border-red-500 dark:border-red-500' : 'border-blue-200 dark:border-blue-800'
+            className={`bg-blue-950 border focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-400 focus:placeholder:opacity-0 ${
+              errors.email ? 'border-red-500' : 'border-blue-800'
             }`}
           />
           {errors.email && <p className="text-sm text-red-500">{errors.email}</p>}
@@ -285,8 +285,8 @@ export function LoginForm({ onSwitchToSignUp, onSwitchToForgotPassword, onLogin 
               value={password}
               onChange={(e) => handleInputChange('password', e.target.value)}
               required
-              className={`bg-blue-50 dark:bg-blue-950 border focus:border-blue-400 dark:focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-600 dark:placeholder:text-gray-400 focus:placeholder:opacity-0 pr-10 pl-3 ${
-                errors.password ? 'border-red-500 dark:border-red-500' : 'border-blue-200 dark:border-blue-800'
+              className={`bg-blue-950 border focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-400 focus:placeholder:opacity-0 pr-10 pl-3 ${
+                errors.password ? 'border-red-500' : 'border-blue-800'
               }`}
             />
             <button

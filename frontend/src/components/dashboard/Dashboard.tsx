@@ -74,7 +74,7 @@ export function Dashboard() {
   return (
     <div className="min-h-screen space-y-3 sm:space-y-4 md:space-y-6 p-2 sm:p-3 md:p-4 lg:p-6 overflow-x-hidden">
       {/* Shortcut Section */}
-      <Card className="bg-gradient-to-r from-primary/5 to-secondary/5 border-primary/20">
+      <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-center text-lg font-semibold text-primary flex items-center justify-center gap-2">
             <Sparkles className="w-5 h-5" />

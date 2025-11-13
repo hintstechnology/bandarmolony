@@ -1461,7 +1461,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
             <h3 className="font-semibold text-sm">VALUE - {displayedTickers.map(t => formatStockDisplayName(t)).join(', ')} - {getMarketLabel(displayedMarket)}</h3>
           </div>
            <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
-              <div ref={valueTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto overflow-y-auto'} border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '494px' }}>
+              <div ref={valueTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto overflow-y-auto'} border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '490px' }}>
                <table ref={valueTableRef} className={`${showOnlyTotal ? 'min-w-0' : summaryByDate.size === 0 ? 'w-full' : 'min-w-[1000px]'} ${getFontSizeClass()} table-auto`} style={{ tableLayout: summaryByDate.size === 0 ? 'fixed' : (showOnlyTotal ? 'auto' : 'auto'), width: summaryByDate.size === 0 ? '100%' : undefined }}>
                          <thead className="bg-[#3a4252]">
                          <tr className="border-t-2 border-white">
@@ -1577,8 +1577,11 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     const totalSellCount = sortedTotalSell.length;
                     maxRows = Math.max(maxRows, totalBuyCount, totalSellCount);
                     
+                    // Ensure minimum 21 rows for consistent display (20 visible + 1 to avoid scrollbar covering row 20)
+                    maxRows = Math.max(maxRows, 21);
+                    
                     // If no data, show "No Data Available" message
-                    if (maxRows === 0 || summaryByDate.size === 0) {
+                    if (summaryByDate.size === 0) {
                         const totalCols = datesForHeader.length * 9 + 9; // 9 cols per date + 9 for Total
                       return (
                         <tr className="border-b-2 border-white">
@@ -1618,13 +1621,13 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                 <td className={`text-center py-[1px] px-[6px] w-4 font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${buyData ? getBrokerColorClass(buyData.broker) : ''}`}>
                                         {buyData?.broker || '-'}
                                       </td>
-                              <td className="text-right py-[1px] px-[6px] text-green-600 font-bold w-6">
+                              <td className="text-right py-[1px] px-[6px] text-green-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                 {buyData ? formatLot(buyData.buyerVol / 100) : '-'}
                               </td>
-                                      <td className="text-right py-[1px] px-[6px] text-green-600 font-bold w-6">
+                                      <td className="text-right py-[1px] px-[6px] text-green-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                         {buyData ? formatNumber(buyData.buyerValue) : '-'}
                                       </td>
-                                      <td className="text-right py-[1px] px-[6px] text-green-600 font-bold w-6">
+                                      <td className="text-right py-[1px] px-[6px] text-green-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                         {buyData ? formatAverage(buyData.bavg) : '-'}
                                       </td>
                                       {/* SL (Seller) Columns - Keep # column */}
@@ -1632,13 +1635,13 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                       <td className={`py-[1px] px-[6px] font-bold w-4 ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>
                                         {sellData?.broker || '-'}
                                       </td>
-                              <td className="text-right py-[1px] px-[6px] text-red-600 font-bold w-6">
+                              <td className="text-right py-[1px] px-[6px] text-red-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                 {sellData ? formatLot(sellData.sellerVol / 100) : '-'}
                               </td>
-                                      <td className="text-right py-[1px] px-[6px] text-red-600 font-bold w-6">
+                                      <td className="text-right py-[1px] px-[6px] text-red-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                         {sellData ? formatNumber(sellData.sellerValue) : '-'}
                                       </td>
-                              <td className={`text-right py-[1px] px-[6px] text-red-600 font-bold w-6 ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
+                              <td className={`text-right py-[1px] px-[6px] text-red-600 font-bold w-6 ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                         {sellData ? formatAverage(sellData.savg) : '-'}
                                       </td>
                                     </React.Fragment>
@@ -1657,26 +1660,26 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                 <td className={`text-center py-[1px] px-[5px] font-bold ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${totalBuy ? getBrokerColorClass(totalBuy.broker) : ''}`}>
                                   {totalBuy?.broker || '-'}
                                 </td>
-                              <td className="text-right py-[1px] px-[5px] text-green-600 font-bold">
+                              <td className="text-right py-[1px] px-[5px] text-green-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                 {totalBuy ? formatLot(totalBuy.nblot / 100) : '-'}
                               </td>
-                                <td className="text-right py-[1px] px-[5px] text-green-600 font-bold">
+                                <td className="text-right py-[1px] px-[5px] text-green-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                   {totalBuy ? formatNumber(totalBuy.nbval) : '-'}
                                 </td>
-                                <td className="text-right py-[1px] px-[5px] text-green-600 font-bold">
+                                <td className="text-right py-[1px] px-[5px] text-green-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                   {totalBuy && totalBuyAvg > 0 ? formatAverage(totalBuyAvg) : '-'}
                                 </td>
                                 <td className={`text-center py-[1px] px-[6px] text-white bg-[#3a4252] font-bold ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>{totalSell ? rowIdx + 1 : '-'}</td>
                                 <td className={`py-[1px] px-[5px] font-bold ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>
                                   {totalSell?.broker || '-'}
                                 </td>
-                              <td className="text-right py-[1px] px-[5px] text-red-600 font-bold">
+                              <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                 {totalSell ? formatLot(totalSell.nslot / 100) : '-'}
                               </td>
-                              <td className="text-right py-[1px] px-[5px] text-red-600 font-bold">
+                              <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                   {totalSell ? formatNumber(totalSell.nsval) : '-'}
                                 </td>
-                                <td className="text-right py-[1px] px-[7px] text-red-600 font-bold border-r-2 border-white">
+                                <td className="text-right py-[1px] px-[7px] text-red-600 font-bold border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                   {totalSell && totalSellAvg > 0 ? formatAverage(totalSellAvg) : '-'}
                                 </td>
                             </React.Fragment>
@@ -1697,7 +1700,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
             <h3 className="font-semibold text-sm">NET - {displayedTickers.map(t => formatStockDisplayName(t)).join(', ')} - {getMarketLabel(displayedMarket)}</h3>
           </div>
           <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
-              <div ref={netTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto overflow-y-auto'} border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '516px' }}>
+              <div ref={netTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto overflow-y-auto'} border-l-2 border-r-2 border-b-2 border-white`} style={{ maxHeight: '530px' }}>
               <table ref={netTableRef} className={`${showOnlyTotal ? 'min-w-0' : summaryByDate.size === 0 ? 'w-full' : 'min-w-[1000px]'} ${getFontSizeClass()} table-auto`} style={{ tableLayout: summaryByDate.size === 0 ? 'fixed' : (showOnlyTotal ? 'auto' : 'auto'), width: summaryByDate.size === 0 ? '100%' : undefined }}>
                         <thead className="bg-[#3a4252]">
                         <tr className="border-t-2 border-white">
@@ -1946,9 +1949,12 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     const totalNetBuyCount = sortedTotalNetBuy.length;
                     const totalNetSellCount = sortedTotalNetSell.length;
                     maxRows = Math.max(maxRows, totalNetBuyCount, totalNetSellCount);
-                          
+                    
+                    // Ensure minimum 21 rows for consistent display with VALUE table (20 visible + 1 to avoid scrollbar covering row 20)
+                    maxRows = Math.max(maxRows, 21);
+                    
                     // If no data, show "No Data Available" message
-                    if (maxRows === 0 || summaryByDate.size === 0) {
+                    if (summaryByDate.size === 0) {
                         const totalCols = datesForHeader.length * 9 + 9; // 9 cols per date + 9 for Total
                       return (
                         <tr className="border-b-2 border-white">
@@ -1965,8 +1971,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                           
                     // Render all rows (scrollable container handles overflow)
                           return Array.from({ length: maxRows }).map((_, rowIdx) => {
-                      // Cek apakah broker pada row adalah top5
-                      // (delete unused block: netBuyData/netSellData functions)
                             return (
                               <tr key={rowIdx} className={`hover:bg-accent/50 ${rowIdx === maxRows - 1 ? 'border-b-2 border-white' : ''}`}>
                             {!showOnlyTotal && availableDates.map((date, dateIndex) => {
@@ -2026,13 +2030,13 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   <td className={`text-center py-[1px] px-[6px] w-4 font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`} style={netBuyBgStyle}>
                                         {netSellData?.broker || '-'}
                                       </td>
-                                <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
+                                <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...netBuyBgStyle, fontVariantNumeric: 'tabular-nums' }}>
                                   {netSellData ? formatLot(nbLot / 100) : '-'}
                                 </td>
-                                      <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
+                                      <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...netBuyBgStyle, fontVariantNumeric: 'tabular-nums' }}>
                                         {netSellData ? formatNumber(nbVal) : '-'}
                                       </td>
-                                      <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={netBuyBgStyle}>
+                                      <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...netBuyBgStyle, fontVariantNumeric: 'tabular-nums' }}>
                                         {netSellData ? formatAverage(nbAvg) : '-'}
                                       </td>
                                       {/* Net Sell Columns (SL) - Display NetBuy Data - Keep # */}
@@ -2040,13 +2044,13 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   <td className={`py-[1px] px-[6px] w-4 font-bold ${netBuyData ? getBrokerColorClass(netBuyData.broker) : ''}`} style={sellUnderlineStyle}>
                                         {netBuyData?.broker || '-'}
                                       </td>
-                                  <td className="text-right py-[1px] px-[6px] w-6 font-bold text-red-600" style={sellUnderlineStyle}>
+                                  <td className="text-right py-[1px] px-[6px] w-6 font-bold text-red-600" style={{ ...sellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
                                   {netBuyData ? formatLot(nsLot / 100) : '-'}
                                 </td>
-                                  <td className="text-right py-[1px] px-[6px] w-6 font-bold text-red-600" style={sellUnderlineStyle}>
+                                  <td className="text-right py-[1px] px-[6px] w-6 font-bold text-red-600" style={{ ...sellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
                                         {netBuyData ? formatNumber(nsVal) : '-'}
                                       </td>
-                                  <td className={`text-right py-[1px] px-[6px] w-6 font-bold text-red-600 ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={sellUnderlineStyle}>
+                                  <td className={`text-right py-[1px] px-[6px] w-6 font-bold text-red-600 ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ ...sellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
                                         {netBuyData ? formatAverage(nsAvg) : '-'}
                                       </td>
                                     </React.Fragment>
@@ -2091,13 +2095,13 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   <td className={`text-center py-[1px] px-[5px] font-bold ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${totalNetSell ? getBrokerColorClass(totalNetSell.broker) : ''}`} style={totalNetBuyBgStyle}>
                                   {totalNetSell?.broker || '-'}
                                 </td>
-                                <td className={`text-right py-[1px] px-[5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
+                                <td className={`text-right py-[1px] px-[5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...totalNetBuyBgStyle, fontVariantNumeric: 'tabular-nums' }}>
                                   {totalNetSell ? formatLot((totalNetSell.nslot || 0) / 100) : '-'}
                                 </td>
-                                <td className={`text-right py-[1px] px-[5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
+                                <td className={`text-right py-[1px] px-[5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...totalNetBuyBgStyle, fontVariantNumeric: 'tabular-nums' }}>
                                   {totalNetSell ? formatNumber(totalNetSell.nsval || 0) : '-'}
                                 </td>
-                                <td className={`text-right py-[1px] px-[5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={totalNetBuyBgStyle}>
+                                <td className={`text-right py-[1px] px-[5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...totalNetBuyBgStyle, fontVariantNumeric: 'tabular-nums' }}>
                                   {totalNetSell && totalNetBuyAvg > 0 ? formatAverage(totalNetBuyAvg) : '-'}
                                 </td>
                                 {/* Total SL columns - Display totalNetBuy data */}
@@ -2105,13 +2109,13 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   <td className={`py-[1px] px-[5px] font-bold ${totalNetBuy ? getBrokerColorClass(totalNetBuy.broker) : ''}`} style={totalSellUnderlineStyle}>
                                   {totalNetBuy?.broker || '-'}
                                 </td>
-                                  <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={totalSellUnderlineStyle}>
+                                  <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={{ ...totalSellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
                                     {totalNetBuy ? formatLot(totalNetBuy.nblot / 100) : '-'}
                                 </td>
-                                  <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={totalSellUnderlineStyle}>
+                                  <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={{ ...totalSellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
                                     {totalNetBuy ? formatNumber(totalNetBuy.nbval) : '-'}
                                 </td>
-                                  <td className="text-right py-[1px] px-[7px] text-red-600 font-bold border-r-2 border-white" style={totalSellUnderlineStyle}>
+                                  <td className="text-right py-[1px] px-[7px] text-red-600 font-bold border-r-2 border-white" style={{ ...totalSellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
                                   {totalNetBuy && totalNetSellAvg > 0 ? formatAverage(totalNetSellAvg) : '-'}
                                 </td>
                               </React.Fragment>

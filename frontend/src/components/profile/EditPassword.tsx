@@ -103,7 +103,7 @@ export function EditPassword({ isOpen, onClose, email, onSubmit }: Props) {
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Error message */}
           {error && (
-            <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
+            <div className="p-3 text-sm text-red-400 bg-red-950 border border-red-800 rounded-md">
               {error}
             </div>
           )}

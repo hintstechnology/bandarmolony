@@ -132,7 +132,7 @@ export function OTPVerificationForm({ email, onSuccess, onBack, onResend }: OTPV
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {error && (
-            <div className="p-3 text-sm text-red-600 bg-red-50 dark:bg-red-900/30 rounded-md">
+            <div className="p-3 text-sm text-red-400 bg-red-900/30 rounded-md">
               {error}
             </div>
           )}

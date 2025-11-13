@@ -76,16 +76,16 @@ export function ResetPasswordForm({ token, onSuccess, onBackToLogin, inline = fa
   if (success) {
     if (inline) {
       return (
-        <div className="p-4 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-lg">
+        <div className="p-4 bg-green-900/30 border border-green-800 rounded-lg">
           <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
+            <div className="w-8 h-8 bg-green-900/30 rounded-full flex items-center justify-center">
               <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
             <div>
               <h3 className="text-lg font-semibold text-green-600">Password Berhasil Diubah!</h3>
-              <p className="text-sm text-green-700 dark:text-green-300">
+              <p className="text-sm text-green-300">
                 Password Anda telah berhasil diubah.
               </p>
             </div>
@@ -97,7 +97,7 @@ export function ResetPasswordForm({ token, onSuccess, onBackToLogin, inline = fa
     return (
       <Card className="w-full max-w-md mx-auto">
         <div className="p-6 text-center">
-          <div className="w-16 h-16 mx-auto mb-4 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
+          <div className="w-16 h-16 mx-auto mb-4 bg-green-900/30 rounded-full flex items-center justify-center">
             <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
@@ -124,7 +124,7 @@ export function ResetPasswordForm({ token, onSuccess, onBackToLogin, inline = fa
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
-            <div className="p-3 text-sm text-red-600 bg-red-50 dark:bg-red-900/30 rounded-md">
+            <div className="p-3 text-sm text-red-400 bg-red-900/30 rounded-md">
               {error}
             </div>
           )}
@@ -220,7 +220,7 @@ export function ResetPasswordForm({ token, onSuccess, onBackToLogin, inline = fa
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
-            <div className="p-3 text-sm text-red-600 bg-red-50 dark:bg-red-900/30 rounded-md">
+            <div className="p-3 text-sm text-red-400 bg-red-900/30 rounded-md">
               {error}
             </div>
           )}

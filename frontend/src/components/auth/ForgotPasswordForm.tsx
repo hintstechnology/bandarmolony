@@ -114,8 +114,8 @@ export function ForgotPasswordForm({ onSwitchToLogin, onForgotPassword }: Forgot
 
         {/* Success Illustration */}
         <div className="flex justify-center">
-          <div className="w-16 h-16 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center">
-            <svg className="w-8 h-8 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="w-16 h-16 bg-green-900 rounded-full flex items-center justify-center">
+            <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
@@ -204,12 +204,12 @@ export function ForgotPasswordForm({ onSwitchToLogin, onForgotPassword }: Forgot
 
       {/* Error Message */}
       {error && (
-        <div className="p-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg">
+        <div className="p-3 bg-red-950 border border-red-800 rounded-lg">
           <div className="flex items-start space-x-2">
             <svg className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
             </svg>
-            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            <p className="text-sm text-red-400">{error}</p>
           </div>
         </div>
       )}
@@ -227,7 +227,7 @@ export function ForgotPasswordForm({ onSwitchToLogin, onForgotPassword }: Forgot
               setEmail(e.target.value);
               setError('');
             }}
-            className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 focus:border-blue-400 dark:focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-600 dark:placeholder:text-gray-400 focus:placeholder:opacity-0 pl-3"
+            className="bg-blue-950 border border-blue-800 focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-400 focus:placeholder:opacity-0 pl-3"
           />
         </div>
 

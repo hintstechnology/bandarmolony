@@ -790,8 +790,8 @@ export function DataSchedulerControl() {
         </div>
 
         {/* Info Note */}
-        <div className="p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg">
-          <p className="text-sm text-blue-700 dark:text-blue-300">
+        <div className="p-3 bg-blue-950/20 rounded-lg">
+          <p className="text-sm text-blue-300">
             <strong>Note:</strong> All data operations run in the background and won't affect the server performance. 
             Users can continue using charts while data is being updated. 
             <br/><br/>
