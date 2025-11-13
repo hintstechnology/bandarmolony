@@ -1905,6 +1905,13 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       netBuyBrokerBgMap.set(item.broker, bgColors[idx] || '');
                     });
                     
+                    // Map top 5 NetBuy brokers (from Total) to underline colors for SL columns
+                    // These brokers will have underline in SL columns across all dates
+                    const netSellBrokerUnderlineMap = new Map<string, string>();
+                    sortedTotalNetBuy.slice(0, 5).forEach((item, idx) => {
+                      netSellBrokerUnderlineMap.set(item.broker, bgColors[idx] || '');
+                    });
+                    
                     // Helper function to get background color style for BY columns
                     // LOCKED: Top 5 NetSell brokers from Total get background color in BY columns across all dates
                     const getNetBuyBgStyle = (broker: string): React.CSSProperties | undefined => {
@@ -1912,11 +1919,25 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       return color ? { backgroundColor: color, color: 'white' } : undefined;
                     };
 
-                    // Helper function to get underline color for SL columns
-                    // If broker is in top 5 NetSell (locked in BY columns), give underline with same color in SL columns
-                    const getNetSellUnderlineStyle = (broker: string): React.CSSProperties | undefined => {
-                      const color = netBuyBrokerBgMap.get(broker);
+                    // Helper function to get underline style for BY columns
+                    // If broker is in top 5 NetBuy (locked in Total SL), give underline in BY columns if they appear
+                    const getNetBuyUnderlineStyle = (broker: string): React.CSSProperties | undefined => {
+                      const color = netSellBrokerUnderlineMap.get(broker);
                       return color ? { borderBottom: `4px solid ${color}` } : undefined;
+                    };
+
+                    // Helper function to get underline color for SL columns
+                    // LOCKED: Top 5 NetBuy brokers from Total get underline in SL columns across all dates
+                    const getNetSellUnderlineStyle = (broker: string): React.CSSProperties | undefined => {
+                      const color = netSellBrokerUnderlineMap.get(broker);
+                      return color ? { borderBottom: `4px solid ${color}` } : undefined;
+                    };
+
+                    // Helper function to get background color style for SL columns
+                    // If broker is in top 5 NetSell (locked in Total BY), give background color in SL columns if they appear
+                    const getNetSellBgStyle = (broker: string): React.CSSProperties | undefined => {
+                      const color = netBuyBrokerBgMap.get(broker);
+                      return color ? { backgroundColor: color, color: 'white' } : undefined;
                     };
 
                     // Find max row count across all dates
@@ -2006,41 +2027,49 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                               const nsVal = netBuyData?.netBuyValue || 0;
                               const nsAvg = netBuyData?.netBuyerAvg || 0;
 
-                              // Get background colors for this row (only for buy)
-                              // Use netSellData for BY columns since they display NetSell data
+                              // Get styling for BY columns (display NetSell data)
+                              // Top 5 NetSell brokers → background color
+                              // Top 5 NetBuy brokers → underline (if they appear in NetSell side)
                             const netBuyBgStyle = netSellData ? getNetBuyBgStyle(netSellData.broker) : undefined;
+                            const netBuyUnderlineStyle = netSellData ? getNetBuyUnderlineStyle(netSellData.broker) : undefined;
+                            // Combine styles: background takes priority, but if no background and has underline, use underline
+                            const byColumnStyle = netBuyBgStyle || netBuyUnderlineStyle;
 
-                              // Get underline style for SL columns if broker is in top 5 NetSell (locked in BY)
-                              // Check if netBuyData.broker is in the locked top 5 NetSell brokers
+                              // Get styling for SL columns (display NetBuy data)
+                              // Top 5 NetBuy brokers → underline
+                              // Top 5 NetSell brokers → background color (if they appear in NetBuy side)
                               const sellUnderlineStyle = netBuyData ? getNetSellUnderlineStyle(netBuyData.broker) : undefined;
+                              const sellBgStyle = netBuyData ? getNetSellBgStyle(netBuyData.broker) : undefined;
+                              // Combine styles: background takes priority, but if no background and has underline, use underline
+                              const slColumnStyle = sellBgStyle || sellUnderlineStyle;
 
                                   return (
                               <React.Fragment key={`${date}-${rowIdx}`}>
                                       {/* Net Buy Columns (BY) - Display NetSell Data - No # */}
-                                  <td className={`text-center py-[1px] px-[6px] w-4 font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`} style={netBuyBgStyle}>
+                                  <td className={`text-center py-[1px] px-[6px] w-4 font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`} style={byColumnStyle}>
                                         {netSellData?.broker || '-'}
                                       </td>
-                                <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...netBuyBgStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...byColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
                                   {netSellData ? formatLot(nbLot / 100) : '-'}
                                 </td>
-                                      <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...netBuyBgStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                      <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...byColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
                                         {netSellData ? formatNumber(nbVal) : '-'}
                                       </td>
-                                      <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...netBuyBgStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                      <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...byColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
                                         {netSellData ? formatAverage(nbAvg) : '-'}
                                       </td>
                                       {/* Net Sell Columns (SL) - Display NetBuy Data - Keep # */}
                                       <td className={`text-center py-[1px] px-[6px] text-white bg-[#3a4252] font-bold w-4 ${netBuyData ? getBrokerColorClass(netBuyData.broker) : ''}`}>{netBuyData ? rowIdx + 1 : '-'}</td>
-                                  <td className={`py-[1px] px-[6px] w-4 font-bold ${netBuyData ? getBrokerColorClass(netBuyData.broker) : ''}`} style={sellUnderlineStyle}>
+                                  <td className={`py-[1px] px-[6px] w-4 font-bold ${netBuyData ? getBrokerColorClass(netBuyData.broker) : ''} ${sellBgStyle ? 'text-white' : ''}`} style={slColumnStyle}>
                                         {netBuyData?.broker || '-'}
                                       </td>
-                                  <td className="text-right py-[1px] px-[6px] w-6 font-bold text-red-600" style={{ ...sellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                  <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${sellBgStyle ? 'text-white' : 'text-red-600'}`} style={{ ...slColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
                                   {netBuyData ? formatLot(nsLot / 100) : '-'}
                                 </td>
-                                  <td className="text-right py-[1px] px-[6px] w-6 font-bold text-red-600" style={{ ...sellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                  <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${sellBgStyle ? 'text-white' : 'text-red-600'}`} style={{ ...slColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
                                         {netBuyData ? formatNumber(nsVal) : '-'}
                                       </td>
-                                  <td className={`text-right py-[1px] px-[6px] w-6 font-bold text-red-600 ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ ...sellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                  <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${sellBgStyle ? 'text-white' : 'text-red-600'} ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ ...slColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
                                         {netBuyData ? formatAverage(nsAvg) : '-'}
                                       </td>
                                     </React.Fragment>
@@ -2059,8 +2088,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                             // LOCKED: Use getNetBuyBgStyle which locks based on top 5 NetSell from Total
                             // This ensures consistent styling across all dates
                             const totalNetBuyBgStyle = totalNetSell ? getNetBuyBgStyle(totalNetSell.broker) : undefined;
-                              // Note: Sell background color disabled - only buy gets colored
-                              // Note: Underline is NOT applied to Total column (only to per-date columns)
+                              
+                              // Get underline style for Total SL columns (top 5 NetBuy from Total)
+                              // LOCKED: Top 5 NetBuy brokers from Total get underline in Total SL columns
+                              const totalSellUnderlineStyle = totalNetBuy ? getNetSellUnderlineStyle(totalNetBuy.broker) : undefined;
 
                               // IMPORTANT: Calculate avg from value/lot for Total columns (not from aggregated avg)
                               // BY column displays NetSell data, so calculate from totalNetSell value/lot
@@ -2089,16 +2120,16 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                 </td>
                                 {/* Total SL columns - Display totalNetBuy data */}
                                 <td className={`text-center py-[1px] px-[6px] text-white bg-[#3a4252] font-bold ${totalNetBuy ? getBrokerColorClass(totalNetBuy.broker) : ''}`}>{totalNetBuy ? rowIdx + 1 : '-'}</td>
-                                  <td className={`py-[1px] px-[5px] font-bold ${totalNetBuy ? getBrokerColorClass(totalNetBuy.broker) : ''}`}>
+                                  <td className={`py-[1px] px-[5px] font-bold ${totalNetBuy ? getBrokerColorClass(totalNetBuy.broker) : ''}`} style={totalSellUnderlineStyle}>
                                   {totalNetBuy?.broker || '-'}
                                 </td>
-                                  <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                  <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={{ ...totalSellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
                                     {totalNetBuy ? formatLot(totalNetBuy.nblot / 100) : '-'}
                                 </td>
-                                  <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                  <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={{ ...totalSellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
                                     {totalNetBuy ? formatNumber(totalNetBuy.nbval) : '-'}
                                 </td>
-                                  <td className="text-right py-[1px] px-[7px] text-red-600 font-bold border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                  <td className="text-right py-[1px] px-[7px] text-red-600 font-bold border-r-2 border-white" style={{ ...totalSellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
                                   {totalNetBuy && totalNetSellAvg > 0 ? formatAverage(totalNetSellAvg) : '-'}
                                 </td>
                               </React.Fragment>
