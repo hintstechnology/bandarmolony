@@ -1888,8 +1888,8 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                           // Top 5 broker colors: Merah, Kuning, Hijau, Biru, Coklat
                           const bgColors = [
                             'hsl(0, 70%, 50%)',    // Merah (Red)
-                            'hsl(50, 100%, 40%)',  // Kuning (Yellow) - darkened for better contrast with white text
-                            'hsl(120, 70%, 40%)',  // Hijau (Green) - darkened for better contrast with white text
+                            'hsl(50, 100%, 30%)',  // Kuning (Yellow) - further darkened for better contrast with white text
+                            'hsl(120, 70%, 30%)',  // Hijau (Green) - further darkened for better contrast with white text
                             'hsl(210, 70%, 50%)',  // Biru (Blue)
                             'hsl(25, 80%, 40%)'    // Coklat (Brown)
                           ];
