@@ -329,28 +329,6 @@ export class BrokerTransactionFDRGTNNGCalculator {
     }
   }
 
-  private async loadAndProcessSingleDtFile(blobName: string): Promise<{ data: TransactionData[], dateSuffix: string } | null> {
-    try {
-      console.log(`📥 Downloading file: ${blobName}`);
-      const content = await downloadText(blobName);
-      if (!content || content.trim().length === 0) {
-        console.warn(`⚠️ Empty file or no content: ${blobName}`);
-        return null;
-      }
-      console.log(`✅ Downloaded ${blobName} (${content.length} characters)`);
-      const pathParts = blobName.split('/');
-      const dateFolder = pathParts[1] || 'unknown';
-      const dateSuffix = dateFolder;
-      console.log(`📅 Extracted date suffix: ${dateSuffix} from ${blobName}`);
-      const data = this.parseTransactionData(content);
-      console.log(`✅ Parsed ${data.length} transactions from ${blobName}`);
-      return { data, dateSuffix };
-    } catch (error: any) {
-      console.error(`❌ Error loading file ${blobName}:`, error.message);
-      return null;
-    }
-  }
-
   private parseTransactionData(content: string): TransactionData[] {
     const lines = content.trim().split('\n');
     const header = lines[0]?.split(';') || [];
