@@ -182,7 +182,7 @@ export function Sidebar({
           transform transition-all duration-300 ease-in-out h-screen
           ${isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
           ${isExpanded ? "w-64" : "w-16"}
-          overflow-hidden
+          overflow-hidden overflow-x-hidden
         `}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
@@ -191,9 +191,9 @@ export function Sidebar({
           {/* Header */}
           <div className={`flex items-center ${isExpanded ? "justify-start" : "justify-center"} p-3 border-b border-border h-14`}>
             {/* Logo kiri – left aligned */}
-            <div className="flex items-center gap-0.5">
+            <div className="flex items-center gap-0.5 min-w-0">
               {isExpanded && (
-                <span className="text-card-foreground font-semibold whitespace-nowrap">Bandarmolo</span>
+                <span className="text-card-foreground font-semibold whitespace-nowrap truncate">Bandarmolo</span>
               )}
               <div className="h-8 w-8 flex items-center justify-center flex-shrink-0">
                 <img
@@ -207,8 +207,8 @@ export function Sidebar({
           </div>
 
           {/* Body */}
-          <div className="flex-1 py-2 flex flex-col min-h-0 overflow-hidden">
-            <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+          <div className="flex-1 py-2 flex flex-col min-h-0 overflow-hidden overflow-x-hidden">
+            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
               {/* Admin Menu Items - Only show for admin users - AT THE TOP */}
               {profile?.role === 'admin' && (
                 <>
@@ -225,7 +225,7 @@ export function Sidebar({
                         key={item.title}
                         onClick={() => handleNavigation(item.route)}
                         className={`
-                          flex items-center gap-3 px-3 py-3 text-sm rounded-md transition-all duration-200 cursor-pointer min-h-12 group
+                          flex items-center gap-3 px-3 py-3 text-sm rounded-md transition-all duration-200 cursor-pointer min-h-12 group min-w-0
                           ${!isExpanded ? "justify-center" : ""}
                           ${
                             currentRoute === item.route
@@ -235,7 +235,7 @@ export function Sidebar({
                         `}
                       >
                         <item.icon className="w-5 h-5 flex-shrink-0" />
-                        {isExpanded && <span className="whitespace-nowrap text-sm">{item.title}</span>}
+                        {isExpanded && <span className="whitespace-nowrap text-sm truncate min-w-0">{item.title}</span>}
                       </div>
                     ))}
                   </nav>
@@ -258,7 +258,7 @@ export function Sidebar({
                         key={item.title}
                         onClick={() => handleNavigation(item.route)}
                         className={`
-                          flex items-center gap-3 px-3 py-3 text-sm rounded-md transition-all duration-200 cursor-pointer min-h-12 group
+                          flex items-center gap-3 px-3 py-3 text-sm rounded-md transition-all duration-200 cursor-pointer min-h-12 group min-w-0
                           ${!isExpanded ? "justify-center" : ""}
                           ${
                             currentRoute === item.route
@@ -268,7 +268,7 @@ export function Sidebar({
                         `}
                       >
                         <item.icon className="w-5 h-5 flex-shrink-0" />
-                        {isExpanded && <span className="whitespace-nowrap text-sm">{item.title}</span>}
+                        {isExpanded && <span className="whitespace-nowrap text-sm truncate min-w-0">{item.title}</span>}
                       </div>
                     ))}
                   </nav>
@@ -293,7 +293,7 @@ export function Sidebar({
                     <div key={item.title}>
                       <div
                         className={`
-                          flex items-center justify-between px-3 py-3 text-sm rounded-md transition-all duration-200 cursor-pointer min-h-12 group
+                          flex items-center justify-between px-3 py-3 text-sm rounded-md transition-all duration-200 cursor-pointer min-h-12 group min-w-0
                           ${!isExpanded ? "justify-center" : ""}
                           ${
                             active
@@ -309,10 +309,10 @@ export function Sidebar({
                           }
                         }}
                       >
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
                           <item.icon className="w-5 h-5 flex-shrink-0" />
                           {isExpanded && (
-                            <span className="whitespace-nowrap text-sm">{item.title}</span>
+                            <span className="whitespace-nowrap text-sm truncate">{item.title}</span>
                           )}
                         </div>
                         {item.children && isExpanded && (
@@ -360,7 +360,7 @@ export function Sidebar({
               <div
                 onClick={() => handleNavigation('/profile')}
                 className={`
-                  flex items-center gap-3 px-3 py-3 text-sm rounded-md transition-all duration-200 cursor-pointer min-h-12 group
+                  flex items-center gap-3 px-3 py-3 text-sm rounded-md transition-all duration-200 cursor-pointer min-h-12 group min-w-0
                   ${!isExpanded ? "justify-center" : ""}
                   ${
                     currentRoute === '/profile'
@@ -370,14 +370,14 @@ export function Sidebar({
                 `}
               >
                 <User className="w-5 h-5 flex-shrink-0" />
-                {isExpanded && <span className="whitespace-nowrap text-sm">Profile</span>}
+                {isExpanded && <span className="whitespace-nowrap text-sm truncate min-w-0">Profile</span>}
               </div>
               {bottomMenuItems.map((item) => (
                 <div
                   key={item.title}
                   onClick={() => handleNavigation(item.route)}
                   className={`
-                    flex items-center gap-3 px-3 py-3 text-sm rounded-md transition-all duration-200 cursor-pointer min-h-12 group
+                    flex items-center gap-3 px-3 py-3 text-sm rounded-md transition-all duration-200 cursor-pointer min-h-12 group min-w-0
                     ${!isExpanded ? "justify-center" : ""}
                     ${
                       currentRoute === item.route
@@ -387,7 +387,7 @@ export function Sidebar({
                   `}
                 >
                   <item.icon className="w-5 h-5 flex-shrink-0" />
-                  {isExpanded && <span className="whitespace-nowrap text-sm">{item.title}</span>}
+                  {isExpanded && <span className="whitespace-nowrap text-sm truncate min-w-0">{item.title}</span>}
                 </div>
               ))}
 

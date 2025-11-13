@@ -206,7 +206,7 @@ export function SignUpForm({ onSwitchToLogin, onSwitchToEmailVerification, onSig
               placeholder="John"
               value={formData.firstName}
               onChange={(e) => handleInputChange('firstName', e.target.value)}
-              className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 focus:border-blue-400 dark:focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-600 dark:placeholder:text-gray-400 focus:placeholder:opacity-0"
+              className="bg-blue-950 border border-blue-800 focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-400 focus:placeholder:opacity-0"
             />
             {errors.firstName && <p className="text-sm text-red-500">{errors.firstName}</p>}
           </div>
@@ -218,7 +218,7 @@ export function SignUpForm({ onSwitchToLogin, onSwitchToEmailVerification, onSig
               placeholder="Doe"
               value={formData.lastName}
               onChange={(e) => handleInputChange('lastName', e.target.value)}
-              className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 focus:border-blue-400 dark:focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-600 dark:placeholder:text-gray-400 focus:placeholder:opacity-0"
+              className="bg-blue-950 border border-blue-800 focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-400 focus:placeholder:opacity-0"
             />
             {errors.lastName && <p className="text-sm text-red-500">{errors.lastName}</p>}
           </div>
@@ -233,7 +233,7 @@ export function SignUpForm({ onSwitchToLogin, onSwitchToEmailVerification, onSig
               placeholder="john.doe@example.com"
               value={formData.email}
               onChange={(e) => handleInputChange('email', e.target.value)}
-              className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 focus:border-blue-400 dark:focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-600 dark:placeholder:text-gray-400 focus:placeholder:opacity-0"
+              className="bg-blue-950 border border-blue-800 focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-400 focus:placeholder:opacity-0"
             />
             {emailChecking && (
               <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
@@ -265,7 +265,7 @@ export function SignUpForm({ onSwitchToLogin, onSwitchToEmailVerification, onSig
               placeholder="Create a strong password"
               value={formData.password}
               onChange={(e) => handleInputChange('password', e.target.value)}
-              className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 focus:border-blue-400 dark:focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-600 dark:placeholder:text-gray-400 focus:placeholder:opacity-0 pr-10 pl-3"
+              className="bg-blue-950 border border-blue-800 focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-400 focus:placeholder:opacity-0 pr-10 pl-3"
             />
             <button
               type="button"
@@ -287,7 +287,7 @@ export function SignUpForm({ onSwitchToLogin, onSwitchToEmailVerification, onSig
               placeholder="Confirm your password"
               value={formData.confirmPassword}
               onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
-              className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 focus:border-blue-400 dark:focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-600 dark:placeholder:text-gray-400 focus:placeholder:opacity-0 pr-10 pl-3"
+              className="bg-blue-950 border border-blue-800 focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-400 focus:placeholder:opacity-0 pr-10 pl-3"
             />
             <button
               type="button"

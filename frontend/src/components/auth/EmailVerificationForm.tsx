@@ -124,8 +124,8 @@ export function EmailVerificationForm({
     return (
       <div className="space-y-6 text-center">
         <div className="flex justify-center">
-          <div className="w-16 h-16 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center">
-            <CheckCircle className="w-8 h-8 text-green-600 dark:text-green-400" />
+          <div className="w-16 h-16 bg-green-900 rounded-full flex items-center justify-center">
+            <CheckCircle className="w-8 h-8 text-green-400" />
           </div>
         </div>
         
@@ -163,10 +163,10 @@ export function EmailVerificationForm({
       </div>
 
       {/* Email Info */}
-      <div className="p-4 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg">
+      <div className="p-4 bg-blue-950 border border-blue-800 rounded-lg">
         <div className="flex items-center space-x-2">
-          <Mail className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-          <span className="text-sm text-blue-800 dark:text-blue-200">
+          <Mail className="w-4 h-4 text-blue-400" />
+          <span className="text-sm text-blue-200">
             Link sent to: <strong>{email}</strong>
           </span>
         </div>
@@ -174,12 +174,12 @@ export function EmailVerificationForm({
 
       {/* Instructions */}
       {showInstructions && (
-        <div className="p-4 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg">
+        <div className="p-4 bg-green-950 border border-green-800 rounded-lg">
           <div className="space-y-3">
-            <h3 className="font-medium text-green-800 dark:text-green-200">
+            <h3 className="font-medium text-green-200">
               Next Steps:
             </h3>
-            <ol className="text-sm text-green-700 dark:text-green-300 space-y-2 list-decimal list-inside">
+            <ol className="text-sm text-green-300 space-y-2 list-decimal list-inside">
               <li>Check your email inbox for a verification email</li>
               <li>Click the "Confirm My Email" button in the email</li>
               <li>You'll be automatically redirected back to complete the process</li>
@@ -188,7 +188,7 @@ export function EmailVerificationForm({
               type="button"
               variant="outline"
               onClick={handleCheckEmail}
-              className="text-sm border-green-300 text-green-700 hover:bg-green-100 dark:border-green-700 dark:text-green-300 dark:hover:bg-green-900"
+              className="text-sm border-green-700 text-green-300 hover:bg-green-900"
             >
               I've checked my email
             </Button>

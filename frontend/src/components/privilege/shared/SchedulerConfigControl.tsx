@@ -759,9 +759,9 @@ export function SchedulerConfigControl() {
         </div>
 
         {/* Info Note */}
-        <div className="flex items-start gap-2 p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg mt-3">
-          <AlertCircle className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
-          <p className="text-xs text-blue-700 dark:text-blue-300">
+        <div className="flex items-start gap-2 p-3 bg-blue-950/20 rounded-lg mt-3">
+          <AlertCircle className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
+          <p className="text-xs text-blue-300">
             <strong>Note:</strong> Phase 1 phases are scheduled (can edit time). Phase 2-6 are auto-triggered sequentially. 
             You can trigger any phase manually at any time. Hover over the info icon to see calculation details. Click "Refresh" button to update status.
           </p>
