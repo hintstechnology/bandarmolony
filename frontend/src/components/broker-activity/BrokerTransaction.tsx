@@ -61,10 +61,11 @@ const CACHE_EXPIRY_MS = 30 * 60 * 1000;
 
 // Fetch broker transaction data from API (with caching)
 const fetchBrokerTransactionData = async (
-  brokerCode: string, 
+  code: string, 
   date: string, 
-  market: 'RG' | 'TN' | 'NG' | '',
-  board: 'F' | 'D' | '',
+  pivot: 'Broker' | 'Stock',
+  inv: 'F' | 'D' | '',
+  board: 'RG' | 'TN' | 'NG' | '',
   cache: Map<string, { data: BrokerTransactionData[]; timestamp: number }>,
   abortSignal?: AbortSignal
 ): Promise<BrokerTransactionData[]> => {
@@ -73,7 +74,7 @@ const fetchBrokerTransactionData = async (
     throw new Error('Fetch aborted');
   }
   
-  const cacheKey = `${brokerCode}-${date}-${market}-${board}`;
+  const cacheKey = `${code}-${date}-${pivot}-${inv}-${board}`;
   const cached = cache.get(cacheKey);
   
   // Check cache first (optimized - no timestamp check needed here, already checked in loadTransactionData)
@@ -87,7 +88,7 @@ const fetchBrokerTransactionData = async (
   }
   
   try {
-    const response = await api.getBrokerTransactionData(brokerCode, date, market, board);
+    const response = await api.getBrokerTransactionData(code, date, pivot, inv, board);
     
     // Check if aborted after API call
     if (abortSignal?.aborted) {
@@ -286,7 +287,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   const lastFetchParamsRef = useRef<{
     brokers: string[];
     dates: string[];
-    market: string;
+    pivot: 'Broker' | 'Stock'; // Track pivotFilter
+    inv: string; // Track invFilter
     board: string; // Track boardFilter
     tickers: string[]; // Track selectedTickers to detect changes
     sectors: string[]; // Track selectedSectors to detect changes
@@ -296,8 +298,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   const [activeSectorFilter, setActiveSectorFilter] = useState<string>('All'); // 'All' or sector name (active filter - used for filtering displayed data)
   const [availableSectors, setAvailableSectors] = useState<string[]>([]); // List of available sectors (excluding 'All')
   const [stockToSectorMap, setStockToSectorMap] = useState<{ [stock: string]: string }>({}); // Stock code -> sector name mapping
-  const [marketFilter, setMarketFilter] = useState<'RG' | 'TN' | 'NG' | ''>(''); // Default to All Trade
-  const [boardFilter, setBoardFilter] = useState<'F' | 'D' | ''>(''); // Default to All (F = Foreign, D = Domestik)
+  const [pivotFilter, setPivotFilter] = useState<'Broker' | 'Stock'>('Broker'); // Default to Broker
+  const [invFilter, setInvFilter] = useState<'F' | 'D' | ''>(''); // Default to All (F = Foreign, D = Domestik) - Investor Type
+  const [boardFilter, setBoardFilter] = useState<'RG' | 'TN' | 'NG' | ''>(''); // Default to All (RG/TN/NG) - Board Type
   
   // Multi-select ticker/sector states (combined)
   const [tickerInput, setTickerInput] = useState('');
@@ -545,7 +548,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         const uncachedTasks: Array<{ broker: string; date: string }> = [];
         
         allFetchTasks.forEach(({ broker, date }) => {
-          const cacheKey = `${broker}-${date}-${marketFilter}-${boardFilter}`;
+          const cacheKey = `${broker}-${date}-${pivotFilter}-${invFilter}-${boardFilter}`;
           const cached = cache.get(cacheKey);
           if (cached && (now - cached.timestamp) <= CACHE_EXPIRY_MS) {
             cachedResults.push({ date, broker, data: cached.data });
@@ -594,7 +597,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               
               // Fetch all in this chunk in parallel
               const chunkPromises = chunk.map(({ broker, date }) => 
-              fetchBrokerTransactionData(broker, date, marketFilter, boardFilter, cache, abortController.signal)
+              fetchBrokerTransactionData(broker, date, pivotFilter, invFilter, boardFilter, cache, abortController.signal)
                   .then(data => ({ success: true, broker, date, data }))
                   .catch(error => ({ success: false, broker, date, error }))
             );
@@ -916,7 +919,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         lastFetchParamsRef.current = {
           brokers: [...selectedBrokers],
           dates: [...selectedDates],
-          market: marketFilter || '',
+          pivot: pivotFilter, // Track pivotFilter
+          inv: invFilter || '', // Track invFilter
           board: boardFilter || '', // Track boardFilter
           tickers: [...selectedTickers], // Track selectedTickers
           sectors: [...selectedSectors] // Track selectedSectors
@@ -4021,13 +4025,48 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               </div>
             </div>
 
-          {/* Market Filter */}
+          {/* Pivot Filter */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-            <label className="text-sm font-medium whitespace-nowrap">Market:</label>
+            <label className="text-sm font-medium whitespace-nowrap">Pivot:</label>
             <select
-              value={marketFilter}
+              value={pivotFilter}
               onChange={(e) => {
-                setMarketFilter(e.target.value as 'RG' | 'TN' | 'NG' | '');
+                setPivotFilter(e.target.value as 'Broker' | 'Stock');
+                // CRITICAL: Keep existing data visible - no auto-fetch, no hide tables
+                // User must click Show button to fetch new data
+              }}
+              className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
+            >
+              <option value="Broker">Broker</option>
+              <option value="Stock">Stock</option>
+            </select>
+          </div>
+
+          {/* Inv Filter (F/D) - Investor Type */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+            <label className="text-sm font-medium whitespace-nowrap">Inv:</label>
+            <select
+              value={invFilter}
+              onChange={(e) => {
+                setInvFilter(e.target.value as 'F' | 'D' | '');
+                // CRITICAL: Keep existing data visible - no auto-fetch, no hide tables
+                // User must click Show button to fetch new data
+              }}
+              className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
+            >
+              <option value="">All</option>
+              <option value="F">F</option>
+              <option value="D">D</option>
+            </select>
+          </div>
+
+          {/* Board Filter (RG/TN/NG) - Board Type */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+            <label className="text-sm font-medium whitespace-nowrap">Board:</label>
+            <select
+              value={boardFilter}
+              onChange={(e) => {
+                setBoardFilter(e.target.value as 'RG' | 'TN' | 'NG' | '');
                 // CRITICAL: Keep existing data visible - no auto-fetch, no hide tables
                 // User must click Show button to fetch new data
               }}
@@ -4039,24 +4078,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               <option value="NG">NG</option>
             </select>
           </div>
-
-          {/* Board Filter (F/D) */}
-          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-            <label className="text-sm font-medium whitespace-nowrap">Board:</label>
-            <select
-              value={boardFilter}
-              onChange={(e) => {
-                setBoardFilter(e.target.value as 'F' | 'D' | '');
-                // CRITICAL: Keep existing data visible - no auto-fetch, no hide tables
-                // User must click Show button to fetch new data
-              }}
-              className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
-            >
-              <option value="">All</option>
-              <option value="F">F</option>
-              <option value="D">D</option>
-            </select>
-            </div>
 
           {/* Show Button */}
           <button
@@ -4145,7 +4166,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               const brokersUnchanged = lastParams &&
                 JSON.stringify(lastParams.brokers.sort()) === JSON.stringify([...selectedBrokers].sort());
               
-              const marketUnchanged = lastParams && lastParams.market === marketFilter;
+              const pivotUnchanged = lastParams && lastParams.pivot === pivotFilter;
+              const invUnchanged = lastParams && lastParams.inv === invFilter;
               const boardUnchanged = lastParams && lastParams.board === boardFilter;
               
               const onlySectorChanged = lastParams &&
@@ -4154,7 +4176,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 sectorsChanged && // Sectors must have changed
                 brokersUnchanged && // Brokers must not have changed
                 datesUnchanged && // Dates must not have changed (compare with datesToUse)
-                marketUnchanged && // Market must not have changed
+                pivotUnchanged && // Pivot must not have changed
+                invUnchanged && // Inv must not have changed
                 boardUnchanged; // Board must not have changed
               
               if (onlySectorChanged) {
@@ -4210,7 +4233,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               lastFetchParamsRef.current = {
                 brokers: [...selectedBrokers],
                 dates: [...datesToUse],
-                market: marketFilter || '',
+                pivot: pivotFilter, // Track pivotFilter
+                inv: invFilter || '', // Track invFilter
                 board: boardFilter || '', // Track boardFilter
                 tickers: [...selectedTickers], // Track selectedTickers
                 sectors: [...selectedSectors] // Track selectedSectors

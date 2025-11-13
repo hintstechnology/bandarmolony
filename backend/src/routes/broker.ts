@@ -192,48 +192,47 @@ router.get('/summary/:stockCode', async (req, res) => {
  * For TN market: stock-trading-data/broker_transaction_tn/broker_transaction_tn_YYYYMMDD/{brokerCode}.csv
  * For NG market: stock-trading-data/broker_transaction_ng/broker_transaction_ng_YYYYMMDD/{brokerCode}.csv
  */
-const getAzurePath = (brokerCode: string, dateStr: string, marketFilter?: string, boardFilter?: string): string => {
-  // Handle Board filter (F/D) - takes precedence over market filter for path structure
-  if (boardFilter && (boardFilter === 'F' || boardFilter === 'D')) {
-    const boardType = boardFilter.toLowerCase(); // 'f' or 'd'
+const getAzurePath = (code: string, dateStr: string, pivot: 'Broker' | 'Stock' = 'Broker', invFilter?: string, boardFilter?: string): string => {
+  // Determine base path prefix based on pivot
+  const basePrefix = pivot === 'Stock' ? 'broker_transaction_stock' : 'broker_transaction';
+  
+  // Handle Inv filter (F/D) - Investor Type
+  if (invFilter && (invFilter === 'F' || invFilter === 'D')) {
+    const invType = invFilter.toLowerCase(); // 'f' or 'd'
     
-    // If market filter is also provided, combine them
-    if (marketFilter && marketFilter !== '') {
-      const market = marketFilter.toUpperCase();
+    // If board filter is also provided, combine them
+    if (boardFilter && boardFilter !== '') {
+      const board = boardFilter.toUpperCase();
       const folderMap: { [key: string]: string } = {
         'RG': 'rg',
         'TN': 'tn',
         'NG': 'ng'
       };
-      const folderType = folderMap[market] || market.toLowerCase();
-      // For market + board: broker_transaction_{type}_{board}/broker_transaction_{type}_{board}_YYYYMMDD/{brokerCode}.csv
-      return `broker_transaction_${folderType}_${boardType}/broker_transaction_${folderType}_${boardType}_${dateStr}/${brokerCode}.csv`;
+      const folderType = folderMap[board] || board.toLowerCase();
+      // For board + inv: {basePrefix}_{type}_{inv}/{basePrefix}_{type}_{inv}_YYYYMMDD/{code}.csv
+      return `${basePrefix}_${folderType}_${invType}/${basePrefix}_${folderType}_${invType}_${dateStr}/${code}.csv`;
     } else {
-      // For board only: broker_transaction/broker_transaction_{board}_YYYYMMDD/{brokerCode}.csv
-      return `broker_transaction/broker_transaction_${boardType}_${dateStr}/${brokerCode}.csv`;
+      // For inv only: {basePrefix}_{inv}/{basePrefix}_{inv}_YYYYMMDD/{code}.csv
+      return `${basePrefix}_${invType}/${basePrefix}_${invType}_${dateStr}/${code}.csv`;
     }
   }
   
-  // If market filter is empty or undefined, use All Trade path
-  if (!marketFilter || marketFilter === '') {
-    // For All brokers: stock-trading-data/broker_transaction/broker_transaction_YYYYMMDD/{brokerCode}.csv
-    return `broker_transaction/broker_transaction_${dateStr}/${brokerCode}.csv`;
+  // If board filter is provided (RG/TN/NG) - Board Type
+  if (boardFilter && boardFilter !== '') {
+    const board = boardFilter.toUpperCase();
+    const folderMap: { [key: string]: string } = {
+      'RG': 'rg',
+      'TN': 'tn',
+      'NG': 'ng'
+    };
+    const folderType = folderMap[board] || board.toLowerCase();
+    // For board only: {basePrefix}_{type}/{basePrefix}_{type}_YYYYMMDD/{code}.csv
+    return `${basePrefix}_${folderType}/${basePrefix}_${folderType}_${dateStr}/${code}.csv`;
   }
   
-  // Normalize market filter to uppercase
-  const market = marketFilter.toUpperCase();
-  
-  // Map market to folder name (RG -> rg, TN -> tn, NG -> ng)
-  const folderMap: { [key: string]: string } = {
-    'RG': 'rg',
-    'TN': 'tn',
-    'NG': 'ng'
-  };
-  
-  const folderType = folderMap[market] || market.toLowerCase();
-  
-  // For specific markets: stock-trading-data/broker_transaction_{type}/broker_transaction_{type}_YYYYMMDD/{brokerCode}.csv
-  return `broker_transaction_${folderType}/broker_transaction_${folderType}_${dateStr}/${brokerCode}.csv`;
+  // Default: All Trade, no filters
+  // For All: {basePrefix}/{basePrefix}_YYYYMMDD/{code}.csv
+  return `${basePrefix}/${basePrefix}_${dateStr}/${code}.csv`;
 };
 
 /**
@@ -698,14 +697,15 @@ router.get('/transaction/:brokerCode', async (req, res) => {
   try {
     const { brokerCode } = brokerTransactionParamsSchema.parse(req.params);
     const { date } = brokerTransactionQuerySchema.parse(req.query);
-    const marketFilter = (req.query['market'] as string) || ''; // Get market filter from query
-    const boardFilter = (req.query['board'] as string) || ''; // Get board filter from query (F/D)
+    const pivot = (req.query['pivot'] as 'Broker' | 'Stock') || 'Broker'; // Get pivot filter (default: Broker)
+    const invFilter = (req.query['inv'] as string) || ''; // Get inv filter from query (F/D) - Investor Type
+    const boardFilter = (req.query['board'] as string) || ''; // Get board filter from query (RG/TN/NG) - Board Type
     
     // Convert YYYYMMDD to YYYYMMDD format for file path
     const dateStr = date;
     
-    // Get Azure Storage path based on broker code, market filter, and board filter
-    const azurePath = getAzurePath(brokerCode, dateStr, marketFilter, boardFilter);
+    // Get Azure Storage path based on code, pivot, inv filter, and board filter
+    const azurePath = getAzurePath(brokerCode, dateStr, pivot, invFilter, boardFilter);
     
     // Download CSV data from Azure
     const csvData = await downloadText(azurePath);
@@ -718,6 +718,7 @@ router.get('/transaction/:brokerCode', async (req, res) => {
     }
     
     // Parse CSV data (handle both comma and semicolon delimiters)
+    // Note: For Stock pivot, brokerCode is actually stockCode
     const transactionData = parseBrokerTransactionCSV(csvData, brokerCode);
     
     if (transactionData.length === 0) {
@@ -741,7 +742,9 @@ router.get('/transaction/:brokerCode', async (req, res) => {
     console.error('Error details:', {
       brokerCode: req.params.brokerCode,
       date: req.query['date'],
-      market: req.query['market'],
+      pivot: req.query['pivot'],
+      inv: req.query['inv'],
+      board: req.query['board'],
       error: error.message,
       stack: error.stack
     });
