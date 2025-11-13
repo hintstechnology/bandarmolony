@@ -1913,19 +1913,22 @@ export const api = {
   },
 
   // Broker Transaction Data
-  async getBrokerTransactionData(brokerCode: string, date: string, market?: 'RG' | 'TN' | 'NG' | '', board?: 'F' | 'D' | ''): Promise<{ success: boolean; data?: any; error?: string }> {
+  async getBrokerTransactionData(code: string, date: string, pivot?: 'Broker' | 'Stock', inv?: 'F' | 'D' | '', board?: 'RG' | 'TN' | 'NG' | ''): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       // Convert YYYY-MM-DD to YYYYMMDD format
       const dateStr = date.includes('-') ? date.replace(/-/g, '') : date;
       const params = new URLSearchParams();
       params.append('date', dateStr);
-      if (market) {
-        params.append('market', market);
+      if (pivot) {
+        params.append('pivot', pivot);
+      }
+      if (inv) {
+        params.append('inv', inv);
       }
       if (board) {
         params.append('board', board);
       }
-      const res = await fetch(`${API_URL}/api/broker/transaction/${brokerCode}?${params.toString()}`, {
+      const res = await fetch(`${API_URL}/api/broker/transaction/${code}?${params.toString()}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       });
