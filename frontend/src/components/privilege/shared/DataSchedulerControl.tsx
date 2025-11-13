@@ -768,6 +768,120 @@ export function DataSchedulerControl() {
               </Button>
             </div>
 
+            {/* Broker Transaction F/D (Filtered by Investor Type) */}
+            <div className="p-4 border rounded-lg">
+              <h4 className="font-semibold mb-2">Broker Transaction F/D</h4>
+              <p className="text-sm text-muted-foreground mb-3">Calculate broker transaction data per broker filtered by Investor Type (F/D)</p>
+              <Button
+                onClick={() => handleTriggerDataUpdate('broker-transaction-fd')}
+                disabled={triggering['broker-transaction-fd']}
+                className="w-full"
+                size="sm"
+              >
+                {triggering['broker-transaction-fd'] ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Play className="w-4 h-4 mr-2" />
+                )}
+                {triggering['broker-transaction-fd'] ? 'Calculating...' : 'Trigger Calculation'}
+              </Button>
+            </div>
+
+            {/* Broker Transaction F/D RG/TN/NG (Filtered by Investor Type and Board Type) */}
+            <div className="p-4 border rounded-lg">
+              <h4 className="font-semibold mb-2">Broker Transaction F/D RG/TN/NG</h4>
+              <p className="text-sm text-muted-foreground mb-3">Calculate broker transaction data per broker filtered by Investor Type (F/D) and Board Type (RG, TN, NG)</p>
+              <Button
+                onClick={() => handleTriggerDataUpdate('broker-transaction-fd-rgtnng')}
+                disabled={triggering['broker-transaction-fd-rgtnng']}
+                className="w-full"
+                size="sm"
+              >
+                {triggering['broker-transaction-fd-rgtnng'] ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Play className="w-4 h-4 mr-2" />
+                )}
+                {triggering['broker-transaction-fd-rgtnng'] ? 'Calculating...' : 'Trigger Calculation'}
+              </Button>
+            </div>
+
+            {/* Broker Transaction Stock (Pivoted by Stock) */}
+            <div className="p-4 border rounded-lg">
+              <h4 className="font-semibold mb-2">Broker Transaction Stock</h4>
+              <p className="text-sm text-muted-foreground mb-3">Calculate broker transaction data pivoted by stock (all transaction types)</p>
+              <Button
+                onClick={() => handleTriggerDataUpdate('broker-transaction-stock')}
+                disabled={triggering['broker-transaction-stock']}
+                className="w-full"
+                size="sm"
+              >
+                {triggering['broker-transaction-stock'] ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Play className="w-4 h-4 mr-2" />
+                )}
+                {triggering['broker-transaction-stock'] ? 'Calculating...' : 'Trigger Calculation'}
+              </Button>
+            </div>
+
+            {/* Broker Transaction Stock F/D (Pivoted by Stock, Filtered by Investor Type) */}
+            <div className="p-4 border rounded-lg">
+              <h4 className="font-semibold mb-2">Broker Transaction Stock F/D</h4>
+              <p className="text-sm text-muted-foreground mb-3">Calculate broker transaction data pivoted by stock, filtered by Investor Type (F/D)</p>
+              <Button
+                onClick={() => handleTriggerDataUpdate('broker-transaction-stock-fd')}
+                disabled={triggering['broker-transaction-stock-fd']}
+                className="w-full"
+                size="sm"
+              >
+                {triggering['broker-transaction-stock-fd'] ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Play className="w-4 h-4 mr-2" />
+                )}
+                {triggering['broker-transaction-stock-fd'] ? 'Calculating...' : 'Trigger Calculation'}
+              </Button>
+            </div>
+
+            {/* Broker Transaction Stock RG/TN/NG (Pivoted by Stock, Filtered by Board Type) */}
+            <div className="p-4 border rounded-lg">
+              <h4 className="font-semibold mb-2">Broker Transaction Stock RG/TN/NG</h4>
+              <p className="text-sm text-muted-foreground mb-3">Calculate broker transaction data pivoted by stock, filtered by Board Type (RG, TN, NG)</p>
+              <Button
+                onClick={() => handleTriggerDataUpdate('broker-transaction-stock-rgtnng')}
+                disabled={triggering['broker-transaction-stock-rgtnng']}
+                className="w-full"
+                size="sm"
+              >
+                {triggering['broker-transaction-stock-rgtnng'] ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Play className="w-4 h-4 mr-2" />
+                )}
+                {triggering['broker-transaction-stock-rgtnng'] ? 'Calculating...' : 'Trigger Calculation'}
+              </Button>
+            </div>
+
+            {/* Broker Transaction Stock F/D RG/TN/NG (Pivoted by Stock, Filtered by Investor Type and Board Type) */}
+            <div className="p-4 border rounded-lg">
+              <h4 className="font-semibold mb-2">Broker Transaction Stock F/D RG/TN/NG</h4>
+              <p className="text-sm text-muted-foreground mb-3">Calculate broker transaction data pivoted by stock, filtered by Investor Type (F/D) and Board Type (RG, TN, NG)</p>
+              <Button
+                onClick={() => handleTriggerDataUpdate('broker-transaction-stock-fd-rgtnng')}
+                disabled={triggering['broker-transaction-stock-fd-rgtnng']}
+                className="w-full"
+                size="sm"
+              >
+                {triggering['broker-transaction-stock-fd-rgtnng'] ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Play className="w-4 h-4 mr-2" />
+                )}
+                {triggering['broker-transaction-stock-fd-rgtnng'] ? 'Calculating...' : 'Trigger Calculation'}
+              </Button>
+            </div>
+
             {/* Break Done Trade */}
             <div className="p-4 border rounded-lg">
               <h4 className="font-semibold mb-2">Break Done Trade</h4>
