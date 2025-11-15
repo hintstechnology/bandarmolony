@@ -21,8 +21,8 @@ interface BrokerTransactionData {
   BuyerValue: number;
   BuyerAvg: number;
   BuyerFreq: number; // Count of unique TRX_CODE
-  BuyerOrdNum: number; // Unique count of TRX_ORD1
-  NewBuyerOrdNum: number; // Unique count after grouping by time after 08:58:00
+  OldBuyerOrdNum: number; // Unique count of TRX_ORD1
+  BuyerOrdNum: number; // Unique count after grouping by time after 08:58:00
   BLot: number; // Buyer Lot (BuyerVol / 100)
   BLotPerFreq: number; // Buyer Lot per Frequency (BLot / BuyerFreq)
   BLotPerOrdNum: number; // Buyer Lot per Order Number (BLot / BuyerOrdNum)
@@ -31,8 +31,8 @@ interface BrokerTransactionData {
   SellerValue: number;
   SellerAvg: number;
   SellerFreq: number; // Count of unique TRX_CODE
-  SellerOrdNum: number; // Unique count of TRX_ORD2
-  NewSellerOrdNum: number; // Unique count after grouping by time after 08:58:00
+  OldSellerOrdNum: number; // Unique count of TRX_ORD2
+  SellerOrdNum: number; // Unique count after grouping by time after 08:58:00
   SLot: number; // Seller Lot (SellerVol / 100)
   SLotPerFreq: number; // Seller Lot per Frequency (SLot / SellerFreq)
   SLotPerOrdNum: number; // Seller Lot per Order Number (SLot / SellerOrdNum)
@@ -41,7 +41,7 @@ interface BrokerTransactionData {
   NetBuyValue: number;
   NetBuyAvg: number;
   NetBuyFreq: number; // BuyerFreq - SellerFreq (can be negative)
-  NetBuyOrdNum: number; // NewBuyerOrdNum - NewSellerOrdNum (can be negative)
+  NetBuyOrdNum: number; // BuyerOrdNum - SellerOrdNum (can be negative)
   NBLot: number; // Net Buy Lot (NetBuyVol / 100)
   NBLotPerFreq: number; // Net Buy Lot per Frequency (NBLot / |NetBuyFreq|)
   NBLotPerOrdNum: number; // Net Buy Lot per Order Number (NBLot / |NetBuyOrdNum|)
@@ -50,7 +50,7 @@ interface BrokerTransactionData {
   NetSellValue: number;
   NetSellAvg: number;
   NetSellFreq: number; // SellerFreq - BuyerFreq (can be negative)
-  NetSellOrdNum: number; // NewSellerOrdNum - NewBuyerOrdNum (can be negative)
+  NetSellOrdNum: number; // SellerOrdNum - BuyerOrdNum (can be negative)
   NSLot: number; // Net Sell Lot (NetSellVol / 100)
   NSLotPerFreq: number; // Net Sell Lot per Frequency (NSLot / |NetSellFreq|)
   NSLotPerOrdNum: number; // Net Sell Lot per Order Number (NSLot / |NetSellOrdNum|)
@@ -104,7 +104,7 @@ export class BrokerTransactionCalculator {
   }
 
   /**
-   * Calculate NewBuyerOrdNum and NewSellerOrdNum by grouping transactions
+   * Calculate BuyerOrdNum and SellerOrdNum by grouping transactions
    * by time (HH:MM:SS) after market open for same broker and emiten
    */
   private calculateNewOrderNumbers(
@@ -113,18 +113,36 @@ export class BrokerTransactionCalculator {
     broker: string,
     emiten: string
   ): { newBuyerOrdNum: number; newSellerOrdNum: number } {
-    // Group buyer transactions by time after open
-    const buyerTimeGroups = new Set<string>();
+    // === BUYER CALCULATION ===
+    
+    // Step 1: Group buyer transactions by time after open
+    const buyerTimeGroups = new Map<string, TransactionData[]>();
     buyerTransactions.forEach(t => {
       if (this.isAfterOpen(t.TRX_TIME)) {
         const timeKey = this.getTimeKey(t.TRX_TIME);
         if (timeKey) {
-          buyerTimeGroups.add(`${broker}_${emiten}_${timeKey}`);
+          const groupKey = `${broker}_${emiten}_${timeKey}`;
+          if (!buyerTimeGroups.has(groupKey)) {
+            buyerTimeGroups.set(groupKey, []);
+          }
+          buyerTimeGroups.get(groupKey)!.push(t);
         }
       }
     });
     
-    // For transactions before open, count unique TRX_ORD1
+    // Step 2: Extract one representative order number from each time group
+    // Each time group contributes at most 1 order number (first transaction's TRX_ORD1)
+    // If same order number appears in different time groups, it will be deduplicated in the Set
+    const buyerOrdNumsFromTimeGroups = new Set<number>();
+    buyerTimeGroups.forEach((groupTransactions) => {
+      // Take first transaction's order number from each time group
+      const firstTransaction = groupTransactions[0];
+      if (firstTransaction && firstTransaction.TRX_ORD1 > 0) {
+        buyerOrdNumsFromTimeGroups.add(firstTransaction.TRX_ORD1);
+      }
+    });
+    
+    // Step 3: Count unique orders before open
     const buyerOrdNumsBeforeOpen = new Set<number>();
     buyerTransactions.forEach(t => {
       if (!this.isAfterOpen(t.TRX_TIME) && t.TRX_ORD1 > 0) {
@@ -132,21 +150,49 @@ export class BrokerTransactionCalculator {
       }
     });
     
-    // NewBuyerOrdNum = unique time groups after open + unique orders before open
-    const newBuyerOrdNum = buyerTimeGroups.size + buyerOrdNumsBeforeOpen.size;
+    // Step 4: Combine - deduplicate if order number appears in both periods
+    // NewBuyerOrdNum should be ≤ time groups count (since we take 1 order per time group)
+    const allBuyerOrdNums = new Set<number>();
+    buyerOrdNumsFromTimeGroups.forEach(ord => allBuyerOrdNums.add(ord));
+    buyerOrdNumsBeforeOpen.forEach(ord => {
+      // Only add if not already in time groups
+      if (!buyerOrdNumsFromTimeGroups.has(ord)) {
+        allBuyerOrdNums.add(ord);
+      }
+    });
     
-    // Group seller transactions by time after open
-    const sellerTimeGroups = new Set<string>();
+    const newBuyerOrdNum = allBuyerOrdNums.size;
+    
+    // === SELLER CALCULATION ===
+    
+    // Step 1: Group seller transactions by time after open
+    const sellerTimeGroups = new Map<string, TransactionData[]>();
     sellerTransactions.forEach(t => {
       if (this.isAfterOpen(t.TRX_TIME)) {
         const timeKey = this.getTimeKey(t.TRX_TIME);
         if (timeKey) {
-          sellerTimeGroups.add(`${broker}_${emiten}_${timeKey}`);
+          const groupKey = `${broker}_${emiten}_${timeKey}`;
+          if (!sellerTimeGroups.has(groupKey)) {
+            sellerTimeGroups.set(groupKey, []);
+          }
+          sellerTimeGroups.get(groupKey)!.push(t);
         }
       }
     });
     
-    // For transactions before open, count unique TRX_ORD2
+    // Step 2: Extract one representative order number from each time group
+    // Each time group contributes at most 1 order number (first transaction's TRX_ORD2)
+    // If same order number appears in different time groups, it will be deduplicated in the Set
+    const sellerOrdNumsFromTimeGroups = new Set<number>();
+    sellerTimeGroups.forEach((groupTransactions) => {
+      // Take first transaction's order number from each time group
+      const firstTransaction = groupTransactions[0];
+      if (firstTransaction && firstTransaction.TRX_ORD2 > 0) {
+        sellerOrdNumsFromTimeGroups.add(firstTransaction.TRX_ORD2);
+      }
+    });
+    
+    // Step 3: Count unique orders before open
     const sellerOrdNumsBeforeOpen = new Set<number>();
     sellerTransactions.forEach(t => {
       if (!this.isAfterOpen(t.TRX_TIME) && t.TRX_ORD2 > 0) {
@@ -154,8 +200,17 @@ export class BrokerTransactionCalculator {
       }
     });
     
-    // NewSellerOrdNum = unique time groups after open + unique orders before open
-    const newSellerOrdNum = sellerTimeGroups.size + sellerOrdNumsBeforeOpen.size;
+    // Step 4: Combine - deduplicate if order number appears in both periods
+    const allSellerOrdNums = new Set<number>();
+    sellerOrdNumsFromTimeGroups.forEach(ord => allSellerOrdNums.add(ord));
+    sellerOrdNumsBeforeOpen.forEach(ord => {
+      // Only add if not already in time groups
+      if (!sellerOrdNumsFromTimeGroups.has(ord)) {
+        allSellerOrdNums.add(ord);
+      }
+    });
+    
+    const newSellerOrdNum = allSellerOrdNums.size;
     
     return { newBuyerOrdNum, newSellerOrdNum };
   }
@@ -396,10 +451,10 @@ export class BrokerTransactionCalculator {
         
         const buyerFreq = buyerTxCodes.size;
         const sellerFreq = sellerTxCodes.size;
-        const buyerOrdNum = buyerOrdNums.size;
-        const sellerOrdNum = sellerOrdNums.size;
+        const oldBuyerOrdNum = buyerOrdNums.size;
+        const oldSellerOrdNum = sellerOrdNums.size;
         
-        // Calculate NewBuyerOrdNum and NewSellerOrdNum (grouping by time after 08:58:00)
+        // Calculate BuyerOrdNum and SellerOrdNum (grouping by time after 08:58:00)
         const { newBuyerOrdNum, newSellerOrdNum } = this.calculateNewOrderNumbers(
           buyerTransactions,
           sellerTransactions,
@@ -468,8 +523,8 @@ export class BrokerTransactionCalculator {
           BuyerValue: buyerValue,
           BuyerAvg: buyerAvg,
           BuyerFreq: buyerFreq,
-          BuyerOrdNum: buyerOrdNum,
-          NewBuyerOrdNum: newBuyerOrdNum,
+          OldBuyerOrdNum: oldBuyerOrdNum,
+          BuyerOrdNum: newBuyerOrdNum,
           BLot: buyerLot,
           BLotPerFreq: buyerLotPerFreq,
           BLotPerOrdNum: buyerLotPerOrdNum,
@@ -477,8 +532,8 @@ export class BrokerTransactionCalculator {
           SellerValue: sellerValue,
           SellerAvg: sellerAvg,
           SellerFreq: sellerFreq,
-          SellerOrdNum: sellerOrdNum,
-          NewSellerOrdNum: newSellerOrdNum,
+          OldSellerOrdNum: oldSellerOrdNum,
+          SellerOrdNum: newSellerOrdNum,
           SLot: sellerLot,
           SLotPerFreq: sellerLotPerFreq,
           SLotPerOrdNum: sellerLotPerOrdNum,
