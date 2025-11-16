@@ -187,52 +187,102 @@ router.get('/summary/:stockCode', async (req, res) => {
 
 /**
  * Helper function to determine Azure Storage path based on broker code and market filter
- * For All brokers: stock-trading-data/broker_transaction/broker_transaction_YYYYMMDD/{brokerCode}.csv
- * For RG market: stock-trading-data/broker_transaction_rg/broker_transaction_rg_YYYYMMDD/{brokerCode}.csv
- * For TN market: stock-trading-data/broker_transaction_tn/broker_transaction_tn_YYYYMMDD/{brokerCode}.csv
- * For NG market: stock-trading-data/broker_transaction_ng/broker_transaction_ng_YYYYMMDD/{brokerCode}.csv
+ * 
+ * Path rules:
+ * - BROKER: broker_transaction[/opsi_board][/tanggal]/[kode_saham].csv
+ * - STOCK: sama seperti broker, tapi tambahkan suffix _stock pada semua prefix
+ * 
+ * SPECIAL CASE: When Board = All Trade (empty) and Inv = F or D:
+ * - Folder: broker_transaction/
+ * - File: broker_transaction_f_YYYYMMDD/{code}.csv or broker_transaction_d_YYYYMMDD/{code}.csv
+ * 
+ * Examples:
+ * - ALL (no filters) → broker_transaction/broker_transaction_YYYYMMDD/{code}.csv
+ * - F (All Trade) → broker_transaction/broker_transaction_f_YYYYMMDD/{code}.csv
+ * - D (All Trade) → broker_transaction/broker_transaction_d_YYYYMMDD/{code}.csv
+ * - RG (ALL) → broker_transaction_rg/broker_transaction_rg_YYYYMMDD/{code}.csv
+ * - RG (F) → broker_transaction_rg_f/broker_transaction_rg_f_YYYYMMDD/{code}.csv
+ * - RG (D) → broker_transaction_rg_d/broker_transaction_rg_d_YYYYMMDD/{code}.csv
+ * - TN/NG: same pattern as RG
+ * 
+ * For Stock pivot, add _stock suffix to prefix:
+ * - ALL → broker_transaction_stock/broker_transaction_stock_YYYYMMDD/{code}.csv
+ * - F (All Trade) → broker_transaction_stock/broker_transaction_f_stock_YYYYMMDD/{code}.csv
+ * - RG (F) → broker_transaction_rg_f_stock/broker_transaction_rg_f_stock_YYYYMMDD/{code}.csv
  */
 const getAzurePath = (code: string, dateStr: string, pivot: 'Broker' | 'Stock' = 'Broker', invFilter?: string, boardFilter?: string): string => {
-  // Determine base path prefix based on pivot
-  const basePrefix = pivot === 'Stock' ? 'broker_transaction_stock' : 'broker_transaction';
+  // Start with base prefix
+  let folderPrefix = 'broker_transaction';
+  let filePrefix = 'broker_transaction';
   
-  // Handle Inv filter (F/D) - Investor Type
-  if (invFilter && (invFilter === 'F' || invFilter === 'D')) {
-    const invType = invFilter.toLowerCase(); // 'f' or 'd'
-    
-    // If board filter is also provided, combine them
-    if (boardFilter && boardFilter !== '') {
-      const board = boardFilter.toUpperCase();
-      const folderMap: { [key: string]: string } = {
-        'RG': 'rg',
-        'TN': 'tn',
-        'NG': 'ng'
-      };
-      const folderType = folderMap[board] || board.toLowerCase();
-      // For board + inv: {basePrefix}_{type}_{inv}/{basePrefix}_{type}_{inv}_YYYYMMDD/{code}.csv
-      return `${basePrefix}_${folderType}_${invType}/${basePrefix}_${folderType}_${invType}_${dateStr}/${code}.csv`;
-    } else {
-      // For inv only: {basePrefix}_{inv}/{basePrefix}_{inv}_YYYYMMDD/{code}.csv
-      return `${basePrefix}_${invType}/${basePrefix}_${invType}_${dateStr}/${code}.csv`;
-    }
-  }
+  // Check if board filter is provided (RG/TN/NG)
+  // Normalize: trim whitespace and check if empty
+  const normalizedBoardFilter = boardFilter ? boardFilter.trim() : '';
+  const hasBoardFilter = normalizedBoardFilter !== '' && normalizedBoardFilter !== 'All Trade';
   
-  // If board filter is provided (RG/TN/NG) - Board Type
-  if (boardFilter && boardFilter !== '') {
-    const board = boardFilter.toUpperCase();
+  // Check if inv filter is provided (F/D)
+  // Normalize: trim whitespace and uppercase
+  const normalizedInvFilter = invFilter ? invFilter.trim().toUpperCase() : '';
+  const hasInvFilter = normalizedInvFilter === 'F' || normalizedInvFilter === 'D';
+  
+  // Debug logging
+  console.log(`[getAzurePath] Input: code=${code}, dateStr=${dateStr}, pivot=${pivot}, invFilter="${invFilter}", boardFilter="${boardFilter}"`);
+  console.log(`[getAzurePath] Normalized: invFilter="${normalizedInvFilter}", boardFilter="${normalizedBoardFilter}"`);
+  console.log(`[getAzurePath] hasBoardFilter=${hasBoardFilter}, hasInvFilter=${hasInvFilter}`);
+  
+  if (hasBoardFilter) {
+    // When board filter exists, use standard pattern: broker_transaction_{board}[_{inv}]
+    const board = normalizedBoardFilter.toUpperCase();
     const folderMap: { [key: string]: string } = {
       'RG': 'rg',
       'TN': 'tn',
       'NG': 'ng'
     };
     const folderType = folderMap[board] || board.toLowerCase();
-    // For board only: {basePrefix}_{type}/{basePrefix}_{type}_YYYYMMDD/{code}.csv
-    return `${basePrefix}_${folderType}/${basePrefix}_${folderType}_${dateStr}/${code}.csv`;
+    
+    // Build parts for folder and file prefix
+    const parts = [folderType];
+    if (hasInvFilter) {
+      parts.push(normalizedInvFilter.toLowerCase());
+    }
+    
+    folderPrefix = `broker_transaction_${parts.join('_')}`;
+    filePrefix = folderPrefix;
+    console.log(`[getAzurePath] Board filter path: ${folderPrefix}/${filePrefix}_${dateStr}/${code}.csv`);
+  } else if (hasInvFilter) {
+    // SPECIAL CASE: Board = All Trade (empty) and Inv = F or D
+    // Folder stays as broker_transaction/, but file prefix includes _f or _d
+    folderPrefix = 'broker_transaction';
+    filePrefix = `broker_transaction_${normalizedInvFilter.toLowerCase()}`;
+    console.log(`[getAzurePath] All Trade + Inv filter path: ${folderPrefix}/${filePrefix}_${dateStr}/${code}.csv`);
+  } else {
+    // No filters, use default
+    console.log(`[getAzurePath] No filters path: ${folderPrefix}/${filePrefix}_${dateStr}/${code}.csv`);
   }
   
-  // Default: All Trade, no filters
-  // For All: {basePrefix}/{basePrefix}_YYYYMMDD/{code}.csv
-  return `${basePrefix}/${basePrefix}_${dateStr}/${code}.csv`;
+  // For Stock pivot, add _stock suffix to the entire prefix
+  if (pivot === 'Stock') {
+    if (hasBoardFilter) {
+      // For board filters: broker_transaction_{board}[_{inv}]_stock
+      folderPrefix = `${folderPrefix}_stock`;
+      filePrefix = `${filePrefix}_stock`;
+    } else if (hasInvFilter) {
+      // SPECIAL CASE: Stock + All Trade + Inv (F/D)
+      // Folder: broker_transaction_stock/
+      // File: broker_transaction_f_stock_YYYYMMDD/ or broker_transaction_d_stock_YYYYMMDD/
+      folderPrefix = 'broker_transaction_stock';
+      filePrefix = `broker_transaction_${normalizedInvFilter.toLowerCase()}_stock`;
+    } else {
+      // For no filters, use broker_transaction_stock
+      folderPrefix = 'broker_transaction_stock';
+      filePrefix = 'broker_transaction_stock';
+    }
+  }
+  
+  // Return path: {folderPrefix}/{filePrefix}_YYYYMMDD/{code}.csv
+  const finalPath = `${folderPrefix}/${filePrefix}_${dateStr}/${code}.csv`;
+  console.log(`[getAzurePath] Final path: ${finalPath}`);
+  return finalPath;
 };
 
 /**
@@ -610,13 +660,17 @@ router.get('/transaction/dates', async (_req, res) => {
     // Use listPrefixes to directly get folder names (much faster than listPaths)
     // This lists only the folder structure, not all files
     
-    // List all broker_transaction folders (for All brokers)
-    // Structure: broker_transaction/broker_transaction_YYYYMMDD/{brokerCode}.csv
+    // SPECIAL CASE: For All Trade + F/D, files are in broker_transaction/ folder
+    // Pattern: broker_transaction/broker_transaction_f_YYYYMMDD/ or broker_transaction/broker_transaction_d_YYYYMMDD/
     try {
-      const allPrefixes = await listPrefixes('broker_transaction/');
-      allPrefixes.forEach(prefix => {
-        // Extract date from broker_transaction/broker_transaction_YYYYMMDD/ pattern
-        const match = prefix.match(/broker_transaction\/broker_transaction_(\d{8})\//);
+      const allTradePrefixes = await listPrefixes('broker_transaction/');
+      allTradePrefixes.forEach(folderPrefix => {
+        // Extract date from broker_transaction/broker_transaction[_f|_d]_YYYYMMDD/ pattern
+        // This covers: 
+        // - broker_transaction_YYYYMMDD (no inv filter)
+        // - broker_transaction_f_YYYYMMDD (F filter)
+        // - broker_transaction_d_YYYYMMDD (D filter)
+        const match = folderPrefix.match(/broker_transaction\/broker_transaction(?:_[fd])?_(\d{8})\//);
         if (match && match[1]) {
           dates.add(match[1]);
         }
@@ -625,49 +679,83 @@ router.get('/transaction/dates', async (_req, res) => {
       console.error('[AZURE] Error listing broker_transaction folders:', error.message);
     }
     
-    // List all broker_transaction_rg folders (for RG market)
-    // Structure: broker_transaction_rg/broker_transaction_rg_YYYYMMDD/{brokerCode}.csv
-    try {
-      const rgPrefixes = await listPrefixes('broker_transaction_rg/');
-      rgPrefixes.forEach(prefix => {
-        // Extract date from broker_transaction_rg/broker_transaction_rg_YYYYMMDD/ pattern
-        const match = prefix.match(/broker_transaction_rg\/broker_transaction_rg_(\d{8})\//);
-        if (match && match[1]) {
-          dates.add(match[1]);
-        }
-      });
-    } catch (error: any) {
-      console.error('[AZURE] Error listing broker_transaction_rg folders:', error.message);
+    // List all possible broker_transaction prefixes for board filters (RG/TN/NG)
+    // Pattern: broker_transaction_{board}[_{inv}]/broker_transaction_{board}[_{inv}]_YYYYMMDD/
+    const boardPrefixesToCheck = [
+      'broker_transaction_rg',        // RG (ALL)
+      'broker_transaction_rg_f',      // RG (F)
+      'broker_transaction_rg_d',      // RG (D)
+      'broker_transaction_tn',        // TN (ALL)
+      'broker_transaction_tn_f',      // TN (F)
+      'broker_transaction_tn_d',      // TN (D)
+      'broker_transaction_ng',        // NG (ALL)
+      'broker_transaction_ng_f',       // NG (F)
+      'broker_transaction_ng_d',      // NG (D)
+    ];
+    
+    // Check each board prefix
+    for (const prefix of boardPrefixesToCheck) {
+      try {
+        const folderPrefixes = await listPrefixes(`${prefix}/`);
+        folderPrefixes.forEach(folderPrefix => {
+          // Extract date from {prefix}/{prefix}_YYYYMMDD/ pattern
+          const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const match = folderPrefix.match(new RegExp(`${escapedPrefix}\\/${escapedPrefix}_(\\d{8})\\/`));
+          if (match && match[1]) {
+            dates.add(match[1]);
+          }
+        });
+      } catch (error: any) {
+        // Silently skip if folder doesn't exist
+        console.error(`[AZURE] Error listing ${prefix} folders:`, error.message);
+      }
     }
     
-    // List all broker_transaction_tn folders (for TN market)
-    // Structure: broker_transaction_tn/broker_transaction_tn_YYYYMMDD/{brokerCode}.csv
+    // Stock prefixes
+    const stockPrefixesToCheck = [
+      'broker_transaction_stock',      // Stock (ALL)
+      'broker_transaction_rg_stock',   // Stock RG (ALL)
+      'broker_transaction_rg_f_stock', // Stock RG (F)
+      'broker_transaction_rg_d_stock', // Stock RG (D)
+      'broker_transaction_tn_stock',   // Stock TN (ALL)
+      'broker_transaction_tn_f_stock', // Stock TN (F)
+      'broker_transaction_tn_d_stock', // Stock TN (D)
+      'broker_transaction_ng_stock',   // Stock NG (ALL)
+      'broker_transaction_ng_f_stock',  // Stock NG (F)
+      'broker_transaction_ng_d_stock'  // Stock NG (D)
+    ];
+    
+    // SPECIAL CASE: For Stock + All Trade + F/D, files are in broker_transaction_stock/ folder
+    // Pattern: broker_transaction_stock/broker_transaction_f_stock_YYYYMMDD/ or broker_transaction_stock/broker_transaction_d_stock_YYYYMMDD/
     try {
-      const tnPrefixes = await listPrefixes('broker_transaction_tn/');
-      tnPrefixes.forEach(prefix => {
-        // Extract date from broker_transaction_tn/broker_transaction_tn_YYYYMMDD/ pattern
-        const match = prefix.match(/broker_transaction_tn\/broker_transaction_tn_(\d{8})\//);
+      const stockAllTradePrefixes = await listPrefixes('broker_transaction_stock/');
+      stockAllTradePrefixes.forEach(folderPrefix => {
+        // Extract date from broker_transaction_stock/broker_transaction[_f|_d]_stock_YYYYMMDD/ pattern
+        const match = folderPrefix.match(/broker_transaction_stock\/broker_transaction(?:_[fd])?_stock_(\d{8})\//);
         if (match && match[1]) {
           dates.add(match[1]);
         }
       });
     } catch (error: any) {
-      console.error('[AZURE] Error listing broker_transaction_tn folders:', error.message);
+      console.error('[AZURE] Error listing broker_transaction_stock folders:', error.message);
     }
     
-    // List all broker_transaction_ng folders (for NG market)
-    // Structure: broker_transaction_ng/broker_transaction_ng_YYYYMMDD/{brokerCode}.csv
-    try {
-      const ngPrefixes = await listPrefixes('broker_transaction_ng/');
-      ngPrefixes.forEach(prefix => {
-        // Extract date from broker_transaction_ng/broker_transaction_ng_YYYYMMDD/ pattern
-        const match = prefix.match(/broker_transaction_ng\/broker_transaction_ng_(\d{8})\//);
-        if (match && match[1]) {
-          dates.add(match[1]);
-        }
-      });
-    } catch (error: any) {
-      console.error('[AZURE] Error listing broker_transaction_ng folders:', error.message);
+    // Check each stock board prefix
+    for (const prefix of stockPrefixesToCheck) {
+      try {
+        const folderPrefixes = await listPrefixes(`${prefix}/`);
+        folderPrefixes.forEach(folderPrefix => {
+          // Extract date from {prefix}/{prefix}_YYYYMMDD/ pattern
+          const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const match = folderPrefix.match(new RegExp(`${escapedPrefix}\\/${escapedPrefix}_(\\d{8})\\/`));
+          if (match && match[1]) {
+            dates.add(match[1]);
+          }
+        });
+      } catch (error: any) {
+        // Silently skip if folder doesn't exist
+        console.error(`[AZURE] Error listing ${prefix} folders:`, error.message);
+      }
     }
     
     const sortedDates = Array.from(dates).sort().reverse(); // Newest first
@@ -704,27 +792,82 @@ router.get('/transaction/:brokerCode', async (req, res) => {
     // Convert YYYYMMDD to YYYYMMDD format for file path
     const dateStr = date;
     
+    // Validate parameters
+    if (!brokerCode || !dateStr) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameters: brokerCode and date are required'
+      });
+    }
+    
     // Get Azure Storage path based on code, pivot, inv filter, and board filter
     const azurePath = getAzurePath(brokerCode, dateStr, pivot, invFilter, boardFilter);
     
+    // Validate azurePath
+    if (!azurePath) {
+      console.error(`[Broker Transaction] Invalid azurePath generated`);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to generate Azure Storage path',
+        parameters: { brokerCode, dateStr, pivot, invFilter, boardFilter }
+      });
+    }
+    
+    // Log the path being used for debugging
+    console.log(`[Broker Transaction] Fetching data from Azure path: ${azurePath}`);
+    console.log(`[Broker Transaction] Parameters: brokerCode=${brokerCode}, date=${dateStr}, pivot=${pivot}, inv=${invFilter || 'All'}, board=${boardFilter || 'All Trade'}`);
+    
     // Download CSV data from Azure
-    const csvData = await downloadText(azurePath);
+    let csvData: string;
+    try {
+      csvData = await downloadText(azurePath);
+    } catch (downloadError: any) {
+      console.error(`[Broker Transaction] Error downloading from Azure:`, downloadError);
+      return res.status(500).json({
+        success: false,
+        error: `Failed to download data from Azure: ${downloadError.message || 'Unknown error'}`,
+        path: azurePath,
+        filters: {
+          pivot,
+          inv: invFilter || 'All',
+          board: boardFilter || 'All Trade'
+        }
+      });
+    }
     
     if (!csvData) {
+      console.log(`[Broker Transaction] File not found at path: ${azurePath}`);
       return res.status(404).json({
         success: false,
-        error: `No broker transaction data found for ${brokerCode} on ${dateStr}`
+        error: `No broker transaction data found for ${brokerCode} on ${dateStr}`,
+        path: azurePath, // Include path in error for debugging
+        filters: {
+          pivot,
+          inv: invFilter || 'All',
+          board: boardFilter || 'All Trade'
+        }
       });
     }
     
     // Parse CSV data (handle both comma and semicolon delimiters)
     // Note: For Stock pivot, brokerCode is actually stockCode
-    const transactionData = parseBrokerTransactionCSV(csvData, brokerCode);
+    let transactionData: any[];
+    try {
+      transactionData = parseBrokerTransactionCSV(csvData, brokerCode);
+    } catch (parseError: any) {
+      console.error(`[Broker Transaction] Error parsing CSV data:`, parseError);
+      return res.status(500).json({
+        success: false,
+        error: `Failed to parse CSV data: ${parseError.message || 'Unknown error'}`,
+        path: azurePath
+      });
+    }
     
     if (transactionData.length === 0) {
       return res.status(404).json({
         success: false,
-        error: 'Invalid broker transaction data format or no data found'
+        error: 'Invalid broker transaction data format or no data found',
+        path: azurePath
       });
     }
     
