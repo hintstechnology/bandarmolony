@@ -310,10 +310,28 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   const [highlightedTickerIndex, setHighlightedTickerIndex] = useState<number>(-1);
   const dropdownTickerRef = useRef<HTMLDivElement>(null);
   
-  // OPTIMIZED: Memoize ticker extraction to prevent freeze on dropdown
+  // Stock list from API (loaded once on mount for fast dropdown)
+  const [availableStocksFromAPI, setAvailableStocksFromAPI] = useState<string[]>([]);
+  const [isLoadingStocks, setIsLoadingStocks] = useState<boolean>(false);
+  
+  // OPTIMIZED: Use stock list from API as primary source (fast), fallback to extraction from rawTransactionData
   // FIXED: Use rawTransactionData (before ticker filtering) to show all available tickers for selected broker(s)
   // CRITICAL: If sector is selected, only show tickers from that sector
   const availableTickers = useMemo(() => {
+    // Primary source: Use stock list from API (fast, loaded once on mount)
+    if (availableStocksFromAPI.length > 0) {
+      // If sector is selected, filter tickers by sector
+      if (selectedSectors.length > 0) {
+        const tickersFromSectors = availableStocksFromAPI.filter(ticker => {
+          const tickerSector = stockToSectorMap[ticker.toUpperCase()];
+          return tickerSector && selectedSectors.includes(tickerSector);
+        });
+        return tickersFromSectors.sort();
+      }
+      return [...availableStocksFromAPI].sort();
+    }
+    
+    // Fallback: Extract from rawTransactionData (slower, but works if API not loaded yet)
     const allTickers = new Set<string>();
     if (isDataReady && rawTransactionData.size > 0) {
       // Extract from all dates in rawTransactionData (before filtering) to show all available tickers
@@ -337,7 +355,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     }
     
     return Array.from(allTickers).sort();
-  }, [rawTransactionData, isDataReady, selectedSectors, stockToSectorMap]); // Include selectedSectors and stockToSectorMap to filter by sector
+  }, [availableStocksFromAPI, rawTransactionData, isDataReady, selectedSectors, stockToSectorMap]); // Include availableStocksFromAPI as primary source
 
   // Request cancellation ref
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -383,11 +401,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           // Ignore cache errors
         }
         
-        // OPTIMIZED: Load broker list, dates, and sector mapping in parallel for faster initial load
-        // Sector mapping is needed for stock coloring, so we load it early but still in parallel
-        const [brokerResponse, initialDates, sectorResponse] = await Promise.all([
+        // OPTIMIZED: Load broker list, dates, stock list, and sector mapping in parallel for faster initial load
+        // Stock list is needed for fast dropdown, sector mapping is needed for stock coloring
+        setIsLoadingStocks(true);
+        const [brokerResponse, initialDates, stockResponse, sectorResponse] = await Promise.all([
           api.getBrokerList(),
           getAvailableTradingDays(3),
+          api.getStockList(), // Load stock list for fast dropdown
           cachedSectorMapping ? Promise.resolve({ success: true, data: cachedSectorMapping }) : api.getSectorMapping()
         ]);
         
@@ -396,6 +416,15 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         } else {
           throw new Error('Failed to load broker list');
         }
+        
+        // Load stock list from API for fast dropdown (like BrokerSummaryPage)
+        if (stockResponse.success && stockResponse.data?.stocks && Array.isArray(stockResponse.data.stocks)) {
+          setAvailableStocksFromAPI(stockResponse.data.stocks);
+          console.log(`[BrokerTransaction] Loaded ${stockResponse.data.stocks.length} stocks from API for dropdown`);
+        } else {
+          console.warn('[BrokerTransaction] Failed to load stock list from API, will use extraction from transaction data');
+        }
+        setIsLoadingStocks(false);
         
         // Update sector mapping if we got fresh data (not from cache)
         if (sectorResponse.success && sectorResponse.data && !cachedSectorMapping) {
@@ -455,6 +484,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       } catch (error) {
         console.error('Error loading initial data:', error);
         setIsLoading(false);
+        setIsLoadingStocks(false);
         
         // Fallback to hardcoded broker list and local date calculation
         const brokers = ['MG','CIMB','UOB','COIN','NH','TRIM','DEWA','BNCA','PNLF','VRNA','SD','LMGA','DEAL','ESA','SSA','AK'];
@@ -500,18 +530,27 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         return;
       }
       
-      if (selectedBrokers.length === 0 || selectedDates.length === 0) {
-        setTransactionData(new Map());
-        setRawTransactionData(new Map()); // Clear raw data too
-        setIsDataReady(false);
-        setShouldFetchData(false);
-        shouldFetchDataRef.current = false;
-        return;
+      // Validation: For Broker pivot, need brokers. For Stock pivot, need tickers.
+      if (pivotFilter === 'Broker') {
+        if (selectedBrokers.length === 0 || selectedDates.length === 0) {
+          setTransactionData(new Map());
+          setRawTransactionData(new Map()); // Clear raw data too
+          setIsDataReady(false);
+          setShouldFetchData(false);
+          shouldFetchDataRef.current = false;
+          return;
+        }
+      } else if (pivotFilter === 'Stock') {
+        // For Stock pivot, tickers are required (brokers are optional)
+        if (selectedTickers.length === 0 || selectedDates.length === 0) {
+          setTransactionData(new Map());
+          setRawTransactionData(new Map()); // Clear raw data too
+          setIsDataReady(false);
+          setShouldFetchData(false);
+          shouldFetchDataRef.current = false;
+          return;
+        }
       }
-      
-      // CRITICAL: No need to filter brokers by sector - we filter by stock sector after fetching
-      // All selected brokers will be fetched, then data will be filtered by stock sector
-      const filteredBrokers = selectedBrokers;
       
       // CRITICAL: Check ref again after validation
       if (!shouldFetchDataRef.current || abortController.signal.aborted) {
@@ -538,27 +577,32 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         
         // OPTIMIZED: Fetch all data in parallel with smart batching
         // Separate cached and uncached requests for optimal performance
-        // CRITICAL: Use filteredBrokers (already filtered by F/D) instead of selectedBrokers
-        const allFetchTasks = selectedDates.flatMap(date =>
-          filteredBrokers.map((broker: string) => ({ broker, date }))
-        );
+        // For Broker pivot: use selectedBrokers as code
+        // For Stock pivot: use selectedTickers as code
+        const allFetchTasks = pivotFilter === 'Stock'
+          ? selectedDates.flatMap(date =>
+              selectedTickers.map((ticker: string) => ({ code: ticker, date, type: 'stock' as const }))
+            )
+          : selectedDates.flatMap(date =>
+              selectedBrokers.map((broker: string) => ({ code: broker, date, type: 'broker' as const }))
+            );
         
         // Check cache first and separate cached vs uncached requests
-        const cachedResults: Array<{ date: string; broker: string; data: BrokerTransactionData[] }> = [];
-        const uncachedTasks: Array<{ broker: string; date: string }> = [];
+        const cachedResults: Array<{ date: string; code: string; data: BrokerTransactionData[] }> = [];
+        const uncachedTasks: Array<{ code: string; date: string }> = [];
         
-        allFetchTasks.forEach(({ broker, date }) => {
-          const cacheKey = `${broker}-${date}-${pivotFilter}-${invFilter}-${boardFilter}`;
+        allFetchTasks.forEach(({ code, date }) => {
+          const cacheKey = `${code}-${date}-${pivotFilter}-${invFilter}-${boardFilter}`;
           const cached = cache.get(cacheKey);
           if (cached && (now - cached.timestamp) <= CACHE_EXPIRY_MS) {
-            cachedResults.push({ date, broker, data: cached.data });
+            cachedResults.push({ date, code, data: cached.data });
           } else {
-            uncachedTasks.push({ broker, date });
+            uncachedTasks.push({ code, date });
           }
         });
         
         // Use cached data immediately
-        const allDataResults: Array<{ date: string; broker: string; data: BrokerTransactionData[] }> = [...cachedResults];
+        const allDataResults: Array<{ date: string; code: string; data: BrokerTransactionData[] }> = [...cachedResults];
         
         // OPTIMIZED: Fetch all uncached data in parallel with concurrency limit for maximum speed
         // Using concurrency limit prevents browser from being overwhelmed while still being fast
@@ -596,10 +640,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               const chunk = uncachedTasks.slice(i, i + CONCURRENCY_LIMIT);
               
               // Fetch all in this chunk in parallel
-              const chunkPromises = chunk.map(({ broker, date }) => 
-              fetchBrokerTransactionData(broker, date, pivotFilter, invFilter, boardFilter, cache, abortController.signal)
-                  .then(data => ({ success: true, broker, date, data }))
-                  .catch(error => ({ success: false, broker, date, error }))
+              const chunkPromises = chunk.map(({ code, date }) => 
+              fetchBrokerTransactionData(code, date, pivotFilter, invFilter, boardFilter, cache, abortController.signal)
+                  .then(data => ({ success: true, code, date, data }))
+                  .catch(error => ({ success: false, code, date, error }))
             );
             
               // Wait for chunk to complete
@@ -613,10 +657,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               // Process chunk results
               chunkResults.forEach((result) => {
                 if (result.success && 'data' in result && result.data && result.data.length > 0) {
-                  allDataResults.push({ date: result.date, broker: result.broker, data: result.data });
+                  allDataResults.push({ date: result.date, code: result.code, data: result.data });
                   completedCount++;
                 } else if (!result.success && 'error' in result) {
-                  console.warn(`[BrokerTransaction] Failed to fetch data for ${result.broker}-${result.date}:`, result.error);
+                  console.warn(`[BrokerTransaction] Failed to fetch data for ${result.code}-${result.date}:`, result.error);
                 }
               });
               
@@ -667,12 +711,75 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         
         // Process data per date - AGGREGATE per Emiten and per section (Buy, Sell, Net Buy, Net Sell)
         // When multiple brokers are selected, sum values for the same Emiten
+        // CRITICAL: For Stock pivot, don't aggregate - each row is already complete (broker transaction for a stock)
+        // For Broker pivot, aggregate by Emiten (stock) when multiple brokers are selected
         for (const date of selectedDates) {
           // CRITICAL: Check ref during aggregation - user might have changed dates
           if (!shouldFetchDataRef.current) {
             return;
           }
           
+          // For Stock pivot: don't aggregate, just collect all rows
+          // For Broker pivot: aggregate by Emiten (stock) when multiple brokers are selected
+          if (pivotFilter === 'Stock') {
+            // For Stock pivot, each row is already complete - no aggregation needed
+            const allRows: BrokerTransactionData[] = [];
+            allDataResults.forEach(({ date: resultDate, data }) => {
+              if (resultDate !== date) return;
+              allRows.push(...data);
+            });
+            
+            // Store raw data (before filtering)
+            const rawRows = [...allRows];
+            
+            // Apply filters if needed
+            // CRITICAL: For Stock pivot, filter by broker if selectedBrokers is provided
+            // For Stock pivot: Emiten, BCode, SCode, NBCode, NSCode are all broker codes
+            let filteredRows = allRows;
+            
+            // Priority 1: Filter by broker (if selectedBrokers is provided)
+            if (selectedBrokers.length > 0) {
+              // Normalize selected brokers to uppercase for case-insensitive comparison
+              const normalizedSelectedBrokers = selectedBrokers.map(b => b.toUpperCase());
+              
+              filteredRows = filteredRows.filter(row => {
+                const emiten = (row.Emiten || '').toUpperCase();
+                const bCode = (row.BCode || '').toUpperCase();
+                const sCode = (row.SCode || '').toUpperCase();
+                const nbCode = (row.NBCode || '').toUpperCase();
+                const nsCode = (row.NSCode || '').toUpperCase();
+                
+                // Check if any broker code in row matches selected brokers (case-insensitive)
+                return normalizedSelectedBrokers.includes(emiten) || 
+                       normalizedSelectedBrokers.includes(bCode) || 
+                       normalizedSelectedBrokers.includes(sCode) || 
+                       normalizedSelectedBrokers.includes(nbCode) || 
+                       normalizedSelectedBrokers.includes(nsCode);
+              });
+            }
+            
+            // Priority 2: Filter by ticker (if selectedTickers is provided and no broker filter)
+            // Note: For Stock pivot, selectedTickers are the stocks we're viewing
+            // We already filtered at fetch time, but can apply additional filtering here if needed
+            if (selectedTickers.length > 0 && selectedBrokers.length === 0) {
+              // For Stock pivot, we already filtered by ticker at fetch time
+              // But we can keep this for consistency
+              filteredRows = filteredRows;
+            }
+            
+            // Priority 3: Filter by sector (if selectedSectors is provided)
+            if (selectedSectors.length > 0 && selectedBrokers.length === 0 && selectedTickers.length === 0) {
+              // For Stock pivot, broker codes don't have sectors, so this won't filter anything
+              filteredRows = filteredRows;
+            }
+            
+            // Store data
+            newRawTransactionData.set(date, rawRows);
+            newTransactionData.set(date, filteredRows);
+            continue;
+          }
+          
+          // For Broker pivot: aggregate by Emiten (stock)
           // Map to aggregate data per Emiten and per section
           // Key: Emiten, Value: aggregated BrokerTransactionData
           const aggregatedMap = new Map<string, BrokerTransactionData>();
@@ -694,6 +801,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   existing.BuyerValue = (existing.BuyerValue || 0) + (row.BuyerValue || 0);
                   existing.BFreq = (existing.BFreq || 0) + (row.BFreq || 0);
                   existing.BOrdNum = (existing.BOrdNum || 0) + (row.BOrdNum || 0);
+                  existing.BLot = (existing.BLot || 0) + (row.BLot || 0);
                   // Use Lot/F and Lot/ON from CSV only - no manual calculation
                   // Use weighted average when both values exist, otherwise use the one that exists
                   if (row.BLotPerFreq !== undefined && row.BLotPerFreq !== null) {
@@ -707,18 +815,29 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       existing.BLotPerFreq = row.BLotPerFreq;
                     }
                   }
+                  // CRITICAL: For BLotPerOrdNum, recalculate from aggregated BLot and BOrdNum
+                  // This ensures accuracy when aggregating multiple brokers
+                  // Formula: BLotPerOrdNum = BLot / BOrdNum (when BOrdNum != 0)
                   if (row.BLotPerOrdNum !== undefined && row.BLotPerOrdNum !== null) {
                     if (existing.BLotPerOrdNum !== undefined && existing.BLotPerOrdNum !== null) {
-                      // Weighted average based on order number (both values from CSV)
-                      const totalOrdNum = (existing.BOrdNum || 0) + (row.BOrdNum || 0);
+                      // Recalculate from aggregated values: BLotPerOrdNum = total BLot / total BOrdNum
+                      const totalOrdNum = (existing.BOrdNum || 0);
                       if (totalOrdNum !== 0) {
-                        existing.BLotPerOrdNum = ((existing.BLotPerOrdNum * Math.abs(existing.BOrdNum || 0)) + (row.BLotPerOrdNum * Math.abs(row.BOrdNum || 0))) / Math.abs(totalOrdNum);
+                        existing.BLotPerOrdNum = Math.abs(existing.BLot || 0) / Math.abs(totalOrdNum);
+                      } else {
+                        // If totalOrdNum is 0, use weighted average as fallback
+                        const totalOrdNumForWeight = (existing.BOrdNum || 0) + (row.BOrdNum || 0);
+                        if (totalOrdNumForWeight !== 0) {
+                          existing.BLotPerOrdNum = ((existing.BLotPerOrdNum * Math.abs(existing.BOrdNum || 0)) + (row.BLotPerOrdNum * Math.abs(row.BOrdNum || 0))) / Math.abs(totalOrdNumForWeight);
+                        }
                       }
                     } else {
                       existing.BLotPerOrdNum = row.BLotPerOrdNum;
                     }
+                  } else if (existing.BOrdNum !== 0) {
+                    // If row doesn't have BLotPerOrdNum but we have aggregated values, recalculate
+                    existing.BLotPerOrdNum = Math.abs(existing.BLot || 0) / Math.abs(existing.BOrdNum || 0);
                   }
-                  existing.BLot = (existing.BLot || 0) + (row.BLot || 0);
                   // Recalculate BuyerAvg from aggregated values
                   existing.BuyerAvg = (existing.BuyerVol || 0) > 0 ? (existing.BuyerValue || 0) / (existing.BuyerVol || 0) : 0;
                   
@@ -2780,9 +2899,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     const buyerLotPerFreq = dayData.BLotPerFreq;
                                     // Use NewBuyerOrdNum for BOR display, fallback to BOrdNum if not available
                                     const buyerOrdNum = dayData.NewBuyerOrdNum !== undefined ? dayData.NewBuyerOrdNum : (dayData.BOrdNum || 0);
-                                    // Use BLotPerOrdNum directly from CSV column 7, not calculated
-                                    // const buyerLotPerOrdNum = dayData.BLotPerOrdNum !== undefined ? dayData.BLotPerOrdNum : (buyerOrdNum > 0 ? buyerLot / buyerOrdNum : 0);
-                                    const buyerLotPerOrdNum = dayData.BLotPerOrdNum;
+                                    // CRITICAL: For Broker pivot, use BLotPerOrdNum directly from CSV column 7, not calculated
+                                    // This is the Lot/Or value for Buy section
+                                    const buyerLotPerOrdNum = dayData.BLotPerOrdNum ?? 0;
                                     
                                     const bCode = dayData.BCode || buyRowData.stock;
                                     const bCodeColor = getStockColorClass(bCode);
@@ -2834,8 +2953,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     const sellerLotPerFreq = dayData.SLotPerFreq;
                                     // Use NewSellerOrdNum for SOR display, fallback to SOrdNum if not available
                                     const sellerOrdNum = dayData.NewSellerOrdNum !== undefined ? dayData.NewSellerOrdNum : (dayData.SOrdNum || 0);
-                                    // Use SLotPerOrdNum directly from CSV column 15, no fallback
-                                    const sellerLotPerOrdNum = dayData.SLotPerOrdNum;
+                                    // CRITICAL: For Broker pivot, use SLotPerOrdNum directly from CSV column 15, not calculated
+                                    // This is the Lot/Or value for Sell section
+                                    const sellerLotPerOrdNum = dayData.SLotPerOrdNum ?? 0;
                                     
                                     // Debug: log SCode to verify it's correct
                                     if (rowIdx <= 2 && dateIndex === 0) {
@@ -3806,7 +3926,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 />
               {showTickerSuggestions && (
                 <div id="ticker-suggestions" role="listbox" className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col min-w-[400px]">
-                  {availableTickers.length === 0 ? (
+                  {isLoadingStocks || (availableTickers.length === 0 && availableStocksFromAPI.length === 0) ? (
                     <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
                       <Loader2 className="w-4 h-4 animate-spin mr-2" />
                       Loading stocks...
@@ -4252,7 +4372,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               shouldFetchDataRef.current = true;
               setShouldFetchData(true);
             }}
-            disabled={isLoading || selectedBrokers.length === 0 || !startDate || !endDate}
+            disabled={isLoading || 
+              (pivotFilter === 'Broker' && selectedBrokers.length === 0) || 
+              (pivotFilter === 'Stock' && selectedTickers.length === 0) || 
+              !startDate || !endDate}
             // NOTE: selectedTickers can be empty (show all tickers) - it's not required for Show button
             className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full md:w-auto"
           >
