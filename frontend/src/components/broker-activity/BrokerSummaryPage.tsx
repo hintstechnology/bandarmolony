@@ -1921,16 +1921,38 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
 
                     // Helper function to get underline style for BY columns
                     // If broker is in top 5 NetBuy (locked in Total SL), give underline in BY columns if they appear
+                    // Double underline: first line (top, 2px) with transparent, second line (below, 3px) with color
+                    // Uses border-bottom for transparent line (2px) and background-image for colored line (3px) below
                     const getNetBuyUnderlineStyle = (broker: string): React.CSSProperties | undefined => {
                       const color = netSellBrokerUnderlineMap.get(broker);
-                      return color ? { borderBottom: `4px solid ${color}` } : undefined;
+                      return color ? { 
+                        borderBottom: `2px solid transparent`,
+                        paddingBottom: '7px',
+                        paddingTop: '1px',
+                        lineHeight: '1.1',
+                        backgroundImage: `linear-gradient(to bottom, transparent calc(100% - 5px), ${color} calc(100% - 5px), ${color} calc(100% - 2px), transparent calc(100% - 2px))`,
+                        backgroundSize: '100% 7px',
+                        backgroundPosition: 'bottom',
+                        backgroundRepeat: 'no-repeat'
+                      } : undefined;
                     };
 
                     // Helper function to get underline color for SL columns
                     // LOCKED: Top 5 NetBuy brokers from Total get underline in SL columns across all dates
+                    // Double underline: first line (top, 2px) with transparent, second line (below, 3px) with color
+                    // Uses border-bottom for transparent line (2px) and background-image for colored line (3px) below
                     const getNetSellUnderlineStyle = (broker: string): React.CSSProperties | undefined => {
                       const color = netSellBrokerUnderlineMap.get(broker);
-                      return color ? { borderBottom: `4px solid ${color}` } : undefined;
+                      return color ? { 
+                        borderBottom: `2px solid transparent`,
+                        paddingBottom: '7px',
+                        paddingTop: '1px',
+                        lineHeight: '1.1',
+                        backgroundImage: `linear-gradient(to bottom, transparent calc(100% - 5px), ${color} calc(100% - 5px), ${color} calc(100% - 2px), transparent calc(100% - 2px))`,
+                        backgroundSize: '100% 7px',
+                        backgroundPosition: 'bottom',
+                        backgroundRepeat: 'no-repeat'
+                      } : undefined;
                     };
 
                     // Helper function to get background color style for SL columns
