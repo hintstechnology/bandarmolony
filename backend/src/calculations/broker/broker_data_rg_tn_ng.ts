@@ -1,6 +1,6 @@
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
 
-// Type definitions, sama seperti broker_data.ts
+// Type definitions, sama seperti broker_summary.ts
 type TransactionType = 'RG' | 'TN' | 'NG';
 interface TransactionData {
   STK_CODE: string;

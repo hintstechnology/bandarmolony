@@ -14,14 +14,6 @@ import {
   MAX_CONCURRENT_REQUESTS
 } from './dataUpdateService';
 import { SchedulerLogService } from './schedulerLogService';
-import { AzureLogger } from './azureLoggingService';
-
-// Timezone helper function
-function getJakartaTime(): string {
-  const now = new Date();
-  const jakartaTime = new Date(now.getTime() + (7 * 60 * 60 * 1000)); // UTC + 7
-  return jakartaTime.toISOString();
-}
 
 // Process single index with optimized error handling
 async function processIndex(
@@ -40,13 +32,13 @@ async function processIndex(
     const cacheKey = `index_${indexCode}_${todayDate}`;
     const cachedData = cache.get(cacheKey);
     if (cachedData) {
-      await AzureLogger.logItemProcess('index', 'SUCCESS', indexCode, 'Data loaded from cache');
       return { success: true, skipped: false };
     }
     
     // Progress logging
     if ((index + 1) % 50 === 0 || index === 0) {
-      await AzureLogger.logProgress('index', index + 1, total, `Processing ${indexCode}`);
+      const percentage = Math.round(((index + 1) / total) * 100);
+      console.log(`📊 Index progress - ${index + 1}/${total} (${percentage}%) - Processing ${indexCode}`);
       if (logId) {
         await SchedulerLogService.updateLog(logId, {
           progress_percentage: Math.round(((index + 1) / total) * 100),
@@ -64,7 +56,7 @@ async function processIndex(
     
     // Validate dates
     if (!sevenDaysAgoDate || !todayDate) {
-      await AzureLogger.logItemProcess('index', 'ERROR', indexCode, 'Invalid date calculation');
+      console.error(`❌ Index ERROR - ${indexCode} - Invalid date calculation`);
       return { success: false, skipped: false, error: 'Invalid date calculation' };
     }
     
@@ -113,7 +105,6 @@ async function processIndex(
     
     // If all dates exist, skip
     if (missingDates.length === 0) {
-      await AzureLogger.logItemProcess('index', 'SKIP', indexCode, `All data for past 7 days already exists`);
       return { success: true, skipped: true };
     }
     
@@ -180,25 +171,21 @@ async function processIndex(
     // Cache the result
     cache.set(cacheKey, { processed: true });
     
-    await AzureLogger.logItemProcess('index', 'SUCCESS', indexCode, 'Data updated successfully');
     return { success: true, skipped: false };
 
   } catch (error: any) {
-    await AzureLogger.logItemProcess('index', 'ERROR', indexCode, error.message);
+    console.error(`❌ Index ERROR - ${indexCode} - ${error.message}`);
     return { success: false, skipped: false, error: error.message };
   }
 }
 
 // Main update function
 export async function updateIndexData(logId?: string | null): Promise<void> {
-  const SCHEDULER_TYPE = 'index';
-  
   // Skip if weekend
   const today = new Date();
   const dayOfWeek = today.getDay();
   
   if (dayOfWeek === 0 || dayOfWeek === 6) {
-    await AzureLogger.logWeekendSkip(SCHEDULER_TYPE);
     console.log('📅 Weekend detected - skipping Index Data update (no market data available)');
     return;
   }
@@ -211,9 +198,7 @@ export async function updateIndexData(logId?: string | null): Promise<void> {
       trigger_type: 'scheduled',
       triggered_by: 'system',
       status: 'running',
-      force_override: false,
-      environment: process.env['NODE_ENV'] || 'development',
-      started_at: getJakartaTime()
+      environment: process.env['NODE_ENV'] || 'development'
     });
 
     if (!logEntry) {
@@ -225,11 +210,11 @@ export async function updateIndexData(logId?: string | null): Promise<void> {
   }
   
   try {
-    await AzureLogger.logSchedulerStart(SCHEDULER_TYPE, 'Optimized daily index data update');
+    console.log('🚀 Index scheduler started - Optimized daily index data update');
     
     const azureStorage = new OptimizedAzureStorageService();
     await azureStorage.ensureContainerExists();
-    await AzureLogger.logInfo(SCHEDULER_TYPE, 'Azure Storage initialized');
+    console.log('ℹ️ Azure Storage initialized');
 
     // Get list of indexes from CSV input
     const indexesCsvData = await azureStorage.downloadCsvData('csv_input/index_list.csv');
@@ -237,7 +222,7 @@ export async function updateIndexData(logId?: string | null): Promise<void> {
       .map(line => line.trim().replace(/"/g, ''))
       .filter(line => line && line.length > 0);
 
-    await AzureLogger.logInfo(SCHEDULER_TYPE, `Found ${indexList.length} indexes to update`);
+    console.log(`ℹ️ Found ${indexList.length} indexes to update`);
 
     const jwtToken = process.env['TICMI_JWT_TOKEN'] || '';
     const baseUrl = `${process.env['TICMI_API_BASE_URL'] || ''}/dp/ix/`;
@@ -277,18 +262,12 @@ export async function updateIndexData(logId?: string | null): Promise<void> {
     const skipCount = results.filter(r => r.success && r.skipped).length;
     const errorCount = results.filter(r => !r.success).length;
 
-    await AzureLogger.logSchedulerEnd(SCHEDULER_TYPE, {
-      success: successCount,
-      skipped: skipCount,
-      failed: errorCount,
-      total: indexList.length
-    });
+    console.log(`✅ Index scheduler completed - Success: ${successCount}, Skipped: ${skipCount}, Failed: ${errorCount}, Total: ${indexList.length}`);
 
     if (finalLogId) {
-      await SchedulerLogService.updateLog(finalLogId, {
-        status: 'completed',
-        progress_percentage: 100,
-        total_files_processed: successCount,
+      await SchedulerLogService.markCompleted(finalLogId, {
+        total_files_processed: indexList.length,
+        files_created: successCount,
         files_skipped: skipCount,
         files_failed: errorCount
       });
@@ -298,12 +277,9 @@ export async function updateIndexData(logId?: string | null): Promise<void> {
     console.log(`📊 Success: ${successCount}, Skipped: ${skipCount}, Failed: ${errorCount}`);
 
   } catch (error: any) {
-    await AzureLogger.logSchedulerError(SCHEDULER_TYPE, error.message);
+    console.error(`❌ Index scheduler error: ${error.message}`);
     if (finalLogId) {
-      await SchedulerLogService.updateLog(finalLogId, {
-        status: 'failed',
-        error_message: error.message
-      });
+      await SchedulerLogService.markFailed(finalLogId, error.message, error);
     }
   }
 }

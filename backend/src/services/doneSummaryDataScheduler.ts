@@ -4,14 +4,7 @@
 import { Storage } from '@google-cloud/storage';
 import { BlobServiceClient, StorageSharedKeyCredential } from '@azure/storage-blob';
 import { SchedulerLogService } from './schedulerLogService';
-import { AzureLogger } from './azureLoggingService';
 
-// Timezone helper function
-function getJakartaTime(): string {
-  const now = new Date();
-  const jakartaTime = new Date(now.getTime() + (7 * 60 * 60 * 1000)); // UTC + 7
-  return jakartaTime.toISOString();
-}
 
 // Google Cloud Storage Service
 class GoogleCloudStorageService {
@@ -135,14 +128,11 @@ async function streamToBuffer(readableStream: NodeJS.ReadableStream): Promise<Bu
 
 // Main update function
 export async function updateDoneSummaryData(logId?: string | null): Promise<void> {
-  const SCHEDULER_TYPE = 'done-summary';
-  
   // Skip if weekend
   const today = new Date();
   const dayOfWeek = today.getDay();
   
   if (dayOfWeek === 0 || dayOfWeek === 6) {
-    await AzureLogger.logWeekendSkip(SCHEDULER_TYPE);
     console.log('📅 Weekend detected - skipping Done Summary Data sync (no market data available)');
     return;
   }
@@ -155,9 +145,7 @@ export async function updateDoneSummaryData(logId?: string | null): Promise<void
       trigger_type: 'scheduled',
       triggered_by: 'system',
       status: 'running',
-      force_override: false,
-      environment: process.env['NODE_ENV'] || 'development',
-      started_at: getJakartaTime()
+      environment: process.env['NODE_ENV'] || 'development'
     });
 
     if (!logEntry) {
@@ -169,11 +157,11 @@ export async function updateDoneSummaryData(logId?: string | null): Promise<void
   }
   
   try {
-    await AzureLogger.logSchedulerStart(SCHEDULER_TYPE, 'Daily done summary data update');
+    console.log('🚀 Done Summary scheduler started - Daily done summary data update');
     
     const azureStorage = new AzureStorageService();
     await azureStorage.ensureContainerExists();
-    await AzureLogger.logInfo(SCHEDULER_TYPE, 'Azure Storage initialized');
+    console.log('ℹ️ Azure Storage initialized');
 
     // Download GCS credentials from Azure
     const credentialsBlobName = 'csv_input/cred-bucket-ferry.json';
@@ -187,17 +175,21 @@ export async function updateDoneSummaryData(logId?: string | null): Promise<void
       gcsCredentials = JSON.parse(credentialsJson);
     } catch (error: any) {
       if (error.statusCode === 404) {
-        await AzureLogger.logSchedulerError(SCHEDULER_TYPE, `GCS credentials not found at ${credentialsBlobName}. Please upload cred-bucket-ferry.json to csv_input/ directory in Azure.`);
+        const errorMsg = `GCS credentials not found at ${credentialsBlobName}. Please upload cred-bucket-ferry.json to csv_input/ directory in Azure.`;
+        console.error(`❌ Done Summary scheduler error: ${errorMsg}`);
+        if (finalLogId) {
+          await SchedulerLogService.markFailed(finalLogId, errorMsg, error);
+        }
         return;
       }
       throw error;
     }
     
     const gcsStorage = new GoogleCloudStorageService(gcsCredentials);
-    await AzureLogger.logInfo(SCHEDULER_TYPE, 'GCS Storage initialized with credentials from Azure');
+    console.log('ℹ️ GCS Storage initialized with credentials from Azure');
 
     // List all files in GCS and check which ones don't exist in Azure
-    await AzureLogger.logInfo(SCHEDULER_TYPE, 'Listing all files in GCS...');
+    console.log('ℹ️ Listing all files in GCS...');
     const gcsAllFiles = await gcsStorage.listFiles('');
     
     // Filter for DT CSV files (pattern: YYYYMMDD/DTYYMMDD.csv)
@@ -214,7 +206,7 @@ export async function updateDoneSummaryData(logId?: string | null): Promise<void
       return dateB.localeCompare(dateA); // Descending order (newest first)
     });
     
-    await AzureLogger.logInfo(SCHEDULER_TYPE, `Found ${sortedGcsFiles.length} DT CSV files in GCS (sorted newest first)`);
+    console.log(`ℹ️ Found ${sortedGcsFiles.length} DT CSV files in GCS (sorted newest first)`);
     
     // Check which files already exist in Azure and filter out existing ones
     const filesToProcess: string[] = [];
@@ -238,22 +230,16 @@ export async function updateDoneSummaryData(logId?: string | null): Promise<void
       filesToProcess.push(gcsFileName);
     }
     
-    await AzureLogger.logInfo(SCHEDULER_TYPE, `Found ${filesToProcess.length} files to process (${existingCount} already exist in Azure)`);
+    console.log(`ℹ️ Found ${filesToProcess.length} files to process (${existingCount} already exist in Azure)`);
     
     if (filesToProcess.length === 0) {
-      await AzureLogger.logInfo(SCHEDULER_TYPE, 'All files already exist in Azure - nothing to process');
-      await AzureLogger.logSchedulerEnd(SCHEDULER_TYPE, {
-        success: 0,
-        skipped: existingCount,
-        failed: 0,
-        total: sortedGcsFiles.length
-      });
+      console.log('ℹ️ All files already exist in Azure - nothing to process');
+      console.log(`✅ Done Summary scheduler completed - Success: 0, Skipped: ${existingCount}, Failed: 0, Total: ${sortedGcsFiles.length}`);
       
       if (finalLogId) {
-        await SchedulerLogService.updateLog(finalLogId, {
-          status: 'completed',
-          progress_percentage: 100,
-          total_files_processed: 0,
+        await SchedulerLogService.markCompleted(finalLogId, {
+          total_files_processed: existingCount,
+          files_created: 0,
           files_skipped: existingCount,
           files_failed: 0
         });
@@ -280,17 +266,18 @@ export async function updateDoneSummaryData(logId?: string | null): Promise<void
       
       try {
         if ((i + 1) % 5 === 0 || i === 0) {
-          await AzureLogger.logProgress(SCHEDULER_TYPE, i + 1, filesToProcess.length, `Syncing ${gcsFileName}`);
+          const percentage = Math.round(((i + 1) / filesToProcess.length) * 100);
+          console.log(`📊 Done Summary progress - ${i + 1}/${filesToProcess.length} (${percentage}%) - Syncing ${gcsFileName}`);
           if (finalLogId) {
             await SchedulerLogService.updateLog(finalLogId, {
-              progress_percentage: Math.round(((i + 1) / filesToProcess.length) * 100),
+              progress_percentage: percentage,
               current_processing: `Syncing done summary ${i + 1}/${filesToProcess.length}`
             });
           }
         }
         
         // Download from Google Cloud Storage by listed file name
-        await AzureLogger.logInfo(SCHEDULER_TYPE, `Attempting to download from GCS: ${gcsFileName}`);
+        console.log(`ℹ️ Attempting to download from GCS: ${gcsFileName}`);
         
         try {
           const fileData = await gcsStorage.downloadFileAsString(gcsFileName);
@@ -298,48 +285,39 @@ export async function updateDoneSummaryData(logId?: string | null): Promise<void
           // Upload to Azure Storage
           await azureStorage.uploadString(azureBlobName, fileData, 'text/csv');
           
-          await AzureLogger.logItemProcess(SCHEDULER_TYPE, 'SUCCESS', dateStr || gcsFileName, 'Done summary transferred successfully');
+          console.log(`✅ Done Summary SUCCESS - ${dateStr || gcsFileName} - Done summary transferred successfully`);
           successCount++;
         } catch (gcsError: any) {
           if (gcsError.code === 404 || (gcsError.message && gcsError.message.includes('No such object'))) {
-            await AzureLogger.logItemProcess(SCHEDULER_TYPE, 'SKIP', dateStr || gcsFileName, 'Done summary not found in GCS');
+            console.log(`⏭️ Done Summary SKIP - ${dateStr || gcsFileName} - Done summary not found in GCS`);
             skipCount++;
           } else {
-            await AzureLogger.logItemProcess(SCHEDULER_TYPE, 'ERROR', dateStr || gcsFileName, `GCS Error: ${gcsError.message}`);
+            console.error(`❌ Done Summary ERROR - ${dateStr || gcsFileName} - GCS Error: ${gcsError.message}`);
             errorCount++;
           }
         }
 
       } catch (error: any) {
         errorCount++;
-        await AzureLogger.logItemProcess(SCHEDULER_TYPE, 'ERROR', dateStr || gcsFileName, `Unexpected error: ${error.message}`);
+        console.error(`❌ Done Summary ERROR - ${dateStr || gcsFileName} - Unexpected error: ${error.message}`);
       }
     }
 
-    await AzureLogger.logSchedulerEnd(SCHEDULER_TYPE, {
-      success: successCount,
-      skipped: skipCount,
-      failed: errorCount,
-      total: sortedGcsFiles.length
-    });
+    console.log(`✅ Done Summary scheduler completed - Success: ${successCount}, Skipped: ${skipCount}, Failed: ${errorCount}, Total: ${sortedGcsFiles.length}`);
 
     if (finalLogId) {
-      await SchedulerLogService.updateLog(finalLogId, {
-        status: 'completed',
-        progress_percentage: 100,
-        total_files_processed: successCount,
+      await SchedulerLogService.markCompleted(finalLogId, {
+        total_files_processed: sortedGcsFiles.length,
+        files_created: successCount,
         files_skipped: skipCount,
         files_failed: errorCount
       });
     }
 
   } catch (error: any) {
-    await AzureLogger.logSchedulerError(SCHEDULER_TYPE, error.message);
+    console.error(`❌ Done Summary scheduler error: ${error.message}`);
     if (finalLogId) {
-      await SchedulerLogService.updateLog(finalLogId, {
-        status: 'failed',
-        error_message: error.message
-      });
+      await SchedulerLogService.markFailed(finalLogId, error.message, error);
     }
   }
 }

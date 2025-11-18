@@ -8,7 +8,8 @@ import { forceRegenerate as forceRegenerateSeasonal } from './seasonalityDataSch
 import TrendFilterDataScheduler from './trendFilterDataScheduler';
 import AccumulationDataScheduler from './accumulationDataScheduler';
 import BidAskDataScheduler from './bidAskDataScheduler';
-import BrokerDataScheduler from './brokerDataScheduler';
+import BrokerSummaryDataScheduler from './brokerSummaryDataScheduler';
+import TopBrokerDataScheduler from './topBrokerDataScheduler';
 import BrokerInventoryDataScheduler from './brokerInventoryDataScheduler';
 import BrokerSummaryTypeDataScheduler from './brokerSummaryTypeDataScheduler';
 import BrokerSummaryIDXDataScheduler from './brokerSummaryIDXDataScheduler';
@@ -18,13 +19,18 @@ import MoneyFlowDataScheduler from './moneyFlowDataScheduler';
 import BreakDoneTradeDataScheduler from './breakDoneTradeDataScheduler';
 import BrokerTransactionDataScheduler from './brokerTransactionDataScheduler';
 import BrokerTransactionRGTNNGDataScheduler from './brokerTransactionRGTNNGDataScheduler';
+import BrokerTransactionFDDataScheduler from './brokerTransactionFDDataScheduler';
+import BrokerTransactionFDRGTNNGDataScheduler from './brokerTransactionFDRGTNNGDataScheduler';
+import BrokerTransactionStockDataScheduler from './brokerTransactionStockDataScheduler';
+import BrokerTransactionStockFDDataScheduler from './brokerTransactionStockFDDataScheduler';
+import BrokerTransactionStockRGTNNGDataScheduler from './brokerTransactionStockRGTNNGDataScheduler';
+import BrokerTransactionStockFDRGTNNGDataScheduler from './brokerTransactionStockFDRGTNNGDataScheduler';
 import { SchedulerLogService, SchedulerLog } from './schedulerLogService';
 import { updateDoneSummaryData } from './doneSummaryDataScheduler';
 import { updateStockData } from './stockDataScheduler';
 import { updateIndexData } from './indexDataScheduler';
 import { updateShareholdersData } from './shareholdersDataScheduler';
 import { updateHoldingData } from './holdingDataScheduler';
-import { initializeAzureLogging } from './azureLoggingService';
 import { updateWatchlistSnapshot } from './watchlistSnapshotService';
 
 // ======================
@@ -37,12 +43,17 @@ let SCHEDULER_CONFIG = {
   PHASE1_DATA_COLLECTION_TIME: '19:00',    // Data collection (Stock, Index, Done Summary)
   PHASE1_SHAREHOLDERS_TIME: '00:01',       // Shareholders & Holding (if first day of month)
   
-  // Phase 2-6 are auto-triggered sequentially after Phase 1 completes
-  // Phase 2: Market rotation (RRC, RRG, Seasonal, Trend Filter, Watchlist Snapshot)
-  // Phase 3: Light calculations (Money Flow, Foreign Flow, Break Done Trade)
-  // Phase 4: Medium calculations (Bid/Ask Footprint, Broker Breakdown)
-  // Phase 5: Heavy calculations (Broker Data (Broker Summary + Top Broker), Broker Summary by Type, Broker Summary IDX, Broker Transaction, Broker Transaction RG/TN/NG)
-  // Phase 6: Very Heavy calculations (Broker Inventory, Accumulation Distribution)
+  // Phase 1a-1b: Input data (scheduled)
+  // Phase 2-8 are auto-triggered sequentially after Phase 1a completes
+  // Phase 1a: Input Daily (Stock, Index, Done Summary)
+  // Phase 1b: Input Monthly (Shareholders & Holding)
+  // Phase 2: Market Rotation (RRC, RRG, Seasonal, Trend Filter, Watchlist Snapshot)
+  // Phase 3: Flow Trade (Money Flow, Foreign Flow, Break Done Trade)
+  // Phase 4: Broker Summary (Top Broker, Broker Summary, Broker Summary IDX, Broker Summary by Type)
+  // Phase 5: Broktrans Broker (Broker Transaction, Broker Transaction RG/TN/NG, Broker Transaction F/D, Broker Transaction F/D RG/TN/NG)
+  // Phase 6: Broktrans Stock (Broker Transaction Stock, Broker Transaction Stock F/D, Broker Transaction Stock RG/TN/NG, Broker Transaction Stock F/D RG/TN/NG)
+  // Phase 7: Bid Breakdown (Bid/Ask Footprint, Broker Breakdown)
+  // Phase 8: Additional (Broker Inventory, Accumulation Distribution)
   
   // Memory Management
   MEMORY_CLEANUP_INTERVAL: 5000,  // 5 seconds
@@ -83,24 +94,28 @@ let scheduledTasks: any[] = [];
 
 // Phase status tracking
 let phaseStatus: Record<string, 'idle' | 'running' | 'stopped'> = {
-  phase1_data_collection: 'idle',
-  phase1_shareholders: 'idle',
+  phase1a_input_daily: 'idle',
+  phase1b_input_monthly: 'idle',
   phase2_market_rotation: 'idle',
-  phase3_light: 'idle',
-  phase4_medium: 'idle',
-  phase5_heavy: 'idle',
-  phase6_very_heavy: 'idle'
+  phase3_flow_trade: 'idle',
+  phase4_broker_summary: 'idle',
+  phase5_broktrans_broker: 'idle',
+  phase6_broktrans_stock: 'idle',
+  phase7_bid_breakdown: 'idle',
+  phase8_additional: 'idle'
 };
 
 // Phase enabled/disabled tracking
 let phaseEnabled: Record<string, boolean> = {
-  phase1_data_collection: true,
-  phase1_shareholders: true,
+  phase1a_input_daily: true,
+  phase1b_input_monthly: true,
   phase2_market_rotation: true,
-  phase3_light: true,
-  phase4_medium: true,
-  phase5_heavy: true,
-  phase6_very_heavy: true
+  phase3_flow_trade: true,
+  phase4_broker_summary: true,
+  phase5_broktrans_broker: true,
+  phase6_broktrans_stock: true,
+  phase7_bid_breakdown: true,
+  phase8_additional: true
 };
 
 // Phase trigger configuration: 'scheduled' (with time) or 'auto' (trigger after another phase)
@@ -111,18 +126,21 @@ interface PhaseTriggerConfig {
 }
 
 let phaseTriggerConfig: Record<string, PhaseTriggerConfig> = {
-  phase1_data_collection: { type: 'scheduled', schedule: PHASE1_DATA_COLLECTION_TIME },
-  phase1_shareholders: { type: 'scheduled', schedule: PHASE1_SHAREHOLDERS_TIME },
-  phase2_market_rotation: { type: 'auto', triggerAfterPhase: 'phase1_data_collection' },
-  phase3_light: { type: 'auto', triggerAfterPhase: 'phase2_market_rotation' },
-  phase4_medium: { type: 'auto', triggerAfterPhase: 'phase3_light' },
-  phase5_heavy: { type: 'auto', triggerAfterPhase: 'phase4_medium' },
-  phase6_very_heavy: { type: 'auto', triggerAfterPhase: 'phase5_heavy' }
+  phase1a_input_daily: { type: 'scheduled', schedule: PHASE1_DATA_COLLECTION_TIME },
+  phase1b_input_monthly: { type: 'scheduled', schedule: PHASE1_SHAREHOLDERS_TIME },
+  phase2_market_rotation: { type: 'auto', triggerAfterPhase: 'phase1a_input_daily' },
+  phase3_flow_trade: { type: 'auto', triggerAfterPhase: 'phase2_market_rotation' },
+  phase4_broker_summary: { type: 'auto', triggerAfterPhase: 'phase3_flow_trade' },
+  phase5_broktrans_broker: { type: 'auto', triggerAfterPhase: 'phase4_broker_summary' },
+  phase6_broktrans_stock: { type: 'auto', triggerAfterPhase: 'phase5_broktrans_broker' },
+  phase7_bid_breakdown: { type: 'auto', triggerAfterPhase: 'phase6_broktrans_stock' },
+  phase8_additional: { type: 'auto', triggerAfterPhase: 'phase7_bid_breakdown' }
 };
 const trendFilterService = new TrendFilterDataScheduler();
 const accumulationService = new AccumulationDataScheduler();
 const bidAskService = new BidAskDataScheduler();
-const brokerDataService = new BrokerDataScheduler();
+const brokerSummaryService = new BrokerSummaryDataScheduler();
+const topBrokerService = new TopBrokerDataScheduler();
 const brokerInventoryService = new BrokerInventoryDataScheduler();
 const brokerBreakdownService = new BrokerBreakdownDataScheduler();
 const brokerSummaryTypeService = new BrokerSummaryTypeDataScheduler();
@@ -132,6 +150,12 @@ const moneyFlowService = new MoneyFlowDataScheduler();
 const breakDoneTradeService = new BreakDoneTradeDataScheduler();
 const brokerTransactionService = new BrokerTransactionDataScheduler();
 const brokerTransactionRGTNNGService = new BrokerTransactionRGTNNGDataScheduler();
+const brokerTransactionFDService = new BrokerTransactionFDDataScheduler();
+const brokerTransactionFDRGTNNGService = new BrokerTransactionFDRGTNNGDataScheduler();
+const brokerTransactionStockService = new BrokerTransactionStockDataScheduler();
+const brokerTransactionStockFDService = new BrokerTransactionStockFDDataScheduler();
+const brokerTransactionStockRGTNNGService = new BrokerTransactionStockRGTNNGDataScheduler();
+const brokerTransactionStockFDRGTNNGService = new BrokerTransactionStockFDRGTNNGDataScheduler();
 
 // Memory monitoring variables
 let memoryMonitorInterval: NodeJS.Timeout | null = null;
@@ -339,6 +363,7 @@ export async function runPhase2MarketRotationCalculations(): Promise<void> {
       trigger_type: 'scheduled',
       triggered_by: 'phase1',
       status: 'running',
+      phase_id: 'phase2_market_rotation',
       started_at: new Date().toISOString(),
       environment: process.env['NODE_ENV'] || 'development'
     };
@@ -427,15 +452,15 @@ export async function runPhase2MarketRotationCalculations(): Promise<void> {
     
     // Update database log
     if (logEntry) {
-      await SchedulerLogService.updateLog(logEntry.id!, {
-        status: successCount === 5 ? 'completed' : 'failed',
-        completed_at: new Date().toISOString(),
-        total_files_processed: 5,
-        files_created: successCount,
-        files_failed: 5 - successCount,
-        progress_percentage: 100,
-        current_processing: `Phase 2 Market Rotation complete: ${successCount}/5 calculations successful in ${totalDuration}s`
-      });
+      if (successCount === 5) {
+        await SchedulerLogService.markCompleted(logEntry.id!, {
+          total_files_processed: 5,
+          files_created: successCount,
+          files_failed: 5 - successCount
+        });
+      } else {
+        await SchedulerLogService.markFailed(logEntry.id!, `Phase 2 Market Rotation failed: ${successCount}/5 calculations successful`, { successCount, totalDuration });
+      }
     }
     
     // Cleanup after Phase 2 Market Rotation
@@ -445,11 +470,11 @@ export async function runPhase2MarketRotationCalculations(): Promise<void> {
     stopMemoryMonitoring();
     
     // Trigger Phase 3 automatically if Phase 2 succeeded and Phase 3 is enabled
-    if (successCount >= 4 && phaseEnabled['phase3_light']) { // Trigger Phase 3 if at least 4/5 succeed
-      console.log('🔄 Triggering Phase 3 Light calculations...');
-      await runPhase3LightCalculations();
+    if (successCount >= 4 && phaseEnabled['phase3_flow_trade']) { // Trigger Phase 3 if at least 4/5 succeed
+      console.log('🔄 Triggering Phase 3 Flow Trade calculations...');
+      await runPhase3FlowTradeCalculations();
     } else {
-      if (!phaseEnabled['phase3_light']) {
+      if (!phaseEnabled['phase3_flow_trade']) {
         console.log('⚠️ Skipping Phase 3 - Phase 3 is disabled');
       } else {
         console.log('⚠️ Skipping Phase 3 due to insufficient Phase 2 success rate');
@@ -472,20 +497,20 @@ export async function runPhase2MarketRotationCalculations(): Promise<void> {
 }
 
 /**
- * Run Phase 3 - Light Calculations (Money Flow, Foreign Flow, Break Done Trade)
+ * Run Phase 3 - Flow Trade (Money Flow, Foreign Flow, Break Done Trade)
  */
-export async function runPhase3LightCalculations(): Promise<void> {
+export async function runPhase3FlowTradeCalculations(): Promise<void> {
   // Check if phase is enabled before starting
-  if (!phaseEnabled['phase3_light']) {
-    console.log('⚠️ Phase 3 Light is disabled - skipping');
+  if (!phaseEnabled['phase3_flow_trade']) {
+    console.log('⚠️ Phase 3 Flow Trade is disabled - skipping');
     return;
   }
   
-  phaseStatus['phase3_light'] = 'running';
+  phaseStatus['phase3_flow_trade'] = 'running';
   const phaseStartTime = Date.now();
-  console.log(`\n🚀 ===== PHASE 3 LIGHT CALCULATIONS STARTED =====`);
+  console.log(`\n🚀 ===== PHASE 3 FLOW TRADE STARTED =====`);
   console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
-  console.log(`📋 Phase: Light Calculations (Money Flow, Foreign Flow, Break Done Trade)`);
+  console.log(`📋 Phase: Flow Trade (Money Flow, Foreign Flow, Break Done Trade)`);
   
   // Start memory monitoring for this phase
   startMemoryMonitoring();
@@ -495,36 +520,37 @@ export async function runPhase3LightCalculations(): Promise<void> {
     
     try {
     // Check memory before starting
-    const canProceed = await checkMemoryBeforeLargeOperation('Phase 3 Light Calculations');
+    const canProceed = await checkMemoryBeforeLargeOperation('Phase 3 Flow Trade Calculations');
     if (!canProceed) {
-      console.log('⚠️ Skipping Phase 3 Light due to high memory usage');
+      console.log('⚠️ Skipping Phase 3 Flow Trade due to high memory usage');
       stopMemoryMonitoring();
         return;
       }
       
     const memoryOk = await monitorMemoryUsage();
     if (!memoryOk) {
-      console.log('⚠️ Skipping Phase 3 Light due to high memory usage');
+      console.log('⚠️ Skipping Phase 3 Flow Trade due to high memory usage');
       stopMemoryMonitoring();
       return;
     }
       
       // Create database log entry
       const logData: Partial<SchedulerLog> = {
-      feature_name: 'phase3_light_calculations',
+      feature_name: 'phase3_flow_trade',
         trigger_type: 'scheduled',
       triggered_by: 'phase2',
         status: 'running',
+        phase_id: 'phase3_flow_trade',
         started_at: new Date().toISOString(),
         environment: process.env['NODE_ENV'] || 'development'
       };
       
       logEntry = await SchedulerLogService.createLog(logData);
       if (logEntry) {
-      console.log('📊 Phase 3 Light database log created:', logEntry.id);
+      console.log('📊 Phase 3 Flow Trade database log created:', logEntry.id);
     }
     
-    console.log('🔄 Starting Phase 3 Light calculations (PARALLEL MODE)...');
+    console.log('🔄 Starting Phase 3 Flow Trade calculations (PARALLEL MODE)...');
     
     // Run light calculations in parallel
     const lightCalculations = [
@@ -585,36 +611,36 @@ export async function runPhase3LightCalculations(): Promise<void> {
     const phaseEndTime = new Date();
     const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
     
-    console.log(`\n📊 ===== PHASE 3 LIGHT COMPLETED =====`);
+    console.log(`\n📊 ===== PHASE 3 FLOW TRADE COMPLETED =====`);
     console.log(`✅ Success: ${successCount}/3 calculations`);
     console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
     console.log(`⏱️ Total Duration: ${totalDuration}s`);
       
       // Update database log
       if (logEntry) {
-        await SchedulerLogService.updateLog(logEntry.id!, {
-        status: successCount === 3 ? 'completed' : 'failed',
-          completed_at: new Date().toISOString(),
-        total_files_processed: 3,
-        files_created: successCount,
-        files_failed: 3 - successCount,
-          progress_percentage: 100,
-        current_processing: `Phase 3 Light complete: ${successCount}/3 calculations successful in ${totalDuration}s`
-      });
-    }
+        if (successCount === 3) {
+          await SchedulerLogService.markCompleted(logEntry.id!, {
+            total_files_processed: 3,
+            files_created: successCount,
+            files_failed: 3 - successCount
+          });
+        } else {
+          await SchedulerLogService.markFailed(logEntry.id!, `Phase 3 Flow Trade failed: ${successCount}/3 calculations successful`, { successCount, totalDuration });
+        }
+      }
     
-    // Cleanup after Phase 3 Light
+    // Cleanup after Phase 3 Flow Trade
     await aggressiveMemoryCleanup();
     
     // Stop memory monitoring for this phase
     stopMemoryMonitoring();
     
     // Trigger Phase 4 automatically if Phase 3 succeeded and Phase 4 is enabled
-    if (successCount >= 2 && phaseEnabled['phase4_medium']) { // Trigger Phase 4 if at least 2/3 succeed
-      console.log('🔄 Triggering Phase 4 Medium calculations...');
-      await runPhase4MediumCalculations();
+    if (successCount >= 2 && phaseEnabled['phase4_broker_summary']) { // Trigger Phase 4 if at least 2/3 succeed
+      console.log('🔄 Triggering Phase 4 Broker Summary calculations...');
+      await runPhase4BrokerSummaryCalculations();
       } else {
-        if (!phaseEnabled['phase4_medium']) {
+        if (!phaseEnabled['phase4_broker_summary']) {
           console.log('⚠️ Skipping Phase 4 - Phase 4 is disabled');
         } else {
           console.log('⚠️ Skipping Phase 4 due to insufficient Phase 3 success rate');
@@ -622,26 +648,32 @@ export async function runPhase3LightCalculations(): Promise<void> {
       }
       
     } catch (error) {
-    trackError(error, 'Phase 3 Light Calculations');
-    console.error('❌ Error during Phase 3 Light calculations:', error);
+    trackError(error, 'Phase 3 Flow Trade Calculations');
+    console.error('❌ Error during Phase 3 Flow Trade calculations:', error);
       
     // Stop memory monitoring on error
     stopMemoryMonitoring();
-    
+      
       if (logEntry) {
         await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
       }
     } finally {
-      phaseStatus['phase3_light'] = 'idle';
+      phaseStatus['phase3_flow_trade'] = 'idle';
     }
 }
 
-export async function runPhase4MediumCalculations(): Promise<void> {
-  phaseStatus['phase4_medium'] = 'running';
+export async function runPhase4BrokerSummaryCalculations(): Promise<void> {
+  // Check if phase is enabled before starting
+  if (!phaseEnabled['phase4_broker_summary']) {
+    console.log('⚠️ Phase 4 Broker Summary is disabled - skipping');
+    return;
+  }
+  
+  phaseStatus['phase4_broker_summary'] = 'running';
   const phaseStartTime = Date.now();
-  console.log(`\n🚀 ===== PHASE 4 MEDIUM CALCULATIONS STARTED =====`);
+  console.log(`\n🚀 ===== PHASE 4 BROKER SUMMARY STARTED =====`);
   console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
-  console.log(`📋 Phase: Medium Calculations (Bid/Ask Footprint, Broker Breakdown)`);
+  console.log(`📋 Phase: Broker Summary (Top Broker, Broker Summary, Broker Summary IDX, Broker Summary by Type)`);
   
   // Start memory monitoring for this phase
   startMemoryMonitoring();
@@ -653,24 +685,418 @@ export async function runPhase4MediumCalculations(): Promise<void> {
     // Check memory before starting
     const memoryOk = await monitorMemoryUsage();
     if (!memoryOk) {
-      console.log('⚠️ Skipping Phase 4 Medium due to high memory usage');
+      console.log('⚠️ Skipping Phase 4 Broker Summary due to high memory usage');
       stopMemoryMonitoring();
-    return;
-  }
+      return;
+    }
 
     // Create database log entry
     const logData: Partial<SchedulerLog> = {
-      feature_name: 'phase4_medium_calculations',
+      feature_name: 'phase4_broker_summary',
       trigger_type: 'scheduled',
       triggered_by: 'phase3',
       status: 'running',
+      phase_id: 'phase4_broker_summary',
       started_at: new Date().toISOString(),
       environment: process.env['NODE_ENV'] || 'development'
     };
     
     logEntry = await SchedulerLogService.createLog(logData);
     if (logEntry) {
-      console.log('📊 Phase 4 Medium database log created:', logEntry.id);
+      console.log('📊 Phase 4 Broker Summary database log created:', logEntry.id);
+    }
+    
+    console.log('🔄 Starting Top Broker calculation...');
+    const topBrokerStartTime = Date.now();
+    const resultTopBroker = await topBrokerService.generateTopBrokerData('all', logEntry?.id || null);
+    const topBrokerDuration = Math.round((Date.now() - topBrokerStartTime) / 1000);
+    console.log(`📊 Top Broker completed in ${topBrokerDuration}s`);
+
+    console.log('🔄 Starting Broker Summary calculation...');
+    const brokerSummaryStartTime = Date.now();
+    const resultSummary = await brokerSummaryService.generateBrokerSummaryData('all', logEntry?.id || null);
+    const brokerSummaryDuration = Math.round((Date.now() - brokerSummaryStartTime) / 1000);
+    console.log(`📊 Broker Summary completed in ${brokerSummaryDuration}s`);
+
+    console.log('🔄 Starting Broker Summary IDX calculation...');
+    const idxStartTime = Date.now();
+    const resultIDX = await brokerSummaryIDXService.generateBrokerSummaryIDXData('all');
+    const idxDuration = Math.round((Date.now() - idxStartTime) / 1000);
+    console.log(`📊 Broker Summary IDX completed in ${idxDuration}s`);
+
+    console.log('🔄 Starting Broker Summary by Type (RG/TN/NG) calculation...');
+    const brokerSummaryTypeStartTime = Date.now();
+    const resultType = await brokerSummaryTypeService.generateBrokerSummaryTypeData('all');
+    const brokerSummaryTypeDuration = Math.round((Date.now() - brokerSummaryTypeStartTime) / 1000);
+    console.log(`📊 Broker Summary Type completed in ${brokerSummaryTypeDuration}s`);
+    
+    const phaseEndTime = new Date();
+    const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
+    
+    const successCount = (resultTopBroker.success ? 1 : 0) + (resultSummary.success ? 1 : 0) + (resultIDX.success ? 1 : 0) + (resultType.success ? 1 : 0);
+    const totalCalculations = 4;
+    
+    console.log(`\n📊 ===== PHASE 4 BROKER SUMMARY COMPLETED =====`);
+    console.log(`✅ Success: ${successCount}/${totalCalculations} calculations`);
+    console.log(`📊 Top Broker: ${resultTopBroker.success ? 'SUCCESS' : 'FAILED'} (${topBrokerDuration}s)`);
+    console.log(`📊 Broker Summary: ${resultSummary.success ? 'SUCCESS' : 'FAILED'} (${brokerSummaryDuration}s)`);
+    console.log(`📊 Broker Summary IDX: ${resultIDX.success ? 'SUCCESS' : 'FAILED'} (${idxDuration}s)`);
+    console.log(`📊 Broker Summary Type: ${resultType.success ? 'SUCCESS' : 'FAILED'} (${brokerSummaryTypeDuration}s)`);
+    console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
+    console.log(`⏱️ Total Duration: ${totalDuration}s`);
+    
+    // Update database log
+    if (logEntry) {
+      if (successCount >= 3) {
+        await SchedulerLogService.markCompleted(logEntry.id!, {
+          total_files_processed: totalCalculations,
+          files_created: successCount,
+          files_failed: totalCalculations - successCount
+        });
+      } else {
+        await SchedulerLogService.markFailed(logEntry.id!, `Phase 4 Broker Summary failed: ${successCount}/${totalCalculations} calculations successful`, { successCount, totalCalculations, totalDuration });
+      }
+    }
+    
+    // Cleanup after Phase 4
+    await aggressiveMemoryCleanup();
+    
+    // Stop memory monitoring for this phase
+    stopMemoryMonitoring();
+    
+    // Trigger Phase 5 automatically if Phase 4 succeeded and Phase 5 is enabled
+    if (successCount >= 3 && phaseEnabled['phase5_broktrans_broker']) {
+      console.log('🔄 Triggering Phase 5 Broktrans Broker calculations...');
+      await runPhase5BroktransBrokerCalculations();
+    } else {
+      if (!phaseEnabled['phase5_broktrans_broker']) {
+        console.log('⚠️ Skipping Phase 5 - Phase 5 is disabled');
+      } else {
+        console.log('⚠️ Skipping Phase 5 due to Phase 4 failure');
+      }
+    }
+    
+    } catch (error) {
+      trackError(error, 'Phase 4 Broker Summary Calculations');
+      console.error('❌ Error during Phase 4 Broker Summary calculations:', error);
+    
+    // Stop memory monitoring on error
+    stopMemoryMonitoring();
+    
+    if (logEntry) {
+      await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
+    }
+  } finally {
+    phaseStatus['phase4_broker_summary'] = 'idle';
+  }
+}
+
+/**
+ * Run Phase 5 - Broktrans Broker (Broker Transaction, Broker Transaction RG/TN/NG, Broker Transaction F/D, Broker Transaction F/D RG/TN/NG)
+ */
+export async function runPhase5BroktransBrokerCalculations(): Promise<void> {
+  // Check if phase is enabled before starting
+  if (!phaseEnabled['phase5_broktrans_broker']) {
+    console.log('⚠️ Phase 5 Broktrans Broker is disabled - skipping');
+    return;
+  }
+  
+  phaseStatus['phase5_broktrans_broker'] = 'running';
+  const phaseStartTime = Date.now();
+  console.log(`\n🚀 ===== PHASE 5 BROKTRANS BROKER STARTED =====`);
+  console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
+  console.log(`📋 Phase: Broktrans Broker (Broker Transaction, Broker Transaction RG/TN/NG, Broker Transaction F/D, Broker Transaction F/D RG/TN/NG)`);
+  
+  // Start memory monitoring for this phase
+  startMemoryMonitoring();
+    
+    let logEntry: SchedulerLog | null = null;
+    
+    try {
+    // Check memory before starting
+    const memoryOk = await monitorMemoryUsage();
+    if (!memoryOk) {
+      console.log('⚠️ Skipping Phase 5 Broktrans Broker due to high memory usage');
+      stopMemoryMonitoring();
+        return;
+      }
+      
+      // Create database log entry
+      const logData: Partial<SchedulerLog> = {
+      feature_name: 'phase5_broktrans_broker',
+        trigger_type: 'scheduled',
+      triggered_by: 'phase4',
+        status: 'running',
+        phase_id: 'phase5_broktrans_broker',
+        started_at: new Date().toISOString(),
+        environment: process.env['NODE_ENV'] || 'development'
+      };
+      
+      logEntry = await SchedulerLogService.createLog(logData);
+      if (logEntry) {
+      console.log('📊 Phase 5 Broktrans Broker database log created:', logEntry.id);
+    }
+    
+    console.log('🔄 Starting Broker Transaction calculation...');
+    const brokerTransactionStartTime = Date.now();
+    const resultTransaction = await brokerTransactionService.generateBrokerTransactionData('all');
+    const brokerTransactionDuration = Math.round((Date.now() - brokerTransactionStartTime) / 1000);
+    console.log(`📊 Broker Transaction completed in ${brokerTransactionDuration}s`);
+    
+    console.log('🔄 Starting Broker Transaction RG/TN/NG calculation...');
+    const brokerTransactionRGTNNGStartTime = Date.now();
+    const resultTransactionRGTNNG = await brokerTransactionRGTNNGService.generateBrokerTransactionRGTNNGData('all');
+    const brokerTransactionRGTNNGDuration = Math.round((Date.now() - brokerTransactionRGTNNGStartTime) / 1000);
+    console.log(`📊 Broker Transaction RG/TN/NG completed in ${brokerTransactionRGTNNGDuration}s`);
+    
+    console.log('🔄 Starting Broker Transaction F/D calculation...');
+    const brokerTransactionFDStartTime = Date.now();
+    const resultTransactionFD = await brokerTransactionFDService.generateBrokerTransactionData('all');
+    const brokerTransactionFDDuration = Math.round((Date.now() - brokerTransactionFDStartTime) / 1000);
+    console.log(`📊 Broker Transaction F/D completed in ${brokerTransactionFDDuration}s`);
+    
+    console.log('🔄 Starting Broker Transaction F/D RG/TN/NG calculation...');
+    const brokerTransactionFDRGTNNGStartTime = Date.now();
+    const resultTransactionFDRGTNNG = await brokerTransactionFDRGTNNGService.generateBrokerTransactionData('all');
+    const brokerTransactionFDRGTNNGDuration = Math.round((Date.now() - brokerTransactionFDRGTNNGStartTime) / 1000);
+    console.log(`📊 Broker Transaction F/D RG/TN/NG completed in ${brokerTransactionFDRGTNNGDuration}s`);
+    
+    const phaseEndTime = new Date();
+    const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
+    
+    console.log(`\n📊 ===== PHASE 5 BROKTRANS BROKER COMPLETED =====`);
+    const successCount = (resultTransaction.success ? 1 : 0) + (resultTransactionRGTNNG.success ? 1 : 0) + (resultTransactionFD.success ? 1 : 0) + (resultTransactionFDRGTNNG.success ? 1 : 0);
+    console.log(`✅ Success: ${successCount}/4 calculations`);
+    console.log(`📊 Broker Transaction: ${resultTransaction.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionDuration}s)`);
+    console.log(`📊 Broker Transaction RG/TN/NG: ${resultTransactionRGTNNG.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionRGTNNGDuration}s)`);
+    console.log(`📊 Broker Transaction F/D: ${resultTransactionFD.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionFDDuration}s)`);
+    console.log(`📊 Broker Transaction F/D RG/TN/NG: ${resultTransactionFDRGTNNG.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionFDRGTNNGDuration}s)`);
+    console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
+    console.log(`⏱️ Total Duration: ${totalDuration}s`);
+    
+    // Update database log
+    if (logEntry) {
+      if (successCount >= 3) {
+        await SchedulerLogService.markCompleted(logEntry.id!, {
+          total_files_processed: 4,
+          files_created: successCount,
+          files_failed: 4 - successCount
+        });
+      } else {
+        await SchedulerLogService.markFailed(logEntry.id!, `Phase 5 Broktrans Broker failed: ${successCount}/4 calculations successful`, { successCount, totalDuration, results: { resultTransaction, resultTransactionRGTNNG, resultTransactionFD, resultTransactionFDRGTNNG } });
+      }
+    }
+    
+    // Cleanup after Phase 5
+    await aggressiveMemoryCleanup();
+    
+    // Stop memory monitoring for this phase
+    stopMemoryMonitoring();
+    
+    // Trigger Phase 6 automatically if Phase 5 succeeded and Phase 6 is enabled
+    if (successCount >= 3 && phaseEnabled['phase6_broktrans_stock']) {
+      console.log('🔄 Triggering Phase 6 Broktrans Stock calculations...');
+      await runPhase6BroktransStockCalculations();
+      } else {
+        if (!phaseEnabled['phase6_broktrans_stock']) {
+          console.log('⚠️ Skipping Phase 6 - Phase 6 is disabled');
+        } else {
+          console.log('⚠️ Skipping Phase 6 due to Phase 5 failure');
+        }
+    }
+    
+  } catch (error) {
+    trackError(error, 'Phase 5 Broktrans Broker Calculations');
+    console.error('❌ Error during Phase 5 Broktrans Broker calculations:', error);
+    
+    // Stop memory monitoring on error
+    stopMemoryMonitoring();
+    
+    if (logEntry) {
+      await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
+    }
+  } finally {
+    phaseStatus['phase5_broktrans_broker'] = 'idle';
+  }
+}
+
+/**
+ * Run Phase 6 - Broktrans Stock (Broker Transaction Stock, Broker Transaction Stock F/D, Broker Transaction Stock RG/TN/NG, Broker Transaction Stock F/D RG/TN/NG)
+ */
+export async function runPhase6BroktransStockCalculations(): Promise<void> {
+  // Check if phase is enabled before starting
+  if (!phaseEnabled['phase6_broktrans_stock']) {
+    console.log('⚠️ Phase 6 Broktrans Stock is disabled - skipping');
+    return;
+  }
+  
+  phaseStatus['phase6_broktrans_stock'] = 'running';
+  const phaseStartTime = Date.now();
+  console.log(`\n🚀 ===== PHASE 6 BROKTRANS STOCK STARTED =====`);
+  console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
+  console.log(`📋 Phase: Broktrans Stock (Broker Transaction Stock, Broker Transaction Stock F/D, Broker Transaction Stock RG/TN/NG, Broker Transaction Stock F/D RG/TN/NG)`);
+  
+  // Start memory monitoring for this phase
+  startMemoryMonitoring();
+  resetPerformanceMetrics();
+  
+  let logEntry: SchedulerLog | null = null;
+  
+  try {
+    // Check memory before starting
+    const memoryOk = await monitorMemoryUsage();
+    if (!memoryOk) {
+      console.log('⚠️ Skipping Phase 6 Broktrans Stock due to high memory usage');
+      stopMemoryMonitoring();
+      return;
+    }
+    
+    // Create database log entry
+    const logData: Partial<SchedulerLog> = {
+      feature_name: 'phase6_broktrans_stock',
+      trigger_type: 'scheduled',
+      triggered_by: 'phase5',
+      status: 'running',
+      phase_id: 'phase6_broktrans_stock',
+      started_at: new Date().toISOString(),
+      environment: process.env['NODE_ENV'] || 'development'
+    };
+    
+    logEntry = await SchedulerLogService.createLog(logData);
+    if (logEntry) {
+      console.log('📊 Phase 6 Broktrans Stock database log created:', logEntry.id);
+    }
+    
+    console.log('🔄 Starting Broker Transaction Stock calculation...');
+    const brokerTransactionStockStartTime = Date.now();
+    const resultTransactionStock = await brokerTransactionStockService.generateBrokerTransactionData('all');
+    const brokerTransactionStockDuration = Math.round((Date.now() - brokerTransactionStockStartTime) / 1000);
+    console.log(`📊 Broker Transaction Stock completed in ${brokerTransactionStockDuration}s`);
+    
+    console.log('🔄 Starting Broker Transaction Stock F/D calculation...');
+    const brokerTransactionStockFDStartTime = Date.now();
+    const resultTransactionStockFD = await brokerTransactionStockFDService.generateBrokerTransactionData('all');
+    const brokerTransactionStockFDDuration = Math.round((Date.now() - brokerTransactionStockFDStartTime) / 1000);
+    console.log(`📊 Broker Transaction Stock F/D completed in ${brokerTransactionStockFDDuration}s`);
+    
+    console.log('🔄 Starting Broker Transaction Stock RG/TN/NG calculation...');
+    const brokerTransactionStockRGTNNGStartTime = Date.now();
+    const resultTransactionStockRGTNNG = await brokerTransactionStockRGTNNGService.generateBrokerTransactionData('all');
+    const brokerTransactionStockRGTNNGDuration = Math.round((Date.now() - brokerTransactionStockRGTNNGStartTime) / 1000);
+    console.log(`📊 Broker Transaction Stock RG/TN/NG completed in ${brokerTransactionStockRGTNNGDuration}s`);
+    
+    console.log('🔄 Starting Broker Transaction Stock F/D RG/TN/NG calculation...');
+    const brokerTransactionStockFDRGTNNGStartTime = Date.now();
+    const resultTransactionStockFDRGTNNG = await brokerTransactionStockFDRGTNNGService.generateBrokerTransactionData('all');
+    const brokerTransactionStockFDRGTNNGDuration = Math.round((Date.now() - brokerTransactionStockFDRGTNNGStartTime) / 1000);
+    console.log(`📊 Broker Transaction Stock F/D RG/TN/NG completed in ${brokerTransactionStockFDRGTNNGDuration}s`);
+    
+    const phaseEndTime = new Date();
+    const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
+    
+    const successCount = (resultTransactionStock.success ? 1 : 0) + (resultTransactionStockFD.success ? 1 : 0) + (resultTransactionStockRGTNNG.success ? 1 : 0) + (resultTransactionStockFDRGTNNG.success ? 1 : 0);
+    const totalCalculations = 4;
+    
+    console.log(`\n📊 ===== PHASE 6 BROKTRANS STOCK COMPLETED =====`);
+    console.log(`✅ Success: ${successCount}/${totalCalculations} calculations`);
+    console.log(`📊 Broker Transaction Stock: ${resultTransactionStock.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionStockDuration}s)`);
+    console.log(`📊 Broker Transaction Stock F/D: ${resultTransactionStockFD.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionStockFDDuration}s)`);
+    console.log(`📊 Broker Transaction Stock RG/TN/NG: ${resultTransactionStockRGTNNG.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionStockRGTNNGDuration}s)`);
+    console.log(`📊 Broker Transaction Stock F/D RG/TN/NG: ${resultTransactionStockFDRGTNNG.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionStockFDRGTNNGDuration}s)`);
+    console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
+    console.log(`⏱️ Total Duration: ${totalDuration}s`);
+    
+    // Update database log
+    if (logEntry) {
+      if (successCount >= 3) {
+        await SchedulerLogService.markCompleted(logEntry.id!, {
+          total_files_processed: totalCalculations,
+          files_created: successCount,
+          files_failed: totalCalculations - successCount
+        });
+      } else {
+        await SchedulerLogService.markFailed(logEntry.id!, `Phase 6 Broktrans Stock failed: ${successCount}/${totalCalculations} calculations successful`, { successCount, totalCalculations, totalDuration, results: { resultTransactionStock, resultTransactionStockFD, resultTransactionStockRGTNNG, resultTransactionStockFDRGTNNG } });
+      }
+    }
+    
+    // Cleanup after Phase 6
+    await aggressiveMemoryCleanup();
+    
+    // Stop memory monitoring for this phase
+    stopMemoryMonitoring();
+    
+    // Trigger Phase 7 automatically if Phase 6 succeeded and Phase 7 is enabled
+    if (successCount >= 3 && phaseEnabled['phase7_bid_breakdown']) {
+      console.log('🔄 Triggering Phase 7 Bid Breakdown calculations...');
+      await runPhase7BidBreakdownCalculations();
+    } else {
+      if (!phaseEnabled['phase7_bid_breakdown']) {
+        console.log('⚠️ Skipping Phase 7 - Phase 7 is disabled');
+      } else {
+        console.log('⚠️ Skipping Phase 7 due to Phase 6 failure');
+      }
+    }
+    
+  } catch (error) {
+    trackError(error, 'Phase 6 Broktrans Stock Calculations');
+    console.error('❌ Error during Phase 6 Broktrans Stock calculations:', error);
+    
+    // Stop memory monitoring on error
+    stopMemoryMonitoring();
+    
+    if (logEntry) {
+      await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
+    }
+  } finally {
+    phaseStatus['phase6_broktrans_stock'] = 'idle';
+  }
+}
+
+/**
+ * Run Phase 7 - Bid Breakdown (Bid/Ask Footprint, Broker Breakdown)
+ */
+export async function runPhase7BidBreakdownCalculations(): Promise<void> {
+  // Check if phase is enabled before starting
+  if (!phaseEnabled['phase7_bid_breakdown']) {
+    console.log('⚠️ Phase 7 Bid Breakdown is disabled - skipping');
+    return;
+  }
+  
+  phaseStatus['phase7_bid_breakdown'] = 'running';
+  const phaseStartTime = Date.now();
+  console.log(`\n🚀 ===== PHASE 7 BID BREAKDOWN STARTED =====`);
+  console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
+  console.log(`📋 Phase: Bid Breakdown (Bid/Ask Footprint, Broker Breakdown)`);
+  
+  // Start memory monitoring for this phase
+  startMemoryMonitoring();
+  resetPerformanceMetrics();
+  
+  let logEntry: SchedulerLog | null = null;
+  
+  try {
+    // Check memory before starting
+    const memoryOk = await monitorMemoryUsage();
+    if (!memoryOk) {
+      console.log('⚠️ Skipping Phase 7 Bid Breakdown due to high memory usage');
+      stopMemoryMonitoring();
+      return;
+    }
+
+    // Create database log entry
+    const logData: Partial<SchedulerLog> = {
+      feature_name: 'phase7_bid_breakdown',
+      trigger_type: 'scheduled',
+      triggered_by: 'phase6',
+      status: 'running',
+      phase_id: 'phase7_bid_breakdown',
+      started_at: new Date().toISOString(),
+      environment: process.env['NODE_ENV'] || 'development'
+    };
+    
+    logEntry = await SchedulerLogService.createLog(logData);
+    if (logEntry) {
+      console.log('📊 Phase 7 Bid Breakdown database log created:', logEntry.id);
     }
     
     console.log('🔄 Starting Bid/Ask Footprint calculation...');
@@ -695,7 +1121,7 @@ export async function runPhase4MediumCalculations(): Promise<void> {
     const successCount = (bidAskResult.success ? 1 : 0) + (brokerBreakdownResult.success ? 1 : 0);
     const totalCalculations = 2;
     
-    console.log(`\n📊 ===== PHASE 4 MEDIUM COMPLETED =====`);
+    console.log(`\n📊 ===== PHASE 7 BID BREAKDOWN COMPLETED =====`);
     console.log(`✅ Success: ${successCount}/${totalCalculations} calculations`);
     console.log(`📊 Bid/Ask Footprint: ${bidAskResult.success ? 'SUCCESS' : 'FAILED'} (${bidAskDuration}s)`);
     console.log(`📊 Broker Breakdown: ${brokerBreakdownResult.success ? 'SUCCESS' : 'FAILED'} (${brokerBreakdownDuration}s)`);
@@ -704,38 +1130,38 @@ export async function runPhase4MediumCalculations(): Promise<void> {
     
     // Update database log
     if (logEntry) {
-      await SchedulerLogService.updateLog(logEntry.id!, {
-        status: successCount >= 1 ? 'completed' : 'failed',
-        completed_at: new Date().toISOString(),
-        total_files_processed: totalCalculations,
-        files_created: successCount,
-        files_failed: totalCalculations - successCount,
-        progress_percentage: 100,
-        current_processing: `Phase 4 Medium complete: ${successCount}/${totalCalculations} calculations successful in ${totalDuration}s`
-      });
+      if (successCount >= 1) {
+        await SchedulerLogService.markCompleted(logEntry.id!, {
+          total_files_processed: totalCalculations,
+          files_created: successCount,
+          files_failed: totalCalculations - successCount
+        });
+      } else {
+        await SchedulerLogService.markFailed(logEntry.id!, `Phase 7 Bid Breakdown failed: ${successCount}/${totalCalculations} calculations successful`, { successCount, totalCalculations, totalDuration });
+      }
     }
     
-    // Cleanup after Phase 4
+    // Cleanup after Phase 7
     await aggressiveMemoryCleanup();
     
     // Stop memory monitoring for this phase
     stopMemoryMonitoring();
     
-    // Trigger Phase 5 automatically if Phase 4 succeeded and Phase 5 is enabled
-    if (successCount >= 1 && phaseEnabled['phase5_heavy']) { // Trigger Phase 5 if at least 1/2 succeed
-      console.log('🔄 Triggering Phase 5 Heavy calculations...');
-      await runPhase5HeavyCalculations();
+    // Trigger Phase 8 automatically if Phase 7 succeeded and Phase 8 is enabled
+    if (successCount >= 1 && phaseEnabled['phase8_additional']) {
+      console.log('🔄 Triggering Phase 8 Additional calculations...');
+      await runPhase8AdditionalCalculations();
     } else {
-      if (!phaseEnabled['phase5_heavy']) {
-        console.log('⚠️ Skipping Phase 5 - Phase 5 is disabled');
+      if (!phaseEnabled['phase8_additional']) {
+        console.log('⚠️ Skipping Phase 8 - Phase 8 is disabled');
       } else {
-        console.log('⚠️ Skipping Phase 5 due to Phase 4 failure');
+        console.log('⚠️ Skipping Phase 8 due to Phase 7 failure');
       }
     }
     
     } catch (error) {
-      trackError(error, 'Phase 4 Medium Calculations');
-      console.error('❌ Error during Phase 4 Medium calculations:', error);
+      trackError(error, 'Phase 7 Bid Breakdown Calculations');
+      console.error('❌ Error during Phase 7 Bid Breakdown calculations:', error);
     
     // Stop memory monitoring on error
     stopMemoryMonitoring();
@@ -744,154 +1170,25 @@ export async function runPhase4MediumCalculations(): Promise<void> {
       await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
     }
   } finally {
-    phaseStatus['phase4_medium'] = 'idle';
+    phaseStatus['phase7_bid_breakdown'] = 'idle';
   }
 }
 
 /**
- * Run Phase 5 - Heavy Calculations (Broker Data)
+ * Run Phase 8 - Additional (Broker Inventory, Accumulation Distribution)
  */
-export async function runPhase5HeavyCalculations(): Promise<void> {
+export async function runPhase8AdditionalCalculations(): Promise<void> {
   // Check if phase is enabled before starting
-  if (!phaseEnabled['phase5_heavy']) {
-    console.log('⚠️ Phase 5 Heavy is disabled - skipping');
+  if (!phaseEnabled['phase8_additional']) {
+    console.log('⚠️ Phase 8 Additional is disabled - skipping');
     return;
   }
   
-  phaseStatus['phase5_heavy'] = 'running';
+  phaseStatus['phase8_additional'] = 'running';
   const phaseStartTime = Date.now();
-  console.log(`\n🚀 ===== PHASE 5 HEAVY CALCULATIONS STARTED =====`);
+  console.log(`\n🚀 ===== PHASE 8 ADDITIONAL STARTED =====`);
   console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
-  console.log(`📋 Phase: Heavy Calculations (Broker Data, Broker Summary by Type, Broker Summary IDX, Broker Transaction, Broker Transaction RG/TN/NG)`);
-  
-  // Start memory monitoring for this phase
-  startMemoryMonitoring();
-    
-    let logEntry: SchedulerLog | null = null;
-    
-    try {
-    // Check memory before starting
-    const memoryOk = await monitorMemoryUsage();
-    if (!memoryOk) {
-      console.log('⚠️ Skipping Phase 5 Heavy due to high memory usage');
-      stopMemoryMonitoring();
-        return;
-      }
-      
-      // Create database log entry
-      const logData: Partial<SchedulerLog> = {
-      feature_name: 'phase5_heavy_calculations',
-        trigger_type: 'scheduled',
-      triggered_by: 'phase4',
-        status: 'running',
-        started_at: new Date().toISOString(),
-        environment: process.env['NODE_ENV'] || 'development'
-      };
-      
-      logEntry = await SchedulerLogService.createLog(logData);
-      if (logEntry) {
-      console.log('📊 Phase 5 Heavy database log created:', logEntry.id);
-    }
-    
-    console.log('🔄 Starting Broker Data calculation...');
-    const brokerDataStartTime = Date.now();
-    const result = await brokerDataService.generateBrokerData('all', logEntry?.id || null);
-    const brokerDataDuration = Math.round((Date.now() - brokerDataStartTime) / 1000);
-    console.log(`📊 Broker Data completed in ${brokerDataDuration}s`);
-
-    console.log('🔄 Starting Broker Summary by Type (RG/TN/NG) calculation...');
-    const brokerSummaryTypeStartTime = Date.now();
-    const resultType = await brokerSummaryTypeService.generateBrokerSummaryTypeData('all');
-    const brokerSummaryTypeDuration = Math.round((Date.now() - brokerSummaryTypeStartTime) / 1000);
-    console.log(`📊 Broker Summary Type completed in ${brokerSummaryTypeDuration}s`);
-    
-    console.log('🔄 Starting Broker Summary IDX (aggregated all emiten) calculation...');
-    const idxStartTime = Date.now();
-    const resultIDX = await brokerSummaryIDXService.generateBrokerSummaryIDXData('all');
-    const idxDuration = Math.round((Date.now() - idxStartTime) / 1000);
-    console.log(`📊 Broker Summary IDX completed in ${idxDuration}s`);
-    
-    console.log('🔄 Starting Broker Transaction calculation...');
-    const brokerTransactionStartTime = Date.now();
-    const resultTransaction = await brokerTransactionService.generateBrokerTransactionData('all');
-    const brokerTransactionDuration = Math.round((Date.now() - brokerTransactionStartTime) / 1000);
-    console.log(`📊 Broker Transaction completed in ${brokerTransactionDuration}s`);
-    
-    console.log('🔄 Starting Broker Transaction RG/TN/NG calculation...');
-    const brokerTransactionRGTNNGStartTime = Date.now();
-    const resultTransactionRGTNNG = await brokerTransactionRGTNNGService.generateBrokerTransactionRGTNNGData('all');
-    const brokerTransactionRGTNNGDuration = Math.round((Date.now() - brokerTransactionRGTNNGStartTime) / 1000);
-    console.log(`📊 Broker Transaction RG/TN/NG completed in ${brokerTransactionRGTNNGDuration}s`);
-    
-    const phaseEndTime = new Date();
-    const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
-    
-    console.log(`\n📊 ===== PHASE 5 HEAVY COMPLETED =====`);
-    const successCount = (result.success ? 1 : 0) + (resultType.success ? 1 : 0) + (resultIDX.success ? 1 : 0) + (resultTransaction.success ? 1 : 0) + (resultTransactionRGTNNG.success ? 1 : 0);
-    console.log(`✅ Success: ${successCount}/5 calculations`);
-    console.log(`📊 Broker Data: ${result.success ? 'SUCCESS' : 'FAILED'} (${brokerDataDuration}s)`);
-    console.log(`📊 Broker Summary Type: ${resultType.success ? 'SUCCESS' : 'FAILED'} (${brokerSummaryTypeDuration}s)`);
-    console.log(`📊 Broker Summary IDX: ${resultIDX.success ? 'SUCCESS' : 'FAILED'} (${idxDuration}s)`);
-    console.log(`📊 Broker Transaction: ${resultTransaction.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionDuration}s)`);
-    console.log(`📊 Broker Transaction RG/TN/NG: ${resultTransactionRGTNNG.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionRGTNNGDuration}s)`);
-    console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
-    console.log(`⏱️ Total Duration: ${totalDuration}s`);
-    
-    // Update database log
-    if (logEntry) {
-      await SchedulerLogService.updateLog(logEntry.id!, {
-        status: successCount >= 4 ? 'completed' : 'failed',
-        completed_at: new Date().toISOString(),
-        total_files_processed: 5,
-        files_created: successCount,
-        files_failed: 5 - successCount,
-        progress_percentage: 100,
-        current_processing: `Phase 5 Heavy complete: Broker Data (${result.success ? 'OK' : 'FAIL'}), Broker Summary Type (${resultType.success ? 'OK' : 'FAIL'}), Broker Summary IDX (${resultIDX.success ? 'OK' : 'FAIL'}), Broker Transaction (${resultTransaction.success ? 'OK' : 'FAIL'}), Broker Transaction RG/TN/NG (${resultTransactionRGTNNG.success ? 'OK' : 'FAIL'}) in ${totalDuration}s`
-      });
-    }
-    
-    // Cleanup after Phase 5
-    await aggressiveMemoryCleanup();
-    
-    // Stop memory monitoring for this phase
-    stopMemoryMonitoring();
-    
-    // Trigger Phase 6 automatically if Phase 5 succeeded and Phase 6 is enabled (at least 4/5 must succeed)
-    if (successCount >= 4 && phaseEnabled['phase6_very_heavy']) {
-      console.log('🔄 Triggering Phase 6 Very Heavy calculations...');
-      await runPhase6VeryHeavyCalculations();
-      } else {
-        if (!phaseEnabled['phase6_very_heavy']) {
-          console.log('⚠️ Skipping Phase 6 - Phase 6 is disabled');
-        } else {
-          console.log('⚠️ Skipping Phase 6 due to Phase 5 failure');
-        }
-    }
-    
-  } catch (error) {
-    trackError(error, 'Phase 5 Heavy Calculations');
-    console.error('❌ Error during Phase 5 Heavy calculations:', error);
-    
-    // Stop memory monitoring on error
-    stopMemoryMonitoring();
-    
-    if (logEntry) {
-      await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
-    }
-  } finally {
-    phaseStatus['phase5_heavy'] = 'idle';
-  }
-}
-
-/**
- * Run Phase 6 - Very Heavy Calculations (Broker Inventory, Accumulation Distribution)
- */
-export async function runPhase6VeryHeavyCalculations(): Promise<void> {
-  phaseStatus['phase6_very_heavy'] = 'running';
-  const phaseStartTime = Date.now();
-  console.log(`\n🚀 ===== PHASE 6 VERY HEAVY CALCULATIONS STARTED =====`);
-  console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
-  console.log(`📋 Phase: Very Heavy Calculations (Broker Inventory, Accumulation Distribution)`);
+  console.log(`📋 Phase: Additional (Broker Inventory, Accumulation Distribution)`);
   
   // Start memory monitoring for this phase
   startMemoryMonitoring();
@@ -903,29 +1200,30 @@ export async function runPhase6VeryHeavyCalculations(): Promise<void> {
     // Check memory before starting
     const memoryOk = await monitorMemoryUsage();
     if (!memoryOk) {
-      console.log('⚠️ Skipping Phase 6 Very Heavy due to high memory usage');
+      console.log('⚠️ Skipping Phase 8 Additional due to high memory usage');
       stopMemoryMonitoring();
       return;
     }
     
     // Create database log entry
     const logData: Partial<SchedulerLog> = {
-      feature_name: 'phase6_very_heavy_calculations',
+      feature_name: 'phase8_additional',
       trigger_type: 'scheduled',
-      triggered_by: 'phase5',
+      triggered_by: 'phase7',
       status: 'running',
+      phase_id: 'phase8_additional',
       started_at: new Date().toISOString(),
       environment: process.env['NODE_ENV'] || 'development'
     };
     
     logEntry = await SchedulerLogService.createLog(logData);
-      if (logEntry) {
-      console.log('📊 Phase 6 Very Heavy database log created:', logEntry.id);
+    if (logEntry) {
+      console.log('📊 Phase 8 Additional database log created:', logEntry.id);
     }
     
-    console.log('🔄 Starting Very Heavy calculations (SEQUENTIAL)...');
+    console.log('🔄 Starting Additional calculations (SEQUENTIAL)...');
     
-    const veryHeavyCalculations = [
+    const additionalCalculations = [
       { name: 'Broker Inventory', service: brokerInventoryService, method: 'generateBrokerInventoryData' },
       { name: 'Accumulation Distribution', service: accumulationService, method: 'generateAccumulationData' }
     ];
@@ -933,8 +1231,8 @@ export async function runPhase6VeryHeavyCalculations(): Promise<void> {
     let totalSuccessCount = 0;
     let totalCalculations = 0;
     
-    for (const calc of veryHeavyCalculations) {
-      console.log(`\n🔄 Starting ${calc.name} (${totalCalculations + 1}/${veryHeavyCalculations.length})...`);
+    for (const calc of additionalCalculations) {
+      console.log(`\n🔄 Starting ${calc.name} (${totalCalculations + 1}/${additionalCalculations.length})...`);
       
       // Check memory before each calculation
       const memoryOk = await monitorMemoryUsage();
@@ -954,13 +1252,13 @@ export async function runPhase6VeryHeavyCalculations(): Promise<void> {
           console.log(`✅ ${calc.name} completed in ${calcDuration}s`);
       } else {
           console.error(`❌ ${calc.name} failed:`, result.message);
-          console.error(`❌ Stopping Phase 6 due to critical calculation failure`);
+          console.error(`❌ Stopping Phase 8 due to critical calculation failure`);
           break; // Stop processing remaining calculations
       }
     } catch (error) {
         const calcDuration = Math.round((Date.now() - calcStartTime) / 1000);
         console.error(`❌ ${calc.name} error in ${calcDuration}s:`, error);
-        console.error(`❌ Stopping Phase 6 due to critical calculation error`);
+        console.error(`❌ Stopping Phase 8 due to critical calculation error`);
         break; // Stop processing remaining calculations
       }
       
@@ -968,7 +1266,7 @@ export async function runPhase6VeryHeavyCalculations(): Promise<void> {
       
       // No aggressive cleanup during calculations to prevent data loss
       // Longer delay between calculations for very heavy operations
-      if (totalCalculations < veryHeavyCalculations.length) {
+      if (totalCalculations < additionalCalculations.length) {
         console.log('⏳ Waiting 10s before next calculation...');
         await new Promise(resolve => setTimeout(resolve, 10000));
       }
@@ -979,30 +1277,30 @@ export async function runPhase6VeryHeavyCalculations(): Promise<void> {
     
     const allCalculationsSuccessful = totalSuccessCount === totalCalculations && totalCalculations > 0;
     
-    console.log(`\n📊 ===== PHASE 6 VERY HEAVY ${allCalculationsSuccessful ? 'COMPLETED' : 'FAILED'} =====`);
+    console.log(`\n📊 ===== PHASE 8 ADDITIONAL ${allCalculationsSuccessful ? 'COMPLETED' : 'FAILED'} =====`);
     console.log(`✅ Success: ${totalSuccessCount}/${totalCalculations} calculations`);
     console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
     console.log(`⏱️ Total Duration: ${totalDuration}s`);
     
     if (!allCalculationsSuccessful) {
-      console.error(`❌ Phase 6 failed: ${totalCalculations - totalSuccessCount} calculations failed`);
+      console.error(`❌ Phase 8 failed: ${totalCalculations - totalSuccessCount} calculations failed`);
     }
       
       // Update database log
       if (logEntry) {
-        await SchedulerLogService.updateLog(logEntry.id!, {
-        status: allCalculationsSuccessful ? 'completed' : 'failed',
-          completed_at: new Date().toISOString(),
-          total_files_processed: totalCalculations,
-          files_created: totalSuccessCount,
-          files_failed: totalCalculations - totalSuccessCount,
-          progress_percentage: 100,
-        current_processing: `Phase 6 Very Heavy ${allCalculationsSuccessful ? 'complete' : 'failed'}: ${totalSuccessCount}/${totalCalculations} calculations successful in ${totalDuration}s`
-      });
-    }
+        if (allCalculationsSuccessful) {
+          await SchedulerLogService.markCompleted(logEntry.id!, {
+            total_files_processed: totalCalculations,
+            files_created: totalSuccessCount,
+            files_failed: totalCalculations - totalSuccessCount
+          });
+        } else {
+          await SchedulerLogService.markFailed(logEntry.id!, `Phase 8 Additional failed: ${totalSuccessCount}/${totalCalculations} calculations successful`, { totalSuccessCount, totalCalculations, totalDuration });
+        }
+      }
     
     console.log(`\n🎉 ===== ALL PHASES COMPLETED =====`);
-    console.log(`📊 Total time from Phase 1 start: Check individual phase logs`);
+    console.log(`📊 Total time from Phase 1a start: Check individual phase logs`);
     
     // Cleanup memory after all calculations are complete
     await aggressiveMemoryCleanup();
@@ -1011,8 +1309,8 @@ export async function runPhase6VeryHeavyCalculations(): Promise<void> {
     stopMemoryMonitoring();
       
     } catch (error) {
-      trackError(error, 'Phase 6 Very Heavy Calculations');
-      console.error('❌ Error during Phase 6 Very Heavy calculations:', error);
+      trackError(error, 'Phase 8 Additional Calculations');
+      console.error('❌ Error during Phase 8 Additional calculations:', error);
       
     // Stop memory monitoring on error
     stopMemoryMonitoring();
@@ -1021,24 +1319,24 @@ export async function runPhase6VeryHeavyCalculations(): Promise<void> {
         await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
       }
     } finally {
-      phaseStatus['phase6_very_heavy'] = 'idle';
+      phaseStatus['phase8_additional'] = 'idle';
     }
 }
 
 /**
- * Run Phase 1 Data Collection manually
+ * Run Phase 1a Input Daily manually
  */
 export async function runPhase1DataCollection(): Promise<void> {
-  phaseStatus['phase1_data_collection'] = 'running';
+  phaseStatus['phase1a_input_daily'] = 'running';
   try {
     const phaseStartTime = Date.now();
-    console.log(`\n🚀 ===== PHASE 1 DATA COLLECTION STARTED (MANUAL) =====`);
+    console.log(`\n🚀 ===== PHASE 1A INPUT DAILY STARTED (MANUAL) =====`);
     console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
-    console.log(`📋 Phase: Data Collection (Stock, Index, Done Summary) - 7 days`);
+    console.log(`📋 Phase: Input Daily (Stock, Index, Done Summary) - 7 days`);
     
     // Skip if weekend
     if (isWeekend()) {
-      console.log('📅 Weekend detected - skipping Phase 1 Data Collection (no market data available)');
+      console.log('📅 Weekend detected - skipping Phase 1a Input Daily (no market data available)');
       return;
     }
     
@@ -1048,13 +1346,13 @@ export async function runPhase1DataCollection(): Promise<void> {
       // Check memory before starting
       const memoryOk = await monitorMemoryUsage();
       if (!memoryOk) {
-        console.log('⚠️ Skipping Phase 1 Data Collection due to high memory usage');
+        console.log('⚠️ Skipping Phase 1a Input Daily due to high memory usage');
         return;
       }
       
       // Create database log entry
       const logData: Partial<SchedulerLog> = {
-        feature_name: 'phase1_data_collection',
+        feature_name: 'phase1a_input_daily',
         trigger_type: 'manual',
         triggered_by: 'admin',
         status: 'running',
@@ -1064,13 +1362,13 @@ export async function runPhase1DataCollection(): Promise<void> {
       
       logEntry = await SchedulerLogService.createLog(logData);
       if (logEntry) {
-        console.log('📊 Phase 1 Data Collection database log created:', logEntry.id);
+        console.log('📊 Phase 1a Input Daily database log created:', logEntry.id);
       }
       
-      console.log('🔄 Starting Phase 1 Data Collection (PARALLEL MODE)...');
+      console.log('🔄 Starting Phase 1a Input Daily (PARALLEL MODE)...');
       
       // Track batch performance
-      trackBatchPerformance(phaseStartTime, 'Phase 1 Data Collection Start');
+      trackBatchPerformance(phaseStartTime, 'Phase 1a Input Daily Start');
       
       // Run data collection in parallel
       const dataCollectionTasks = [
@@ -1085,9 +1383,9 @@ export async function runPhase1DataCollection(): Promise<void> {
         
         try {
           // Check if phase is still enabled before starting task
-          if (!phaseEnabled['phase1_data_collection']) {
-            console.log(`⚠️ Phase 1 Data Collection disabled - stopping ${task.name}`);
-            phaseStatus['phase1_data_collection'] = 'idle';
+          if (!phaseEnabled['phase1a_input_daily']) {
+            console.log(`⚠️ Phase 1a Input Daily disabled - stopping ${task.name}`);
+            phaseStatus['phase1a_input_daily'] = 'idle';
             return { name: task.name, success: false, error: 'Phase disabled', duration: 0 };
           }
           
@@ -1105,9 +1403,9 @@ export async function runPhase1DataCollection(): Promise<void> {
           await (task.service as any)();
           
           // Check again after task completes
-          if (!phaseEnabled['phase1_data_collection']) {
-            console.log(`⚠️ Phase 1 Data Collection disabled during ${task.name} execution`);
-            phaseStatus['phase1_data_collection'] = 'idle';
+          if (!phaseEnabled['phase1a_input_daily']) {
+            console.log(`⚠️ Phase 1a Input Daily disabled during ${task.name} execution`);
+            phaseStatus['phase1a_input_daily'] = 'idle';
             return { name: task.name, success: false, error: 'Phase disabled during execution', duration: Date.now() - startTime };
           }
           
@@ -1129,15 +1427,11 @@ export async function runPhase1DataCollection(): Promise<void> {
       const dataCollectionResults = await Promise.allSettled(dataCollectionPromises);
       
       // Check if phase was disabled during execution
-      if (!phaseEnabled['phase1_data_collection']) {
-        console.log('⚠️ Phase 1 Data Collection was disabled during execution - stopping');
-        phaseStatus['phase1_data_collection'] = 'idle';
+      if (!phaseEnabled['phase1a_input_daily']) {
+        console.log('⚠️ Phase 1a Input Daily was disabled during execution - stopping');
+        phaseStatus['phase1a_input_daily'] = 'idle';
         if (logEntry) {
-          await SchedulerLogService.updateLog(logEntry.id!, {
-            status: 'cancelled',
-            completed_at: new Date().toISOString(),
-            current_processing: 'Phase disabled during execution'
-          });
+          await SchedulerLogService.markCancelled(logEntry.id!, 'Phase disabled during execution', 'system');
         }
         return;
       }
@@ -1160,22 +1454,22 @@ export async function runPhase1DataCollection(): Promise<void> {
       const phaseEndTime = new Date();
       const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
       
-      console.log(`\n📊 ===== PHASE 1 DATA COLLECTION COMPLETED =====`);
+      console.log(`\n📊 ===== PHASE 1A INPUT DAILY COMPLETED =====`);
       console.log(`✅ Success: ${successCount}/${totalTasks} calculations`);
       console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
       console.log(`⏱️ Total Duration: ${totalDuration}s`);
       
       // Update database log
       if (logEntry) {
-        await SchedulerLogService.updateLog(logEntry.id!, {
-          status: successCount === totalTasks ? 'completed' : 'failed',
-          completed_at: new Date().toISOString(),
-          total_files_processed: totalTasks,
-          files_created: successCount,
-          files_failed: totalTasks - successCount,
-          progress_percentage: 100,
-          current_processing: `Phase 1 Data Collection complete: ${successCount}/${totalTasks} calculations successful in ${totalDuration}s`
-        });
+        if (successCount === totalTasks) {
+          await SchedulerLogService.markCompleted(logEntry.id!, {
+            total_files_processed: totalTasks,
+            files_created: successCount,
+            files_failed: totalTasks - successCount
+          });
+        } else {
+          await SchedulerLogService.markFailed(logEntry.id!, `Phase 1a Input Daily failed: ${successCount}/${totalTasks} calculations successful`, { successCount, totalTasks, totalDuration });
+        }
       }
       
       // Cleanup after Phase 1
@@ -1194,28 +1488,30 @@ export async function runPhase1DataCollection(): Promise<void> {
       }
       
     } catch (error) {
-      trackError(error, 'Phase 1 Data Collection');
-      console.error('❌ Error during Phase 1 Data Collection:', error);
+      trackError(error, 'Phase 1a Input Daily');
+      console.error('❌ Error during Phase 1a Input Daily:', error);
       
       if (logEntry) {
         await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
       }
     }
   } finally {
-    phaseStatus['phase1_data_collection'] = 'idle';
+    phaseStatus['phase1a_input_daily'] = 'idle';
   }
 }
 
 // Helper function to get phase name by ID
 function getPhaseName(phaseId: string): string {
   const phaseNames: Record<string, string> = {
-    'phase1_data_collection': 'Phase 1 Data Collection',
-    'phase1_shareholders': 'Phase 1 Shareholders & Holding',
+    'phase1a_input_daily': 'Phase 1a Input Daily',
+    'phase1b_input_monthly': 'Phase 1b Input Monthly',
     'phase2_market_rotation': 'Phase 2 Market Rotation',
-    'phase3_light': 'Phase 3 Light',
-    'phase4_medium': 'Phase 4 Medium',
-    'phase5_heavy': 'Phase 5 Heavy',
-    'phase6_very_heavy': 'Phase 6 Very Heavy'
+    'phase3_flow_trade': 'Phase 3 Flow Trade',
+    'phase4_broker_summary': 'Phase 4 Broker Summary',
+    'phase5_broktrans_broker': 'Phase 5 Broktrans Broker',
+    'phase6_broktrans_stock': 'Phase 6 Broktrans Stock',
+    'phase7_bid_breakdown': 'Phase 7 Bid Breakdown',
+    'phase8_additional': 'Phase 8 Additional'
   };
   return phaseNames[phaseId] || phaseId;
 }
@@ -1239,13 +1535,13 @@ export function getAllPhasesStatus() {
   return {
     phases: [
       (() => {
-        const config1 = phaseTriggerConfig['phase1_data_collection']!;
+        const config1 = phaseTriggerConfig['phase1a_input_daily']!;
         return {
-          id: 'phase1_data_collection',
-          name: 'Phase 1 Data Collection',
-          description: 'Stock Data, Index Data, Done Summary Data (7 days)',
-          status: phaseStatus['phase1_data_collection'],
-          enabled: phaseEnabled['phase1_data_collection'],
+          id: 'phase1a_input_daily',
+          name: 'Phase 1a Input Daily',
+          description: 'Stock, Index, dan Done Summary',
+          status: phaseStatus['phase1a_input_daily'],
+          enabled: phaseEnabled['phase1a_input_daily'],
           trigger: {
             type: config1.type,
             schedule: config1.schedule,
@@ -1257,13 +1553,13 @@ export function getAllPhasesStatus() {
         };
       })(),
       (() => {
-        const config2 = phaseTriggerConfig['phase1_shareholders']!;
+        const config2 = phaseTriggerConfig['phase1b_input_monthly']!;
         return {
-          id: 'phase1_shareholders',
-          name: 'Phase 1 Shareholders & Holding',
-          description: 'Shareholders Data, Holding Data (Monthly check)',
-          status: phaseStatus['phase1_shareholders'],
-          enabled: phaseEnabled['phase1_shareholders'],
+          id: 'phase1b_input_monthly',
+          name: 'Phase 1b Input Monthly',
+          description: 'Shareholders & Holding',
+          status: phaseStatus['phase1b_input_monthly'],
+          enabled: phaseEnabled['phase1b_input_monthly'],
           trigger: {
             type: config2.type,
             schedule: config2.schedule,
@@ -1293,13 +1589,13 @@ export function getAllPhasesStatus() {
         };
       })(),
       (() => {
-        const config4 = phaseTriggerConfig['phase3_light']!;
+        const config4 = phaseTriggerConfig['phase3_flow_trade']!;
         return {
-          id: 'phase3_light',
-          name: 'Phase 3 Light',
+          id: 'phase3_flow_trade',
+          name: 'Phase 3 Flow Trade',
           description: 'Money Flow, Foreign Flow, Break Done Trade',
-          status: phaseStatus['phase3_light'],
-          enabled: phaseEnabled['phase3_light'],
+          status: phaseStatus['phase3_flow_trade'],
+          enabled: phaseEnabled['phase3_flow_trade'],
           trigger: {
             type: config4.type,
             schedule: config4.schedule,
@@ -1311,54 +1607,90 @@ export function getAllPhasesStatus() {
         };
       })(),
       (() => {
-        const config5 = phaseTriggerConfig['phase4_medium']!;
+        const config5 = phaseTriggerConfig['phase4_broker_summary']!;
         return {
-          id: 'phase4_medium',
-          name: 'Phase 4 Medium',
-          description: 'Bid/Ask Footprint, Broker Breakdown (all dates)',
-          status: phaseStatus['phase4_medium'],
-          enabled: phaseEnabled['phase4_medium'],
+          id: 'phase4_broker_summary',
+          name: 'Phase 4 Broker Summary',
+          description: 'Top Broker, Broker Summary, Broker Summary IDX, Broker Summary by Type',
+          status: phaseStatus['phase4_broker_summary'],
+          enabled: phaseEnabled['phase4_broker_summary'],
           trigger: {
             type: config5.type,
             schedule: config5.schedule,
             triggerAfterPhase: config5.triggerAfterPhase,
             condition: formatTriggerCondition(config5)
           },
-          tasks: ['Bid/Ask Footprint', 'Broker Breakdown'],
+          tasks: ['Top Broker', 'Broker Summary', 'Broker Summary IDX', 'Broker Summary by Type'],
           mode: 'SEQUENTIAL' as const
         };
       })(),
       (() => {
-        const config6 = phaseTriggerConfig['phase5_heavy']!;
+        const config6 = phaseTriggerConfig['phase5_broktrans_broker']!;
         return {
-          id: 'phase5_heavy',
-          name: 'Phase 5 Heavy',
-          description: 'Broker Data (Broker Summary + Top Broker), Broker Summary by Type (RG/TN/NG split), Broker Summary IDX (aggregated all emiten), Broker Transaction (all types), Broker Transaction RG/TN/NG (split by type) - all dates',
-          status: phaseStatus['phase5_heavy'],
-          enabled: phaseEnabled['phase5_heavy'],
+          id: 'phase5_broktrans_broker',
+          name: 'Phase 5 Broktrans Broker',
+          description: 'Broker Transaction, Broker Transaction RG/TN/NG, Broker Transaction F/D, Broker Transaction F/D RG/TN/NG',
+          status: phaseStatus['phase5_broktrans_broker'],
+          enabled: phaseEnabled['phase5_broktrans_broker'],
           trigger: {
             type: config6.type,
             schedule: config6.schedule,
             triggerAfterPhase: config6.triggerAfterPhase,
             condition: formatTriggerCondition(config6)
           },
-          tasks: ['Broker Data', 'Broker Summary by Type', 'Broker Summary IDX', 'Broker Transaction', 'Broker Transaction RG/TN/NG'],
+          tasks: ['Broker Transaction', 'Broker Transaction RG/TN/NG', 'Broker Transaction F/D', 'Broker Transaction F/D RG/TN/NG'],
           mode: 'SEQUENTIAL' as const
         };
       })(),
       (() => {
-        const config7 = phaseTriggerConfig['phase6_very_heavy']!;
+        const config7 = phaseTriggerConfig['phase6_broktrans_stock']!;
         return {
-          id: 'phase6_very_heavy',
-          name: 'Phase 6 Very Heavy',
-          description: 'Broker Inventory, Accumulation Distribution (sequential)',
-          status: phaseStatus['phase6_very_heavy'],
-          enabled: phaseEnabled['phase6_very_heavy'],
+          id: 'phase6_broktrans_stock',
+          name: 'Phase 6 Broktrans Stock',
+          description: 'Broker Transaction Stock, Broker Transaction Stock F/D, Broker Transaction Stock RG/TN/NG, Broker Transaction Stock F/D RG/TN/NG',
+          status: phaseStatus['phase6_broktrans_stock'],
+          enabled: phaseEnabled['phase6_broktrans_stock'],
           trigger: {
             type: config7.type,
             schedule: config7.schedule,
             triggerAfterPhase: config7.triggerAfterPhase,
             condition: formatTriggerCondition(config7)
+          },
+          tasks: ['Broker Transaction Stock', 'Broker Transaction Stock F/D', 'Broker Transaction Stock RG/TN/NG', 'Broker Transaction Stock F/D RG/TN/NG'],
+          mode: 'SEQUENTIAL' as const
+        };
+      })(),
+      (() => {
+        const config8 = phaseTriggerConfig['phase7_bid_breakdown']!;
+        return {
+          id: 'phase7_bid_breakdown',
+          name: 'Phase 7 Bid Breakdown',
+          description: 'Bid/Ask Footprint, Broker Breakdown',
+          status: phaseStatus['phase7_bid_breakdown'],
+          enabled: phaseEnabled['phase7_bid_breakdown'],
+          trigger: {
+            type: config8.type,
+            schedule: config8.schedule,
+            triggerAfterPhase: config8.triggerAfterPhase,
+            condition: formatTriggerCondition(config8)
+          },
+          tasks: ['Bid/Ask Footprint', 'Broker Breakdown'],
+          mode: 'SEQUENTIAL' as const
+        };
+      })(),
+      (() => {
+        const config9 = phaseTriggerConfig['phase8_additional']!;
+        return {
+          id: 'phase8_additional',
+          name: 'Phase 8 Additional',
+          description: 'Broker Inventory, Accumulation Distribution',
+          status: phaseStatus['phase8_additional'],
+          enabled: phaseEnabled['phase8_additional'],
+          trigger: {
+            type: config9.type,
+            schedule: config9.schedule,
+            triggerAfterPhase: config9.triggerAfterPhase,
+            condition: formatTriggerCondition(config9)
           },
           tasks: ['Broker Inventory', 'Accumulation Distribution'],
           mode: 'SEQUENTIAL' as const
@@ -1453,11 +1785,11 @@ export function updatePhaseTriggerConfig(
     }
     
     // Update config for Phase 1 phases
-    if (phaseId === 'phase1_data_collection') {
+    if (phaseId === 'phase1a_input_daily') {
       SCHEDULER_CONFIG.PHASE1_DATA_COLLECTION_TIME = schedule;
       PHASE1_DATA_COLLECTION_TIME = schedule;
       PHASE1_DATA_COLLECTION_SCHEDULE = timeToCron(schedule);
-    } else if (phaseId === 'phase1_shareholders') {
+    } else if (phaseId === 'phase1b_input_monthly') {
       SCHEDULER_CONFIG.PHASE1_SHAREHOLDERS_TIME = schedule;
       PHASE1_SHAREHOLDERS_TIME = schedule;
       PHASE1_SHAREHOLDERS_SCHEDULE = timeToCron(schedule);
@@ -1490,7 +1822,7 @@ export function updatePhaseTriggerConfig(
   console.log(`✅ Phase ${phaseId} trigger config updated:`, phaseTriggerConfig[phaseId]);
   
   // Restart scheduler if Phase 1 schedule changed
-  if (triggerType === 'scheduled' && (phaseId === 'phase1_data_collection' || phaseId === 'phase1_shareholders')) {
+  if (triggerType === 'scheduled' && (phaseId === 'phase1a_input_daily' || phaseId === 'phase1b_input_monthly')) {
     restartScheduler();
   }
   
@@ -1516,27 +1848,33 @@ export async function triggerPhase(phaseId: string): Promise<{ success: boolean;
     }
     
     switch (phaseId) {
-      case 'phase1_data_collection':
+      case 'phase1a_input_daily':
         await runPhase1DataCollection();
-        return { success: true, message: 'Phase 1 Data Collection triggered successfully' };
-      case 'phase1_shareholders':
-        // Phase 1 Shareholders requires special handling (monthly check)
-        return { success: false, message: 'Phase 1 Shareholders can only run on 1st of month via scheduler' };
+        return { success: true, message: 'Phase 1a Input Daily triggered successfully' };
+      case 'phase1b_input_monthly':
+        // Phase 1b Input Monthly requires special handling (monthly check)
+        return { success: false, message: 'Phase 1b Input Monthly can only run on 1st of month via scheduler' };
       case 'phase2_market_rotation':
         await runPhase2MarketRotationCalculations();
         return { success: true, message: 'Phase 2 Market Rotation triggered successfully' };
-      case 'phase3_light':
-        await runPhase3LightCalculations();
-        return { success: true, message: 'Phase 3 Light triggered successfully' };
-      case 'phase4_medium':
-        await runPhase4MediumCalculations();
-        return { success: true, message: 'Phase 4 Medium triggered successfully' };
-      case 'phase5_heavy':
-        await runPhase5HeavyCalculations();
-        return { success: true, message: 'Phase 5 Heavy triggered successfully' };
-      case 'phase6_very_heavy':
-        await runPhase6VeryHeavyCalculations();
-        return { success: true, message: 'Phase 6 Very Heavy triggered successfully' };
+      case 'phase3_flow_trade':
+        await runPhase3FlowTradeCalculations();
+        return { success: true, message: 'Phase 3 Flow Trade triggered successfully' };
+      case 'phase4_broker_summary':
+        await runPhase4BrokerSummaryCalculations();
+        return { success: true, message: 'Phase 4 Broker Summary triggered successfully' };
+      case 'phase5_broktrans_broker':
+        await runPhase5BroktransBrokerCalculations();
+        return { success: true, message: 'Phase 5 Broktrans Broker triggered successfully' };
+      case 'phase6_broktrans_stock':
+        await runPhase6BroktransStockCalculations();
+        return { success: true, message: 'Phase 6 Broktrans Stock triggered successfully' };
+      case 'phase7_bid_breakdown':
+        await runPhase7BidBreakdownCalculations();
+        return { success: true, message: 'Phase 7 Bid Breakdown triggered successfully' };
+      case 'phase8_additional':
+        await runPhase8AdditionalCalculations();
+        return { success: true, message: 'Phase 8 Additional triggered successfully' };
       default:
         return { success: false, message: `Unknown phase: ${phaseId}` };
     }
@@ -1561,23 +1899,23 @@ export function startScheduler(): void {
   // 1. Schedule Phase 1 - Data Collection (Stock, Index, Done Summary)
   const phase1DataCollectionTask = cron.schedule(PHASE1_DATA_COLLECTION_SCHEDULE, async () => {
     // Check if phase is enabled before starting
-    if (!phaseEnabled['phase1_data_collection']) {
-      console.log('⚠️ Phase 1 Data Collection is disabled - skipping');
-      phaseStatus['phase1_data_collection'] = 'idle';
+    if (!phaseEnabled['phase1a_input_daily']) {
+      console.log('⚠️ Phase 1a Input Daily is disabled - skipping');
+      phaseStatus['phase1a_input_daily'] = 'idle';
       return;
     }
     
-    phaseStatus['phase1_data_collection'] = 'running';
+    phaseStatus['phase1a_input_daily'] = 'running';
     try {
       const phaseStartTime = Date.now();
-      console.log(`\n🚀 ===== PHASE 1 DATA COLLECTION STARTED =====`);
+      console.log(`\n🚀 ===== PHASE 1A INPUT DAILY STARTED =====`);
       console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
-      console.log(`📋 Phase: Data Collection (Stock, Index, Done Summary) - 7 days`);
+      console.log(`📋 Phase: Input Daily (Stock, Index, Done Summary) - 7 days`);
       
       // Skip if weekend
       if (isWeekend()) {
-        console.log('📅 Weekend detected - skipping Phase 1 Data Collection (no market data available)');
-        phaseStatus['phase1_data_collection'] = 'idle';
+        console.log('📅 Weekend detected - skipping Phase 1a Input Daily (no market data available)');
+        phaseStatus['phase1a_input_daily'] = 'idle';
         return;
       }
       
@@ -1587,31 +1925,32 @@ export function startScheduler(): void {
         // Check memory before starting
         const memoryOk = await monitorMemoryUsage();
         if (!memoryOk) {
-          console.log('⚠️ Skipping Phase 1 Data Collection due to high memory usage');
-          phaseStatus['phase1_data_collection'] = 'idle';
+          console.log('⚠️ Skipping Phase 1a Input Daily due to high memory usage');
+          phaseStatus['phase1a_input_daily'] = 'idle';
           return;
         }
       
       // Create database log entry
       const logData: Partial<SchedulerLog> = {
-        feature_name: 'phase1_data_collection',
+        feature_name: 'phase1a_input_daily',
         trigger_type: 'scheduled',
         triggered_by: 'scheduler',
         status: 'running',
+        phase_id: 'phase1a_input_daily',
         started_at: new Date().toISOString(),
         environment: process.env['NODE_ENV'] || 'development'
       };
       
       logEntry = await SchedulerLogService.createLog(logData);
       if (logEntry) {
-        console.log('📊 Phase 1 Data Collection database log created:', logEntry.id);
+        console.log('📊 Phase 1a Input Daily database log created:', logEntry.id);
       }
       
       const phaseStartTime = Date.now();
-      console.log('🔄 Starting Phase 1 Data Collection (PARALLEL MODE)...');
+      console.log('🔄 Starting Phase 1a Input Daily (PARALLEL MODE)...');
       
       // Track batch performance
-      trackBatchPerformance(phaseStartTime, 'Phase 1 Data Collection Start');
+      trackBatchPerformance(phaseStartTime, 'Phase 1a Input Daily Start');
       
       // Run data collection in parallel
       const dataCollectionTasks = [
@@ -1626,9 +1965,9 @@ export function startScheduler(): void {
         
         try {
           // Check if phase is still enabled before starting task
-          if (!phaseEnabled['phase1_data_collection']) {
-            console.log(`⚠️ Phase 1 Data Collection disabled - stopping ${task.name}`);
-            phaseStatus['phase1_data_collection'] = 'idle';
+          if (!phaseEnabled['phase1a_input_daily']) {
+            console.log(`⚠️ Phase 1a Input Daily disabled - stopping ${task.name}`);
+            phaseStatus['phase1a_input_daily'] = 'idle';
             return { name: task.name, success: false, error: 'Phase disabled', duration: 0 };
           }
           
@@ -1646,9 +1985,9 @@ export function startScheduler(): void {
           await (task.service as any)();
           
           // Check again after task completes
-          if (!phaseEnabled['phase1_data_collection']) {
-            console.log(`⚠️ Phase 1 Data Collection disabled during ${task.name} execution`);
-            phaseStatus['phase1_data_collection'] = 'idle';
+          if (!phaseEnabled['phase1a_input_daily']) {
+            console.log(`⚠️ Phase 1a Input Daily disabled during ${task.name} execution`);
+            phaseStatus['phase1a_input_daily'] = 'idle';
             return { name: task.name, success: false, error: 'Phase disabled during execution', duration: Date.now() - startTime };
           }
           
@@ -1670,15 +2009,11 @@ export function startScheduler(): void {
       const dataCollectionResults = await Promise.allSettled(dataCollectionPromises);
       
       // Check if phase was disabled during execution
-      if (!phaseEnabled['phase1_data_collection']) {
-        console.log('⚠️ Phase 1 Data Collection was disabled during execution - stopping');
-        phaseStatus['phase1_data_collection'] = 'idle';
+      if (!phaseEnabled['phase1a_input_daily']) {
+        console.log('⚠️ Phase 1a Input Daily was disabled during execution - stopping');
+        phaseStatus['phase1a_input_daily'] = 'idle';
         if (logEntry) {
-          await SchedulerLogService.updateLog(logEntry.id!, {
-            status: 'cancelled',
-            completed_at: new Date().toISOString(),
-            current_processing: 'Phase disabled during execution'
-          });
+          await SchedulerLogService.markCancelled(logEntry.id!, 'Phase disabled during execution', 'system');
         }
         return;
       }
@@ -1701,25 +2036,25 @@ export function startScheduler(): void {
       const phaseEndTime = new Date();
       const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
       
-      console.log(`\n📊 ===== PHASE 1 DATA COLLECTION COMPLETED =====`);
+      console.log(`\n📊 ===== PHASE 1A INPUT DAILY COMPLETED =====`);
       console.log(`✅ Success: ${successCount}/${totalTasks} calculations`);
       console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
       console.log(`⏱️ Total Duration: ${totalDuration}s`);
       
       // Update database log
   if (logEntry) {
-    await SchedulerLogService.updateLog(logEntry.id!, {
-          status: successCount === totalTasks ? 'completed' : 'failed',
-          completed_at: new Date().toISOString(),
-          total_files_processed: totalTasks,
-          files_created: successCount,
-          files_failed: totalTasks - successCount,
-          progress_percentage: 100,
-          current_processing: `Phase 1 Data Collection complete: ${successCount}/${totalTasks} calculations successful in ${totalDuration}s`
-        });
-      }
+    if (successCount === totalTasks) {
+      await SchedulerLogService.markCompleted(logEntry.id!, {
+        total_files_processed: totalTasks,
+        files_created: successCount,
+        files_failed: totalTasks - successCount
+      });
+    } else {
+      await SchedulerLogService.markFailed(logEntry.id!, `Phase 1a Input Daily failed: ${successCount}/${totalTasks} calculations successful`, { successCount, totalTasks, totalDuration });
+    }
+  }
       
-      // Cleanup after Phase 1 Data Collection
+      // Cleanup after Phase 1a Input Daily
       await aggressiveMemoryCleanup();
       
       // Trigger Phase 2 automatically if Phase 1 succeeded and Phase 2 is enabled
@@ -1735,38 +2070,38 @@ export function startScheduler(): void {
       }
       
       } catch (error) {
-        console.error('❌ Error during Phase 1 Data Collection:', error);
+        console.error('❌ Error during Phase 1a Input Daily:', error);
         
         if (logEntry) {
           await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
         }
       } finally {
-        phaseStatus['phase1_data_collection'] = 'idle';
+        phaseStatus['phase1a_input_daily'] = 'idle';
       }
     } catch (error) {
-      console.error('❌ Error in Phase 1 Data Collection scheduler:', error);
-      phaseStatus['phase1_data_collection'] = 'idle';
+      console.error('❌ Error in Phase 1a Input Daily scheduler:', error);
+      phaseStatus['phase1a_input_daily'] = 'idle';
     }
   }, {
     timezone: TIMEZONE
   });
   scheduledTasks.push(phase1DataCollectionTask);
 
-  // 2. Schedule Phase 1 - Shareholders & Holding (Monthly check - only on 1st of month)
+  // 2. Schedule Phase 1b - Input Monthly (Shareholders & Holding - Monthly check - only on 1st of month)
   const phase1ShareholdersTask = cron.schedule(PHASE1_SHAREHOLDERS_SCHEDULE, async () => {
-    phaseStatus['phase1_shareholders'] = 'running';
+    phaseStatus['phase1b_input_monthly'] = 'running';
     try {
       const phaseStartTime = Date.now();
-      console.log(`\n🚀 ===== PHASE 1 SHAREHOLDERS & HOLDING STARTED =====`);
+      console.log(`\n🚀 ===== PHASE 1B INPUT MONTHLY STARTED =====`);
       console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
-      console.log(`📋 Phase: Shareholders & Holding (Monthly check - only on 1st of month)`);
+      console.log(`📋 Phase: Input Monthly (Shareholders & Holding - Monthly check - only on 1st of month)`);
       
       // Check if today is the first day of the month
       const today = new Date();
       
       if (today.getDate() !== 1) {
         console.log('📅 Not the first day of month - skipping Shareholders & Holding updates');
-        phaseStatus['phase1_shareholders'] = 'idle';
+        phaseStatus['phase1b_input_monthly'] = 'idle';
         return;
       }
       
@@ -1778,27 +2113,28 @@ export function startScheduler(): void {
         // Check memory before starting
         const memoryOk = await monitorMemoryUsage();
         if (!memoryOk) {
-          console.log('⚠️ Skipping Phase 1 Shareholders & Holding due to high memory usage');
-          phaseStatus['phase1_shareholders'] = 'idle';
+          console.log('⚠️ Skipping Phase 1b Input Monthly & Holding due to high memory usage');
+          phaseStatus['phase1b_input_monthly'] = 'idle';
           return;
         }
         
         // Create database log entry
         const logData: Partial<SchedulerLog> = {
-          feature_name: 'phase1_shareholders_holding',
+          feature_name: 'phase1b_input_monthly',
           trigger_type: 'scheduled',
           triggered_by: 'scheduler',
           status: 'running',
+          phase_id: 'phase1b_input_monthly',
           started_at: new Date().toISOString(),
           environment: process.env['NODE_ENV'] || 'development'
         };
         
         logEntry = await SchedulerLogService.createLog(logData);
         if (logEntry) {
-          console.log('📊 Phase 1 Shareholders & Holding database log created:', logEntry.id);
+          console.log('📊 Phase 1b Input Monthly & Holding database log created:', logEntry.id);
         }
         
-        console.log('🔄 Starting Phase 1 Shareholders & Holding (PARALLEL MODE)...');
+        console.log('🔄 Starting Phase 1b Input Monthly & Holding (PARALLEL MODE)...');
         
         // Run shareholders and holding updates in parallel
         const shareholdersHoldingTasks = [
@@ -1858,39 +2194,39 @@ export function startScheduler(): void {
         const phaseEndTime = new Date();
         const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
         
-        console.log(`\n📊 ===== PHASE 1 SHAREHOLDERS & HOLDING COMPLETED =====`);
+        console.log(`\n📊 ===== PHASE 1B INPUT MONTHLY COMPLETED =====`);
         console.log(`✅ Success: ${successCount}/2 calculations`);
         console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
         console.log(`⏱️ Total Duration: ${totalDuration}s`);
         
         // Update database log
         if (logEntry) {
-          await SchedulerLogService.updateLog(logEntry.id!, {
-            status: successCount === 2 ? 'completed' : 'failed',
-            completed_at: new Date().toISOString(),
-            total_files_processed: 2,
-            files_created: successCount,
-            files_failed: 2 - successCount,
-            progress_percentage: 100,
-            current_processing: `Phase 1 Shareholders & Holding complete: ${successCount}/2 calculations successful in ${totalDuration}s`
-          });
+          if (successCount === 2) {
+            await SchedulerLogService.markCompleted(logEntry.id!, {
+              total_files_processed: 2,
+              files_created: successCount,
+              files_failed: 2 - successCount
+            });
+          } else {
+            await SchedulerLogService.markFailed(logEntry.id!, `Phase 1b Input Monthly & Holding failed: ${successCount}/2 calculations successful`, { successCount, totalDuration });
+          }
         }
         
-        // Cleanup after Phase 1 Shareholders & Holding
+        // Cleanup after Phase 1b Input Monthly & Holding
         await aggressiveMemoryCleanup();
         
       } catch (error) {
-        console.error('❌ Error during Phase 1 Shareholders & Holding:', error);
+        console.error('❌ Error during Phase 1b Input Monthly & Holding:', error);
         
         if (logEntry) {
           await SchedulerLogService.markFailed(logEntry.id!, error instanceof Error ? error.message : 'Unknown error', error);
         }
       } finally {
-        phaseStatus['phase1_shareholders'] = 'idle';
+        phaseStatus['phase1b_input_monthly'] = 'idle';
       }
     } catch (error) {
-      console.error('❌ Error in Phase 1 Shareholders scheduler:', error);
-      phaseStatus['phase1_shareholders'] = 'idle';
+      console.error('❌ Error in Phase 1b Input Monthly scheduler:', error);
+      phaseStatus['phase1b_input_monthly'] = 'idle';
     }
   }, {
     timezone: TIMEZONE
@@ -1899,14 +2235,11 @@ export function startScheduler(): void {
 
   // Phase 2 and Phase 3 are now auto-triggered from Phase 1
 
-  // Initialize Azure logging
-  initializeAzureLogging().catch(console.error);
-  
   // Log scheduler configuration
   console.log(`\n📅 Scheduler Configuration (${TIMEZONE}) - OPTIMIZED FOR 12GB RAM:`);
-  console.log(`  🚀 Phase 1 Data Collection (PARALLEL): ${PHASE1_DATA_COLLECTION_TIME} daily (SCHEDULED)`);
+  console.log(`  🚀 Phase 1a Input Daily (PARALLEL): ${PHASE1_DATA_COLLECTION_TIME} daily (SCHEDULED)`);
   console.log(`    └─ Stock Data, Index Data, Done Summary Data (7 days)`);
-  console.log(`  🚀 Phase 1 Shareholders & Holding (PARALLEL): ${PHASE1_SHAREHOLDERS_TIME} daily (SCHEDULED)`);
+  console.log(`  🚀 Phase 1b Input Monthly & Holding (PARALLEL): ${PHASE1_SHAREHOLDERS_TIME} daily (SCHEDULED)`);
   console.log(`    └─ Shareholders Data, Holding Data (Monthly check)`);
   console.log(`  🚀 Phase 2 Market Rotation (PARALLEL): Auto-triggered after Phase 1`);
   console.log(`    └─ RRC, RRG, Seasonal, Trend Filter, Watchlist Snapshot`);
@@ -1915,7 +2248,7 @@ export function startScheduler(): void {
   console.log(`  🚀 Phase 4 Medium (SEQUENTIAL): Auto-triggered after Phase 3`);
   console.log(`    └─ Bid/Ask Footprint, Broker Breakdown (all dates)`);
   console.log(`  🚀 Phase 5 Heavy (SEQUENTIAL): Auto-triggered after Phase 4`);
-  console.log(`    └─ Broker Data (Broker Summary + Top Broker), Broker Summary by Type (RG/TN/NG split), Broker Summary IDX (aggregated all emiten), Broker Transaction (all types), Broker Transaction RG/TN/NG (split by type) - all dates`);
+  console.log(`    └─ Broker Summary (per emiten + ALLSUM), Top Broker (comprehensive + by stock), Broker Summary by Type (RG/TN/NG split), Broker Summary IDX (aggregated all emiten), Broker Transaction (all types), Broker Transaction RG/TN/NG (split by type) - all dates`);
   console.log(`  🚀 Phase 6 Very Heavy (SEQUENTIAL): Auto-triggered after Phase 5`);
   console.log(`    └─ Broker Inventory, Accumulation Distribution (sequential)`);
   console.log(`  🧠 Memory Monitoring: ENABLED (12GB threshold)`);
@@ -2025,3 +2358,4 @@ export function restartScheduler(): void {
     startScheduler();
   }, 1000);
 }
+

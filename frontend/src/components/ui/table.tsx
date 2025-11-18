@@ -7,11 +7,9 @@ interface TableProps {
 
 export function Table({ children, className = '' }: TableProps) {
   return (
-    <div className="relative w-full overflow-auto">
       <table className={`w-full caption-bottom text-sm ${className}`}>
         {children}
       </table>
-    </div>
   );
 }
 
@@ -31,6 +29,6 @@ export function TableHead({ children, className = '' }: { children: React.ReactN
   return <th className={`h-12 px-4 text-left align-middle font-medium text-muted-foreground ${className}`}>{children}</th>;
 }
 
-export function TableCell({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return <td className={`p-4 align-middle ${className}`}>{children}</td>;
+export function TableCell({ children, className = '', colSpan }: { children: React.ReactNode; className?: string; colSpan?: number }) {
+  return <td className={`p-4 align-middle ${className}`} colSpan={colSpan}>{children}</td>;
 }

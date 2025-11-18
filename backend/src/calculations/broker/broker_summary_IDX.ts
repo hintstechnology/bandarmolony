@@ -1,6 +1,6 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
 
-// Type definitions - same as broker_data.ts
+// Type definitions - same as broker_summary.ts
 interface BrokerSummary {
   BrokerCode: string;
   BuyerVol: number;

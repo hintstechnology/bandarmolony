@@ -11,7 +11,7 @@ const topBrokerQuerySchema = z.object({
 
 /**
  * GET /api/top-broker
- * Get top brokers from top_broker directory (already calculated by broker_data.ts)
+ * Get top brokers from top_broker directory (already calculated by top_broker.ts)
  * Path: top_broker/top_broker_{date}/top_broker.csv
  * Data structure: ComprehensiveBrokerData[]
  * Fields: BrokerCode, TotalBrokerVol, TotalBrokerValue, TotalBrokerFreq,

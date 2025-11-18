@@ -11,7 +11,8 @@ import { SchedulerLogService } from '../services/schedulerLogService';
 import { AzureLogger } from '../services/azureLoggingService';
 import AccumulationDataScheduler from '../services/accumulationDataScheduler';
 import BidAskDataScheduler from '../services/bidAskDataScheduler';
-import BrokerDataScheduler from '../services/brokerDataScheduler';
+import BrokerSummaryDataScheduler from '../services/brokerSummaryDataScheduler';
+import TopBrokerDataScheduler from '../services/topBrokerDataScheduler';
 import BrokerInventoryDataScheduler from '../services/brokerInventoryDataScheduler';
 import ForeignFlowDataScheduler from '../services/foreignFlowDataScheduler';
 import MoneyFlowDataScheduler from '../services/moneyFlowDataScheduler';
@@ -32,7 +33,6 @@ import BrokerTransactionStockFDDataScheduler from '../services/brokerTransaction
 import BrokerTransactionStockRGTNNGDataScheduler from '../services/brokerTransactionStockRGTNNGDataScheduler';
 import BrokerTransactionStockFDRGTNNGDataScheduler from '../services/brokerTransactionStockFDRGTNNGDataScheduler';
 import { BrokerDataRGTNNGCalculator } from '../calculations/broker/broker_data_rg_tn_ng';
-import { listPaths } from '../utils/azureBlob';
 import { updateWatchlistSnapshot } from '../services/watchlistSnapshotService';
 
 const router = express.Router();
@@ -48,7 +48,6 @@ router.post('/stock', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -97,7 +96,6 @@ router.post('/index', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -145,7 +143,6 @@ router.post('/shareholders', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -193,7 +190,6 @@ router.post('/holding', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -241,7 +237,6 @@ router.post('/done-summary', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -293,7 +288,6 @@ router.post('/accumulation', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -353,7 +347,6 @@ router.post('/bidask', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -409,7 +402,6 @@ router.post('/broker-breakdown', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -458,21 +450,16 @@ router.post('/broker-breakdown', async (_req, res) => {
   }
 });
 
-// Manual trigger for Broker Data calculation
-router.post('/broker-data', async (_req, res) => {
+// Manual trigger for Broker Summary calculation
+router.post('/broker-summary', async (_req, res) => {
   try {
-    console.log('🔄 Manual trigger: Broker Data calculation');
+    console.log('🔄 Manual trigger: Broker Summary calculation');
     
-    const today = new Date();
-    const dateSuffix = today.toISOString().slice(2, 10).replace(/-/g, '');
-    
-    // Create log entry
     const logEntry = await SchedulerLogService.createLog({
-      feature_name: 'broker_data',
+      feature_name: 'broker-summary',
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -484,9 +471,9 @@ router.post('/broker-data', async (_req, res) => {
     }
 
     // Run calculation in background
-    const brokerDataService = new BrokerDataScheduler();
-    brokerDataService.generateBrokerData(dateSuffix, logEntry.id).then(async (result) => {
-      await AzureLogger.logInfo('broker_data', `Manual broker data calculation completed: ${result.message}`);
+    const brokerSummaryService = new BrokerSummaryDataScheduler();
+    brokerSummaryService.generateBrokerSummaryData('all', logEntry.id || null).then(async (result) => {
+      await AzureLogger.logInfo('broker-summary', `Manual broker summary calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: result.success ? 'completed' : 'failed',
@@ -495,7 +482,7 @@ router.post('/broker-data', async (_req, res) => {
         });
       }
     }).catch(async (error) => {
-      await AzureLogger.logSchedulerError('broker_data', error.message);
+      await AzureLogger.logSchedulerError('broker-summary', error.message);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
@@ -506,11 +493,11 @@ router.post('/broker-data', async (_req, res) => {
 
     return res.json({ 
       success: true, 
-      message: 'Broker Data calculation triggered',
+      message: 'Broker Summary calculation triggered',
       log_id: logEntry.id
     });
   } catch (error) {
-    console.error('❌ Error triggering broker data calculation:', error);
+    console.error('❌ Error triggering broker summary calculation:', error);
     return res.status(500).json({ 
       success: false, 
       message: error instanceof Error ? error.message : 'Unknown error' 
@@ -518,75 +505,54 @@ router.post('/broker-data', async (_req, res) => {
   }
 });
 
-// Manual trigger for Broker Data calculation for all dates starting from 20250922
-router.post('/broker-data-all', async (_req, res) => {
+// Manual trigger for Top Broker calculation
+router.post('/top-broker', async (_req, res) => {
   try {
-    console.log('🔄 Manual trigger: Broker Data calculation for all dates from 20250922 - Direct execution');
-
-    // Run calculation directly without scheduler log
-    const brokerDataService = new BrokerDataScheduler();
+    console.log('🔄 Manual trigger: Top Broker calculation');
     
-    // Execute in background and return immediately
-    (async () => {
-      try {
-        // Find all DT files
-        const allFiles = await listPaths({ prefix: 'done-summary/' });
-        const dtFiles = allFiles.filter((file: string) => 
-          file.includes('/DT') && file.endsWith('.csv')
-        );
-        
-        console.log(`📊 Found ${dtFiles.length} DT files to process`);
-        
-        // Extract unique dates from DT files (format: done-summary/20250922/DT250922.csv)
-        const datesSet = new Set<string>();
-        for (const file of dtFiles) {
-          const match = file.match(/done-summary\/(\d{8})\//);
-          if (match && match[1]) {
-            const dateStr = match[1];
-            // Only process dates from 20250922 onwards
-            if (dateStr >= '20250922') {
-              datesSet.add(dateStr);
-            }
-          }
-        }
-        
-        const dates = Array.from(datesSet).sort();
-        console.log(`📅 Processing ${dates.length} unique dates from 20250922 onwards:`, dates.slice(0, 10), '...');
-        
-        let successCount = 0;
-        let failCount = 0;
-        
-        for (const date of dates) {
-          try {
-            const result = await brokerDataService.generateBrokerData(date);
-            if (result.success) {
-              successCount++;
-              console.log(`✅ Broker data generated for ${date}`);
-            } else {
-              failCount++;
-              console.error(`❌ Broker data failed for ${date}: ${result.message}`);
-            }
-          } catch (error: any) {
-            failCount++;
-            console.error(`❌ Error generating broker data for ${date}:`, error.message);
-          }
-        }
-        
-        const message = `Broker data calculation completed: ${successCount} succeeded, ${failCount} failed`;
-        await AzureLogger.logInfo('broker_data_all', message);
-        console.log(`✅ ${message}`);
-      } catch (error: any) {
-        await AzureLogger.logSchedulerError('broker_data_all', error.message);
-        console.error(`❌ Broker data calculation error: ${error.message}`);
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'top-broker',
+      trigger_type: 'manual',
+      triggered_by: 'admin',
+      status: 'running',
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    // Run calculation in background
+    const topBrokerService = new TopBrokerDataScheduler();
+    topBrokerService.generateTopBrokerData('all', logEntry.id || null).then(async (result) => {
+      await AzureLogger.logInfo('top-broker', `Manual top broker calculation completed: ${result.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: result.success ? 'completed' : 'failed',
+          progress_percentage: 100,
+          ...(result.success ? {} : { error_message: result.message })
+        });
       }
-    })();
+    }).catch(async (error) => {
+      await AzureLogger.logSchedulerError('top-broker', error.message);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: error.message
+        });
+      }
+    });
 
     return res.json({ 
       success: true, 
-      message: 'Broker Data calculation for all dates started (running in background)'
+      message: 'Top Broker calculation triggered',
+      log_id: logEntry.id
     });
   } catch (error) {
-    console.error('❌ Error triggering broker data calculation for all dates:', error);
+    console.error('❌ Error triggering top broker calculation:', error);
     return res.status(500).json({ 
       success: false, 
       message: error instanceof Error ? error.message : 'Unknown error' 
@@ -608,7 +574,6 @@ router.post('/broker-inventory', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -697,7 +662,6 @@ router.post('/broker-summary-type', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -759,7 +723,6 @@ router.post('/foreign-flow', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -819,7 +782,6 @@ router.post('/money-flow', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -985,8 +947,9 @@ router.post('/logs/:id/cancel', async (req, res) => {
       });
     }
 
-    // Mark as cancelled
-    const success = await SchedulerLogService.markCancelled(id, reason);
+    // Mark as cancelled - get user info from request if available
+    const cancelledBy = (req as any).user?.email || (req as any).user?.id || 'admin';
+    const success = await SchedulerLogService.markCancelled(id, reason, cancelledBy);
     
     if (!success) {
       return res.status(500).json({ 
@@ -1019,7 +982,6 @@ router.post('/rrc', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -1067,7 +1029,6 @@ router.post('/rrg', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -1115,7 +1076,6 @@ router.post('/seasonal', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -1169,7 +1129,6 @@ router.post('/trend-filter', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -1225,7 +1184,6 @@ router.post('/watchlist-snapshot', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -1281,7 +1239,6 @@ router.post('/broker-summary-idx', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -1342,7 +1299,6 @@ router.post('/broker-transaction', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -1402,7 +1358,6 @@ router.post('/broker-transaction-rgtnng', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -1462,7 +1417,6 @@ router.post('/broker-transaction-fd', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -1522,7 +1476,6 @@ router.post('/broker-transaction-fd-rgtnng', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -1582,7 +1535,6 @@ router.post('/broker-transaction-stock', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -1642,7 +1594,6 @@ router.post('/broker-transaction-stock-fd', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -1702,7 +1653,6 @@ router.post('/broker-transaction-stock-rgtnng', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -1762,7 +1712,6 @@ router.post('/broker-transaction-stock-fd-rgtnng', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
@@ -1822,7 +1771,6 @@ router.post('/break-done-trade', async (_req, res) => {
       trigger_type: 'manual',
       triggered_by: 'admin',
       status: 'running',
-      force_override: true,
       environment: process.env['NODE_ENV'] || 'development'
     });
 
