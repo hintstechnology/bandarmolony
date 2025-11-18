@@ -709,6 +709,27 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           return;
         }
         
+        // CRITICAL: Validate that we only process data for selected dates
+        // Filter allDataResults to only include dates that are in selectedDates
+        const validDates = new Set(selectedDates);
+        const filteredDataResults = allDataResults.filter(({ date }) => {
+          const isValid = validDates.has(date);
+          if (!isValid) {
+            console.warn(`[BrokerTransaction] WARNING: Data with date ${date} found but not in selectedDates [${selectedDates.join(', ')}]. Skipping.`);
+          }
+          return isValid;
+        });
+        
+        // DEBUG: Log date validation
+        if (selectedDates.length > 0) {
+          console.log('[BrokerTransaction] DEBUG - Date validation:', {
+            selectedDates,
+            fetchedDates: [...new Set(allDataResults.map(r => r.date))],
+            validDataResults: filteredDataResults.length,
+            totalDataResults: allDataResults.length,
+          });
+        }
+        
         // Process data per date - AGGREGATE per Emiten and per section (Buy, Sell, Net Buy, Net Sell)
         // When multiple brokers are selected, sum values for the same Emiten
         // CRITICAL: For Stock pivot, don't aggregate - each row is already complete (broker transaction for a stock)
@@ -724,7 +745,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           if (pivotFilter === 'Stock') {
             // For Stock pivot, each row is already complete - no aggregation needed
             const allRows: BrokerTransactionData[] = [];
-            allDataResults.forEach(({ date: resultDate, data }) => {
+            filteredDataResults.forEach(({ date: resultDate, data }) => {
+              // CRITICAL: Only process data for the current date being processed
               if (resultDate !== date) return;
               allRows.push(...data);
             });
@@ -784,14 +806,85 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           // Key: Emiten, Value: aggregated BrokerTransactionData
           const aggregatedMap = new Map<string, BrokerTransactionData>();
           
+          // CRITICAL: Check if only 1 broker is selected - if yes, use CSV values directly without recalculation
+          const isSingleBroker = selectedBrokers.length === 1;
+          
           // Process results for this date from all brokers
-          allDataResults.forEach(({ date: resultDate, data }) => {
-            if (resultDate !== date) return;
+          // CRITICAL: Only process data from filteredDataResults (which only contains selectedDates)
+          filteredDataResults.forEach(({ date: resultDate, code, data }) => {
+            // CRITICAL: Double-check that we only process data for the current date
+            if (resultDate !== date) {
+              console.warn(`[BrokerTransaction] WARNING: Trying to process data with date ${resultDate} but current date is ${date}. Skipping.`);
+              return;
+            }
               
               // Aggregate rows by Emiten
-              for (const row of data) {
+              for (let rowIndex = 0; rowIndex < data.length; rowIndex++) {
+                const row = data[rowIndex];
+                if (!row) continue;
+                
                 const emiten = row.Emiten || '';
                 if (!emiten) continue;
+                
+                // DEBUG: Print CSV values for first row only
+                if (rowIndex === 0 && date === selectedDates[0]) {
+                  console.log('[BrokerTransaction] DEBUG - First row CSV values:', {
+                    date,
+                    emiten,
+                    selectedBrokers,
+                    isSingleBroker,
+                    CSV_BLot: row.BLot,
+                    CSV_BLotPerOrdNum: row.BLotPerOrdNum,
+                    CSV_NewBuyerOrdNum: row.NewBuyerOrdNum,
+                    CSV_BOrdNum: row.BOrdNum,
+                    CSV_SLot: row.SLot,
+                    CSV_SLotPerOrdNum: row.SLotPerOrdNum,
+                    CSV_NewSellerOrdNum: row.NewSellerOrdNum,
+                    CSV_SOrdNum: row.SOrdNum,
+                  });
+                }
+                
+                // DEBUG: Special logging for BUMI stock in broker AK on Nov 13
+                const isBUMI = emiten.toUpperCase() === 'BUMI';
+                const isNov13 = date.includes('2024-11-13') || date.includes('2025-11-13') || date.includes('20241113') || date.includes('20251113') || date.includes('-11-13');
+                const isBrokerAK = selectedBrokers.includes('AK') || selectedBrokers.includes('ak') || code === 'AK' || code === 'ak';
+                if (isBUMI && isNov13 && isBrokerAK) {
+                  console.log('[BrokerTransaction] DEBUG - BUMI data for AK on Nov 13:', {
+                    date,
+                    emiten,
+                    brokerCode: code,
+                    selectedBrokers,
+                    isSingleBroker,
+                    '=== RAW CSV DATA ===': {
+                      BCode: row.BCode,
+                      BLot: row.BLot,
+                      BVal: row.BuyerValue,
+                      BAvg: row.BuyerAvg,
+                      BFreq: row.BFreq,
+                      BLotPerFreq: row.BLotPerFreq,
+                      BOrdNum: row.BOrdNum,
+                      NewBuyerOrdNum: row.NewBuyerOrdNum,
+                      BLotPerOrdNum: row.BLotPerOrdNum,
+                      '---Calculated BLotPerOrdNum---': {
+                        from_NewBuyerOrdNum: row.BLot && row.NewBuyerOrdNum ? row.BLot / row.NewBuyerOrdNum : null,
+                        from_BOrdNum: row.BLot && row.BOrdNum ? row.BLot / row.BOrdNum : null,
+                      },
+                      SCode: row.SCode,
+                      SLot: row.SLot,
+                      SVal: row.SellerValue,
+                      SAvg: row.SellerAvg,
+                      SFreq: row.SFreq,
+                      SLotPerFreq: row.SLotPerFreq,
+                      SOrdNum: row.SOrdNum,
+                      NewSellerOrdNum: row.NewSellerOrdNum,
+                      SLotPerOrdNum: row.SLotPerOrdNum,
+                      '---Calculated SLotPerOrdNum---': {
+                        from_NewSellerOrdNum: row.SLot && row.NewSellerOrdNum ? row.SLot / row.NewSellerOrdNum : null,
+                        from_SOrdNum: row.SLot && row.SOrdNum ? row.SLot / row.SOrdNum : null,
+                      },
+                    },
+                  });
+                }
                 
                 const existing = aggregatedMap.get(emiten);
                 if (existing) {
@@ -802,6 +895,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   existing.BFreq = (existing.BFreq || 0) + (row.BFreq || 0);
                   existing.BOrdNum = (existing.BOrdNum || 0) + (row.BOrdNum || 0);
                   existing.BLot = (existing.BLot || 0) + (row.BLot || 0);
+                  // Track NewBuyerOrdNum for accurate BLotPerOrdNum calculation
+                  const existingNewBuyerOrdNum = existing.NewBuyerOrdNum !== undefined ? existing.NewBuyerOrdNum : (existing.BOrdNum || 0);
+                  const rowNewBuyerOrdNum = row.NewBuyerOrdNum !== undefined ? row.NewBuyerOrdNum : (row.BOrdNum || 0);
+                  existing.NewBuyerOrdNum = existingNewBuyerOrdNum + rowNewBuyerOrdNum;
+                  
                   // Use Lot/F and Lot/ON from CSV only - no manual calculation
                   // Use weighted average when both values exist, otherwise use the one that exists
                   if (row.BLotPerFreq !== undefined && row.BLotPerFreq !== null) {
@@ -815,28 +913,17 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       existing.BLotPerFreq = row.BLotPerFreq;
                     }
                   }
-                  // CRITICAL: For BLotPerOrdNum, recalculate from aggregated BLot and BOrdNum
-                  // This ensures accuracy when aggregating multiple brokers
-                  // Formula: BLotPerOrdNum = BLot / BOrdNum (when BOrdNum != 0)
-                  if (row.BLotPerOrdNum !== undefined && row.BLotPerOrdNum !== null) {
-                    if (existing.BLotPerOrdNum !== undefined && existing.BLotPerOrdNum !== null) {
-                      // Recalculate from aggregated values: BLotPerOrdNum = total BLot / total BOrdNum
-                      const totalOrdNum = (existing.BOrdNum || 0);
-                      if (totalOrdNum !== 0) {
-                        existing.BLotPerOrdNum = Math.abs(existing.BLot || 0) / Math.abs(totalOrdNum);
-                      } else {
-                        // If totalOrdNum is 0, use weighted average as fallback
-                        const totalOrdNumForWeight = (existing.BOrdNum || 0) + (row.BOrdNum || 0);
-                        if (totalOrdNumForWeight !== 0) {
-                          existing.BLotPerOrdNum = ((existing.BLotPerOrdNum * Math.abs(existing.BOrdNum || 0)) + (row.BLotPerOrdNum * Math.abs(row.BOrdNum || 0))) / Math.abs(totalOrdNumForWeight);
-                        }
-                      }
-                    } else {
-                      existing.BLotPerOrdNum = row.BLotPerOrdNum;
-                    }
-                  } else if (existing.BOrdNum !== 0) {
-                    // If row doesn't have BLotPerOrdNum but we have aggregated values, recalculate
-                    existing.BLotPerOrdNum = Math.abs(existing.BLot || 0) / Math.abs(existing.BOrdNum || 0);
+                  
+                  // CRITICAL: For BLotPerOrdNum, ALWAYS recalculate from aggregated BLot and NewBuyerOrdNum
+                  // Formula: BLotPerOrdNum = BLot / NewBuyerOrdNum (when NewBuyerOrdNum != 0)
+                  // Use NewBuyerOrdNum (not BOrdNum) as denominator for accurate calculation
+                  // This applies to both single and multiple brokers
+                  const totalNewBuyerOrdNum = existing.NewBuyerOrdNum || 0;
+                  if (totalNewBuyerOrdNum !== 0) {
+                    existing.BLotPerOrdNum = Math.abs(existing.BLot || 0) / Math.abs(totalNewBuyerOrdNum);
+                  } else {
+                    // Fallback: if NewBuyerOrdNum is 0, set to 0
+                    existing.BLotPerOrdNum = 0;
                   }
                   // Recalculate BuyerAvg from aggregated values
                   existing.BuyerAvg = (existing.BuyerVol || 0) > 0 ? (existing.BuyerValue || 0) / (existing.BuyerVol || 0) : 0;
@@ -846,6 +933,12 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   existing.SellerValue = (existing.SellerValue || 0) + (row.SellerValue || 0);
                   existing.SFreq = (existing.SFreq || 0) + (row.SFreq || 0);
                   existing.SOrdNum = (existing.SOrdNum || 0) + (row.SOrdNum || 0);
+                  existing.SLot = (existing.SLot || 0) + (row.SLot || 0);
+                  // Track NewSellerOrdNum for accurate SLotPerOrdNum calculation
+                  const existingNewSellerOrdNum = existing.NewSellerOrdNum !== undefined ? existing.NewSellerOrdNum : (existing.SOrdNum || 0);
+                  const rowNewSellerOrdNum = row.NewSellerOrdNum !== undefined ? row.NewSellerOrdNum : (row.SOrdNum || 0);
+                  existing.NewSellerOrdNum = existingNewSellerOrdNum + rowNewSellerOrdNum;
+                  
                   // Use Lot/F and Lot/ON from CSV only - no manual calculation
                   if (row.SLotPerFreq !== undefined && row.SLotPerFreq !== null) {
                     if (existing.SLotPerFreq !== undefined && existing.SLotPerFreq !== null) {
@@ -858,18 +951,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       existing.SLotPerFreq = row.SLotPerFreq;
                     }
                   }
-                  if (row.SLotPerOrdNum !== undefined && row.SLotPerOrdNum !== null) {
-                    if (existing.SLotPerOrdNum !== undefined && existing.SLotPerOrdNum !== null) {
-                      // Weighted average based on order number (both values from CSV)
-                      const totalOrdNum = (existing.SOrdNum || 0) + (row.SOrdNum || 0);
-                      if (totalOrdNum !== 0) {
-                        existing.SLotPerOrdNum = ((existing.SLotPerOrdNum * Math.abs(existing.SOrdNum || 0)) + (row.SLotPerOrdNum * Math.abs(row.SOrdNum || 0))) / Math.abs(totalOrdNum);
-                      }
-                    } else {
-                      existing.SLotPerOrdNum = row.SLotPerOrdNum;
-                    }
+                  
+                  // CRITICAL: For SLotPerOrdNum, ALWAYS recalculate from aggregated SLot and NewSellerOrdNum
+                  // Formula: SLotPerOrdNum = SLot / NewSellerOrdNum (when NewSellerOrdNum != 0)
+                  // Use NewSellerOrdNum (not SOrdNum) as denominator for accurate calculation
+                  // This applies to both single and multiple brokers
+                  const totalNewSellerOrdNum = existing.NewSellerOrdNum || 0;
+                  if (totalNewSellerOrdNum !== 0) {
+                    existing.SLotPerOrdNum = Math.abs(existing.SLot || 0) / Math.abs(totalNewSellerOrdNum);
+                  } else {
+                    // Fallback: if NewSellerOrdNum is 0, set to 0
+                    existing.SLotPerOrdNum = 0;
                   }
-                  existing.SLot = (existing.SLot || 0) + (row.SLot || 0);
                   existing.SellerAvg = (existing.SellerVol || 0) > 0 ? (existing.SellerValue || 0) / (existing.SellerVol || 0) : 0;
                   
                   // Net Buy section
@@ -940,14 +1033,75 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   existing.TransactionCount = (existing.TransactionCount || 0) + (row.TransactionCount || 0);
                   existing.AvgPrice = (existing.TotalVolume || 0) > 0 ? (existing.TotalValue || 0) / (existing.TotalVolume || 0) : 0;
                 } else {
-                  // First occurrence of this Emiten - clone row
-                  aggregatedMap.set(emiten, { ...row });
+                  // First occurrence of this Emiten - clone row and recalculate BLotPerOrdNum/SLotPerOrdNum
+                  const firstRow = { ...row } as BrokerTransactionData;
+                  
+                  // CRITICAL: Recalculate BLotPerOrdNum using NewBuyerOrdNum (not BOrdNum)
+                  const firstNewBuyerOrdNum = firstRow.NewBuyerOrdNum !== undefined ? firstRow.NewBuyerOrdNum : (firstRow.BOrdNum || 0);
+                  if (firstNewBuyerOrdNum !== 0 && firstRow.BLot !== undefined) {
+                    firstRow.BLotPerOrdNum = Math.abs(firstRow.BLot) / Math.abs(firstNewBuyerOrdNum);
+                  } else {
+                    firstRow.BLotPerOrdNum = 0;
+                  }
+                  
+                  // CRITICAL: Recalculate SLotPerOrdNum using NewSellerOrdNum (not SOrdNum)
+                  const firstNewSellerOrdNum = firstRow.NewSellerOrdNum !== undefined ? firstRow.NewSellerOrdNum : (firstRow.SOrdNum || 0);
+                  if (firstNewSellerOrdNum !== 0 && firstRow.SLot !== undefined) {
+                    firstRow.SLotPerOrdNum = Math.abs(firstRow.SLot) / Math.abs(firstNewSellerOrdNum);
+                  } else {
+                    firstRow.SLotPerOrdNum = 0;
+                  }
+                  
+                  aggregatedMap.set(emiten, firstRow);
               }
             }
           });
           
           // Convert map to array
           let allRows = Array.from(aggregatedMap.values());
+          
+          // DEBUG: Log final aggregated data for BUMI on Nov 13 with broker AK
+          const isNov13Date = date.includes('2024-11-13') || date.includes('2025-11-13') || date.includes('20241113') || date.includes('20251113') || date.includes('-11-13');
+          const isBrokerAKForDate = selectedBrokers.includes('AK') || selectedBrokers.includes('ak');
+          if (isNov13Date && isBrokerAKForDate) {
+            const bumiRow = allRows.find(row => (row.Emiten || '').toUpperCase() === 'BUMI');
+            if (bumiRow) {
+              console.log('[BrokerTransaction] DEBUG - Final aggregated BUMI data for AK on Nov 13:', {
+                date,
+                emiten: bumiRow.Emiten,
+                selectedBrokers,
+                isSingleBroker,
+                '=== FINAL AGGREGATED DATA ===': {
+                  BCode: bumiRow.BCode,
+                  BLot: bumiRow.BLot,
+                  BVal: bumiRow.BuyerValue,
+                  BAvg: bumiRow.BuyerAvg,
+                  BFreq: bumiRow.BFreq,
+                  BLotPerFreq: bumiRow.BLotPerFreq,
+                  BOrdNum: bumiRow.BOrdNum,
+                  NewBuyerOrdNum: bumiRow.NewBuyerOrdNum,
+                  BLotPerOrdNum: bumiRow.BLotPerOrdNum,
+                  '---Calculated BLotPerOrdNum from aggregated---': {
+                    calculated_from_NewBuyerOrdNum: bumiRow.BLot && bumiRow.NewBuyerOrdNum ? bumiRow.BLot / bumiRow.NewBuyerOrdNum : null,
+                    calculated_from_BOrdNum: bumiRow.BLot && bumiRow.BOrdNum ? bumiRow.BLot / bumiRow.BOrdNum : null,
+                  },
+                  SCode: bumiRow.SCode,
+                  SLot: bumiRow.SLot,
+                  SVal: bumiRow.SellerValue,
+                  SAvg: bumiRow.SellerAvg,
+                  SFreq: bumiRow.SFreq,
+                  SLotPerFreq: bumiRow.SLotPerFreq,
+                  SOrdNum: bumiRow.SOrdNum,
+                  NewSellerOrdNum: bumiRow.NewSellerOrdNum,
+                  SLotPerOrdNum: bumiRow.SLotPerOrdNum,
+                  '---Calculated SLotPerOrdNum from aggregated---': {
+                    calculated_from_NewSellerOrdNum: bumiRow.SLot && bumiRow.NewSellerOrdNum ? bumiRow.SLot / bumiRow.NewSellerOrdNum : null,
+                    calculated_from_SOrdNum: bumiRow.SLot && bumiRow.SOrdNum ? bumiRow.SLot / bumiRow.SOrdNum : null,
+                  },
+                },
+              });
+            }
+          }
           
           // FIXED: Store raw data (before filtering) for availableTickers extraction
           // This ensures dropdown always shows all available tickers for selected broker(s)
