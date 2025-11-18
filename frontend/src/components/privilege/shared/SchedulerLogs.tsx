@@ -84,12 +84,12 @@ export function SchedulerLogs() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Clock className="w-5 h-5" />
-          Scheduler Logs
+          <span className="text-lg sm:text-xl">Scheduler Logs</span>
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="flex justify-between items-center mb-4">
-          <p className="text-sm text-muted-foreground">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
+          <p className="text-xs sm:text-sm text-muted-foreground">
             Recent scheduler execution logs ({logsTotal} total)
           </p>
           <Button
@@ -97,6 +97,7 @@ export function SchedulerLogs() {
             disabled={loadingLogs}
             variant="outline"
             size="sm"
+            className="w-full sm:w-auto"
           >
             {loadingLogs ? (
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -219,8 +220,8 @@ export function SchedulerLogs() {
 
             {/* Pagination */}
             {logsTotalPages > 1 && (
-              <div className="flex items-center justify-between mt-4">
-                <div className="text-sm text-muted-foreground">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-4">
+                <div className="text-xs sm:text-sm text-muted-foreground text-center sm:text-left">
                   Showing {((logsCurrentPage - 1) * 10) + 1} to {Math.min(logsCurrentPage * 10, logsTotal)} of {logsTotal} logs
                 </div>
                 <div className="flex items-center gap-2">
@@ -230,7 +231,8 @@ export function SchedulerLogs() {
                     onClick={() => loadSchedulerLogs(logsCurrentPage - 1, 10)}
                     disabled={logsCurrentPage === 1}
                   >
-                    Previous
+                    <span className="hidden sm:inline">Previous</span>
+                    <span className="sm:hidden">Prev</span>
                   </Button>
                   <div className="flex items-center gap-1">
                     {Array.from({ length: Math.min(5, logsTotalPages) }, (_, i) => {

@@ -161,19 +161,26 @@ export function SchedulerConfigControl() {
 
   const handleEditTrigger = (phase: Phase) => {
     setEditTriggerType(phase.trigger.type);
-    if (phase.trigger.type === 'scheduled' && phase.trigger.schedule) {
-      // Convert HH:MM to time input format
-      const parts = phase.trigger.schedule.split(':');
-      const hours = parts[0] || '00';
-      const minutes = parts[1] || '00';
-      setEditTime(`${hours.padStart(2, '0')}:${minutes.padStart(2, '0')}`);
-    } else {
-      setEditTime('');
-    }
-    if (phase.trigger.type === 'auto' && phase.trigger.triggerAfterPhase) {
-      setEditTriggerAfterPhase(phase.trigger.triggerAfterPhase);
-    } else {
+    if (phase.trigger.type === 'scheduled') {
+      if (phase.trigger.schedule) {
+        // Convert HH:MM to time input format (HH:MM:SS -> HH:MM)
+        const parts = phase.trigger.schedule.split(':');
+        const hours = parts[0] || '00';
+        const minutes = parts[1] || '00';
+        setEditTime(`${hours.padStart(2, '0')}:${minutes.padStart(2, '0')}`);
+      } else {
+        // If no schedule set, use default
+        setEditTime('00:00');
+      }
       setEditTriggerAfterPhase('');
+    } else {
+      // Auto trigger type
+      setEditTime('');
+      if (phase.trigger.triggerAfterPhase) {
+        setEditTriggerAfterPhase(phase.trigger.triggerAfterPhase);
+      } else {
+        setEditTriggerAfterPhase('');
+      }
     }
     setEditingPhase(phase.id);
   };
@@ -224,7 +231,13 @@ export function SchedulerConfigControl() {
           setSaving(prev => ({ ...prev, [phaseId]: false }));
           return;
         }
-        schedule = editTime;
+        // Ensure time is in HH:MM format (remove seconds if present)
+        const timeParts = editTime.split(':');
+        if (timeParts.length >= 2) {
+          schedule = `${timeParts[0].padStart(2, '0')}:${timeParts[1].padStart(2, '0')}`;
+        } else {
+          schedule = editTime;
+        }
       } else {
         if (!editTriggerAfterPhase) {
           showToast({
@@ -291,12 +304,12 @@ export function SchedulerConfigControl() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center justify-between">
+        <CardTitle className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-2">
             <Clock className="w-5 h-5" />
-            Scheduler Phases Configuration
+            <span className="text-lg sm:text-xl">Scheduler Phases Configuration</span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
             {scheduler && (
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
@@ -307,7 +320,7 @@ export function SchedulerConfigControl() {
                   className="sr-only peer"
                 />
                 <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"></div>
-                <span className="ml-3 text-sm font-medium text-foreground">
+                <span className="ml-3 text-xs sm:text-sm font-medium text-foreground whitespace-nowrap">
                   {scheduler.running ? 'Scheduler Running' : 'Scheduler Stopped'}
                 </span>
               </label>
@@ -317,6 +330,7 @@ export function SchedulerConfigControl() {
               disabled={loading}
               variant="outline"
               size="sm"
+              className="w-full sm:w-auto"
             >
               {loading ? (
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -327,24 +341,24 @@ export function SchedulerConfigControl() {
             </Button>
           </div>
         </CardTitle>
-        <CardDescription>
+        <CardDescription className="mt-2">
           Monitor and control all scheduler phases. Edit schedule times and trigger phases manually.
         </CardDescription>
       </CardHeader>
-      <CardContent className="pb-2">
+      <CardContent className="pb-2 overflow-visible">
         {/* Scheduler Info */}
         {scheduler && (
-          <div className="p-4 bg-muted rounded-lg space-y-3 mb-6">
+          <div className="p-3 sm:p-4 bg-muted rounded-lg space-y-3 mb-6">
             {/* Timezone */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <span className="text-sm font-medium">Timezone:</span>
               {editingConfig.timezone ? (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-1 sm:flex-initial">
                   <Input
                     type="text"
                     value={editTimezone}
                     onChange={(e) => setEditTimezone(e.target.value)}
-                    className="w-48 h-8"
+                    className="flex-1 sm:w-48 h-8"
                     placeholder="e.g., Asia/Jakarta"
                   />
                   <Button
@@ -411,15 +425,15 @@ export function SchedulerConfigControl() {
             </div>
 
             {/* Memory Threshold */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <span className="text-sm font-medium">Memory Threshold:</span>
               {editingConfig.memoryThreshold ? (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-1 sm:flex-initial">
                   <Input
                     type="text"
                     value={editMemoryThreshold}
                     onChange={(e) => setEditMemoryThreshold(e.target.value)}
-                    className="w-32 h-8"
+                    className="flex-1 sm:w-32 h-8"
                     placeholder="e.g., 12GB"
                   />
                   <Button
@@ -505,7 +519,7 @@ export function SchedulerConfigControl() {
             </div>
 
             {/* Weekend Skip */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <span className="text-sm font-medium">Weekend Skip:</span>
               <div className="flex items-center gap-2">
                 <label className="relative inline-flex items-center cursor-pointer">
@@ -550,26 +564,26 @@ export function SchedulerConfigControl() {
         )}
 
         {/* Phases Table */}
-        <div className="overflow-x-auto -mx-6 pb-0">
+        <div className="overflow-x-auto -mx-6 sm:mx-0 overflow-y-visible">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[300px]">Phase</TableHead>
-                <TableHead className="w-[120px]">Status</TableHead>
-                <TableHead className="w-[200px]">Schedule Time</TableHead>
-                <TableHead className="w-[150px]">Actions</TableHead>
+                <TableHead className="min-w-[200px] sm:min-w-[300px]">Phase</TableHead>
+                <TableHead className="min-w-[100px] sm:min-w-[120px]">Status</TableHead>
+                <TableHead className="min-w-[180px] sm:min-w-[200px]">Schedule Time</TableHead>
+                <TableHead className="min-w-[120px] sm:min-w-[150px]">Actions</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody className="[&>tr:last-child]:border-b-0 [&>tr:last-child>td]:pb-0">
+            <TableBody>
               {phases.map((phase, index) => (
                 <TableRow key={phase.id} className={index === phases.length - 1 ? "!border-b-0" : ""}>
                   {/* Phase Name with Info Tooltip */}
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold">{phase.name}</span>
-                      <div className="relative group">
+                  <TableCell className="overflow-visible">
+                    <div className="flex items-center gap-2 relative">
+                      <span className="font-semibold text-sm sm:text-base break-words">{phase.name}</span>
+                      <div className="relative group flex-shrink-0">
                         <Info className="w-4 h-4 text-muted-foreground cursor-help" />
-                        <div className="absolute left-0 top-full mt-2 w-72 p-3 bg-popover border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[100] pointer-events-none whitespace-normal">
+                        <div className="absolute left-0 bottom-full mb-2 w-[280px] sm:w-72 p-3 bg-popover border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[9999] pointer-events-none whitespace-normal">
                           <div className="text-sm font-semibold mb-2">{phase.name}</div>
                           <div className="text-xs text-muted-foreground mb-2">{phase.description}</div>
                           <div className="text-xs font-medium mb-1">Calculations:</div>
@@ -606,14 +620,33 @@ export function SchedulerConfigControl() {
                   {/* Schedule Time / Trigger Config */}
                   <TableCell>
                     {editingPhase === phase.id ? (
-                      <div className="space-y-3 py-1">
+                      <div className="space-y-2 sm:space-y-3 py-1">
                         {/* Trigger Type Selector */}
                         <div className="flex justify-start">
                           <Select
                             value={editTriggerType}
-                            onValueChange={(value: 'scheduled' | 'auto') => setEditTriggerType(value)}
+                            onValueChange={(value: 'scheduled' | 'auto') => {
+                              setEditTriggerType(value);
+                              // Initialize values when switching trigger type
+                              if (value === 'scheduled') {
+                                // If switching to scheduled and editTime is empty, set default time
+                                if (!editTime) {
+                                  setEditTime('00:00');
+                                }
+                                // Clear triggerAfterPhase when switching to scheduled
+                                setEditTriggerAfterPhase('');
+                              } else {
+                                // If switching to auto, clear editTime
+                                setEditTime('');
+                                // If triggerAfterPhase is empty, try to get from current phase config
+                                const currentPhase = phases.find(p => p.id === phase.id);
+                                if (!editTriggerAfterPhase && currentPhase?.trigger.triggerAfterPhase) {
+                                  setEditTriggerAfterPhase(currentPhase.trigger.triggerAfterPhase);
+                                }
+                              }
+                            }}
                           >
-                            <SelectTrigger className="w-48">
+                            <SelectTrigger className="w-full sm:w-48">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -627,7 +660,7 @@ export function SchedulerConfigControl() {
                         {editTriggerType === 'scheduled' ? (
                           <div className="flex justify-start">
                             <div 
-                              className="relative w-40 h-9 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                              className="relative w-full sm:w-40 h-9 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
                               onClick={() => triggerTimePicker(timeInputRef)}
                             >
                               <input
@@ -660,7 +693,7 @@ export function SchedulerConfigControl() {
                               value={editTriggerAfterPhase}
                               onValueChange={setEditTriggerAfterPhase}
                             >
-                              <SelectTrigger className="w-64">
+                              <SelectTrigger className="w-full sm:w-64">
                                 <SelectValue placeholder="Select phase to trigger after" />
                               </SelectTrigger>
                               <SelectContent>
@@ -708,17 +741,17 @@ export function SchedulerConfigControl() {
                         </div>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
                         {phase.trigger.type === 'scheduled' ? (
-                          <span className="text-sm font-medium">{phase.trigger.schedule}</span>
+                          <span className="text-xs sm:text-sm font-medium break-words">{phase.trigger.schedule}</span>
                         ) : (
-                          <span className="text-sm text-muted-foreground">{phase.trigger.condition}</span>
+                          <span className="text-xs sm:text-sm text-muted-foreground break-words">{phase.trigger.condition}</span>
                         )}
                         <Button
                           onClick={() => handleEditTrigger(phase)}
                           size="sm"
                           variant="ghost"
-                          className="h-6 px-2"
+                          className="h-6 px-2 flex-shrink-0"
                         >
                           <Edit2 className="w-3 h-3" />
                         </Button>
@@ -733,21 +766,22 @@ export function SchedulerConfigControl() {
                       disabled={triggering[phase.id] || phase.status === 'running' || phase.enabled === false}
                       size="sm"
                       variant={phase.status === 'running' ? "secondary" : "default"}
+                      className="w-full sm:w-auto"
                     >
                       {triggering[phase.id] ? (
                         <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Triggering...
+                          <Loader2 className="w-4 h-4 sm:mr-2 animate-spin" />
+                          <span className="hidden sm:inline">Triggering...</span>
                         </>
                       ) : phase.status === 'running' ? (
                         <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Running...
+                          <Loader2 className="w-4 h-4 sm:mr-2 animate-spin" />
+                          <span className="hidden sm:inline">Running...</span>
                         </>
                       ) : (
                         <>
-                          <Play className="w-4 h-4 mr-2" />
-                          Trigger
+                          <Play className="w-4 h-4 sm:mr-2" />
+                          <span className="hidden sm:inline">Trigger</span>
                         </>
                       )}
                     </Button>
@@ -759,7 +793,7 @@ export function SchedulerConfigControl() {
         </div>
 
         {/* Info Note */}
-        <div className="flex items-start gap-2 p-3 bg-blue-950/20 rounded-lg mt-3">
+        <div className="flex items-start gap-2 p-3 bg-blue-950/20 rounded-lg mt-0">
           <AlertCircle className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
           <p className="text-xs text-blue-300">
             <strong>Note:</strong> Phase 1 phases are scheduled (can edit time). Phase 2-6 are auto-triggered sequentially. 

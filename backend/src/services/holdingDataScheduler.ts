@@ -14,14 +14,6 @@ import {
   MAX_CONCURRENT_REQUESTS
 } from './dataUpdateService';
 import { SchedulerLogService } from './schedulerLogService';
-import { AzureLogger } from './azureLoggingService';
-
-// Timezone helper function
-function getJakartaTime(): string {
-  const now = new Date();
-  const jakartaTime = new Date(now.getTime() + (7 * 60 * 60 * 1000)); // UTC + 7
-  return jakartaTime.toISOString();
-}
 
 // Process single emiten for holding data
 async function processHoldingEmiten(
@@ -40,13 +32,13 @@ async function processHoldingEmiten(
     const cacheKey = `holding_${emiten}_${todayDate}`;
     const cachedData = cache.get(cacheKey);
     if (cachedData) {
-      await AzureLogger.logItemProcess('holding', 'SUCCESS', emiten, 'Data loaded from cache');
       return { success: true, skipped: false };
     }
     
     // Progress logging
     if ((index + 1) % 50 === 0 || index === 0) {
-      await AzureLogger.logProgress('holding', index + 1, total, `Processing ${emiten}`);
+      const percentage = Math.round(((index + 1) / total) * 100);
+      console.log(`📊 Holding progress - ${index + 1}/${total} (${percentage}%) - Processing ${emiten}`);
       if (logId) {
         await SchedulerLogService.updateLog(logId, {
           progress_percentage: Math.round(((index + 1) / total) * 100),
@@ -70,7 +62,7 @@ async function processHoldingEmiten(
     const weekAgoDate = weekAgo.toISOString().split('T')[0];
     
     if (!weekAgoDate) {
-      await AzureLogger.logItemProcess('holding', 'ERROR', emiten, 'Failed to calculate week ago date');
+      console.error(`❌ Holding ERROR - ${emiten} - Failed to calculate week ago date`);
       return { success: false, skipped: false, error: 'Failed to calculate week ago date' };
     }
     
@@ -121,7 +113,6 @@ async function processHoldingEmiten(
     const weekDataExists = requiredDates.every(date => existingDates.has(date));
     
     if (weekDataExists) {
-      await AzureLogger.logItemProcess('holding', 'SKIP', emiten, 'Data already exists for the past week');
       return { success: true, skipped: true };
     }
     
@@ -165,7 +156,6 @@ async function processHoldingEmiten(
         // Cache the result
         cache.set(cacheKey, { processed: true });
         
-        await AzureLogger.logItemProcess('holding', 'SKIP', emiten, 'Emiten not available in API (400 Bad Request)');
         return { success: true, skipped: true };
       }
       
@@ -231,25 +221,21 @@ async function processHoldingEmiten(
     // Cache the result
     cache.set(cacheKey, { processed: true });
     
-    await AzureLogger.logItemProcess('holding', 'SUCCESS', emiten, 'Data updated successfully');
     return { success: true, skipped: false };
 
   } catch (error: any) {
-    await AzureLogger.logItemProcess('holding', 'ERROR', emiten, error.message);
+    console.error(`❌ Holding ERROR - ${emiten} - ${error.message}`);
     return { success: false, skipped: false, error: error.message };
   }
 }
 
 // Main update function
 export async function updateHoldingData(logId?: string | null): Promise<void> {
-  const SCHEDULER_TYPE = 'holding';
-  
   // Weekend skip temporarily disabled for testing
   // const today = new Date();
   // const dayOfWeek = today.getDay();
   // 
   // if (dayOfWeek === 0 || dayOfWeek === 6) {
-  //   await AzureLogger.logWeekendSkip(SCHEDULER_TYPE);
   //   return;
   // }
   
@@ -261,9 +247,7 @@ export async function updateHoldingData(logId?: string | null): Promise<void> {
       trigger_type: 'scheduled',
       triggered_by: 'system',
       status: 'running',
-      force_override: false,
-      environment: process.env['NODE_ENV'] || 'development',
-      started_at: getJakartaTime()
+      environment: process.env['NODE_ENV'] || 'development'
     });
 
     if (!logEntry) {
@@ -275,11 +259,11 @@ export async function updateHoldingData(logId?: string | null): Promise<void> {
   }
   
   try {
-    await AzureLogger.logSchedulerStart(SCHEDULER_TYPE, 'Optimized daily holding data update');
+    console.log('🚀 Holding scheduler started - Optimized daily holding data update');
     
     const azureStorage = new OptimizedAzureStorageService();
     await azureStorage.ensureContainerExists();
-    await AzureLogger.logInfo(SCHEDULER_TYPE, 'Azure Storage initialized');
+    console.log('ℹ️ Azure Storage initialized');
 
     // Get list of emitens from CSV input
     const emitensCsvData = await azureStorage.downloadCsvData('csv_input/emiten_list.csv');
@@ -287,7 +271,7 @@ export async function updateHoldingData(logId?: string | null): Promise<void> {
       .map(line => line.trim())
       .filter(line => line && line.length > 0);
 
-    await AzureLogger.logInfo(SCHEDULER_TYPE, `Found ${emitenList.length} emitens to update`);
+    console.log(`ℹ️ Found ${emitenList.length} emitens to update`);
 
     const jwtToken = process.env['TICMI_JWT_TOKEN'] || '';
     const baseUrl = `${process.env['TICMI_API_BASE_URL'] || ''}/cp/hc/`;
@@ -327,18 +311,12 @@ export async function updateHoldingData(logId?: string | null): Promise<void> {
     const skipCount = results.filter(r => r.success && r.skipped).length;
     const errorCount = results.filter(r => !r.success).length;
 
-    await AzureLogger.logSchedulerEnd(SCHEDULER_TYPE, {
-      success: successCount,
-      skipped: skipCount,
-      failed: errorCount,
-      total: emitenList.length
-    });
+    console.log(`✅ Holding scheduler completed - Success: ${successCount}, Skipped: ${skipCount}, Failed: ${errorCount}, Total: ${emitenList.length}`);
 
     if (finalLogId) {
-      await SchedulerLogService.updateLog(finalLogId, {
-        status: 'completed',
-        progress_percentage: 100,
-        total_files_processed: successCount,
+      await SchedulerLogService.markCompleted(finalLogId, {
+        total_files_processed: emitenList.length,
+        files_created: successCount,
         files_skipped: skipCount,
         files_failed: errorCount
       });
@@ -348,12 +326,9 @@ export async function updateHoldingData(logId?: string | null): Promise<void> {
     console.log(`📊 Success: ${successCount}, Skipped: ${skipCount}, Failed: ${errorCount}`);
 
   } catch (error: any) {
-    await AzureLogger.logSchedulerError(SCHEDULER_TYPE, error.message);
+    console.error(`❌ Holding scheduler error: ${error.message}`);
     if (finalLogId) {
-      await SchedulerLogService.updateLog(finalLogId, {
-        status: 'failed',
-        error_message: error.message
-      });
+      await SchedulerLogService.markFailed(finalLogId, error.message, error);
     }
   }
 }

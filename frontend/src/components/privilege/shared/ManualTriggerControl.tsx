@@ -3,9 +3,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Badge } from "../../ui/badge";
 import { Progress } from "../../ui/progress";
-import { Loader2, Square, CheckCircle, AlertCircle, X, RefreshCw } from "lucide-react";
+import { Loader2, Square, CheckCircle, AlertCircle, X, RefreshCw, Play } from "lucide-react";
 import { useToast } from "../../../contexts/ToastContext";
 import { api } from "../../../services/api";
+
+const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
 
 interface RunningTask {
   logId: string;
@@ -18,10 +20,101 @@ interface RunningTask {
   triggeredBy?: string;
 }
 
+interface ManualTriggerItem {
+  name: string;
+  type: string;
+  description?: string;
+}
+
+interface PhaseGroup {
+  phaseName: string;
+  items: ManualTriggerItem[];
+}
+
+// Define all manual triggers organized by phase
+const MANUAL_TRIGGERS_BY_PHASE: PhaseGroup[] = [
+  {
+    phaseName: "Phase 1a - Input Daily",
+    items: [
+      { name: "Stock Data", type: "stock", description: "Update stock data from TICMI API" },
+      { name: "Index Data", type: "index", description: "Update index data from TICMI API" },
+      { name: "Done Summary Data", type: "done-summary", description: "Update done summary from GCS" },
+    ]
+  },
+  {
+    phaseName: "Phase 1b - Input Monthly",
+    items: [
+      { name: "Shareholders Data", type: "shareholders", description: "Update shareholders data (Monthly)" },
+      { name: "Holding Data", type: "holding", description: "Update holding data (Monthly)" },
+    ]
+  },
+  {
+    phaseName: "Phase 2 - Market Rotation",
+    items: [
+      { name: "RRC Calculation", type: "rrc", description: "Calculate Relative Rotation Chart data" },
+      { name: "RRG Calculation", type: "rrg", description: "Calculate Relative Rotation Graph data" },
+      { name: "Seasonal Calculation", type: "seasonal", description: "Calculate seasonal analysis data" },
+      { name: "Trend Filter Calculation", type: "trend-filter", description: "Calculate trend filter data" },
+      { name: "Watchlist Snapshot", type: "watchlist-snapshot", description: "Generate watchlist snapshot for all stocks" },
+    ]
+  },
+  {
+    phaseName: "Phase 3 - Flow Trade",
+    items: [
+      { name: "Money Flow", type: "money-flow", description: "Calculate money flow index data" },
+      { name: "Foreign Flow", type: "foreign-flow", description: "Calculate foreign flow data" },
+      { name: "Break Done Trade", type: "break-done-trade", description: "Break down done trade data by stock code" },
+    ]
+  },
+  {
+    phaseName: "Phase 4 - Broker Summary",
+    items: [
+      { name: "Top Broker", type: "top-broker", description: "Calculate top broker analysis (comprehensive + by stock)" },
+      { name: "Broker Summary", type: "broker-summary", description: "Calculate broker summary per emiten and ALLSUM" },
+      { name: "Broker Summary IDX", type: "broker-summary-idx", description: "Generate aggregated IDX.csv for all dates and market types" },
+      { name: "Broker Summary by Type", type: "broker-summary-type", description: "Generate broker summary split by RK / TN / NG" },
+    ]
+  },
+  {
+    phaseName: "Phase 5 - Broktrans Broker",
+    items: [
+      { name: "Broker Transaction", type: "broker-transaction", description: "Calculate broker transaction data per broker (all transaction types)" },
+      { name: "Broker Transaction RG/TN/NG", type: "broker-transaction-rgtnng", description: "Calculate broker transaction data per broker split by transaction type (RG, TN, NG)" },
+      { name: "Broker Transaction F/D", type: "broker-transaction-fd", description: "Calculate broker transaction data per broker filtered by Investor Type (F/D)" },
+      { name: "Broker Transaction F/D RG/TN/NG", type: "broker-transaction-fd-rgtnng", description: "Calculate broker transaction data per broker filtered by Investor Type (F/D) and Board Type (RG, TN, NG)" },
+    ]
+  },
+  {
+    phaseName: "Phase 6 - Broktrans Stock",
+    items: [
+      { name: "Broker Transaction Stock", type: "broker-transaction-stock", description: "Calculate broker transaction data pivoted by stock (all transaction types)" },
+      { name: "Broker Transaction Stock F/D", type: "broker-transaction-stock-fd", description: "Calculate broker transaction data pivoted by stock, filtered by Investor Type (F/D)" },
+      { name: "Broker Transaction Stock RG/TN/NG", type: "broker-transaction-stock-rgtnng", description: "Calculate broker transaction data pivoted by stock, filtered by Board Type (RG, TN, NG)" },
+      { name: "Broker Transaction Stock F/D RG/TN/NG", type: "broker-transaction-stock-fd-rgtnng", description: "Calculate broker transaction data pivoted by stock, filtered by Investor Type (F/D) and Board Type (RG, TN, NG)" },
+    ]
+  },
+  {
+    phaseName: "Phase 7 - Bid Breakdown",
+    items: [
+      { name: "Bid/Ask Footprint", type: "bidask", description: "Calculate bid/ask footprint data" },
+      { name: "Broker Breakdown", type: "broker-breakdown", description: "Calculate broker breakdown by stock, broker, and price level" },
+    ]
+  },
+  {
+    phaseName: "Phase 8 - Additional",
+    items: [
+      { name: "Broker Inventory", type: "broker-inventory", description: "Calculate broker inventory data" },
+      { name: "Accumulation Distribution", type: "accumulation", description: "Calculate accumulation distribution data" },
+    ]
+  },
+];
+
 export function ManualTriggerControl() {
   const { showToast } = useToast();
   const [runningTasks, setRunningTasks] = useState<RunningTask[]>([]);
   const [loading, setLoading] = useState(false);
+  const [triggering, setTriggering] = useState<{[key: string]: boolean}>({});
+  const [activeLogs, setActiveLogs] = useState<{[key: string]: { logId: string; progress: number; status: string } | null}>({});
 
   // Load running tasks - only manual triggers from Data Input Updates or Data Calculations (not from SchedulerConfigControl)
   const loadRunningTasks = async () => {
@@ -64,6 +157,49 @@ export function ManualTriggerControl() {
     loadRunningTasks();
   }, []);
 
+  // Handle manual trigger
+  const handleTriggerDataUpdate = async (type: string) => {
+    setTriggering(prev => ({ ...prev, [type]: true }));
+    
+    try {
+      const response = await fetch(`${API_URL}/api/trigger/${type}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        showToast({ type: 'success', title: 'Success', message: `${type} data update triggered successfully` });
+        
+        // Store log_id if provided for progress tracking (handle both log_id and logId)
+        const logId = result.log_id || result.logId;
+        if (logId) {
+          setActiveLogs(prev => ({
+            ...prev,
+            [type]: { logId: logId, progress: 0, status: 'running' }
+          }));
+        }
+        
+        // Reload running tasks to show the new task
+        await loadRunningTasks();
+      } else {
+        showToast({ type: 'error', title: 'Error', message: `Failed to trigger ${type} update: ${result.message}` });
+      }
+    } catch (error) {
+      console.error(`Error triggering ${type} update:`, error);
+      showToast({ type: 'error', title: 'Error', message: `Error triggering ${type} update` });
+    } finally {
+      // Don't reset triggering immediately if we have a log_id (task is running in background)
+      const logId = activeLogs[type]?.logId;
+      if (!logId) {
+        setTriggering(prev => ({ ...prev, [type]: false }));
+      }
+    }
+  };
+
   // Cancel a running task
   const handleCancelTask = async (logId: string, featureName: string) => {
     try {
@@ -77,6 +213,16 @@ export function ManualTriggerControl() {
         });
         // Reload tasks to reflect cancellation
         await loadRunningTasks();
+        // Clear from activeLogs
+        const type = Object.keys(activeLogs).find(key => activeLogs[key]?.logId === logId);
+        if (type) {
+          setActiveLogs(prev => {
+            const updated = { ...prev };
+            delete updated[type];
+            return updated;
+          });
+          setTriggering(prev => ({ ...prev, [type]: false }));
+        }
       } else {
         showToast({
           type: 'error',
@@ -138,87 +284,234 @@ export function ManualTriggerControl() {
     );
   };
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <RefreshCw className="w-5 h-5" />
-            Manual Data Trigger Progress
-          </div>
-          <Button
-            onClick={loadRunningTasks}
-            disabled={loading}
-            variant="outline"
-            size="sm"
-          >
-            {loading ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <RefreshCw className="w-4 h-4 mr-2" />
-            )}
-            Refresh
-          </Button>
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {runningTasks.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">
-            No running tasks
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {runningTasks.map((task) => (
-              <div
-                key={task.logId}
-                className="p-4 border rounded-lg space-y-3"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    {getStatusIcon(task.status)}
-                    <div>
-                      <h4 className="font-semibold">{task.featureName}</h4>
-                      <p className="text-xs text-muted-foreground">
-                        {task.triggerType} • Started: {formatTime(task.startedAt)}
-                        {task.triggeredBy && ` • By: ${task.triggeredBy}`}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {getStatusBadge(task.status)}
-                    {task.status === 'running' && (
-                      <Button
-                        onClick={() => handleCancelTask(task.logId, task.featureName)}
-                        variant="destructive"
-                        size="sm"
-                      >
-                        <Square className="w-3 h-3 mr-1" />
-                        Cancel
-                      </Button>
-                    )}
-                  </div>
-                </div>
+  // Normalize feature name to match type (convert underscore to dash and handle special cases)
+  const normalizeFeatureName = (featureName: string): string => {
+    // Map backend feature_name to frontend type
+    const nameMap: Record<string, string> = {
+      'accumulation_distribution': 'accumulation',
+      'bidask_footprint': 'bidask',
+      'broker_breakdown': 'broker-breakdown',
+      'broker_inventory': 'broker-inventory',
+      'broker_summary_type': 'broker-summary-type',
+      'broker_summary_idx': 'broker-summary-idx',
+      'foreign_flow': 'foreign-flow',
+      'money_flow': 'money-flow',
+      'seasonality': 'seasonal',
+      'trend_filter': 'trend-filter',
+      'watchlist_snapshot': 'watchlist-snapshot',
+      'broker_transaction': 'broker-transaction',
+      'broker_transaction_rgtnng': 'broker-transaction-rgtnng',
+      'broker_transaction_fd': 'broker-transaction-fd',
+      'broker_transaction_fd_rgtnng': 'broker-transaction-fd-rgtnng',
+      'broker_transaction_stock': 'broker-transaction-stock',
+      'broker_transaction_stock_fd': 'broker-transaction-stock-fd',
+      'broker_transaction_stock_rgtnng': 'broker-transaction-stock-rgtnng',
+      'broker_transaction_stock_fd_rgtnng': 'broker-transaction-stock-fd-rgtnng',
+      'break_done_trade': 'break-done-trade',
+    };
+    
+    // Check if there's a direct mapping
+    if (nameMap[featureName]) {
+      return nameMap[featureName];
+    }
+    
+    // Otherwise, convert underscore to dash
+    return featureName.replace(/_/g, '-');
+  };
 
-                {task.status === 'running' && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Progress</span>
-                      <span className="font-medium">{task.progress || 0}%</span>
+  // Get running task for a specific type
+  const getRunningTask = (type: string) => {
+    return runningTasks.find(task => {
+      const normalizedFeatureName = normalizeFeatureName(task.featureName);
+      return normalizedFeatureName === type || task.featureName === type;
+    });
+  };
+
+  return (
+    <>
+      {/* Manual Data Trigger - Grid by Phase */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Play className="w-5 h-5" />
+              <span className="text-lg sm:text-xl">Manual Data Trigger</span>
+            </div>
+            <Button
+              onClick={loadRunningTasks}
+              disabled={loading}
+              variant="outline"
+              size="sm"
+              className="w-full sm:w-auto"
+            >
+              {loading ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4 mr-2" />
+              )}
+              Refresh
+            </Button>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="max-h-[600px] overflow-y-auto pr-2 space-y-6">
+            {MANUAL_TRIGGERS_BY_PHASE.map((phase, phaseIndex) => (
+              <div key={phaseIndex} className="space-y-4">
+                {/* Phase Name Header */}
+                <h3 className="text-lg font-semibold pb-2 border-b sticky top-0 bg-background z-10">
+                  {phase.phaseName}
+                </h3>
+                
+                {/* Grid of trigger cards for this phase */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                  {phase.items.map((item, itemIndex) => {
+                  const runningTask = getRunningTask(item.type);
+                  const isTriggering = triggering[item.type];
+                  const activeLog = activeLogs[item.type];
+                  const isRunning = runningTask?.status === 'running' || activeLog?.status === 'running';
+                  
+                  return (
+                    <div key={itemIndex} className="p-3 border rounded-lg flex flex-col">
+                      <h4 className="font-semibold mb-3 text-sm">{item.name}</h4>
+                      
+                      {/* Progress indicator if running */}
+                      {isRunning && (
+                        <div className="mb-2 space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-muted-foreground">Progress</span>
+                            <span className="font-medium">
+                              {runningTask?.progress || activeLog?.progress || 0}%
+                            </span>
+                          </div>
+                          <Progress 
+                            value={runningTask?.progress || activeLog?.progress || 0} 
+                            className="h-1.5" 
+                          />
+                        </div>
+                      )}
+                      
+                      {/* Action buttons */}
+                      <div className="flex gap-2 mt-auto">
+                        <Button
+                          onClick={() => handleTriggerDataUpdate(item.type)}
+                          disabled={isTriggering || isRunning}
+                          className="flex-1"
+                          size="sm"
+                        >
+                          {isTriggering ? (
+                            <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                          ) : (
+                            <Play className="w-4 h-4 mr-1" />
+                          )}
+                          {isTriggering ? 'Triggering...' : isRunning ? 'Running' : 'Trigger'}
+                        </Button>
+                        {isRunning && (
+                          <Button
+                            onClick={() => handleCancelTask(
+                              runningTask?.logId || activeLog?.logId || '', 
+                              item.name
+                            )}
+                            variant="destructive"
+                            size="sm"
+                            className="px-2"
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                    <Progress value={task.progress || 0} className="h-2" />
-                    {task.currentProcessing && (
-                      <p className="text-xs text-muted-foreground truncate">
-                        {task.currentProcessing}
-                      </p>
-                    )}
-                  </div>
-                )}
+                  );
+                })}
+                </div>
               </div>
             ))}
           </div>
-        )}
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+
+      {/* Manual Data Trigger Progress - Running Tasks */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <RefreshCw className="w-5 h-5" />
+              <span className="text-lg sm:text-xl">Manual Data Trigger Progress</span>
+            </div>
+            <Button
+              onClick={loadRunningTasks}
+              disabled={loading}
+              variant="outline"
+              size="sm"
+              className="w-full sm:w-auto"
+            >
+              {loading ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4 mr-2" />
+              )}
+              Refresh
+            </Button>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {runningTasks.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              No running tasks
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {runningTasks.map((task) => (
+                <div
+                  key={task.logId}
+                  className="p-4 border rounded-lg space-y-3"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      {getStatusIcon(task.status)}
+                      <div className="min-w-0 flex-1">
+                        <h4 className="font-semibold truncate">{task.featureName}</h4>
+                        <p className="text-xs text-muted-foreground break-words">
+                          {task.triggerType} • Started: {formatTime(task.startedAt)}
+                          {task.triggeredBy && ` • By: ${task.triggeredBy}`}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {getStatusBadge(task.status)}
+                      {task.status === 'running' && (
+                        <Button
+                          onClick={() => handleCancelTask(task.logId, task.featureName)}
+                          variant="destructive"
+                          size="sm"
+                          className="w-full sm:w-auto"
+                        >
+                          <Square className="w-3 h-3 mr-1" />
+                          Cancel
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {task.status === 'running' && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Progress</span>
+                        <span className="font-medium">{task.progress || 0}%</span>
+                      </div>
+                      <Progress value={task.progress || 0} className="h-2" />
+                      {task.currentProcessing && (
+                        <p className="text-xs text-muted-foreground truncate">
+                          {task.currentProcessing}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </>
   );
 }
-

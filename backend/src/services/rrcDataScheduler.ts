@@ -10,7 +10,6 @@ import {
 } from '../calculations/rrc/rrc_sector';
 import { exists } from '../utils/azureBlob';
 import { SchedulerLogService, SchedulerLog } from './schedulerLogService';
-import { AzureLogger } from './azureLoggingService';
 import { BATCH_SIZE_PHASE_1_2 } from './dataUpdateService';
 
 // Global state for tracking generation status
@@ -48,10 +47,8 @@ export function getGenerationStatus() {
  * Pre-generate all possible RRC outputs with optional force override
  */
 export async function preGenerateAllRRC(forceOverride: boolean = false, triggerType: 'startup' | 'scheduled' | 'manual' | 'debug' = 'startup', logId?: string | null): Promise<void> {
-  const SCHEDULER_TYPE = 'rrc';
-  
   if (isGenerating) {
-    await AzureLogger.logWarning(SCHEDULER_TYPE, 'Generation already in progress, skipping');
+    console.warn('⚠️ RRC generation already in progress, skipping');
     return;
   }
 
@@ -63,7 +60,7 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
     errors: 0
   };
 
-  await AzureLogger.logSchedulerStart(SCHEDULER_TYPE, `RRC auto-generation ${forceOverride ? '(FORCE OVERRIDE MODE)' : '(SKIP EXISTING FILES)'}`);
+  console.log(`🚀 RRC auto-generation started ${forceOverride ? '(FORCE OVERRIDE MODE)' : '(SKIP EXISTING FILES)'}`);
   const startTime = new Date();
 
   // Only create log entry if logId is not provided (called from scheduler, not manual trigger)
@@ -74,14 +71,8 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
       trigger_type: triggerType,
       triggered_by: triggerType === 'manual' || triggerType === 'debug' ? 'user' : 'system',
       status: 'running',
-      force_override: forceOverride,
       progress_percentage: 0.00,
-      current_processing: 'Initializing...',
-      server_info: {
-        node_version: process.version,
-        platform: process.platform,
-        memory_usage: process.memoryUsage()
-      }
+      current_processing: 'Initializing...'
     };
 
     const logEntry = await SchedulerLogService.createLog(logData);
@@ -122,19 +113,11 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
       if (completeness.isComplete) {
         console.log('✅ RRC processing already complete, skipping...');
         if (currentLogId) {
-          await SchedulerLogService.updateLog(currentLogId, {
-            status: 'completed',
-            completed_at: new Date().toISOString(),
+          await SchedulerLogService.markCompleted(currentLogId, {
             total_files_processed: totalItems,
+            files_created: 0,
             files_skipped: totalItems,
-            stock_processed: totalStocks,
-            stock_success: totalStocks,
-            sector_processed: totalSectors,
-            sector_success: totalSectors,
-            index_processed: totalIndexes,
-            index_success: totalIndexes,
-            progress_percentage: 100.00,
-            current_processing: 'All files already exist, skipped'
+            files_failed: 0
           });
         }
         return;
@@ -222,10 +205,7 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
       if (currentLogId) {
         await SchedulerLogService.updateLog(currentLogId, {
           current_processing: `Completed batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(sectors.length / BATCH_SIZE)} - ${generationProgress.completed}/${totalItems} total`,
-          progress_percentage: Math.round((generationProgress.completed / totalItems) * 100),
-          sector_processed: sectorProcessed,
-          sector_success: sectorSuccess,
-          sector_failed: sectorFailed
+          progress_percentage: Math.round((generationProgress.completed / totalItems) * 100)
         });
       }
       
@@ -285,10 +265,7 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
       if (currentLogId) {
         await SchedulerLogService.updateLog(currentLogId, {
           current_processing: `Completed index batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(indexes.length / BATCH_SIZE)} - ${generationProgress.completed}/${totalItems} total`,
-          progress_percentage: Math.round((generationProgress.completed / totalItems) * 100),
-          index_processed: indexProcessed,
-          index_success: indexSuccess,
-          index_failed: indexFailed
+          progress_percentage: Math.round((generationProgress.completed / totalItems) * 100)
         });
       }
       
@@ -356,10 +333,7 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
           if (currentLogId) {
             await SchedulerLogService.updateLog(currentLogId, {
               current_processing: `Completed stock batch ${Math.floor(i / STOCK_BATCH_SIZE) + 1}/${Math.ceil(stocks.length / STOCK_BATCH_SIZE)} from ${sector} - ${generationProgress.completed}/${totalItems} total`,
-              progress_percentage: Math.round((generationProgress.completed / totalItems) * 100),
-              stock_processed: stockProcessed,
-              stock_success: stockSuccess,
-              stock_failed: stockFailed
+              progress_percentage: Math.round((generationProgress.completed / totalItems) * 100)
             });
           }
           
@@ -381,43 +355,43 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
     const endTime = new Date();
     const duration = Math.round((endTime.getTime() - startTime.getTime()) / 1000);
     
-    await AzureLogger.logSchedulerEnd(SCHEDULER_TYPE, {
-      success: generationProgress.completed,
-      skipped: 0,
-      failed: generationProgress.errors,
-      total: totalItems
-    });
-    
-    await AzureLogger.logInfo(SCHEDULER_TYPE, `Duration: ${duration}s`);
+    console.log(`✅ RRC scheduler completed - Success: ${generationProgress.completed}, Failed: ${generationProgress.errors}, Total: ${totalItems}, Duration: ${duration}s`);
     
     lastGenerationTime = endTime;
 
     // Mark as completed in database
     if (currentLogId) {
+      // Store stock/sector/index stats in error_details for reference
+      await SchedulerLogService.updateLog(currentLogId, {
+        error_details: {
+          stock_processed: stockProcessed,
+          stock_success: stockSuccess,
+          stock_failed: stockFailed,
+          sector_processed: sectorProcessed,
+          sector_success: sectorSuccess,
+          sector_failed: sectorFailed,
+          index_processed: indexProcessed,
+          index_success: indexSuccess,
+          index_failed: indexFailed
+        }
+      });
+      
       await SchedulerLogService.markCompleted(currentLogId, {
         total_files_processed: generationProgress.completed,
         files_created: filesCreated,
         files_updated: filesUpdated,
         files_skipped: filesSkipped,
-        files_failed: generationProgress.errors,
-        stock_processed: stockProcessed,
-        stock_success: stockSuccess,
-        stock_failed: stockFailed,
-        sector_processed: sectorProcessed,
-        sector_success: sectorSuccess,
-        sector_failed: sectorFailed,
-        index_processed: indexProcessed,
-        index_success: indexSuccess,
-        index_failed: indexFailed
+        files_failed: generationProgress.errors
       });
     }
 
   } catch (error) {
-    await AzureLogger.logSchedulerError(SCHEDULER_TYPE, error instanceof Error ? error.message : 'Unknown error');
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error(`❌ RRC scheduler error: ${errorMessage}`);
     
     // Mark as failed in database
     if (currentLogId) {
-      await SchedulerLogService.markFailed(currentLogId, error instanceof Error ? error.message : 'Unknown error', error);
+      await SchedulerLogService.markFailed(currentLogId, errorMessage, error);
     }
   } finally {
     isGenerating = false;

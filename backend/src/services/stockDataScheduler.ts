@@ -12,14 +12,6 @@ import {
   MAX_CONCURRENT_REQUESTS
 } from './dataUpdateService';
 import { SchedulerLogService } from './schedulerLogService';
-import { AzureLogger } from './azureLoggingService';
-
-// Timezone helper function
-function getJakartaTime(): string {
-  const now = new Date();
-  const jakartaTime = new Date(now.getTime() + (7 * 60 * 60 * 1000)); // UTC + 7
-  return jakartaTime.toISOString();
-}
 
 // Sector mapping cache - loaded from csv_input/sector_mapping.csv
 const SECTOR_MAPPING: { [key: string]: string[] } = {};
@@ -120,13 +112,13 @@ async function processEmiten(
     const cacheKey = `stock_${emiten}_${todayDate}`;
     const cachedData = cache.get(cacheKey);
     if (cachedData) {
-      await AzureLogger.logItemProcess('stock', 'SUCCESS', emiten, 'Data loaded from cache');
       return { success: true, skipped: false };
     }
     
     // Progress logging
     if ((index + 1) % 50 === 0 || index === 0) {
-      await AzureLogger.logProgress('stock', index + 1, total, `Processing ${emiten}`);
+      const percentage = Math.round(((index + 1) / total) * 100);
+      console.log(`📊 Stock progress - ${index + 1}/${total} (${percentage}%) - Processing ${emiten}`);
       if (logId) {
         await SchedulerLogService.updateLog(logId, {
           progress_percentage: Math.round(((index + 1) / total) * 100),
@@ -145,7 +137,7 @@ async function processEmiten(
     
     // Validate dates
     if (!sevenDaysAgoDate || !todayDate) {
-      await AzureLogger.logItemProcess('stock', 'ERROR', emiten, 'Invalid date calculation');
+      console.error(`❌ Stock ERROR - ${emiten} - Invalid date calculation`);
       return { success: false, skipped: false, error: 'Invalid date calculation' };
     }
     
@@ -194,7 +186,6 @@ async function processEmiten(
     
     // If all dates exist, skip
     if (missingDates.length === 0) {
-      await AzureLogger.logItemProcess('stock', 'SKIP', emiten, `All data for past 7 days already exists`);
       return { success: true, skipped: true };
     }
     
@@ -211,7 +202,7 @@ async function processEmiten(
     if (!response.data || response.data === null) {
       // Jika API return null/empty, jangan ubah data existing sama sekali
       // Return error atau skip, jangan upload placeholder yang bisa mempengaruhi existing data
-      await AzureLogger.logItemProcess('stock', 'ERROR', emiten, `TICMI API returned null/empty data. Existing data preserved, no changes made.`);
+      console.error(`❌ Stock ERROR - ${emiten} - TICMI API returned null/empty data. Existing data preserved, no changes made.`);
       cache.set(cacheKey, { processed: true });
       return { success: false, skipped: false, error: 'TICMI API returned null/empty data' };
     }
@@ -271,7 +262,6 @@ async function processEmiten(
     
     // Jika tidak ada data baru setelah filter, skip update (preserve existing)
     if (newDataOnly.length === 0) {
-      await AzureLogger.logItemProcess('stock', 'SKIP', emiten, `No new data for missing dates after filtering. Existing data preserved.`);
       cache.set(cacheKey, { processed: true });
       return { success: true, skipped: true };
     }
@@ -331,7 +321,6 @@ async function processEmiten(
     // Cache the result
     cache.set(cacheKey, { processed: true });
     
-    await AzureLogger.logItemProcess('stock', 'SUCCESS', emiten, `Appended ${newDataOnly.length} new rows for missing dates, existing ${existingData.length} rows preserved as-is`);
     return { success: true, skipped: false };
 
   } catch (error: any) {
@@ -342,11 +331,9 @@ async function processEmiten(
                      errorMessage.includes('timeout');
     
     if (isTimeout) {
-      await AzureLogger.logItemProcess('stock', 'ERROR', emiten, `Timeout: ${errorMessage}`);
-      console.warn(`⚠️ Timeout for ${emiten}: ${errorMessage}`);
+      console.warn(`⚠️ Stock ERROR - ${emiten} - Timeout: ${errorMessage}`);
     } else {
-      await AzureLogger.logItemProcess('stock', 'ERROR', emiten, errorMessage);
-      console.error(`❌ Error processing ${emiten}: ${errorMessage}`);
+      console.error(`❌ Stock ERROR - ${emiten} - ${errorMessage}`);
     }
     
     // Return error result - don't throw to prevent crash
@@ -356,14 +343,11 @@ async function processEmiten(
 
 // Main update function
 export async function updateStockData(logId?: string | null): Promise<void> {
-  const SCHEDULER_TYPE = 'stock';
-  
   // Skip if weekend
   const today = new Date();
   const dayOfWeek = today.getDay();
   
   if (dayOfWeek === 0 || dayOfWeek === 6) {
-    await AzureLogger.logWeekendSkip(SCHEDULER_TYPE);
     console.log('📅 Weekend detected - skipping Stock Data update (no market data available)');
     return;
   }
@@ -376,9 +360,7 @@ export async function updateStockData(logId?: string | null): Promise<void> {
       trigger_type: 'scheduled',
       triggered_by: 'system',
       status: 'running',
-      force_override: false,
-      environment: process.env['NODE_ENV'] || 'development',
-      started_at: getJakartaTime()
+      environment: process.env['NODE_ENV'] || 'development'
     });
 
     if (!logEntry) {
@@ -390,19 +372,19 @@ export async function updateStockData(logId?: string | null): Promise<void> {
   }
   
   try {
-    await AzureLogger.logSchedulerStart(SCHEDULER_TYPE, 'Optimized daily stock data update');
+    console.log('🚀 Stock scheduler started - Optimized daily stock data update');
     
     const azureStorage = new OptimizedAzureStorageService();
     await azureStorage.ensureContainerExists();
-    await AzureLogger.logInfo(SCHEDULER_TYPE, 'Azure Storage initialized');
+    console.log('ℹ️ Azure Storage initialized');
 
     await buildSectorMappingFromCsv(azureStorage);
-    await AzureLogger.logInfo(SCHEDULER_TYPE, 'Sector mapping built from CSV');
+    console.log('ℹ️ Sector mapping built from CSV');
 
     // Get list of emitens from sector mapping (all emitens from all sectors)
     const emitenList = Object.values(SECTOR_MAPPING).flat();
     
-    await AzureLogger.logInfo(SCHEDULER_TYPE, `Found ${emitenList.length} emitens from sector mapping`);
+    console.log(`ℹ️ Found ${emitenList.length} emitens from sector mapping`);
 
     const jwtToken = process.env['TICMI_JWT_TOKEN'] || '';
     const baseUrl = `${process.env['TICMI_API_BASE_URL'] || ''}/dp/eq/`;
@@ -442,21 +424,12 @@ export async function updateStockData(logId?: string | null): Promise<void> {
     const skipCount = results.filter(r => r.success && r.skipped).length;
     const errorCount = results.filter(r => !r.success).length;
 
-    // Wait a moment for any pending Azure logging operations to complete
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    await AzureLogger.logSchedulerEnd(SCHEDULER_TYPE, {
-      success: successCount,
-      skipped: skipCount,
-      failed: errorCount,
-      total: emitenList.length
-    });
+    console.log(`✅ Stock scheduler completed - Success: ${successCount}, Skipped: ${skipCount}, Failed: ${errorCount}, Total: ${emitenList.length}`);
 
     if (finalLogId) {
-      await SchedulerLogService.updateLog(finalLogId, {
-        status: 'completed',
-        progress_percentage: 100,
-        total_files_processed: successCount,
+      await SchedulerLogService.markCompleted(finalLogId, {
+        total_files_processed: emitenList.length,
+        files_created: successCount,
         files_skipped: skipCount,
         files_failed: errorCount
       });
@@ -466,12 +439,9 @@ export async function updateStockData(logId?: string | null): Promise<void> {
     console.log(`📊 Success: ${successCount}, Skipped: ${skipCount}, Failed: ${errorCount}`);
 
   } catch (error: any) {
-    await AzureLogger.logSchedulerError(SCHEDULER_TYPE, error.message);
+    console.error(`❌ Stock scheduler error: ${error.message}`);
     if (finalLogId) {
-      await SchedulerLogService.updateLog(finalLogId, {
-        status: 'failed',
-        error_message: error.message
-      });
+      await SchedulerLogService.markFailed(finalLogId, error.message, error);
     }
   }
 }

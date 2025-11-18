@@ -17,30 +17,19 @@ export interface SchedulerLog {
   started_at?: string;
   completed_at?: string;
   duration_seconds?: number;
-  force_override?: boolean;
   total_files_processed?: number;
   files_created?: number;
   files_updated?: number;
   files_skipped?: number;
   files_failed?: number;
-  stock_processed?: number;
-  stock_success?: number;
-  stock_failed?: number;
-  sector_processed?: number;
-  sector_success?: number;
-  sector_failed?: number;
-  index_processed?: number;
-  index_success?: number;
-  index_failed?: number;
   error_message?: string;
   error_details?: any;
-  retry_count?: number;
   progress_percentage?: number;
   current_processing?: string;
-  estimated_completion?: string;
-  server_info?: any;
-  azure_storage_info?: any;
   environment?: string;
+  phase_id?: string;
+  cancelled_by?: string;
+  cancelled_at?: string;
 }
 
 export class SchedulerLogService {
@@ -138,6 +127,8 @@ export class SchedulerLogService {
 
   /**
    * Check if all required files are already processed for a feature
+   * Note: This method is simplified - it only checks if the latest log is completed
+   * For detailed stock/sector/index stats, check error_details JSONB field
    */
   static async isProcessingComplete(featureName: string, requiredCounts: {
     stocks: number;
@@ -151,13 +142,18 @@ export class SchedulerLogService {
         return { isComplete: false, missingCounts: requiredCounts };
       }
 
-      const missingCounts = {
-        stocks: Math.max(0, requiredCounts.stocks - (latestLog.stock_success || 0)),
-        sectors: Math.max(0, requiredCounts.sectors - (latestLog.sector_success || 0)),
-        indexes: Math.max(0, requiredCounts.indexes - (latestLog.index_success || 0))
-      };
+      // For RRC/RRG, check error_details for stock/sector/index stats if available
+      // Otherwise, assume complete if status is completed
+      const isComplete = latestLog.status === 'completed' && 
+                        (latestLog.files_failed || 0) === 0 &&
+                        (latestLog.files_created || 0) > 0;
 
-      const isComplete = missingCounts.stocks === 0 && missingCounts.sectors === 0 && missingCounts.indexes === 0;
+      // Return required counts as missing if not complete, otherwise 0
+      const missingCounts = isComplete ? {
+        stocks: 0,
+        sectors: 0,
+        indexes: 0
+      } : requiredCounts;
 
       return { isComplete, missingCounts };
     } catch (error) {
@@ -196,18 +192,9 @@ export class SchedulerLogService {
   static async markCompleted(logId: string, finalStats: {
     total_files_processed: number;
     files_created: number;
-    files_updated: number;
-    files_skipped: number;
+    files_updated?: number;
+    files_skipped?: number;
     files_failed: number;
-    stock_processed: number;
-    stock_success: number;
-    stock_failed: number;
-    sector_processed: number;
-    sector_success: number;
-    sector_failed: number;
-    index_processed: number;
-    index_success: number;
-    index_failed: number;
   }): Promise<boolean> {
     try {
       const completedAt = new Date().toISOString();
@@ -254,14 +241,28 @@ export class SchedulerLogService {
    */
   static async markFailed(logId: string, errorMessage: string, errorDetails?: any): Promise<boolean> {
     try {
+      const completedAt = new Date().toISOString();
+      
+      // Get started_at to calculate duration
+      const { data: logData } = await supabaseAdmin
+        .from('scheduler_logs')
+        .select('started_at')
+        .eq('id', logId)
+        .single();
+
+      let duration_seconds = 0;
+      if (logData?.started_at) {
+        duration_seconds = Math.floor((new Date(completedAt).getTime() - new Date(logData.started_at).getTime()) / 1000);
+      }
+
       const { error } = await supabaseAdmin
         .from('scheduler_logs')
         .update({
           status: 'failed',
-          completed_at: new Date().toISOString(),
+          completed_at: completedAt,
+          duration_seconds,
           error_message: errorMessage,
-          error_details: errorDetails,
-          retry_count: 0 // Will be incremented by caller if needed
+          error_details: errorDetails
         })
         .eq('id', logId);
 
@@ -281,9 +282,9 @@ export class SchedulerLogService {
   /**
    * Mark a log as cancelled
    */
-  static async markCancelled(logId: string, reason?: string): Promise<boolean> {
+  static async markCancelled(logId: string, reason?: string, cancelledBy?: string): Promise<boolean> {
     try {
-      const completedAt = new Date().toISOString();
+      const cancelledAt = new Date().toISOString();
       
       // Get started_at to calculate duration
       const { data: logData } = await supabaseAdmin
@@ -294,14 +295,16 @@ export class SchedulerLogService {
 
       let duration_seconds = 0;
       if (logData?.started_at) {
-        duration_seconds = Math.floor((new Date(completedAt).getTime() - new Date(logData.started_at).getTime()) / 1000);
+        duration_seconds = Math.floor((new Date(cancelledAt).getTime() - new Date(logData.started_at).getTime()) / 1000);
       }
 
       const { error } = await supabaseAdmin
         .from('scheduler_logs')
         .update({
           status: 'cancelled',
-          completed_at: completedAt,
+          completed_at: cancelledAt,
+          cancelled_at: cancelledAt,
+          cancelled_by: cancelledBy || 'system',
           duration_seconds,
           error_message: reason || 'Cancelled by user',
           current_processing: 'Cancelled'
