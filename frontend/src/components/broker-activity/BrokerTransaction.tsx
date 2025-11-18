@@ -4301,7 +4301,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
 
           {/* Pivot Filter */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-            <label className="text-sm font-medium whitespace-nowrap">Pivot:</label>
+            <label className="text-sm font-medium whitespace-nowrap">Output:</label>
             <select
               value={pivotFilter}
               onChange={(e) => {
