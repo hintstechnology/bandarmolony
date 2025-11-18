@@ -257,6 +257,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   const startDateRef = useRef<HTMLInputElement>(null);
   const endDateRef = useRef<HTMLInputElement>(null);
   const dropdownBrokerRef = useRef<HTMLDivElement>(null);
+  const menuContainerRef = useRef<HTMLDivElement>(null);
   
   // Refs for table synchronization
   const valueTableRef = useRef<HTMLTableElement>(null);
@@ -301,6 +302,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   const [pivotFilter, setPivotFilter] = useState<'Broker' | 'Stock'>('Broker'); // Default to Broker
   const [invFilter, setInvFilter] = useState<'F' | 'D' | ''>(''); // Default to All (F = Foreign, D = Domestic) - Investor Type
   const [boardFilter, setBoardFilter] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Default to RG - Board Type
+  const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
   
   // Multi-select ticker/sector states (combined)
   const [tickerInput, setTickerInput] = useState('');
@@ -1345,6 +1347,43 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
+
+  // Monitor menu height to detect if it wraps to 2 rows
+  useEffect(() => {
+    const checkMenuHeight = () => {
+      if (menuContainerRef.current) {
+        const menuHeight = menuContainerRef.current.offsetHeight;
+        // If menu height is more than ~50px, it's likely 2 rows (single row is usually ~40-45px)
+        setIsMenuTwoRows(menuHeight > 50);
+      }
+    };
+
+    // Check initially
+    checkMenuHeight();
+
+    // Check on window resize
+    window.addEventListener('resize', checkMenuHeight);
+    
+    // Use ResizeObserver for more accurate detection
+    let resizeObserver: ResizeObserver | null = null;
+    if (menuContainerRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        checkMenuHeight();
+      });
+      resizeObserver.observe(menuContainerRef.current);
+    }
+
+    // Also check when selectedTickers changes (ticker selection affects menu height)
+    const timeoutId = setTimeout(checkMenuHeight, 100);
+
+    return () => {
+      window.removeEventListener('resize', checkMenuHeight);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+      clearTimeout(timeoutId);
+    };
+  }, [selectedTickers, selectedBrokers, selectedDates, startDate, endDate, invFilter, boardFilter]);
 
   // OPTIMIZED: Sync table widths between Value and Net tables - Simplified and more efficient
   useEffect(() => {
@@ -3857,7 +3896,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     <div className="w-full">
       {/* Top Controls - Compact without Card */}
       <div className="fixed top-14 left-20 right-0 z-40 bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1">
-        <div className="flex flex-col md:flex-row md:flex-wrap items-center gap-2 md:gap-x-7 md:gap-y-0.2">
+        <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-2 md:gap-x-7 md:gap-y-0.2">
           {/* Broker Selection - Multi-select with chips */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             <label className="text-sm font-medium whitespace-nowrap">Broker:</label>
@@ -4226,6 +4265,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     return;
                   }
                   
+                  // CRITICAL: Reset shouldFetchData silently BEFORE updating dates to prevent auto-load
+                  // This ensures data only changes when Show button is clicked
+                  if (hasInitialAutoFetchRef.current) {
+                    shouldFetchDataRef.current = false; // CRITICAL: Update ref first (synchronous) - SILENT
+                    setShouldFetchData(false); // SILENT
+                  }
+                  
                   setStartDate(e.target.value);
                   if (!endDate || new Date(e.target.value) > new Date(endDate)) {
                     setEndDate(e.target.value);
@@ -4268,6 +4314,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       message: 'Tidak bisa memilih hari Sabtu atau Minggu'
                     });
                     return;
+                  }
+                  
+                  // CRITICAL: Reset shouldFetchData silently BEFORE updating dates to prevent auto-load
+                  // This ensures data only changes when Show button is clicked
+                  if (hasInitialAutoFetchRef.current) {
+                    shouldFetchDataRef.current = false; // CRITICAL: Update ref first (synchronous) - SILENT
+                    setShouldFetchData(false); // SILENT
                   }
                   
                   const newEndDate = e.target.value;
@@ -4538,8 +4591,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         </div>
       </div>
 
-      {/* Spacer for fixed menu */}
-      <div className="h-[60px] md:h-[50px]"></div>
+      {/* Spacer for fixed menu - responsive based on menu rows */}
+      <div className={isMenuTwoRows ? "h-[60px] md:h-[50px]" : "h-[38px] md:h-[35px]"}></div>
 
       {/* Loading State */}
       {isLoading && (
