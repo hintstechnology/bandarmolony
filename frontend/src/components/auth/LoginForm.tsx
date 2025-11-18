@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
@@ -9,7 +9,6 @@ import { Label } from '../ui/label';
 import { Checkbox } from '../ui/checkbox';
 import { api } from '../../services/api';
 import { getAuthError, logError } from '../../utils/errorHandler';
-import { supabase } from '../../lib/supabase';
 
 interface LoginFormProps {
   onSwitchToSignUp: () => void;
@@ -17,7 +16,7 @@ interface LoginFormProps {
   onLogin: (email: string, password: string) => void;
 }
 
-export function LoginForm({ onSwitchToSignUp, onSwitchToForgotPassword, onLogin }: LoginFormProps) {
+export function LoginForm({ onSwitchToSignUp, onSwitchToForgotPassword }: LoginFormProps) {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const [showPassword, setShowPassword] = useState(false);
@@ -35,28 +34,6 @@ export function LoginForm({ onSwitchToSignUp, onSwitchToForgotPassword, onLogin 
     suspensionReason?: string;
   } | null>(null);
   const [hasFailedLogin, setHasFailedLogin] = useState(false);
-
-  // Check attempts only after failed login attempts
-  const checkAttemptsAfterFailure = async (email: string) => {
-    if (email && email.includes('@')) {
-      try {
-        const result = await api.checkAttempts(email);
-        if (result.success && result.data) {
-          setAttemptsInfo({
-            remainingAttempts: result.data.remainingAttempts,
-            isBlocked: !result.data.allowed && !result.data.isSuspended,
-            blockedUntil: result.data.blockedUntil,
-            timeRemaining: result.data.timeRemaining,
-            isSuspended: result.data.isSuspended,
-            suspensionReason: result.data.suspensionReason
-          });
-        }
-      } catch (error) {
-        console.error('Error checking attempts:', error);
-        setAttemptsInfo(null);
-      }
-    }
-  };
 
   const handleInputChange = (field: string, value: string) => {
     if (field === 'email') setEmail(value);
@@ -79,16 +56,16 @@ export function LoginForm({ onSwitchToSignUp, onSwitchToForgotPassword, onLogin 
 
     // Email validation
     if (!email.trim()) {
-      newErrors.email = 'Email is required';
+      newErrors['email'] = 'Email is required';
     } else if (!email.includes('@')) {
-      newErrors.email = 'Please enter a valid email address';
+      newErrors['email'] = 'Please enter a valid email address';
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      newErrors.email = 'Please enter a valid email address';
+      newErrors['email'] = 'Please enter a valid email address';
     }
 
     // Password validation
     if (!password) {
-      newErrors.password = 'Password is required';
+      newErrors['password'] = 'Password is required';
     }
 
     setErrors(newErrors);
@@ -129,33 +106,35 @@ export function LoginForm({ onSwitchToSignUp, onSwitchToForgotPassword, onLogin 
         navigate('/dashboard');
       } else {
         // Handle structured error responses
-        const errorMessage = result.error || 'Login failed. Please try again.';
+        let errorMessage = result.error || 'Login failed. Please try again.';
+        let errorTitle = 'Login Gagal';
+        
+        // Handle specific error codes
+        if (result.code === 'ACCOUNT_SUSPENDED') {
+          errorTitle = 'Akun Di-Suspend';
+          errorMessage = 'Akun Anda telah di-suspend. Silakan hubungi admin untuk bantuan.';
+        } else if (result.code === 'EMAIL_NOT_VERIFIED') {
+          errorTitle = 'Email Belum Terverifikasi';
+          errorMessage = 'Email Anda belum terverifikasi. Silakan verifikasi email Anda terlebih dahulu.';
+        }
+        
+        // Show toast with appropriate title and message
+        showToast({
+          type: 'error',
+          title: errorTitle,
+          message: errorMessage,
+        });
         
         // Log error for monitoring
         logError({
           code: result.code || 'LOGIN_FAILED',
           message: errorMessage,
           type: 'auth',
-          field: result.field
+          ...(result.field && { field: result.field })
         }, 'LoginForm');
         
-        // Use field information from backend if available
-        if (result.field) {
-          setErrors({ [result.field]: errorMessage });
-        } else if (result.code === 'USER_NOT_FOUND') {
-          setErrors({ email: errorMessage });
-        } else if (result.code === 'INVALID_PASSWORD') {
-          setErrors({ password: errorMessage });
-        } else if (result.code === 'ACCOUNT_BLOCKED' || result.code === 'ACCOUNT_SUSPENDED') {
-          setErrors({ general: errorMessage });
-        } else if (errorMessage.includes('verify') || errorMessage.includes('confirmed')) {
-          setErrors({ general: errorMessage });
-        } else if (errorMessage.includes('too many') || errorMessage.includes('rate limit')) {
-          setErrors({ general: errorMessage });
-        } else {
-          setErrors({ general: errorMessage });
-        }
-        toast.error(errorMessage);
+        // Clear all field errors - we only use toast messages now
+        setErrors({});
         
         // Refresh attempts info after failed login (only for existing users)
         if (email && email.includes('@') && result.code !== 'USER_NOT_FOUND') {
@@ -165,10 +144,10 @@ export function LoginForm({ onSwitchToSignUp, onSwitchToForgotPassword, onLogin 
               setAttemptsInfo({
                 remainingAttempts: attemptsResult.data.remainingAttempts,
                 isBlocked: !attemptsResult.data.allowed && !attemptsResult.data.isSuspended,
-                blockedUntil: attemptsResult.data.blockedUntil,
-                timeRemaining: attemptsResult.data.timeRemaining,
+                ...(attemptsResult.data.blockedUntil && { blockedUntil: attemptsResult.data.blockedUntil }),
+                ...(attemptsResult.data.timeRemaining && { timeRemaining: attemptsResult.data.timeRemaining }),
                 isSuspended: attemptsResult.data.isSuspended,
-                suspensionReason: attemptsResult.data.suspensionReason
+                ...(attemptsResult.data.suspensionReason && { suspensionReason: attemptsResult.data.suspensionReason })
               });
             }
           } catch (error) {
@@ -181,8 +160,12 @@ export function LoginForm({ onSwitchToSignUp, onSwitchToForgotPassword, onLogin 
       }
     } catch (error: any) {
       const authError = getAuthError(error);
-      setErrors({ general: authError.message });
-      toast.error(authError.message);
+      setErrors({});
+      showToast({
+        type: 'error',
+        title: 'Login Gagal',
+        message: authError.message,
+      });
     } finally {
       setLoading(false);
     }
@@ -196,17 +179,6 @@ export function LoginForm({ onSwitchToSignUp, onSwitchToForgotPassword, onLogin 
         <h1 className="text-2xl font-semibold text-foreground">Nice to see you again</h1>
       </div>
 
-      {/* General Error Message */}
-      {errors.general && (
-        <div className="p-3 bg-red-950 border border-red-800 rounded-lg">
-          <div className="flex items-start space-x-2">
-            <svg className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-            </svg>
-            <p className="text-sm text-red-400">{errors.general}</p>
-          </div>
-        </div>
-      )}
 
       {/* Attempts Information */}
       {attemptsInfo && (
@@ -268,11 +240,8 @@ export function LoginForm({ onSwitchToSignUp, onSwitchToForgotPassword, onLogin 
             value={email}
             onChange={(e) => handleInputChange('email', e.target.value)}
             required
-            className={`bg-blue-950 border focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-400 focus:placeholder:opacity-0 ${
-              errors.email ? 'border-red-500' : 'border-blue-800'
-            }`}
+            className="bg-blue-950 border border-blue-800 focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-400 focus:placeholder:opacity-0"
           />
-          {errors.email && <p className="text-sm text-red-500">{errors.email}</p>}
         </div>
 
         <div className="space-y-2">
@@ -285,9 +254,7 @@ export function LoginForm({ onSwitchToSignUp, onSwitchToForgotPassword, onLogin 
               value={password}
               onChange={(e) => handleInputChange('password', e.target.value)}
               required
-              className={`bg-blue-950 border focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-400 focus:placeholder:opacity-0 pr-10 pl-3 ${
-                errors.password ? 'border-red-500' : 'border-blue-800'
-              }`}
+              className="bg-blue-950 border border-blue-800 focus:border-blue-600 placeholder:opacity-60 placeholder:text-gray-400 focus:placeholder:opacity-0 pr-10 pl-3"
             />
             <button
               type="button"
@@ -297,7 +264,6 @@ export function LoginForm({ onSwitchToSignUp, onSwitchToForgotPassword, onLogin 
               {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
-          {errors.password && <p className="text-sm text-red-500">{errors.password}</p>}
         </div>
 
         <div className="flex items-center justify-between">

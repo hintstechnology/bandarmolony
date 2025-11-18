@@ -153,6 +153,35 @@ router.post('/login', async (req, res) => {
       }
     }
 
+    // Check if user exists and verify email/account status BEFORE password check
+    const { data: existingUser } = await supabaseAdmin
+      .from('users')
+      .select('id, email, is_active, email_verified')
+      .eq('email', normalizedEmail)
+      .single();
+
+    if (existingUser) {
+      // Check if account is active
+      if (existingUser.is_active === false) {
+        return res.status(403).json(createErrorResponse(
+          'Akun Anda telah di-suspend. Silakan hubungi admin untuk bantuan.',
+          'ACCOUNT_SUSPENDED',
+          'email',
+          403
+        ));
+      }
+
+      // Check if email is verified
+      if (existingUser.email_verified === false) {
+        return res.status(403).json(createErrorResponse(
+          'Email Anda belum terverifikasi. Silakan verifikasi email Anda terlebih dahulu.',
+          'EMAIL_NOT_VERIFIED',
+          'email',
+          403
+        ));
+      }
+    }
+
     // Now attempt to sign in with Supabase Auth
     const { data, error } = await supabaseAdmin.auth.signInWithPassword({
       email: normalizedEmail,
@@ -291,6 +320,37 @@ router.post('/login', async (req, res) => {
         } catch (createErr) {
           console.error('Error creating user record:', createErr);
         }
+      }
+    }
+
+    // Check if user profile exists and validate account status
+    // Note: We already checked email_verified and is_active before password check,
+    // but we check again here as a safety measure in case status changed
+    if (userProfile) {
+      // Check if account is active
+      if (userProfile.is_active === false) {
+        // Sign out the user from Supabase Auth session
+        await supabaseAdmin.auth.admin.signOut(data.user.id, 'global');
+        
+        return res.status(403).json(createErrorResponse(
+          'Akun Anda telah di-suspend. Silakan hubungi admin untuk bantuan.',
+          'ACCOUNT_SUSPENDED',
+          'email',
+          403
+        ));
+      }
+
+      // Check if email is verified (double check for safety)
+      if (userProfile.email_verified === false) {
+        // Sign out the user from Supabase Auth session
+        await supabaseAdmin.auth.admin.signOut(data.user.id, 'global');
+        
+        return res.status(403).json(createErrorResponse(
+          'Email Anda belum terverifikasi. Silakan verifikasi email Anda terlebih dahulu.',
+          'EMAIL_NOT_VERIFIED',
+          'email',
+          403
+        ));
       }
     }
 

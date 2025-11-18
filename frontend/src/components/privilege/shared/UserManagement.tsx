@@ -12,16 +12,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../ui/select";
+import { Label } from "../../ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../../ui/dialog";
+import { useToast } from "../../../contexts/ToastContext";
 import { 
   Search, 
-  UserCheck, 
-  UserX, 
-  Mail, 
-  MailCheck,
-  ChevronLeft,
-  ChevronRight,
+  Mail,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  UserPlus,
+  Eye,
+  EyeOff,
+  ChevronDown,
+  Send,
+  RefreshCw
 } from "lucide-react";
 import { supabase } from "../../../lib/supabase";
 import { getRoleDisplayName } from "../../../utils/role";
@@ -81,35 +92,88 @@ interface User {
   updated_at: string;
 }
 
+interface AddUserFormData {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+  role: string;
+}
+
+interface AddUserFormData {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+  role: string;
+}
+
 interface UserManagementProps {
   apiPrefix: 'admin' | 'developer';
   onUserStatusChange?: () => void;
 }
 
 export function UserManagement({ apiPrefix, onUserStatusChange }: UserManagementProps) {
+  const { showToast } = useToast();
   const [users, setUsers] = useState<User[]>([]);
-  const [recentUsers, setRecentUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [pagination, setPagination] = useState({
-    page: 1,
-    limit: 10,
-    total: 0,
-    totalPages: 0
+  const [hasMore, setHasMore] = useState(true);
+  const [limit] = useState(20); // Number of users to load per batch
+  const [offset, setOffset] = useState(0);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  
+  // Add user form state
+  const [showAddUserForm, setShowAddUserForm] = useState(false);
+  const [addUserMethod, setAddUserMethod] = useState<'invite' | 'create'>('invite');
+  const [addUserLoading, setAddUserLoading] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [addUserFormData, setAddUserFormData] = useState<AddUserFormData>({
+    firstName: '',
+    lastName: '',
+    email: '',
+    password: '',
+    confirmPassword: '',
+    role: 'user'
   });
+  const [addUserErrors, setAddUserErrors] = useState<{[key: string]: string}>({});
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [showAdminPassword, setShowAdminPassword] = useState(false);
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminPasswordError, setAdminPasswordError] = useState('');
+  const [verifyingPassword, setVerifyingPassword] = useState(false);
+  const [pendingAction, setPendingAction] = useState<{
+    type: 'suspend' | 'reinvite' | 'delete' | 'addUser';
+    userId?: string;
+    userEmail?: string;
+    currentStatus?: boolean;
+  } | null>(null);
 
-  const loadUsers = async () => {
-    setLoading(true);
+  const loadUsers = async (reset: boolean = false) => {
+    if (reset) {
+      setLoading(true);
+      setUsers([]);
+      setOffset(0);
+      setHasMore(true);
+    } else {
+      setLoadingMore(true);
+    }
     setError(null);
     
     try {
       const { data: { session } } = await supabase.auth.getSession();
+      const currentOffset = reset ? 0 : offset;
       
       const response = await fetch(
-        `${API_URL}/api/${apiPrefix}/users?page=${pagination.page}&limit=${pagination.limit}`,
+        `${API_URL}/api/${apiPrefix}/users?page=${Math.floor(currentOffset / limit) + 1}&limit=${limit}`,
         {
           headers: {
             'Content-Type': 'application/json',
@@ -142,12 +206,18 @@ export function UserManagement({ apiPrefix, onUserStatusChange }: UserManagement
             role: normalizedRole
           };
         });
-        setUsers(normalizedUsers);
-        setPagination(prev => ({
-          ...prev,
-          total: json.data.pagination?.total || 0,
-          totalPages: json.data.pagination?.totalPages || 0
-        }));
+        
+        if (reset) {
+          setUsers(normalizedUsers);
+        } else {
+          setUsers(prev => [...prev, ...normalizedUsers]);
+        }
+        
+        // Check if there are more users to load
+        const total = json.data.pagination?.total || 0;
+        const newOffset = currentOffset + normalizedUsers.length;
+        setOffset(newOffset);
+        setHasMore(newOffset < total);
       }
 
     } catch (err) {
@@ -155,40 +225,34 @@ export function UserManagement({ apiPrefix, onUserStatusChange }: UserManagement
       setError(err instanceof Error ? err.message : 'Failed to load users');
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   };
 
-  const loadRecentUsers = async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      const response = await fetch(`${API_URL}/api/${apiPrefix}/recent-users?limit=5`, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to load recent users');
-      }
-
-      const json = await response.json();
-      
-      if (json.ok && json.data) {
-        // Ensure role field is properly normalized
-        const normalizedUsers = (json.data || []).map((user: User) => ({
-          ...user,
-          role: user.role ? user.role.trim().toLowerCase() : 'user'
-        }));
-        setRecentUsers(normalizedUsers);
-      }
-    } catch (err) {
-      console.error('Error loading recent users:', err);
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    const bottom = target.scrollHeight - target.scrollTop <= target.clientHeight + 100; // Load when 100px from bottom
+    
+    if (bottom && hasMore && !loadingMore && !loading) {
+      loadUsers(false);
     }
   };
 
-  const toggleUserStatus = async (userId: string, currentStatus: boolean) => {
+
+  const toggleUserStatus = async (userId: string, currentStatus: boolean, userEmail: string) => {
+    // Show password dialog first
+    setPendingAction({
+      type: 'suspend',
+      userId,
+      userEmail,
+      currentStatus
+    });
+    setShowPasswordDialog(true);
+    setAdminPassword('');
+    setAdminPasswordError('');
+  };
+
+  const executeToggleUserStatus = async (userId: string, currentStatus: boolean) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       
@@ -198,50 +262,377 @@ export function UserManagement({ apiPrefix, onUserStatusChange }: UserManagement
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session?.access_token}`
         },
-        body: JSON.stringify({ suspended: currentStatus })
+        body: JSON.stringify({ 
+          suspended: currentStatus,
+          adminPassword: adminPassword
+        })
       });
 
       if (!response.ok) {
-        throw new Error('Failed to update user status');
+        const result = await response.json();
+        throw new Error(result.error || 'Failed to update user status');
       }
 
-      loadUsers();
-      loadRecentUsers();
+      const result = await response.json();
+      showToast({
+        type: 'success',
+        title: 'Status Updated',
+        message: result.message || `User ${currentStatus ? 'suspended' : 'activated'} successfully`,
+      });
+
+      loadUsers(true);
       onUserStatusChange?.();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error updating user status:', err);
+      showToast({
+        type: 'error',
+        title: 'Error',
+        message: err.message || 'Failed to update user status',
+      });
+      // If password error, show dialog again
+      if (err.message?.includes('password') || err.message?.includes('Password')) {
+        setShowPasswordDialog(true);
+      }
     }
   };
 
-  const toggleEmailVerification = async (userId: string, currentStatus: boolean) => {
+  const deleteUser = async (userId: string, userEmail: string) => {
+    // Show password dialog first
+    setPendingAction({
+      type: 'delete',
+      userId,
+      userEmail
+    });
+    setShowPasswordDialog(true);
+    setAdminPassword('');
+    setAdminPasswordError('');
+  };
+
+  const executeDeleteUser = async (userId: string) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       
-      const response = await fetch(`${API_URL}/api/${apiPrefix}/users/${userId}/email-verification`, {
-        method: 'PATCH',
+      const response = await fetch(`${API_URL}/api/${apiPrefix}/users/${userId}`, {
+        method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session?.access_token}`
         },
-        body: JSON.stringify({ email_verified: !currentStatus })
+        body: JSON.stringify({
+          adminPassword: adminPassword
+        })
       });
 
       if (!response.ok) {
-        throw new Error('Failed to update email verification status');
+        const result = await response.json();
+        throw new Error(result.error || 'Failed to delete user');
       }
 
-      loadUsers();
-      loadRecentUsers();
+      showToast({
+        type: 'success',
+        title: 'User Deleted',
+        message: 'User has been deleted successfully',
+      });
+
+      loadUsers(true);
       onUserStatusChange?.();
-    } catch (err) {
-      console.error('Error updating email verification:', err);
+    } catch (err: any) {
+      console.error('Error deleting user:', err);
+      showToast({
+        type: 'error',
+        title: 'Error',
+        message: err.message || 'Failed to delete user',
+      });
+      // If password error, show dialog again
+      if (err.message?.includes('password') || err.message?.includes('Password')) {
+        setShowPasswordDialog(true);
+      }
     }
   };
 
+  const reinviteUser = async (userId: string, userEmail: string) => {
+    // Show password dialog first
+    setPendingAction({
+      type: 'reinvite',
+      userId,
+      userEmail
+    });
+    setShowPasswordDialog(true);
+    setAdminPassword('');
+    setAdminPasswordError('');
+  };
+
+  const executeReinviteUser = async (userId: string, userEmail: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      const response = await fetch(`${API_URL}/api/${apiPrefix}/users/${userId}/reinvite`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({
+          adminPassword: adminPassword
+        })
+      });
+
+      if (!response.ok) {
+        const result = await response.json();
+        throw new Error(result.error || 'Failed to resend invitation');
+      }
+
+      showToast({
+        type: 'success',
+        title: 'Invitation Sent',
+        message: `Invitation email has been resent to ${userEmail}`,
+      });
+
+      loadUsers(true);
+      onUserStatusChange?.();
+    } catch (err: any) {
+      console.error('Error resending invitation:', err);
+      showToast({
+        type: 'error',
+        title: 'Error',
+        message: err.message || 'Failed to resend invitation',
+      });
+      // If password error, show dialog again
+      if (err.message?.includes('password') || err.message?.includes('Password')) {
+        setShowPasswordDialog(true);
+      }
+    }
+  };
+
+  const validateAddUserForm = () => {
+    const newErrors: {[key: string]: string} = {};
+
+    // First name validation
+    const firstName: string = addUserFormData['firstName'] || '';
+    if (!firstName.trim()) {
+      newErrors['firstName'] = 'First name is required';
+    } else if (firstName.trim().length < 2) {
+      newErrors['firstName'] = 'First name must be at least 2 characters';
+    }
+
+    // Last name validation
+    const lastName: string = addUserFormData['lastName'] || '';
+    if (!lastName.trim()) {
+      newErrors['lastName'] = 'Last name is required';
+    } else if (lastName.trim().length < 2) {
+      newErrors['lastName'] = 'Last name must be at least 2 characters';
+    }
+
+    // Email validation
+    const email: string = addUserFormData['email'] || '';
+    if (!email.trim()) {
+      newErrors['email'] = 'Email is required';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      newErrors['email'] = 'Please enter a valid email address';
+    }
+
+    // Password validation (only if method is create)
+    if (addUserMethod === 'create') {
+      const password: string = addUserFormData['password'] || '';
+      if (!password) {
+        newErrors['password'] = 'Password is required';
+      } else if (password.length < 6) {
+        newErrors['password'] = 'Password must be at least 6 characters';
+      } else if (password.length > 128) {
+        newErrors['password'] = 'Password must be less than 128 characters';
+      } else if (!/(?=.*[a-z])/.test(password)) {
+        newErrors['password'] = 'Password must contain at least one lowercase letter';
+      } else if (!/(?=.*[A-Z])/.test(password)) {
+        newErrors['password'] = 'Password must contain at least one uppercase letter';
+      } else if (!/(?=.*\d)/.test(password)) {
+        newErrors['password'] = 'Password must contain at least one number';
+      }
+
+      // Confirm password validation
+      const confirmPassword: string = addUserFormData['confirmPassword'] || '';
+      if (!confirmPassword) {
+        newErrors['confirmPassword'] = 'Please confirm your password';
+      } else if (password !== confirmPassword) {
+        newErrors['confirmPassword'] = 'Passwords do not match';
+      }
+    }
+
+    setAddUserErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleAddUserInputChange = (field: keyof AddUserFormData, value: string) => {
+    setAddUserFormData(prev => ({ ...prev, [field]: value }));
+    // Clear error when user starts typing
+    if (addUserErrors[field]) {
+      setAddUserErrors(prev => ({ ...prev, [field]: '' }));
+    }
+  };
+
+  const handleVerifyPassword = async () => {
+    if (!adminPassword) {
+      setAdminPasswordError('Password is required');
+      return;
+    }
+
+    setVerifyingPassword(true);
+    setAdminPasswordError('');
+    
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      const response = await fetch(`${API_URL}/api/${apiPrefix}/users/verify-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({ password: adminPassword })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        const errorMessage = result.error || 'Invalid password';
+        // Map backend error messages to user-friendly messages
+        if (errorMessage.includes('Current password is incorrect') || errorMessage.includes('Invalid password')) {
+          throw new Error('Password yang dimasukkan salah');
+        }
+        throw new Error(errorMessage);
+      }
+
+      if (result.ok) {
+        // Password verified, proceed with the pending action
+        setShowPasswordDialog(false);
+        
+        if (pendingAction) {
+          if (pendingAction.type === 'addUser') {
+            await submitAddUser();
+          } else if (pendingAction.type === 'suspend' && pendingAction.userId !== undefined && pendingAction.currentStatus !== undefined) {
+            await executeToggleUserStatus(pendingAction.userId, pendingAction.currentStatus);
+          } else if (pendingAction.type === 'delete' && pendingAction.userId) {
+            await executeDeleteUser(pendingAction.userId);
+          } else if (pendingAction.type === 'reinvite' && pendingAction.userId && pendingAction.userEmail) {
+            await executeReinviteUser(pendingAction.userId, pendingAction.userEmail);
+          }
+        }
+        
+        // Clear pending action and password
+        setPendingAction(null);
+        setAdminPassword('');
+      }
+    } catch (err: any) {
+      console.error('Error verifying password:', err);
+      setAdminPasswordError(err.message || 'Invalid password');
+    } finally {
+      setVerifyingPassword(false);
+    }
+  };
+
+  const submitAddUser = async () => {
+    setAddUserLoading(true);
+    
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      const response = await fetch(`${API_URL}/api/${apiPrefix}/users/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
+        body: JSON.stringify({
+          email: addUserFormData.email,
+          full_name: `${addUserFormData.firstName} ${addUserFormData.lastName}`,
+          password: addUserMethod === 'create' ? addUserFormData.password : undefined,
+          role: addUserFormData.role,
+          method: addUserMethod,
+          adminPassword: adminPassword
+        })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to create user');
+      }
+
+      if (result.ok) {
+        showToast({
+          type: 'success',
+          title: addUserMethod === 'invite' ? 'Invitation Sent!' : 'User Created!',
+          message: result.message || (addUserMethod === 'invite' ? 'Invitation email has been sent successfully' : 'User has been created successfully'),
+        });
+        
+        // Reset form
+        setAddUserFormData({
+          firstName: '',
+          lastName: '',
+          email: '',
+          password: '',
+          confirmPassword: '',
+          role: 'user'
+        });
+        setAddUserMethod('invite');
+        setShowAddUserForm(false);
+        setAdminPassword('');
+        setAdminPasswordError('');
+        
+        // Reload users
+        loadUsers();
+        onUserStatusChange?.();
+      }
+    } catch (err: any) {
+      console.error('Error adding user:', err);
+      showToast({
+        type: 'error',
+        title: 'Error',
+        message: err.message || 'Failed to add user',
+      });
+      // If error, show password dialog again
+      if (err.message?.includes('password') || err.message?.includes('Password')) {
+        setShowPasswordDialog(true);
+      }
+    } finally {
+      setAddUserLoading(false);
+    }
+  };
+
+  const handleAddUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!validateAddUserForm()) {
+      showToast({
+        type: 'error',
+        title: 'Validation Error',
+        message: 'Please fix the errors in the form',
+      });
+      return;
+    }
+
+    // Show password dialog first
+    setPendingAction({
+      type: 'addUser'
+    });
+    setShowPasswordDialog(true);
+    setAdminPassword('');
+    setAdminPasswordError('');
+  };
+
+  // Get current user ID on mount
   useEffect(() => {
-    loadUsers();
-    loadRecentUsers();
-  }, [pagination.page]);
+    const getCurrentUserId = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.id) {
+        setCurrentUserId(session.user.id);
+      }
+    };
+    getCurrentUserId();
+  }, []);
+
+  useEffect(() => {
+    loadUsers(true);
+  }, [search, roleFilter, statusFilter]);
 
   const filteredUsers = users.filter(user => {
     const matchesSearch = user.email.toLowerCase().includes(search.toLowerCase()) ||
@@ -267,17 +658,380 @@ export function UserManagement({ apiPrefix, onUserStatusChange }: UserManagement
   });
 
   return (
-    <div className="grid gap-6 lg:grid-cols-3">
-      <div className="lg:col-span-2">
-        <Card>
+    <div className="space-y-4">
+      {/* Add New User Section */}
+      <Card className="overflow-visible">
+        <CardHeader className="pb-3 overflow-visible">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 overflow-visible">
+            <div className="space-y-0.5">
+              <CardTitle className="text-base sm:text-lg">Add New User</CardTitle>
+              <CardDescription className="text-xs sm:text-sm">
+                Create a new user account or send an invitation
+              </CardDescription>
+            </div>
+            {!showAddUserForm && (
+              <div className="relative z-10 w-full sm:w-auto">
+                <Button 
+                  type="button"
+                  className="w-full sm:w-auto"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setShowDropdown(!showDropdown);
+                  }}
+                >
+                  <UserPlus className="w-4 h-4 mr-2" />
+                  Add user
+                  <ChevronDown className="w-4 h-4 ml-2" />
+                </Button>
+                {showDropdown && (
+                  <>
+                    <div 
+                      className="fixed inset-0 z-[99]" 
+                      onClick={() => setShowDropdown(false)}
+                    />
+                    <div className="absolute right-0 mt-2 z-[100] min-w-[200px] rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
+                      <button
+                        type="button"
+                        className="relative flex w-full cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setShowDropdown(false);
+                          setAddUserMethod('invite');
+                          setShowAddUserForm(true);
+                        }}
+                      >
+                        <Mail className="w-4 h-4 mr-2" />
+                        Send invitation
+                      </button>
+                      <button
+                        type="button"
+                        className="relative flex w-full cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setShowDropdown(false);
+                          setAddUserMethod('create');
+                          setShowAddUserForm(true);
+                        }}
+                      >
+                        <UserPlus className="w-4 h-4 mr-2" />
+                        Create new user
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </CardHeader>
+        {showAddUserForm && (
+          <CardContent className="pt-0 pb-4">
+            <form onSubmit={handleAddUser} className="space-y-4">
+              <div className="flex items-start justify-between gap-3 pb-3 border-b">
+                <div className="space-y-0.5">
+                  <h3 className="text-sm sm:text-base font-semibold">
+                    {addUserMethod === 'invite' ? 'Send Invitation' : 'Create New User'}
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    {addUserMethod === 'invite' 
+                      ? 'Send an invitation email to the user' 
+                      : 'Create a new user account with password'}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="flex-shrink-0"
+                  onClick={() => {
+                    setShowAddUserForm(false);
+                    setAddUserFormData({
+                      firstName: '',
+                      lastName: '',
+                      email: '',
+                      password: '',
+                      confirmPassword: '',
+                      role: 'user'
+                    });
+                    setAddUserErrors({});
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="firstName">First Name</Label>
+                  <Input
+                    id="firstName"
+                    type="text"
+                    placeholder="John"
+                    value={addUserFormData['firstName']}
+                    onChange={(e) => handleAddUserInputChange('firstName', e.target.value)}
+                  />
+                  {addUserErrors['firstName'] && (
+                    <p className="text-xs text-red-500 mt-1">{addUserErrors['firstName']}</p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="lastName">Last Name</Label>
+                  <Input
+                    id="lastName"
+                    type="text"
+                    placeholder="Doe"
+                    value={addUserFormData['lastName']}
+                    onChange={(e) => handleAddUserInputChange('lastName', e.target.value)}
+                  />
+                  {addUserErrors['lastName'] && (
+                    <p className="text-xs text-red-500 mt-1">{addUserErrors['lastName']}</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="john.doe@example.com"
+                  value={addUserFormData['email']}
+                  onChange={(e) => handleAddUserInputChange('email', e.target.value)}
+                />
+                {addUserErrors['email'] && (
+                  <p className="text-xs text-red-500 mt-1">{addUserErrors['email']}</p>
+                )}
+              </div>
+
+              {addUserMethod === 'create' && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="password">Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="password"
+                        type={showPassword ? 'text' : 'password'}
+                        placeholder="Create a strong password"
+                        value={addUserFormData['password']}
+                        onChange={(e) => handleAddUserInputChange('password', e.target.value)}
+                        className="pl-4 pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    {addUserErrors['password'] && (
+                      <p className="text-xs text-red-500 mt-1">{addUserErrors['password']}</p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="confirmPassword">Confirm Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="confirmPassword"
+                        type={showConfirmPassword ? 'text' : 'password'}
+                        placeholder="Confirm your password"
+                        value={addUserFormData['confirmPassword']}
+                        onChange={(e) => handleAddUserInputChange('confirmPassword', e.target.value)}
+                        className="pl-4 pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    {addUserErrors['confirmPassword'] && (
+                      <p className="text-xs text-red-500 mt-1">{addUserErrors['confirmPassword']}</p>
+                    )}
+                  </div>
+                </>
+              )}
+
+              <div className="space-y-2">
+                <Label htmlFor="role">Role</Label>
+                <Select
+                  value={addUserFormData.role}
+                  onValueChange={(value) => handleAddUserInputChange('role', value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="user">User</SelectItem>
+                    {apiPrefix === 'developer' && (
+                      <SelectItem value="developer">Developer</SelectItem>
+                    )}
+                    {apiPrefix === 'admin' && (
+                      <>
+                        <SelectItem value="admin">Admin</SelectItem>
+                        <SelectItem value="developer">Developer</SelectItem>
+                      </>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                <Button
+                  type="submit"
+                  disabled={addUserLoading}
+                  className="flex-1 w-full sm:w-auto"
+                  size="sm"
+                >
+                  {addUserLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      {addUserMethod === 'invite' ? 'Sending...' : 'Creating...'}
+                    </>
+                  ) : (
+                    <>
+                      {addUserMethod === 'invite' ? (
+                        <>
+                          <Send className="w-4 h-4 mr-2" />
+                          Send Invitation
+                        </>
+                      ) : (
+                        <>
+                          <UserPlus className="w-4 h-4 mr-2" />
+                          Create User
+                        </>
+                      )}
+                    </>
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full sm:w-auto"
+                  size="sm"
+                  onClick={() => {
+                    setShowAddUserForm(false);
+                    setAddUserFormData({
+                      firstName: '',
+                      lastName: '',
+                      email: '',
+                      password: '',
+                      confirmPassword: '',
+                      role: 'user'
+                    });
+                    setAddUserErrors({});
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        )}
+      </Card>
+
+      {/* Password Confirmation Dialog */}
+      <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Confirm Your Password</DialogTitle>
+            <DialogDescription>
+              Please enter your password to confirm this action. This is required for security purposes.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="adminPassword">Your Password</Label>
+              <div className="relative">
+                <Input
+                  id="adminPassword"
+                  type={showAdminPassword ? 'text' : 'password'}
+                  placeholder="Enter your password"
+                  value={adminPassword}
+                  onChange={(e) => {
+                    setAdminPassword(e.target.value);
+                    setAdminPasswordError('');
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !verifyingPassword) {
+                      e.preventDefault();
+                      handleVerifyPassword();
+                    }
+                  }}
+                  className={adminPasswordError ? 'border-red-500 pl-4 pr-10' : 'pl-4 pr-10'}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowAdminPassword(!showAdminPassword)}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showAdminPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              {adminPasswordError && (
+                <p className="text-sm text-red-500">{adminPasswordError}</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setShowPasswordDialog(false);
+                setAdminPassword('');
+                setAdminPasswordError('');
+                setPendingAction(null);
+              }}
+              disabled={verifyingPassword}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleVerifyPassword}
+              disabled={verifyingPassword || !adminPassword}
+            >
+              {verifyingPassword ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Verifying...
+                </>
+              ) : (
+                'Confirm'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Card>
           <CardHeader>
-            <CardTitle>User Management</CardTitle>
-            <CardDescription>
-              Manage user accounts and permissions
-            </CardDescription>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div>
+                <CardTitle>User Management</CardTitle>
+                <CardDescription>
+                  Manage user accounts and permissions
+                </CardDescription>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => loadUsers(true)}
+                disabled={loading}
+              >
+                <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="flex gap-2 mb-4">
+            <div className="flex flex-col sm:flex-row gap-2 mb-4">
               <div className="relative flex-1">
                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -288,7 +1042,7 @@ export function UserManagement({ apiPrefix, onUserStatusChange }: UserManagement
                 />
               </div>
               <Select value={roleFilter || "all"} onValueChange={(value) => setRoleFilter(value === "all" ? "" : value)}>
-                <SelectTrigger className="w-[140px]">
+                <SelectTrigger className="w-full sm:w-[140px]">
                   <SelectValue>
                     {roleFilter === "" ? "All Roles" : roleFilter === "admin" ? "Admin" : roleFilter === "developer" ? (apiPrefix === 'admin' ? "User" : "Developer") : roleFilter === "user" ? "User" : "All Roles"}
                   </SelectValue>
@@ -302,7 +1056,7 @@ export function UserManagement({ apiPrefix, onUserStatusChange }: UserManagement
                 </SelectContent>
               </Select>
               <Select value={statusFilter || "all"} onValueChange={(value) => setStatusFilter(value === "all" ? "" : value)}>
-                <SelectTrigger className="w-[140px]">
+                <SelectTrigger className="w-full sm:w-[140px]">
                   <SelectValue>
                     {statusFilter === "" ? "All Status" : statusFilter === "active" ? "Active" : statusFilter === "inactive" ? "Inactive" : "All Status"}
                   </SelectValue>
@@ -327,9 +1081,12 @@ export function UserManagement({ apiPrefix, onUserStatusChange }: UserManagement
               </div>
             ) : (
               <>
-                <div className="overflow-x-auto">
+                <div 
+                  className="overflow-x-auto overflow-y-auto max-h-[600px]"
+                  onScroll={handleScroll}
+                >
                   <Table>
-                    <TableHeader>
+                    <TableHeader className="sticky top-0 bg-background z-10">
                       <TableRow>
                         <TableHead>User</TableHead>
                         <TableHead>Role</TableHead>
@@ -374,119 +1131,67 @@ export function UserManagement({ apiPrefix, onUserStatusChange }: UserManagement
                             {user.last_login_at ? formatJakartaTime(user.last_login_at) : 'Never'}
                           </TableCell>
                           <TableCell>
-                            <div className="flex items-center gap-1">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => toggleUserStatus(user.id, user.is_active)}
-                              >
-                                {user.is_active ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => toggleEmailVerification(user.id, user.email_verified)}
-                              >
-                                {user.email_verified ? <Mail className="w-4 h-4" /> : <MailCheck className="w-4 h-4" />}
-                              </Button>
-                            </div>
+                            {currentUserId === user.id ? (
+                              <Badge variant="outline" className="text-xs">
+                                Your account
+                              </Badge>
+                            ) : (
+                              <div className="flex items-center gap-1 flex-nowrap">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => toggleUserStatus(user.id, user.is_active, user.email)}
+                                  className="h-7 px-2 text-xs whitespace-nowrap min-h-[28px]"
+                                >
+                                  {user.is_active ? 'Suspend' : 'Activate'}
+                                </Button>
+                                {!user.email_verified && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => reinviteUser(user.id, user.email)}
+                                    className="h-7 px-2 text-xs whitespace-nowrap min-h-[28px]"
+                                  >
+                                    Reinvite
+                                  </Button>
+                                )}
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => deleteUser(user.id, user.email)}
+                                  className="h-7 px-2 text-xs whitespace-nowrap min-h-[28px]"
+                                >
+                                  Delete
+                                </Button>
+                              </div>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))}
+                      {loadingMore && (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center py-4">
+                            <div className="flex items-center justify-center gap-2">
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <span className="text-sm text-muted-foreground">Loading more users...</span>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {!hasMore && filteredUsers.length > 0 && (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center py-4">
+                            <span className="text-sm text-muted-foreground">No more users to load</span>
+                          </TableCell>
+                        </TableRow>
+                      )}
                     </TableBody>
                   </Table>
                 </div>
-
-                {pagination.totalPages > 1 && (
-                  <div className="flex items-center justify-between mt-4">
-                    <div className="text-sm text-muted-foreground">
-                      Showing {((pagination.page - 1) * pagination.limit) + 1} to {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total} users
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setPagination(prev => ({ ...prev, page: prev.page - 1 }));
-                        }}
-                        disabled={pagination.page === 1}
-                      >
-                        <ChevronLeft className="w-4 h-4" />
-                        Previous
-                      </Button>
-                      <div className="flex items-center gap-1">
-                        {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
-                          const page = i + 1;
-                          return (
-                            <Button
-                              key={page}
-                              variant={pagination.page === page ? "default" : "outline"}
-                              size="sm"
-                              onClick={() => {
-                                setPagination(prev => ({ ...prev, page }));
-                              }}
-                              className="w-8 h-8 p-0"
-                            >
-                              {page}
-                            </Button>
-                          );
-                        })}
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setPagination(prev => ({ ...prev, page: prev.page + 1 }));
-                        }}
-                        disabled={pagination.page === pagination.totalPages}
-                      >
-                        Next
-                        <ChevronRight className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                )}
               </>
             )}
           </CardContent>
         </Card>
-      </div>
-      
-      <div>
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Users</CardTitle>
-            <CardDescription>
-              Latest registered users
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {recentUsers.map((user) => (
-                <div key={user.id} className="flex items-center gap-3">
-                  <Avatar className="h-8 w-8">
-                    <AvatarFallback>
-                      {getInitials(user.full_name, user.email)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate">{user.full_name || 'No name'}</div>
-                    <div className="text-sm text-muted-foreground truncate">{user.email}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {formatJakartaTime(user.created_at)}
-                    </div>
-                  </div>
-                  <Badge variant="outline" className="text-xs">
-                    {apiPrefix === 'admin' && user.role === 'developer' 
-                      ? getRoleDisplayName('user')
-                      : getRoleDisplayName(user.role)}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
     </div>
   );
 }
