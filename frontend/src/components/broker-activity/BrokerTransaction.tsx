@@ -299,8 +299,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   const [availableSectors, setAvailableSectors] = useState<string[]>([]); // List of available sectors (excluding 'All')
   const [stockToSectorMap, setStockToSectorMap] = useState<{ [stock: string]: string }>({}); // Stock code -> sector name mapping
   const [pivotFilter, setPivotFilter] = useState<'Broker' | 'Stock'>('Broker'); // Default to Broker
-  const [invFilter, setInvFilter] = useState<'F' | 'D' | ''>(''); // Default to All (F = Foreign, D = Domestik) - Investor Type
-  const [boardFilter, setBoardFilter] = useState<'RG' | 'TN' | 'NG' | ''>(''); // Default to All (RG/TN/NG) - Board Type
+  const [invFilter, setInvFilter] = useState<'F' | 'D' | ''>(''); // Default to All (F = Foreign, D = Domestic) - Investor Type
+  const [boardFilter, setBoardFilter] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Default to RG - Board Type
   
   // Multi-select ticker/sector states (combined)
   const [tickerInput, setTickerInput] = useState('');
@@ -4316,9 +4316,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             </select>
           </div>
 
-          {/* Inv Filter (F/D) - Investor Type */}
+          {/* F/D Filter (Foreign/Domestic) - Investor Type */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-            <label className="text-sm font-medium whitespace-nowrap">Inv:</label>
+            <label className="text-sm font-medium whitespace-nowrap">F/D:</label>
             <select
               value={invFilter}
               onChange={(e) => {
@@ -4329,8 +4329,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
             >
               <option value="">All</option>
-              <option value="F">F</option>
-              <option value="D">D</option>
+              <option value="F">Foreign</option>
+              <option value="D">Domestic</option>
             </select>
           </div>
 
