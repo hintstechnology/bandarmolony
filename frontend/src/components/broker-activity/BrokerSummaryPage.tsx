@@ -2665,10 +2665,14 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
 
             {/* F/D Filter */}
               <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto md:mr-2">
-                <label className="text-sm font-medium whitespace-nowrap">Investor:</label>
+                <label className="text-sm font-medium whitespace-nowrap">F/D:</label>
                   <select 
                   value={fdFilter}
-                  onChange={(e) => setFdFilter(e.target.value as 'All' | 'Foreign' | 'Domestic')}
+                  onChange={(e) => {
+                    setFdFilter(e.target.value as 'All' | 'Foreign' | 'Domestic');
+                    // CRITICAL: Keep existing data visible - no auto-fetch, no hide tables
+                    // User must click Show button to fetch new data
+                  }}
                   className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
                 >
                   <option value="All">All</option>
@@ -2682,13 +2686,17 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                 <label className="text-sm font-medium whitespace-nowrap">Board:</label>
                 <select
                   value={marketFilter}
-                  onChange={(e) => setMarketFilter(e.target.value as 'RG' | 'TN' | 'NG' | '')}
+                  onChange={(e) => {
+                    setMarketFilter(e.target.value as 'RG' | 'TN' | 'NG' | '');
+                    // CRITICAL: Keep existing data visible - no auto-fetch, no hide tables
+                    // User must click Show button to fetch new data
+                  }}
                   className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
                 >
                   <option value="">All Trade</option>
-                  <option value="RG">Reguler (RG)</option>
-                  <option value="TN">Tunai (TN)</option>
-                  <option value="NG">Nego (NG)</option>
+                  <option value="RG">RG</option>
+                  <option value="TN">TN</option>
+                  <option value="NG">NG</option>
                 </select>
               </div>
 
