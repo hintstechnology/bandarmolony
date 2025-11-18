@@ -711,26 +711,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           return;
         }
         
-        // CRITICAL: Validate that we only process data for selected dates
-        // Filter allDataResults to only include dates that are in selectedDates
-        const validDates = new Set(selectedDates);
-        const filteredDataResults = allDataResults.filter(({ date }) => {
-          const isValid = validDates.has(date);
-          if (!isValid) {
-            console.warn(`[BrokerTransaction] WARNING: Data with date ${date} found but not in selectedDates [${selectedDates.join(', ')}]. Skipping.`);
-          }
-          return isValid;
-        });
-        
-        // DEBUG: Log date validation
-        if (selectedDates.length > 0) {
-          console.log('[BrokerTransaction] DEBUG - Date validation:', {
-            selectedDates,
-            fetchedDates: [...new Set(allDataResults.map(r => r.date))],
-            validDataResults: filteredDataResults.length,
-            totalDataResults: allDataResults.length,
-          });
-        }
+        // OPTIMIZED: Skip date validation - data is already correct from API
+        // Use allDataResults directly without filtering
+        const filteredDataResults = allDataResults;
         
         // Process data per date - AGGREGATE per Emiten and per section (Buy, Sell, Net Buy, Net Sell)
         // When multiple brokers are selected, sum values for the same Emiten
@@ -808,15 +791,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           // Key: Emiten, Value: aggregated BrokerTransactionData
           const aggregatedMap = new Map<string, BrokerTransactionData>();
           
-          // CRITICAL: Check if only 1 broker is selected - if yes, use CSV values directly without recalculation
-          const isSingleBroker = selectedBrokers.length === 1;
-          
           // Process results for this date from all brokers
-          // CRITICAL: Only process data from filteredDataResults (which only contains selectedDates)
-          filteredDataResults.forEach(({ date: resultDate, code, data }) => {
-            // CRITICAL: Double-check that we only process data for the current date
+          // OPTIMIZED: Skip date double-check - data is already correct from API
+          filteredDataResults.forEach(({ date: resultDate, data }) => {
+            // OPTIMIZED: Skip date validation - only process if date matches (no logging)
             if (resultDate !== date) {
-              console.warn(`[BrokerTransaction] WARNING: Trying to process data with date ${resultDate} but current date is ${date}. Skipping.`);
               return;
             }
               
@@ -828,65 +807,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 const emiten = row.Emiten || '';
                 if (!emiten) continue;
                 
-                // DEBUG: Print CSV values for first row only
-                if (rowIndex === 0 && date === selectedDates[0]) {
-                  console.log('[BrokerTransaction] DEBUG - First row CSV values:', {
-                    date,
-                    emiten,
-                    selectedBrokers,
-                    isSingleBroker,
-                    CSV_BLot: row.BLot,
-                    CSV_BLotPerOrdNum: row.BLotPerOrdNum,
-                    CSV_NewBuyerOrdNum: row.NewBuyerOrdNum,
-                    CSV_BOrdNum: row.BOrdNum,
-                    CSV_SLot: row.SLot,
-                    CSV_SLotPerOrdNum: row.SLotPerOrdNum,
-                    CSV_NewSellerOrdNum: row.NewSellerOrdNum,
-                    CSV_SOrdNum: row.SOrdNum,
-                  });
-                }
-                
-                // DEBUG: Special logging for BUMI stock in broker AK on Nov 13
-                const isBUMI = emiten.toUpperCase() === 'BUMI';
-                const isNov13 = date.includes('2024-11-13') || date.includes('2025-11-13') || date.includes('20241113') || date.includes('20251113') || date.includes('-11-13');
-                const isBrokerAK = selectedBrokers.includes('AK') || selectedBrokers.includes('ak') || code === 'AK' || code === 'ak';
-                if (isBUMI && isNov13 && isBrokerAK) {
-                  console.log('[BrokerTransaction] DEBUG - BUMI data for AK on Nov 13:', {
-                    date,
-                    emiten,
-                    brokerCode: code,
-                    selectedBrokers,
-                    isSingleBroker,
-                    '=== RAW CSV DATA ===': {
-                      BCode: row.BCode,
-                      BLot: row.BLot,
-                      BVal: row.BuyerValue,
-                      BAvg: row.BuyerAvg,
-                      BFreq: row.BFreq,
-                      BLotPerFreq: row.BLotPerFreq,
-                      BOrdNum: row.BOrdNum,
-                      NewBuyerOrdNum: row.NewBuyerOrdNum,
-                      BLotPerOrdNum: row.BLotPerOrdNum,
-                      '---Calculated BLotPerOrdNum---': {
-                        from_NewBuyerOrdNum: row.BLot && row.NewBuyerOrdNum ? row.BLot / row.NewBuyerOrdNum : null,
-                        from_BOrdNum: row.BLot && row.BOrdNum ? row.BLot / row.BOrdNum : null,
-                      },
-                      SCode: row.SCode,
-                      SLot: row.SLot,
-                      SVal: row.SellerValue,
-                      SAvg: row.SellerAvg,
-                      SFreq: row.SFreq,
-                      SLotPerFreq: row.SLotPerFreq,
-                      SOrdNum: row.SOrdNum,
-                      NewSellerOrdNum: row.NewSellerOrdNum,
-                      SLotPerOrdNum: row.SLotPerOrdNum,
-                      '---Calculated SLotPerOrdNum---': {
-                        from_NewSellerOrdNum: row.SLot && row.NewSellerOrdNum ? row.SLot / row.NewSellerOrdNum : null,
-                        from_SOrdNum: row.SLot && row.SOrdNum ? row.SLot / row.SOrdNum : null,
-                      },
-                    },
-                  });
-                }
+                // OPTIMIZED: Removed debug logging to improve performance
                 
                 const existing = aggregatedMap.get(emiten);
                 if (existing) {
@@ -1062,48 +983,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           // Convert map to array
           let allRows = Array.from(aggregatedMap.values());
           
-          // DEBUG: Log final aggregated data for BUMI on Nov 13 with broker AK
-          const isNov13Date = date.includes('2024-11-13') || date.includes('2025-11-13') || date.includes('20241113') || date.includes('20251113') || date.includes('-11-13');
-          const isBrokerAKForDate = selectedBrokers.includes('AK') || selectedBrokers.includes('ak');
-          if (isNov13Date && isBrokerAKForDate) {
-            const bumiRow = allRows.find(row => (row.Emiten || '').toUpperCase() === 'BUMI');
-            if (bumiRow) {
-              console.log('[BrokerTransaction] DEBUG - Final aggregated BUMI data for AK on Nov 13:', {
-                date,
-                emiten: bumiRow.Emiten,
-                selectedBrokers,
-                isSingleBroker,
-                '=== FINAL AGGREGATED DATA ===': {
-                  BCode: bumiRow.BCode,
-                  BLot: bumiRow.BLot,
-                  BVal: bumiRow.BuyerValue,
-                  BAvg: bumiRow.BuyerAvg,
-                  BFreq: bumiRow.BFreq,
-                  BLotPerFreq: bumiRow.BLotPerFreq,
-                  BOrdNum: bumiRow.BOrdNum,
-                  NewBuyerOrdNum: bumiRow.NewBuyerOrdNum,
-                  BLotPerOrdNum: bumiRow.BLotPerOrdNum,
-                  '---Calculated BLotPerOrdNum from aggregated---': {
-                    calculated_from_NewBuyerOrdNum: bumiRow.BLot && bumiRow.NewBuyerOrdNum ? bumiRow.BLot / bumiRow.NewBuyerOrdNum : null,
-                    calculated_from_BOrdNum: bumiRow.BLot && bumiRow.BOrdNum ? bumiRow.BLot / bumiRow.BOrdNum : null,
-                  },
-                  SCode: bumiRow.SCode,
-                  SLot: bumiRow.SLot,
-                  SVal: bumiRow.SellerValue,
-                  SAvg: bumiRow.SellerAvg,
-                  SFreq: bumiRow.SFreq,
-                  SLotPerFreq: bumiRow.SLotPerFreq,
-                  SOrdNum: bumiRow.SOrdNum,
-                  NewSellerOrdNum: bumiRow.NewSellerOrdNum,
-                  SLotPerOrdNum: bumiRow.SLotPerOrdNum,
-                  '---Calculated SLotPerOrdNum from aggregated---': {
-                    calculated_from_NewSellerOrdNum: bumiRow.SLot && bumiRow.NewSellerOrdNum ? bumiRow.SLot / bumiRow.NewSellerOrdNum : null,
-                    calculated_from_SOrdNum: bumiRow.SLot && bumiRow.SOrdNum ? bumiRow.SLot / bumiRow.SOrdNum : null,
-                  },
-                },
-              });
-            }
-          }
+          // OPTIMIZED: Removed debug logging to improve performance
           
           // FIXED: Store raw data (before filtering) for availableTickers extraction
           // This ensures dropdown always shows all available tickers for selected broker(s)
@@ -3150,10 +3030,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     // This is the Lot/Or value for Sell section
                                     const sellerLotPerOrdNum = dayData.SLotPerOrdNum ?? 0;
                                     
-                                    // Debug: log SCode to verify it's correct
-                                    if (rowIdx <= 2 && dateIndex === 0) {
-                                      console.log(`[BrokerTransaction] Sell section - Row ${rowIdx}: SCode="${dayData.SCode}" (type: ${typeof dayData.SCode}), SLot=${sellerLot}, SVal=${sellerVal}`);
-                                    }
+                                    // OPTIMIZED: Removed debug logging to improve performance
                                     
                                     const sCode = String(dayData.SCode || sellRowData.stock || '');
                                     const sCodeColor = getStockColorClass(sCode);
@@ -4613,7 +4490,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
 
       {/* Main Data Display */}
       <div className="pt-2">
-        {!isLoading && !error && isDataReady && renderHorizontalView()}
+      {!isLoading && !error && isDataReady && renderHorizontalView()}
       </div>
     </div>
   );
