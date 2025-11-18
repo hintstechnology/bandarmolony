@@ -3856,8 +3856,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   return (
     <div className="w-full">
       {/* Top Controls - Compact without Card */}
-      <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5">
-        <div className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
+      <div className="fixed top-14 left-20 right-0 z-40 bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1">
+        <div className="flex flex-col md:flex-row md:flex-wrap items-center gap-2 md:gap-x-7 md:gap-y-0.2">
           {/* Broker Selection - Multi-select with chips */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             <label className="text-sm font-medium whitespace-nowrap">Broker:</label>
@@ -4301,7 +4301,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
 
           {/* Pivot Filter */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-            <label className="text-sm font-medium whitespace-nowrap">Pivot:</label>
+            <label className="text-sm font-medium whitespace-nowrap">Output:</label>
             <select
               value={pivotFilter}
               onChange={(e) => {
@@ -4538,9 +4538,12 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         </div>
       </div>
 
+      {/* Spacer for fixed menu */}
+      <div className="h-[60px] md:h-[50px]"></div>
+
       {/* Loading State */}
       {isLoading && (
-        <div className="flex items-center justify-center py-16">
+        <div className="flex items-center justify-center py-16 pt-4">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="w-8 h-8 animate-spin text-primary" />
             <span className="text-sm text-muted-foreground">Loading transaction data...</span>
@@ -4550,13 +4553,15 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
 
       {/* Error State */}
       {error && !isLoading && (
-        <div className="flex items-center justify-center py-8">
+        <div className="flex items-center justify-center py-8 pt-4">
           <div className="text-sm text-destructive">{error}</div>
         </div>
       )}
 
       {/* Main Data Display */}
-      {!isLoading && !error && isDataReady && renderHorizontalView()}
+      <div className="pt-2">
+        {!isLoading && !error && isDataReady && renderHorizontalView()}
+      </div>
     </div>
   );
 }

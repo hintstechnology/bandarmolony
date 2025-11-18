@@ -119,6 +119,8 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   const netTableRef = useRef<HTMLTableElement>(null);
   const valueTableContainerRef = useRef<HTMLDivElement>(null);
   const netTableContainerRef = useRef<HTMLDivElement>(null);
+  const menuContainerRef = useRef<HTMLDivElement>(null);
+  const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
 
   // API-driven broker summary data by date
   const [summaryByDate, setSummaryByDate] = useState<Map<string, BrokerSummaryData[]>>(new Map()); // Filtered data (based on displayedFdFilter)
@@ -1185,6 +1187,43 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     };
   }, [stockSearchTimeout]);
 
+  // Monitor menu height to detect if it wraps to 2 rows
+  useEffect(() => {
+    const checkMenuHeight = () => {
+      if (menuContainerRef.current) {
+        const menuHeight = menuContainerRef.current.offsetHeight;
+        // If menu height is more than ~50px, it's likely 2 rows (single row is usually ~40-45px)
+        setIsMenuTwoRows(menuHeight > 50);
+      }
+    };
+
+    // Check initially
+    checkMenuHeight();
+
+    // Check on window resize
+    window.addEventListener('resize', checkMenuHeight);
+    
+    // Use ResizeObserver for more accurate detection
+    let resizeObserver: ResizeObserver | null = null;
+    if (menuContainerRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        checkMenuHeight();
+      });
+      resizeObserver.observe(menuContainerRef.current);
+    }
+
+    // Also check when selectedTickers changes (ticker selection affects menu height)
+    const timeoutId = setTimeout(checkMenuHeight, 100);
+
+    return () => {
+      window.removeEventListener('resize', checkMenuHeight);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+      clearTimeout(timeoutId);
+    };
+  }, [selectedTickers, selectedDates, startDate, endDate, fdFilter, marketFilter]);
+
   const handleStockSelect = (stock: string) => {
     // Check if it's a sector (has [SECTOR] prefix)
     if (stock.startsWith('[SECTOR] ')) {
@@ -2174,10 +2213,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   return (
     <div className="w-full">
       {/* Top Controls - Compact without Card */}
-      <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5">
-            <div className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
+      <div className="fixed top-14 left-20 right-0 z-40 bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5">
+            <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-1 md:gap-x-7 md:gap-y-0.5">
               {/* Ticker Selection - Multi-select with chips */}
-              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto md:mr-2">
+              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
                 <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
                 <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
                   {/* Selected Ticker Chips */}
@@ -2337,7 +2376,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
               </div>
 
               {/* Date Range */}
-              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto md:mr-2">
+              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
                 <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
                 <div className="flex items-center gap-2 w-full md:w-auto">
               <div 
@@ -2664,7 +2703,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
               </div>
 
             {/* F/D Filter */}
-              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto md:mr-2">
+              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
                 <label className="text-sm font-medium whitespace-nowrap">F/D:</label>
                   <select 
                   value={fdFilter}
@@ -2682,7 +2721,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
               </div>
 
             {/* Market Filter */}
-              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto md:mr-2">
+              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
                 <label className="text-sm font-medium whitespace-nowrap">Board:</label>
                 <select
                   value={marketFilter}
@@ -2789,8 +2828,11 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
             </div>
             </div>
 
+      {/* Spacer for fixed menu - responsive based on menu rows */}
+      <div className={isMenuTwoRows ? "h-[60px] md:h-[50px]" : "h-[38px] md:h-[35px]"}></div>
+
       {/* Main Data Display */}
-      <div className="bg-[#0a0f20]">
+      <div className="bg-[#0a0f20] pt-2">
         {renderHorizontalView()}
       </div>
     </div>
