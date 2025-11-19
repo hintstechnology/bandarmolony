@@ -68,10 +68,11 @@ jobs:
           TIMEZONE="${{ steps.get-config.outputs.timezone }}"
           
           # Use Python for timezone conversion
-          python3 << 'EOF'
+          PYTHON_OUTPUT=$(python3 << 'EOF'
           from datetime import datetime, timedelta
           import pytz
           import os
+          import sys
           
           scheduler_time_str = os.environ.get('SCHEDULER_TIME', '19:00')
           timezone_str = os.environ.get('TIMEZONE', 'Asia/Jakarta')
@@ -97,16 +98,48 @@ jobs:
           # Format for comparison
           resize_time_utc = resize_utc.strftime("%H:%M")
           scheduler_time_utc = scheduler_utc.strftime("%H:%M")
+          resize_date_utc = resize_utc.strftime("%Y-%m-%d")
+          scheduler_date_utc = scheduler_utc.strftime("%Y-%m-%d")
           
           print(f"RESIZE_TIME_UTC={resize_time_utc}")
           print(f"SCHEDULER_TIME_UTC={scheduler_time_utc}")
-          print(f"RESIZE_DATE_UTC={resize_utc.strftime('%Y-%m-%d')}")
-          print(f"SCHEDULER_DATE_UTC={scheduler_utc.strftime('%Y-%m-%d')}")
+          print(f"RESIZE_DATE_UTC={resize_date_utc}")
+          print(f"SCHEDULER_DATE_UTC={scheduler_date_utc}")
           EOF
+          )
+          
+          # Parse Python output and set GitHub outputs
+          echo "📋 Python Output:"
+          echo "$PYTHON_OUTPUT"
+          
+          # Extract values from Python output (handle both stdout and stderr)
+          RESIZE_TIME_UTC=$(echo "$PYTHON_OUTPUT" | grep "^RESIZE_TIME_UTC=" | head -1 | cut -d'=' -f2 | tr -d '[:space:]')
+          SCHEDULER_TIME_UTC=$(echo "$PYTHON_OUTPUT" | grep "^SCHEDULER_TIME_UTC=" | head -1 | cut -d'=' -f2 | tr -d '[:space:]')
+          RESIZE_DATE_UTC=$(echo "$PYTHON_OUTPUT" | grep "^RESIZE_DATE_UTC=" | head -1 | cut -d'=' -f2 | tr -d '[:space:]')
+          SCHEDULER_DATE_UTC=$(echo "$PYTHON_OUTPUT" | grep "^SCHEDULER_DATE_UTC=" | head -1 | cut -d'=' -f2 | tr -d '[:space:]')
+          
+          # Validate extracted values
+          if [ -z "$RESIZE_TIME_UTC" ] || [ -z "$SCHEDULER_TIME_UTC" ] || [ -z "$RESIZE_DATE_UTC" ] || [ -z "$SCHEDULER_DATE_UTC" ]; then
+            echo "❌ Error: Failed to parse Python output"
+            echo "RESIZE_TIME_UTC: '$RESIZE_TIME_UTC'"
+            echo "SCHEDULER_TIME_UTC: '$SCHEDULER_TIME_UTC'"
+            echo "RESIZE_DATE_UTC: '$RESIZE_DATE_UTC'"
+            echo "SCHEDULER_DATE_UTC: '$SCHEDULER_DATE_UTC'"
+            exit 1
+          fi
+          
+          # Set GitHub outputs
+          echo "resize_time_utc=$RESIZE_TIME_UTC" >> $GITHUB_OUTPUT
+          echo "scheduler_time_utc=$SCHEDULER_TIME_UTC" >> $GITHUB_OUTPUT
+          echo "resize_date_utc=$RESIZE_DATE_UTC" >> $GITHUB_OUTPUT
+          echo "scheduler_date_utc=$SCHEDULER_DATE_UTC" >> $GITHUB_OUTPUT
+          
+          echo "✅ Parsed Values:"
+          echo "  📅 Resize Time (UTC): $RESIZE_TIME_UTC on $RESIZE_DATE_UTC"
+          echo "  📅 Scheduler Time (UTC): $SCHEDULER_TIME_UTC on $SCHEDULER_DATE_UTC"
         env:
           SCHEDULER_TIME: ${{ steps.get-config.outputs.scheduler_time }}
           TIMEZONE: ${{ steps.get-config.outputs.timezone }}
-        continue-on-error: true
       
       - name: Check Current Time and Container Size
         id: check-current
@@ -129,20 +162,41 @@ jobs:
       
       - name: Determine if Resize Needed
         id: should-resize
-        if: steps.check-weekend.outputs.is_weekend != 'true'
+        if: steps.check-weekend.outputs.is_weekend != 'true' && steps.calculate-time.outcome == 'success'
         run: |
           CURRENT_TIME="${{ steps.check-current.outputs.current_time_utc }}"
           CURRENT_DATE="${{ steps.check-current.outputs.current_date_utc }}"
-          RESIZE_TIME="${{ steps.calculate-time.outputs.RESIZE_TIME_UTC }}"
-          RESIZE_DATE="${{ steps.calculate-time.outputs.RESIZE_DATE_UTC }}"
-          SCHEDULER_TIME_UTC="${{ steps.calculate-time.outputs.SCHEDULER_TIME_UTC }}"
-          SCHEDULER_DATE="${{ steps.calculate-time.outputs.SCHEDULER_DATE_UTC }}"
+          RESIZE_TIME="${{ steps.calculate-time.outputs.resize_time_utc }}"
+          RESIZE_DATE="${{ steps.calculate-time.outputs.resize_date_utc }}"
+          SCHEDULER_TIME_UTC="${{ steps.calculate-time.outputs.scheduler_time_utc }}"
+          SCHEDULER_DATE="${{ steps.calculate-time.outputs.scheduler_date_utc }}"
           CURRENT_CPU="${{ steps.check-current.outputs.current_cpu }}"
+          
+          echo "🔍 Debug Info:"
+          echo "  Current Time (UTC): $CURRENT_TIME"
+          echo "  Current Date (UTC): $CURRENT_DATE"
+          echo "  Resize Time (UTC): $RESIZE_TIME"
+          echo "  Resize Date (UTC): $RESIZE_DATE"
+          echo "  Scheduler Time (UTC): $SCHEDULER_TIME_UTC"
+          echo "  Scheduler Date (UTC): $SCHEDULER_DATE"
+          echo "  Current CPU: $CURRENT_CPU"
+          
+          # Check if dates match
+          if [ -z "$RESIZE_DATE" ] || [ -z "$SCHEDULER_DATE" ] || [ -z "$RESIZE_TIME" ] || [ -z "$SCHEDULER_TIME_UTC" ]; then
+            echo "resize_needed=false" >> $GITHUB_OUTPUT
+            echo "❌ Error: Missing required values (Resize Date: '$RESIZE_DATE', Scheduler Date: '$SCHEDULER_DATE', Resize Time: '$RESIZE_TIME', Scheduler Time: '$SCHEDULER_TIME_UTC')"
+            exit 0
+          fi
           
           # Check if current time is within resize window
           # Resize window: [RESIZE_TIME, SCHEDULER_TIME_UTC) on the same day
           if [ "$CURRENT_DATE" = "$RESIZE_DATE" ] && [ "$CURRENT_DATE" = "$SCHEDULER_DATE" ]; then
-            if [ "$CURRENT_TIME" \>= "$RESIZE_TIME" ] && [ "$CURRENT_TIME" \< "$SCHEDULER_TIME_UTC" ]; then
+            # Compare times (HH:MM format)
+            CURRENT_MINUTES=$((10#$(echo $CURRENT_TIME | cut -d':' -f1) * 60 + 10#$(echo $CURRENT_TIME | cut -d':' -f2)))
+            RESIZE_MINUTES=$((10#$(echo $RESIZE_TIME | cut -d':' -f1) * 60 + 10#$(echo $RESIZE_TIME | cut -d':' -f2)))
+            SCHEDULER_MINUTES=$((10#$(echo $SCHEDULER_TIME_UTC | cut -d':' -f1) * 60 + 10#$(echo $SCHEDULER_TIME_UTC | cut -d':' -f2)))
+            
+            if [ $CURRENT_MINUTES -ge $RESIZE_MINUTES ] && [ $CURRENT_MINUTES -lt $SCHEDULER_MINUTES ]; then
               if [ "$CURRENT_CPU" != "4" ]; then
                 echo "resize_needed=true" >> $GITHUB_OUTPUT
                 echo "✅ Resize needed: Current time is in resize window and container is small"
@@ -152,7 +206,7 @@ jobs:
               fi
             else
               echo "resize_needed=false" >> $GITHUB_OUTPUT
-              echo "⏭️ Not in resize window (Current: $CURRENT_TIME, Window: $RESIZE_TIME - $SCHEDULER_TIME_UTC)"
+              echo "⏭️ Not in resize window (Current: $CURRENT_TIME [$CURRENT_MINUTES min], Window: $RESIZE_TIME [$RESIZE_MINUTES min] - $SCHEDULER_TIME_UTC [$SCHEDULER_MINUTES min])"
             fi
           else
             echo "resize_needed=false" >> $GITHUB_OUTPUT
