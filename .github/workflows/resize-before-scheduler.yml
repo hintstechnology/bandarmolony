@@ -1,0 +1,173 @@
+name: Resize Container Before Scheduler
+
+on:
+  # Real-time: triggered via webhook when scheduler time changes
+  repository_dispatch:
+    types: [scheduler-time-changed]
+  # Fallback: polling every 5 minutes
+  schedule:
+    - cron: '*/5 * * * *'
+  # Manual trigger
+  workflow_dispatch:
+
+env:
+  API_URL: ${{ secrets.VITE_API_URL }}
+  CONTAINER_APP_NAME: ${{ secrets.BE_CONTAINER_APP_NAME }}
+  RESOURCE_GROUP: ${{ secrets.RESOURCE_GROUP }}
+
+jobs:
+  resize-before-scheduler:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      
+      - name: Get Scheduler Config
+        id: get-config
+        run: |
+          # If triggered via webhook, use payload
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            SCHEDULER_TIME="${{ github.event.client_payload.new_time }}"
+            TIMEZONE="${{ github.event.client_payload.timezone }}"
+            WEEKEND_SKIP="${{ github.event.client_payload.weekend_skip }}"
+            echo "📥 Using webhook payload: $SCHEDULER_TIME ($TIMEZONE)"
+          else
+            # If polling, fetch from API
+            RESPONSE=$(curl -s "$API_URL/api/public/scheduler/config")
+            SCHEDULER_TIME=$(echo $RESPONSE | jq -r '.data.config.PHASE1_DATA_COLLECTION_TIME')
+            TIMEZONE=$(echo $RESPONSE | jq -r '.data.config.TIMEZONE')
+            WEEKEND_SKIP=$(echo $RESPONSE | jq -r '.data.config.WEEKEND_SKIP')
+            echo "📡 Fetched from API: $SCHEDULER_TIME ($TIMEZONE)"
+          fi
+          
+          echo "scheduler_time=$SCHEDULER_TIME" >> $GITHUB_OUTPUT
+          echo "timezone=$TIMEZONE" >> $GITHUB_OUTPUT
+          echo "weekend_skip=$WEEKEND_SKIP" >> $GITHUB_OUTPUT
+      
+      - name: Check if Weekend (if WEEKEND_SKIP enabled)
+        id: check-weekend
+        if: steps.get-config.outputs.weekend_skip == 'true'
+        run: |
+          # Check if today is weekend (Saturday=6, Sunday=0)
+          DAY_OF_WEEK=$(date -u +%w)
+          if [ "$DAY_OF_WEEK" = "0" ] || [ "$DAY_OF_WEEK" = "6" ]; then
+            echo "is_weekend=true" >> $GITHUB_OUTPUT
+            echo "⏭️ Weekend detected - skipping resize"
+          else
+            echo "is_weekend=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Calculate Resize Time
+        id: calculate-time
+        if: steps.check-weekend.outputs.is_weekend != 'true'
+        run: |
+          SCHEDULER_TIME="${{ steps.get-config.outputs.scheduler_time }}"
+          TIMEZONE="${{ steps.get-config.outputs.timezone }}"
+          
+          # Use Python for timezone conversion
+          python3 << 'EOF'
+          from datetime import datetime, timedelta
+          import pytz
+          import os
+          
+          scheduler_time_str = os.environ.get('SCHEDULER_TIME', '19:00')
+          timezone_str = os.environ.get('TIMEZONE', 'Asia/Jakarta')
+          
+          # Parse time
+          hour, minute = map(int, scheduler_time_str.split(':'))
+          
+          # Get timezone
+          tz = pytz.timezone(timezone_str)
+          utc = pytz.UTC
+          
+          # Get today's date in that timezone
+          now_tz = datetime.now(tz)
+          scheduler_dt = tz.localize(datetime(now_tz.year, now_tz.month, now_tz.day, hour, minute))
+          
+          # Subtract 5 minutes
+          resize_dt = scheduler_dt - timedelta(minutes=5)
+          
+          # Convert to UTC
+          resize_utc = resize_dt.astimezone(utc)
+          scheduler_utc = scheduler_dt.astimezone(utc)
+          
+          # Format for comparison
+          resize_time_utc = resize_utc.strftime("%H:%M")
+          scheduler_time_utc = scheduler_utc.strftime("%H:%M")
+          
+          print(f"RESIZE_TIME_UTC={resize_time_utc}")
+          print(f"SCHEDULER_TIME_UTC={scheduler_time_utc}")
+          print(f"RESIZE_DATE_UTC={resize_utc.strftime('%Y-%m-%d')}")
+          print(f"SCHEDULER_DATE_UTC={scheduler_utc.strftime('%Y-%m-%d')}")
+          EOF
+        env:
+          SCHEDULER_TIME: ${{ steps.get-config.outputs.scheduler_time }}
+          TIMEZONE: ${{ steps.get-config.outputs.timezone }}
+        continue-on-error: true
+      
+      - name: Check Current Time and Container Size
+        id: check-current
+        run: |
+          CURRENT_TIME_UTC=$(date -u +"%H:%M")
+          CURRENT_DATE_UTC=$(date -u +"%Y-%m-%d")
+          echo "current_time_utc=$CURRENT_TIME_UTC" >> $GITHUB_OUTPUT
+          echo "current_date_utc=$CURRENT_DATE_UTC" >> $GITHUB_OUTPUT
+          
+          # Get current container size
+          CURRENT_CPU=$(az containerapp show \
+            --name $CONTAINER_APP_NAME \
+            --resource-group $RESOURCE_GROUP \
+            --query "properties.template.containers[0].resources.cpu" \
+            -o tsv 2>/dev/null || echo "0.25")
+          echo "current_cpu=$CURRENT_CPU" >> $GITHUB_OUTPUT
+          
+          echo "🕐 Current Time (UTC): $CURRENT_TIME_UTC"
+          echo "💻 Current CPU: $CURRENT_CPU"
+      
+      - name: Determine if Resize Needed
+        id: should-resize
+        if: steps.check-weekend.outputs.is_weekend != 'true'
+        run: |
+          CURRENT_TIME="${{ steps.check-current.outputs.current_time_utc }}"
+          CURRENT_DATE="${{ steps.check-current.outputs.current_date_utc }}"
+          RESIZE_TIME="${{ steps.calculate-time.outputs.RESIZE_TIME_UTC }}"
+          RESIZE_DATE="${{ steps.calculate-time.outputs.RESIZE_DATE_UTC }}"
+          SCHEDULER_TIME_UTC="${{ steps.calculate-time.outputs.SCHEDULER_TIME_UTC }}"
+          SCHEDULER_DATE="${{ steps.calculate-time.outputs.SCHEDULER_DATE_UTC }}"
+          CURRENT_CPU="${{ steps.check-current.outputs.current_cpu }}"
+          
+          # Check if current time is within resize window
+          # Resize window: [RESIZE_TIME, SCHEDULER_TIME_UTC) on the same day
+          if [ "$CURRENT_DATE" = "$RESIZE_DATE" ] && [ "$CURRENT_DATE" = "$SCHEDULER_DATE" ]; then
+            if [ "$CURRENT_TIME" \>= "$RESIZE_TIME" ] && [ "$CURRENT_TIME" \< "$SCHEDULER_TIME_UTC" ]; then
+              if [ "$CURRENT_CPU" != "4" ]; then
+                echo "resize_needed=true" >> $GITHUB_OUTPUT
+                echo "✅ Resize needed: Current time is in resize window and container is small"
+              else
+                echo "resize_needed=false" >> $GITHUB_OUTPUT
+                echo "⏭️ Container already large"
+              fi
+            else
+              echo "resize_needed=false" >> $GITHUB_OUTPUT
+              echo "⏭️ Not in resize window (Current: $CURRENT_TIME, Window: $RESIZE_TIME - $SCHEDULER_TIME_UTC)"
+            fi
+          else
+            echo "resize_needed=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Date mismatch (Current: $CURRENT_DATE, Resize: $RESIZE_DATE, Scheduler: $SCHEDULER_DATE)"
+          fi
+      
+      - name: Resize Container to Large
+        if: steps.should-resize.outputs.resize_needed == 'true'
+        run: |
+          echo "🚀 Resizing container to 4 vCPU / 8GB..."
+          az containerapp update \
+            --name $CONTAINER_APP_NAME \
+            --resource-group $RESOURCE_GROUP \
+            --cpu 4 \
+            --memory 8Gi
+          
+          echo "✅ Container resized successfully to 4 vCPU / 8GB"
+

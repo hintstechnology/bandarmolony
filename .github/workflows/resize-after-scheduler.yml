@@ -1,0 +1,82 @@
+name: Resize Container After Scheduler
+
+on:
+  # Polling every 15 minutes to check if scheduler completed
+  schedule:
+    - cron: '*/15 * * * *'
+  # Manual trigger
+  workflow_dispatch:
+
+env:
+  API_URL: ${{ secrets.VITE_API_URL }}
+  CONTAINER_APP_NAME: ${{ secrets.BE_CONTAINER_APP_NAME }}
+  RESOURCE_GROUP: ${{ secrets.RESOURCE_GROUP }}
+
+jobs:
+  resize-after-scheduler:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      
+      - name: Check Scheduler Status
+        id: check-status
+        run: |
+          STATUS=$(curl -s "$API_URL/api/public/scheduler/status")
+          ALL_COMPLETED=$(echo $STATUS | jq -r '.data.status.allCompleted // false')
+          IS_RUNNING=$(echo $STATUS | jq -r '.data.status.running // false')
+          
+          echo "all_completed=$ALL_COMPLETED" >> $GITHUB_OUTPUT
+          echo "is_running=$IS_RUNNING" >> $GITHUB_OUTPUT
+          
+          echo "📊 Scheduler Running: $IS_RUNNING"
+          echo "✅ All Phases Completed: $ALL_COMPLETED"
+      
+      - name: Check Current Container Size
+        id: check-size
+        run: |
+          CURRENT_CPU=$(az containerapp show \
+            --name $CONTAINER_APP_NAME \
+            --resource-group $RESOURCE_GROUP \
+            --query "properties.template.containers[0].resources.cpu" \
+            -o tsv 2>/dev/null || echo "0.25")
+          echo "current_cpu=$CURRENT_CPU" >> $GITHUB_OUTPUT
+          
+          echo "💻 Current CPU: $CURRENT_CPU"
+      
+      - name: Check if Resize Needed
+        id: should-resize
+        run: |
+          ALL_COMPLETED="${{ steps.check-status.outputs.all_completed }}"
+          IS_RUNNING="${{ steps.check-status.outputs.is_running }}"
+          CURRENT_CPU="${{ steps.check-size.outputs.current_cpu }}"
+          
+          # Resize if: all phases completed AND container is still large
+          # Or: scheduler not running AND container is large (timeout/stuck)
+          if [ "$ALL_COMPLETED" = "true" ] && [ "$CURRENT_CPU" != "0.25" ]; then
+            echo "resize_needed=true" >> $GITHUB_OUTPUT
+            echo "✅ Resize needed: All phases completed"
+          elif [ "$IS_RUNNING" = "false" ] && [ "$CURRENT_CPU" != "0.25" ]; then
+            # Timeout: if scheduler not running and container is large, force resize
+            echo "resize_needed=true" >> $GITHUB_OUTPUT
+            echo "⚠️ Resize needed: Scheduler not running (timeout/stuck)"
+          else
+            echo "resize_needed=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Resize not needed (All completed: $ALL_COMPLETED, Running: $IS_RUNNING, CPU: $CURRENT_CPU)"
+          fi
+      
+      - name: Resize Container to Small
+        if: steps.should-resize.outputs.resize_needed == 'true'
+        run: |
+          echo "🔽 Resizing container to 0.25 vCPU / 0.5GB..."
+          az containerapp update \
+            --name $CONTAINER_APP_NAME \
+            --resource-group $RESOURCE_GROUP \
+            --cpu 0.25 \
+            --memory 0.5Gi
+          
+          echo "✅ Container resized successfully to 0.25 vCPU / 0.5GB"
+
