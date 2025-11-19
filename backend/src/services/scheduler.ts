@@ -2308,8 +2308,16 @@ export function getSchedulerStatus() {
       const memoryGB = SCHEDULER_CONFIG.MEMORY_THRESHOLD / (1024 * 1024 * 1024);
       return `${memoryGB}GB`;
     })(),
-    weekendSkip: SCHEDULER_CONFIG.WEEKEND_SKIP
+    weekendSkip: SCHEDULER_CONFIG.WEEKEND_SKIP,
+    phases: { ...phaseStatus }
   };
+}
+
+/**
+ * Get phase statuses (for public API)
+ */
+export function getPhaseStatuses() {
+  return { ...phaseStatus };
 }
 
 /**
