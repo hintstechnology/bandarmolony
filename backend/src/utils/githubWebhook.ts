@@ -38,18 +38,23 @@ export async function triggerGitHubWorkflow(
 
     console.log(`📡 Calling GitHub API: ${url}`);
 
+    const requestBody = {
+      event_type: eventType,
+      client_payload: payload
+    };
+    
+    console.log('📤 Request body:', JSON.stringify(requestBody, null, 2));
+    
     const response = await fetch(url, {
       method: 'POST',
       headers: {
-        'Authorization': `token ${githubToken}`,
+        'Authorization': `Bearer ${githubToken}`,
         'Accept': 'application/vnd.github.v3+json',
         'Content-Type': 'application/json',
-        'User-Agent': 'bandarmolony-backend'
+        'User-Agent': 'bandarmolony-backend',
+        'X-GitHub-Api-Version': '2022-11-28'
       },
-      body: JSON.stringify({
-        event_type: eventType,
-        client_payload: payload
-      })
+      body: JSON.stringify(requestBody)
     });
 
     const responseText = await response.text();
