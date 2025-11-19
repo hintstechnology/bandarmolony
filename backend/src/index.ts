@@ -28,6 +28,7 @@ import topBrokerRoutes from './routes/top-broker';
 import watchlistRoutes from './routes/watchlist';
 import brokerSummaryRoutes from './routes/broker-summary';
 import brokerInventoryRoutes from './routes/broker_inventory';
+import publicRoutes from './routes/public';
 import { requireSupabaseUser } from './middleware/requireSupabaseUser';
 import { securityHeaders, sanitizeInput } from './middleware/security';
 import { createErrorResponse, ERROR_CODES, HTTP_STATUS } from './utils/responseUtils';
@@ -82,6 +83,7 @@ app.use('/health', healthRoutes);
 app.use('/api', demoRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/me', meRoutes);
+app.use('/api/public', publicRoutes); // Public routes (no auth) - for GitHub Actions
 app.use('/api/admin', adminRoutes);
 app.use('/api/developer', developerRoutes);
 app.use('/api/subscription', subscriptionRoutes);

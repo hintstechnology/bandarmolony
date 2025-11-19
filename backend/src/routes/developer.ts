@@ -1157,6 +1157,20 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
     // Update configuration
     updateSchedulerConfig(newConfig);
     
+    // Trigger GitHub webhook if scheduler time changed
+    if (PHASE1_DATA_COLLECTION_TIME !== undefined || PHASE1_SHAREHOLDERS_TIME !== undefined) {
+      const { triggerGitHubWorkflow } = await import('../utils/githubWebhook');
+      const config = getSchedulerConfig();
+      
+      // Trigger webhook for scheduler time change
+      await triggerGitHubWorkflow('scheduler-time-changed', {
+        new_time: config.PHASE1_DATA_COLLECTION_TIME,
+        shareholders_time: config.PHASE1_SHAREHOLDERS_TIME,
+        timezone: config.TIMEZONE,
+        weekend_skip: config.WEEKEND_SKIP
+      });
+    }
+    
     // Restart scheduler with new configuration
     restartScheduler();
     
@@ -1521,6 +1535,20 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
     
     // Update configuration
     updateSchedulerConfig(newConfig);
+    
+    // Trigger GitHub webhook if scheduler time changed
+    if (PHASE1_DATA_COLLECTION_TIME !== undefined || PHASE1_SHAREHOLDERS_TIME !== undefined) {
+      const { triggerGitHubWorkflow } = await import('../utils/githubWebhook');
+      const config = getSchedulerConfig();
+      
+      // Trigger webhook for scheduler time change
+      await triggerGitHubWorkflow('scheduler-time-changed', {
+        new_time: config.PHASE1_DATA_COLLECTION_TIME,
+        shareholders_time: config.PHASE1_SHAREHOLDERS_TIME,
+        timezone: config.TIMEZONE,
+        weekend_skip: config.WEEKEND_SKIP
+      });
+    }
     
     // Restart scheduler with new configuration
     restartScheduler();
