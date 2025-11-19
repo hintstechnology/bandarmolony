@@ -1,9 +1,10 @@
 name: Resize Container After Scheduler
 
 on:
-  # Polling every 15 minutes to check if scheduler completed
-  schedule:
-    - cron: '*/15 * * * *'
+  # Event-based: triggered via webhook when all scheduler phases complete
+  # Only runs after before workflow has completed AND all scheduler phases complete
+  repository_dispatch:
+    types: [scheduler-completed]
   # Manual trigger
   workflow_dispatch:
 
@@ -22,11 +23,12 @@ jobs:
           echo "🔍 Event Type: ${{ github.event_name }}"
           echo "🔍 Workflow: Resize Container After Scheduler"
           if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
-            echo "❌ ERROR: This workflow should NOT be triggered by repository_dispatch!"
-            echo "This workflow should only run on schedule or manual trigger."
-            exit 1
+            echo "✅ Triggered via webhook (scheduler completed)"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "✅ Triggered manually"
           else
-            echo "✅ Correct trigger: ${{ github.event_name }}"
+            echo "❌ ERROR: Unexpected trigger type: ${{ github.event_name }}"
+            exit 1
           fi
       
       - name: Azure Login
@@ -44,6 +46,8 @@ jobs:
           echo "all_completed=$ALL_COMPLETED" >> $GITHUB_OUTPUT
           echo "is_running=$IS_RUNNING" >> $GITHUB_OUTPUT
           
+          CURRENT_TIME_WIB=$(TZ='Asia/Jakarta' date +"%H:%M")
+          echo "🕐 Current Time: $CURRENT_TIME_WIB WIB"
           echo "📊 Scheduler Running: $IS_RUNNING"
           echo "✅ All Phases Completed: $ALL_COMPLETED"
       
@@ -66,18 +70,20 @@ jobs:
           IS_RUNNING="${{ steps.check-status.outputs.is_running }}"
           CURRENT_CPU="${{ steps.check-size.outputs.current_cpu }}"
           
-          # Resize if: all phases completed AND container is still large
-          # Or: scheduler not running AND container is large (timeout/stuck)
+          # Only resize if: all phases completed AND container is still large
+          # This workflow only runs after before workflow has completed (container is large) 
+          # AND all scheduler phases are complete (via webhook)
+          
           if [ "$ALL_COMPLETED" = "true" ] && [ "$CURRENT_CPU" != "0.25" ]; then
             echo "resize_needed=true" >> $GITHUB_OUTPUT
-            echo "✅ Resize needed: All phases completed"
-          elif [ "$IS_RUNNING" = "false" ] && [ "$CURRENT_CPU" != "0.25" ]; then
-            # Timeout: if scheduler not running and container is large, force resize
-            echo "resize_needed=true" >> $GITHUB_OUTPUT
-            echo "⚠️ Resize needed: Scheduler not running (timeout/stuck)"
+            echo "✅ Resize needed: All phases completed and container is large"
           else
             echo "resize_needed=false" >> $GITHUB_OUTPUT
-            echo "⏭️ Resize not needed (All completed: $ALL_COMPLETED, Running: $IS_RUNNING, CPU: $CURRENT_CPU)"
+            if [ "$ALL_COMPLETED" != "true" ]; then
+              echo "⏭️ Resize not needed: Phases not yet completed (All completed: $ALL_COMPLETED)"
+            elif [ "$CURRENT_CPU" = "0.25" ]; then
+              echo "⏭️ Resize not needed: Container already small (CPU: $CURRENT_CPU)"
+            fi
           fi
       
       - name: Resize Container to Small
