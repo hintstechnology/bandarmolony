@@ -17,6 +17,18 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
+      - name: Check Trigger Source
+        run: |
+          echo "🔍 Event Type: ${{ github.event_name }}"
+          echo "🔍 Workflow: Resize Container After Scheduler"
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            echo "❌ ERROR: This workflow should NOT be triggered by repository_dispatch!"
+            echo "This workflow should only run on schedule or manual trigger."
+            exit 1
+          else
+            echo "✅ Correct trigger: ${{ github.event_name }}"
+          fi
+      
       - name: Azure Login
         uses: azure/login@v1
         with:
