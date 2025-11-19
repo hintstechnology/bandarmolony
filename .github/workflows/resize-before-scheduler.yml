@@ -4,9 +4,10 @@ on:
   # Real-time: triggered via webhook when scheduler time changes
   repository_dispatch:
     types: [scheduler-time-changed]
-  # Fallback: polling every 5 minutes
+  # Default schedule: trigger at 18:55 WIB (5 minutes before default 19:00 scheduler)
+  # 18:55 WIB = 11:55 UTC (WIB = UTC+7)
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '55 11 * * *'  # 11:55 UTC = 18:55 WIB (default)
   # Manual trigger
   workflow_dispatch:
 
@@ -20,58 +21,160 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-      
-      - name: Get Scheduler Config
-        id: get-config
+      - name: Get Scheduler Config (Quick Check)
+        id: quick-check
         run: |
           echo "🔍 Event Type: ${{ github.event_name }}"
-          echo "🔍 Event Action: ${{ github.event.action }}"
           
           # If triggered via webhook, use payload
           if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
-            echo "✅ Triggered via repository_dispatch webhook"
-            echo "📋 Event Type: ${{ github.event.action }}"
+            echo "✅ Triggered via repository_dispatch webhook (scheduler time changed)"
             SCHEDULER_TIME="${{ github.event.client_payload.new_time }}"
             TIMEZONE="${{ github.event.client_payload.timezone }}"
             WEEKEND_SKIP="${{ github.event.client_payload.weekend_skip }}"
-            echo "📥 Using webhook payload: $SCHEDULER_TIME ($TIMEZONE)"
           else
-            # If polling, fetch from API
-            echo "📡 Triggered via schedule/polling"
-            RESPONSE=$(curl -s "$API_URL/api/public/scheduler/config")
+            # If triggered via schedule, fetch from API
+            echo "📡 Triggered via schedule (default 18:55 WIB)"
+            RESPONSE=$(curl -s "${{ secrets.VITE_API_URL }}/api/public/scheduler/config")
             SCHEDULER_TIME=$(echo $RESPONSE | jq -r '.data.config.PHASE1_DATA_COLLECTION_TIME')
             TIMEZONE=$(echo $RESPONSE | jq -r '.data.config.TIMEZONE')
             WEEKEND_SKIP=$(echo $RESPONSE | jq -r '.data.config.WEEKEND_SKIP')
-            echo "📡 Fetched from API: $SCHEDULER_TIME ($TIMEZONE)"
           fi
           
           echo "scheduler_time=$SCHEDULER_TIME" >> $GITHUB_OUTPUT
           echo "timezone=$TIMEZONE" >> $GITHUB_OUTPUT
           echo "weekend_skip=$WEEKEND_SKIP" >> $GITHUB_OUTPUT
       
-      - name: Check if Weekend (if WEEKEND_SKIP enabled)
-        id: check-weekend
-        if: steps.get-config.outputs.weekend_skip == 'true'
+      - name: Check Weekend (Quick Skip)
+        id: check-weekend-quick
+        if: steps.quick-check.outputs.weekend_skip == 'true'
         run: |
-          # Check if today is weekend (Saturday=6, Sunday=0)
           DAY_OF_WEEK=$(date -u +%w)
           if [ "$DAY_OF_WEEK" = "0" ] || [ "$DAY_OF_WEEK" = "6" ]; then
             echo "is_weekend=true" >> $GITHUB_OUTPUT
-            echo "⏭️ Weekend detected - skipping resize"
+            echo "⏭️ Weekend detected - skipping workflow execution"
           else
             echo "is_weekend=false" >> $GITHUB_OUTPUT
           fi
       
+      - name: Calculate Resize Time (Quick Check)
+        id: quick-calculate
+        if: steps.check-weekend-quick.outputs.is_weekend != 'true'
+        run: |
+          SCHEDULER_TIME="${{ steps.quick-check.outputs.scheduler_time }}"
+          TIMEZONE="${{ steps.quick-check.outputs.timezone }}"
+          
+          # Use Python for timezone conversion
+          PYTHON_OUTPUT=$(python3 << 'EOF'
+          from datetime import datetime, timedelta
+          import pytz
+          import os
+          
+          scheduler_time_str = os.environ.get('SCHEDULER_TIME', '19:00')
+          timezone_str = os.environ.get('TIMEZONE', 'Asia/Jakarta')
+          
+          hour, minute = map(int, scheduler_time_str.split(':'))
+          tz = pytz.timezone(timezone_str)
+          utc = pytz.UTC
+          
+          now_tz = datetime.now(tz)
+          scheduler_dt = tz.localize(datetime(now_tz.year, now_tz.month, now_tz.day, hour, minute))
+          resize_dt = scheduler_dt - timedelta(minutes=5)
+          
+          resize_utc = resize_dt.astimezone(utc)
+          scheduler_utc = scheduler_dt.astimezone(utc)
+          
+          print(f"RESIZE_TIME_UTC={resize_utc.strftime('%H:%M')}")
+          print(f"SCHEDULER_TIME_UTC={scheduler_utc.strftime('%H:%M')}")
+          print(f"RESIZE_DATE_UTC={resize_utc.strftime('%Y-%m-%d')}")
+          print(f"SCHEDULER_DATE_UTC={scheduler_utc.strftime('%Y-%m-%d')}")
+          EOF
+          )
+          
+          RESIZE_TIME_UTC=$(echo "$PYTHON_OUTPUT" | grep "^RESIZE_TIME_UTC=" | head -1 | cut -d'=' -f2 | tr -d '[:space:]')
+          SCHEDULER_TIME_UTC=$(echo "$PYTHON_OUTPUT" | grep "^SCHEDULER_TIME_UTC=" | head -1 | cut -d'=' -f2 | tr -d '[:space:]')
+          RESIZE_DATE_UTC=$(echo "$PYTHON_OUTPUT" | grep "^RESIZE_DATE_UTC=" | head -1 | cut -d'=' -f2 | tr -d '[:space:]')
+          SCHEDULER_DATE_UTC=$(echo "$PYTHON_OUTPUT" | grep "^SCHEDULER_DATE_UTC=" | head -1 | cut -d'=' -f2 | tr -d '[:space:]')
+          
+          echo "resize_time_utc=$RESIZE_TIME_UTC" >> $GITHUB_OUTPUT
+          echo "scheduler_time_utc=$SCHEDULER_TIME_UTC" >> $GITHUB_OUTPUT
+          echo "resize_date_utc=$RESIZE_DATE_UTC" >> $GITHUB_OUTPUT
+          echo "scheduler_date_utc=$SCHEDULER_DATE_UTC" >> $GITHUB_OUTPUT
+        env:
+          SCHEDULER_TIME: ${{ steps.quick-check.outputs.scheduler_time }}
+          TIMEZONE: ${{ steps.quick-check.outputs.timezone }}
+      
+      - name: Check if Workflow Should Run
+        id: should-run
+        if: steps.check-weekend-quick.outputs.is_weekend != 'true'
+        run: |
+          CURRENT_TIME_UTC=$(date -u +"%H:%M")
+          CURRENT_DATE_UTC=$(date -u +"%Y-%m-%d")
+          RESIZE_TIME="${{ steps.quick-calculate.outputs.resize_time_utc }}"
+          RESIZE_DATE="${{ steps.quick-calculate.outputs.resize_date_utc }}"
+          SCHEDULER_TIME_UTC="${{ steps.quick-calculate.outputs.scheduler_time_utc }}"
+          SCHEDULER_DATE="${{ steps.quick-calculate.outputs.scheduler_date_utc }}"
+          
+          # Convert to WIB for display
+          CURRENT_TIME_WIB=$(TZ='Asia/Jakarta' date -d "$CURRENT_DATE_UTC $CURRENT_TIME_UTC UTC" +"%H:%M" 2>/dev/null || echo "$CURRENT_TIME_UTC")
+          RESIZE_TIME_WIB=$(TZ='Asia/Jakarta' date -d "$RESIZE_DATE $RESIZE_TIME UTC" +"%H:%M" 2>/dev/null || echo "$RESIZE_TIME")
+          SCHEDULER_TIME_WIB=$(TZ='Asia/Jakarta' date -d "$SCHEDULER_DATE $SCHEDULER_TIME_UTC UTC" +"%H:%M" 2>/dev/null || echo "$SCHEDULER_TIME_UTC")
+          
+          echo "🔍 Quick Check (WIB):"
+          echo "  Current Time: $CURRENT_TIME_WIB"
+          echo "  Resize Time: $RESIZE_TIME_WIB"
+          echo "  Scheduler Time: $SCHEDULER_TIME_WIB"
+          
+          # Compare times
+          CURRENT_MINUTES=$((10#$(echo $CURRENT_TIME_UTC | cut -d':' -f1) * 60 + 10#$(echo $CURRENT_TIME_UTC | cut -d':' -f2)))
+          RESIZE_MINUTES=$((10#$(echo $RESIZE_TIME | cut -d':' -f1) * 60 + 10#$(echo $RESIZE_TIME | cut -d':' -f2)))
+          SCHEDULER_MINUTES=$((10#$(echo $SCHEDULER_TIME_UTC | cut -d':' -f1) * 60 + 10#$(echo $SCHEDULER_TIME_UTC | cut -d':' -f2)))
+          
+          # Handle date boundary
+          DATE_MATCH=false
+          if [ "$CURRENT_DATE_UTC" = "$RESIZE_DATE" ] && [ "$CURRENT_DATE_UTC" = "$SCHEDULER_DATE" ]; then
+            DATE_MATCH=true
+          else
+            CURRENT_DATE_SEC=$(date -d "$CURRENT_DATE_UTC" +%s 2>/dev/null || echo "0")
+            SCHEDULER_DATE_SEC=$(date -d "$SCHEDULER_DATE" +%s 2>/dev/null || echo "0")
+            ONE_DAY_SEC=86400
+            if [ $SCHEDULER_DATE_SEC -gt $CURRENT_DATE_SEC ] && [ $((SCHEDULER_DATE_SEC - CURRENT_DATE_SEC)) -le $ONE_DAY_SEC ]; then
+              DATE_MATCH=true
+            fi
+          fi
+          
+          SHOULD_RUN=false
+          
+          if [ "$DATE_MATCH" = "true" ]; then
+            # Check if current time is within resize window: >= resize time AND < scheduler time
+            if [ $CURRENT_MINUTES -ge $RESIZE_MINUTES ] && [ $CURRENT_MINUTES -lt $SCHEDULER_MINUTES ]; then
+              SHOULD_RUN=true
+              echo "✅ Workflow should RUN: Current time within resize window"
+            elif [ $CURRENT_MINUTES -lt $RESIZE_MINUTES ]; then
+              echo "⏸️ Workflow SKIPPED: Current time ($CURRENT_TIME_WIB) < Resize time ($RESIZE_TIME_WIB)"
+              echo "⏳ Will wait and trigger at $RESIZE_TIME_WIB WIB"
+            else
+              echo "⏭️ Workflow SKIPPED: Scheduler time already passed (Current: $CURRENT_TIME_WIB, Scheduler: $SCHEDULER_TIME_WIB)"
+            fi
+          else
+            echo "⏭️ Workflow SKIPPED: Date mismatch (Current: $CURRENT_DATE_UTC, Scheduler: $SCHEDULER_DATE)"
+          fi
+          
+          echo "should_run=$SHOULD_RUN" >> $GITHUB_OUTPUT
+      
+      - name: Azure Login
+        if: steps.should-run.outputs.should_run == 'true'
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      
       - name: Calculate Resize Time
         id: calculate-time
-        if: steps.check-weekend.outputs.is_weekend != 'true'
+        if: steps.should-run.outputs.should_run == 'true'
         run: |
-          SCHEDULER_TIME="${{ steps.get-config.outputs.scheduler_time }}"
-          TIMEZONE="${{ steps.get-config.outputs.timezone }}"
+          # Use values from quick-check (already fetched)
+          SCHEDULER_TIME="${{ steps.quick-check.outputs.scheduler_time }}"
+          TIMEZONE="${{ steps.quick-check.outputs.timezone }}"
           
           # Use Python for timezone conversion
           PYTHON_OUTPUT=$(python3 << 'EOF'
@@ -140,14 +243,19 @@ jobs:
           echo "resize_date_utc=$RESIZE_DATE_UTC" >> $GITHUB_OUTPUT
           echo "scheduler_date_utc=$SCHEDULER_DATE_UTC" >> $GITHUB_OUTPUT
           
+          # Convert to WIB for display
+          RESIZE_TIME_WIB=$(TZ='Asia/Jakarta' date -d "$RESIZE_DATE_UTC $RESIZE_TIME_UTC UTC" +"%H:%M" 2>/dev/null || echo "$RESIZE_TIME_UTC")
+          SCHEDULER_TIME_WIB=$(TZ='Asia/Jakarta' date -d "$SCHEDULER_DATE_UTC $SCHEDULER_TIME_UTC UTC" +"%H:%M" 2>/dev/null || echo "$SCHEDULER_TIME_UTC")
+          
           echo "✅ Parsed Values:"
-          echo "  📅 Resize Time (UTC): $RESIZE_TIME_UTC on $RESIZE_DATE_UTC"
-          echo "  📅 Scheduler Time (UTC): $SCHEDULER_TIME_UTC on $SCHEDULER_DATE_UTC"
+          echo "  📅 Resize Time: $RESIZE_TIME_WIB WIB ($RESIZE_TIME_UTC UTC)"
+          echo "  📅 Scheduler Time: $SCHEDULER_TIME_WIB WIB ($SCHEDULER_TIME_UTC UTC)"
         env:
-          SCHEDULER_TIME: ${{ steps.get-config.outputs.scheduler_time }}
-          TIMEZONE: ${{ steps.get-config.outputs.timezone }}
+          SCHEDULER_TIME: ${{ steps.quick-check.outputs.scheduler_time }}
+          TIMEZONE: ${{ steps.quick-check.outputs.timezone }}
       
       - name: Check Current Time and Container Size
+        if: steps.should-run.outputs.should_run == 'true'
         id: check-current
         run: |
           CURRENT_TIME_UTC=$(date -u +"%H:%M")
@@ -167,56 +275,21 @@ jobs:
           echo "💻 Current CPU: $CURRENT_CPU"
       
       - name: Determine if Resize Needed
+        if: steps.should-run.outputs.should_run == 'true'
         id: should-resize
-        if: steps.check-weekend.outputs.is_weekend != 'true' && steps.calculate-time.outcome == 'success'
         run: |
-          CURRENT_TIME="${{ steps.check-current.outputs.current_time_utc }}"
-          CURRENT_DATE="${{ steps.check-current.outputs.current_date_utc }}"
-          RESIZE_TIME="${{ steps.calculate-time.outputs.resize_time_utc }}"
-          RESIZE_DATE="${{ steps.calculate-time.outputs.resize_date_utc }}"
-          SCHEDULER_TIME_UTC="${{ steps.calculate-time.outputs.scheduler_time_utc }}"
-          SCHEDULER_DATE="${{ steps.calculate-time.outputs.scheduler_date_utc }}"
           CURRENT_CPU="${{ steps.check-current.outputs.current_cpu }}"
           
-          echo "🔍 Debug Info:"
-          echo "  Current Time (UTC): $CURRENT_TIME"
-          echo "  Current Date (UTC): $CURRENT_DATE"
-          echo "  Resize Time (UTC): $RESIZE_TIME"
-          echo "  Resize Date (UTC): $RESIZE_DATE"
-          echo "  Scheduler Time (UTC): $SCHEDULER_TIME_UTC"
-          echo "  Scheduler Date (UTC): $SCHEDULER_DATE"
-          echo "  Current CPU: $CURRENT_CPU"
+          # Workflow sudah di-check di "Check if Workflow Should Run"
+          # Jika sampai sini, berarti kondisi sudah terpenuhi (current time >= resize time AND < scheduler time)
+          # Tinggal check apakah container sudah besar atau belum
           
-          # Check if dates match
-          if [ -z "$RESIZE_DATE" ] || [ -z "$SCHEDULER_DATE" ] || [ -z "$RESIZE_TIME" ] || [ -z "$SCHEDULER_TIME_UTC" ]; then
-            echo "resize_needed=false" >> $GITHUB_OUTPUT
-            echo "❌ Error: Missing required values (Resize Date: '$RESIZE_DATE', Scheduler Date: '$SCHEDULER_DATE', Resize Time: '$RESIZE_TIME', Scheduler Time: '$SCHEDULER_TIME_UTC')"
-            exit 0
-          fi
-          
-          # Check if current time is within resize window
-          # Resize window: [RESIZE_TIME, SCHEDULER_TIME_UTC) on the same day
-          if [ "$CURRENT_DATE" = "$RESIZE_DATE" ] && [ "$CURRENT_DATE" = "$SCHEDULER_DATE" ]; then
-            # Compare times (HH:MM format)
-            CURRENT_MINUTES=$((10#$(echo $CURRENT_TIME | cut -d':' -f1) * 60 + 10#$(echo $CURRENT_TIME | cut -d':' -f2)))
-            RESIZE_MINUTES=$((10#$(echo $RESIZE_TIME | cut -d':' -f1) * 60 + 10#$(echo $RESIZE_TIME | cut -d':' -f2)))
-            SCHEDULER_MINUTES=$((10#$(echo $SCHEDULER_TIME_UTC | cut -d':' -f1) * 60 + 10#$(echo $SCHEDULER_TIME_UTC | cut -d':' -f2)))
-            
-            if [ $CURRENT_MINUTES -ge $RESIZE_MINUTES ] && [ $CURRENT_MINUTES -lt $SCHEDULER_MINUTES ]; then
-              if [ "$CURRENT_CPU" != "4" ]; then
-                echo "resize_needed=true" >> $GITHUB_OUTPUT
-                echo "✅ Resize needed: Current time is in resize window and container is small"
-              else
-                echo "resize_needed=false" >> $GITHUB_OUTPUT
-                echo "⏭️ Container already large"
-              fi
-            else
-              echo "resize_needed=false" >> $GITHUB_OUTPUT
-              echo "⏭️ Not in resize window (Current: $CURRENT_TIME [$CURRENT_MINUTES min], Window: $RESIZE_TIME [$RESIZE_MINUTES min] - $SCHEDULER_TIME_UTC [$SCHEDULER_MINUTES min])"
-            fi
+          if [ "$CURRENT_CPU" != "4" ]; then
+            echo "resize_needed=true" >> $GITHUB_OUTPUT
+            echo "✅ Resize needed: Container is small, will resize to 4 vCPU/8GB"
           else
             echo "resize_needed=false" >> $GITHUB_OUTPUT
-            echo "⏭️ Date mismatch (Current: $CURRENT_DATE, Resize: $RESIZE_DATE, Scheduler: $SCHEDULER_DATE)"
+            echo "⏭️ Container already large (CPU: $CURRENT_CPU)"
           fi
       
       - name: Resize Container to Large

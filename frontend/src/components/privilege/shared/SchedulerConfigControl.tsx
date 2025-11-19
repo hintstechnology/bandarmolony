@@ -238,6 +238,36 @@ export function SchedulerConfigControl() {
         } else {
           schedule = editTime;
         }
+        
+        // Validate that scheduler time is in the future (only for phase1a_input_daily)
+        if (phaseId === 'phase1a_input_daily') {
+          const [newHour, newMinute] = schedule.split(':').map(Number);
+          const now = new Date();
+          
+          // Get current time in WIB (UTC+7)
+          const utcHours = now.getUTCHours();
+          const utcMinutes = now.getUTCMinutes();
+          let currentHours = utcHours + 7; // WIB = UTC+7
+          let currentMinutes = utcMinutes;
+          if (currentHours >= 24) {
+            currentHours -= 24;
+          }
+          
+          // Compare times
+          const newTimeMinutes = newHour * 60 + newMinute;
+          const currentTimeMinutes = currentHours * 60 + currentMinutes;
+          
+          // If new time is less than or equal to current time, it's in the past
+          if (newTimeMinutes <= currentTimeMinutes) {
+            showToast({
+              type: 'error',
+              title: 'Validation Error',
+              message: `Scheduler time must be in the future. Current time is ${String(currentHours).padStart(2, '0')}:${String(currentMinutes).padStart(2, '0')} WIB. Please set a time after the current time.`
+            });
+            setSaving(prev => ({ ...prev, [phaseId]: false }));
+            return;
+          }
+        }
       } else {
         if (!editTriggerAfterPhase) {
           showToast({

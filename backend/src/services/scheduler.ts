@@ -78,6 +78,48 @@ function timeToCron(time: string): string {
   return `${minutes} ${hours} * * *`;
 }
 
+// Convert time to cron format with timezone (HH:MM in timezone -> MM HH * * * in UTC)
+function timeToCronUTC(time: string, _timezone: string): string {
+  const parts = time.split(':').map(Number);
+  const hours = parts[0] ?? 0;
+  const minutes = parts[1] ?? 0;
+  
+  // Use a simple approach: assume timezone is Asia/Jakarta (UTC+7)
+  // Convert to UTC by subtracting 7 hours
+  let utcHours = hours - 7;
+  const utcMinutes = minutes;
+  
+  // Handle day rollover
+  if (utcHours < 0) {
+    utcHours += 24;
+  }
+  
+  return `${utcMinutes} ${utcHours} * * *`;
+}
+
+// Calculate resize time (5 minutes before scheduler time)
+function calculateResizeTime(schedulerTime: string): string {
+  const parts = schedulerTime.split(':').map(Number);
+  const hours = parts[0] ?? 0;
+  const minutes = parts[1] ?? 0;
+  
+  let resizeMinutes = minutes - 5;
+  let resizeHours = hours;
+  
+  // Handle minute rollover
+  if (resizeMinutes < 0) {
+    resizeMinutes += 60;
+    resizeHours -= 1;
+  }
+  
+  // Handle hour rollover
+  if (resizeHours < 0) {
+    resizeHours += 24;
+  }
+  
+  return `${String(resizeHours).padStart(2, '0')}:${String(resizeMinutes).padStart(2, '0')}`;
+}
+
 // Check if today is weekend (Saturday = 6, Sunday = 0)
 function isWeekend(): boolean {
   const today = new Date();
@@ -91,6 +133,7 @@ let PHASE1_SHAREHOLDERS_SCHEDULE = timeToCron(PHASE1_SHAREHOLDERS_TIME);
 
 let schedulerRunning = false;
 let scheduledTasks: any[] = [];
+let resizeBeforeWebhookTask: any = null;
 
 // Phase status tracking
 let phaseStatus: Record<string, 'idle' | 'running' | 'stopped'> = {
@@ -1307,6 +1350,26 @@ export async function runPhase8AdditionalCalculations(): Promise<void> {
     
     // Stop memory monitoring after all phases complete
     stopMemoryMonitoring();
+    
+    // Trigger GitHub webhook to resize container back to small
+    try {
+      const { triggerGitHubWorkflow } = await import('../utils/githubWebhook');
+      console.log('🔄 Triggering GitHub webhook for scheduler completion...');
+      
+      const webhookResult = await triggerGitHubWorkflow('scheduler-completed', {
+        completed_at: new Date().toISOString(),
+        all_phases_completed: true
+      });
+      
+      if (webhookResult) {
+        console.log('✅ GitHub webhook triggered successfully (resize-after-scheduler)');
+      } else {
+        console.warn('⚠️ GitHub webhook trigger failed (will need manual resize)');
+      }
+    } catch (error) {
+      console.error('❌ Error triggering GitHub webhook:', error);
+      // Don't fail the scheduler if webhook fails
+    }
       
     } catch (error) {
       trackError(error, 'Phase 8 Additional Calculations');
@@ -1786,6 +1849,34 @@ export function updatePhaseTriggerConfig(
     
     // Update config for Phase 1 phases
     if (phaseId === 'phase1a_input_daily') {
+      // Validate that new scheduler time is in the future (not in the past)
+      const timeParts = schedule.split(':').map(Number);
+      const newHour = timeParts[0] ?? 0;
+      const newMinute = timeParts[1] ?? 0;
+      const now = new Date();
+      const timezone = SCHEDULER_CONFIG.TIMEZONE || 'Asia/Jakarta';
+      
+      // Get current time in scheduler timezone (Asia/Jakarta = UTC+7)
+      const utcHours = now.getUTCHours();
+      const utcMinutes = now.getUTCMinutes();
+      let currentHours = utcHours + 7; // WIB = UTC+7
+      let currentMinutes = utcMinutes;
+      if (currentHours >= 24) {
+        currentHours -= 24;
+      }
+      
+      // Compare times
+      const newTimeMinutes = newHour * 60 + newMinute;
+      const currentTimeMinutes = currentHours * 60 + currentMinutes;
+      
+      // If new time is less than or equal to current time, it's in the past
+      if (newTimeMinutes <= currentTimeMinutes) {
+        return { 
+          success: false, 
+          message: `Scheduler time must be in the future. Current time is ${String(currentHours).padStart(2, '0')}:${String(currentMinutes).padStart(2, '0')} ${timezone}. Please set a time after the current time.` 
+        };
+      }
+      
       SCHEDULER_CONFIG.PHASE1_DATA_COLLECTION_TIME = schedule;
       PHASE1_DATA_COLLECTION_TIME = schedule;
       PHASE1_DATA_COLLECTION_SCHEDULE = timeToCron(schedule);
@@ -1893,6 +1984,9 @@ export function startScheduler(): void {
   }
 
   console.log('🕐 Starting scheduler...');
+  
+  // Schedule resize-before webhook trigger (5 minutes before scheduler time)
+  scheduleResizeBeforeWebhook();
 
   // Phase 1, 2, 3 will be scheduled manually, Phase 4, 5, 6 will be auto-triggered
 
@@ -2279,6 +2373,12 @@ export function stopScheduler(): void {
   });
   scheduledTasks = [];
   
+  // Stop resize before webhook task if exists
+  if (resizeBeforeWebhookTask) {
+    resizeBeforeWebhookTask.destroy();
+    resizeBeforeWebhookTask = null;
+  }
+  
   schedulerRunning = false;
   
   // Disable all phases when scheduler stops
@@ -2351,7 +2451,62 @@ export function updateSchedulerConfig(newConfig: Partial<typeof SCHEDULER_CONFIG
   PHASE1_DATA_COLLECTION_SCHEDULE = timeToCron(PHASE1_DATA_COLLECTION_TIME);
   PHASE1_SHAREHOLDERS_SCHEDULE = timeToCron(PHASE1_SHAREHOLDERS_TIME);
   
+  // Schedule resize-before webhook trigger (5 minutes before scheduler time)
+  scheduleResizeBeforeWebhook();
+  
   console.log('✅ Scheduler configuration updated:', SCHEDULER_CONFIG);
+}
+
+/**
+ * Schedule resize-before webhook trigger (5 minutes before scheduler time)
+ */
+function scheduleResizeBeforeWebhook(): void {
+  // Stop existing task if any
+  if (resizeBeforeWebhookTask) {
+    resizeBeforeWebhookTask.destroy();
+    resizeBeforeWebhookTask = null;
+  }
+  
+  const schedulerTime = SCHEDULER_CONFIG.PHASE1_DATA_COLLECTION_TIME;
+  const resizeTime = calculateResizeTime(schedulerTime);
+  const timezone = SCHEDULER_CONFIG.TIMEZONE;
+  
+  // Convert resize time to UTC cron format
+  const resizeCron = timeToCronUTC(resizeTime, timezone);
+  
+  console.log(`📅 Scheduling resize-before webhook trigger at ${resizeTime} ${timezone} (cron: ${resizeCron})`);
+  
+  // Schedule webhook trigger
+  resizeBeforeWebhookTask = cron.schedule(resizeCron, async () => {
+    // Check if weekend skip is enabled
+    if (SCHEDULER_CONFIG.WEEKEND_SKIP && isWeekend()) {
+      console.log('📅 Weekend detected - skipping resize-before webhook trigger');
+      return;
+    }
+    
+    try {
+      const { triggerGitHubWorkflow } = await import('../utils/githubWebhook');
+      
+      console.log('🔄 Triggering resize-before webhook (scheduled)...');
+      
+      const webhookResult = await triggerGitHubWorkflow('scheduler-time-changed', {
+        new_time: schedulerTime,
+        shareholders_time: SCHEDULER_CONFIG.PHASE1_SHAREHOLDERS_TIME,
+        timezone: timezone,
+        weekend_skip: SCHEDULER_CONFIG.WEEKEND_SKIP
+      });
+      
+      if (webhookResult) {
+        console.log('✅ Resize-before webhook triggered successfully (scheduled)');
+      } else {
+        console.warn('⚠️ Resize-before webhook trigger failed (scheduled)');
+      }
+    } catch (error) {
+      console.error('❌ Error triggering resize-before webhook (scheduled):', error);
+    }
+  });
+  
+  console.log('✅ Resize-before webhook scheduled successfully');
 }
 
 /**

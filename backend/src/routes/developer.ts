@@ -1087,6 +1087,35 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
           400
         ));
       }
+      
+      // Validate that new scheduler time is in the future (not in the past)
+      const [newHour, newMinute] = PHASE1_DATA_COLLECTION_TIME.split(':').map(Number);
+      const now = new Date();
+      const timezone = TIMEZONE || req.body.TIMEZONE || 'Asia/Jakarta';
+      
+      // Get current time in scheduler timezone (Asia/Jakarta = UTC+7)
+      const utcHours = now.getUTCHours();
+      const utcMinutes = now.getUTCMinutes();
+      let currentHours = utcHours + 7; // WIB = UTC+7
+      let currentMinutes = utcMinutes;
+      if (currentHours >= 24) {
+        currentHours -= 24;
+      }
+      
+      // Compare times
+      const newTimeMinutes = newHour * 60 + newMinute;
+      const currentTimeMinutes = currentHours * 60 + currentMinutes;
+      
+      // If new time is less than or equal to current time, it's in the past
+      if (newTimeMinutes <= currentTimeMinutes) {
+        return res.status(400).json(createErrorResponse(
+          `Scheduler time must be in the future. Current time is ${String(currentHours).padStart(2, '0')}:${String(currentMinutes).padStart(2, '0')} ${timezone}. Please set a time after the current time.`,
+          'VALIDATION_ERROR',
+          'PHASE1_DATA_COLLECTION_TIME',
+          400
+        ));
+      }
+      
       newConfig.PHASE1_DATA_COLLECTION_TIME = PHASE1_DATA_COLLECTION_TIME;
     }
     
@@ -1187,26 +1216,75 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
           weekend_skip: updatedConfig.WEEKEND_SKIP
         });
         
-        // Trigger webhook for scheduler time change
-        const webhookResult = await triggerGitHubWorkflow('scheduler-time-changed', {
+        // Calculate resize time (5 minutes before scheduler)
+        const timeParts = updatedConfig.PHASE1_DATA_COLLECTION_TIME.split(':').map(Number);
+        const schedulerHour = timeParts[0] ?? 0;
+        const schedulerMinute = timeParts[1] ?? 0;
+        let resizeMinute = schedulerMinute - 5;
+        let resizeHour = schedulerHour;
+        if (resizeMinute < 0) {
+          resizeMinute += 60;
+          resizeHour -= 1;
+        }
+        if (resizeHour < 0) {
+          resizeHour += 24;
+        }
+        const resizeTime = `${String(resizeHour).padStart(2, '0')}:${String(resizeMinute).padStart(2, '0')}`;
+        
+        // Get current time in scheduler timezone (Asia/Jakarta = UTC+7)
+        const now = new Date();
+        const utcHours = now.getUTCHours();
+        const utcMinutes = now.getUTCMinutes();
+        // Convert UTC to WIB (UTC+7)
+        let wibHours = utcHours + 7;
+        let wibMinutes = utcMinutes;
+        if (wibHours >= 24) {
+          wibHours -= 24;
+        }
+        const currentTime = `${String(wibHours).padStart(2, '0')}:${String(wibMinutes).padStart(2, '0')}`;
+        
+        console.log('🔄 Checking if immediate webhook trigger needed...');
+        console.log('📋 Config:', {
           new_time: updatedConfig.PHASE1_DATA_COLLECTION_TIME,
-          shareholders_time: updatedConfig.PHASE1_SHAREHOLDERS_TIME,
+          resize_time: resizeTime,
+          current_time: currentTime,
           timezone: updatedConfig.TIMEZONE,
           weekend_skip: updatedConfig.WEEKEND_SKIP
         });
         
-        webhookTriggered = webhookResult;
+        // Check if current time is within resize window (>= resize time AND < scheduler time)
+        const currentMinutes = wibHours * 60 + wibMinutes;
+        const resizeMinutes = resizeHour * 60 + resizeMinute;
+        const schedulerMinutes = schedulerHour * 60 + schedulerMinute;
         
-        if (webhookResult) {
-          console.log('✅ GitHub webhook triggered successfully');
+        // Trigger webhook immediately if current time is within resize window
+        if (currentMinutes >= resizeMinutes && currentMinutes < schedulerMinutes) {
+          console.log('✅ Current time is within resize window - triggering webhook immediately');
+          
+          const webhookResult = await triggerGitHubWorkflow('scheduler-time-changed', {
+            new_time: updatedConfig.PHASE1_DATA_COLLECTION_TIME,
+            shareholders_time: updatedConfig.PHASE1_SHAREHOLDERS_TIME,
+            timezone: updatedConfig.TIMEZONE,
+            weekend_skip: updatedConfig.WEEKEND_SKIP
+          });
+          
+          webhookTriggered = webhookResult;
+          
+          if (webhookResult) {
+            console.log('✅ GitHub webhook triggered successfully (immediate)');
+          } else {
+            console.warn('⚠️ GitHub webhook trigger failed (immediate)');
+            webhookError = 'Webhook trigger returned false - check environment variables and GitHub token';
+          }
         } else {
-          console.warn('⚠️ GitHub webhook trigger failed (will rely on polling fallback)');
-          webhookError = 'Webhook trigger returned false - check environment variables and GitHub token';
+          console.log('⏸️ Current time is not within resize window - webhook will be triggered at scheduled time');
+          console.log(`⏳ Scheduled webhook trigger at ${resizeTime} ${updatedConfig.TIMEZONE}`);
+          // Backend scheduler will handle the scheduled trigger via scheduleResizeBeforeWebhook()
         }
       } catch (error) {
         console.error('❌ Error triggering GitHub webhook:', error);
         webhookError = error instanceof Error ? error.message : String(error);
-        // Don't fail the request if webhook fails - polling will handle it
+        // Don't fail the request if webhook fails
       }
     }
     
@@ -1550,6 +1628,35 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
           400
         ));
       }
+      
+      // Validate that new scheduler time is in the future (not in the past)
+      const [newHour, newMinute] = PHASE1_DATA_COLLECTION_TIME.split(':').map(Number);
+      const now = new Date();
+      const timezone = TIMEZONE || req.body.TIMEZONE || 'Asia/Jakarta';
+      
+      // Get current time in scheduler timezone (Asia/Jakarta = UTC+7)
+      const utcHours = now.getUTCHours();
+      const utcMinutes = now.getUTCMinutes();
+      let currentHours = utcHours + 7; // WIB = UTC+7
+      let currentMinutes = utcMinutes;
+      if (currentHours >= 24) {
+        currentHours -= 24;
+      }
+      
+      // Compare times
+      const newTimeMinutes = newHour * 60 + newMinute;
+      const currentTimeMinutes = currentHours * 60 + currentMinutes;
+      
+      // If new time is less than or equal to current time, it's in the past
+      if (newTimeMinutes <= currentTimeMinutes) {
+        return res.status(400).json(createErrorResponse(
+          `Scheduler time must be in the future. Current time is ${String(currentHours).padStart(2, '0')}:${String(currentMinutes).padStart(2, '0')} ${timezone}. Please set a time after the current time.`,
+          'VALIDATION_ERROR',
+          'PHASE1_DATA_COLLECTION_TIME',
+          400
+        ));
+      }
+      
       newConfig.PHASE1_DATA_COLLECTION_TIME = PHASE1_DATA_COLLECTION_TIME;
     }
     
@@ -1650,26 +1757,75 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
           weekend_skip: updatedConfig.WEEKEND_SKIP
         });
         
-        // Trigger webhook for scheduler time change
-        const webhookResult = await triggerGitHubWorkflow('scheduler-time-changed', {
+        // Calculate resize time (5 minutes before scheduler)
+        const timeParts = updatedConfig.PHASE1_DATA_COLLECTION_TIME.split(':').map(Number);
+        const schedulerHour = timeParts[0] ?? 0;
+        const schedulerMinute = timeParts[1] ?? 0;
+        let resizeMinute = schedulerMinute - 5;
+        let resizeHour = schedulerHour;
+        if (resizeMinute < 0) {
+          resizeMinute += 60;
+          resizeHour -= 1;
+        }
+        if (resizeHour < 0) {
+          resizeHour += 24;
+        }
+        const resizeTime = `${String(resizeHour).padStart(2, '0')}:${String(resizeMinute).padStart(2, '0')}`;
+        
+        // Get current time in scheduler timezone (Asia/Jakarta = UTC+7)
+        const now = new Date();
+        const utcHours = now.getUTCHours();
+        const utcMinutes = now.getUTCMinutes();
+        // Convert UTC to WIB (UTC+7)
+        let wibHours = utcHours + 7;
+        let wibMinutes = utcMinutes;
+        if (wibHours >= 24) {
+          wibHours -= 24;
+        }
+        const currentTime = `${String(wibHours).padStart(2, '0')}:${String(wibMinutes).padStart(2, '0')}`;
+        
+        console.log('🔄 Checking if immediate webhook trigger needed...');
+        console.log('📋 Config:', {
           new_time: updatedConfig.PHASE1_DATA_COLLECTION_TIME,
-          shareholders_time: updatedConfig.PHASE1_SHAREHOLDERS_TIME,
+          resize_time: resizeTime,
+          current_time: currentTime,
           timezone: updatedConfig.TIMEZONE,
           weekend_skip: updatedConfig.WEEKEND_SKIP
         });
         
-        webhookTriggered = webhookResult;
+        // Check if current time is within resize window (>= resize time AND < scheduler time)
+        const currentMinutes = wibHours * 60 + wibMinutes;
+        const resizeMinutes = resizeHour * 60 + resizeMinute;
+        const schedulerMinutes = schedulerHour * 60 + schedulerMinute;
         
-        if (webhookResult) {
-          console.log('✅ GitHub webhook triggered successfully');
+        // Trigger webhook immediately if current time is within resize window
+        if (currentMinutes >= resizeMinutes && currentMinutes < schedulerMinutes) {
+          console.log('✅ Current time is within resize window - triggering webhook immediately');
+          
+          const webhookResult = await triggerGitHubWorkflow('scheduler-time-changed', {
+            new_time: updatedConfig.PHASE1_DATA_COLLECTION_TIME,
+            shareholders_time: updatedConfig.PHASE1_SHAREHOLDERS_TIME,
+            timezone: updatedConfig.TIMEZONE,
+            weekend_skip: updatedConfig.WEEKEND_SKIP
+          });
+          
+          webhookTriggered = webhookResult;
+          
+          if (webhookResult) {
+            console.log('✅ GitHub webhook triggered successfully (immediate)');
+          } else {
+            console.warn('⚠️ GitHub webhook trigger failed (immediate)');
+            webhookError = 'Webhook trigger returned false - check environment variables and GitHub token';
+          }
         } else {
-          console.warn('⚠️ GitHub webhook trigger failed (will rely on polling fallback)');
-          webhookError = 'Webhook trigger returned false - check environment variables and GitHub token';
+          console.log('⏸️ Current time is not within resize window - webhook will be triggered at scheduled time');
+          console.log(`⏳ Scheduled webhook trigger at ${resizeTime} ${updatedConfig.TIMEZONE}`);
+          // Backend scheduler will handle the scheduled trigger via scheduleResizeBeforeWebhook()
         }
       } catch (error) {
         console.error('❌ Error triggering GitHub webhook:', error);
         webhookError = error instanceof Error ? error.message : String(error);
-        // Don't fail the request if webhook fails - polling will handle it
+        // Don't fail the request if webhook fails
       }
     }
     
