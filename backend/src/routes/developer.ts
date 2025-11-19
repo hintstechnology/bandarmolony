@@ -1154,32 +1154,58 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
       newConfig.WEEKEND_SKIP = WEEKEND_SKIP;
     }
     
+    // Get old config before update
+    const oldConfig = getSchedulerConfig();
+    
     // Update configuration
     updateSchedulerConfig(newConfig);
     
+    // Get new config after update
+    const updatedConfig = getSchedulerConfig();
+    
+    // Check if scheduler time actually changed
+    const timeChanged = (
+      (PHASE1_DATA_COLLECTION_TIME !== undefined && 
+       oldConfig.PHASE1_DATA_COLLECTION_TIME !== updatedConfig.PHASE1_DATA_COLLECTION_TIME) ||
+      (PHASE1_SHAREHOLDERS_TIME !== undefined && 
+       oldConfig.PHASE1_SHAREHOLDERS_TIME !== updatedConfig.PHASE1_SHAREHOLDERS_TIME)
+    );
+    
+    let webhookTriggered = false;
+    let webhookError = null;
+    
     // Trigger GitHub webhook if scheduler time changed
-    if (PHASE1_DATA_COLLECTION_TIME !== undefined || PHASE1_SHAREHOLDERS_TIME !== undefined) {
+    if (timeChanged || PHASE1_DATA_COLLECTION_TIME !== undefined || PHASE1_SHAREHOLDERS_TIME !== undefined) {
       try {
         const { triggerGitHubWorkflow } = await import('../utils/githubWebhook');
-        const config = getSchedulerConfig();
         
         console.log('🔄 Triggering GitHub webhook for scheduler time change...');
+        console.log('📋 Config:', {
+          new_time: updatedConfig.PHASE1_DATA_COLLECTION_TIME,
+          shareholders_time: updatedConfig.PHASE1_SHAREHOLDERS_TIME,
+          timezone: updatedConfig.TIMEZONE,
+          weekend_skip: updatedConfig.WEEKEND_SKIP
+        });
         
         // Trigger webhook for scheduler time change
         const webhookResult = await triggerGitHubWorkflow('scheduler-time-changed', {
-          new_time: config.PHASE1_DATA_COLLECTION_TIME,
-          shareholders_time: config.PHASE1_SHAREHOLDERS_TIME,
-          timezone: config.TIMEZONE,
-          weekend_skip: config.WEEKEND_SKIP
+          new_time: updatedConfig.PHASE1_DATA_COLLECTION_TIME,
+          shareholders_time: updatedConfig.PHASE1_SHAREHOLDERS_TIME,
+          timezone: updatedConfig.TIMEZONE,
+          weekend_skip: updatedConfig.WEEKEND_SKIP
         });
+        
+        webhookTriggered = webhookResult;
         
         if (webhookResult) {
           console.log('✅ GitHub webhook triggered successfully');
         } else {
           console.warn('⚠️ GitHub webhook trigger failed (will rely on polling fallback)');
+          webhookError = 'Webhook trigger returned false - check environment variables and GitHub token';
         }
       } catch (error) {
         console.error('❌ Error triggering GitHub webhook:', error);
+        webhookError = error instanceof Error ? error.message : String(error);
         // Don't fail the request if webhook fails - polling will handle it
       }
     }
@@ -1187,12 +1213,15 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
     // Restart scheduler with new configuration
     restartScheduler();
     
-    const updatedConfig = getSchedulerConfig();
     const status = getSchedulerStatus();
     
     return res.json(createSuccessResponse({
       config: updatedConfig,
       status,
+      webhook: {
+        triggered: webhookTriggered,
+        error: webhookError || undefined
+      },
       message: 'Scheduler configuration updated and scheduler restarted successfully'
     }, 'Scheduler configuration updated successfully'));
   } catch (error) {
@@ -1200,6 +1229,48 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
     return res.status(500).json(createErrorResponse(
       'Failed to update scheduler configuration',
       'INTERNAL_SERVER_ERROR',
+      undefined,
+      500
+    ));
+  }
+});
+
+/**
+ * POST /api/developer/test-webhook
+ * Test GitHub webhook trigger (for debugging)
+ */
+router.post('/test-webhook', requireDeveloper, async (_req, res) => {
+  try {
+    const { triggerGitHubWorkflow } = await import('../utils/githubWebhook');
+    const config = getSchedulerConfig();
+    
+    console.log('🧪 Testing GitHub webhook trigger...');
+    
+    const webhookResult = await triggerGitHubWorkflow('scheduler-time-changed', {
+      new_time: config.PHASE1_DATA_COLLECTION_TIME || '19:00',
+      shareholders_time: config.PHASE1_SHAREHOLDERS_TIME || '00:01',
+      timezone: config.TIMEZONE || 'Asia/Jakarta',
+      weekend_skip: config.WEEKEND_SKIP || false
+    });
+    
+    if (webhookResult) {
+      return res.json(createSuccessResponse({
+        triggered: true,
+        message: 'Webhook triggered successfully'
+      }, 'Webhook test successful'));
+    } else {
+      return res.status(500).json(createErrorResponse(
+        'Webhook trigger failed - check environment variables and GitHub token',
+        'WEBHOOK_FAILED',
+        undefined,
+        500
+      ));
+    }
+  } catch (error) {
+    console.error('Test webhook error:', error);
+    return res.status(500).json(createErrorResponse(
+      `Webhook test failed: ${error instanceof Error ? error.message : String(error)}`,
+      'WEBHOOK_ERROR',
       undefined,
       500
     ));
@@ -1546,32 +1617,58 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
       newConfig.WEEKEND_SKIP = WEEKEND_SKIP;
     }
     
+    // Get old config before update
+    const oldConfig = getSchedulerConfig();
+    
     // Update configuration
     updateSchedulerConfig(newConfig);
     
+    // Get new config after update
+    const updatedConfig = getSchedulerConfig();
+    
+    // Check if scheduler time actually changed
+    const timeChanged = (
+      (PHASE1_DATA_COLLECTION_TIME !== undefined && 
+       oldConfig.PHASE1_DATA_COLLECTION_TIME !== updatedConfig.PHASE1_DATA_COLLECTION_TIME) ||
+      (PHASE1_SHAREHOLDERS_TIME !== undefined && 
+       oldConfig.PHASE1_SHAREHOLDERS_TIME !== updatedConfig.PHASE1_SHAREHOLDERS_TIME)
+    );
+    
+    let webhookTriggered = false;
+    let webhookError = null;
+    
     // Trigger GitHub webhook if scheduler time changed
-    if (PHASE1_DATA_COLLECTION_TIME !== undefined || PHASE1_SHAREHOLDERS_TIME !== undefined) {
+    if (timeChanged || PHASE1_DATA_COLLECTION_TIME !== undefined || PHASE1_SHAREHOLDERS_TIME !== undefined) {
       try {
         const { triggerGitHubWorkflow } = await import('../utils/githubWebhook');
-        const config = getSchedulerConfig();
         
         console.log('🔄 Triggering GitHub webhook for scheduler time change...');
+        console.log('📋 Config:', {
+          new_time: updatedConfig.PHASE1_DATA_COLLECTION_TIME,
+          shareholders_time: updatedConfig.PHASE1_SHAREHOLDERS_TIME,
+          timezone: updatedConfig.TIMEZONE,
+          weekend_skip: updatedConfig.WEEKEND_SKIP
+        });
         
         // Trigger webhook for scheduler time change
         const webhookResult = await triggerGitHubWorkflow('scheduler-time-changed', {
-          new_time: config.PHASE1_DATA_COLLECTION_TIME,
-          shareholders_time: config.PHASE1_SHAREHOLDERS_TIME,
-          timezone: config.TIMEZONE,
-          weekend_skip: config.WEEKEND_SKIP
+          new_time: updatedConfig.PHASE1_DATA_COLLECTION_TIME,
+          shareholders_time: updatedConfig.PHASE1_SHAREHOLDERS_TIME,
+          timezone: updatedConfig.TIMEZONE,
+          weekend_skip: updatedConfig.WEEKEND_SKIP
         });
+        
+        webhookTriggered = webhookResult;
         
         if (webhookResult) {
           console.log('✅ GitHub webhook triggered successfully');
         } else {
           console.warn('⚠️ GitHub webhook trigger failed (will rely on polling fallback)');
+          webhookError = 'Webhook trigger returned false - check environment variables and GitHub token';
         }
       } catch (error) {
         console.error('❌ Error triggering GitHub webhook:', error);
+        webhookError = error instanceof Error ? error.message : String(error);
         // Don't fail the request if webhook fails - polling will handle it
       }
     }
@@ -1579,12 +1676,15 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
     // Restart scheduler with new configuration
     restartScheduler();
     
-    const updatedConfig = getSchedulerConfig();
     const status = getSchedulerStatus();
     
     return res.json(createSuccessResponse({
       config: updatedConfig,
       status,
+      webhook: {
+        triggered: webhookTriggered,
+        error: webhookError || undefined
+      },
       message: 'Scheduler configuration updated and scheduler restarted successfully'
     }, 'Scheduler configuration updated successfully'));
   } catch (error) {
@@ -1592,6 +1692,48 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
     return res.status(500).json(createErrorResponse(
       'Failed to update scheduler configuration',
       'INTERNAL_SERVER_ERROR',
+      undefined,
+      500
+    ));
+  }
+});
+
+/**
+ * POST /api/developer/test-webhook
+ * Test GitHub webhook trigger (for debugging)
+ */
+router.post('/test-webhook', requireDeveloper, async (_req, res) => {
+  try {
+    const { triggerGitHubWorkflow } = await import('../utils/githubWebhook');
+    const config = getSchedulerConfig();
+    
+    console.log('🧪 Testing GitHub webhook trigger...');
+    
+    const webhookResult = await triggerGitHubWorkflow('scheduler-time-changed', {
+      new_time: config.PHASE1_DATA_COLLECTION_TIME || '19:00',
+      shareholders_time: config.PHASE1_SHAREHOLDERS_TIME || '00:01',
+      timezone: config.TIMEZONE || 'Asia/Jakarta',
+      weekend_skip: config.WEEKEND_SKIP || false
+    });
+    
+    if (webhookResult) {
+      return res.json(createSuccessResponse({
+        triggered: true,
+        message: 'Webhook triggered successfully'
+      }, 'Webhook test successful'));
+    } else {
+      return res.status(500).json(createErrorResponse(
+        'Webhook trigger failed - check environment variables and GitHub token',
+        'WEBHOOK_FAILED',
+        undefined,
+        500
+      ));
+    }
+  } catch (error) {
+    console.error('Test webhook error:', error);
+    return res.status(500).json(createErrorResponse(
+      `Webhook test failed: ${error instanceof Error ? error.message : String(error)}`,
+      'WEBHOOK_ERROR',
       undefined,
       500
     ));
