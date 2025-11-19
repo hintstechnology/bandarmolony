@@ -94,7 +94,10 @@ jobs:
             AZURE_STORAGE_CONTAINER_NAME="${{ secrets.AZURE_STORAGE_CONTAINER_NAME }}" \
             TICMI_JWT_TOKEN="${{ secrets.TICMI_JWT_TOKEN }}" \
             TICMI_API_BASE_URL="${{ secrets.TICMI_API_BASE_URL }}" \
-            NODE_OPTIONS="${{ secrets.NODE_OPTIONS }}"
+            NODE_OPTIONS="${{ secrets.NODE_OPTIONS }}" \
+            GH_OWNER="hintstechnology" \
+            GH_REPO="bandarmolony" \
+            GH_WEBHOOK_TOKEN="${{ secrets.GH_WEBHOOK_TOKEN }}"
 
     - name: Show deployed image
       run: |
