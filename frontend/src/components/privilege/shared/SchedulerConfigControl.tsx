@@ -234,7 +234,7 @@ export function SchedulerConfigControl() {
         // Ensure time is in HH:MM format (remove seconds if present)
         const timeParts = editTime.split(':');
         if (timeParts.length >= 2) {
-          schedule = `${timeParts[0].padStart(2, '0')}:${timeParts[1].padStart(2, '0')}`;
+          schedule = `${(timeParts[0] ?? '00').padStart(2, '0')}:${(timeParts[1] ?? '00').padStart(2, '0')}`;
         } else {
           schedule = editTime;
         }
@@ -253,11 +253,13 @@ export function SchedulerConfigControl() {
             currentHours -= 24;
           }
           
-          // Compare times
-          const newTimeMinutes = newHour * 60 + newMinute;
+          // Compare times (handle same-day comparison)
+          const newTimeMinutes = (newHour ?? 0) * 60 + (newMinute ?? 0);
           const currentTimeMinutes = currentHours * 60 + currentMinutes;
           
-          // If new time is less than or equal to current time, it's in the past
+          // If new time is less than or equal to current time, it's in the past (same day)
+          // Note: For daily scheduler, we only allow setting time for today that is in the future
+          // If user wants to set for tomorrow, they should wait until after midnight
           if (newTimeMinutes <= currentTimeMinutes) {
             showToast({
               type: 'error',
