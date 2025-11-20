@@ -1216,11 +1216,11 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
           weekend_skip: updatedConfig.WEEKEND_SKIP
         });
         
-        // Calculate resize time (5 minutes before scheduler)
+        // Calculate resize time (15 minutes before scheduler)
         const timeParts = updatedConfig.PHASE1_DATA_COLLECTION_TIME.split(':').map(Number);
         const schedulerHour = timeParts[0] ?? 0;
         const schedulerMinute = timeParts[1] ?? 0;
-        let resizeMinute = schedulerMinute - 5;
+        let resizeMinute = schedulerMinute - 15;
         let resizeHour = schedulerHour;
         if (resizeMinute < 0) {
           resizeMinute += 60;
@@ -1757,11 +1757,11 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
           weekend_skip: updatedConfig.WEEKEND_SKIP
         });
         
-        // Calculate resize time (5 minutes before scheduler)
+        // Calculate resize time (15 minutes before scheduler)
         const timeParts = updatedConfig.PHASE1_DATA_COLLECTION_TIME.split(':').map(Number);
         const schedulerHour = timeParts[0] ?? 0;
         const schedulerMinute = timeParts[1] ?? 0;
-        let resizeMinute = schedulerMinute - 5;
+        let resizeMinute = schedulerMinute - 15;
         let resizeHour = schedulerHour;
         if (resizeMinute < 0) {
           resizeMinute += 60;
