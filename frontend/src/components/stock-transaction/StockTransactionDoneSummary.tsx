@@ -11,10 +11,13 @@ interface PriceData {
   price: number;
   bFreq: number;
   bLot: number;
+  bOrd: number;
   sLot: number;
   sFreq: number;
+  sOrd: number;
   tFreq: number;
   tLot: number;
+  tOrd: number;
 }
 
 // Backend bid/ask data interface
@@ -154,17 +157,33 @@ const formatNumberWithAbbreviation = (num: number): string => {
   }
 };
 
+// Format ratio (for BLot/Freq, SLot/Freq, etc.)
+const formatRatio = (numerator: number, denominator: number): string => {
+  if (denominator === 0 || !denominator) return '-';
+  const ratio = numerator / denominator;
+  if (ratio >= 1e6) {
+    return (ratio / 1e6).toFixed(2) + 'M';
+  } else if (ratio >= 1e3) {
+    return (ratio / 1e3).toFixed(2) + 'K';
+  } else {
+    return ratio.toFixed(2);
+  }
+};
+
 
 // Helper function to calculate totals
 const calculateTotals = (data: PriceData[]) => {
   return data.reduce((totals, row) => ({
-    bLot: totals.bLot + row.bLot,
-    sLot: totals.sLot + row.sLot,
     bFreq: totals.bFreq + row.bFreq,
+    bLot: totals.bLot + row.bLot,
+    bOrd: totals.bOrd + row.bOrd,
+    sLot: totals.sLot + row.sLot,
     sFreq: totals.sFreq + row.sFreq,
+    sOrd: totals.sOrd + row.sOrd,
     tFreq: totals.tFreq + row.tFreq,
-    tLot: totals.tLot + row.tLot
-  }), { bLot: 0, sLot: 0, bFreq: 0, sFreq: 0, tFreq: 0, tLot: 0 });
+    tLot: totals.tLot + row.tLot,
+    tOrd: totals.tOrd + row.tOrd
+  }), { bFreq: 0, bLot: 0, bOrd: 0, sLot: 0, sFreq: 0, sOrd: 0, tFreq: 0, tLot: 0, tOrd: 0 });
 };
 
 // Helper function to calculate broker breakdown totals for a specific date
@@ -182,48 +201,58 @@ const calculateBrokerBreakdownTotals = (stock: string, date: string) => {
 
 // Helper function to get all unique prices across all dates that have transactions (sorted ascending)
 const getAllUniquePrices = (stock: string, dates: string[], priceDataByDate: { [date: string]: PriceData[] }): number[] => {
-  const allPrices = new Set<number>();
+  const priceMap = new Map<number, boolean>(); // price -> hasData
   
-  // First, collect all possible prices from all dates
+  // Check each date and collect prices that have actual non-zero data
   dates.forEach(date => {
     const data = priceDataByDate[date] || [];
-    data.forEach(item => allPrices.add(item.price));
-  });
-  
-  // Filter out prices that have no transactions across ALL dates
-  const validPrices = Array.from(allPrices).filter(price => {
-    // Check if this price has at least one non-zero transaction across all dates
-    let hasAnyTransaction = false;
-    
-    for (const date of dates) {
-      const data = getDataForPriceAndDate(stock, date, price, priceDataByDate);
-      if (data && (
-        data.bFreq > 0 || data.bLot > 0 || data.sLot > 0 || 
-        data.sFreq > 0 || data.tFreq > 0 || data.tLot > 0
-      )) {
-        hasAnyTransaction = true;
-        break; // Found at least one transaction, this price is valid
+    data.forEach(item => {
+      // Check if this item has at least one non-zero value
+      const hasData = (
+        (item.bFreq && item.bFreq > 0) || 
+        (item.bLot && item.bLot > 0) || 
+        (item.bOrd && item.bOrd > 0) || 
+        (item.sLot && item.sLot > 0) || 
+        (item.sFreq && item.sFreq > 0) || 
+        (item.sOrd && item.sOrd > 0) || 
+        (item.tFreq && item.tFreq > 0) || 
+        (item.tLot && item.tLot > 0) || 
+        (item.tOrd && item.tOrd > 0)
+      );
+      
+      if (hasData) {
+        // Mark this price as having data
+        priceMap.set(item.price, true);
       }
-    }
-    
-    return hasAnyTransaction;
+    });
   });
   
-  // Additional filtering: Remove prices that have zero values across all dates
-  const finalValidPrices = validPrices.filter(price => {
-    let totalTransactions = 0;
-    
+  // Only return prices that have data in at least one date
+  const validPrices = Array.from(priceMap.keys()).filter(price => {
+    // Double check: verify this price has data in at least one date
     for (const date of dates) {
       const data = getDataForPriceAndDate(stock, date, price, priceDataByDate);
       if (data) {
-        totalTransactions += data.bFreq + data.bLot + data.sLot + data.sFreq + data.tFreq + data.tLot;
+        const hasNonZero = (
+          (data.bFreq && data.bFreq > 0) || 
+          (data.bLot && data.bLot > 0) || 
+          (data.bOrd && data.bOrd > 0) || 
+          (data.sLot && data.sLot > 0) || 
+          (data.sFreq && data.sFreq > 0) || 
+          (data.sOrd && data.sOrd > 0) || 
+          (data.tFreq && data.tFreq > 0) || 
+          (data.tLot && data.tLot > 0) || 
+          (data.tOrd && data.tOrd > 0)
+        );
+        if (hasNonZero) {
+          return true;
+        }
       }
     }
-    
-    return totalTransactions > 0;
+    return false;
   });
   
-  return finalValidPrices.sort((a, b) => a - b); // Sort ascending (lowest to highest)
+  return validPrices.sort((a, b) => a - b); // Sort ascending (lowest to highest)
 };
 
 // Helper function to get data for specific price and date
@@ -235,21 +264,24 @@ const getDataForPriceAndDate = (_stock: string, date: string, price: number, pri
 
 // Helper function to find max values across all dates for horizontal layout
 const findMaxValuesHorizontal = (_stock: string, dates: string[], priceDataByDate: { [date: string]: PriceData[] }) => {
-  let maxBFreq = 0, maxBLot = 0, maxSLot = 0, maxSFreq = 0, maxTFreq = 0, maxTLot = 0;
+  let maxBFreq = 0, maxBLot = 0, maxBOrd = 0, maxSLot = 0, maxSFreq = 0, maxSOrd = 0, maxTFreq = 0, maxTLot = 0, maxTOrd = 0;
   
   dates.forEach(date => {
     const data = priceDataByDate[date] || [];
     data.forEach(item => {
       if (item.bFreq > maxBFreq) maxBFreq = item.bFreq;
       if (item.bLot > maxBLot) maxBLot = item.bLot;
+      if (item.bOrd > maxBOrd) maxBOrd = item.bOrd;
       if (item.sLot > maxSLot) maxSLot = item.sLot;
       if (item.sFreq > maxSFreq) maxSFreq = item.sFreq;
+      if (item.sOrd > maxSOrd) maxSOrd = item.sOrd;
       if (item.tFreq > maxTFreq) maxTFreq = item.tFreq;
       if (item.tLot > maxTLot) maxTLot = item.tLot;
+      if (item.tOrd > maxTOrd) maxTOrd = item.tOrd;
     });
   });
   
-  return { maxBFreq, maxBLot, maxSLot, maxSFreq, maxTFreq, maxTLot };
+  return { maxBFreq, maxBLot, maxBOrd, maxSLot, maxSFreq, maxSOrd, maxTFreq, maxTLot, maxTOrd };
 };
 
 // Helper function to get broker data for specific price, broker and date (DEPRECATED - moved inside component)
@@ -570,12 +602,15 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
   const convertBackendToFrontend = (backendData: BackendBidAskData[]): PriceData[] => {
     return backendData.map(item => ({
       price: Number(item.Price),
-      bLot: Number(item.BidVolume),      // BLot dari BidVolume
       bFreq: Number(item.BidCount),      // BFreq dari BidCount
+      bLot: Number(item.BidVolume),      // BLot dari BidVolume
+      bOrd: Number(item.UniqueBidBrokers) || 0,  // BOrd dari UniqueBidBrokers
       sLot: Number(item.AskVolume),      // SLot dari AskVolume
       sFreq: Number(item.AskCount),       // SFreq dari AskCount
+      sOrd: Number(item.UniqueAskBrokers) || 0,  // SOrd dari UniqueAskBrokers
+      tFreq: parseInt(String(item.TotalCount), 10),     // TFreq dari TotalCount - ensure integer
       tLot: Number(item.TotalVolume),    // TLot dari TotalVolume
-      tFreq: parseInt(String(item.TotalCount), 10)     // TFreq dari TotalCount - ensure integer
+      tOrd: (Number(item.UniqueBidBrokers) || 0) + (Number(item.UniqueAskBrokers) || 0)  // TOrd = BOrd + SOrd
     }));
   };
 
@@ -764,181 +799,468 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
         <CardContent>
           <div className="overflow-x-auto -mx-4 sm:mx-0">
             <div className="min-w-full px-4 sm:px-0">
-              <table className="w-full text-sm border-collapse min-w-[600px]">
+              <table className="w-full text-[13px] border-collapse" style={{ tableLayout: 'auto', width: 'auto' }}>
               <thead>
                 {/* Main Header Row - Dates */}
-                <tr className="border-b border-border bg-muted">
-                  <th rowSpan={2} className="text-left py-2 px-3 font-medium bg-muted sticky left-0 z-30 border-r-2 border-border min-w-[80px]">Price</th>
-                  {selectedDates.map((date) => (
-                    <th key={date} colSpan={6} className="text-center py-2 px-1 font-medium border-l border-border">
+                <tr className="border-t-2 border-white bg-[#3a4252]">
+                  {selectedDates.map((date, dateIndex) => (
+                    <th key={date} colSpan={14} className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
                       {formatDisplayDate(date)}
                     </th>
                   ))}
-                  <th colSpan={6} className="text-center py-2 px-1 font-medium border-l border-border bg-accent/30">
+                  <th colSpan={14} className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>
                     Total
                   </th>
                 </tr>
                 {/* Sub Header Row - Metrics */}
-                <tr className="border-b border-border bg-accent">
-                  {selectedDates.map((date) => (
+                <tr className="bg-[#3a4252]">
+                  {selectedDates.map((date, dateIndex) => (
                     <React.Fragment key={date}>
-                      <th className="text-right py-1 px-1 font-medium text-[10px]">BLot</th>
-                      <th className="text-right py-1 px-1 font-medium text-[10px]">BFreq</th>
-                      <th className="text-right py-1 px-1 font-medium text-[10px]">SLot</th>
-                      <th className="text-right py-1 px-1 font-medium text-[10px]">SFreq</th>
-                      <th className="text-right py-1 px-1 font-medium text-[10px]">TLot</th>
-                      <th className="text-right py-1 px-1 font-medium text-[10px] border-r-2 border-border">TFreq</th>
+                      <th className={`text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>Price</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">BFreq</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">BLot</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">BLot/Freq</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">BOrd</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">BLot/Ord</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">SLot</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">SFreq</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">SLot/Freq</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">SOrd</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">SLot/Ord</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">TFreq</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">TLot</th>
+                      <th className={`text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>TOrd</th>
                     </React.Fragment>
                   ))}
-                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">BLot</th>
-                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">BFreq</th>
-                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">SLot</th>
-                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">SFreq</th>
-                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">TLot</th>
-                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30 border-r-2 border-border">TFreq</th>
+                  <th className={`text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>Price</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">BFreq</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">BLot</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">BLot/Freq</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">BOrd</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">BLot/Ord</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">SLot</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">SFreq</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">SLot/Freq</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">SOrd</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">SLot/Ord</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">TFreq</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">TLot</th>
+                  <th className="text-center py-[1px] px-[7px] font-bold text-white whitespace-nowrap border-r-2 border-white">TOrd</th>
                 </tr>
               </thead>
               <tbody>
-                {allPrices.map((price) => (
-                  <tr key={price} className="border-b border-border/50 hover:bg-accent/50">
-                    <td className="py-1.5 px-3 font-medium bg-background sticky left-0 z-30 border-r-2 border-border text-foreground min-w-[80px]">
-                      {formatNumber(price)}
-                    </td>
-                    {selectedDates.map((date) => {
+                {allPrices.filter(price => {
+                  // Double check: only show price if it has data in at least one date
+                  // Check all dates to see if ANY date has non-zero data
+                  for (const date of selectedDates) {
+                    const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                    if (data) {
+                      // Check if any field has value > 0
+                      const hasNonZero = (
+                        (data.bFreq && data.bFreq > 0) || 
+                        (data.bLot && data.bLot > 0) || 
+                        (data.bOrd && data.bOrd > 0) || 
+                        (data.sLot && data.sLot > 0) || 
+                        (data.sFreq && data.sFreq > 0) || 
+                        (data.sOrd && data.sOrd > 0) || 
+                        (data.tFreq && data.tFreq > 0) || 
+                        (data.tLot && data.tLot > 0) || 
+                        (data.tOrd && data.tOrd > 0)
+                      );
+                      if (hasNonZero) {
+                        return true; // Found at least one date with data
+                      }
+                    }
+                  }
+                  return false; // No data found in any date
+                }).map((price) => {
+                  // Additional check: verify this row has at least one non-empty cell
+                  let rowHasData = false;
+                  for (const date of selectedDates) {
+                    const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                    if (data && (
+                      (data.bFreq && data.bFreq > 0) || 
+                      (data.bLot && data.bLot > 0) || 
+                      (data.bOrd && data.bOrd > 0) || 
+                      (data.sLot && data.sLot > 0) || 
+                      (data.sFreq && data.sFreq > 0) || 
+                      (data.sOrd && data.sOrd > 0) || 
+                      (data.tFreq && data.tFreq > 0) || 
+                      (data.tLot && data.tLot > 0) || 
+                      (data.tOrd && data.tOrd > 0)
+                    )) {
+                      rowHasData = true;
+                      break;
+                    }
+                  }
+                  
+                  // Only render if row has data
+                  if (!rowHasData) {
+                    return null;
+                  }
+                  
+                  return (
+                  <tr key={price} className="hover:bg-accent/50">
+                    {selectedDates.map((date, dateIndex) => {
                       const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
                       console.log(`Data for price ${price} on ${date}:`, data);
                       return (
                         <React.Fragment key={date}>
-                          <td className={`text-right py-1.5 px-1 ${data && data.bLot === maxValues.maxBLot && data.bLot > 0 ? 'font-bold text-green-600' : 'text-green-600'}`}>
-                            {data ? formatNumberWithAbbreviation(data.bLot) : '-'}
+                          {/* Price */}
+                          <td className={`text-center py-[1px] px-[6px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {formatNumber(price)}
                           </td>
-                          <td className={`text-right py-1.5 px-1 ${data && data.bFreq === maxValues.maxBFreq && data.bFreq > 0 ? 'font-bold text-blue-600' : 'text-blue-600'}`}>
+                          {/* BFreq */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                             {data ? formatNumberWithAbbreviation(data.bFreq) : '-'}
                           </td>
-                          <td className={`text-right py-1.5 px-1 ${data && data.sLot === maxValues.maxSLot && data.sLot > 0 ? 'font-bold text-red-600' : 'text-red-600'}`}>
+                          {/* BLot */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {data ? formatNumberWithAbbreviation(data.bLot) : '-'}
+                          </td>
+                          {/* BLot/Freq */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {data ? formatRatio(data.bLot, data.bFreq) : '-'}
+                          </td>
+                          {/* BOrd */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {data ? formatNumberWithAbbreviation(data.bOrd) : '-'}
+                          </td>
+                          {/* BLot/Ord */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {data ? formatRatio(data.bLot, data.bOrd) : '-'}
+                          </td>
+                          {/* SLot */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                             {data ? formatNumberWithAbbreviation(data.sLot) : '-'}
                           </td>
-                          <td className={`text-right py-1.5 px-1 ${data && data.sFreq === maxValues.maxSFreq && data.sFreq > 0 ? 'font-bold text-orange-600' : 'text-orange-600'}`}>
+                          {/* SFreq */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                             {data ? formatNumberWithAbbreviation(data.sFreq) : '-'}
                           </td>
-                          <td className={`text-right py-1.5 px-1 ${data && data.tLot === maxValues.maxTLot && data.tLot > 0 ? 'font-bold text-indigo-600' : 'text-indigo-600'}`}>
+                          {/* SLot/Freq */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {data ? formatRatio(data.sLot, data.sFreq) : '-'}
+                          </td>
+                          {/* SOrd */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {data ? formatNumberWithAbbreviation(data.sOrd) : '-'}
+                          </td>
+                          {/* SLot/Ord */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {data ? formatRatio(data.sLot, data.sOrd) : '-'}
+                          </td>
+                          {/* TFreq */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {data ? formatNumberWithAbbreviation(data.tFreq) : '-'}
+                          </td>
+                          {/* TLot */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                             {data ? formatNumberWithAbbreviation(data.tLot) : '-'}
                           </td>
-                          <td className={`text-right py-1.5 px-1 border-r-2 border-border ${data && data.tFreq === maxValues.maxTFreq && data.tFreq > 0 ? 'font-bold text-purple-600' : 'text-purple-600'}`}>
-                            {data ? formatNumberWithAbbreviation(data.tFreq) : '-'}
+                          {/* TOrd */}
+                          <td className={`text-right py-[1px] px-[6px] font-bold text-white ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {data ? formatNumberWithAbbreviation(data.tOrd) : '-'}
                           </td>
                         </React.Fragment>
                       );
                     })}
                     {/* Grand Total Column for each row */}
-                    <td className="text-right py-1.5 px-1 text-green-600">
-                      {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
-                        const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
-                        return sum + (data?.bLot || 0);
-                      }, 0))}
+                    <td className={`text-center py-[1px] px-[5px] font-bold text-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatNumber(price)}
                     </td>
-                    <td className="text-right py-1.5 px-1 text-blue-600">
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                       {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
                         const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
                         return sum + (data?.bFreq || 0);
                       }, 0))}
                     </td>
-                    <td className="text-right py-1.5 px-1 text-red-600">
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                        const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                        return sum + (data?.bLot || 0);
+                      }, 0))}
+                    </td>
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatRatio(
+                        selectedDates.reduce((sum, date) => {
+                          const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                          return sum + (data?.bLot || 0);
+                        }, 0),
+                        selectedDates.reduce((sum, date) => {
+                        const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                        return sum + (data?.bFreq || 0);
+                        }, 0)
+                      )}
+                    </td>
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                        const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                        return sum + (data?.bOrd || 0);
+                      }, 0))}
+                    </td>
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatRatio(
+                        selectedDates.reduce((sum, date) => {
+                          const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                          return sum + (data?.bLot || 0);
+                        }, 0),
+                        selectedDates.reduce((sum, date) => {
+                          const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                          return sum + (data?.bOrd || 0);
+                        }, 0)
+                      )}
+                    </td>
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                       {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
                         const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
                         return sum + (data?.sLot || 0);
                       }, 0))}
                     </td>
-                    <td className="text-right py-1.5 px-1 text-orange-600">
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                       {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
                         const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
                         return sum + (data?.sFreq || 0);
                       }, 0))}
                     </td>
-                    <td className="text-right py-1.5 px-1 text-indigo-600">
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatRatio(
+                        selectedDates.reduce((sum, date) => {
+                          const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                          return sum + (data?.sLot || 0);
+                        }, 0),
+                        selectedDates.reduce((sum, date) => {
+                          const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                          return sum + (data?.sFreq || 0);
+                        }, 0)
+                      )}
+                    </td>
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                       {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
                         const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
-                        return sum + (data?.tLot || 0);
+                        return sum + (data?.sOrd || 0);
                       }, 0))}
                     </td>
-                    <td className="text-right py-1.5 px-1 text-purple-600 border-r-2 border-border">
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatRatio(
+                        selectedDates.reduce((sum, date) => {
+                          const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                          return sum + (data?.sLot || 0);
+                        }, 0),
+                        selectedDates.reduce((sum, date) => {
+                          const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                          return sum + (data?.sOrd || 0);
+                        }, 0)
+                      )}
+                    </td>
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                       {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
                         const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
                         return sum + (data?.tFreq || 0);
                       }, 0))}
                     </td>
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                        const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                        return sum + (data?.tLot || 0);
+                      }, 0))}
+                    </td>
+                    <td className="text-right py-[1px] px-[7px] font-bold text-white border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                        const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
+                        return sum + (data?.tOrd || 0);
+                      }, 0))}
+                    </td>
                   </tr>
-                ))}
+                  );
+                }).filter(Boolean)}
                 {/* Total Row */}
-                <tr className="border-t-2 border-border bg-accent/30 font-bold">
-                  <td className="py-3 px-3 font-bold bg-accent/30 sticky left-0 z-30 border-r-2 border-border text-foreground min-w-[80px]">TOTAL</td>
-                  {selectedDates.map((date) => {
+                <tr className="border-t-2 border-white font-bold">
+                  {selectedDates.map((date, dateIndex) => {
                     const dateData = priceDataByDate[date] || [];
                     const totals = calculateTotals(dateData);
                     return (
                       <React.Fragment key={date}>
-                        <td className="text-right py-3 px-1 font-bold text-green-600">
-                          {formatNumberWithAbbreviation(totals.bLot)}
+                        {/* Price - empty for Total row */}
+                        <td className={`text-center py-[1px] px-[6px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>
+                          -
                         </td>
-                        <td className="text-right py-3 px-1 font-bold text-blue-600">
+                        {/* BFreq */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                           {formatNumberWithAbbreviation(totals.bFreq)}
                         </td>
-                        <td className="text-right py-3 px-1 font-bold text-red-600">
+                        {/* BLot */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {formatNumberWithAbbreviation(totals.bLot)}
+                        </td>
+                        {/* BLot/Freq */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {formatRatio(totals.bLot, totals.bFreq)}
+                        </td>
+                        {/* BOrd */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {formatNumberWithAbbreviation(totals.bOrd)}
+                        </td>
+                        {/* BLot/Ord */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {formatRatio(totals.bLot, totals.bOrd)}
+                        </td>
+                        {/* SLot */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                           {formatNumberWithAbbreviation(totals.sLot)}
                         </td>
-                        <td className="text-right py-3 px-1 font-bold text-orange-600">
+                        {/* SFreq */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                           {formatNumberWithAbbreviation(totals.sFreq)}
                         </td>
-                        <td className="text-right py-3 px-1 font-bold text-indigo-600">
+                        {/* SLot/Freq */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {formatRatio(totals.sLot, totals.sFreq)}
+                        </td>
+                        {/* SOrd */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {formatNumberWithAbbreviation(totals.sOrd)}
+                        </td>
+                        {/* SLot/Ord */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {formatRatio(totals.sLot, totals.sOrd)}
+                        </td>
+                        {/* TFreq */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {formatNumberWithAbbreviation(totals.tFreq)}
+                        </td>
+                        {/* TLot */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                           {formatNumberWithAbbreviation(totals.tLot)}
                         </td>
-                        <td className="text-right py-3 px-1 border-r-2 border-border font-bold text-purple-600">
-                          {formatNumberWithAbbreviation(totals.tFreq)}
+                        {/* TOrd */}
+                        <td className={`text-right py-[1px] px-[6px] font-bold text-white ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {formatNumberWithAbbreviation(totals.tOrd)}
                         </td>
                       </React.Fragment>
                     );
                   })}
                   {/* Grand Total Column */}
-                  <td className="text-right py-3 px-1 font-bold text-green-600 bg-accent/50">
-                    {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
-                      const dateData = priceDataByDate[date] || [];
-                      const totals = calculateTotals(dateData);
-                      return sum + totals.bLot;
-                    }, 0))}
-                          </td>
-                  <td className="text-right py-3 px-1 font-bold text-blue-600 bg-accent/50">
+                  <td className={`text-center py-[1px] px-[5px] font-bold text-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>
+                    TOTAL
+                  </td>
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                     {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
                       const dateData = priceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return sum + totals.bFreq;
                     }, 0))}
                           </td>
-                  <td className="text-right py-3 px-1 font-bold text-red-600 bg-accent/50">
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                      const dateData = priceDataByDate[date] || [];
+                      const totals = calculateTotals(dateData);
+                      return sum + totals.bLot;
+                    }, 0))}
+                  </td>
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatRatio(
+                      selectedDates.reduce((sum, date) => {
+                        const dateData = priceDataByDate[date] || [];
+                        const totals = calculateTotals(dateData);
+                        return sum + totals.bLot;
+                      }, 0),
+                      selectedDates.reduce((sum, date) => {
+                      const dateData = priceDataByDate[date] || [];
+                      const totals = calculateTotals(dateData);
+                      return sum + totals.bFreq;
+                      }, 0)
+                    )}
+                  </td>
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                      const dateData = priceDataByDate[date] || [];
+                      const totals = calculateTotals(dateData);
+                      return sum + totals.bOrd;
+                    }, 0))}
+                          </td>
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatRatio(
+                      selectedDates.reduce((sum, date) => {
+                        const dateData = priceDataByDate[date] || [];
+                        const totals = calculateTotals(dateData);
+                        return sum + totals.bLot;
+                      }, 0),
+                      selectedDates.reduce((sum, date) => {
+                        const dateData = priceDataByDate[date] || [];
+                        const totals = calculateTotals(dateData);
+                        return sum + totals.bOrd;
+                      }, 0)
+                    )}
+                  </td>
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                     {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
                       const dateData = priceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return sum + totals.sLot;
                     }, 0))}
                           </td>
-                  <td className="text-right py-3 px-1 font-bold text-orange-600 bg-accent/50">
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                     {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
                       const dateData = priceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return sum + totals.sFreq;
                     }, 0))}
                           </td>
-                  <td className="text-right py-3 px-1 font-bold text-indigo-600 bg-accent/50">
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatRatio(
+                      selectedDates.reduce((sum, date) => {
+                        const dateData = priceDataByDate[date] || [];
+                        const totals = calculateTotals(dateData);
+                        return sum + totals.sLot;
+                      }, 0),
+                      selectedDates.reduce((sum, date) => {
+                        const dateData = priceDataByDate[date] || [];
+                        const totals = calculateTotals(dateData);
+                        return sum + totals.sFreq;
+                      }, 0)
+                    )}
+                  </td>
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                      const dateData = priceDataByDate[date] || [];
+                      const totals = calculateTotals(dateData);
+                      return sum + totals.sOrd;
+                    }, 0))}
+                          </td>
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatRatio(
+                      selectedDates.reduce((sum, date) => {
+                        const dateData = priceDataByDate[date] || [];
+                        const totals = calculateTotals(dateData);
+                        return sum + totals.sLot;
+                      }, 0),
+                      selectedDates.reduce((sum, date) => {
+                        const dateData = priceDataByDate[date] || [];
+                        const totals = calculateTotals(dateData);
+                        return sum + totals.sOrd;
+                      }, 0)
+                    )}
+                  </td>
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                      const dateData = priceDataByDate[date] || [];
+                      const totals = calculateTotals(dateData);
+                      return sum + totals.tFreq;
+                    }, 0))}
+                        </td>
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                     {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
                       const dateData = priceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
                       return sum + totals.tLot;
                     }, 0))}
-                          </td>
-                  <td className="text-right py-3 px-1 font-bold text-purple-600 bg-accent/50 border-r-2 border-border">
+                  </td>
+                  <td className="text-right py-[1px] px-[7px] font-bold text-white border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                     {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
                       const dateData = priceDataByDate[date] || [];
                       const totals = calculateTotals(dateData);
-                      return sum + totals.tFreq;
+                      return sum + totals.tOrd;
                     }, 0))}
                         </td>
                       </tr>
