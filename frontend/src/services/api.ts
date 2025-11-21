@@ -2040,6 +2040,26 @@ export const api = {
   },
 
   // Batch get broker breakdown data for multiple dates
+  // Get broker breakdown data for done summary with broker/fd/board parameters
+  async getDoneSummaryBrokerBreakdown(stockCode: string, date: string, broker?: string, fd?: string, board?: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const params = new URLSearchParams();
+      if (broker) params.append('broker', broker);
+      if (fd) params.append('fd', fd);
+      if (board) params.append('board', board);
+      
+      const res = await fetch(`${API_URL}/api/broker-breakdown/done-summary/${stockCode}/${date}?${params.toString()}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get done summary broker breakdown data');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get done summary broker breakdown data' };
+    }
+  },
+
   async getBrokerBreakdownBatch(stockCode: string, dates: string[]): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       const promises = dates.map(date => this.getBrokerBreakdownData(stockCode, date));

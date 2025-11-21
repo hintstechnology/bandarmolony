@@ -187,4 +187,123 @@ router.get('/summary/:date', async (req, res) => {
   }
 });
 
+// Get broker breakdown data with broker/fd/board parameters
+// Pattern: done_summary_broker_breakdown/{date}/{ticker}/{broker}_{fd}_{board}.csv
+// If all All: All.csv
+router.get('/done-summary/:stockCode/:date', async (req, res) => {
+  try {
+    const { stockCode, date } = req.params;
+    const broker = (req.query['broker'] as string) || 'All'; // Default: All
+    const fd = (req.query['fd'] as string) || 'all'; // Default: all (F/D filter)
+    const board = (req.query['board'] as string) || 'rg'; // Default: rg (Board filter)
+    
+    // Convert date from YYYY-MM-DD to YYYYMMDD
+    const dateFormatted = date.replace(/-/g, '');
+    
+    // Build filename based on parameters
+    // If all parameters are default (All/all/rg), use All.csv
+    // Otherwise: {broker}_{fd}_{board}.csv
+    let filename: string;
+    if (broker === 'All' && fd === 'all' && board === 'all') {
+      filename = `done_summary_broker_breakdown/${dateFormatted}/${stockCode}/All.csv`;
+    } else {
+      filename = `done_summary_broker_breakdown/${dateFormatted}/${stockCode}/${broker}_${fd}_${board}.csv`;
+    }
+    
+    console.log(`📊 Getting broker breakdown data: ${filename}`);
+    
+    try {
+      const content = await downloadText(filename);
+      
+      // Parse CSV content
+      const lines = content.trim().split('\n');
+      if (lines.length < 2) {
+        return res.json({
+          success: true,
+          data: {
+            stockCode,
+            date,
+            broker,
+            fd,
+            board,
+            filename,
+            records: [],
+            totalRecords: 0
+          }
+        });
+      }
+      
+      const headers = lines[0]?.split(',').map(h => h.trim()) || [];
+      const data = lines.slice(1)
+        .map(line => {
+          const values = line.split(',').map(v => v.trim());
+          const row: any = {};
+          headers.forEach((header, index) => {
+            const value = values[index] || '';
+            // Convert numeric fields to numbers
+            if (header === 'Price' || header === 'BFreq' || header === 'BLot' || 
+                header === 'BLot/Freq' || header === 'BOrd' || header === 'BLot/Ord' ||
+                header === 'SLot' || header === 'SFreq' || header === 'SLot/Freq' ||
+                header === 'SOrd' || header === 'SLot/Ord' || header === 'TFreq' ||
+                header === 'TLot' || header === 'TOrd') {
+              row[header] = parseFloat(value) || 0;
+            } else {
+              row[header] = value;
+            }
+          });
+          return row;
+        })
+        // Filter out rows where all numeric values are 0 or empty
+        .filter(row => {
+          const hasData = headers.some(header => {
+            const value = row[header];
+            if (typeof value === 'number') {
+              return value !== 0 && !isNaN(value);
+            }
+            return value && value.toString().trim() !== '';
+          });
+          return hasData;
+        });
+      
+      return res.json({
+        success: true,
+        data: {
+          stockCode,
+          date,
+          broker,
+          fd,
+          board,
+          filename,
+          headers,
+          records: data,
+          totalRecords: data.length
+        }
+      });
+    } catch (error: any) {
+      if (error.message && error.message.includes('Blob not found')) {
+        return res.json({
+          success: true,
+          data: {
+            stockCode,
+            date,
+            broker,
+            fd,
+            board,
+            filename,
+            records: [],
+            totalRecords: 0
+          }
+        });
+      }
+      throw error;
+    }
+  } catch (error) {
+    console.error('❌ Error getting broker breakdown data:', error);
+    return res.status(500).json({
+      success: false,
+      error: `Failed to get broker breakdown data: ${error instanceof Error ? error.message : 'Unknown error'}`
+    });
+  }
+});
+
 export default router;

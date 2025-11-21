@@ -197,19 +197,37 @@ export class BrokerBreakdownCalculator {
     }
 
     // Filter by investor type (if not 'All')
+    // IMPORTANT: Filter based on the broker that will be counted in breakdown
+    // In createBrokerBreakdownData, broker is determined by isBid (HAKA/HAKI logic):
+    // - If isBid (TRX_ORD1 > TRX_ORD2): broker = BRK_COD1 (buyer), check INV_TYP1
+    // - If not isBid: broker = BRK_COD2 (seller), check INV_TYP2
+    // So we need to filter based on the investor type of the broker that will be counted
     if (investorType !== 'All') {
       filtered = filtered.filter(row => {
-        // For buyer side: check INV_TYP1
-        // For seller side: check INV_TYP2
-        const buyerInvType = this.getInvestorType(row.INV_TYP1);
-        const sellerInvType = this.getInvestorType(row.INV_TYP2);
+        const isBid = row.TRX_ORD1 > row.TRX_ORD2; // HAKA -> BID, HAKI -> ASK
         
         if (investorType === 'D') {
-          // Domestik: INV_TYP1 = 'I' OR INV_TYP2 = 'I'
-          return buyerInvType === 'D' || sellerInvType === 'D';
+          // Domestik: Check investor type of the broker that will be counted
+          if (isBid) {
+            // Broker is buyer (BRK_COD1), check INV_TYP1
+            const buyerInvType = this.getInvestorType(row.INV_TYP1);
+            return buyerInvType === 'D';
+          } else {
+            // Broker is seller (BRK_COD2), check INV_TYP2
+            const sellerInvType = this.getInvestorType(row.INV_TYP2);
+            return sellerInvType === 'D';
+          }
         } else if (investorType === 'F') {
-          // Foreign: INV_TYP1 = 'A' OR INV_TYP2 = 'A'
-          return buyerInvType === 'F' || sellerInvType === 'F';
+          // Foreign: Check investor type of the broker that will be counted
+          if (isBid) {
+            // Broker is buyer (BRK_COD1), check INV_TYP1
+            const buyerInvType = this.getInvestorType(row.INV_TYP1);
+            return buyerInvType === 'F';
+          } else {
+            // Broker is seller (BRK_COD2), check INV_TYP2
+            const sellerInvType = this.getInvestorType(row.INV_TYP2);
+            return sellerInvType === 'F';
+          }
         }
         return false;
       });
@@ -330,9 +348,9 @@ export class BrokerBreakdownCalculator {
             TFreq: tFreq,
             TLot: tLot,
             TOrd: tOrd
-          });
         });
-        
+      });
+      
         // Sort by price descending (highest to lowest)
         brokerData.sort((a, b) => b.Price - a.Price);
         
@@ -587,7 +605,7 @@ export class BrokerBreakdownCalculator {
               }
               
               await this.saveToAzure(filename, brokerData);
-              createdFiles.push(filename);
+        createdFiles.push(filename);
             }
             
             // Create and save All.csv (calculated directly from transaction data)
