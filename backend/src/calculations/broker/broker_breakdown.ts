@@ -1,33 +1,57 @@
-import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
+import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_6 } from '../../services/dataUpdateService';
 
 // Type definitions for broker breakdown data
 interface TransactionData {
   STK_CODE: string;
-  BRK_COD1: string; // Seller broker
-  BRK_COD2: string; // Buyer broker
+  BRK_COD1: string; // Buyer broker
+  BRK_COD2: string; // Seller broker
   STK_VOLM: number;
   STK_PRIC: number;
   TRX_CODE: string;
   TRX_TIME: string;
-  TRX_ORD1: number; // Order reference 1
-  TRX_ORD2: number; // Order reference 2
+  TRX_TYPE: string; // Board type: RG, TN, NG
+  INV_TYP1: string; // Investor type 1 (buyer) - I = Indonesia, A = Asing
+  INV_TYP2: string; // Investor type 2 (seller) - I = Indonesia, A = Asing
+  TRX_ORD1: number; // Order reference 1 (buyer)
+  TRX_ORD2: number; // Order reference 2 (seller)
 }
 
 interface BrokerBreakdownData {
   Price: number;
-  Broker: string;
-  BLot: number;      // Buy Lot
   BFreq: number;    // Buy Frequency
-  SLot: number;      // Sell Lot
-  SFreq: number;     // Sell Frequency
-  TFreq: number;     // Total Frequency
-  TLot: number;      // Total Lot
+  BLot: number;    // Buy Lot
+  BLotPerFreq: number; // BLot / BFreq
+  BOrd: number;    // Buy Order (unique TRX_ORD1)
+  BLotPerOrd: number; // BLot / BOrd
+  SLot: number;    // Sell Lot
+  SFreq: number;   // Sell Frequency
+  SLotPerFreq: number; // SLot / SFreq
+  SOrd: number;    // Sell Order (unique TRX_ORD2)
+  SLotPerOrd: number; // SLot / SOrd
+  TFreq: number;   // Total Frequency
+  TLot: number;    // Total Lot
+  TOrd: number;    // Total Order
 }
+
+// Investor Type: D = Domestik, F = Foreign, All = All Trade (no filter)
+type InvestorType = 'D' | 'F' | 'All';
+// Board Type: RG = Regular, TN = Tunai, NG = Negosiasi, All = All Board (no filter)
+type BoardType = 'RG' | 'TN' | 'NG' | 'All';
 
 export class BrokerBreakdownCalculator {
   constructor() {
     // No need for Azure client initialization - using azureBlob utility
+  }
+
+  /**
+   * Get investor type from INV_TYP value
+   */
+  private getInvestorType(invTyp: string): InvestorType | null {
+    const normalized = invTyp?.trim().toUpperCase() || '';
+    if (normalized === 'I') return 'D'; // Indonesia = Domestik
+    if (normalized === 'A') return 'F'; // Asing = Foreign
+    return null;
   }
 
   /**
@@ -106,13 +130,17 @@ export class BrokerBreakdownCalculator {
     const stkPricIndex = getColumnIndex('STK_PRIC');
     const trxCodeIndex = getColumnIndex('TRX_CODE');
     const trxTimeIndex = getColumnIndex('TRX_TIME');
+    const trxTypeIndex = getColumnIndex('TRX_TYPE');
+    const invTyp1Index = getColumnIndex('INV_TYP1');
+    const invTyp2Index = getColumnIndex('INV_TYP2');
     const trxOrd1Index = getColumnIndex('TRX_ORD1');
     const trxOrd2Index = getColumnIndex('TRX_ORD2');
     
     // Validate required columns exist
     if (stkCodeIndex === -1 || brkCod1Index === -1 || brkCod2Index === -1 || 
         stkVolmIndex === -1 || stkPricIndex === -1 || trxCodeIndex === -1 ||
-        trxTimeIndex === -1 || trxOrd1Index === -1 || trxOrd2Index === -1) {
+        trxTimeIndex === -1 || trxTypeIndex === -1 || invTyp1Index === -1 || 
+        invTyp2Index === -1 || trxOrd1Index === -1 || trxOrd2Index === -1) {
       console.error('❌ Required columns not found in CSV header');
       return data;
     }
@@ -126,7 +154,7 @@ export class BrokerBreakdownCalculator {
       
       const stockCode = values[stkCodeIndex]?.trim() || '';
       
-      // Filter hanya kode emiten 4 huruf - same as original file
+      // Filter hanya kode emiten 4 huruf
       if (stockCode.length === 4) {
         const transaction: TransactionData = {
           STK_CODE: stockCode,
@@ -136,8 +164,11 @@ export class BrokerBreakdownCalculator {
           STK_PRIC: parseFloat(values[stkPricIndex]?.trim() || '0') || 0,
           TRX_CODE: values[trxCodeIndex]?.trim() || '',
           TRX_TIME: values[trxTimeIndex]?.trim() || '',
-          TRX_ORD1: parseFloat(values[trxOrd1Index]?.trim() || '0') || 0,
-          TRX_ORD2: parseFloat(values[trxOrd2Index]?.trim() || '0') || 0
+          TRX_TYPE: values[trxTypeIndex]?.trim() || '',
+          INV_TYP1: values[invTyp1Index]?.trim() || '',
+          INV_TYP2: values[invTyp2Index]?.trim() || '',
+          TRX_ORD1: parseInt(values[trxOrd1Index]?.trim() || '0', 10) || 0,
+          TRX_ORD2: parseInt(values[trxOrd2Index]?.trim() || '0', 10) || 0
         };
         
         data.push(transaction);
@@ -149,17 +180,63 @@ export class BrokerBreakdownCalculator {
   }
 
   /**
-   * Create broker breakdown data grouped by stock code
-   * Same logic as original file
+   * Filter transactions by investor type and board type
+   * - investorType: 'All' = no filter, 'D' = Domestik only, 'F' = Foreign only
+   * - boardType: 'All' = no filter, 'RG' = Regular only, 'TN' = Tunai only, 'NG' = Negosiasi only
    */
-  private createBrokerBreakdownData(data: TransactionData[]): Map<string, BrokerBreakdownData[]> {
-    console.log("Creating broker breakdown data by stock...");
+  private filterTransactions(
+    data: TransactionData[], 
+    investorType: InvestorType, 
+    boardType: BoardType
+  ): TransactionData[] {
+    let filtered = data;
+
+    // Filter by board type (if not 'All')
+    if (boardType !== 'All') {
+      filtered = filtered.filter(row => row.TRX_TYPE === boardType);
+    }
+
+    // Filter by investor type (if not 'All')
+    if (investorType !== 'All') {
+      filtered = filtered.filter(row => {
+        // For buyer side: check INV_TYP1
+        // For seller side: check INV_TYP2
+        const buyerInvType = this.getInvestorType(row.INV_TYP1);
+        const sellerInvType = this.getInvestorType(row.INV_TYP2);
+        
+        if (investorType === 'D') {
+          // Domestik: INV_TYP1 = 'I' OR INV_TYP2 = 'I'
+          return buyerInvType === 'D' || sellerInvType === 'D';
+        } else if (investorType === 'F') {
+          // Foreign: INV_TYP1 = 'A' OR INV_TYP2 = 'A'
+          return buyerInvType === 'F' || sellerInvType === 'F';
+        }
+        return false;
+      });
+    }
+
+    return filtered;
+  }
+
+  /**
+   * Create broker breakdown data grouped by stock code, broker, and price level
+   * Structure: emiten -> broker -> price level
+   */
+  private createBrokerBreakdownData(
+    data: TransactionData[],
+    investorType: InvestorType,
+    boardType: BoardType
+  ): Map<string, Map<string, BrokerBreakdownData[]>> {
+    console.log(`Creating broker breakdown data by stock, broker, and price (${investorType}/${boardType})...`);
     
-    const stockBrokerMap = new Map<string, Map<string, Map<number, {
+    // Structure: stock -> broker -> price -> data
+    const stockBrokerPriceMap = new Map<string, Map<string, Map<number, {
       buyLot: number;
       buyFreq: number;
+      buyOrd: Set<number>;
       sellLot: number;
       sellFreq: number;
+      sellOrd: Set<number>;
     }>>>();
     
     data.forEach(row => {
@@ -168,13 +245,14 @@ export class BrokerBreakdownCalculator {
       const volume = row.STK_VOLM;
       const isBid = row.TRX_ORD1 > row.TRX_ORD2; // HAKA -> BID, HAKI -> ASK
       
-      // Get broker code based on HAKA/HAKI logic - same as original file
+      // Get broker code based on HAKA/HAKI logic
+      // BRK_COD1 is buyer, BRK_COD2 is seller
       const brokerCode = isBid ? row.BRK_COD1 : row.BRK_COD2;
       
-      if (!stockBrokerMap.has(stock)) {
-        stockBrokerMap.set(stock, new Map());
+      if (!stockBrokerPriceMap.has(stock)) {
+        stockBrokerPriceMap.set(stock, new Map());
       }
-      const stockMap = stockBrokerMap.get(stock)!;
+      const stockMap = stockBrokerPriceMap.get(stock)!;
       
       if (!stockMap.has(brokerCode)) {
         stockMap.set(brokerCode, new Map());
@@ -185,56 +263,184 @@ export class BrokerBreakdownCalculator {
         brokerMap.set(price, {
           buyLot: 0,
           buyFreq: 0,
+          buyOrd: new Set<number>(),
           sellLot: 0,
-          sellFreq: 0
+          sellFreq: 0,
+          sellOrd: new Set<number>()
         });
       }
       const priceData = brokerMap.get(price)!;
       
-      // Klasifikasi BID/ASK berdasarkan HAKA/HAKI - same as original file
+      // Klasifikasi BID/ASK berdasarkan HAKA/HAKI
       if (isBid) {
+        // Buy side: BRK_COD1 is buyer
         priceData.buyLot += volume;
         priceData.buyFreq += 1;
+        if (row.TRX_ORD1 > 0) {
+          priceData.buyOrd.add(row.TRX_ORD1);
+        }
       } else {
+        // Sell side: BRK_COD2 is seller
         priceData.sellLot += volume;
         priceData.sellFreq += 1;
+        if (row.TRX_ORD2 > 0) {
+          priceData.sellOrd.add(row.TRX_ORD2);
+        }
       }
     });
     
-    // Convert to array format - same as original file
-    const breakdownData = new Map<string, BrokerBreakdownData[]>();
+    // Convert to final structure: stock -> broker -> array of price data
+    const breakdownData = new Map<string, Map<string, BrokerBreakdownData[]>>();
     
-    stockBrokerMap.forEach((brokerMap, stock) => {
-      const stockData: BrokerBreakdownData[] = [];
+    stockBrokerPriceMap.forEach((brokerMap, stock) => {
+      const stockBrokerData = new Map<string, BrokerBreakdownData[]>();
       
       brokerMap.forEach((priceMap, broker) => {
+        const brokerData: BrokerBreakdownData[] = [];
+        
         priceMap.forEach((priceData, price) => {
-          stockData.push({
+          const bLot = priceData.buyLot / 100; // Convert volume to lot
+          const sLot = priceData.sellLot / 100;
+          const bFreq = priceData.buyFreq;
+          const sFreq = priceData.sellFreq;
+          const bOrd = priceData.buyOrd.size;
+          const sOrd = priceData.sellOrd.size;
+          const tFreq = bFreq + sFreq;
+          const tLot = bLot + sLot;
+          const tOrd = bOrd + sOrd;
+          
+          // Calculate ratios
+          const bLotPerFreq = bFreq > 0 ? bLot / bFreq : 0;
+          const bLotPerOrd = bOrd > 0 ? bLot / bOrd : 0;
+          const sLotPerFreq = sFreq > 0 ? sLot / sFreq : 0;
+          const sLotPerOrd = sOrd > 0 ? sLot / sOrd : 0;
+          
+          brokerData.push({
             Price: price,
-            Broker: broker,
-            BLot: priceData.buyLot,
-            BFreq: priceData.buyFreq,
-            SLot: priceData.sellLot,
-            SFreq: priceData.sellFreq,
-            TFreq: priceData.buyFreq + priceData.sellFreq,
-            TLot: priceData.buyLot + priceData.sellLot
+            BFreq: bFreq,
+            BLot: bLot,
+            BLotPerFreq: bLotPerFreq,
+            BOrd: bOrd,
+            BLotPerOrd: bLotPerOrd,
+            SLot: sLot,
+            SFreq: sFreq,
+            SLotPerFreq: sLotPerFreq,
+            SOrd: sOrd,
+            SLotPerOrd: sLotPerOrd,
+            TFreq: tFreq,
+            TLot: tLot,
+            TOrd: tOrd
           });
         });
+        
+        // Sort by price descending (highest to lowest)
+        brokerData.sort((a, b) => b.Price - a.Price);
+        
+        stockBrokerData.set(broker, brokerData);
       });
       
-      // Sort by price ascending (low to high), then by broker - same as original file
-      stockData.sort((a, b) => {
-        if (a.Price !== b.Price) {
-          return a.Price - b.Price;
-        }
-        return a.Broker.localeCompare(b.Broker);
-      });
-      
-      breakdownData.set(stock, stockData);
+      breakdownData.set(stock, stockBrokerData);
     });
     
-    console.log(`Created broker breakdown data for ${breakdownData.size} stocks`);
+    console.log(`Created broker breakdown data for ${breakdownData.size} stocks (${investorType}/${boardType})`);
     return breakdownData;
+  }
+
+  /**
+   * Create All.csv file that aggregates all brokers for a stock
+   * Calculates directly from transaction data to get accurate order counts
+   */
+  private createAllBrokerDataForStock(
+    data: TransactionData[],
+    stockCode: string
+  ): BrokerBreakdownData[] {
+    // Filter transactions for this stock
+    const stockTransactions = data.filter(row => row.STK_CODE === stockCode);
+    
+    // Aggregate by price (all brokers combined)
+    const priceMap = new Map<number, {
+      buyLot: number;
+      buyFreq: number;
+      buyOrd: Set<number>;
+      sellLot: number;
+      sellFreq: number;
+      sellOrd: Set<number>;
+    }>();
+    
+    stockTransactions.forEach(row => {
+      const price = row.STK_PRIC;
+      const volume = row.STK_VOLM;
+      const isBid = row.TRX_ORD1 > row.TRX_ORD2; // HAKA -> BID, HAKI -> ASK
+      
+      if (!priceMap.has(price)) {
+        priceMap.set(price, {
+          buyLot: 0,
+          buyFreq: 0,
+          buyOrd: new Set<number>(),
+          sellLot: 0,
+          sellFreq: 0,
+          sellOrd: new Set<number>()
+        });
+      }
+      const priceData = priceMap.get(price)!;
+      
+      if (isBid) {
+        // Buy side: BRK_COD1 is buyer
+        priceData.buyLot += volume;
+        priceData.buyFreq += 1;
+        if (row.TRX_ORD1 > 0) {
+          priceData.buyOrd.add(row.TRX_ORD1);
+        }
+      } else {
+        // Sell side: BRK_COD2 is seller
+        priceData.sellLot += volume;
+        priceData.sellFreq += 1;
+        if (row.TRX_ORD2 > 0) {
+          priceData.sellOrd.add(row.TRX_ORD2);
+        }
+      }
+    });
+    
+    // Convert to BrokerBreakdownData format
+    const allData: BrokerBreakdownData[] = [];
+    priceMap.forEach((priceData, price) => {
+      const bLot = priceData.buyLot / 100; // Convert volume to lot
+      const sLot = priceData.sellLot / 100;
+      const bFreq = priceData.buyFreq;
+      const sFreq = priceData.sellFreq;
+      const bOrd = priceData.buyOrd.size;
+      const sOrd = priceData.sellOrd.size;
+      const tFreq = bFreq + sFreq;
+      const tLot = bLot + sLot;
+      const tOrd = bOrd + sOrd;
+      
+      const bLotPerFreq = bFreq > 0 ? bLot / bFreq : 0;
+      const bLotPerOrd = bOrd > 0 ? bLot / bOrd : 0;
+      const sLotPerFreq = sFreq > 0 ? sLot / sFreq : 0;
+      const sLotPerOrd = sOrd > 0 ? sLot / sOrd : 0;
+      
+      allData.push({
+        Price: price,
+        BFreq: bFreq,
+        BLot: bLot,
+        BLotPerFreq: bLotPerFreq,
+        BOrd: bOrd,
+        BLotPerOrd: bLotPerOrd,
+        SLot: sLot,
+        SFreq: sFreq,
+        SLotPerFreq: sLotPerFreq,
+        SOrd: sOrd,
+        SLotPerOrd: sLotPerOrd,
+        TFreq: tFreq,
+        TLot: tLot,
+        TOrd: tOrd
+      });
+    });
+    
+    // Sort by price descending
+    allData.sort((a, b) => b.Price - a.Price);
+    
+    return allData;
   }
 
   /**
@@ -246,19 +452,25 @@ export class BrokerBreakdownCalculator {
       return filename;
     }
     
-    // Convert to CSV format - same as original file
-    const headers = ['Price', 'Broker', 'BLot', 'BFreq', 'SLot', 'SFreq', 'TFreq', 'TLot'];
+    // Convert to CSV format
+    const headers = ['Price', 'BFreq', 'BLot', 'BLot/Freq', 'BOrd', 'BLot/Ord', 'SLot', 'SFreq', 'SLot/Freq', 'SOrd', 'SLot/Ord', 'TFreq', 'TLot', 'TOrd'];
     const csvContent = [
       headers.join(','),
       ...data.map(row => [
         row.Price,
-        row.Broker,
-        row.BLot,
         row.BFreq,
+        row.BLot,
+        row.BLotPerFreq,
+        row.BOrd,
+        row.BLotPerOrd,
         row.SLot,
         row.SFreq,
+        row.SLotPerFreq,
+        row.SOrd,
+        row.SLotPerOrd,
         row.TFreq,
-        row.TLot
+        row.TLot,
+        row.TOrd
       ].join(','))
     ].join('\n');
     
@@ -268,7 +480,7 @@ export class BrokerBreakdownCalculator {
   }
 
   /**
-   * Process a single DT file with broker breakdown analysis
+   * Process a single DT file with broker breakdown analysis for all combinations
    */
   private async processSingleDtFile(blobName: string): Promise<{ success: boolean; dateSuffix: string; files: string[]; skipped?: boolean }> {
     // Extract date from blob name first (before loading input)
@@ -277,16 +489,12 @@ export class BrokerBreakdownCalculator {
     const dateSuffix = dateFolder;
     
     // Check if output already exists for this date BEFORE loading input
-    // Check if folder exists by listing files (check if any file exists in the folder)
-    const { listPaths } = await import('../../utils/azureBlob');
-    
     try {
-      // Check if at least one file exists in the output folder
       const outputPrefix = `done_summary_broker_breakdown/${dateSuffix}/`;
-      const existingFiles = await listPaths({ prefix: outputPrefix });
+      const existingFiles = await listPaths({ prefix: outputPrefix, maxResults: 1 });
       
       if (existingFiles.length > 0) {
-        console.log(`⏭️ Broker breakdown already exists for date ${dateSuffix} - skipping (found ${existingFiles.length} existing files)`);
+        console.log(`⏭️ Broker breakdown already exists for date ${dateSuffix} - skipping (found existing files)`);
         return { success: true, dateSuffix, files: [], skipped: true };
       }
     } catch (error) {
@@ -321,21 +529,86 @@ export class BrokerBreakdownCalculator {
     }
     
     console.log(`📊 Valid transactions: ${validTransactions.length}/${data.length}`);
-    
     console.log(`🔄 Processing ${blobName} (${data.length} transactions)...`);
     
     try {
-      // Create broker breakdown data - same logic as original file
-      const breakdownData = this.createBrokerBreakdownData(validTransactions);
-      
-      // Save CSV files for each stock - same structure as original file
       const createdFiles: string[] = [];
       
-      for (const [stockCode, stockData] of breakdownData) {
-        const filename = `done_summary_broker_breakdown/${dateSuffix}/${stockCode}.csv`;
-        await this.saveToAzure(filename, stockData);
-        createdFiles.push(filename);
-        console.log(`Created ${filename} with ${stockData.length} broker breakdown records`);
+      // Process all combinations: 
+      // - Investor type: All (no filter), D (Domestik), F (Foreign)
+      // - Board type: All (no filter), RG (Regular), TN (Tunai), NG (Negosiasi)
+      // Total: 3 x 4 = 12 combinations per stock
+      const investorTypes: InvestorType[] = ['All', 'D', 'F'];
+      const boardTypes: BoardType[] = ['All', 'RG', 'TN', 'NG'];
+      
+      for (const investorType of investorTypes) {
+        for (const boardType of boardTypes) {
+          // Filter transactions
+          const filteredData = this.filterTransactions(validTransactions, investorType, boardType);
+          
+          if (filteredData.length === 0) {
+            console.log(`⏭️ Skipping ${investorType}/${boardType} - no transactions`);
+            continue;
+          }
+          
+          // Create broker breakdown data
+          const breakdownData = this.createBrokerBreakdownData(filteredData, investorType, boardType);
+          
+          // Get unique stock codes
+          const uniqueStocks = new Set<string>();
+          filteredData.forEach(row => uniqueStocks.add(row.STK_CODE));
+          
+          // Save files for each stock
+          for (const stockCode of uniqueStocks) {
+            // Folder structure: done_summary_broker_breakdown/{date}/{emiten}/
+            const emitenFolder = stockCode;
+            
+            const stockBrokerData = breakdownData.get(stockCode);
+            if (!stockBrokerData) continue;
+            
+            // File naming: {broker}_{investor}_{board}.csv or All_{investor}_{board}.csv
+            const fileSuffix = investorType === 'All' && boardType === 'All' 
+              ? '' 
+              : `_${investorType.toLowerCase()}_${boardType.toLowerCase()}`;
+            
+            // Save individual broker files
+            for (const [brokerCode, brokerData] of stockBrokerData) {
+              const filename = `done_summary_broker_breakdown/${dateSuffix}/${emitenFolder}/${brokerCode}${fileSuffix}.csv`;
+              
+              // Check if file already exists
+              try {
+                const fileExists = await exists(filename);
+                if (fileExists) {
+                  console.log(`⏭️ Skipping ${filename} - file already exists`);
+                  continue;
+                }
+              } catch (error) {
+                // Continue if check fails
+              }
+              
+              await this.saveToAzure(filename, brokerData);
+              createdFiles.push(filename);
+            }
+            
+            // Create and save All.csv (calculated directly from transaction data)
+            const allData = this.createAllBrokerDataForStock(filteredData, stockCode);
+            const allFilename = `done_summary_broker_breakdown/${dateSuffix}/${emitenFolder}/All${fileSuffix}.csv`;
+            
+            try {
+              const fileExists = await exists(allFilename);
+              if (!fileExists) {
+                await this.saveToAzure(allFilename, allData);
+                createdFiles.push(allFilename);
+              } else {
+                console.log(`⏭️ Skipping ${allFilename} - file already exists`);
+              }
+            } catch (error) {
+              // Continue if check fails
+            }
+          }
+          
+          console.log(`✅ Processed ${investorType}/${boardType}: ${breakdownData.size} stocks`);
+        }
       }
       
       console.log(`✅ Completed processing ${blobName} - ${createdFiles.length} files created`);
@@ -369,7 +642,7 @@ export class BrokerBreakdownCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
-      // Process files in batches for speed (10 files at a time to prevent OOM)
+      // Process files in batches
       const BATCH_SIZE = BATCH_SIZE_PHASE_6; // Phase 6: 1 file at a time
       const allResults: { success: boolean; dateSuffix: string; files: string[] }[] = [];
       let processed = 0;
