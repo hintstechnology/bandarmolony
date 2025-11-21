@@ -1102,14 +1102,16 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
         currentHours -= 24;
       }
       
-      // Compare times
+      // Compare times (handle same-day comparison)
       const newTimeMinutes = newHour * 60 + newMinute;
       const currentTimeMinutes = currentHours * 60 + currentMinutes;
       
-      // If new time is less than or equal to current time, it's in the past
+      // If new time is less than or equal to current time, it's in the past (same day)
+      // Note: For daily scheduler, we only allow setting time for today that is in the future
+      // If user wants to set for tomorrow, they should wait until after midnight
       if (newTimeMinutes <= currentTimeMinutes) {
         return res.status(400).json(createErrorResponse(
-          `Scheduler time must be in the future. Current time is ${String(currentHours).padStart(2, '0')}:${String(currentMinutes).padStart(2, '0')} ${timezone}. Please set a time after the current time.`,
+          `Scheduler time must be in the future. Current time is ${String(currentHours).padStart(2, '0')}:${String(currentMinutes).padStart(2, '0')} ${timezone}. Please set a time after the current time (must be greater than current time).`,
           'VALIDATION_ERROR',
           'PHASE1_DATA_COLLECTION_TIME',
           400
@@ -1216,11 +1218,11 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
           weekend_skip: updatedConfig.WEEKEND_SKIP
         });
         
-        // Calculate resize time (5 minutes before scheduler)
+        // Calculate resize time (15 minutes before scheduler)
         const timeParts = updatedConfig.PHASE1_DATA_COLLECTION_TIME.split(':').map(Number);
         const schedulerHour = timeParts[0] ?? 0;
         const schedulerMinute = timeParts[1] ?? 0;
-        let resizeMinute = schedulerMinute - 5;
+        let resizeMinute = schedulerMinute - 15;
         let resizeHour = schedulerHour;
         if (resizeMinute < 0) {
           resizeMinute += 60;
@@ -1643,14 +1645,16 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
         currentHours -= 24;
       }
       
-      // Compare times
+      // Compare times (handle same-day comparison)
       const newTimeMinutes = newHour * 60 + newMinute;
       const currentTimeMinutes = currentHours * 60 + currentMinutes;
       
-      // If new time is less than or equal to current time, it's in the past
+      // If new time is less than or equal to current time, it's in the past (same day)
+      // Note: For daily scheduler, we only allow setting time for today that is in the future
+      // If user wants to set for tomorrow, they should wait until after midnight
       if (newTimeMinutes <= currentTimeMinutes) {
         return res.status(400).json(createErrorResponse(
-          `Scheduler time must be in the future. Current time is ${String(currentHours).padStart(2, '0')}:${String(currentMinutes).padStart(2, '0')} ${timezone}. Please set a time after the current time.`,
+          `Scheduler time must be in the future. Current time is ${String(currentHours).padStart(2, '0')}:${String(currentMinutes).padStart(2, '0')} ${timezone}. Please set a time after the current time (must be greater than current time).`,
           'VALIDATION_ERROR',
           'PHASE1_DATA_COLLECTION_TIME',
           400
@@ -1757,11 +1761,11 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
           weekend_skip: updatedConfig.WEEKEND_SKIP
         });
         
-        // Calculate resize time (5 minutes before scheduler)
+        // Calculate resize time (15 minutes before scheduler)
         const timeParts = updatedConfig.PHASE1_DATA_COLLECTION_TIME.split(':').map(Number);
         const schedulerHour = timeParts[0] ?? 0;
         const schedulerMinute = timeParts[1] ?? 0;
-        let resizeMinute = schedulerMinute - 5;
+        let resizeMinute = schedulerMinute - 15;
         let resizeHour = schedulerHour;
         if (resizeMinute < 0) {
           resizeMinute += 60;

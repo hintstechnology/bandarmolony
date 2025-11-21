@@ -79,31 +79,38 @@ function timeToCron(time: string): string {
 }
 
 // Convert time to cron format with timezone (HH:MM in timezone -> MM HH * * * in UTC)
+// Note: node-cron uses server's local timezone. Azure Container Apps typically use UTC.
+// This function converts WIB (UTC+7) to UTC for cron schedule.
 function timeToCronUTC(time: string, _timezone: string): string {
   const parts = time.split(':').map(Number);
   const hours = parts[0] ?? 0;
   const minutes = parts[1] ?? 0;
   
-  // Use a simple approach: assume timezone is Asia/Jakarta (UTC+7)
-  // Convert to UTC by subtracting 7 hours
+  // Convert WIB (UTC+7) to UTC by subtracting 7 hours
   let utcHours = hours - 7;
   const utcMinutes = minutes;
   
-  // Handle day rollover
+  // Handle day rollover (if result is negative, add 24 hours)
   if (utcHours < 0) {
     utcHours += 24;
   }
   
-  return `${utcMinutes} ${utcHours} * * *`;
+  // Format: MM HH * * * (minute hour day month day-of-week)
+  const cronExpression = `${utcMinutes} ${utcHours} * * *`;
+  
+  // Log for debugging
+  console.log(`🕐 Time conversion: ${time} WIB (UTC+7) -> ${String(utcHours).padStart(2, '0')}:${String(utcMinutes).padStart(2, '0')} UTC (cron: ${cronExpression})`);
+  
+  return cronExpression;
 }
 
-// Calculate resize time (5 minutes before scheduler time)
+// Calculate resize time (15 minutes before scheduler time)
 function calculateResizeTime(schedulerTime: string): string {
   const parts = schedulerTime.split(':').map(Number);
   const hours = parts[0] ?? 0;
   const minutes = parts[1] ?? 0;
   
-  let resizeMinutes = minutes - 5;
+  let resizeMinutes = minutes - 15;
   let resizeHours = hours;
   
   // Handle minute rollover
@@ -1865,15 +1872,17 @@ export function updatePhaseTriggerConfig(
         currentHours -= 24;
       }
       
-      // Compare times
+      // Compare times (handle same-day comparison)
       const newTimeMinutes = newHour * 60 + newMinute;
       const currentTimeMinutes = currentHours * 60 + currentMinutes;
       
-      // If new time is less than or equal to current time, it's in the past
+      // If new time is less than or equal to current time, it's in the past (same day)
+      // Note: For daily scheduler, we only allow setting time for today that is in the future
+      // If user wants to set for tomorrow, they should wait until after midnight
       if (newTimeMinutes <= currentTimeMinutes) {
         return { 
           success: false, 
-          message: `Scheduler time must be in the future. Current time is ${String(currentHours).padStart(2, '0')}:${String(currentMinutes).padStart(2, '0')} ${timezone}. Please set a time after the current time.` 
+          message: `Scheduler time must be in the future. Current time is ${String(currentHours).padStart(2, '0')}:${String(currentMinutes).padStart(2, '0')} ${timezone}. Please set a time after the current time (must be greater than current time).` 
         };
       }
       
@@ -1985,7 +1994,7 @@ export function startScheduler(): void {
 
   console.log('🕐 Starting scheduler...');
   
-  // Schedule resize-before webhook trigger (5 minutes before scheduler time)
+  // Schedule resize-before webhook trigger (15 minutes before scheduler time)
   scheduleResizeBeforeWebhook();
 
   // Phase 1, 2, 3 will be scheduled manually, Phase 4, 5, 6 will be auto-triggered
@@ -2451,14 +2460,14 @@ export function updateSchedulerConfig(newConfig: Partial<typeof SCHEDULER_CONFIG
   PHASE1_DATA_COLLECTION_SCHEDULE = timeToCron(PHASE1_DATA_COLLECTION_TIME);
   PHASE1_SHAREHOLDERS_SCHEDULE = timeToCron(PHASE1_SHAREHOLDERS_TIME);
   
-  // Schedule resize-before webhook trigger (5 minutes before scheduler time)
+  // Schedule resize-before webhook trigger (15 minutes before scheduler time)
   scheduleResizeBeforeWebhook();
   
   console.log('✅ Scheduler configuration updated:', SCHEDULER_CONFIG);
 }
 
 /**
- * Schedule resize-before webhook trigger (5 minutes before scheduler time)
+ * Schedule resize-before webhook trigger (15 minutes before scheduler time)
  */
 function scheduleResizeBeforeWebhook(): void {
   // Stop existing task if any
@@ -2472,9 +2481,23 @@ function scheduleResizeBeforeWebhook(): void {
   const timezone = SCHEDULER_CONFIG.TIMEZONE;
   
   // Convert resize time to UTC cron format
+  // Note: node-cron uses server's local timezone (typically UTC in Azure)
   const resizeCron = timeToCronUTC(resizeTime, timezone);
   
-  console.log(`📅 Scheduling resize-before webhook trigger at ${resizeTime} ${timezone} (cron: ${resizeCron})`);
+  // Calculate expected UTC time for verification
+  const resizeParts = resizeTime.split(':').map(Number);
+  const resizeHours = resizeParts[0] ?? 0;
+  const resizeMinutes = resizeParts[1] ?? 0;
+  let expectedUtcHours = resizeHours - 7;
+  if (expectedUtcHours < 0) expectedUtcHours += 24;
+  const expectedUtcTime = `${String(expectedUtcHours).padStart(2, '0')}:${String(resizeMinutes).padStart(2, '0')}`;
+  
+  console.log(`📅 Scheduling resize-before webhook trigger:`);
+  console.log(`   Scheduler time: ${schedulerTime} ${timezone}`);
+  console.log(`   Resize time: ${resizeTime} ${timezone} (15 minutes before)`);
+  console.log(`   Expected UTC time: ${expectedUtcTime} UTC`);
+  console.log(`   Cron expression: ${resizeCron}`);
+  console.log(`   Server timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
   
   // Schedule webhook trigger
   resizeBeforeWebhookTask = cron.schedule(resizeCron, async () => {

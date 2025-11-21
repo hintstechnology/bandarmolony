@@ -1,14 +1,14 @@
 name: Resize Container Before Scheduler
 
 on:
-  # Real-time: triggered via webhook when scheduler time changes
+  # Real-time: triggered via webhook from backend node-cron (15 minutes before scheduler time)
+  # Backend automatically schedules this webhook trigger when:
+  # 1. Server starts (auto-start scheduler)
+  # 2. Scheduler config is updated
+  # 3. Scheduler is restarted
   repository_dispatch:
     types: [scheduler-time-changed]
-  # Default schedule: trigger at 18:55 WIB (5 minutes before default 19:00 scheduler)
-  # 18:55 WIB = 11:55 UTC (WIB = UTC+7)
-  schedule:
-    - cron: '55 11 * * *'  # 11:55 UTC = 18:55 WIB (default)
-  # Manual trigger
+  # Manual trigger (for testing/debugging)
   workflow_dispatch:
 
 env:
@@ -25,16 +25,18 @@ jobs:
         id: quick-check
         run: |
           echo "🔍 Event Type: ${{ github.event_name }}"
+          echo "🕐 Current UTC Time: $(date -u +"%Y-%m-%d %H:%M:%S")"
+          echo "🕐 Current WIB Time: $(TZ='Asia/Jakarta' date +"%Y-%m-%d %H:%M:%S")"
           
-          # If triggered via webhook, use payload
+          # If triggered via webhook from backend, use payload
           if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
-            echo "✅ Triggered via repository_dispatch webhook (scheduler time changed)"
+            echo "✅ Triggered via repository_dispatch webhook from backend node-cron"
             SCHEDULER_TIME="${{ github.event.client_payload.new_time }}"
             TIMEZONE="${{ github.event.client_payload.timezone }}"
             WEEKEND_SKIP="${{ github.event.client_payload.weekend_skip }}"
           else
-            # If triggered via schedule, fetch from API
-            echo "📡 Triggered via schedule (default 18:55 WIB)"
+            # If triggered manually (workflow_dispatch), fetch from API
+            echo "📡 Triggered manually (workflow_dispatch) - fetching config from API"
             RESPONSE=$(curl -s "${{ secrets.VITE_API_URL }}/api/public/scheduler/config")
             SCHEDULER_TIME=$(echo $RESPONSE | jq -r '.data.config.PHASE1_DATA_COLLECTION_TIME')
             TIMEZONE=$(echo $RESPONSE | jq -r '.data.config.TIMEZONE')
@@ -79,7 +81,7 @@ jobs:
           
           now_tz = datetime.now(tz)
           scheduler_dt = tz.localize(datetime(now_tz.year, now_tz.month, now_tz.day, hour, minute))
-          resize_dt = scheduler_dt - timedelta(minutes=5)
+          resize_dt = scheduler_dt - timedelta(minutes=15)
           
           resize_utc = resize_dt.astimezone(utc)
           scheduler_utc = scheduler_dt.astimezone(utc)
@@ -197,8 +199,8 @@ jobs:
           now_tz = datetime.now(tz)
           scheduler_dt = tz.localize(datetime(now_tz.year, now_tz.month, now_tz.day, hour, minute))
           
-          # Subtract 5 minutes
-          resize_dt = scheduler_dt - timedelta(minutes=5)
+          # Subtract 15 minutes
+          resize_dt = scheduler_dt - timedelta(minutes=15)
           
           # Convert to UTC
           resize_utc = resize_dt.astimezone(utc)
