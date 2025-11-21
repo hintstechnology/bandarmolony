@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
-import { ChevronDown, TrendingUp, Calendar, Plus, X, Search, RotateCcw } from 'lucide-react';
+import { ChevronDown, TrendingUp, Calendar, Search, Loader2 } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 import { api } from '../../services/api';
 import { STOCK_LIST, searchStocks } from '../../data/stockList';
@@ -38,12 +37,19 @@ interface BackendBidAskData {
 interface BrokerBreakdownData {
   broker: string;
   price: number;
-  bLot: number;
-  sLot: number;
   bFreq: number;
+  bLot: number;
+  bLotPerFreq: number; // BLot/Freq
+  bOrd: number;
+  bLotPerOrd: number; // BLot/Ord
+  sLot: number;
   sFreq: number;
+  sLotPerFreq: number; // SLot/Freq
+  sOrd: number;
+  sLotPerOrd: number; // SLot/Ord
   tFreq: number;
   tLot: number;
+  tOrd: number;
 }
 
 
@@ -85,7 +91,7 @@ const generatePriceData = (stock: string, date: string): PriceData[] => {
 };
 */
 
-// Generate broker breakdown data
+// Generate broker breakdown data (DEPRECATED - using real data from API now)
 const generateBrokerBreakdownData = (stock: string, date: string): BrokerBreakdownData[] => {
   const brokers = ['LG', 'MG', 'BR', 'RG', 'CC', 'AT', 'SD', 'MQ', 'UU', 'UQ'];
   const basePrice = stock === 'BBRI' ? 4150 : stock === 'BBCA' ? 2750 : 1500;
@@ -116,16 +122,25 @@ const generateBrokerBreakdownData = (stock: string, date: string): BrokerBreakdo
           const sLot = (priceSeed * 456) % 10000000;
           const bFreq = (priceSeed * 789) % 1000;
           const sFreq = (priceSeed * 321) % 1000;
+          const bOrd = (priceSeed * 111) % 500;
+          const sOrd = (priceSeed * 222) % 500;
           
           data.push({
             broker,
             price,
-            bLot,
-            sLot,
             bFreq,
+            bLot,
+            bLotPerFreq: bFreq > 0 ? bLot / bFreq : 0,
+            bOrd,
+            bLotPerOrd: bOrd > 0 ? bLot / bOrd : 0,
+            sLot,
             sFreq,
+            sLotPerFreq: sFreq > 0 ? sLot / sFreq : 0,
+            sOrd,
+            sLotPerOrd: sOrd > 0 ? sLot / sOrd : 0,
             tFreq: bFreq + sFreq,
-            tLot: bLot + sLot
+            tLot: bLot + sLot,
+            tOrd: bOrd + sOrd
           });
         }
       }
@@ -186,73 +201,41 @@ const calculateTotals = (data: PriceData[]) => {
   }), { bFreq: 0, bLot: 0, bOrd: 0, sLot: 0, sFreq: 0, sOrd: 0, tFreq: 0, tLot: 0, tOrd: 0 });
 };
 
-// Helper function to calculate broker breakdown totals for a specific date
-const calculateBrokerBreakdownTotals = (stock: string, date: string) => {
-  const data = generateBrokerBreakdownData(stock, date);
+// Helper function to calculate broker breakdown totals for a specific date (DEPRECATED - using real data now)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const calculateBrokerBreakdownTotals = (_stock: string, _date: string) => {
+  const data = generateBrokerBreakdownData(_stock, _date);
   return data.reduce((totals, row) => ({
-    bLot: totals.bLot + row.bLot,
-    sLot: totals.sLot + row.sLot,
     bFreq: totals.bFreq + row.bFreq,
+    bLot: totals.bLot + row.bLot,
+    bOrd: totals.bOrd + (row.bOrd || 0),
+    sLot: totals.sLot + row.sLot,
     sFreq: totals.sFreq + row.sFreq,
+    sOrd: totals.sOrd + (row.sOrd || 0),
     tFreq: totals.tFreq + row.tFreq,
-    tLot: totals.tLot + row.tLot
-  }), { bLot: 0, sLot: 0, bFreq: 0, sFreq: 0, tFreq: 0, tLot: 0 });
+    tLot: totals.tLot + row.tLot,
+    tOrd: totals.tOrd + (row.tOrd || 0)
+  }), { bFreq: 0, bLot: 0, bOrd: 0, sLot: 0, sFreq: 0, sOrd: 0, tFreq: 0, tLot: 0, tOrd: 0 });
 };
 
-// Helper function to get all unique prices across all dates that have transactions (sorted ascending)
-const getAllUniquePrices = (stock: string, dates: string[], priceDataByDate: { [date: string]: PriceData[] }): number[] => {
-  const priceMap = new Map<number, boolean>(); // price -> hasData
+// Helper function to get all unique prices across all dates (no sorting, preserve CSV order)
+// Returns prices in the order they appear in CSV (first date's order)
+const getAllUniquePrices = (_stock: string, dates: string[], priceDataByDate: { [date: string]: PriceData[] }): number[] => {
+  const priceSet = new Set<number>();
+  const priceOrder: number[] = []; // Preserve order from CSV
   
-  // Check each date and collect prices that have actual non-zero data
+  // Collect prices from all dates, preserving order from first date
   dates.forEach(date => {
     const data = priceDataByDate[date] || [];
     data.forEach(item => {
-      // Check if this item has at least one non-zero value
-      const hasData = (
-        (item.bFreq && item.bFreq > 0) || 
-        (item.bLot && item.bLot > 0) || 
-        (item.bOrd && item.bOrd > 0) || 
-        (item.sLot && item.sLot > 0) || 
-        (item.sFreq && item.sFreq > 0) || 
-        (item.sOrd && item.sOrd > 0) || 
-        (item.tFreq && item.tFreq > 0) || 
-        (item.tLot && item.tLot > 0) || 
-        (item.tOrd && item.tOrd > 0)
-      );
-      
-      if (hasData) {
-        // Mark this price as having data
-        priceMap.set(item.price, true);
+      if (item.price && !priceSet.has(item.price)) {
+        priceSet.add(item.price);
+        priceOrder.push(item.price);
       }
     });
   });
   
-  // Only return prices that have data in at least one date
-  const validPrices = Array.from(priceMap.keys()).filter(price => {
-    // Double check: verify this price has data in at least one date
-    for (const date of dates) {
-      const data = getDataForPriceAndDate(stock, date, price, priceDataByDate);
-      if (data) {
-        const hasNonZero = (
-          (data.bFreq && data.bFreq > 0) || 
-          (data.bLot && data.bLot > 0) || 
-          (data.bOrd && data.bOrd > 0) || 
-          (data.sLot && data.sLot > 0) || 
-          (data.sFreq && data.sFreq > 0) || 
-          (data.sOrd && data.sOrd > 0) || 
-          (data.tFreq && data.tFreq > 0) || 
-          (data.tLot && data.tLot > 0) || 
-          (data.tOrd && data.tOrd > 0)
-        );
-        if (hasNonZero) {
-          return true;
-        }
-      }
-    }
-    return false;
-  });
-  
-  return validPrices.sort((a, b) => a - b); // Sort ascending (lowest to highest)
+  return priceOrder; // Return in CSV order, no sorting
 };
 
 // Helper function to get data for specific price and date
@@ -418,9 +401,9 @@ interface StockTransactionDoneSummaryProps {
 
 export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }: StockTransactionDoneSummaryProps) {
   const { showToast } = useToast();
-  const [selectedDates, setSelectedDates] = useState<string[]>(getLastThreeTradingDays());
-  const [selectedStock, setSelectedStock] = useState(propSelectedStock || 'BBRI');
-  const [viewMode, setViewMode] = useState<'summary' | 'broker'>('summary');
+  const [selectedDates, setSelectedDates] = useState<string[]>([]);
+  const [selectedStock, setSelectedStock] = useState(propSelectedStock || 'BBCA');
+  const [viewMode] = useState<'summary' | 'broker'>('summary'); // Always summary, no toggle
   
   // Real data states
   const [priceDataByDate, setPriceDataByDate] = useState<{ [date: string]: PriceData[] }>({});
@@ -429,9 +412,11 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
   const [error, setError] = useState<string | null>(null);
   const [availableStocks] = useState<string[]>(STOCK_LIST);
   const [_availableDates] = useState<string[]>([]);
+  const [shouldFetchData, setShouldFetchData] = useState<boolean>(false);
+  const [isDataReady, setIsDataReady] = useState<boolean>(false);
   
   // UI states
-  const [stockInput, setStockInput] = useState('BBRI');
+  const [stockInput, setStockInput] = useState(propSelectedStock || 'BBCA');
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -451,7 +436,22 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
     }
     return '';
   });
-  const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
+  // Broker selection states
+  const [brokerInput, setBrokerInput] = useState('');
+  const [selectedBrokers, setSelectedBrokers] = useState<string[]>([]);
+  const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false);
+  const [highlightedBrokerIndex, setHighlightedBrokerIndex] = useState<number>(-1);
+  const [availableBrokers, setAvailableBrokers] = useState<string[]>([]);
+  const dropdownBrokerRef = useRef<HTMLDivElement>(null);
+  
+  // Filter states - Default: F/D=All, Board=RG
+  const [invFilter, setInvFilter] = useState<'F' | 'D' | ''>(''); // Default: All (empty = all)
+  const [boardFilter, setBoardFilter] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Default: RG
+  const [showOrdColumns, setShowOrdColumns] = useState<boolean>(true); // Show/hide Ord columns
+  
+  // Menu container ref for responsive layout
+  const menuContainerRef = useRef<HTMLDivElement>(null);
+  const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
 
   // Helper functions
   const handleStockSelect = (stock: string) => {
@@ -471,7 +471,64 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
   };
 
   const filteredStocks = searchStocks(stockInput);
+  
+  // Handle broker selection
+  const handleBrokerSelect = (broker: string) => {
+    if (!selectedBrokers.includes(broker)) {
+      setSelectedBrokers([...selectedBrokers, broker]);
+    }
+    setBrokerInput('');
+    setShowBrokerSuggestions(false);
+  };
 
+  const handleRemoveBroker = (broker: string) => {
+    setSelectedBrokers(selectedBrokers.filter(b => b !== broker));
+  };
+  
+  // Load available brokers on mount
+  useEffect(() => {
+    const loadBrokers = async () => {
+      try {
+        const response = await api.getBrokerList();
+        if (response.success && response.data?.brokers) {
+          setAvailableBrokers(response.data.brokers.sort());
+        }
+      } catch (error) {
+        console.error('Error loading brokers:', error);
+      }
+    };
+    loadBrokers();
+  }, []);
+  
+  // Monitor menu height to detect if it wraps to 2 rows
+  useEffect(() => {
+    const checkMenuHeight = () => {
+      if (menuContainerRef.current) {
+        const menuHeight = menuContainerRef.current.offsetHeight;
+        setIsMenuTwoRows(menuHeight > 50);
+      }
+    };
+
+    checkMenuHeight();
+    window.addEventListener('resize', checkMenuHeight);
+    
+    let resizeObserver: ResizeObserver | null = null;
+    if (menuContainerRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        checkMenuHeight();
+      });
+      resizeObserver.observe(menuContainerRef.current);
+    }
+
+    return () => {
+      window.removeEventListener('resize', checkMenuHeight);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+    };
+  }, [selectedBrokers, selectedStock, startDate, endDate]);
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const addDateRange = () => {
     if (startDate && endDate) {
       const start = new Date(startDate);
@@ -531,20 +588,18 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
       }
 
       setSelectedDates(sortedDates);
-      setDateRangeMode('custom');
     }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const removeDate = (dateToRemove: string) => {
     if (selectedDates.length > 1) {
       setSelectedDates(selectedDates.filter(date => date !== dateToRemove));
-      setDateRangeMode('custom');
     }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleDateRangeModeChange = (mode: '1day' | '3days' | '1week' | 'custom') => {
-    setDateRangeMode(mode);
-    
     if (mode === 'custom') {
       return;
     }
@@ -573,9 +628,9 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
     }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const clearAllDates = () => {
     setSelectedDates(getTradingDays(1));
-    setDateRangeMode('1day');
     const oneDay = getTradingDays(1);
     if (oneDay.length > 0) {
       setStartDate(oneDay[0]);
@@ -583,11 +638,14 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
     }
   };
 
-  // Handle click outside to close dropdown
+  // Handle click outside to close dropdowns
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-    setShowStockSuggestions(false);
+        setShowStockSuggestions(false);
+      }
+      if (dropdownBrokerRef.current && !dropdownBrokerRef.current.contains(event.target as Node)) {
+        setShowBrokerSuggestions(false);
       }
     };
 
@@ -615,16 +673,24 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
   };
 
   // Convert backend broker breakdown data to frontend format
+  // CSV format: Price,BFreq,BLot,BLot/Freq,BOrd,BLot/Ord,SLot,SFreq,SLot/Freq,SOrd,SLot/Ord,TFreq,TLot,TOrd
   const convertBackendBrokerToFrontend = (backendData: any[]): BrokerBreakdownData[] => {
     return backendData.map(item => ({
-      price: Number(item.Price),
-      broker: String(item.Broker),
-      bLot: Number(item.BLot) || 0,
+      price: Number(item.Price) || 0,
+      broker: String(item.Broker || ''),
       bFreq: Number(item.BFreq) || 0,
+      bLot: Number(item.BLot) || 0,
+      bLotPerFreq: Number(item['BLot/Freq'] || item.BLotPerFreq) || 0,
+      bOrd: Number(item.BOrd) || 0,
+      bLotPerOrd: Number(item['BLot/Ord'] || item.BLotPerOrd) || 0,
       sLot: Number(item.SLot) || 0,
       sFreq: Number(item.SFreq) || 0,
+      sLotPerFreq: Number(item['SLot/Freq'] || item.SLotPerFreq) || 0,
+      sOrd: Number(item.SOrd) || 0,
+      sLotPerOrd: Number(item['SLot/Ord'] || item.SLotPerOrd) || 0,
+      tFreq: Number(item.TFreq) || 0,
       tLot: Number(item.TLot) || 0,
-      tFreq: Number(item.TFreq) || 0
+      tOrd: Number(item.TOrd) || 0
     }));
   };
 
@@ -637,122 +703,104 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
     }
   }, [propSelectedStock, selectedStock]);
 
-  // Fetch data when selected stock or dates change
+  // Fetch data when shouldFetchData is true
   useEffect(() => {
     const fetchData = async () => {
+      if (!shouldFetchData) {
+        return;
+      }
+      
       if (!selectedStock || selectedDates.length === 0) {
         console.log('Skipping fetch - missing stock or dates:', { selectedStock, selectedDates });
+        setShouldFetchData(false);
         return;
       }
 
-      console.log('Starting to fetch data for:', { selectedStock, selectedDates });
+      console.log('Starting to fetch data for:', { selectedStock, selectedDates, selectedBrokers, invFilter, boardFilter });
       setLoading(true);
       setError(null);
+      setIsDataReady(false);
 
       try {
-        // Fetch bid/ask data for all selected dates
-        console.log('Calling API getBidAskBatch...');
-        console.log('Selected dates:', selectedDates);
-        console.log('Selected stock:', selectedStock);
-        console.log('Date format check:', {
-          original: selectedDates[0],
-          formatted: selectedDates[0]?.replace(/-/g, ''),
-          expected: '20251022'
+        // Determine broker parameter: if empty, use 'All', otherwise use first selected broker
+        const brokerParam = selectedBrokers.length === 0 ? 'All' : selectedBrokers[0];
+        // Determine fd parameter: if empty, use 'all', otherwise use lowercase
+        const fdParam = invFilter === '' ? 'all' : invFilter.toLowerCase();
+        // Determine board parameter: if empty, use 'rg' (default), otherwise use lowercase
+        const boardParam = boardFilter === '' ? 'rg' : boardFilter.toLowerCase();
+        
+        console.log('API parameters:', { brokerParam, fdParam, boardParam });
+        
+        // Fetch broker breakdown data for all selected dates
+        const promises = selectedDates.map(date => 
+          api.getDoneSummaryBrokerBreakdown(selectedStock, date, brokerParam, fdParam, boardParam)
+        );
+        
+        const results = await Promise.allSettled(promises);
+        
+        const newPriceDataByDate: { [date: string]: PriceData[] } = {};
+        const newBrokerDataByDate: { [date: string]: BrokerBreakdownData[] } = {};
+        
+        results.forEach((result, index) => {
+          const date = selectedDates[index];
+          if (!date) return;
+          
+          if (result.status === 'fulfilled' && result.value.success && result.value.data?.records) {
+            const records = result.value.data.records;
+            
+            // Convert CSV records to PriceData format (for summary view)
+            // CSV columns: Price, BFreq, BLot, BLot/Freq, BOrd, BLot/Ord, SLot, SFreq, SLot/Freq, SOrd, SLot/Ord, TFreq, TLot, TOrd
+            // Preserve order from CSV (no filtering, no sorting)
+            const priceData: PriceData[] = records.map((row: any) => ({
+              price: Number(row.Price) || 0,
+              bFreq: Number(row.BFreq) || 0,
+              bLot: Number(row.BLot) || 0,
+              bOrd: Number(row.BOrd) || 0,
+              sLot: Number(row.SLot) || 0,
+              sFreq: Number(row.SFreq) || 0,
+              sOrd: Number(row.SOrd) || 0,
+              tFreq: Number(row.TFreq) || 0,
+              tLot: Number(row.TLot) || 0,
+              tOrd: Number(row.TOrd) || 0
+            }));
+            
+            // Convert to BrokerBreakdownData format (for broker breakdown view)
+            // Preserve order from CSV (no filtering, no sorting)
+            const brokerData: BrokerBreakdownData[] = records.map((row: any) => ({
+              broker: brokerParam,
+              price: Number(row.Price) || 0,
+              bFreq: Number(row.BFreq) || 0,
+              bLot: Number(row.BLot) || 0,
+              bLotPerFreq: Number(row['BLot/Freq']) || 0,
+              bOrd: Number(row.BOrd) || 0,
+              bLotPerOrd: Number(row['BLot/Ord']) || 0,
+              sLot: Number(row.SLot) || 0,
+              sFreq: Number(row.SFreq) || 0,
+              sLotPerFreq: Number(row['SLot/Freq']) || 0,
+              sOrd: Number(row.SOrd) || 0,
+              sLotPerOrd: Number(row['SLot/Ord']) || 0,
+              tFreq: Number(row.TFreq) || 0,
+              tLot: Number(row.TLot) || 0,
+              tOrd: Number(row.TOrd) || 0
+            }));
+            
+            newPriceDataByDate[date] = priceData;
+            newBrokerDataByDate[date] = brokerData;
+          } else {
+            // No data for this date
+            newPriceDataByDate[date] = [];
+            newBrokerDataByDate[date] = [];
+          }
         });
-        console.log('API URL would be:', `${(import.meta as any).env?.VITE_API_URL || 'http://localhost:3001'}/api/bidask/stock/${selectedStock}/${selectedDates[0]}`);
         
-        // Test individual API call first
-        if (selectedDates.length > 0 && selectedDates[0]) {
-          console.log('Testing individual API call...');
-          try {
-            // Convert date format from YYYY-MM-DD to YYYYMMDD
-            const formattedDate = selectedDates[0].replace(/-/g, '');
-            console.log('Formatted date for API:', formattedDate);
-            const testResponse = await api.getBidAskData(selectedStock, formattedDate);
-            console.log('Individual API test response:', testResponse);
-          } catch (testError) {
-            console.error('Individual API test error:', testError);
-          }
-        }
-        
-        // Convert dates to YYYYMMDD format for API
-        const formattedDates = selectedDates.map(date => date.replace(/-/g, ''));
-        console.log('Formatted dates for batch API:', formattedDates);
-        
-        // Fetch both bid/ask data and broker breakdown data in parallel
-        const [response, brokerResponse] = await Promise.all([
-          api.getBidAskBatch(selectedStock, formattedDates),
-          api.getBrokerBreakdownBatch(selectedStock, formattedDates)
-        ]);
-        
-        // Create a mapping from formatted dates back to original dates
-        const dateMapping: { [formatted: string]: string } = {};
-        selectedDates.forEach((original, index) => {
-          const formatted = formattedDates[index];
-          if (formatted) {
-            dateMapping[formatted] = original;
-          }
-        });
-        console.log('Date mapping:', dateMapping);
-        
-        console.log('API Response:', response);
-        console.log('Response success:', response.success);
-        console.log('Response data:', response.data);
-        console.log('Response error:', response.error);
-        
-        if (response.success && response.data?.dataByDate) {
-          console.log('Data by date:', response.data.dataByDate);
-          const newPriceDataByDate: { [date: string]: PriceData[] } = {};
-          const newBrokerDataByDate: { [date: string]: BrokerBreakdownData[] } = {};
-          
-          Object.entries(response.data.dataByDate).forEach(([formattedDate, dateData]: [string, any]) => {
-            const originalDate = dateMapping[formattedDate] || formattedDate;
-            console.log(`Processing formatted date ${formattedDate} -> original date ${originalDate}:`, dateData);
-            if (dateData.data && Array.isArray(dateData.data)) {
-              console.log(`Raw data for ${originalDate}:`, dateData.data);
-              console.log(`Raw data length:`, dateData.data.length);
-              console.log(`First raw item:`, dateData.data[0]);
-              // Convert backend data to frontend format
-              const convertedData = convertBackendToFrontend(dateData.data);
-              console.log(`Converted data for ${originalDate}:`, convertedData);
-              console.log(`Converted data length:`, convertedData.length);
-              console.log(`First converted item:`, convertedData[0]);
-              newPriceDataByDate[originalDate] = convertedData;
-            } else {
-              console.log(`No data for date ${originalDate}:`, dateData);
-            }
-          });
-          
-          // Process broker breakdown data if available
-          if (brokerResponse.success && brokerResponse.data?.dataByDate) {
-            console.log('Broker breakdown data by date:', brokerResponse.data.dataByDate);
-            Object.entries(brokerResponse.data.dataByDate).forEach(([formattedDate, dateData]: [string, any]) => {
-              const originalDate = dateMapping[formattedDate] || formattedDate;
-              console.log(`Processing broker breakdown for ${formattedDate} -> ${originalDate}:`, dateData);
-              if (dateData.brokerBreakdownData && Array.isArray(dateData.brokerBreakdownData)) {
-                const convertedBrokerData = convertBackendBrokerToFrontend(dateData.brokerBreakdownData);
-                console.log(`Converted broker data for ${originalDate}:`, convertedBrokerData);
-                newBrokerDataByDate[originalDate] = convertedBrokerData;
-              }
-            });
-          }
-          
-          console.log('Final priceDataByDate:', newPriceDataByDate);
-          console.log('Final brokerDataByDate:', newBrokerDataByDate);
-          setPriceDataByDate(newPriceDataByDate);
-          setBrokerDataByDate(newBrokerDataByDate);
-        } else {
-          console.log('No data received or API failed:', response);
-          
-          // No fallback data - let table be empty if no real data
-          console.log('No data available for selected dates');
-          setPriceDataByDate({});
-          setBrokerDataByDate({});
-        }
+        setPriceDataByDate(newPriceDataByDate);
+        setBrokerDataByDate(newBrokerDataByDate);
+        setIsDataReady(true);
 
       } catch (error) {
         console.error('Error fetching data:', error);
         setError('Failed to load data');
+        setIsDataReady(false);
         showToast({
           type: 'error',
           title: 'Error',
@@ -760,11 +808,12 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
         });
       } finally {
         setLoading(false);
+        setShouldFetchData(false);
       }
     };
 
     fetchData();
-  }, [selectedStock, selectedDates, showToast]);
+  }, [shouldFetchData, selectedStock, selectedDates, selectedBrokers, invFilter, boardFilter, showToast]);
 
 
   const formatDisplayDate = (dateString: string): string => {
@@ -849,61 +898,38 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                 </tr>
               </thead>
               <tbody>
-                {allPrices.filter(price => {
-                  // Double check: only show price if it has data in at least one date
-                  // Check all dates to see if ANY date has non-zero data
-                  for (const date of selectedDates) {
-                    const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
-                    if (data) {
-                      // Check if any field has value > 0
-                      const hasNonZero = (
-                        (data.bFreq && data.bFreq > 0) || 
-                        (data.bLot && data.bLot > 0) || 
-                        (data.bOrd && data.bOrd > 0) || 
-                        (data.sLot && data.sLot > 0) || 
-                        (data.sFreq && data.sFreq > 0) || 
-                        (data.sOrd && data.sOrd > 0) || 
-                        (data.tFreq && data.tFreq > 0) || 
-                        (data.tLot && data.tLot > 0) || 
-                        (data.tOrd && data.tOrd > 0)
-                      );
-                      if (hasNonZero) {
-                        return true; // Found at least one date with data
-                      }
-                    }
-                  }
-                  return false; // No data found in any date
-                }).map((price) => {
-                  // Additional check: verify this row has at least one non-empty cell
-                  let rowHasData = false;
-                  for (const date of selectedDates) {
-                    const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
-                    if (data && (
-                      (data.bFreq && data.bFreq > 0) || 
-                      (data.bLot && data.bLot > 0) || 
-                      (data.bOrd && data.bOrd > 0) || 
-                      (data.sLot && data.sLot > 0) || 
-                      (data.sFreq && data.sFreq > 0) || 
-                      (data.sOrd && data.sOrd > 0) || 
-                      (data.tFreq && data.tFreq > 0) || 
-                      (data.tLot && data.tLot > 0) || 
-                      (data.tOrd && data.tOrd > 0)
-                    )) {
-                      rowHasData = true;
-                      break;
-                    }
-                  }
-                  
-                  // Only render if row has data
-                  if (!rowHasData) {
-                    return null;
-                  }
-                  
+                {allPrices.map((price) => {
                   return (
                   <tr key={price} className="hover:bg-accent/50">
                     {selectedDates.map((date, dateIndex) => {
-                      const data = getDataForPriceAndDate(selectedStock, date, price, priceDataByDate);
-                      console.log(`Data for price ${price} on ${date}:`, data);
+                      // Get data for this specific date and price (only if exists in CSV for this date)
+                      const dateData = priceDataByDate[date] || [];
+                      const data = dateData.find(item => item.price === price) || null;
+                      
+                      // If no data for this price in this date, show empty cells
+                      if (!data) {
+                        return (
+                          <React.Fragment key={date}>
+                            <td className={`text-center py-[1px] px-[6px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              -
+                            </td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>
+                            <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>
+                            <td className={`text-right py-[1px] px-[6px] font-bold text-white ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>-</td>
+                          </React.Fragment>
+                        );
+                      }
+                      
                       return (
                         <React.Fragment key={date}>
                           {/* Price */}
@@ -1297,21 +1323,6 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
     
     const priceBrokerCombinations = getAllUniqueCombinations();
     
-    // Calculate max values from brokerDataByDate
-    let maxBFreq = 0, maxBLot = 0, maxSLot = 0, maxSFreq = 0, maxTFreq = 0, maxTLot = 0;
-    selectedDates.forEach(date => {
-      const data = brokerDataByDate[date] || [];
-      data.forEach(item => {
-        if (item.bFreq > maxBFreq) maxBFreq = item.bFreq;
-        if (item.bLot > maxBLot) maxBLot = item.bLot;
-        if (item.sLot > maxSLot) maxSLot = item.sLot;
-        if (item.sFreq > maxSFreq) maxSFreq = item.sFreq;
-        if (item.tFreq > maxTFreq) maxTFreq = item.tFreq;
-        if (item.tLot > maxTLot) maxTLot = item.tLot;
-      });
-    });
-    const maxValues = { maxBFreq, maxBLot, maxSLot, maxSFreq, maxTFreq, maxTLot };
-    
     return (
       <Card>
         <CardHeader>
@@ -1323,39 +1334,55 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
         <CardContent>
           <div className="overflow-x-auto -mx-4 sm:mx-0">
             <div className="min-w-full px-4 sm:px-0">
-              <table className="w-full text-sm border-collapse min-w-[600px]">
+              <table className="w-full text-[13px] border-collapse" style={{ tableLayout: 'auto', width: 'auto' }}>
               <thead>
                 {/* Main Header Row - Dates */}
-                <tr className="border-b border-border bg-muted">
-                  <th rowSpan={2} className="text-left py-2 px-3 font-medium bg-muted sticky left-0 z-30 border-r-2 border-border min-w-[80px]">Price</th>
-                  <th rowSpan={2} className="text-left py-2 px-3 font-medium bg-muted sticky left-[80px] z-30 border-r-2 border-border min-w-[80px]">Broker</th>
-                  {selectedDates.map((date) => (
-                    <th key={date} colSpan={6} className="text-center py-2 px-1 font-medium border-l border-border">
+                <tr className="border-t-2 border-white bg-[#3a4252]">
+                  <th rowSpan={2} className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap border-l-2 border-white sticky left-0 z-30 bg-[#3a4252]">Price</th>
+                  <th rowSpan={2} className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap sticky left-[80px] z-30 bg-[#3a4252]">Broker</th>
+                  {selectedDates.map((date, dateIndex) => (
+                    <th key={date} colSpan={14} className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>
                       {formatDisplayDate(date)}
                     </th>
                   ))}
-                  <th colSpan={6} className="text-center py-2 px-1 font-medium border-l border-border bg-accent/30">
+                  <th colSpan={14} className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white border-l-[10px] border-white`}>
                     Total
                   </th>
                 </tr>
                 {/* Sub Header Row - Metrics */}
-                <tr className="border-b border-border bg-accent">
-                  {selectedDates.map((date) => (
+                <tr className="bg-[#3a4252]">
+                  {selectedDates.map((date, dateIndex) => (
                     <React.Fragment key={date}>
-                      <th className="text-right py-1 px-1 font-medium text-[10px]">BLot</th>
-                      <th className="text-right py-1 px-1 font-medium text-[10px]">BFreq</th>
-                      <th className="text-right py-1 px-1 font-medium text-[10px]">SLot</th>
-                      <th className="text-right py-1 px-1 font-medium text-[10px]">SFreq</th>
-                      <th className="text-right py-1 px-1 font-medium text-[10px]">TLot</th>
-                      <th className="text-right py-1 px-1 font-medium text-[10px] border-r-2 border-border">TFreq</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">Price</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">BFreq</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">BLot</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">BLot/Freq</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">BOrd</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">BLot/Ord</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">SLot</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">SFreq</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">SLot/Freq</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">SOrd</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">SLot/Ord</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">TFreq</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">TLot</th>
+                      <th className={`text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>TOrd</th>
                     </React.Fragment>
                   ))}
-                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">BLot</th>
-                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">BFreq</th>
-                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">SLot</th>
-                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">SFreq</th>
-                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30">TLot</th>
-                  <th className="text-right py-1 px-1 font-medium text-[10px] bg-accent/30 border-r-2 border-border">TFreq</th>
+                  <th className={`text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>Price</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">BFreq</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">BLot</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">BLot/Freq</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">BOrd</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">BLot/Ord</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">SLot</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">SFreq</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">SLot/Freq</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">SOrd</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">SLot/Ord</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">TFreq</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">TLot</th>
+                  <th className="text-center py-[1px] px-[7px] font-bold text-white whitespace-nowrap border-r-2 border-white">TOrd</th>
                 </tr>
               </thead>
               <tbody>
@@ -1377,6 +1404,11 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                     return sum + (data?.bLot || 0);
                   }, 0);
                   
+                  const totalBOrd = selectedDates.reduce((sum, date) => {
+                    const data = getBrokerData(date);
+                    return sum + (data?.bOrd || 0);
+                  }, 0);
+                  
                   const totalSLot = selectedDates.reduce((sum, date) => {
                     const data = getBrokerData(date);
                     return sum + (data?.sLot || 0);
@@ -1385,6 +1417,11 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                   const totalSFreq = selectedDates.reduce((sum, date) => {
                     const data = getBrokerData(date);
                     return sum + (data?.sFreq || 0);
+                  }, 0);
+                  
+                  const totalSOrd = selectedDates.reduce((sum, date) => {
+                    const data = getBrokerData(date);
+                    return sum + (data?.sOrd || 0);
                   }, 0);
                   
                   const totalTFreq = selectedDates.reduce((sum, date) => {
@@ -1397,142 +1434,506 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                     return sum + (data?.tLot || 0);
                   }, 0);
                   
+                  const totalTOrd = selectedDates.reduce((sum, date) => {
+                    const data = getBrokerData(date);
+                    return sum + (data?.tOrd || 0);
+                  }, 0);
+                  
                   return (
-                  <tr key={idx} className="border-b border-border/50 hover:bg-accent/50">
-                    <td className="py-1.5 px-3 font-medium bg-background sticky left-0 z-30 border-r-2 border-border text-foreground min-w-[80px]">
+                  <tr key={idx} className="hover:bg-accent/50">
+                    {/* Price - sticky column */}
+                    <td className="text-center py-[1px] px-[6px] font-bold text-white border-l-2 border-white sticky left-0 z-20 bg-[#1a1f2e]" style={{ fontVariantNumeric: 'tabular-nums' }}>
                       {formatNumber(combination.price)}
                     </td>
-                    <td className="py-1.5 px-3 font-medium bg-background sticky left-[80px] z-30 border-r-2 border-border text-foreground min-w-[80px]">
+                    {/* Broker - sticky column */}
+                    <td className="text-center py-[1px] px-[6px] font-bold text-white sticky left-[80px] z-20 bg-[#1a1f2e]" style={{ fontVariantNumeric: 'tabular-nums' }}>
                       {combination.broker}
                     </td>
-                    {selectedDates.map((date) => {
+                    {selectedDates.map((date, dateIndex) => {
                       const data = getBrokerData(date);
                       return (
                         <React.Fragment key={date}>
-                          <td className={`text-right py-1.5 px-1 ${data && data.bLot === maxValues.maxBLot && data.bLot > 0 ? 'font-bold text-green-600' : 'text-green-600'}`}>
-                            {data ? formatNumber(data.bLot) : '-'}
+                          {/* Price */}
+                          <td className="text-center py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {formatNumber(combination.price)}
                           </td>
-                            <td className={`text-right py-1.5 px-1 ${data && data.bFreq === maxValues.maxBFreq && data.bFreq > 0 ? 'font-bold text-blue-600' : 'text-blue-600'}`}>
-                              {data ? formatNumber(data.bFreq) : '-'}
+                          {/* BFreq */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {data ? formatNumberWithAbbreviation(data.bFreq) : '-'}
                           </td>
-                          <td className={`text-right py-1.5 px-1 ${data && data.sLot === maxValues.maxSLot && data.sLot > 0 ? 'font-bold text-red-600' : 'text-red-600'}`}>
-                            {data ? formatNumber(data.sLot) : '-'}
+                          {/* BLot */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {data ? formatNumberWithAbbreviation(data.bLot) : '-'}
                           </td>
-                          <td className={`text-right py-1.5 px-1 ${data && data.sFreq === maxValues.maxSFreq && data.sFreq > 0 ? 'font-bold text-orange-600' : 'text-orange-600'}`}>
-                            {data ? formatNumber(data.sFreq) : '-'}
+                          {/* BLot/Freq */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {data ? formatRatio(data.bLot, data.bFreq) : '-'}
                           </td>
-                          <td className={`text-right py-1.5 px-1 ${data && data.tLot === maxValues.maxTLot && data.tLot > 0 ? 'font-bold text-indigo-600' : 'text-indigo-600'}`}>
-                            {data ? formatNumber(data.tLot) : '-'}
+                          {/* BOrd */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {data ? formatNumberWithAbbreviation(data.bOrd) : '-'}
                           </td>
-                          <td className={`text-right py-1.5 px-1 border-r-2 border-border ${data && data.tFreq === maxValues.maxTFreq && data.tFreq > 0 ? 'font-bold text-purple-600' : 'text-purple-600'}`}>
-                            {data ? formatNumber(data.tFreq) : '-'}
+                          {/* BLot/Ord */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {data ? formatRatio(data.bLot, data.bOrd) : '-'}
+                          </td>
+                          {/* SLot */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {data ? formatNumberWithAbbreviation(data.sLot) : '-'}
+                          </td>
+                          {/* SFreq */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {data ? formatNumberWithAbbreviation(data.sFreq) : '-'}
+                          </td>
+                          {/* SLot/Freq */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {data ? formatRatio(data.sLot, data.sFreq) : '-'}
+                          </td>
+                          {/* SOrd */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {data ? formatNumberWithAbbreviation(data.sOrd) : '-'}
+                          </td>
+                          {/* SLot/Ord */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {data ? formatRatio(data.sLot, data.sOrd) : '-'}
+                          </td>
+                          {/* TFreq */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {data ? formatNumberWithAbbreviation(data.tFreq) : '-'}
+                          </td>
+                          {/* TLot */}
+                          <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {data ? formatNumberWithAbbreviation(data.tLot) : '-'}
+                          </td>
+                          {/* TOrd */}
+                          <td className={`text-right py-[1px] px-[6px] font-bold text-white ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {data ? formatNumberWithAbbreviation(data.tOrd) : '-'}
                           </td>
                         </React.Fragment>
                       );
                     })}
-                      {/* Total Column */}
-                      <td className="text-right py-1.5 px-1 font-bold text-green-600 bg-accent/30">
-                        {formatNumber(totalBLot)}
+                    {/* Grand Total Column for each row */}
+                    <td className={`text-center py-[1px] px-[5px] font-bold text-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatNumber(combination.price)}
                       </td>
-                      <td className="text-right py-1.5 px-1 font-bold text-blue-600 bg-accent/30">
-                        {formatNumber(totalBFreq)}
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatNumberWithAbbreviation(totalBFreq)}
                       </td>
-                      <td className="text-right py-1.5 px-1 font-bold text-red-600 bg-accent/30">
-                        {formatNumber(totalSLot)}
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatNumberWithAbbreviation(totalBLot)}
                       </td>
-                      <td className="text-right py-1.5 px-1 font-bold text-orange-600 bg-accent/30">
-                        {formatNumber(totalSFreq)}
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatRatio(totalBLot, totalBFreq)}
                       </td>
-                      <td className="text-right py-1.5 px-1 font-bold text-purple-600 bg-accent/30">
-                        {formatNumber(totalTFreq)}
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatNumberWithAbbreviation(totalBOrd)}
                       </td>
-                      <td className="text-right py-1.5 px-1 font-bold text-indigo-600 bg-accent/30 border-r-2 border-border">
-                        {formatNumber(totalTLot)}
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatRatio(totalBLot, totalBOrd)}
+                    </td>
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatNumberWithAbbreviation(totalSLot)}
+                    </td>
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatNumberWithAbbreviation(totalSFreq)}
+                    </td>
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatRatio(totalSLot, totalSFreq)}
+                    </td>
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatNumberWithAbbreviation(totalSOrd)}
+                    </td>
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatRatio(totalSLot, totalSOrd)}
+                    </td>
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatNumberWithAbbreviation(totalTFreq)}
+                    </td>
+                    <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatNumberWithAbbreviation(totalTLot)}
+                    </td>
+                    <td className="text-right py-[1px] px-[7px] font-bold text-white border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatNumberWithAbbreviation(totalTOrd)}
                       </td>
                   </tr>
                   );
                 })}
                 {/* Total Row */}
-                <tr className="border-t-2 border-border bg-accent/30 font-bold">
-                  <td className="py-3 px-3 font-bold bg-accent/30 sticky left-0 z-30 border-r-2 border-border text-foreground min-w-[80px]">TOTAL</td>
-                  <td className="py-3 px-3 font-bold bg-accent/30 sticky left-[80px] z-30 border-r-2 border-border text-foreground min-w-[80px]">ALL</td>
-                  {selectedDates.map((date) => {
+                <tr className="border-t-2 border-white font-bold">
+                  {/* Price - sticky column */}
+                  <td className="text-center py-[1px] px-[6px] font-bold text-white border-l-2 border-white sticky left-0 z-20 bg-[#1a1f2e]">
+                    TOTAL
+                  </td>
+                  {/* Broker - sticky column */}
+                  <td className="text-center py-[1px] px-[6px] font-bold text-white sticky left-[80px] z-20 bg-[#1a1f2e]">
+                    ALL
+                  </td>
+                  {selectedDates.map((date, dateIndex) => {
                     // Calculate totals from brokerDataByDate
                     const data = brokerDataByDate[date] || [];
                     const totals = data.reduce((acc, row) => ({
-                      bLot: acc.bLot + row.bLot,
-                      sLot: acc.sLot + row.sLot,
-                      bFreq: acc.bFreq + row.bFreq,
-                      sFreq: acc.sFreq + row.sFreq,
-                      tFreq: acc.tFreq + row.tFreq,
-                      tLot: acc.tLot + row.tLot
-                    }), { bLot: 0, sLot: 0, bFreq: 0, sFreq: 0, tFreq: 0, tLot: 0 });
+                      bFreq: acc.bFreq + (row.bFreq || 0),
+                      bLot: acc.bLot + (row.bLot || 0),
+                      bOrd: acc.bOrd + (row.bOrd || 0),
+                      sLot: acc.sLot + (row.sLot || 0),
+                      sFreq: acc.sFreq + (row.sFreq || 0),
+                      sOrd: acc.sOrd + (row.sOrd || 0),
+                      tFreq: acc.tFreq + (row.tFreq || 0),
+                      tLot: acc.tLot + (row.tLot || 0),
+                      tOrd: acc.tOrd + (row.tOrd || 0)
+                    }), { bFreq: 0, bLot: 0, bOrd: 0, sLot: 0, sFreq: 0, sOrd: 0, tFreq: 0, tLot: 0, tOrd: 0 });
                     return (
                       <React.Fragment key={date}>
-                        <td className="text-right py-3 px-1 font-bold text-green-600">
-                          {formatNumberWithAbbreviation(totals.bLot)}
+                        {/* Price - empty for Total row */}
+                        <td className="text-center py-[1px] px-[6px] font-bold text-white">
+                          -
                         </td>
-                        <td className="text-right py-3 px-1 font-bold text-blue-600">
+                        {/* BFreq */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                           {formatNumberWithAbbreviation(totals.bFreq)}
                         </td>
-                        <td className="text-right py-3 px-1 font-bold text-red-600">
+                        {/* BLot */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {formatNumberWithAbbreviation(totals.bLot)}
+                        </td>
+                        {/* BLot/Freq */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {formatRatio(totals.bLot, totals.bFreq)}
+                        </td>
+                        {/* BOrd */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {formatNumberWithAbbreviation(totals.bOrd)}
+                        </td>
+                        {/* BLot/Ord */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {formatRatio(totals.bLot, totals.bOrd)}
+                        </td>
+                        {/* SLot */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                           {formatNumberWithAbbreviation(totals.sLot)}
                         </td>
-                        <td className="text-right py-3 px-1 font-bold text-orange-600">
+                        {/* SFreq */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                           {formatNumberWithAbbreviation(totals.sFreq)}
                         </td>
-                        <td className="text-right py-3 px-1 font-bold text-indigo-600">
+                        {/* SLot/Freq */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {formatRatio(totals.sLot, totals.sFreq)}
+                        </td>
+                        {/* SOrd */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {formatNumberWithAbbreviation(totals.sOrd)}
+                        </td>
+                        {/* SLot/Ord */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {formatRatio(totals.sLot, totals.sOrd)}
+                        </td>
+                        {/* TFreq */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {formatNumberWithAbbreviation(totals.tFreq)}
+                        </td>
+                        {/* TLot */}
+                        <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                           {formatNumberWithAbbreviation(totals.tLot)}
                         </td>
-                        <td className="text-right py-3 px-1 border-r-2 border-border font-bold text-purple-600">
-                          {formatNumberWithAbbreviation(totals.tFreq)}
+                        {/* TOrd */}
+                        <td className={`text-right py-[1px] px-[6px] font-bold text-white ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {formatNumberWithAbbreviation(totals.tOrd)}
                         </td>
                       </React.Fragment>
                     );
                   })}
                   {/* Grand Total Column */}
-                  <td className="text-right py-3 px-1 font-bold text-green-600 bg-accent/50">
-                    {formatNumber(selectedDates.reduce((sum, date) => {
+                  <td className={`text-center py-[1px] px-[5px] font-bold text-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>
+                    TOTAL
+                  </td>
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
                       const data = brokerDataByDate[date] || [];
                       const totals = data.reduce((acc, row) => ({
-                        bLot: acc.bLot + row.bLot,
-                        sLot: acc.sLot + row.sLot,
-                        bFreq: acc.bFreq + row.bFreq,
-                        sFreq: acc.sFreq + row.sFreq,
-                        tFreq: acc.tFreq + row.tFreq,
-                        tLot: acc.tLot + row.tLot
-                      }), { bLot: 0, sLot: 0, bFreq: 0, sFreq: 0, tFreq: 0, tLot: 0 });
+                        bFreq: acc.bFreq + (row.bFreq || 0),
+                        bLot: acc.bLot + (row.bLot || 0),
+                        bOrd: acc.bOrd + (row.bOrd || 0),
+                        sLot: acc.sLot + (row.sLot || 0),
+                        sFreq: acc.sFreq + (row.sFreq || 0),
+                        sOrd: acc.sOrd + (row.sOrd || 0),
+                        tFreq: acc.tFreq + (row.tFreq || 0),
+                        tLot: acc.tLot + (row.tLot || 0),
+                        tOrd: acc.tOrd + (row.tOrd || 0)
+                      }), { bFreq: 0, bLot: 0, bOrd: 0, sLot: 0, sFreq: 0, sOrd: 0, tFreq: 0, tLot: 0, tOrd: 0 });
+                      return sum + totals.bFreq;
+                    }, 0))}
+                  </td>
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                      const data = brokerDataByDate[date] || [];
+                      const totals = data.reduce((acc, row) => ({
+                        bFreq: acc.bFreq + (row.bFreq || 0),
+                        bLot: acc.bLot + (row.bLot || 0),
+                        bOrd: acc.bOrd + (row.bOrd || 0),
+                        sLot: acc.sLot + (row.sLot || 0),
+                        sFreq: acc.sFreq + (row.sFreq || 0),
+                        sOrd: acc.sOrd + (row.sOrd || 0),
+                        tFreq: acc.tFreq + (row.tFreq || 0),
+                        tLot: acc.tLot + (row.tLot || 0),
+                        tOrd: acc.tOrd + (row.tOrd || 0)
+                      }), { bFreq: 0, bLot: 0, bOrd: 0, sLot: 0, sFreq: 0, sOrd: 0, tFreq: 0, tLot: 0, tOrd: 0 });
                       return sum + totals.bLot;
                     }, 0))}
                           </td>
-                  <td className="text-right py-3 px-1 font-bold text-blue-600 bg-accent/50">
-                    {formatNumber(selectedDates.reduce((sum, date) => {
-                      const totals = calculateBrokerBreakdownTotals(selectedStock, date);
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatRatio(
+                      selectedDates.reduce((sum, date) => {
+                        const data = brokerDataByDate[date] || [];
+                        const totals = data.reduce((acc, row) => ({
+                          bFreq: acc.bFreq + (row.bFreq || 0),
+                          bLot: acc.bLot + (row.bLot || 0),
+                          bOrd: acc.bOrd + (row.bOrd || 0),
+                          sLot: acc.sLot + (row.sLot || 0),
+                          sFreq: acc.sFreq + (row.sFreq || 0),
+                          sOrd: acc.sOrd + (row.sOrd || 0),
+                          tFreq: acc.tFreq + (row.tFreq || 0),
+                          tLot: acc.tLot + (row.tLot || 0),
+                          tOrd: acc.tOrd + (row.tOrd || 0)
+                        }), { bFreq: 0, bLot: 0, bOrd: 0, sLot: 0, sFreq: 0, sOrd: 0, tFreq: 0, tLot: 0, tOrd: 0 });
+                        return sum + totals.bLot;
+                      }, 0),
+                      selectedDates.reduce((sum, date) => {
+                        const data = brokerDataByDate[date] || [];
+                        const totals = data.reduce((acc, row) => ({
+                          bFreq: acc.bFreq + (row.bFreq || 0),
+                          bLot: acc.bLot + (row.bLot || 0),
+                          bOrd: acc.bOrd + (row.bOrd || 0),
+                          sLot: acc.sLot + (row.sLot || 0),
+                          sFreq: acc.sFreq + (row.sFreq || 0),
+                          sOrd: acc.sOrd + (row.sOrd || 0),
+                          tFreq: acc.tFreq + (row.tFreq || 0),
+                          tLot: acc.tLot + (row.tLot || 0),
+                          tOrd: acc.tOrd + (row.tOrd || 0)
+                        }), { bFreq: 0, bLot: 0, bOrd: 0, sLot: 0, sFreq: 0, sOrd: 0, tFreq: 0, tLot: 0, tOrd: 0 });
                       return sum + totals.bFreq;
+                      }, 0)
+                    )}
+                  </td>
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                      const data = brokerDataByDate[date] || [];
+                      const totals = data.reduce((acc, row) => ({
+                        bFreq: acc.bFreq + (row.bFreq || 0),
+                        bLot: acc.bLot + (row.bLot || 0),
+                        bOrd: acc.bOrd + (row.bOrd || 0),
+                        sLot: acc.sLot + (row.sLot || 0),
+                        sFreq: acc.sFreq + (row.sFreq || 0),
+                        sOrd: acc.sOrd + (row.sOrd || 0),
+                        tFreq: acc.tFreq + (row.tFreq || 0),
+                        tLot: acc.tLot + (row.tLot || 0),
+                        tOrd: acc.tOrd + (row.tOrd || 0)
+                      }), { bFreq: 0, bLot: 0, bOrd: 0, sLot: 0, sFreq: 0, sOrd: 0, tFreq: 0, tLot: 0, tOrd: 0 });
+                      return sum + totals.bOrd;
                     }, 0))}
                           </td>
-                  <td className="text-right py-3 px-1 font-bold text-red-600 bg-accent/50">
-                    {formatNumber(selectedDates.reduce((sum, date) => {
-                      const totals = calculateBrokerBreakdownTotals(selectedStock, date);
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatRatio(
+                      selectedDates.reduce((sum, date) => {
+                        const data = brokerDataByDate[date] || [];
+                        const totals = data.reduce((acc, row) => ({
+                          bFreq: acc.bFreq + (row.bFreq || 0),
+                          bLot: acc.bLot + (row.bLot || 0),
+                          bOrd: acc.bOrd + (row.bOrd || 0),
+                          sLot: acc.sLot + (row.sLot || 0),
+                          sFreq: acc.sFreq + (row.sFreq || 0),
+                          sOrd: acc.sOrd + (row.sOrd || 0),
+                          tFreq: acc.tFreq + (row.tFreq || 0),
+                          tLot: acc.tLot + (row.tLot || 0),
+                          tOrd: acc.tOrd + (row.tOrd || 0)
+                        }), { bFreq: 0, bLot: 0, bOrd: 0, sLot: 0, sFreq: 0, sOrd: 0, tFreq: 0, tLot: 0, tOrd: 0 });
+                        return sum + totals.bLot;
+                      }, 0),
+                      selectedDates.reduce((sum, date) => {
+                        const data = brokerDataByDate[date] || [];
+                        const totals = data.reduce((acc, row) => ({
+                          bFreq: acc.bFreq + (row.bFreq || 0),
+                          bLot: acc.bLot + (row.bLot || 0),
+                          bOrd: acc.bOrd + (row.bOrd || 0),
+                          sLot: acc.sLot + (row.sLot || 0),
+                          sFreq: acc.sFreq + (row.sFreq || 0),
+                          sOrd: acc.sOrd + (row.sOrd || 0),
+                          tFreq: acc.tFreq + (row.tFreq || 0),
+                          tLot: acc.tLot + (row.tLot || 0),
+                          tOrd: acc.tOrd + (row.tOrd || 0)
+                        }), { bFreq: 0, bLot: 0, bOrd: 0, sLot: 0, sFreq: 0, sOrd: 0, tFreq: 0, tLot: 0, tOrd: 0 });
+                        return sum + totals.bOrd;
+                      }, 0)
+                    )}
+                  </td>
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                      const data = brokerDataByDate[date] || [];
+                      const totals = data.reduce((acc, row) => ({
+                        bFreq: acc.bFreq + (row.bFreq || 0),
+                        bLot: acc.bLot + (row.bLot || 0),
+                        bOrd: acc.bOrd + (row.bOrd || 0),
+                        sLot: acc.sLot + (row.sLot || 0),
+                        sFreq: acc.sFreq + (row.sFreq || 0),
+                        sOrd: acc.sOrd + (row.sOrd || 0),
+                        tFreq: acc.tFreq + (row.tFreq || 0),
+                        tLot: acc.tLot + (row.tLot || 0),
+                        tOrd: acc.tOrd + (row.tOrd || 0)
+                      }), { bFreq: 0, bLot: 0, bOrd: 0, sLot: 0, sFreq: 0, sOrd: 0, tFreq: 0, tLot: 0, tOrd: 0 });
                       return sum + totals.sLot;
                     }, 0))}
                           </td>
-                  <td className="text-right py-3 px-1 font-bold text-orange-600 bg-accent/50">
-                    {formatNumber(selectedDates.reduce((sum, date) => {
-                      const totals = calculateBrokerBreakdownTotals(selectedStock, date);
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                      const data = brokerDataByDate[date] || [];
+                      const totals = data.reduce((acc, row) => ({
+                        bFreq: acc.bFreq + (row.bFreq || 0),
+                        bLot: acc.bLot + (row.bLot || 0),
+                        bOrd: acc.bOrd + (row.bOrd || 0),
+                        sLot: acc.sLot + (row.sLot || 0),
+                        sFreq: acc.sFreq + (row.sFreq || 0),
+                        sOrd: acc.sOrd + (row.sOrd || 0),
+                        tFreq: acc.tFreq + (row.tFreq || 0),
+                        tLot: acc.tLot + (row.tLot || 0),
+                        tOrd: acc.tOrd + (row.tOrd || 0)
+                      }), { bFreq: 0, bLot: 0, bOrd: 0, sLot: 0, sFreq: 0, sOrd: 0, tFreq: 0, tLot: 0, tOrd: 0 });
                       return sum + totals.sFreq;
                     }, 0))}
                           </td>
-                  <td className="text-right py-3 px-1 font-bold text-purple-600 bg-accent/50">
-                    {formatNumber(selectedDates.reduce((sum, date) => {
-                      const totals = calculateBrokerBreakdownTotals(selectedStock, date);
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatRatio(
+                      selectedDates.reduce((sum, date) => {
+                        const data = brokerDataByDate[date] || [];
+                        const totals = data.reduce((acc, row) => ({
+                          bFreq: acc.bFreq + (row.bFreq || 0),
+                          bLot: acc.bLot + (row.bLot || 0),
+                          bOrd: acc.bOrd + (row.bOrd || 0),
+                          sLot: acc.sLot + (row.sLot || 0),
+                          sFreq: acc.sFreq + (row.sFreq || 0),
+                          sOrd: acc.sOrd + (row.sOrd || 0),
+                          tFreq: acc.tFreq + (row.tFreq || 0),
+                          tLot: acc.tLot + (row.tLot || 0),
+                          tOrd: acc.tOrd + (row.tOrd || 0)
+                        }), { bFreq: 0, bLot: 0, bOrd: 0, sLot: 0, sFreq: 0, sOrd: 0, tFreq: 0, tLot: 0, tOrd: 0 });
+                        return sum + totals.sLot;
+                      }, 0),
+                      selectedDates.reduce((sum, date) => {
+                        const data = brokerDataByDate[date] || [];
+                        const totals = data.reduce((acc, row) => ({
+                          bFreq: acc.bFreq + (row.bFreq || 0),
+                          bLot: acc.bLot + (row.bLot || 0),
+                          bOrd: acc.bOrd + (row.bOrd || 0),
+                          sLot: acc.sLot + (row.sLot || 0),
+                          sFreq: acc.sFreq + (row.sFreq || 0),
+                          sOrd: acc.sOrd + (row.sOrd || 0),
+                          tFreq: acc.tFreq + (row.tFreq || 0),
+                          tLot: acc.tLot + (row.tLot || 0),
+                          tOrd: acc.tOrd + (row.tOrd || 0)
+                        }), { bFreq: 0, bLot: 0, bOrd: 0, sLot: 0, sFreq: 0, sOrd: 0, tFreq: 0, tLot: 0, tOrd: 0 });
+                        return sum + totals.sFreq;
+                      }, 0)
+                    )}
+                  </td>
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                      const data = brokerDataByDate[date] || [];
+                      const totals = data.reduce((acc, row) => ({
+                        bFreq: acc.bFreq + (row.bFreq || 0),
+                        bLot: acc.bLot + (row.bLot || 0),
+                        bOrd: acc.bOrd + (row.bOrd || 0),
+                        sLot: acc.sLot + (row.sLot || 0),
+                        sFreq: acc.sFreq + (row.sFreq || 0),
+                        sOrd: acc.sOrd + (row.sOrd || 0),
+                        tFreq: acc.tFreq + (row.tFreq || 0),
+                        tLot: acc.tLot + (row.tLot || 0),
+                        tOrd: acc.tOrd + (row.tOrd || 0)
+                      }), { bFreq: 0, bLot: 0, bOrd: 0, sLot: 0, sFreq: 0, sOrd: 0, tFreq: 0, tLot: 0, tOrd: 0 });
+                      return sum + totals.sOrd;
+                    }, 0))}
+                  </td>
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatRatio(
+                      selectedDates.reduce((sum, date) => {
+                        const data = brokerDataByDate[date] || [];
+                        const totals = data.reduce((acc, row) => ({
+                          bFreq: acc.bFreq + (row.bFreq || 0),
+                          bLot: acc.bLot + (row.bLot || 0),
+                          bOrd: acc.bOrd + (row.bOrd || 0),
+                          sLot: acc.sLot + (row.sLot || 0),
+                          sFreq: acc.sFreq + (row.sFreq || 0),
+                          sOrd: acc.sOrd + (row.sOrd || 0),
+                          tFreq: acc.tFreq + (row.tFreq || 0),
+                          tLot: acc.tLot + (row.tLot || 0),
+                          tOrd: acc.tOrd + (row.tOrd || 0)
+                        }), { bFreq: 0, bLot: 0, bOrd: 0, sLot: 0, sFreq: 0, sOrd: 0, tFreq: 0, tLot: 0, tOrd: 0 });
+                        return sum + totals.sLot;
+                      }, 0),
+                      selectedDates.reduce((sum, date) => {
+                        const data = brokerDataByDate[date] || [];
+                        const totals = data.reduce((acc, row) => ({
+                          bFreq: acc.bFreq + (row.bFreq || 0),
+                          bLot: acc.bLot + (row.bLot || 0),
+                          bOrd: acc.bOrd + (row.bOrd || 0),
+                          sLot: acc.sLot + (row.sLot || 0),
+                          sFreq: acc.sFreq + (row.sFreq || 0),
+                          sOrd: acc.sOrd + (row.sOrd || 0),
+                          tFreq: acc.tFreq + (row.tFreq || 0),
+                          tLot: acc.tLot + (row.tLot || 0),
+                          tOrd: acc.tOrd + (row.tOrd || 0)
+                        }), { bFreq: 0, bLot: 0, bOrd: 0, sLot: 0, sFreq: 0, sOrd: 0, tFreq: 0, tLot: 0, tOrd: 0 });
+                        return sum + totals.sOrd;
+                      }, 0)
+                    )}
+                  </td>
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                      const data = brokerDataByDate[date] || [];
+                      const totals = data.reduce((acc, row) => ({
+                        bFreq: acc.bFreq + (row.bFreq || 0),
+                        bLot: acc.bLot + (row.bLot || 0),
+                        bOrd: acc.bOrd + (row.bOrd || 0),
+                        sLot: acc.sLot + (row.sLot || 0),
+                        sFreq: acc.sFreq + (row.sFreq || 0),
+                        sOrd: acc.sOrd + (row.sOrd || 0),
+                        tFreq: acc.tFreq + (row.tFreq || 0),
+                        tLot: acc.tLot + (row.tLot || 0),
+                        tOrd: acc.tOrd + (row.tOrd || 0)
+                      }), { bFreq: 0, bLot: 0, bOrd: 0, sLot: 0, sFreq: 0, sOrd: 0, tFreq: 0, tLot: 0, tOrd: 0 });
                       return sum + totals.tFreq;
                     }, 0))}
                           </td>
-                  <td className="text-right py-3 px-1 font-bold text-indigo-600 bg-accent/50 border-r-2 border-border">
-                    {formatNumber(selectedDates.reduce((sum, date) => {
-                      const totals = calculateBrokerBreakdownTotals(selectedStock, date);
+                  <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                      const data = brokerDataByDate[date] || [];
+                      const totals = data.reduce((acc, row) => ({
+                        bFreq: acc.bFreq + (row.bFreq || 0),
+                        bLot: acc.bLot + (row.bLot || 0),
+                        bOrd: acc.bOrd + (row.bOrd || 0),
+                        sLot: acc.sLot + (row.sLot || 0),
+                        sFreq: acc.sFreq + (row.sFreq || 0),
+                        sOrd: acc.sOrd + (row.sOrd || 0),
+                        tFreq: acc.tFreq + (row.tFreq || 0),
+                        tLot: acc.tLot + (row.tLot || 0),
+                        tOrd: acc.tOrd + (row.tOrd || 0)
+                      }), { bFreq: 0, bLot: 0, bOrd: 0, sLot: 0, sFreq: 0, sOrd: 0, tFreq: 0, tLot: 0, tOrd: 0 });
                       return sum + totals.tLot;
+                    }, 0))}
+                  </td>
+                  <td className="text-right py-[1px] px-[7px] font-bold text-white border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatNumberWithAbbreviation(selectedDates.reduce((sum, date) => {
+                      const data = brokerDataByDate[date] || [];
+                      const totals = data.reduce((acc, row) => ({
+                        bFreq: acc.bFreq + (row.bFreq || 0),
+                        bLot: acc.bLot + (row.bLot || 0),
+                        bOrd: acc.bOrd + (row.bOrd || 0),
+                        sLot: acc.sLot + (row.sLot || 0),
+                        sFreq: acc.sFreq + (row.sFreq || 0),
+                        sOrd: acc.sOrd + (row.sOrd || 0),
+                        tFreq: acc.tFreq + (row.tFreq || 0),
+                        tLot: acc.tLot + (row.tLot || 0),
+                        tOrd: acc.tOrd + (row.tOrd || 0)
+                      }), { bFreq: 0, bLot: 0, bOrd: 0, sLot: 0, sFreq: 0, sOrd: 0, tFreq: 0, tLot: 0, tOrd: 0 });
+                      return sum + totals.tOrd;
                     }, 0))}
                         </td>
                       </tr>
@@ -1546,258 +1947,452 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
   };
 
 
+  const formatDateForInput = (date: string | undefined) => {
+    return date || '';
+  };
+
+  const triggerDatePicker = (inputRef: React.RefObject<HTMLInputElement>) => {
+    inputRef.current?.showPicker?.();
+  };
+
+  const startDateRef = useRef<HTMLInputElement>(null);
+  const endDateRef = useRef<HTMLInputElement>(null);
+
   return (
-    <div className="min-h-screen space-y-4 sm:space-y-6 p-2 sm:p-4 lg:p-6 overflow-x-hidden">
-      {/* Top Controls */}
-      <Card>
-        <CardContent className="p-4 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div className="flex items-center gap-2 text-sm sm:text-base font-medium">
-              <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
-              Stock Selection & Date Range (Max 7 Days)
+    <div className="w-full">
+      {/* Top Controls - Compact without Card */}
+      <div className="fixed top-14 left-20 right-0 z-40 bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1">
+        <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-2 md:gap-x-7 md:gap-y-0.2">
+          {/* Ticker Selection */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+            <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
+            <div className="relative flex-1 md:flex-none" ref={dropdownRef}>
+              <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+              <input
+                type="text"
+                value={stockInput}
+                onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
+                onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
+                onKeyDown={(e) => {
+                  const suggestions = (stockInput === '' ? availableStocks : filteredStocks).slice(0, 10);
+                  if (!suggestions.length) return;
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setHighlightedStockIndex((prev) => (prev + 1) % suggestions.length);
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setHighlightedStockIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+                  } else if (e.key === 'Enter' && showStockSuggestions) {
+                    e.preventDefault();
+                    const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
+                    const choice = suggestions[idx];
+                    if (choice) handleStockSelect(choice);
+                  } else if (e.key === 'Escape') {
+                    setShowStockSuggestions(false);
+                    setHighlightedStockIndex(-1);
+                  }
+                }}
+                placeholder="Enter stock code..."
+                className="w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground"
+                role="combobox"
+                aria-expanded={showStockSuggestions}
+                aria-controls="stock-suggestions"
+                aria-autocomplete="list"
+              />
+              {showStockSuggestions && (
+                <div id="stock-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                  {stockInput === '' ? (
+                    <>
+                      <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
+                        Available Stocks ({STOCK_LIST.length})
+                      </div>
+                      {STOCK_LIST.slice(0, 20).map(stock => (
+                        <div
+                          key={stock}
+                          onClick={() => handleStockSelect(stock)}
+                          className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
+                        >
+                          {stock}
+                        </div>
+                      ))}
+                      {STOCK_LIST.length > 20 && (
+                        <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-t border-[#3a4252]">
+                          ... and {STOCK_LIST.length - 20} more stocks
+                        </div>
+                      )}
+                    </>
+                  ) : filteredStocks.length > 0 ? (
+                    <>
+                      <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
+                        {filteredStocks.length} stocks found
+                      </div>
+                      {filteredStocks.slice(0, 20).map(stock => (
+                        <div
+                          key={stock}
+                          onClick={() => handleStockSelect(stock)}
+                          className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
+                        >
+                          {stock}
+                        </div>
+                      ))}
+                      {filteredStocks.length > 20 && (
+                        <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-t border-[#3a4252]">
+                          ... and {filteredStocks.length - 20} more results
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
+                      No stocks found
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {/* Stock Selection */}
-            <div className="flex flex-col gap-2 min-w-0">
-              <label className="text-sm font-medium text-foreground">Stock</label>
-              <div className="relative min-w-0" ref={dropdownRef}>
-                <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+          {/* Broker Selection - Multi-select with chips */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+            <label className="text-sm font-medium whitespace-nowrap">Broker:</label>
+            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+              {/* Selected Broker Chips */}
+              {selectedBrokers.map(broker => (
+                <div
+                  key={broker}
+                  className="flex items-center gap-1 px-2 h-9 bg-primary/20 text-primary rounded-md text-sm"
+                >
+                  <span>{broker}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveBroker(broker)}
+                    className="hover:bg-primary/30 rounded px-1"
+                    aria-label={`Remove ${broker}`}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              {/* Broker Input */}
+              <div className="relative flex-1 md:flex-none" ref={dropdownBrokerRef}>
                 <input
                   type="text"
-                  value={stockInput}
-                  onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
-                  onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
+                  value={brokerInput}
+                  onChange={(e) => {
+                    const v = e.target.value.toUpperCase();
+                    setBrokerInput(v);
+                    setShowBrokerSuggestions(true);
+                    setHighlightedBrokerIndex(0);
+                  }}
+                  onFocus={() => setShowBrokerSuggestions(true)}
                   onKeyDown={(e) => {
-                    const suggestions = (stockInput === '' ? availableStocks : filteredStocks).slice(0, 10);
-                    if (!suggestions.length) return;
-                    if (e.key === 'ArrowDown') {
+                    const filteredBrokers = brokerInput === '' 
+                      ? availableBrokers.filter(b => !selectedBrokers.includes(b))
+                      : availableBrokers.filter(b => 
+                          b.toLowerCase().includes(brokerInput.toLowerCase()) && 
+                          !selectedBrokers.includes(b)
+                        );
+                    const suggestions = filteredBrokers.slice(0, 10);
+                    
+                    if (e.key === 'ArrowDown' && suggestions.length) {
                       e.preventDefault();
-                      setHighlightedStockIndex((prev) => (prev + 1) % suggestions.length);
-                    } else if (e.key === 'ArrowUp') {
+                      setHighlightedBrokerIndex((prev) => (prev + 1) % suggestions.length);
+                    } else if (e.key === 'ArrowUp' && suggestions.length) {
                       e.preventDefault();
-                      setHighlightedStockIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
-                    } else if (e.key === 'Enter' && showStockSuggestions) {
+                      setHighlightedBrokerIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+                    } else if (e.key === 'Enter' && showBrokerSuggestions) {
                       e.preventDefault();
-                      const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
+                      const idx = highlightedBrokerIndex >= 0 ? highlightedBrokerIndex : 0;
                       const choice = suggestions[idx];
-                      if (choice) handleStockSelect(choice);
+                      if (choice) handleBrokerSelect(choice);
                     } else if (e.key === 'Escape') {
-                      setShowStockSuggestions(false);
-                      setHighlightedStockIndex(-1);
+                      setShowBrokerSuggestions(false);
+                      setHighlightedBrokerIndex(-1);
                     }
                   }}
-                  placeholder="Enter stock code..."
-                  className="w-full min-w-0 pl-10 pr-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
+                  placeholder="Add broker"
+                  className="w-full md:w-32 h-9 px-3 text-sm border border-input rounded-md bg-background text-foreground"
                   role="combobox"
-                  aria-expanded={showStockSuggestions}
-                  aria-controls="stock-suggestions"
+                  aria-expanded={showBrokerSuggestions}
+                  aria-controls="broker-suggestions"
                   aria-autocomplete="list"
                 />
-                {showStockSuggestions && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
-                    {stockInput === '' ? (
-                      <>
-                        <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
-                          Available Stocks ({STOCK_LIST.length})
-                        </div>
-                        {STOCK_LIST.slice(0, 20).map(stock => (
-                          <div
-                            key={stock}
-                            onClick={() => handleStockSelect(stock)}
-                            className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
-                          >
-                            {stock}
-                          </div>
-                        ))}
-                        {STOCK_LIST.length > 20 && (
-                          <div className="px-3 py-2 text-xs text-muted-foreground border-t border-border">
-                            ... and {STOCK_LIST.length - 20} more stocks
-                          </div>
-                        )}
-                      </>
-                    ) : filteredStocks.length > 0 ? (
-                      <>
-                        <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
-                          {filteredStocks.length} stocks found
-                        </div>
-                        {filteredStocks.slice(0, 20).map(stock => (
-                          <div
-                            key={stock}
-                            onClick={() => handleStockSelect(stock)}
-                            className="px-3 py-2 hover:bg-muted cursor-pointer text-sm"
-                          >
-                            {stock}
-                          </div>
-                        ))}
-                        {filteredStocks.length > 20 && (
-                          <div className="px-3 py-2 text-xs text-muted-foreground border-t border-border">
-                            ... and {filteredStocks.length - 20} more results
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <div className="px-3 py-2 text-sm text-muted-foreground">
-                        No stocks found
+                {showBrokerSuggestions && (
+                  <div id="broker-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                    {availableBrokers.length === 0 ? (
+                      <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        Loading brokers...
                       </div>
-                    )}
+                    ) : brokerInput === '' ? (
+                      <>
+                        <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
+                          Available Brokers ({availableBrokers.filter(b => !selectedBrokers.includes(b)).length})
+                        </div>
+                        {availableBrokers.filter(b => !selectedBrokers.includes(b)).map(broker => (
+                          <div
+                            key={broker}
+                            onClick={() => handleBrokerSelect(broker)}
+                            className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
+                          >
+                            {broker}
+                          </div>
+                        ))}
+                      </>
+                    ) : (() => {
+                      const filteredBrokers = availableBrokers.filter(b => 
+                        b.toLowerCase().includes(brokerInput.toLowerCase()) && 
+                        !selectedBrokers.includes(b)
+                      );
+                      return (
+                        <>
+                          <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
+                            {filteredBrokers.length} broker(s) found
+                          </div>
+                          {filteredBrokers.length > 0 ? (
+                            filteredBrokers.map((broker, idx) => (
+                              <div
+                                key={broker}
+                                onClick={() => handleBrokerSelect(broker)}
+                                className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${idx === highlightedBrokerIndex ? 'bg-accent' : ''}`}
+                                onMouseEnter={() => setHighlightedBrokerIndex(idx)}
+                              >
+                                {broker}
+                              </div>
+                            ))
+                          ) : (
+                            <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
+                              No brokers found
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
             </div>
+          </div>
 
-            {/* Date Range */}
-            <div className="flex flex-col gap-2 min-w-0">
-              <label className="text-sm font-medium text-foreground">Date Range</label>
-              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
-                <div className="grid w-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:flex-1">
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => {
-                      const selectedDate = new Date(e.target.value);
-                      const dayOfWeek = selectedDate.getDay();
-                      if (dayOfWeek === 0 || dayOfWeek === 6) {
-                        showToast({
-                          type: 'warning',
-                          title: 'Tanggal Weekend',
-                          message: 'Pasar saham tutup pada hari Sabtu dan Minggu. Pilih hari kerja saja.',
-                        });
-                        return;
-                      }
-                      setStartDate(e.target.value);
-                    }}
-                    className="w-full px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
-                  />
-                  <span className="text-sm text-muted-foreground whitespace-nowrap">to</span>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => {
-                      const selectedDate = new Date(e.target.value);
-                      const dayOfWeek = selectedDate.getDay();
-                      if (dayOfWeek === 0 || dayOfWeek === 6) {
-                        showToast({
-                          type: 'warning',
-                          title: 'Tanggal Weekend',
-                          message: 'Pasar saham tutup pada hari Sabtu dan Minggu. Pilih hari kerja saja.',
-                        });
-                        return;
-                      }
+          {/* Date Range */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+            <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
+            <div className="flex items-center gap-2 w-full md:w-auto">
+              <div 
+                className="relative h-9 flex-1 md:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                onClick={() => triggerDatePicker(startDateRef)}
+              >
+                <input
+                  ref={startDateRef}
+                  type="date"
+                  value={formatDateForInput(startDate)}
+                  onChange={(e) => {
+                    const selectedDate = new Date(e.target.value);
+                    const dayOfWeek = selectedDate.getDay();
+                    if (dayOfWeek === 0 || dayOfWeek === 6) {
+                      showToast({
+                        type: 'warning',
+                        title: 'Peringatan',
+                        message: 'Tidak bisa memilih hari Sabtu atau Minggu'
+                      });
+                      return;
+                    }
+                    setStartDate(e.target.value);
+                    if (!endDate || new Date(e.target.value) > new Date(endDate)) {
                       setEndDate(e.target.value);
-                    }}
-                    className="w-full px-3 py-2 text-sm border border-border rounded-md bg-input text-foreground"
-                  />
+                    }
+                  }}
+                  onKeyDown={(e) => e.preventDefault()}
+                  onPaste={(e) => e.preventDefault()}
+                  onInput={(e) => e.preventDefault()}
+                  max={formatDateForInput(endDate)}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  style={{ caretColor: 'transparent' }}
+                />
+                <div className="flex items-center justify-between h-full px-3">
+                  <span className="text-sm text-foreground">
+                    {startDate ? new Date(startDate).toLocaleDateString('en-GB', { 
+                      day: '2-digit', 
+                      month: '2-digit', 
+                      year: 'numeric' 
+                    }) : 'DD/MM/YYYY'}
+                  </span>
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
                 </div>
-                <Button 
-                  onClick={addDateRange} 
-                  size="sm" 
-                  className="w-full sm:w-auto sm:flex-none sm:h-10 sm:ml-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span className="ml-1">Add</span>
-                </Button>
               </div>
-            </div>
-
-            {/* Quick Select */}
-            <div className="flex flex-col gap-2 min-w-0">
-              <label className="text-sm font-medium text-foreground">Quick Select</label>
-              <div className="flex flex-wrap items-center gap-2">
-                <select 
-                  className="flex-1 min-w-[160px] px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
-                  value={dateRangeMode}
-                  onChange={(e) => handleDateRangeModeChange(e.target.value as '1day' | '3days' | '1week' | 'custom')}
-                >
-                  <option value="1day">1 Day</option>
-                  <option value="3days">3 Days</option>
-                  <option value="1week">1 Week</option>
-                  <option value="custom">Custom</option>
-                </select>
-                {dateRangeMode === 'custom' && (
-                  <Button onClick={clearAllDates} variant="outline" size="sm" className="flex-shrink-0 h-10">
-                    <RotateCcw className="w-4 h-4 mr-1" />
-                    <span className="text-xs">Clear</span>
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {/* View Mode Toggle */}
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium text-foreground">View Mode</label>
-              <div className="flex items-center gap-1 border border-border rounded-lg p-1">
-                <Button
-                  variant={viewMode === 'summary' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => setViewMode('summary')}
-                  className="h-9 px-3 flex-1 text-xs"
-                >
-                  Summary
-                </Button>
-                <Button
-                  variant={viewMode === 'broker' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => setViewMode('broker')}
-                  className="h-9 px-3 flex-1 text-xs"
-                >
-                  Broker Breakdown
-                </Button>
+              <span className="text-sm text-muted-foreground whitespace-nowrap hidden md:inline">to</span>
+              <div 
+                className="relative h-9 flex-1 md:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                onClick={() => triggerDatePicker(endDateRef)}
+              >
+                <input
+                  ref={endDateRef}
+                  type="date"
+                  value={formatDateForInput(endDate)}
+                  onChange={(e) => {
+                    const selectedDate = new Date(e.target.value);
+                    const dayOfWeek = selectedDate.getDay();
+                    if (dayOfWeek === 0 || dayOfWeek === 6) {
+                      showToast({
+                        type: 'warning',
+                        title: 'Peringatan',
+                        message: 'Tidak bisa memilih hari Sabtu atau Minggu'
+                      });
+                      return;
+                    }
+                    const newEndDate = e.target.value;
+                    setEndDate(newEndDate);
+                    if (startDate && new Date(newEndDate) < new Date(startDate)) {
+                      setStartDate(newEndDate);
+                    }
+                  }}
+                  onKeyDown={(e) => e.preventDefault()}
+                  onPaste={(e) => e.preventDefault()}
+                  onInput={(e) => e.preventDefault()}
+                  min={formatDateForInput(startDate)}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  style={{ caretColor: 'transparent' }}
+                />
+                <div className="flex items-center justify-between h-full px-3">
+                  <span className="text-sm text-foreground">
+                    {endDate ? new Date(endDate).toLocaleDateString('en-GB', { 
+                      day: '2-digit', 
+                      month: '2-digit', 
+                      year: 'numeric' 
+                    }) : 'DD/MM/YYYY'}
+                  </span>
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Selected Dates */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Selected Dates:</label>
-            <div className="flex flex-wrap gap-2">
-              {selectedDates.map((date) => (
-                <Badge key={date} variant="secondary" className="px-3 py-1">
-                  {formatDisplayDate(date)}
-                  {selectedDates.length > 1 && (
-                    <button
-                      onClick={() => removeDate(date)}
-                      className="ml-2 hover:text-destructive"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  )}
-                </Badge>
-              ))}
+          {/* F/D Filter (Foreign/Domestic) */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+            <label className="text-sm font-medium whitespace-nowrap">F/D:</label>
+            <select
+              value={invFilter}
+              onChange={(e) => {
+                setInvFilter(e.target.value as 'F' | 'D' | '');
+              }}
+              className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
+            >
+              <option value="">All</option>
+              <option value="F">Foreign</option>
+              <option value="D">Domestic</option>
+            </select>
+          </div>
+
+          {/* Board Filter (RG/TN/NG) */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+            <label className="text-sm font-medium whitespace-nowrap">Board:</label>
+            <select
+              value={boardFilter}
+              onChange={(e) => {
+                setBoardFilter(e.target.value as 'RG' | 'TN' | 'NG' | '');
+              }}
+              className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
+            >
+              <option value="">All Trade</option>
+              <option value="RG">RG</option>
+              <option value="TN">TN</option>
+              <option value="NG">NG</option>
+            </select>
+          </div>
+
+          {/* Ord Checklist */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+            <label className="text-sm font-medium whitespace-nowrap">Show Ord:</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={showOrdColumns}
+                onChange={(e) => setShowOrdColumns(e.target.checked)}
+                className="h-4 w-4 rounded border-input"
+              />
             </div>
           </div>
-        </CardContent>
-      </Card>
+
+          {/* Show Button */}
+          <button
+            onClick={() => {
+              // Generate date array from startDate and endDate
+              let datesToUse: string[] = [];
+              if (startDate && endDate) {
+                const start = new Date(startDate);
+                const end = new Date(endDate);
+                
+                if (start <= end) {
+                  const dateArray: string[] = [];
+                  const currentDate = new Date(start);
+                  
+                  while (currentDate <= end) {
+                    const dayOfWeek = currentDate.getDay();
+                    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+                      const year = currentDate.getFullYear();
+                      const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+                      const day = String(currentDate.getDate()).padStart(2, '0');
+                      const dateString = `${year}-${month}-${day}`;
+                      dateArray.push(dateString);
+                    }
+                    currentDate.setDate(currentDate.getDate() + 1);
+                  }
+                  
+                  datesToUse = dateArray.sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+                  
+                  // Check if total trading dates exceed 7
+                  if (datesToUse.length > 7) {
+                    showToast({
+                      type: 'warning',
+                      title: 'Terlalu Banyak Tanggal',
+                      message: 'Maksimal 7 hari trading yang bisa dipilih (tidak termasuk weekend)',
+                    });
+                    return;
+                  }
+                }
+              }
+              
+              setSelectedDates(datesToUse);
+              
+              // Clear existing data before fetching new data
+              setPriceDataByDate({});
+              setBrokerDataByDate({});
+              setIsDataReady(false);
+              
+              // Trigger fetch
+              setShouldFetchData(true);
+            }}
+            disabled={loading || !selectedStock || !startDate || !endDate}
+            className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full md:w-auto"
+          >
+            Show
+          </button>
+        </div>
+      </div>
+
+      {/* Spacer for fixed menu - responsive based on menu rows */}
+      <div className={isMenuTwoRows ? "h-[60px] md:h-[50px]" : "h-[38px] md:h-[35px]"}></div>
 
       {/* Loading State */}
       {loading && (
-        <Card>
-          <CardContent className="flex items-center justify-center py-8">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-              <p className="text-muted-foreground">Loading bid/ask data...</p>
+        <div className="flex items-center justify-center py-16 pt-4">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <span className="text-sm text-muted-foreground">Loading bid/ask data...</span>
           </div>
-        </CardContent>
-      </Card>
+        </div>
       )}
 
       {/* Error State */}
-      {error && (
-        <Card>
-          <CardContent className="flex items-center justify-center py-8">
-            <div className="text-center">
-              <p className="text-destructive mb-2">Error loading data</p>
-              <p className="text-muted-foreground text-sm">{error}</p>
-            </div>
-          </CardContent>
-        </Card>
+      {error && !loading && (
+        <div className="flex items-center justify-center py-8 pt-4">
+          <div className="text-sm text-destructive">{error}</div>
+        </div>
       )}
 
       {/* Main Data Display */}
-      {!loading && !error && (
-        viewMode === 'summary' ? renderHorizontalSummaryView() : renderHorizontalBrokerBreakdownView()
-      )}
+      <div className="pt-2">
+        {!loading && !error && isDataReady && renderHorizontalSummaryView()}
+      </div>
     </div>
   );
 }
