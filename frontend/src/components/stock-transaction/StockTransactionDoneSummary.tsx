@@ -726,8 +726,8 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
         const brokerParam = selectedBrokers.length === 0 ? 'All' : selectedBrokers[0];
         // Determine fd parameter: if empty, use 'all', otherwise use lowercase
         const fdParam = invFilter === '' ? 'all' : invFilter.toLowerCase();
-        // Determine board parameter: if empty, use 'rg' (default), otherwise use lowercase
-        const boardParam = boardFilter === '' ? 'rg' : boardFilter.toLowerCase();
+        // Determine board parameter: if empty (All Trade), use 'all', otherwise use lowercase
+        const boardParam = boardFilter === '' ? 'all' : boardFilter.toLowerCase();
         
         console.log('API parameters:', { brokerParam, fdParam, boardParam });
         
