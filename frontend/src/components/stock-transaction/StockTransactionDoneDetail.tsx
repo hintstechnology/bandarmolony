@@ -113,6 +113,8 @@ export function StockTransactionDoneDetail() {
   const [doneDetailData, setDoneDetailData] = useState<Map<string, DoneDetailData[]>>(new Map());
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pivotDataFromBackend, setPivotDataFromBackend] = useState<any>(null);
+  const [isLoadingPivot, setIsLoadingPivot] = useState(false);
   
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
@@ -126,6 +128,7 @@ export function StockTransactionDoneDetail() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(100); // Limit to 100 items per page
   const [dateRangeMode, setDateRangeMode] = useState<'1day' | '3days' | '1week' | 'custom'>('3days');
+  const [pivotMode, setPivotMode] = useState<'detail' | 'time' | 'buyer_broker' | 'seller_broker' | 'price' | 'buyer_seller_cross'>('detail');
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [infoOpen, setInfoOpen] = useState(false); // collapsible info, default minimized
   const [stockSearchTimeout, setStockSearchTimeout] = useState<NodeJS.Timeout | null>(null);
@@ -319,7 +322,43 @@ export function StockTransactionDoneDetail() {
   // Reset to first page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [filters, selectedStock, selectedDates]);
+  }, [filters, selectedStock, selectedDates, pivotMode]);
+
+  // Load pivot data from backend when pivot mode changes
+  useEffect(() => {
+    const loadPivotData = async () => {
+      if (pivotMode === 'detail' || !selectedStock || selectedDates.length === 0) {
+        setPivotDataFromBackend(null);
+        return;
+      }
+
+      try {
+        setIsLoadingPivot(true);
+        setError(null);
+
+        const result = await api.getBreakDoneTradePivot(
+          selectedStock,
+          selectedDates,
+          pivotMode as 'time' | 'buyer_broker' | 'seller_broker' | 'price' | 'buyer_seller_cross'
+        );
+
+        if (result.success && result.data?.pivotData) {
+          setPivotDataFromBackend(result.data.pivotData);
+        } else {
+          setError('Failed to load pivot data');
+          setPivotDataFromBackend(null);
+        }
+      } catch (err) {
+        console.error('Error loading pivot data:', err);
+        setError('Failed to load pivot data');
+        setPivotDataFromBackend(null);
+      } finally {
+        setIsLoadingPivot(false);
+      }
+    };
+
+    loadPivotData();
+  }, [pivotMode, selectedStock, selectedDates]);
 
   // Get unique values for filter options
   const getUniqueValues = (field: keyof DoneDetailData): string[] => {
@@ -512,6 +551,487 @@ export function StockTransactionDoneDetail() {
     }
   };
 
+  // Pivot functions
+  interface PivotData {
+    [key: string]: {
+      [date: string]: {
+        volume: number;
+        count: number;
+        avgPrice?: number;
+        hakaVolume?: number;
+        hakaValue?: number;
+        hakaAvg?: number;
+        hakiVolume?: number;
+        hakiValue?: number;
+        hakiAvg?: number;
+        buyerOrdNum?: number;
+        sellerOrdNum?: number;
+      };
+    };
+  }
+
+  // Pivot functions are now handled by backend API
+
+  // Render pivot table
+  const renderPivotTable = (pivotData: PivotData, rowLabel: string, showAvgPrice: boolean = false) => {
+    const rowKeys = Object.keys(pivotData).sort((a, b) => {
+      // Try to sort numerically if possible
+      const numA = parseFloat(a);
+      const numB = parseFloat(b);
+      if (!isNaN(numA) && !isNaN(numB)) {
+        return numB - numA; // Descending for numbers
+      }
+      return a.localeCompare(b);
+    });
+
+    // Pagination
+    const totalRows = rowKeys.length;
+    const rowsPerPage = itemsPerPage;
+    const totalPages = Math.ceil(totalRows / rowsPerPage);
+    const startIndex = (currentPage - 1) * rowsPerPage;
+    const endIndex = Math.min(startIndex + rowsPerPage, totalRows);
+    const paginatedRows = rowKeys.slice(startIndex, endIndex);
+
+    // Calculate totals
+    const allRawTransactions = selectedDates.flatMap(date => doneDetailData.get(date) || []);
+    const totalTransactions = allRawTransactions.length;
+    const totalVolume = allRawTransactions.reduce((sum, t) => sum + (parseInt(t.STK_VOLM.toString()) || 0), 0);
+
+    return (
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
+              <Grid3X3 className="w-5 h-5" />
+              Pivot View - {rowLabel} ({selectedStock})
+            </CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPivotMode('detail')}
+              className="w-full sm:w-auto text-xs h-9"
+            >
+              Back to Detail View
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-border bg-muted/50">
+                  <th className="text-left py-2 px-2 font-medium border-r-2 border-border sticky left-0 bg-muted/50 z-10">
+                    {rowLabel}
+                  </th>
+                  {selectedDates.map(date => (
+                    <React.Fragment key={date}>
+                      <th className="text-center py-2 px-2 font-medium bg-blue-50 dark:bg-blue-900/20 border-l border-border" colSpan={showAvgPrice ? 1 : 1}>
+                        {formatDisplayDate(date)}
+                      </th>
+                      {showAvgPrice && (
+                        <th className="text-center py-2 px-2 font-medium bg-blue-50 dark:bg-blue-900/20 border-l border-border">
+                          Avg Price
+                        </th>
+                      )}
+                      {(pivotMode === 'buyer_broker' || pivotMode === 'seller_broker') && (
+                        <>
+                          <th className="text-center py-2 px-2 font-medium bg-green-50 dark:bg-green-900/20 border-l border-border">
+                            HAKA Vol
+                          </th>
+                          <th className="text-center py-2 px-2 font-medium bg-green-50 dark:bg-green-900/20 border-l border-border">
+                            HAKA Avg
+                          </th>
+                          <th className="text-center py-2 px-2 font-medium bg-red-50 dark:bg-red-900/20 border-l border-border">
+                            HAKI Vol
+                          </th>
+                          <th className="text-center py-2 px-2 font-medium bg-red-50 dark:bg-red-900/20 border-l border-border">
+                            HAKI Avg
+                          </th>
+                          <th className="text-center py-2 px-2 font-medium bg-purple-50 dark:bg-purple-900/20 border-l border-border">
+                            OrdNum
+                          </th>
+                        </>
+                      )}
+                    </React.Fragment>
+                  ))}
+                  <th className="text-right py-2 px-2 font-medium bg-muted/30 border-l-2 border-border">
+                    Total
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedRows.map((rowKey) => {
+                  const rowData = pivotData[rowKey];
+                  if (!rowData) return null;
+                  const rowTotal = selectedDates.reduce((sum, date) => {
+                    return sum + (rowData[date]?.volume || 0);
+                  }, 0);
+                  
+                  return (
+                    <tr key={rowKey} className="border-b border-border/50 hover:bg-accent/50">
+                      <td className="py-2 px-2 font-medium border-r-2 border-border sticky left-0 bg-background z-10">
+                        {rowKey}
+                      </td>
+                      {selectedDates.map(date => {
+                        const data = rowData[date];
+                        return (
+                          <React.Fragment key={date}>
+                            <td className="py-2 px-2 text-right border-l border-border">
+                              <div className="font-medium">{data ? formatNumber(data.volume) : '-'}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {data ? `(${data.count})` : ''}
+                              </div>
+                            </td>
+                            {showAvgPrice && (
+                              <td className="py-2 px-2 text-right border-l border-border">
+                                {data?.avgPrice ? formatNumber(Math.round(data.avgPrice)) : '-'}
+                              </td>
+                            )}
+                            {(pivotMode === 'buyer_broker' || pivotMode === 'seller_broker') && (
+                              <>
+                                <td className="py-2 px-2 text-right border-l border-border">
+                                  {data?.hakaVolume ? formatNumber(data.hakaVolume) : '-'}
+                                </td>
+                                <td className="py-2 px-2 text-right border-l border-border">
+                                  {data?.hakaAvg ? formatNumber(Math.round(data.hakaAvg)) : '-'}
+                                </td>
+                                <td className="py-2 px-2 text-right border-l border-border">
+                                  {data?.hakiVolume ? formatNumber(data.hakiVolume) : '-'}
+                                </td>
+                                <td className="py-2 px-2 text-right border-l border-border">
+                                  {data?.hakiAvg ? formatNumber(Math.round(data.hakiAvg)) : '-'}
+                                </td>
+                                <td className="py-2 px-2 text-right border-l border-border">
+                                  {data?.buyerOrdNum !== undefined ? data.buyerOrdNum : data?.sellerOrdNum !== undefined ? data.sellerOrdNum : '-'}
+                                </td>
+                              </>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                      <td className="py-2 px-2 text-right font-medium border-l-2 border-border bg-muted/30">
+                        {formatNumber(rowTotal)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-border bg-muted/50 font-medium">
+                  <td className="py-2 px-2 border-r-2 border-border sticky left-0 bg-muted/50 z-10">
+                    Total
+                  </td>
+                  {selectedDates.map(date => {
+                    const dateTotal = Object.values(pivotData).reduce((sum, rowData) => {
+                      return sum + (rowData[date]?.volume || 0);
+                    }, 0);
+                    return (
+                      <React.Fragment key={date}>
+                        <td className="py-2 px-2 text-right border-l border-border">
+                          {formatNumber(dateTotal)}
+                        </td>
+                        {showAvgPrice && <td className="py-2 px-2 border-l border-border"></td>}
+                        {(pivotMode === 'buyer_broker' || pivotMode === 'seller_broker') && (
+                          <>
+                            <td className="py-2 px-2 border-l border-border"></td>
+                            <td className="py-2 px-2 border-l border-border"></td>
+                            <td className="py-2 px-2 border-l border-border"></td>
+                            <td className="py-2 px-2 border-l border-border"></td>
+                            <td className="py-2 px-2 border-l border-border"></td>
+                          </>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                  <td className="py-2 px-2 text-right border-l-2 border-border">
+                    {formatNumber(totalVolume)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          {/* Pagination Controls */}
+          <div className="mt-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <div>
+                Showing {startIndex + 1} to {endIndex} of {totalRows} {rowLabel.toLowerCase()}
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs">Rows per page:</label>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="text-xs bg-background border border-border rounded px-2 py-1"
+                >
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={200}>200</option>
+                  <option value={500}>500</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+              >
+                Previous
+              </Button>
+              <span className="px-2 text-sm">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+
+          {/* Summary */}
+          <div className="mt-4 p-4 bg-muted/50 rounded-lg">
+            <h4 className="font-medium mb-2">Summary</h4>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div>
+                <span className="text-muted-foreground">Total Transactions:</span>
+                <div className="font-medium">{formatNumber(totalTransactions)}</div>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Total Volume:</span>
+                <div className="font-medium">{formatNumber(totalVolume)}</div>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Unique {rowLabel}:</span>
+                <div className="font-medium">{totalRows}</div>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Current Page:</span>
+                <div className="font-medium">{currentPage} of {totalPages}</div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
+  // Render buyer-seller cross pivot
+  const renderBuyerSellerCrossPivot = () => {
+    const pivotData = pivotDataFromBackend || {};
+    const buyers = Object.keys(pivotData).sort();
+    const sellers = new Set<string>();
+    buyers.forEach(buyer => {
+      const buyerData = pivotData[buyer];
+      if (buyerData) {
+        Object.keys(buyerData).forEach(seller => sellers.add(seller));
+      }
+    });
+    const sellerList = Array.from(sellers).sort();
+
+    // Pagination for buyers
+    const totalBuyers = buyers.length;
+    const rowsPerPage = itemsPerPage;
+    const totalPages = Math.ceil(totalBuyers / rowsPerPage);
+    const startIndex = (currentPage - 1) * rowsPerPage;
+    const endIndex = Math.min(startIndex + rowsPerPage, totalBuyers);
+    const paginatedBuyers = buyers.slice(startIndex, endIndex);
+
+    const allRawTransactions = selectedDates.flatMap(date => doneDetailData.get(date) || []);
+    const totalTransactions = allRawTransactions.length;
+    const totalVolume = allRawTransactions.reduce((sum, t) => sum + (parseInt(t.STK_VOLM.toString()) || 0), 0);
+
+    return (
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
+              <Grid3X3 className="w-5 h-5" />
+              Pivot View - Buyer vs Seller Cross ({selectedStock})
+            </CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPivotMode('detail')}
+              className="w-full sm:w-auto text-xs h-9"
+            >
+              Back to Detail View
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-border bg-muted/50">
+                  <th className="text-left py-2 px-2 font-medium border-r-2 border-border sticky left-0 bg-muted/50 z-10">
+                    Buyer \ Seller
+                  </th>
+                  {sellerList.map(seller => (
+                    <th key={seller} className="text-center py-2 px-2 font-medium bg-blue-50 dark:bg-blue-900/20 border-l border-border min-w-[80px]">
+                      {seller}
+                    </th>
+                  ))}
+                  <th className="text-right py-2 px-2 font-medium bg-muted/30 border-l-2 border-border">
+                    Total
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedBuyers.map((buyer) => {
+                  const buyerData = pivotData[buyer];
+                  if (!buyerData) return null;
+                  const buyerTotal = sellerList.reduce((sum, seller) => {
+                    const sellerData = buyerData[seller];
+                    if (!sellerData) return sum;
+                    return sum + selectedDates.reduce((dateSum, date) => {
+                      return dateSum + (sellerData[date]?.volume || 0);
+                    }, 0);
+                  }, 0);
+                  
+                  return (
+                    <tr key={buyer} className="border-b border-border/50 hover:bg-accent/50">
+                      <td className="py-2 px-2 font-medium border-r-2 border-border sticky left-0 bg-background z-10">
+                        {buyer}
+                      </td>
+                      {sellerList.map(seller => {
+                        const sellerData = buyerData[seller];
+                        const cellTotal = sellerData ? selectedDates.reduce((sum, date) => {
+                          return sum + (sellerData[date]?.volume || 0);
+                        }, 0) : 0;
+                        const cellCount = sellerData ? selectedDates.reduce((sum, date) => {
+                          return sum + (sellerData[date]?.count || 0);
+                        }, 0) : 0;
+                        
+                        return (
+                          <td key={seller} className="py-2 px-2 text-right border-l border-border">
+                            {cellTotal > 0 ? (
+                              <>
+                                <div className="font-medium">{formatNumber(cellTotal)}</div>
+                                <div className="text-xs text-muted-foreground">({cellCount})</div>
+                              </>
+                            ) : (
+                              '-'
+                            )}
+                          </td>
+                        );
+                      })}
+                      <td className="py-2 px-2 text-right font-medium border-l-2 border-border bg-muted/30">
+                        {formatNumber(buyerTotal)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-border bg-muted/50 font-medium">
+                  <td className="py-2 px-2 border-r-2 border-border sticky left-0 bg-muted/50 z-10">
+                    Total
+                  </td>
+                  {sellerList.map(seller => {
+                    const sellerTotal = buyers.reduce((sum, buyer) => {
+                      const buyerData = pivotData[buyer];
+                      if (!buyerData) return sum;
+                      const sellerData = buyerData[seller];
+                      if (!sellerData) return sum;
+                      return sum + selectedDates.reduce((dateSum, date) => {
+                        return dateSum + (sellerData[date]?.volume || 0);
+                      }, 0);
+                    }, 0);
+                    return (
+                      <td key={seller} className="py-2 px-2 text-right border-l border-border">
+                        {formatNumber(sellerTotal)}
+                      </td>
+                    );
+                  })}
+                  <td className="py-2 px-2 text-right border-l-2 border-border">
+                    {formatNumber(totalVolume)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          {/* Pagination Controls */}
+          <div className="mt-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <div>
+                Showing {startIndex + 1} to {endIndex} of {totalBuyers} buyers
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs">Rows per page:</label>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="text-xs bg-background border border-border rounded px-2 py-1"
+                >
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={200}>200</option>
+                  <option value={500}>500</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+              >
+                Previous
+              </Button>
+              <span className="px-2 text-sm">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+
+          {/* Summary */}
+          <div className="mt-4 p-4 bg-muted/50 rounded-lg">
+            <h4 className="font-medium mb-2">Summary</h4>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div>
+                <span className="text-muted-foreground">Total Transactions:</span>
+                <div className="font-medium">{formatNumber(totalTransactions)}</div>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Total Volume:</span>
+                <div className="font-medium">{formatNumber(totalVolume)}</div>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Unique Buyers:</span>
+                <div className="font-medium">{buyers.length}</div>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Unique Sellers:</span>
+                <div className="font-medium">{sellerList.length}</div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
 
   // Render horizontal view - pivot-style comparison across dates with pagination
   const renderHorizontalView = () => {
@@ -790,6 +1310,21 @@ export function StockTransactionDoneDetail() {
               <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
               Stock Selection & Date Range (Max 7 Days)
             </div>
+            <div className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
+              <label className="text-sm font-medium text-foreground">View Mode:</label>
+              <select
+                className="text-sm bg-background border border-border rounded px-3 py-2 w-full sm:w-auto min-w-[200px]"
+                value={pivotMode}
+                onChange={(e) => setPivotMode(e.target.value as any)}
+              >
+                <option value="detail">Detail View</option>
+                <option value="time">Pivot by Time</option>
+                <option value="buyer_broker">Pivot by Buyer Broker</option>
+                <option value="seller_broker">Pivot by Seller Broker</option>
+                <option value="price">Pivot by Price</option>
+                <option value="buyer_seller_cross">Buyer vs Seller Cross</option>
+              </select>
+            </div>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -968,7 +1503,28 @@ export function StockTransactionDoneDetail() {
       )}
 
       {/* Main Data Display */}
-      {!isLoading && !error && renderHorizontalView()}
+      {!isLoading && !error && (
+        <>
+          {pivotMode === 'detail' && renderHorizontalView()}
+          {pivotMode !== 'detail' && isLoadingPivot && (
+            <Card>
+              <CardContent className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin mr-2" />
+                <span>Loading pivot data...</span>
+              </CardContent>
+            </Card>
+          )}
+          {pivotMode !== 'detail' && !isLoadingPivot && pivotDataFromBackend && (
+            <>
+              {pivotMode === 'time' && renderPivotTable(pivotDataFromBackend, 'Time', true)}
+              {pivotMode === 'buyer_broker' && renderPivotTable(pivotDataFromBackend, 'Buyer Broker', true)}
+              {pivotMode === 'seller_broker' && renderPivotTable(pivotDataFromBackend, 'Seller Broker', true)}
+              {pivotMode === 'price' && renderPivotTable(pivotDataFromBackend, 'Price', false)}
+              {pivotMode === 'buyer_seller_cross' && renderBuyerSellerCrossPivot()}
+            </>
+          )}
+        </>
+      )}
 
       {/* Info Card */}
       <Card className={infoOpen ? '' : 'my-4'}>

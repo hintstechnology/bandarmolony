@@ -2205,6 +2205,32 @@ export const api = {
     }
   },
 
+  // Get pivot data for break done trade
+  async getBreakDoneTradePivot(
+    stockCode: string,
+    dates: string[],
+    pivotType: 'time' | 'buyer_broker' | 'seller_broker' | 'price' | 'buyer_seller_cross'
+  ): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const response = await fetch(`${this.baseUrl}/break-done-trade/pivot`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          stockCode,
+          dates,
+          pivotType,
+        }),
+      });
+
+      const result = await response.json();
+      return result;
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get pivot data' };
+    }
+  },
+
   // ===== ACCUMULATION DISTRIBUTION API =====
   
   // Get list of available dates from accumulation_distribution directory
