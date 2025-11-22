@@ -3,7 +3,11 @@ import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
 // Type definitions for broker inventory data
 interface BrokerInventoryData {
   Date: string;
+  BuyVol: number;
+  SellVol: number;
   NetBuyVol: number;
+  CumulativeBuyVol: number;
+  CumulativeSellVol: number;
   CumulativeNetBuyVol: number;
 }
 
@@ -167,6 +171,8 @@ export class BrokerInventoryCalculator {
     allBrokerData: Map<string, Map<string, BrokerTransactionData[]>>
   ): BrokerInventoryData[] {
     const inventoryData: BrokerInventoryData[] = [];
+    let cumulativeBuyVol = 0;
+    let cumulativeSellVol = 0;
     let cumulativeNetBuyVol = 0;
     
     // Add baseline date (start date - 1) with zero values
@@ -176,7 +182,11 @@ export class BrokerInventoryCalculator {
         const baselineDate = this.getPreviousDate(firstDate);
         inventoryData.push({
           Date: baselineDate,
+          BuyVol: 0,
+          SellVol: 0,
           NetBuyVol: 0,
+          CumulativeBuyVol: 0,
+          CumulativeSellVol: 0,
           CumulativeNetBuyVol: 0
         });
       }
@@ -186,12 +196,21 @@ export class BrokerInventoryCalculator {
       const brokerDataForDate = allBrokerData.get(date)?.get(brokerCode) || [];
       const emitenRecord = brokerDataForDate.find(e => e.Emiten === emitenCode);
       
-      const netBuyVol = emitenRecord ? emitenRecord.NetBuyVol : 0;
+      const buyVol = emitenRecord ? emitenRecord.BuyerVol : 0;
+      const sellVol = emitenRecord ? emitenRecord.SellerVol : 0;
+      const netBuyVol = buyVol - sellVol;
+      
+      cumulativeBuyVol += buyVol;
+      cumulativeSellVol += sellVol;
       cumulativeNetBuyVol += netBuyVol;
       
       inventoryData.push({
         Date: date,
+        BuyVol: buyVol,
+        SellVol: sellVol,
         NetBuyVol: netBuyVol,
+        CumulativeBuyVol: cumulativeBuyVol,
+        CumulativeSellVol: cumulativeSellVol,
         CumulativeNetBuyVol: cumulativeNetBuyVol
       });
     }
