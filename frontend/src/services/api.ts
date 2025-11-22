@@ -2209,10 +2209,10 @@ export const api = {
   async getBreakDoneTradePivot(
     stockCode: string,
     dates: string[],
-    pivotType: 'time' | 'buyer_broker' | 'seller_broker' | 'price' | 'buyer_seller_cross'
+    pivotType: string
   ): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
-      const response = await fetch(`${this.baseUrl}/break-done-trade/pivot`, {
+      const response = await fetch(`${API_URL}/break-done-trade/pivot`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
