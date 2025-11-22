@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { downloadText, listPaths } from '../utils/azureBlob';
 import BreakDoneTradeCalculator from '../calculations/done/break_done_trade';
+import DoneDetailPivotCalculator from '../calculations/done/done_detail_pivot';
 
 const router = Router();
 const breakDoneTradeCalculator = new BreakDoneTradeCalculator();
+const pivotCalculator = new DoneDetailPivotCalculator();
 
 // Cache untuk menyimpan data yang sudah diambil
 const dataCache = new Map<string, { data: any; timestamp: number }>();
@@ -261,6 +263,103 @@ router.post('/generate', async (req, res) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to generate break done trade data'
+    });
+  }
+});
+
+// Get pivot data
+router.post('/pivot', async (req, res) => {
+  try {
+    const { stockCode, dates, pivotType } = req.body;
+    
+    if (!stockCode || !dates || !Array.isArray(dates) || dates.length === 0 || !pivotType) {
+      return res.status(400).json({
+        success: false,
+        error: 'stockCode, dates (array), and pivotType are required'
+      });
+    }
+
+    const cacheKey = `break-done-trade-pivot-${stockCode}-${dates.join(',')}-${pivotType}`;
+    const cachedData = getCachedData(cacheKey);
+    if (cachedData) {
+      return res.json(cachedData);
+    }
+
+    console.log(`📊 Getting pivot data for stock: ${stockCode}, dates: ${dates.join(', ')}, type: ${pivotType}`);
+    
+    // Map pivotType to PivotDimension
+    const pivotDimensionMap: { [key: string]: any } = {
+      'time': 'TRX_TIME',
+      'buyer_broker': 'BRK_COD1',
+      'seller_broker': 'BRK_COD2',
+      'price': 'STK_PRIC',
+      'stock_code': 'STK_CODE',
+      'inv_typ1': 'INV_TYP1',
+      'inv_typ2': 'INV_TYP2',
+      'trx_type': 'TRX_TYPE',
+      'trx_sess': 'TRX_SESS',
+      'buyer_seller_cross': 'BRK_COD1_BRK_COD2',
+      'seller_buyer_breakdown': 'BRK_COD2_BRK_COD1',
+      'buyer_seller_detail': 'BRK_COD1_BRK_COD2_DETAIL',
+      'session_buyer_broker': 'TRX_SESS_BRK_COD1',
+      'session_seller_broker': 'TRX_SESS_BRK_COD2',
+      'session_stock_code': 'TRX_SESS_STK_CODE',
+      'buyer_broker_session': 'BRK_COD1_TRX_SESS',
+      'seller_broker_session': 'BRK_COD2_TRX_SESS',
+      'stock_code_session': 'STK_CODE_TRX_SESS',
+      'buyer_inv_type_broker': 'INV_TYP1_BRK_COD1',
+      'seller_inv_type_broker': 'INV_TYP2_BRK_COD2',
+      'trx_type_buyer_broker': 'TRX_TYPE_BRK_COD1',
+      'trx_type_seller_broker': 'TRX_TYPE_BRK_COD2',
+    };
+
+    let pivotData: any;
+    
+    if (pivotType === 'buyer_seller_cross') {
+      // Special case for cross pivot
+      pivotData = await pivotCalculator.pivotByBuyerSellerCross(stockCode, dates);
+    } else {
+      const dimension = pivotDimensionMap[pivotType];
+      if (!dimension) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid pivotType: ${pivotType}. Valid types: ${Object.keys(pivotDimensionMap).join(', ')}, buyer_seller_cross`
+        });
+      }
+      
+      // Get filters from request body if provided
+      const filters = {
+        stockCodes: req.body.stockCodes,
+        buyerBrokers: req.body.buyerBrokers,
+        sellerBrokers: req.body.sellerBrokers,
+        minPrice: req.body.minPrice,
+        maxPrice: req.body.maxPrice,
+        dates: req.body.dates,
+      };
+      
+      // Access createPivot method (it's private, so we need to cast)
+      const calculator = pivotCalculator as any;
+      pivotData = await calculator.createPivot(stockCode, dates, dimension, filters);
+    }
+    
+    const response = {
+      success: true,
+      data: {
+        stockCode,
+        dates,
+        pivotType,
+        pivotData
+      }
+    };
+    
+    setCachedData(cacheKey, response);
+    return res.json(response);
+    
+  } catch (error) {
+    console.error('❌ Error getting pivot data:', error);
+    return res.status(500).json({
+      success: false,
+      error: `Failed to get pivot data: ${error instanceof Error ? error.message : 'Unknown error'}`
     });
   }
 });

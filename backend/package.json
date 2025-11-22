@@ -12,7 +12,8 @@
     "build:prod": "cross-env NODE_ENV=production tsc",
     "start:prod": "cross-env NODE_ENV=production NODE_OPTIONS=\"--max-old-space-size=16384 --expose-gc\" node --env-file=.env dist/index.js",
     "lint": "eslint . --ext ts --report-unused-disable-directives --max-warnings 0",
-    "test:broker-breakdown": "ts-node src/calculations/broker/broker_breakdown_test.ts"
+    "test:broker-breakdown": "ts-node src/calculations/broker/broker_breakdown_test.ts",
+    "test:done-pivot": "ts-node src/calculations/done/test_done_detail_pivot.ts"
   },
   "engines": {
     "node": ">=20"
