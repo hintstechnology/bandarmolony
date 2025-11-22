@@ -2460,8 +2460,8 @@ export function updateSchedulerConfig(newConfig: Partial<typeof SCHEDULER_CONFIG
   PHASE1_DATA_COLLECTION_SCHEDULE = timeToCron(PHASE1_DATA_COLLECTION_TIME);
   PHASE1_SHAREHOLDERS_SCHEDULE = timeToCron(PHASE1_SHAREHOLDERS_TIME);
   
-  // Schedule resize-before webhook trigger (15 minutes before scheduler time)
-  scheduleResizeBeforeWebhook();
+  // Note: scheduleResizeBeforeWebhook() will be called by startScheduler() or restartScheduler()
+  // No need to call it here to avoid double scheduling
   
   console.log('✅ Scheduler configuration updated:', SCHEDULER_CONFIG);
 }
