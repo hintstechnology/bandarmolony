@@ -1037,6 +1037,109 @@ router.put('/scheduler/phases/:phaseId/trigger-config', requireDeveloper, async 
     const result = await updatePhaseTriggerConfig(phaseId, triggerType, schedule, triggerAfterPhase);
     
     if (result.success) {
+      // If Phase 1 schedule changed, trigger immediate webhook if within resize window
+      if (triggerType === 'scheduled' && schedule && (phaseId === 'phase1a_input_daily' || phaseId === 'phase1b_input_monthly')) {
+        try {
+          const { triggerGitHubWorkflow } = await import('../utils/githubWebhook');
+          const config = getSchedulerConfig();
+          
+          // Only check for phase1a_input_daily (main scheduler time)
+          if (phaseId === 'phase1a_input_daily') {
+            // Calculate resize time (15 minutes before scheduler)
+            const timeParts = schedule.split(':').map(Number);
+            const schedulerHour = timeParts[0] ?? 0;
+            const schedulerMinute = timeParts[1] ?? 0;
+            let resizeMinute = schedulerMinute - 15;
+            let resizeHour = schedulerHour;
+            if (resizeMinute < 0) {
+              resizeMinute += 60;
+              resizeHour -= 1;
+            }
+            if (resizeHour < 0) {
+              resizeHour += 24;
+            }
+            const resizeTime = `${String(resizeHour).padStart(2, '0')}:${String(resizeMinute).padStart(2, '0')}`;
+            
+            // Get current time in scheduler timezone using Intl API
+            const now = new Date();
+            const timezone = config.TIMEZONE || 'Asia/Jakarta';
+            const currentTimeInTz = new Intl.DateTimeFormat('en-US', {
+              timeZone: timezone,
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false
+            }).formatToParts(now);
+            
+            const currentHours = parseInt(currentTimeInTz.find(p => p.type === 'hour')?.value || '0', 10);
+            const currentMinutes = parseInt(currentTimeInTz.find(p => p.type === 'minute')?.value || '0', 10);
+            const currentTime = `${String(currentHours).padStart(2, '0')}:${String(currentMinutes).padStart(2, '0')}`;
+            
+            console.log('🔄 Checking if immediate webhook trigger needed (phase trigger config)...');
+            console.log('📋 Config:', {
+              new_time: schedule,
+              resize_time: resizeTime,
+              current_time: currentTime,
+              timezone: timezone,
+              weekend_skip: config.WEEKEND_SKIP
+            });
+            
+            // Check if current time is within resize window
+            const currentTimeMinutes = currentHours * 60 + currentMinutes;
+            const resizeMinutes = resizeHour * 60 + resizeMinute;
+            const schedulerMinutes = schedulerHour * 60 + schedulerMinute;
+            
+            // Determine if scheduler is today or tomorrow
+            const isSchedulerTomorrow = resizeHour > schedulerHour || (resizeHour === schedulerHour && resizeMinutes > schedulerMinutes);
+            
+            let isWithinWindow = false;
+            if (isSchedulerTomorrow) {
+              isWithinWindow = currentTimeMinutes >= resizeMinutes;
+            } else {
+              isWithinWindow = currentTimeMinutes >= resizeMinutes && currentTimeMinutes < schedulerMinutes;
+            }
+            
+            // Check if weekend skip is enabled and today is weekend
+            const isWeekend = (() => {
+              const now = new Date();
+              const dayOfWeekInTz = new Intl.DateTimeFormat('en-US', {
+                timeZone: timezone,
+                weekday: 'short'
+              }).formatToParts(now);
+              const weekday = dayOfWeekInTz.find(p => p.type === 'weekday')?.value || '';
+              return weekday === 'Sat' || weekday === 'Sun';
+            })();
+            
+            // Trigger webhook immediately if current time is within resize window AND not weekend (if weekend skip enabled)
+            if (isWithinWindow && !(config.WEEKEND_SKIP && isWeekend)) {
+              console.log('✅ Current time is within resize window - triggering webhook immediately (phase trigger config)');
+              
+              const webhookResult = await triggerGitHubWorkflow('scheduler-time-changed', {
+                new_time: schedule,
+                shareholders_time: config.PHASE1_SHAREHOLDERS_TIME,
+                timezone: timezone,
+                weekend_skip: config.WEEKEND_SKIP
+              });
+              
+              if (webhookResult) {
+                console.log('✅ GitHub webhook triggered successfully (immediate - phase trigger config)');
+              } else {
+                console.warn('⚠️ GitHub webhook trigger failed (immediate - phase trigger config)');
+              }
+            } else {
+              if (isWithinWindow && config.WEEKEND_SKIP && isWeekend) {
+                console.log('⏸️ Weekend detected - skipping immediate webhook trigger (weekend skip enabled)');
+              } else {
+                console.log('⏸️ Current time is not within resize window - webhook will be triggered at scheduled time');
+              }
+              console.log(`⏳ Scheduled webhook trigger at ${resizeTime} ${timezone}`);
+            }
+          }
+        } catch (error) {
+          console.error('❌ Error triggering GitHub webhook (phase trigger config):', error);
+          // Don't fail the request if webhook fails
+        }
+      }
+      
       return res.json(createSuccessResponse(result, result.message));
     } else {
       return res.status(400).json(createErrorResponse(
@@ -1278,8 +1381,19 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
           isWithinWindow = currentTimeMinutes >= resizeMinutes && currentTimeMinutes < schedulerMinutes;
         }
         
-        // Trigger webhook immediately if current time is within resize window
-        if (isWithinWindow) {
+        // Check if weekend skip is enabled and today is weekend
+        const isWeekend = (() => {
+          const now = new Date();
+          const dayOfWeekInTz = new Intl.DateTimeFormat('en-US', {
+            timeZone: timezone,
+            weekday: 'short'
+          }).formatToParts(now);
+          const weekday = dayOfWeekInTz.find(p => p.type === 'weekday')?.value || '';
+          return weekday === 'Sat' || weekday === 'Sun';
+        })();
+        
+        // Trigger webhook immediately if current time is within resize window AND not weekend (if weekend skip enabled)
+        if (isWithinWindow && !(updatedConfig.WEEKEND_SKIP && isWeekend)) {
           console.log('✅ Current time is within resize window - triggering webhook immediately');
           
           const webhookResult = await triggerGitHubWorkflow('scheduler-time-changed', {
@@ -1298,7 +1412,11 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
             webhookError = 'Webhook trigger returned false - check environment variables and GitHub token';
           }
         } else {
-          console.log('⏸️ Current time is not within resize window - webhook will be triggered at scheduled time');
+          if (isWithinWindow && updatedConfig.WEEKEND_SKIP && isWeekend) {
+            console.log('⏸️ Weekend detected - skipping immediate webhook trigger (weekend skip enabled)');
+          } else {
+            console.log('⏸️ Current time is not within resize window - webhook will be triggered at scheduled time');
+          }
           console.log(`⏳ Scheduled webhook trigger at ${resizeTime} ${updatedConfig.TIMEZONE}`);
           // Backend scheduler will handle the scheduled trigger via scheduleResizeBeforeWebhook()
         }
@@ -1599,6 +1717,109 @@ router.put('/scheduler/phases/:phaseId/trigger-config', requireDeveloper, async 
     const result = await updatePhaseTriggerConfig(phaseId, triggerType, schedule, triggerAfterPhase);
     
     if (result.success) {
+      // If Phase 1 schedule changed, trigger immediate webhook if within resize window
+      if (triggerType === 'scheduled' && schedule && (phaseId === 'phase1a_input_daily' || phaseId === 'phase1b_input_monthly')) {
+        try {
+          const { triggerGitHubWorkflow } = await import('../utils/githubWebhook');
+          const config = getSchedulerConfig();
+          
+          // Only check for phase1a_input_daily (main scheduler time)
+          if (phaseId === 'phase1a_input_daily') {
+            // Calculate resize time (15 minutes before scheduler)
+            const timeParts = schedule.split(':').map(Number);
+            const schedulerHour = timeParts[0] ?? 0;
+            const schedulerMinute = timeParts[1] ?? 0;
+            let resizeMinute = schedulerMinute - 15;
+            let resizeHour = schedulerHour;
+            if (resizeMinute < 0) {
+              resizeMinute += 60;
+              resizeHour -= 1;
+            }
+            if (resizeHour < 0) {
+              resizeHour += 24;
+            }
+            const resizeTime = `${String(resizeHour).padStart(2, '0')}:${String(resizeMinute).padStart(2, '0')}`;
+            
+            // Get current time in scheduler timezone using Intl API
+            const now = new Date();
+            const timezone = config.TIMEZONE || 'Asia/Jakarta';
+            const currentTimeInTz = new Intl.DateTimeFormat('en-US', {
+              timeZone: timezone,
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false
+            }).formatToParts(now);
+            
+            const currentHours = parseInt(currentTimeInTz.find(p => p.type === 'hour')?.value || '0', 10);
+            const currentMinutes = parseInt(currentTimeInTz.find(p => p.type === 'minute')?.value || '0', 10);
+            const currentTime = `${String(currentHours).padStart(2, '0')}:${String(currentMinutes).padStart(2, '0')}`;
+            
+            console.log('🔄 Checking if immediate webhook trigger needed (phase trigger config)...');
+            console.log('📋 Config:', {
+              new_time: schedule,
+              resize_time: resizeTime,
+              current_time: currentTime,
+              timezone: timezone,
+              weekend_skip: config.WEEKEND_SKIP
+            });
+            
+            // Check if current time is within resize window
+            const currentTimeMinutes = currentHours * 60 + currentMinutes;
+            const resizeMinutes = resizeHour * 60 + resizeMinute;
+            const schedulerMinutes = schedulerHour * 60 + schedulerMinute;
+            
+            // Determine if scheduler is today or tomorrow
+            const isSchedulerTomorrow = resizeHour > schedulerHour || (resizeHour === schedulerHour && resizeMinutes > schedulerMinutes);
+            
+            let isWithinWindow = false;
+            if (isSchedulerTomorrow) {
+              isWithinWindow = currentTimeMinutes >= resizeMinutes;
+            } else {
+              isWithinWindow = currentTimeMinutes >= resizeMinutes && currentTimeMinutes < schedulerMinutes;
+            }
+            
+            // Check if weekend skip is enabled and today is weekend
+            const isWeekend = (() => {
+              const now = new Date();
+              const dayOfWeekInTz = new Intl.DateTimeFormat('en-US', {
+                timeZone: timezone,
+                weekday: 'short'
+              }).formatToParts(now);
+              const weekday = dayOfWeekInTz.find(p => p.type === 'weekday')?.value || '';
+              return weekday === 'Sat' || weekday === 'Sun';
+            })();
+            
+            // Trigger webhook immediately if current time is within resize window AND not weekend (if weekend skip enabled)
+            if (isWithinWindow && !(config.WEEKEND_SKIP && isWeekend)) {
+              console.log('✅ Current time is within resize window - triggering webhook immediately (phase trigger config)');
+              
+              const webhookResult = await triggerGitHubWorkflow('scheduler-time-changed', {
+                new_time: schedule,
+                shareholders_time: config.PHASE1_SHAREHOLDERS_TIME,
+                timezone: timezone,
+                weekend_skip: config.WEEKEND_SKIP
+              });
+              
+              if (webhookResult) {
+                console.log('✅ GitHub webhook triggered successfully (immediate - phase trigger config)');
+              } else {
+                console.warn('⚠️ GitHub webhook trigger failed (immediate - phase trigger config)');
+              }
+            } else {
+              if (isWithinWindow && config.WEEKEND_SKIP && isWeekend) {
+                console.log('⏸️ Weekend detected - skipping immediate webhook trigger (weekend skip enabled)');
+              } else {
+                console.log('⏸️ Current time is not within resize window - webhook will be triggered at scheduled time');
+              }
+              console.log(`⏳ Scheduled webhook trigger at ${resizeTime} ${timezone}`);
+            }
+          }
+        } catch (error) {
+          console.error('❌ Error triggering GitHub webhook (phase trigger config):', error);
+          // Don't fail the request if webhook fails
+        }
+      }
+      
       return res.json(createSuccessResponse(result, result.message));
     } else {
       return res.status(400).json(createErrorResponse(
@@ -1840,8 +2061,19 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
           isWithinWindow = currentTimeMinutes >= resizeMinutes && currentTimeMinutes < schedulerMinutes;
         }
         
-        // Trigger webhook immediately if current time is within resize window
-        if (isWithinWindow) {
+        // Check if weekend skip is enabled and today is weekend
+        const isWeekend = (() => {
+          const now = new Date();
+          const dayOfWeekInTz = new Intl.DateTimeFormat('en-US', {
+            timeZone: timezone,
+            weekday: 'short'
+          }).formatToParts(now);
+          const weekday = dayOfWeekInTz.find(p => p.type === 'weekday')?.value || '';
+          return weekday === 'Sat' || weekday === 'Sun';
+        })();
+        
+        // Trigger webhook immediately if current time is within resize window AND not weekend (if weekend skip enabled)
+        if (isWithinWindow && !(updatedConfig.WEEKEND_SKIP && isWeekend)) {
           console.log('✅ Current time is within resize window - triggering webhook immediately');
           
           const webhookResult = await triggerGitHubWorkflow('scheduler-time-changed', {
@@ -1860,7 +2092,11 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
             webhookError = 'Webhook trigger returned false - check environment variables and GitHub token';
           }
         } else {
-          console.log('⏸️ Current time is not within resize window - webhook will be triggered at scheduled time');
+          if (isWithinWindow && updatedConfig.WEEKEND_SKIP && isWeekend) {
+            console.log('⏸️ Weekend detected - skipping immediate webhook trigger (weekend skip enabled)');
+          } else {
+            console.log('⏸️ Current time is not within resize window - webhook will be triggered at scheduled time');
+          }
           console.log(`⏳ Scheduled webhook trigger at ${resizeTime} ${updatedConfig.TIMEZONE}`);
           // Backend scheduler will handle the scheduled trigger via scheduleResizeBeforeWebhook()
         }

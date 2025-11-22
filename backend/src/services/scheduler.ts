@@ -127,11 +127,19 @@ function calculateResizeTime(schedulerTime: string): string {
   return `${String(resizeHours).padStart(2, '0')}:${String(resizeMinutes).padStart(2, '0')}`;
 }
 
-// Check if today is weekend (Saturday = 6, Sunday = 0)
+// Check if today is weekend (Saturday = 6, Sunday = 0) in scheduler timezone
 function isWeekend(): boolean {
   const today = new Date();
-  const dayOfWeek = today.getDay();
-  return dayOfWeek === 0 || dayOfWeek === 6; // Sunday or Saturday
+  const timezone = SCHEDULER_CONFIG.TIMEZONE || 'Asia/Jakarta';
+  
+  // Get day of week in scheduler timezone
+  const dayOfWeekInTz = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    weekday: 'short'
+  }).formatToParts(today);
+  
+  const weekday = dayOfWeekInTz.find(p => p.type === 'weekday')?.value || '';
+  return weekday === 'Sat' || weekday === 'Sun';
 }
 
 // Generate cron schedules from configuration (will be updated when config changes)
