@@ -84,10 +84,18 @@ jobs:
         id: check-weekend-quick
         if: steps.quick-check.outputs.weekend_skip == 'true'
         run: |
-          DAY_OF_WEEK=$(date -u +%w)
+          # Check weekend in scheduler timezone (not UTC)
+          TIMEZONE="${{ steps.quick-check.outputs.timezone }}"
+          # Default to Asia/Jakarta if timezone is empty
+          if [ -z "$TIMEZONE" ] || [ "$TIMEZONE" = "null" ]; then
+            TIMEZONE="Asia/Jakarta"
+          fi
+          
+          # Get day of week in scheduler timezone
+          DAY_OF_WEEK=$(TZ="$TIMEZONE" date +%w)
           if [ "$DAY_OF_WEEK" = "0" ] || [ "$DAY_OF_WEEK" = "6" ]; then
             echo "is_weekend=true" >> $GITHUB_OUTPUT
-            echo "⏭️ Weekend detected - skipping workflow execution"
+            echo "⏭️ Weekend detected ($TIMEZONE) - skipping workflow execution"
           else
             echo "is_weekend=false" >> $GITHUB_OUTPUT
           fi
