@@ -1090,17 +1090,19 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
       
       // Validate that new scheduler time is in the future (not in the past)
       const [newHour, newMinute] = PHASE1_DATA_COLLECTION_TIME.split(':').map(Number);
-      const now = new Date();
       const timezone = TIMEZONE || req.body.TIMEZONE || 'Asia/Jakarta';
       
-      // Get current time in scheduler timezone (Asia/Jakarta = UTC+7)
-      const utcHours = now.getUTCHours();
-      const utcMinutes = now.getUTCMinutes();
-      let currentHours = utcHours + 7; // WIB = UTC+7
-      let currentMinutes = utcMinutes;
-      if (currentHours >= 24) {
-        currentHours -= 24;
-      }
+      // Get current time in scheduler timezone using Intl API for accurate timezone conversion
+      const now = new Date();
+      const currentTimeInTz = new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      }).formatToParts(now);
+      
+      const currentHours = parseInt(currentTimeInTz.find(p => p.type === 'hour')?.value || '0', 10);
+      const currentMinutes = parseInt(currentTimeInTz.find(p => p.type === 'minute')?.value || '0', 10);
       
       // Compare times (handle same-day comparison)
       const newTimeMinutes = newHour * 60 + newMinute;
@@ -1233,34 +1235,51 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
         }
         const resizeTime = `${String(resizeHour).padStart(2, '0')}:${String(resizeMinute).padStart(2, '0')}`;
         
-        // Get current time in scheduler timezone (Asia/Jakarta = UTC+7)
+        // Get current time in scheduler timezone using Intl API for accurate timezone conversion
         const now = new Date();
-        const utcHours = now.getUTCHours();
-        const utcMinutes = now.getUTCMinutes();
-        // Convert UTC to WIB (UTC+7)
-        let wibHours = utcHours + 7;
-        let wibMinutes = utcMinutes;
-        if (wibHours >= 24) {
-          wibHours -= 24;
-        }
-        const currentTime = `${String(wibHours).padStart(2, '0')}:${String(wibMinutes).padStart(2, '0')}`;
+        const timezone = updatedConfig.TIMEZONE || 'Asia/Jakarta';
+        const currentTimeInTz = new Intl.DateTimeFormat('en-US', {
+          timeZone: timezone,
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        }).formatToParts(now);
+        
+        const currentHours = parseInt(currentTimeInTz.find(p => p.type === 'hour')?.value || '0', 10);
+        const currentMinutes = parseInt(currentTimeInTz.find(p => p.type === 'minute')?.value || '0', 10);
+        const currentTime = `${String(currentHours).padStart(2, '0')}:${String(currentMinutes).padStart(2, '0')}`;
         
         console.log('🔄 Checking if immediate webhook trigger needed...');
         console.log('📋 Config:', {
           new_time: updatedConfig.PHASE1_DATA_COLLECTION_TIME,
           resize_time: resizeTime,
           current_time: currentTime,
-          timezone: updatedConfig.TIMEZONE,
+          timezone: timezone,
           weekend_skip: updatedConfig.WEEKEND_SKIP
         });
         
         // Check if current time is within resize window (>= resize time AND < scheduler time)
-        const currentMinutes = wibHours * 60 + wibMinutes;
+        // Handle edge case: if resize time is late night and scheduler is early morning (next day)
+        const currentTimeMinutes = currentHours * 60 + currentMinutes;
         const resizeMinutes = resizeHour * 60 + resizeMinute;
         const schedulerMinutes = schedulerHour * 60 + schedulerMinute;
         
+        // Determine if scheduler is today or tomorrow
+        // If resize hour > scheduler hour, it means scheduler is tomorrow (e.g., resize 23:45, scheduler 00:00)
+        const isSchedulerTomorrow = resizeHour > schedulerHour || (resizeHour === schedulerHour && resizeMinutes > schedulerMinutes);
+        
+        let isWithinWindow = false;
+        if (isSchedulerTomorrow) {
+          // Scheduler is tomorrow: check if current time >= resize time (today) OR < scheduler time (tomorrow)
+          // For simplicity, we only check if current time >= resize time (we're in the window)
+          isWithinWindow = currentTimeMinutes >= resizeMinutes;
+        } else {
+          // Scheduler is today: check if current time >= resize time AND < scheduler time
+          isWithinWindow = currentTimeMinutes >= resizeMinutes && currentTimeMinutes < schedulerMinutes;
+        }
+        
         // Trigger webhook immediately if current time is within resize window
-        if (currentMinutes >= resizeMinutes && currentMinutes < schedulerMinutes) {
+        if (isWithinWindow) {
           console.log('✅ Current time is within resize window - triggering webhook immediately');
           
           const webhookResult = await triggerGitHubWorkflow('scheduler-time-changed', {
@@ -1633,17 +1652,19 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
       
       // Validate that new scheduler time is in the future (not in the past)
       const [newHour, newMinute] = PHASE1_DATA_COLLECTION_TIME.split(':').map(Number);
-      const now = new Date();
       const timezone = TIMEZONE || req.body.TIMEZONE || 'Asia/Jakarta';
       
-      // Get current time in scheduler timezone (Asia/Jakarta = UTC+7)
-      const utcHours = now.getUTCHours();
-      const utcMinutes = now.getUTCMinutes();
-      let currentHours = utcHours + 7; // WIB = UTC+7
-      let currentMinutes = utcMinutes;
-      if (currentHours >= 24) {
-        currentHours -= 24;
-      }
+      // Get current time in scheduler timezone using Intl API for accurate timezone conversion
+      const now = new Date();
+      const currentTimeInTz = new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      }).formatToParts(now);
+      
+      const currentHours = parseInt(currentTimeInTz.find(p => p.type === 'hour')?.value || '0', 10);
+      const currentMinutes = parseInt(currentTimeInTz.find(p => p.type === 'minute')?.value || '0', 10);
       
       // Compare times (handle same-day comparison)
       const newTimeMinutes = newHour * 60 + newMinute;
@@ -1776,34 +1797,51 @@ router.put('/scheduler/config', requireDeveloper, async (req, res) => {
         }
         const resizeTime = `${String(resizeHour).padStart(2, '0')}:${String(resizeMinute).padStart(2, '0')}`;
         
-        // Get current time in scheduler timezone (Asia/Jakarta = UTC+7)
+        // Get current time in scheduler timezone using Intl API for accurate timezone conversion
         const now = new Date();
-        const utcHours = now.getUTCHours();
-        const utcMinutes = now.getUTCMinutes();
-        // Convert UTC to WIB (UTC+7)
-        let wibHours = utcHours + 7;
-        let wibMinutes = utcMinutes;
-        if (wibHours >= 24) {
-          wibHours -= 24;
-        }
-        const currentTime = `${String(wibHours).padStart(2, '0')}:${String(wibMinutes).padStart(2, '0')}`;
+        const timezone = updatedConfig.TIMEZONE || 'Asia/Jakarta';
+        const currentTimeInTz = new Intl.DateTimeFormat('en-US', {
+          timeZone: timezone,
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        }).formatToParts(now);
+        
+        const currentHours = parseInt(currentTimeInTz.find(p => p.type === 'hour')?.value || '0', 10);
+        const currentMinutes = parseInt(currentTimeInTz.find(p => p.type === 'minute')?.value || '0', 10);
+        const currentTime = `${String(currentHours).padStart(2, '0')}:${String(currentMinutes).padStart(2, '0')}`;
         
         console.log('🔄 Checking if immediate webhook trigger needed...');
         console.log('📋 Config:', {
           new_time: updatedConfig.PHASE1_DATA_COLLECTION_TIME,
           resize_time: resizeTime,
           current_time: currentTime,
-          timezone: updatedConfig.TIMEZONE,
+          timezone: timezone,
           weekend_skip: updatedConfig.WEEKEND_SKIP
         });
         
         // Check if current time is within resize window (>= resize time AND < scheduler time)
-        const currentMinutes = wibHours * 60 + wibMinutes;
+        // Handle edge case: if resize time is late night and scheduler is early morning (next day)
+        const currentTimeMinutes = currentHours * 60 + currentMinutes;
         const resizeMinutes = resizeHour * 60 + resizeMinute;
         const schedulerMinutes = schedulerHour * 60 + schedulerMinute;
         
+        // Determine if scheduler is today or tomorrow
+        // If resize hour > scheduler hour, it means scheduler is tomorrow (e.g., resize 23:45, scheduler 00:00)
+        const isSchedulerTomorrow = resizeHour > schedulerHour || (resizeHour === schedulerHour && resizeMinutes > schedulerMinutes);
+        
+        let isWithinWindow = false;
+        if (isSchedulerTomorrow) {
+          // Scheduler is tomorrow: check if current time >= resize time (today) OR < scheduler time (tomorrow)
+          // For simplicity, we only check if current time >= resize time (we're in the window)
+          isWithinWindow = currentTimeMinutes >= resizeMinutes;
+        } else {
+          // Scheduler is today: check if current time >= resize time AND < scheduler time
+          isWithinWindow = currentTimeMinutes >= resizeMinutes && currentTimeMinutes < schedulerMinutes;
+        }
+        
         // Trigger webhook immediately if current time is within resize window
-        if (currentMinutes >= resizeMinutes && currentMinutes < schedulerMinutes) {
+        if (isWithinWindow) {
           console.log('✅ Current time is within resize window - triggering webhook immediately');
           
           const webhookResult = await triggerGitHubWorkflow('scheduler-time-changed', {
