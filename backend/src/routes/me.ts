@@ -17,9 +17,7 @@ router.get('/', requireSupabaseUser, async (req: any, res) => {
     const userId = req.user.id as string;
     const userEmail = req.user.email as string;
     
-    console.log(`📋 GET /api/me - User: ${userId}, Email: ${userEmail}`);
-    console.log(`📋 GET /api/me - User data:`, req.user);
-    console.log(`📋 GET /api/me - Request headers:`, req.headers.authorization ? 'Bearer token present' : 'No token');
+    // Log minimal info for profile access
 
     // Fetch user profile (should exist due to trigger or fallback in middleware)
     const { data, error } = await supabaseAdmin
@@ -50,13 +48,11 @@ router.get('/', requireSupabaseUser, async (req: any, res) => {
       throw new Error('No user data found');
     }
 
-    console.log(`✅ GET /api/me - Profile found for user: ${userId}`);
 
     // Handle admin/developer roles - always have Pro plan with lifetime access
     if (data.role === 'admin' || data.role === 'developer') {
       // Ensure admin/developer always have Pro plan with active status (no end date)
       if (data.subscription_status !== 'active' || data.subscription_plan !== 'Pro' || data.subscription_end_date !== null) {
-        console.log(`🔄 GET /api/me - Syncing admin/developer ${userId} to Pro plan with lifetime access`);
         
         await supabaseAdmin
           .from('users')
@@ -75,7 +71,6 @@ router.get('/', requireSupabaseUser, async (req: any, res) => {
         data.subscription_start_date = new Date().toISOString();
         data.subscription_end_date = null;
         
-        console.log(`✅ GET /api/me - Synced admin/developer ${userId} to Pro plan (lifetime)`);
       }
     } else {
       // For regular users: Sync subscription status: Check if user still has active subscription in subscriptions table
@@ -91,7 +86,7 @@ router.get('/', requireSupabaseUser, async (req: any, res) => {
 
         // If no active subscription exists but users table says trial/active, sync it
         if (!activeSubscription) {
-          console.log(`⚠️ GET /api/me - Subscription mismatch detected. User ${userId} has subscription_status '${data.subscription_status}' but no active subscription found. Syncing to Free plan.`);
+          console.warn(`⚠️ Subscription mismatch for ${userEmail}: syncing to Free plan`);
           
           // Sync users table to Free plan
           await supabaseAdmin
@@ -111,7 +106,6 @@ router.get('/', requireSupabaseUser, async (req: any, res) => {
           data.subscription_start_date = null;
           data.subscription_end_date = null;
           
-          console.log(`✅ GET /api/me - Synced user ${userId} subscription status to Free plan`);
         }
       }
 
@@ -198,15 +192,16 @@ router.get('/', requireSupabaseUser, async (req: any, res) => {
           .from('users')
           .update({ last_login_at: new Date().toISOString() })
           .eq('id', userId);
-        console.log(`✅ GET /api/me - Updated last_login_at for: ${userId}`);
       } catch (err) {
         console.error(`⚠️ GET /api/me - Failed to update last_login_at:`, err);
       }
     })();
 
     const duration = Date.now() - startTime;
-    console.log(`📤 GET /api/me - Sending response for user: ${userId} (${duration}ms)`);
-    console.log(`📤 GET /api/me - Response data:`, data);
+    // Only log if response time is slow (>500ms)
+    if (duration > 500) {
+      console.warn(`⚠️ GET /api/me slow response: ${userEmail} (${duration}ms)`);
+    }
     return res.json(createSuccessResponse(data));
   } catch (err: any) {
     const duration = Date.now() - startTime;
@@ -229,8 +224,7 @@ router.put('/', requireSupabaseUser, async (req: any, res) => {
     const userId = req.user.id as string;
     const userEmail = req.user.email as string;
     
-    console.log(`📝 PUT /api/me - User: ${userId}, Email: ${userEmail}`);
-    console.log(`📝 PUT /api/me - Request body:`, req.body);
+    // Log minimal info for profile update
 
 
     // Validate input data
@@ -304,7 +298,7 @@ router.put('/', requireSupabaseUser, async (req: any, res) => {
       }
 
       updatedProfile = newUser;
-      console.log(`✅ PUT /api/me - Created new user profile for: ${userId}`);
+      console.log(`✅ Profile created: ${userEmail}`);
     } else if (checkError) {
       console.error('Error checking user existence:', checkError);
       return res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).json(createErrorResponse(
@@ -315,7 +309,6 @@ router.put('/', requireSupabaseUser, async (req: any, res) => {
       ));
     } else {
       // User exists, update profile
-      console.log(`📝 PUT /api/me - Updating existing profile for: ${userId}`);
       
       // Handle avatar_url: convert empty string to null
       const updatePayload: any = {
@@ -350,10 +343,9 @@ router.put('/', requireSupabaseUser, async (req: any, res) => {
       }
 
       updatedProfile = updated;
-      console.log(`✅ PUT /api/me - Updated profile for: ${userId}`);
+      console.log(`✅ Profile updated: ${userEmail}`);
     }
 
-    console.log(`📤 PUT /api/me - Sending response for user: ${userId}`);
     
     // Ensure we return consistent profile data structure
     const responseData = {

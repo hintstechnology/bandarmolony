@@ -13,7 +13,7 @@ export const subscriptionPlans: SubscriptionPlan[] = [
     name: "Plus",
     price: 35000,
     period: "1 bulan",
-    duration: 1,
+    duration: 30, // 30 days
     popular: false,
   },
   {
@@ -21,7 +21,7 @@ export const subscriptionPlans: SubscriptionPlan[] = [
     name: "Premium",
     price: 89000,
     period: "3 bulan",
-    duration: 3,
+    duration: 90, // 90 days
     popular: true,
   },
   {
@@ -29,7 +29,7 @@ export const subscriptionPlans: SubscriptionPlan[] = [
     name: "Pro",
     price: 165000,
     period: "6 bulan",
-    duration: 6,
+    duration: 180, // 180 days
     popular: false,
   },
 ];

@@ -322,7 +322,15 @@ export function ProfilePage() {
                           </Badge>
                           {isActive && profile.subscriptionEndDate && profile.role !== 'admin' && profile.role !== 'developer' && (
                             <span className="text-sm text-muted-foreground">
-                              until {profile.subscriptionEndDate}
+                              until {(() => {
+                                const date = new Date(profile.subscriptionEndDate);
+                                const day = String(date.getDate()).padStart(2, '0');
+                                const month = String(date.getMonth() + 1).padStart(2, '0');
+                                const year = date.getFullYear();
+                                const hours = String(date.getHours()).padStart(2, '0');
+                                const minutes = String(date.getMinutes()).padStart(2, '0');
+                                return `${day}-${month}-${year}, ${hours}:${minutes}`;
+                              })()}
                             </span>
                           )}
                           {isActive && (profile?.role === 'admin' || profile?.role === 'developer') && (

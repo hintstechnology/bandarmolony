@@ -18,8 +18,6 @@ const SECTOR_MAPPING: { [key: string]: string[] } = {
 
 // Build sector mapping from Azure Storage
 async function buildSectorMappingFromAzure(): Promise<void> {
-  console.log('🔍 Building sector mapping from Azure Storage...');
-  
   try {
     const stockBlobs = await listPaths({ prefix: 'stock/' });
     
@@ -38,8 +36,6 @@ async function buildSectorMappingFromAzure(): Promise<void> {
         }
       }
     }
-    
-    console.log('📊 Sector mapping built successfully');
   } catch (error) {
     console.warn('⚠️ Could not build sector mapping from Azure, using default');
   }
@@ -75,8 +71,6 @@ const router = express.Router();
  */
 router.get('/list', async (_req, res) => {
   try {
-    console.log('📊 Getting list of available stocks...');
-    
     // Build sector mapping first
     await buildSectorMappingFromAzure();
     
@@ -89,8 +83,6 @@ router.get('/list', async (_req, res) => {
     const stocks = allStocks
       .filter(stock => stock.length === 4) // Only 4-character stock codes
       .sort();
-    
-    console.log(`📊 Found ${stocks.length} stocks:`, stocks.slice(0, 10), '...');
     
     return res.json({
       success: true,
@@ -124,7 +116,6 @@ router.get('/data/:stockCode', async (req, res) => {
       });
     }
     
-    console.log(`📊 Getting OHLC data for stock: ${stockCode}`);
     
     // Build sector mapping first
     await buildSectorMappingFromAzure();
@@ -189,7 +180,6 @@ router.get('/data/:stockCode', async (req, res) => {
       return dateA.localeCompare(dateB);
     });
     
-    console.log(`📊 Parsed ${stockCode} data: ${filteredData.length} rows`);
     
     return res.json({
       success: true,
@@ -226,7 +216,6 @@ router.get('/data', async (req, res) => {
     }
     
     const stockCodes = Array.isArray(stocks) ? stocks as string[] : [stocks as string];
-    console.log(`📊 Getting OHLC data for stocks:`, stockCodes);
     
     // Build sector mapping first
     await buildSectorMappingFromAzure();
@@ -241,7 +230,6 @@ router.get('/data', async (req, res) => {
         const sector = getSectorForEmiten(stockCode.toUpperCase());
         const filePath = `stock/${sector}/${stockCode.toUpperCase()}.csv`;
         
-        console.log(`📊 Using sector: ${sector} for stock: ${stockCode}`);
         
         const csvData = await downloadText(filePath);
         
@@ -300,7 +288,6 @@ router.get('/data', async (req, res) => {
       }
     }
     
-    console.log(`📊 Processed ${results.length} stocks successfully`);
     
     return res.json({
       success: true,
@@ -342,7 +329,6 @@ router.get('/footprint/:stockCode', async (req, res) => {
       });
     }
     
-    console.log(`📊 Getting footprint data for stock: ${stockCode} on date: ${date}`);
     
     // Look for bid/ask data in done-summary folder
     const dateStr = String(date);
@@ -413,7 +399,6 @@ router.get('/footprint/:stockCode', async (req, res) => {
         sFreq: level.sell
       })).sort((a, b) => b.price - a.price); // Sort by price descending
       
-      console.log(`📊 Generated footprint data: ${footprintData.length} price levels`);
       
       return res.json({
         success: true,
@@ -457,7 +442,6 @@ router.get('/latest-date/:stockCode', async (req, res) => {
       });
     }
     
-    console.log(`📊 Getting latest available date for stock: ${stockCode}`);
     
     // Build sector mapping first
     await buildSectorMappingFromAzure();
@@ -517,7 +501,6 @@ router.get('/latest-date/:stockCode', async (req, res) => {
         });
       }
       
-      console.log(`📊 Latest available date for ${stockCode}: ${latestDate}`);
       
       return res.json({
         success: true,
@@ -551,7 +534,6 @@ router.get('/latest-date/:stockCode', async (req, res) => {
  */
 router.get('/sector-mapping', async (_req, res) => {
   try {
-    console.log('📊 Getting sector mapping...');
     
     // Build sector mapping first
     await buildSectorMappingFromAzure();
@@ -567,7 +549,6 @@ router.get('/sector-mapping', async (_req, res) => {
     // Also get list of all sectors
     const sectors = Object.keys(SECTOR_MAPPING).filter(sector => SECTOR_MAPPING[sector] && SECTOR_MAPPING[sector].length > 0);
     
-    console.log(`📊 Found ${Object.keys(stockToSector).length} stocks mapped to ${sectors.length} sectors`);
     
     return res.json({
       success: true,
@@ -624,7 +605,6 @@ function parseCsvLineWithQuotes(line: string): string[] {
 // Handler function for stock list with company names (shared logic)
 async function handleStockListWithCompany(_req: express.Request, res: express.Response) {
   try {
-    console.log('📊 Getting stock list with company names...');
     
     // Download CSV data from Azure
     const blobName = 'csv_input/emiten_detail_list.csv';
@@ -677,7 +657,6 @@ async function handleStockListWithCompany(_req: express.Request, res: express.Re
     // Sort by code
     stocks.sort((a, b) => a.code.localeCompare(b.code));
     
-    console.log(`📊 Found ${stocks.length} stocks with company names`);
     
     return res.json({
       success: true,
@@ -709,7 +688,6 @@ async function handleStockDetail(req: express.Request, res: express.Response) {
       });
     }
     
-    console.log(`📊 Getting stock details for: ${stockCode}`);
     
     // Download CSV data from Azure
     const blobName = 'csv_input/emiten_detail_list.csv';
@@ -766,7 +744,6 @@ async function handleStockDetail(req: express.Request, res: express.Response) {
       });
     }
     
-    console.log(`📊 Found stock details for ${stockCode}: ${stockDetail.companyName}`);
     
     return res.json({
       success: true,
