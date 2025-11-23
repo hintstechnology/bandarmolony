@@ -1,47 +1,25 @@
-import * as React from "react";
-import { cn } from "./utils";
+import * as React from "react"
 
-type InputSize = "sm" | "md" | "lg";
+import { cn } from "../../lib/utils"
 
-interface InputProps extends Omit<React.ComponentProps<"input">, "size"> {
-  size?: InputSize;
-}
-
-const sizeClasses: Record<InputSize, string> = {
-  // hanya tinggi & ukuran font (tanpa padding!)
-  sm: "h-10 text-sm placeholder:text-sm",
-  md: "h-11 text-base placeholder:text-base",
-  lg: "h-12 text-base placeholder:text-base",
-};
+export interface InputProps
+  extends React.InputHTMLAttributes<HTMLInputElement> {}
 
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({ className, type = "text", size = "md", ...props }, ref) => {
-    // kalau tidak ada padding kustom, beri padding default
-    const hasCustomPadding =
-      !!className && (className.includes("pl-") || className.includes("px-") || className.includes("pr-"));
-    const defaultPadding = hasCustomPadding ? "" : "px-4";
-
+  ({ className, type, ...props }, ref) => {
     return (
       <input
-        ref={ref}
         type={type}
-        data-slot="input"
         className={cn(
-          "w-full min-w-0 rounded-md border border-input bg-input-background",
-          "file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground",
-          "placeholder:text-muted-foreground selection:bg-primary selection:text-primary-foreground",
-          "outline-none transition-[color,box-shadow] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
-          "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
-          "aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40",
-          sizeClasses[size],
-          defaultPadding,
+          "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
           className
         )}
+        ref={ref}
         {...props}
       />
-    );
+    )
   }
-);
+)
+Input.displayName = "Input"
 
-Input.displayName = "Input";
-export { Input };
+export { Input }

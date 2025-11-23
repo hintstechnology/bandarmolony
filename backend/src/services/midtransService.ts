@@ -227,12 +227,44 @@ export class MidtransService {
    */
   async createSnapToken(transaction: MidtransTransaction): Promise<string> {
     try {
-      console.log('Creating snap token with transaction:', JSON.stringify(transaction, null, 2));
-      const response = await this.snap.createTransaction(transaction);
-      console.log('Snap token response:', response);
+      console.log('🎫 Creating snap token with transaction:');
+      console.log('  - Order ID:', transaction.transaction_details?.order_id);
+      console.log('  - Enabled Payments:', transaction.enabled_payments);
+      console.log('  - Disabled Payments:', transaction.disabled_payments);
+      console.log('  - Has credit_card config:', !!transaction.credit_card);
+      
+      // Remove credit_card from transaction object if not in enabled_payments
+      const enabledPayments = transaction.enabled_payments || [];
+      const hasCreditCard = enabledPayments.includes('credit_card');
+      const transactionToSend = { ...transaction };
+      if (!hasCreditCard && transactionToSend.credit_card) {
+        delete transactionToSend.credit_card;
+        console.log('  - Removed credit_card config (not in enabled_payments)');
+      }
+      
+      console.log('  - Final transaction (before sending to Midtrans):', JSON.stringify(transactionToSend, null, 2));
+      
+      const response = await this.snap.createTransaction(transactionToSend);
+      console.log('✅ Snap token created successfully:', {
+        token: response.token?.substring(0, 20) + '...',
+        redirect_url: response.redirect_url,
+        full_response: JSON.stringify(response, null, 2)
+      });
+      
+      // Check if response has any warnings or errors
+      if ((response as any).status_code && (response as any).status_code !== '201') {
+        console.warn('⚠️ Midtrans response has non-201 status code:', (response as any).status_code, (response as any).status_message);
+      }
+      
       return response.token;
     } catch (error: any) {
-      console.error('Error creating snap token:', error);
+      console.error('❌ Error creating snap token:', {
+        error: error.message,
+        stack: error.stack,
+        enabled_payments: transaction.enabled_payments,
+        transaction_details: transaction.transaction_details,
+        full_error: error
+      });
       throw new Error(`Failed to create Snap token: ${error.message}`);
     }
   }
@@ -242,9 +274,67 @@ export class MidtransService {
    */
   async createSnapRedirectUrl(transaction: MidtransTransaction): Promise<string> {
     try {
-      const response = await this.snap.createTransaction(transaction);
+      console.log('🔗 Creating snap redirect URL with transaction:');
+      console.log('  - Order ID:', transaction.transaction_details?.order_id);
+      console.log('  - Enabled Payments:', transaction.enabled_payments);
+      console.log('  - Disabled Payments:', transaction.disabled_payments);
+      
+      // Remove credit_card from transaction object if not in enabled_payments
+      const enabledPayments = transaction.enabled_payments || [];
+      const hasCreditCard = enabledPayments.includes('credit_card');
+      const transactionToSend = { ...transaction };
+      if (!hasCreditCard && transactionToSend.credit_card) {
+        delete transactionToSend.credit_card;
+        console.log('  - Removed credit_card config (not in enabled_payments)');
+      }
+      
+      // IMPORTANT: For single payment method (especially QRIS), ensure transaction is clean
+      // Remove any undefined or null values that might cause issues
+      const cleanedTransaction: any = {};
+      Object.keys(transactionToSend).forEach(key => {
+        const value = (transactionToSend as any)[key];
+        if (value !== undefined && value !== null) {
+          if (Array.isArray(value) && value.length === 0) {
+            // Skip empty arrays for optional fields
+            return;
+          }
+          cleanedTransaction[key] = value;
+        }
+      });
+      
+      const response = await this.snap.createTransaction(cleanedTransaction);
+      
+      // Log full response for debugging
+      const fullResponse = JSON.stringify(response, null, 2);
+      console.log('✅ Snap redirect URL created successfully:', {
+        redirect_url: response.redirect_url,
+        token: response.token?.substring(0, 20) + '...',
+        status_code: (response as any).status_code,
+        status_message: (response as any).status_message,
+        full_response: fullResponse
+      });
+      
+      // Check if response has any warnings or errors
+      if ((response as any).status_code && (response as any).status_code !== '201') {
+        console.warn('⚠️ Midtrans response has non-201 status code:', (response as any).status_code, (response as any).status_message);
+      }
+      
+      // Check if response indicates payment channel issues
+      if ((response as any).status_message && 
+          ((response as any).status_message.toLowerCase().includes('payment') || 
+           (response as any).status_message.toLowerCase().includes('channel'))) {
+        console.warn('⚠️ Midtrans response may indicate payment channel issue:', (response as any).status_message);
+      }
+      
       return response.redirect_url;
     } catch (error: any) {
+      console.error('❌ Error creating snap redirect URL:', {
+        error: error.message,
+        stack: error.stack,
+        enabled_payments: transaction.enabled_payments,
+        transaction_details: transaction.transaction_details,
+        full_error: error
+      });
       throw new Error(`Failed to create Snap redirect URL: ${error.message}`);
     }
   }
@@ -303,7 +393,22 @@ export class MidtransService {
   }
 
   /**
-   * Verify webhook signature
+   * Generate signature key for Midtrans webhook verification
+   * Formula: SHA512(order_id + status_code + gross_amount + ServerKey)
+   * Reference: https://docs.midtrans.com/en/after-payment/http-notification#verifying-notification-authenticity
+   */
+  generateSignatureKey(orderId: string, statusCode: string, grossAmount: string): string {
+    const signatureString = `${orderId}${statusCode}${grossAmount}${this.config.serverKey}`;
+    const signature = crypto
+      .createHash('sha512')
+      .update(signatureString)
+      .digest('hex');
+    return signature;
+  }
+
+  /**
+   * Verify webhook signature (DEPRECATED - not used for Midtrans)
+   * Kept for backward compatibility
    */
   verifyWebhookSignature(payload: string, signature: string): boolean {
     try {
@@ -319,18 +424,6 @@ export class MidtransService {
     } catch (error) {
       return false;
     }
-  }
-
-  /**
-   * Generate signature key for verification
-   */
-  generateSignatureKey(orderId: string, statusCode: string, grossAmount: string): string {
-    const signature = crypto
-      .createHash('sha512')
-      .update(orderId + statusCode + grossAmount + this.config.serverKey)
-      .digest('hex');
-    
-    return signature;
   }
 
   /**
@@ -385,20 +478,39 @@ export class MidtransService {
         'alfamart'
       ],
       disabled_payments: [],
-      credit_card: {
-        secure: true,
-        channel: 'migs',
-        bank: 'bca',
-        installment: {
-          required: false
-        }
-      },
       custom_expiry: {
         order_time: new Date().toISOString(),
         expiry_duration: parseInt(process.env['PAYMENT_TIMEOUT_MINUTES'] || '15'),
         unit: 'minute'
       }
     };
+
+    // Only include credit_card config if credit_card is in enabled_payments
+    const enabledPayments = transaction.enabled_payments || [];
+    const hasCreditCard = enabledPayments.includes('credit_card');
+    if (hasCreditCard) {
+      transaction.credit_card = {
+        secure: true,
+        channel: 'migs',
+        bank: 'bca',
+        installment: {
+          required: false
+        }
+      };
+    } else {
+      // Explicitly remove credit_card config if not in enabled_payments
+      // This ensures clean transaction object
+      delete (transaction as any).credit_card;
+    }
+
+    // Log final transaction object for debugging
+    console.log('📦 Final Midtrans transaction object:', {
+      order_id: transaction.transaction_details.order_id,
+      enabled_payments: transaction.enabled_payments,
+      has_credit_card_config: !!transaction.credit_card,
+      payment_method_param: data.paymentMethod,
+      transaction_keys: Object.keys(transaction)
+    });
 
     return transaction;
   }
@@ -427,6 +539,9 @@ export class MidtransService {
    * Map payment method to Midtrans format
    */
   private mapPaymentMethodToMidtrans(paymentMethod: string): string[] {
+    // Normalize input: lowercase and trim
+    const normalizedMethod = paymentMethod.toLowerCase().trim();
+    
     const methodMap: { [key: string]: string[] } = {
       'credit_card': ['credit_card'],
       'bank_transfer': ['bca_va', 'bni_va', 'mandiri_va', 'permata_va', 'bri_va', 'other_va'],
@@ -454,23 +569,64 @@ export class MidtransService {
       'akulaku': ['akulaku']
     };
 
-    const paymentLower = paymentMethod.toLowerCase();
-    const result = methodMap[paymentLower] || [paymentMethod];
-    console.log(`✅ Mapped payment method '${paymentMethod}' to Midtrans enabled_payments:`, result);
+    const result = methodMap[normalizedMethod] || [normalizedMethod];
+    console.log(`✅ Mapped payment method '${paymentMethod}' (normalized: '${normalizedMethod}') to Midtrans enabled_payments:`, result);
+    
+    // Validate result - ensure it's not empty
+    if (!result || result.length === 0) {
+      console.warn(`⚠️ Warning: Payment method '${paymentMethod}' mapped to empty array, using original value`);
+      return [normalizedMethod];
+    }
+    
+    // IMPORTANT: For QRIS, ensure it's the primary method but include fallbacks
+    // Midtrans Snap may require multiple payment methods to display properly
+    // If only QRIS is requested, we include it as primary with e-wallet fallbacks
+    // This ensures payment channels are available even if QRIS has account-specific issues
+    if (normalizedMethod === 'qris') {
+      // Return QRIS as primary, with e-wallet fallbacks that are commonly available
+      // This helps avoid "No payment channels available" error
+      return ['qris', 'gopay', 'dana', 'shopeepay', 'linkaja'];
+    }
+    
     return result;
   }
 
   /**
    * Cancel transaction using Core API
    */
-  async cancelTransaction(orderId: string): Promise<MidtransResponse> {
+  async cancelTransaction(orderId: string): Promise<MidtransResponse | null> {
     try {
-      console.log(`Cancelling transaction: ${orderId}`);
+      if (!orderId) {
+        console.warn('⚠️ Cannot cancel transaction: order ID is empty');
+        return null;
+      }
+
+      console.log(`Cancelling transaction in Midtrans: ${orderId}`);
       const response = await this.coreApi.transaction.cancel(orderId);
-      console.log('Cancel transaction response:', response);
+      console.log('✅ Transaction cancelled in Midtrans successfully:', {
+        order_id: orderId,
+        status_code: response.status_code,
+        status_message: response.status_message
+      });
       return response;
     } catch (error: any) {
-      console.error('Error cancelling transaction:', error);
+      // Handle 404 - transaction doesn't exist (already expired, cancelled, or never created)
+      if (error.httpStatusCode === '404' || 
+          (error.ApiResponse && error.ApiResponse.status_code === '404')) {
+        console.warn(`⚠️ Transaction not found in Midtrans (may be expired or already cancelled): ${orderId}`);
+        console.warn(`⚠️ Midtrans response: ${error.ApiResponse?.status_message || error.message}`);
+        // Return null instead of throwing - transaction may already be cancelled/expired
+        return null;
+      }
+      
+      // Handle other errors
+      console.error('❌ Error cancelling transaction in Midtrans:', {
+        order_id: orderId,
+        error: error.message,
+        http_status: error.httpStatusCode,
+        api_response: error.ApiResponse
+      });
+      // Still throw for other errors (network, auth, etc.)
       throw new Error(`Failed to cancel transaction: ${error.message}`);
     }
   }

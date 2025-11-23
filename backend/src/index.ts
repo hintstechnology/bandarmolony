@@ -36,6 +36,7 @@ import { createErrorResponse, ERROR_CODES, HTTP_STATUS } from './utils/responseU
 // Scheduler for daily updates
 import { startScheduler } from './services/scheduler';
 import { initializeAzureLogging } from './services/azureLoggingService';
+import { startSubscriptionExpiryChecker } from './services/subscriptionExpiry';
 
 const app = express();
 
@@ -51,27 +52,25 @@ const allowedOrigins = config.CORS_ORIGIN
       'http://localhost:5173',
       'https://bandarmolony.com',
       'https://www.bandarmolony.com',
+      'https://dev.bandarmolony.com',
       'https://bandarmolony-frontend.proudforest-3316dee8.eastus.azurecontainerapps.io',
     ];
 
-console.log('🌐 CORS: Allowed origins from config:', allowedOrigins);
-
+// CORS configuration - allow webhooks from Midtrans (server-to-server requests have no origin)
 app.use(cors({ 
   origin: (origin, callback) => {
-    console.log(`🌐 CORS: Origin: ${origin}`);
-    console.log(`🌐 CORS: Allowed origins:`, allowedOrigins);
-    
+    // Allow requests without origin (server-to-server like webhooks) or from allowed origins
     if (!origin || allowedOrigins.includes(origin)) {
-      console.log(`✅ CORS: Origin allowed: ${origin}`);
       callback(null, true);
     } else {
-      console.log(`❌ CORS: Origin not allowed: ${origin}`);
+      // Only log CORS errors (not allowed origins)
+      console.warn(`❌ CORS: Origin not allowed: ${origin}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Midtrans-Signature'],
   optionsSuccessStatus: 200
 }));
 
@@ -173,4 +172,8 @@ app.listen(PORT, async () => {
     console.error('❌ Failed to start scheduler:', error);
     // Don't crash - scheduler can be started manually later
   });
+  
+  // Start subscription expiry checker
+  console.log('⏰ Starting subscription expiry checker...');
+  startSubscriptionExpiryChecker();
 });

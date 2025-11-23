@@ -4,7 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Alert, AlertDescription } from '../ui/alert';
-import { Loader2, XCircle, RefreshCw, AlertCircle, CreditCard } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Input } from '../ui/input';
+import { Loader2, XCircle, RefreshCw, AlertCircle, CreditCard, CheckCircle, AlertTriangle } from 'lucide-react';
 import { api } from '../../services/api';
 import { toast } from 'sonner';
 import { subscriptionPlans } from '../../constants/subscriptionPlans';
@@ -25,6 +27,8 @@ export function SubscriptionPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [hasScrolledToPending, setHasScrolledToPending] = useState(false);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [cancelConfirmText, setCancelConfirmText] = useState('');
 
   // Helper function for image error handling
   const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
@@ -54,28 +58,15 @@ export function SubscriptionPage() {
   const getPaymentMethodDisplayName = (paymentMethod: string) => {
     if (!paymentMethod || paymentMethod === 'snap') return '-';
     
-    const methodMap: { [key: string]: string } = {
-      'credit_card': 'Credit Card',
-      'bank_transfer': 'Bank Transfer',
-      'bca': 'BCA',
-      'bni': 'BNI',
-      'mandiri': 'Mandiri',
-      'permata': 'Permata',
-      'gopay': 'GoPay',
-      'dana': 'DANA',
-      'ovo': 'OVO',
-      'shopeepay': 'ShopeePay',
-      'qris': 'QRIS',
-      'alfamart': 'Alfamart',
-      'indomaret': 'Indomaret'
-    };
-    
-    return methodMap[paymentMethod] || paymentMethod.toUpperCase();
+    // Backend already formats payment method correctly (e.g., "VISA Debit BCA", "Mastercard Credit")
+    // Just display it as-is, no mapping needed
+    return paymentMethod;
   };
 
   // Helper function to get status color
   const getStatusColor = (status: string) => {
     switch (status) {
+      case 'active':  // ADD: Handle 'active' status from payment_activity
       case 'paid':
       case 'settlement':
       case 'capture':
@@ -107,6 +98,7 @@ export function SubscriptionPage() {
       case 'pending':
       case 'payment_pending':
         return 'Pending';
+      case 'active':  // ADD: Handle 'active' status from payment_activity
       case 'paid':
       case 'settlement':
       case 'capture':
@@ -115,14 +107,16 @@ export function SubscriptionPage() {
         return 'Paid';
       case 'cancelled':
       case 'cancel':
-      case 'deny':
       case 'payment_cancelled':
         return 'Cancelled';
-      case 'expire':
+      case 'deny':
+        return 'Denied'; // Transaksi ditolak oleh bank/FDS
       case 'failure':
       case 'payment_failed':
+        return 'Failed'; // Transaksi gagal (technical error)
+      case 'expire':
       case 'payment_expired':
-        return 'Expired';
+        return 'Expired'; // Transaksi kadaluarsa (timeout)
       default:
         return status;
     }
@@ -450,10 +444,12 @@ export function SubscriptionPage() {
               }
               toast.success('Payment berhasil! Subscription Anda telah diaktifkan.');
               setHasActivePayment(false);
-              // Refresh status with delay to prevent race conditions
+              // Refresh status and stay on subscription page
               setTimeout(() => {
                 loadSubscriptionStatus();
                 loadPaymentActivity();
+                // Scroll to top to show updated subscription status
+                window.scrollTo({ top: 0, behavior: 'smooth' });
               }, 1000);
             },
             onPending: (result: any) => {
@@ -476,9 +472,8 @@ export function SubscriptionPage() {
             },
             onClose: () => {
               console.log('Payment popup closed');
-              toast.info('Payment dibatalkan.');
               setHasActivePayment(false);
-              // Refresh status immediately
+              // Just refresh status without full page reload
               loadSubscriptionStatus();
               loadPaymentActivity();
             }
@@ -499,14 +494,22 @@ export function SubscriptionPage() {
   };
 
   const handleCancelSubscription = async () => {
+    // Validate confirmation text
+    if (cancelConfirmText !== 'Cancel') {
+      toast.error('Mohon ketik "Cancel" untuk konfirmasi');
+      return;
+    }
+
     try {
       setLoading(true);
+      setShowCancelDialog(false);
       const response = await api.cancelSubscription({
         reason: 'User requested cancellation'
       });
 
       if (response.success) {
-        toast.success('Subscription berhasil dibatalkan');
+        toast.success('Subscription akan berhenti setelah periode berakhir');
+        setCancelConfirmText(''); // Reset
         loadSubscriptionStatus();
       } else {
         toast.error(response.error || 'Gagal membatalkan subscription');
@@ -609,10 +612,26 @@ export function SubscriptionPage() {
       {pendingTransactions.length > 0 && (
         <Card id="pending-transactions" className="border-orange-500 bg-orange-500/10">
           <CardHeader>
-            <CardTitle className="text-orange-100 flex items-center gap-2">
-              <AlertCircle className="w-5 h-5" />
-              Transaksi Pending
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-orange-100 flex items-center gap-2">
+                <AlertCircle className="w-5 h-5" />
+                Transaksi Pending
+              </CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  loadSubscriptionStatus();
+                  loadPaymentActivity();
+                  toast.info('Refreshing transaction status...');
+                }}
+                disabled={loading}
+                className="border-orange-500/30 hover:bg-orange-500/20"
+              >
+                <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
@@ -686,25 +705,33 @@ export function SubscriptionPage() {
                         </>
                       )}
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      className="px-6"
-                      onClick={() => handleCancelTransaction(pendingTransactions[0])}
-                      disabled={loading}
-                    >
-                      {loading ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Processing...
-                        </>
-                      ) : (
-                        <>
-                          <XCircle className="w-4 h-4 mr-2" />
-                          Cancel
-                        </>
-                      )}
-                    </Button>
+                    {/* Only show Cancel button if payment method has been selected */}
+                    {(pendingTransactions[0]?.payment_type || 
+                      pendingTransactions[0]?.store || 
+                      pendingTransactions[0]?.va_numbers || 
+                      pendingTransactions[0]?.payment_code || 
+                      pendingTransactions[0]?.qr_code ||
+                      (pendingTransactions[0]?.payment_details && Object.keys(pendingTransactions[0].payment_details).length > 0)) && (
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        className="px-6"
+                        onClick={() => handleCancelTransaction(pendingTransactions[0])}
+                        disabled={loading}
+                      >
+                        {loading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Processing...
+                          </>
+                        ) : (
+                          <>
+                            <XCircle className="w-4 h-4 mr-2" />
+                            Cancel
+                          </>
+                        )}
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -713,12 +740,18 @@ export function SubscriptionPage() {
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
                   <div className="space-y-1 text-sm">
-                    {pendingTransactions[0]?.payment_method && pendingTransactions[0].payment_method !== 'snap' ? (
+                    {(pendingTransactions[0]?.payment_type || 
+                      pendingTransactions[0]?.store || 
+                      pendingTransactions[0]?.va_numbers || 
+                      pendingTransactions[0]?.payment_code || 
+                      pendingTransactions[0]?.qr_code ||
+                      (pendingTransactions[0]?.payment_details && Object.keys(pendingTransactions[0].payment_details).length > 0)) ? (
                       <p>Metode pembayaran sudah dipilih: <strong>{getPaymentMethodDisplayName(pendingTransactions[0].payment_method)}</strong></p>
                     ) : (
                       <>
-                        <p>Transaksi hanya bisa di-cancel kalau sudah pilih metode pembayaran.</p>
-                        <p>Klik bayar untuk memilih metode pembayaran.</p>
+                        <p>⚠️ Transaksi pending belum memilih metode pembayaran.</p>
+                        <p>Klik <strong>"Pilih & Bayar"</strong> untuk memilih metode pembayaran, atau tunggu hingga transaksi kadaluarsa (24 jam).</p>
+                        <p className="text-orange-300 mt-2">Tombol Cancel hanya muncul setelah metode pembayaran dipilih.</p>
                       </>
                     )}
                   </div>
@@ -732,7 +765,22 @@ export function SubscriptionPage() {
       {/* Current Subscription Status */}
       <Card id="current-subscription">
         <CardHeader>
-          <CardTitle>Current Subscription</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Current Subscription</CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                loadSubscriptionStatus();
+                loadPaymentActivity();
+                toast.info('Refreshing subscription data...');
+              }}
+              disabled={loading}
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {(() => {
@@ -775,21 +823,30 @@ export function SubscriptionPage() {
                   <p className="text-sm text-muted-foreground">
                     {subStatus.endDate && `End date: ${new Date(subStatus.endDate).toLocaleDateString('id-ID')}`}
                   </p>
+                  {/* Show warning if subscription is cancelled but still active */}
+                  {subscriptionStatus?.subscription?.cancelled_at && subStatus.isActive && (
+                    <Alert className="mt-2 border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20">
+                      <AlertCircle className="h-4 w-4 text-yellow-600" />
+                      <AlertDescription className="text-sm text-yellow-600 dark:text-yellow-400">
+                        Your subscription is cancelled and will end on {new Date(subStatus.endDate).toLocaleDateString('id-ID')}. You can still access premium features until then.
+                      </AlertDescription>
+                    </Alert>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   {subStatus.isActive && (
                     <>
-                      <Button variant="outline" size="sm">
-                        Manage Billing
-                      </Button>
-                      <Button 
-                        variant="destructive" 
-                        size="sm" 
-                        onClick={handleCancelSubscription}
-                        disabled={loading}
-                      >
-                        {loading ? 'Cancelling...' : 'Cancel Subscription'}
-                      </Button>
+                      {/* Only show cancel button if not already cancelled */}
+                      {!subscriptionStatus?.subscription?.cancelled_at && (
+                        <Button 
+                          variant="destructive" 
+                          size="sm" 
+                          onClick={() => setShowCancelDialog(true)}
+                          disabled={loading}
+                        >
+                          Cancel Subscription
+                        </Button>
+                      )}
                     </>
                   )}
                 </div>
@@ -800,7 +857,7 @@ export function SubscriptionPage() {
       </Card>
 
       {/* Subscription Plans */}
-      <Card>
+      <Card id="subscription-plans">
         <CardHeader>
           <CardTitle>Choose Your Plan</CardTitle>
           <p className="text-muted-foreground text-center">
@@ -844,22 +901,54 @@ export function SubscriptionPage() {
                       </ul>
                     </div>
                     
-                             <Button 
-                               className="w-full" 
-                               onClick={() => handleSubscribe(plan.id)}
-                               disabled={hasActivePayment || loading}
-                             >
-                               {loadingPlan === plan.id ? (
-                                 <>
-                                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                   Processing...
-                                 </>
-                               ) : hasActivePayment ? (
-                                 'Payment in Progress...'
-                               ) : (
-                                 `Subscribe to ${plan.name}`
-                               )}
-                             </Button>
+                    {(() => {
+                      const subStatus = getSubscriptionStatus();
+                      const isCurrentPlan = subStatus.isActive && 
+                                            subStatus.planName === plan.name;
+                      
+                      if (isCurrentPlan) {
+                        return (
+                          <Button 
+                            className="w-full" 
+                            disabled
+                            variant="default"
+                          >
+                            <CheckCircle className="mr-2 h-4 w-4" />
+                            Your Current Plan
+                          </Button>
+                        );
+                      }
+                      
+                      // If user has active subscription, disable other plans
+                      if (subStatus.isActive) {
+                        return (
+                          <Button 
+                            className="w-full" 
+                            disabled
+                            variant="outline"
+                          >
+                            You Have Active Plan
+                          </Button>
+                        );
+                      }
+                      
+                      return (
+                        <Button 
+                          className={`w-full ${plan.popular ? 'bg-primary hover:bg-primary/90' : ''}`}
+                          onClick={() => handleSubscribe(plan.id)}
+                          disabled={loading || hasActivePayment || loadingPlan === plan.id}
+                        >
+                          {loadingPlan === plan.id ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Processing...
+                            </>
+                          ) : (
+                            'Subscribe Now'
+                          )}
+                        </Button>
+                      );
+                    })()}
                   </div>
                 </CardContent>
               </Card>
@@ -949,9 +1038,9 @@ export function SubscriptionPage() {
                         <td className="py-3 px-4">
                           <Badge
                             variant="secondary"
-                            className={`text-xs ${getStatusColor(activity.activity_type)}`}
+                            className={`text-xs ${getStatusColor(activity.status_to || activity.activity_type)}`}
                           >
-                            {getStatusText(activity.activity_type)}
+                            {getStatusText(activity.status_to || activity.activity_type)}
                           </Badge>
                         </td>
                         <td className="py-3 px-4 text-sm font-medium">
@@ -1062,6 +1151,56 @@ export function SubscriptionPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Cancel Subscription Confirmation Dialog */}
+      <Dialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" />
+              Confirm Cancellation
+            </DialogTitle>
+            <DialogDescription className="text-left space-y-3 pt-4">
+              <p>Are you sure you want to cancel your subscription?</p>
+              <p className="text-sm text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded">
+                <strong>Note:</strong> Your plan will remain active until {subscriptionStatus?.subscription?.end_date ? new Date(subscriptionStatus.subscription.end_date).toLocaleDateString('id-ID') : 'the end of your billing period'}, then it will automatically downgrade to Free plan.
+              </p>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  Type <strong>"Cancel"</strong> to confirm:
+                </label>
+                <Input
+                  type="text"
+                  value={cancelConfirmText}
+                  onChange={(e) => setCancelConfirmText(e.target.value)}
+                  placeholder="Cancel"
+                  className="w-full"
+                />
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setShowCancelDialog(false);
+                setCancelConfirmText('');
+              }}
+            >
+              Keep Subscription
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleCancelSubscription}
+              disabled={loading || cancelConfirmText !== 'Cancel'}
+            >
+              {loading ? 'Cancelling...' : 'Confirm Cancellation'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
