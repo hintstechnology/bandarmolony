@@ -3,10 +3,10 @@ import { motion } from "motion/react";
 import { Button } from "../ui/button";
 // JS components, add TS ignore to satisfy type checker
 // @ts-ignore
-import { Navbar } from "../../components/Navbar";
+import { Navbar } from "./Navbar";
 // @ts-ignore
-import { Footer } from "../../components/Footer";
-import Logo from "./Logo";
+import { Footer } from "./Footer";
+import Logo from "../dashboard/Logo";
 
 interface LandingPageProps {
   onStartTrial?: () => void;

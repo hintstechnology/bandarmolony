@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Menu, X } from "lucide-react";
-import Logo from "./dashboard/Logo";
+import Logo from "../dashboard/Logo";
 
 type NavbarProps = {
   onSignIn?: () => void;
