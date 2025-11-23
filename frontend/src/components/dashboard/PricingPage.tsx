@@ -4,9 +4,9 @@ import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Sparkles, Star, Crown, Check } from "lucide-react";
 // @ts-ignore
-import { Navbar } from "../../components/Navbar";
+import { Navbar } from "../landing-page/Navbar";
 // @ts-ignore
-import { Footer } from "../../components/Footer";
+import { Footer } from "../landing-page/Footer";
 
 const pricingPlans = [
   {
