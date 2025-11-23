@@ -44,7 +44,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         try {
           const { data: { session }, error } = await supabase.auth.getSession();
           if (error || !session) {
-            console.log('AuthContext: Session validation failed, clearing user state');
             if (isMounted) {
               setUser(null);
               setIsLoading(false);
@@ -52,7 +51,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
           } else {
             // Update user if session is valid but user state is stale
             if (isMounted && (!user || user.id !== session.user.id)) {
-              console.log('AuthContext: Updating user from session validation');
               setUser(session.user);
               setIsLoading(false);
             }
@@ -71,7 +69,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isMounted) return;
       
-      console.log('AuthContext: Auth state change:', event, !!session?.user);
       
       if (event === 'SIGNED_IN') {
         // Check if we have valid Supabase session in storage
@@ -85,11 +82,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Only set user if we have valid auth token in storage
         // This prevents stale memory sessions from being used after logout
         if (hasSupabaseAuthToken && session?.user) {
-          console.log('AuthContext: SIGNED_IN with valid auth token in storage');
           setUser(session.user);
           setIsLoading(false);
         } else {
-          console.log('AuthContext: SIGNED_IN but no auth token in storage, ignoring (stale memory session)');
           setUser(null);
           setIsLoading(false);
         }
