@@ -27,7 +27,6 @@ const brokerTransactionQuerySchema = z.object({
  */
 router.get('/list', async (_req, res) => {
   try {
-    console.log('Fetching broker list from csv_input/broker_list.csv');
     
     // Download CSV data from Azure
     const csvData = await downloadText('csv_input/broker_list.csv');
@@ -60,7 +59,6 @@ router.get('/list', async (_req, res) => {
       }
     }
     
-    console.log(`Found ${brokers.length} brokers in CSV file`);
     
     return res.json({
       success: true,
@@ -102,21 +100,17 @@ router.get('/summary/:stockCode', async (req, res) => {
     const dateStr = date;
     const filename = `broker_summary/broker_summary_${dateStr}/${stockCode}.csv`;
     
-    console.log(`Fetching broker summary data for ${stockCode} on ${dateStr}`);
-    console.log(`Looking for file: ${filename}`);
     
     // Download CSV data from Azure
     const csvData = await downloadText(filename);
     
     if (!csvData) {
-      console.log(`File not found: ${filename}`);
       return res.status(404).json({
         success: false,
         error: `No broker summary data found for ${stockCode} on ${dateStr}`
       });
     }
     
-    console.log(`File found, size: ${csvData.length} characters`);
     
     // Parse CSV data
     const lines = csvData.trim().split('\n');
@@ -918,7 +912,6 @@ router.get('/transaction/:brokerCode', async (req, res) => {
     }
     
     // Log the path being used for debugging
-    console.log(`[Broker Transaction] Fetching data from Azure path: ${azurePath}`);
     console.log(`[Broker Transaction] Parameters: brokerCode=${brokerCode}, date=${dateStr}, pivot=${pivot}, inv=${invFilter || 'All'}, board=${boardFilter || 'All Trade'}`);
     
     // Download CSV data from Azure
@@ -940,7 +933,6 @@ router.get('/transaction/:brokerCode', async (req, res) => {
     }
     
     if (!csvData) {
-      console.log(`[Broker Transaction] File not found at path: ${azurePath}`);
       return res.status(404).json({
         success: false,
         error: `No broker transaction data found for ${brokerCode} on ${dateStr}`,
@@ -1026,7 +1018,6 @@ router.get('/dates', async (_req, res) => {
     
     const sortedDates = Array.from(dates).sort().reverse(); // Newest first
     
-    console.log(`[Broker] Found ${sortedDates.length} unique dates from ${prefixes.length} folders`);
     
     return res.json({
       success: true,

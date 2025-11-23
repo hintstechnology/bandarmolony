@@ -45,7 +45,6 @@ export async function requireSupabaseUser(req: any, res: any, next: any) {
       }
       
       // Fresh user - create/update session with current token
-      console.log('Middleware: Fresh user detected, creating session with current token');
       await SessionManager.createOrUpdateSession(
         user.id,
         tokenHash,

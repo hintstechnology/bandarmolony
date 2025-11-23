@@ -355,6 +355,7 @@ router.post('/login', async (req, res) => {
     }
 
     // Log successful login
+    console.log(`✅ Login successful: ${data.user.email}`);
 
     // Track session in user_sessions table
     if (data.session?.access_token && data.session?.expires_at) {
@@ -364,7 +365,6 @@ router.post('/login', async (req, res) => {
 
       try {
         // SINGLE DEVICE LOGIN: Deactivate all previous sessions
-        console.log('Deactivating all previous sessions for user:', data.user.id);
         await SessionManager.deactivateUserSessions(data.user.id);
         
         // Create new session
@@ -380,8 +380,6 @@ router.post('/login', async (req, res) => {
         if (!sessionResult.success) {
           console.error('Session tracking failed:', sessionResult.error);
           // Don't fail login if session tracking fails
-        } else {
-          console.log('New session tracked successfully for user:', data.user.id);
         }
       } catch (sessionError) {
         console.error('Session tracking error:', sessionError);
@@ -576,7 +574,7 @@ router.post('/logout', async (req, res) => {
     // For session-specific logout, we'll rely on session deactivation
     // Supabase doesn't have a reliable way to logout specific sessions
     // The session will be invalidated when the token expires or when we check it
-    console.log('Session deactivated for user:', user?.id);
+    console.log(`✅ Logout: ${user?.email || 'unknown'}`);
 
     return res.json({ ok: true, message: 'Logged out successfully' });
   } catch (err: any) {
@@ -881,12 +879,9 @@ router.post('/check-attempts', async (req, res) => {
  */
 router.post('/init-session', async (req, res) => {
   try {
-    console.log('📥 /init-session: Request received');
-    
     // Get user from token
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      console.error('❌ /init-session: No authorization header');
       return res.status(401).json(createErrorResponse(
         'No valid session found',
         'UNAUTHORIZED',
@@ -896,11 +891,10 @@ router.post('/init-session', async (req, res) => {
     }
 
     const token = authHeader.split(' ')[1];
-    console.log('🔑 /init-session: Verifying token with Supabase...');
     const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token);
     
     if (userError || !user) {
-      console.error('❌ /init-session: Invalid token:', userError);
+      console.error('❌ Init session: Invalid token');
       return res.status(401).json(createErrorResponse(
         'Invalid session',
         'UNAUTHORIZED',
@@ -909,10 +903,7 @@ router.post('/init-session', async (req, res) => {
       ));
     }
 
-    console.log(`✅ /init-session: User verified: ${user.email} (${user.id})`);
-
     // Ensure user profile exists
-    console.log('👤 /init-session: Checking if profile exists...');
     const { error: profileCheckError } = await supabaseAdmin
       .from('users')
       .select('id')
@@ -921,7 +912,6 @@ router.post('/init-session', async (req, res) => {
 
     if (profileCheckError && profileCheckError.code === 'PGRST116') {
       // Profile doesn't exist, create it
-      console.log('➕ /init-session: Profile not found, creating...');
       const { error: createError } = await supabaseAdmin
         .from('users')
         .insert({
@@ -937,7 +927,7 @@ router.post('/init-session', async (req, res) => {
         });
 
       if (createError) {
-        console.error('❌ /init-session: Failed to create user profile:', createError);
+        console.error('❌ Init session: Failed to create profile for', user.email);
         return res.status(500).json(createErrorResponse(
           'Failed to create user profile',
           'INTERNAL_SERVER_ERROR',
@@ -945,18 +935,13 @@ router.post('/init-session', async (req, res) => {
           500
         ));
       }
-      console.log('✅ /init-session: User profile created successfully');
     } else if (profileCheckError) {
-      console.error('❌ /init-session: Error checking profile:', profileCheckError);
-    } else {
-      console.log('✅ /init-session: Profile already exists');
+      console.error('❌ Init session: Error checking profile for', user.email);
     }
 
     // Create session in database
     try {
-      console.log('🔐 /init-session: Creating session in database...');
       const tokenHash = SessionManager.generateTokenHash(token || '');
-      
       await SessionManager.createOrUpdateSession(
         user.id,
         tokenHash,
@@ -964,13 +949,10 @@ router.post('/init-session', async (req, res) => {
         req.ip || req.connection.remoteAddress || 'Unknown',
         req.headers['user-agent'] || 'Unknown'
       );
-      console.log('✅ /init-session: Session created in database successfully');
     } catch (sessionError) {
-      console.error('❌ /init-session: Failed to create session:', sessionError);
+      console.error('❌ Init session: Failed to create session for', user.email);
       // Don't fail - session will be created on next API call
     }
-
-    console.log('🎉 /init-session: Initialization complete!');
     return res.json(createSuccessResponse(
       { user, initialized: true },
       'Session initialized successfully'
@@ -1045,7 +1027,6 @@ router.post('/verify-email', async (req, res) => {
 
       if (profileCheckError && profileCheckError.code === 'PGRST116') {
         // Profile doesn't exist yet, create it
-        console.log('Email verification: User profile not found, creating...');
         const { error: createError } = await supabaseAdmin
           .from('users')
           .insert({
@@ -1061,14 +1042,11 @@ router.post('/verify-email', async (req, res) => {
           });
 
         if (createError) {
-          console.error('Failed to create user profile during email verification:', createError);
+          console.error('Email verification: Failed to create profile for', data.user.email);
           // Don't fail the verification, just log the error
-        } else {
-          console.log('Email verification: User profile created successfully');
         }
       } else if (!profileCheckError && existingProfile) {
         // Profile exists, just update email_verified status
-        console.log('Email verification: Updating email_verified status for existing profile');
         const { error: updateError } = await supabaseAdmin
           .from('users')
           .update({ 
@@ -1078,11 +1056,11 @@ router.post('/verify-email', async (req, res) => {
           .eq('id', data.user.id);
 
         if (updateError) {
-          console.error('Failed to update email_verified status:', updateError);
+          console.error('Email verification: Failed to update status for', data.user.email);
           // Don't fail the verification, just log the error
         }
       } else {
-        console.error('Error checking user profile:', profileCheckError);
+        console.error('Email verification: Error checking profile for', data.user.email);
       }
     }
 
@@ -1097,9 +1075,9 @@ router.post('/verify-email', async (req, res) => {
           req.ip || req.connection.remoteAddress || 'Unknown',
           req.headers['user-agent'] || 'Unknown'
         );
-        console.log('Email verification: Session created in database');
+        console.log(`✅ Email verified: ${data.user.email}`);
       } catch (sessionError) {
-        console.error('Failed to create session after email verification:', sessionError);
+        console.error('Email verification: Failed to create session for', data.user.email);
         // Don't fail the verification, user can create session on next login
       }
     }
@@ -1424,10 +1402,8 @@ router.post('/upload-avatar', upload.single('avatar'), handleMulterError, async 
 
     // Check file size (additional check)
     const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
-    console.log(`🔍 Backend: File size validation: ${file.size} bytes (${fileSizeMB}MB)`);
     
     if (file.size > 1 * 1024 * 1024) {
-      console.log(`❌ Backend: File size validation failed: ${fileSizeMB}MB > 1MB`);
       return res.status(400).json(createErrorResponse(
         `File size too large (${fileSizeMB}MB). Maximum size is 1MB`,
         'FILE_TOO_LARGE',
@@ -1435,7 +1411,6 @@ router.post('/upload-avatar', upload.single('avatar'), handleMulterError, async 
         400
       ));
     }
-    console.log(`✅ Backend: File size validation passed: ${fileSizeMB}MB <= 1MB`);
 
     // Check file type (additional check)
     const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
@@ -1456,8 +1431,6 @@ router.post('/upload-avatar', upload.single('avatar'), handleMulterError, async 
       .single();
 
     if (existingProfile?.avatar_url) {
-      console.log(`🗑️ Deleting old avatar: ${existingProfile.avatar_url}`);
-      
       // Remove avatars/ prefix if present for storage path
       const oldStoragePath = existingProfile.avatar_url.startsWith('avatars/') 
         ? existingProfile.avatar_url.substring(8) // Remove 'avatars/' prefix
@@ -1469,10 +1442,8 @@ router.post('/upload-avatar', upload.single('avatar'), handleMulterError, async 
         .remove([oldStoragePath]);
       
       if (deleteOldError) {
-        console.warn('Failed to delete old avatar:', deleteOldError);
+        console.warn('Failed to delete old avatar for', user.email);
         // Continue with upload even if old file deletion fails
-      } else {
-        console.log(`✅ Old avatar deleted: ${oldStoragePath}`);
       }
     }
 
@@ -1482,19 +1453,13 @@ router.post('/upload-avatar', upload.single('avatar'), handleMulterError, async 
     const filePath = `${user.id}/${fileName}`;
 
     // Upload to Supabase Storage
-    console.log(`📤 Uploading to Supabase Storage: ${filePath}`);
-    console.log(`📤 File size: ${file.size} bytes`);
-    console.log(`📤 File type: ${file.mimetype}`);
-    
-    const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
+    const { error: uploadError } = await supabaseAdmin.storage
       .from('avatars')
       .upload(filePath, file.buffer, {
         contentType: file.mimetype,
         cacheControl: '3600',
         upsert: false
       });
-
-    console.log(`📤 Upload result:`, { uploadData, uploadError });
 
     if (uploadError) {
       console.error('Avatar upload error:', uploadError);
@@ -1515,7 +1480,6 @@ router.post('/upload-avatar', upload.single('avatar'), handleMulterError, async 
 
     // Update user's avatar_url in database
     const fullPath = `avatars/${filePath}`;
-    console.log(`📝 POST /api/upload-avatar - Updating database with path: ${fullPath}`);
     
     const { error: updateError } = await supabaseAdmin
       .from('users')
@@ -1540,7 +1504,7 @@ router.post('/upload-avatar', upload.single('avatar'), handleMulterError, async 
       ));
     }
 
-    console.log(`✅ POST /api/upload-avatar - Avatar uploaded successfully for user: ${user.id}`);
+    console.log(`✅ Avatar uploaded: ${user.email}`);
     return res.json(createSuccessResponse({
       avatarUrl: avatarUrl,
       filePath: fullPath
@@ -1623,15 +1587,11 @@ router.delete('/avatar', async (req, res) => {
       ));
     }
 
-    console.log(`🗑️ DELETE /api/avatar - Deleting avatar: ${profile.avatar_url}`);
-
     // Delete from storage
     // Remove avatars/ prefix if present for storage path
     const storagePath = profile.avatar_url.startsWith('avatars/') 
       ? profile.avatar_url.substring(8) // Remove 'avatars/' prefix
       : profile.avatar_url;
-    
-    console.log(`🗑️ DELETE /api/avatar - Storage path: ${storagePath}`);
     
     const { error: deleteError } = await supabaseAdmin.storage
       .from('avatars')
@@ -1647,7 +1607,6 @@ router.delete('/avatar', async (req, res) => {
       ));
     }
 
-    console.log(`✅ DELETE /api/avatar - Storage file deleted: ${storagePath}`);
 
     // Update database
     const { error: updateError } = await supabaseAdmin
@@ -1668,7 +1627,7 @@ router.delete('/avatar', async (req, res) => {
       ));
     }
 
-    console.log(`✅ DELETE /api/avatar - Database updated for user: ${user.id}`);
+    console.log(`✅ Avatar deleted: ${user.email}`);
     return res.json(createSuccessResponse(null, 'Avatar deleted successfully'));
 
   } catch (err: any) {
