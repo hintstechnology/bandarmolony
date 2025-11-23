@@ -22,7 +22,6 @@ import MarketRotationRRG from "./components/market-rotation/MarketRotationRRG";
 import MarketRotationRRC from "./components/market-rotation/MarketRotationRRC";
 import { MarketRotationSeasonality } from "./components/market-rotation/MarketRotationSeasonality";
 import { MarketRotationTrendFilter } from "./components/market-rotation/MarketRotationTrendFilter";
-import SeasonalityAnalysis from "./components/SeasonalityAnalysis";
 import { BrokerTransaction } from "./components/broker-activity/BrokerTransaction";
 import { BrokerSummaryPage } from "./components/broker-activity/BrokerSummaryPage";
 import { BrokerInventoryPage } from "./components/broker-activity/BrokerInventoryPage";
@@ -266,8 +265,6 @@ function DashboardLayout() {
         return <MarketRotationRRC />;
       case "market-rotation/seasonality":
         return <MarketRotationSeasonality />;
-      case "seasonality":
-        return <SeasonalityAnalysis />;
       case "market-rotation/trend-filter":
         return <MarketRotationTrendFilter />;
 
