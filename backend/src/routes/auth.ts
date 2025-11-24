@@ -364,8 +364,9 @@ router.post('/login', async (req, res) => {
       const userAgent = req.get('User-Agent') || 'unknown';
 
       try {
-        // SINGLE DEVICE LOGIN: Deactivate all previous sessions
-        await SessionManager.deactivateUserSessions(data.user.id);
+        // MULTI-DEVICE LOGIN: Allow login from multiple devices
+        // Comment out: await SessionManager.deactivateUserSessions(data.user.id);
+        // Users can now login from unlimited devices without being kicked
         
         // Create new session
         const tokenHash = SessionManager.generateTokenHash(data.session.access_token);

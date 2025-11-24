@@ -25,9 +25,9 @@ export async function requireSupabaseUser(req: any, res: any, next: any) {
 
     // Validate session in database
     const tokenHash = SessionManager.generateTokenHash(token);
-    const isSessionValid = await SessionManager.validateSession(user.id, tokenHash);
+    const sessionValidation = await SessionManager.validateSession(user.id, tokenHash);
     
-    if (!isSessionValid) {
+    if (!sessionValidation.isValid) {
       // For fresh email verification (user created < 5 minutes ago), skip session validation
       // Token might change during initial setup
       const userCreatedAt = new Date(user.created_at);
@@ -36,9 +36,14 @@ export async function requireSupabaseUser(req: any, res: any, next: any) {
       
       if (minutesSinceCreation > 5) {
         // User is not fresh, session must be valid
+        // Return specific error code based on reason
+        const errorCode = sessionValidation.reason === 'expired' ? 'SESSION_EXPIRED' : 
+                         sessionValidation.reason === 'not_found' ? 'SESSION_NOT_FOUND' :
+                         'UNAUTHORIZED';
+        
         return res.status(HTTP_STATUS.UNAUTHORIZED).json(createErrorResponse(
-          'Session expired. Please sign in again.',
-          ERROR_CODES.UNAUTHORIZED,
+          sessionValidation.message || 'Session invalid. Please sign in again.',
+          errorCode,
           undefined,
           HTTP_STATUS.UNAUTHORIZED
         ));

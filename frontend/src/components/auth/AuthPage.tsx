@@ -90,14 +90,14 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
       });
     }
 
-    // Check if user was kicked by another device login
+    // Check if user session expired (generic message, no false "kicked" accusation)
     const checkKickedFlag = () => {
       const kickedFlag = localStorage.getItem('kickedByOtherDevice');
       if (kickedFlag === 'true') {
         showToast({
-          type: 'warning',
-          title: 'Login di Perangkat Lain Terdeteksi',
-          message: 'Sesi di perangkat ini telah ditutup.',
+          type: 'info',
+          title: 'Sesi Berakhir',
+          message: 'Silakan login kembali untuk melanjutkan.',
         });
         localStorage.removeItem('kickedByOtherDevice');
       }
@@ -116,7 +116,7 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
     window.addEventListener('storage', handleStorage);
     
     const handleKickedCheck = () => {
-      console.log('AuthPage: Received kicked-check event');
+      console.log('AuthPage: Received session expiry check event');
       checkKickedFlag();
     };
     window.addEventListener('kicked-check', handleKickedCheck);

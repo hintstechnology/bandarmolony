@@ -137,6 +137,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Use API logout for session-specific logout
       const { api } = await import('../services/api');
       await api.logout();
+      
+      // CRITICAL: Keep isLoggingOut true for a moment to:
+      // 1. Prevent premature redirect (App.tsx checks isLoading which includes isLoggingOut)
+      // 2. Allow logout success toast to render and be visible
+      // 3. Give user feedback before redirect
+      // Sidebar.handleLogout() will navigate after 1 second
+      
+      // Reset isLoggingOut after 1.5 seconds as safety (in case no event triggers it)
+      setTimeout(() => {
+        setIsLoggingOut(false);
+      }, 1500);
+      
     } catch (error) {
       console.error('AuthContext: Error signing out:', error);
       // Fallback to direct Supabase logout
@@ -145,7 +157,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (signOutError) {
         console.error('AuthContext: Fallback logout failed:', signOutError);
       }
-    } finally {
+      // On error, reset immediately
       setIsLoggingOut(false);
     }
   };

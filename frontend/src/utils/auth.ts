@@ -51,6 +51,9 @@ export function getAuthState(): AuthState {
 }
 
 export function clearAuthState(): void {
+  // CRITICAL: Preserve kickedByOtherDevice flag (needed for toast in AuthPage)
+  const kickedFlag = localStorage.getItem('kickedByOtherDevice');
+  
   // Clear ALL auth-related keys from localStorage
   // Following LOGIN_LOGOUT_TROUBLESHOOTING.md pattern (line 552-565)
   const localKeys = Object.keys(localStorage);
@@ -58,11 +61,20 @@ export function clearAuthState(): void {
     if (key.startsWith('sb-') || 
         key.includes('supabase') || 
         key === 'user' || 
-        key === 'supabase_session') {
+        key === 'supabase_session' ||
+        key === 'emailVerificationSuccess' ||
+        key === 'emailVerificationError' ||
+        key === 'showEmailVerificationSuccessToast') {
       console.log('clearAuthState: Removing localStorage key:', key);
       localStorage.removeItem(key);
     }
   });
+  
+  // Restore kickedByOtherDevice flag if it existed
+  if (kickedFlag) {
+    localStorage.setItem('kickedByOtherDevice', kickedFlag);
+    console.log('clearAuthState: Preserved kickedByOtherDevice flag');
+  }
   
   // Also clear sessionStorage
   const sessionKeys = Object.keys(sessionStorage);
