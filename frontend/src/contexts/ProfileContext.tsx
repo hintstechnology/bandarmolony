@@ -70,179 +70,55 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
       }
     } catch (error: any) {
       console.error('ProfileContext: Error refreshing profile:', error);
-      
-      // Handle session expired or 401
-      if (error.message?.includes('Session expired') || error.message?.includes('401')) {
-        // Check if this is a fresh email verification (user just signed up)
-        const emailVerificationSuccess = localStorage.getItem('emailVerificationSuccess');
-        if (emailVerificationSuccess === 'true') {
-          
-          // DON'T remove flag yet - needed by 401 handlers to skip logout
-          // Will be removed after retry completes (success or failure)
-          
-          // KEEP loading state TRUE while retrying
-          // This prevents redirect loops
-          setIsLoading(true);
-          setIsValidating(true);
-          
-          // Helper function to retry with exponential backoff
-          const retryProfileFetch = async (attempt: number = 1, maxAttempts: number = 4): Promise<void> => {
-            const delay = Math.min(1000 * Math.pow(2, attempt - 1), 8000); // 1s, 2s, 4s, 8s
-            
-            await new Promise(resolve => setTimeout(resolve, delay));
-            
-            try {
-              const retryResponse = await api.getProfile();
-              if (retryResponse) {
-                
-                // Remove email verification flag now that we succeeded
-                localStorage.removeItem('emailVerificationSuccess');
-                
-                setProfile(retryResponse);
-                hasInitialized.current = true;
-                setIsLoading(false);
-                setIsValidating(false);
-                
-                // Set flag to show welcome toast in Dashboard after auto-login
-                localStorage.setItem('showEmailVerificationSuccessToast', 'true');
-                
-                
-                return;
-              }
-            } catch (retryError: any) {
-              console.warn(`ProfileContext: Attempt ${attempt} failed:`, retryError.message);
-            }
-            
-            // If not last attempt, retry
-            if (attempt < maxAttempts) {
-              return retryProfileFetch(attempt + 1, maxAttempts);
-            } else {
-            // All retries failed
-            console.error('ProfileContext: All profile fetch retries failed. User needs to login again.');
-            setIsLoading(false);
-            setIsValidating(false);
-            
-            // Clear storage using helper (following LOGIN_LOGOUT_TROUBLESHOOTING.md)
-            clearAuthState();
-            
-            // Set flag for AuthPage to show error toast (AFTER clearing everything)
-            localStorage.setItem('emailVerificationError', 'true');
-            
-            setProfile(null);
-            hasInitialized.current = false;
-            
-            // DON'T call signOut() - force reload instead (doc line 624-633)
-            // This prevents Supabase from re-creating session from memory cache
-            setTimeout(() => {
-              window.location.replace('/auth?mode=login');
-            }, 100);
-            }
-          };
-          
-          // Start retry process
-          retryProfileFetch();
-          
-          return;
-        }
-        
-        // If we don't have profile yet, it means global-401 handler skipped it
-        // So we need to handle logout here
-        if (!profile) {
-          
-          setProfile(null);
-          hasInitialized.current = false;
-          setIsLoggingOut(true);
-          
-          // Check if this is a kicked scenario (user was authenticated but session invalid)
-          const isKickedScenario = isAuthenticated && user;
-          
-          // Clear storage using helper (following LOGIN_LOGOUT_TROUBLESHOOTING.md line 552-565)
-          try {
-            clearAuthState();
-            
-            // Set kicked flag AFTER clearing if this is a kicked scenario
-            // Skip this if email verification (will be handled by retry logic)
-            const isEmailVerificationFlow = localStorage.getItem('emailVerificationSuccess') === 'true';
-            if (isKickedScenario && !isEmailVerificationFlow) {
-              localStorage.setItem('kickedByOtherDevice', 'true');
-              
-              // DON'T call signOut() - force reload instead (doc line 624-633)
-              setTimeout(() => {
-                window.location.replace('/auth?mode=login');
-              }, 100);
-            } else if (isEmailVerificationFlow) {
-              // Don't proceed with logout/reload for email verification
-              setProfile(null);
-              hasInitialized.current = false;
-              setIsLoggingOut(false);
-              return; // Let retry logic handle it
-            }
-            
-          } catch (cleanupError) {
-            console.error('ProfileContext: Error during storage cleanup:', cleanupError);
-          }
-        } else {
-          // If we have profile, global handler already took care of it
-          setProfile(null);
-          hasInitialized.current = false;
-        }
-        
-        return; // Exit early
-      } else if (error.message?.includes('timeout') || error.message?.includes('Request timeout')) {
-        console.warn('ProfileContext: Request timeout, keeping existing profile');
-        // Keep existing profile data
-      } else if (error.message?.includes('No active session') || error.message?.includes('No access token')) {
-        
-        // DON'T set kicked flag here - this is just "no session", not kicked
-        
-        setProfile(null);
-        hasInitialized.current = false;
-        setIsLoggingOut(true);
-        
-        // Clear storage using helper and force reload
-        // Following LOGIN_LOGOUT_TROUBLESHOOTING.md (doc line 552-565, 624-633)
+
+      const message: string = (error?.message || '').toLowerCase();
+      const isAuthError =
+        message.includes('401') ||
+        message.includes('session expired') ||
+        message.includes('session not found') ||
+        message.includes('no active session') ||
+        message.includes('no access token') ||
+        message.includes('invalid or expired token') || // Supabase auth error
+        message.includes('invalid token');
+
+      const isConnectionError =
+        message.includes('Cannot connect to server') ||
+        message.includes('ERR_CONNECTION_REFUSED') ||
+        message.includes('Network') ||
+        message.includes('timeout') ||
+        message.includes('Request timeout');
+
+      if (isAuthError) {
+        // ✅ SIMPLE, CLEAN LOGOUT FOR ALL AUTH ERRORS (SESSION NOT FOUND, EXPIRED, ETC)
         try {
-          // Keep the kickedByOtherDevice flag if exists
-          const kickedFlag = localStorage.getItem('kickedByOtherDevice');
-          
-          console.log('ProfileContext: Clearing all auth storage using helper');
+          console.log('ProfileContext: Auth error detected, clearing all auth storage and forcing logout');
           clearAuthState();
-          
-          // Restore the kicked flag if it existed
-          if (kickedFlag) {
-            localStorage.setItem('kickedByOtherDevice', kickedFlag);
-          }
-          
-          // Clear profile and reset flags immediately
-          setProfile(null);
-          setIsLoggingOut(false);
-          setIsLoading(false);
-          setIsValidating(false);
-          
         } catch (cleanupError) {
           console.error('ProfileContext: Error during storage cleanup:', cleanupError);
         }
-        
-        // DON'T call signOut() - force reload instead (doc line 624-633)
-        // Use window.location.replace to prevent back button issues
-        // and setTimeout to ensure storage flush
-        setTimeout(() => {
-          window.location.replace('/auth?mode=login');
-        }, 100);
-        
-        // Return early to prevent further execution
-        return;
-      } else if (error.message?.includes('Cannot connect to server') || 
-                 error.message?.includes('ERR_CONNECTION_REFUSED') ||
-                 error.message?.includes('Network')) {
-        console.warn('ProfileContext: Connection error, keeping existing profile');
-        // Set connection error flag to prevent redirect loop
-        setHasConnectionError(true);
-        // DON'T clear profile on connection errors (e.g., server restart)
-        // Keep existing profile data (even if null - don't force logout on connection issues)
-      } else {
+
         setProfile(null);
+        hasInitialized.current = false;
+        setIsLoggingOut(false);
+        setIsLoading(false);
+        setIsValidating(false);
+
+        // Hard redirect to auth page – NO retry, NO loop
+        window.location.href = '/auth?mode=login';
+        return;
       }
+
+      if (isConnectionError) {
+        console.warn('ProfileContext: Connection/timeout error, keeping existing profile');
+        setHasConnectionError(true);
+        // Keep existing profile on connection issues
+        return;
+      }
+
+      // Fallback: unknown error → clear profile but don't redirect
+      console.error('ProfileContext: Unexpected error, clearing profile without redirect');
+      setProfile(null);
+      hasInitialized.current = false;
     } finally {
       setIsLoading(false);
       setIsValidating(false);
@@ -275,20 +151,24 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
 
   // Listen for global 401 events from ANY API call
   useEffect(() => {
-    const handle401 = () => {
+    const handle401 = async () => {
       
-      // Skip if we're already logging out
+      // Skip if we're already logging out (prevent duplicate handling)
       if (isLoggingOut) {
+        console.log('ProfileContext: global-401 skipped - already logging out');
         return;
       }
       
       // Skip if we don't have a profile yet (might be initial load with stale session)
+      // This means refreshProfile() error handler will take care of it
       if (!profile) {
+        console.log('ProfileContext: global-401 skipped - no profile (refreshProfile will handle)');
         return;
       }
       
       // Only handle if user is authenticated AND has profile
       if (isAuthenticated && user && profile) {
+        console.log('ProfileContext: global-401 handler executing (user had active profile)');
         
         setProfile(null);
         hasInitialized.current = false;
@@ -299,28 +179,56 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
         try {
           clearAuthState();
           
-          // Set the kicked flag AFTER clearing (so it persists)
-          // BUT NOT if this is email verification flow (will be handled by retry)
           const isEmailVerificationFlow = localStorage.getItem('emailVerificationSuccess') === 'true';
-          if (!isEmailVerificationFlow) {
-            localStorage.setItem('kickedByOtherDevice', 'true');
-          } else {
+          if (isEmailVerificationFlow) {
             console.log('ProfileContext: Email verification flow - skipping logout, will retry');
             // Don't proceed with reload for email verification
             setIsLoggingOut(false);
             return; // Let retry logic handle it
           }
+          
+          // Set flag for AuthPage to show "Sesi Berakhir" toast
+          // This covers: kicked, expired, server restart (we can't distinguish)
+          // Generic message prevents false accusations
+          localStorage.setItem('kickedByOtherDevice', 'true');
+          console.log('ProfileContext: Session invalid (global handler), setting expiry flag');
+          
         } catch (cleanupError) {
           console.error('ProfileContext: Error during storage cleanup:', cleanupError);
         }
         
-        // DON'T call signOut() - force reload instead (doc line 624-633)
-        // This prevents Supabase from re-creating session from memory cache
+        // CRITICAL: Check if already at /auth to prevent loop
+        const currentPath = window.location.pathname;
+        if (currentPath.includes('/auth')) {
+          console.log('ProfileContext: Global-401, already at auth page, forcing signOut');
+          setProfile(null);
+          hasInitialized.current = false;
+          setIsLoggingOut(false);
+          setIsLoading(false);
+          
+          // CRITICAL: MUST signOut from Supabase to clear isAuthenticated!
+          // Without this, AuthContext still has user = true → triggers useEffect loop!
+          const { supabase } = await import('../lib/supabase');
+          await supabase.auth.signOut();
+          console.log('ProfileContext: Supabase signOut completed at auth page');
+          return;
+        }
         
-        // Wait a tiny bit for storage to flush
-        setTimeout(() => {
-          window.location.replace('/auth?mode=login');
-        }, 100);
+        // PAKSA LOGOUT dengan Supabase signOut
+        console.log('ProfileContext: Global-401, forcing logout');
+        
+        // CRITICAL: DON'T set isLoading/isLoggingOut to false before redirect!
+        // Setting them to false triggers App.tsx useEffect → infinite loop!
+        setProfile(null);
+        hasInitialized.current = false;
+        // KEEP isLoggingOut = true to prevent App.tsx redirect loop!
+        
+        // Force Supabase logout untuk clear session dari memory
+        const { supabase } = await import('../lib/supabase');
+        await supabase.auth.signOut();
+        
+        // Force reload ke auth page (HARD RELOAD)
+        window.location.href = '/auth?mode=login';
       }
     };
     

@@ -90,14 +90,14 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
       });
     }
 
-    // Check if user was kicked by another device login
+    // Check if user session expired (generic message, no false "kicked" accusation)
     const checkKickedFlag = () => {
       const kickedFlag = localStorage.getItem('kickedByOtherDevice');
       if (kickedFlag === 'true') {
         showToast({
-          type: 'warning',
-          title: 'Login di Perangkat Lain Terdeteksi',
-          message: 'Sesi di perangkat ini telah ditutup.',
+          type: 'info',
+          title: 'Sesi Berakhir',
+          message: 'Silakan login kembali untuk melanjutkan.',
         });
         localStorage.removeItem('kickedByOtherDevice');
       }
@@ -116,7 +116,7 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
     window.addEventListener('storage', handleStorage);
     
     const handleKickedCheck = () => {
-      console.log('AuthPage: Received kicked-check event');
+      console.log('AuthPage: Received session expiry check event');
       checkKickedFlag();
     };
     window.addEventListener('kicked-check', handleKickedCheck);
@@ -131,8 +131,17 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
   // Redirect if already authenticated
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      console.log('AuthPage: Already authenticated, redirecting to dashboard');
-      navigate('/dashboard', { replace: true });
+      console.log('AuthPage: Already authenticated, redirecting...');
+      // Redirect to saved location or dashboard
+      const returnTo = sessionStorage.getItem('returnTo');
+      if (returnTo) {
+        console.log('AuthPage: Redirecting to saved location:', returnTo);
+        sessionStorage.removeItem('returnTo');
+        navigate(returnTo, { replace: true });
+      } else {
+        console.log('AuthPage: Redirecting to dashboard');
+        navigate('/dashboard', { replace: true });
+      }
     }
   }, [isAuthenticated, isLoading, navigate]);
 
@@ -142,7 +151,15 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
       title: 'Login Berhasil!',
       message: 'Selamat datang kembali!',
     });
-    navigate('/dashboard'); // Redirect to dashboard
+    
+    // Redirect to saved location or dashboard
+    const returnTo = sessionStorage.getItem('returnTo');
+    if (returnTo) {
+      sessionStorage.removeItem('returnTo');
+      navigate(returnTo);
+    } else {
+      navigate('/dashboard');
+    }
   };
 
   const handleLogin = () => {

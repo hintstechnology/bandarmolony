@@ -59,49 +59,31 @@ function DashboardLayout() {
   const navigate = useNavigate();
   const hasRedirected = React.useRef(false);
 
-  // Handle redirect in useEffect to avoid calling navigate during render
+  // IMPORTANT:
+  // We REMOVE all automatic redirect logic from DashboardLayout to prevent
+  // navigation throttling / infinite loops. Route protection is now handled
+  // exclusively by:
+  // - <ProtectedRoute> wrappers
+  // - 401 handlers that force logout and hard-reload to /auth when needed.
   useEffect(() => {
-    // Skip all dashboard logic if we're in password reset flow
+    // Keep only password reset guard (no redirects here)
     const passwordResetSession = localStorage.getItem('passwordResetSession');
     const currentPath = window.location.pathname;
-    const isResetPasswordPage = currentPath.includes('/auth/reset-password') || currentPath.includes('/auth/callback');
-    
-    // Don't do anything if password reset is active
+    const isResetPasswordPage =
+      currentPath.includes('/auth/reset-password') ||
+      currentPath.includes('/auth/callback');
+
     if (passwordResetSession === 'true' || isResetPasswordPage) {
       return;
     }
-    
-    // Reset redirect flag when user becomes authenticated with profile
-    if (isAuthenticated && profile) {
-      hasRedirected.current = false;
-    }
-    
-    // DON'T redirect if there's a connection error - backend might be restarting
-    // Following LOGIN_LOGOUT_TROUBLESHOOTING.md line 122-144
-    if (hasConnectionError && isAuthenticated) {
-      console.log('DashboardLayout: Connection error detected, waiting for backend to recover');
-      return; // Skip redirect, let user stay on dashboard
-    }
-    
-    if (!isLoading && (!profile || !isAuthenticated) && !hasRedirected.current) {
-      console.log('DashboardLayout: No profile or not authenticated, redirecting to auth');
-      hasRedirected.current = true;
-      
-      // Safely navigate with error handling
-      try {
-        navigate('/auth', { replace: true });
-      } catch (error) {
-        console.error('Navigation error:', error);
-        // Fallback to window.location if navigate fails
-        try {
-          window.location.href = '/auth';
-        } catch (fallbackError) {
-          console.error('Fallback navigation also failed:', fallbackError);
-        }
-      }
-    }
+
+    // No other logic here – do NOT navigate from this effect.
+    // This avoids any chance of redirect loops; all redirects are centralized
+    // in ProtectedRoute and explicit 401 handlers.
+    // We still keep hasRedirected ref for potential future use, but we don't
+    // mutate it here to avoid side effects.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading, profile, isAuthenticated, hasConnectionError]); // Don't include navigate - causes loop!
+  }, [isLoading, profile, isAuthenticated, hasConnectionError]);
 
   // Show loading while profile is being fetched
   if (isLoading) {

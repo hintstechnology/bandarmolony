@@ -201,14 +201,17 @@ async function checkTrialEligibility(userId: string): Promise<boolean> {
   }
 }
 
-// Helper function to format payment method with card brand detection (BIN-based)
+// Helper function to format payment method based on Midtrans webhook data
+// Reference: https://docs.midtrans.com/docs/testing-payment-on-sandbox
 const formatPaymentMethod = (webhookData: any, fallbackMethod: string): string => {
-  let formattedMethod = webhookData.payment_type || fallbackMethod;
+  const paymentType = webhookData.payment_type;
   
-  if (webhookData.payment_type === 'credit_card') {
-    // Extract card brand from masked_card number (BIN detection)
+  if (!paymentType) return fallbackMethod;
+  
+  // 1. CREDIT CARD - Extract brand from BIN (masked_card)
+  if (paymentType === 'credit_card') {
     let cardBrand = '';
-    let isInternationalCard = false; // Flag for international cards (AMEX, JCB, CUP)
+    let isInternationalCard = false;
     
     if (webhookData.masked_card) {
       const firstDigit = webhookData.masked_card.charAt(0);
@@ -218,38 +221,81 @@ const formatPaymentMethod = (webhookData: any, fallbackMethod: string): string =
         cardBrand = 'VISA';
       } else if (firstDigit === '5') {
         cardBrand = 'Mastercard';
-      } else if (firstDigit === '3') {
-        // AMEX (34xx, 37xx) or JCB (35xx)
-        if (firstTwo === '37' || firstTwo === '34') {
-          cardBrand = 'AMEX';
-          isInternationalCard = true; // AMEX is issuer, bank field not relevant
-        } else if (firstTwo === '35') {
-          cardBrand = 'JCB';
-          isInternationalCard = true; // JCB is Japanese card
-        }
+      } else if (firstTwo === '37' || firstTwo === '34') {
+        cardBrand = 'AMEX';
+        isInternationalCard = true;
+      } else if (firstTwo === '35') {
+        cardBrand = 'JCB';
+        isInternationalCard = true;
       } else if (firstDigit === '6') {
-        cardBrand = 'CUP'; // China Union Pay
-        isInternationalCard = true; // CUP is Chinese card
-      } else if (firstTwo === '19') {
-        cardBrand = 'BNI Private'; // BNI Private Label
+        cardBrand = 'CUP';
+        isInternationalCard = true;
       }
     }
     
-    // Card type: credit, debit, prepaid
     const cardType = webhookData.card_type ? 
       (webhookData.card_type.charAt(0).toUpperCase() + webhookData.card_type.slice(1)) : '';
     
-    // Bank name from Midtrans
-    // Only include bank for local cards (VISA, Mastercard, BNI Private)
-    // Ignore bank for international cards (AMEX, JCB, CUP) as it's not relevant
-    const bank = (!isInternationalCard && webhookData.bank) ? webhookData.bank.toUpperCase() : '';
+    const bank = (!isInternationalCard && webhookData.bank) ? 
+      webhookData.bank.toUpperCase() : '';
     
-    // Build natural format: "VISA Debit BCA" or "AMEX Credit" (no bank for AMEX)
-    const parts = [cardBrand, cardType, bank].filter(p => p); // Remove empty strings
-    formattedMethod = parts.join(' ');
+    const parts = [cardBrand, cardType, bank].filter(p => p);
+    return parts.join(' ') || 'Credit Card';
   }
   
-  return formattedMethod;
+  // 2. BANK TRANSFER - VA for BCA, BNI, BRI, Permata, CIMB
+  if (paymentType === 'bank_transfer') {
+    if (webhookData.va_numbers && webhookData.va_numbers.length > 0) {
+      const bank = webhookData.va_numbers[0].bank;
+      return bank ? `VA ${bank.toUpperCase()}` : 'Bank Transfer';
+    }
+    return 'Bank Transfer';
+  }
+  
+  // 3. ECHANNEL - Mandiri Bill Payment
+  if (paymentType === 'echannel') {
+    return 'Mandiri Bill';
+  }
+  
+  // 4. GOPAY
+  if (paymentType === 'gopay') {
+    return 'GoPay';
+  }
+  
+  // 5. SHOPEEPAY
+  if (paymentType === 'shopeepay') {
+    return 'ShopeePay';
+  }
+  
+  // 6. QRIS
+  if (paymentType === 'qris') {
+    return 'QRIS';
+  }
+  
+  // 7. CSTORE - Indomaret, Alfamart, Kioson
+  if (paymentType === 'cstore') {
+    if (webhookData.store) {
+      return webhookData.store.charAt(0).toUpperCase() + webhookData.store.slice(1);
+    }
+    return 'Convenience Store';
+  }
+  
+  // 8. AKULAKU - Cardless Credit
+  if (paymentType === 'akulaku') {
+    return 'Akulaku';
+  }
+  
+  // 9. KREDIVO - Cardless Credit
+  if (paymentType === 'kredivo') {
+    return 'Kredivo';
+  }
+  
+  // Fallback: Title Case for any unknown payment type
+  return paymentType
+    .replace(/_/g, ' ')
+    .split(' ')
+    .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
 };
 
 // Subscription plans configuration
