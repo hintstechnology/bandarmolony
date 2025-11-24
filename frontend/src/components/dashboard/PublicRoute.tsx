@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { Navigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 
 interface PublicRouteProps {
@@ -17,7 +16,7 @@ export function PublicRoute({ children }: PublicRouteProps) {
 
     checkAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setIsAuthenticated(!!session?.user);
     });
 
@@ -32,9 +31,7 @@ export function PublicRoute({ children }: PublicRouteProps) {
     );
   }
 
-  if (isAuthenticated) {
-    return <Navigate to="/dashboard" replace />;
-  }
-
+  // If already authenticated, biarkan child (AuthPage) yang mengatur redirect
+  // supaya bisa menghormati sessionStorage.returnTo dan default ke /profile.
   return <>{children}</>;
 }

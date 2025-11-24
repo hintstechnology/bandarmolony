@@ -132,15 +132,21 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
       console.log('AuthPage: Already authenticated, redirecting...');
-      // Redirect to saved location or dashboard
+      // Redirect to saved location (kecuali dashboard/home) atau ke profile
       const returnTo = sessionStorage.getItem('returnTo');
-      if (returnTo) {
+      const isDashboardReturn =
+        returnTo === '/' ||
+        returnTo === '/dashboard' ||
+        returnTo === '/dashboard/';
+
+      if (returnTo && !isDashboardReturn) {
         console.log('AuthPage: Redirecting to saved location:', returnTo);
         sessionStorage.removeItem('returnTo');
         navigate(returnTo, { replace: true });
       } else {
-        console.log('AuthPage: Redirecting to dashboard');
-        navigate('/dashboard', { replace: true });
+        console.log('AuthPage: Redirecting to profile');
+        sessionStorage.removeItem('returnTo');
+        navigate('/profile', { replace: true });
       }
     }
   }, [isAuthenticated, isLoading, navigate]);
@@ -152,13 +158,19 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
       message: 'Selamat datang kembali!',
     });
     
-    // Redirect to saved location or dashboard
+    // Redirect to saved location (kecuali dashboard/home) atau ke profile
     const returnTo = sessionStorage.getItem('returnTo');
-    if (returnTo) {
+    const isDashboardReturn =
+      returnTo === '/' ||
+      returnTo === '/dashboard' ||
+      returnTo === '/dashboard/';
+
+    if (returnTo && !isDashboardReturn) {
       sessionStorage.removeItem('returnTo');
       navigate(returnTo);
     } else {
-      navigate('/dashboard');
+      sessionStorage.removeItem('returnTo');
+      navigate('/profile');
     }
   };
 
