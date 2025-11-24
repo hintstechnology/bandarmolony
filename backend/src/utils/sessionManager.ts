@@ -78,9 +78,13 @@ export class SessionManager {
 
   /**
    * Validate user session
-   * Note: Since database minimal doesn't have RLS policies, we rely on Supabase Auth validation
+   * Returns object with isValid, reason, and message for better error handling
    */
-  static async validateSession(userId: string, tokenHash: string): Promise<boolean> {
+  static async validateSession(userId: string, tokenHash: string): Promise<{
+    isValid: boolean;
+    reason?: 'expired' | 'not_found' | 'db_error';
+    message?: string;
+  }> {
     try {
       // For minimal database, we'll do basic session tracking
       const { data, error } = await supabaseAdmin
@@ -94,9 +98,16 @@ export class SessionManager {
         .single();
 
       if (error || !data) {
-        // If no session found, return false to force re-authentication
+        // If no session found, could be:
+        // 1. Kicked by other device
+        // 2. Server restart (session cleared)
+        // 3. Manual logout
         console.log('SessionManager: No active session found for user:', userId);
-        return false;
+        return {
+          isValid: false,
+          reason: 'not_found',
+          message: 'Session not found. You may have been logged out or logged in from another device.'
+        };
       }
 
       // Check if session is expired
@@ -113,7 +124,11 @@ export class SessionManager {
           })
           .eq('id', data.id);
 
-        return false;
+        return {
+          isValid: false,
+          reason: 'expired',
+          message: 'Session expired. Please sign in again.'
+        };
       }
 
       // Update last activity (only if not updated in last minute)
@@ -129,10 +144,16 @@ export class SessionManager {
           .eq('id', data.id);
       }
 
-      return true;
+      return { isValid: true };
     } catch (error) {
       console.error('Database error in validateSession:', error);
-      return true; // Allow access if database error (fail open for minimal setup)
+      // On database error, allow access (fail open)
+      // This prevents false "kicked" detection on server restart / connection issues
+      return {
+        isValid: true, // Allow access on DB error
+        reason: 'db_error',
+        message: 'Database connection issue, allowing access'
+      };
     }
   }
 

@@ -133,12 +133,21 @@ export function Sidebar({
       try {
         // Use AuthContext signOut for proper state management
         await signOut();
-        // Show toast after logout
+        
+        // Show toast immediately after logout
         showToast({
           type: 'success',
           title: 'Logout Berhasil!',
           message: 'Anda telah berhasil logout.',
         });
+        
+        // Small delay to let user see the toast before redirect
+        // isLoggingOut is true, preventing App.tsx redirect
+        setTimeout(() => {
+          // Force navigate to auth page after showing toast
+          window.location.href = '/auth';
+        }, 1000);
+        
       } catch (error) {
         console.error('Logout error:', error);
         // Show error toast if logout fails

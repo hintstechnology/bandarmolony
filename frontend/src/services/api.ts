@@ -49,7 +49,24 @@ const checkResponse = async (response: Response, endpoint: string) => {
   if (response.status === 401) {
     console.log(`🚨 API: 401 from ${endpoint}`);
     emit401Event();
-    throw new Error('Session expired. Please sign in again.');
+    
+    // Try to parse error response to get specific error code
+    let errorCode = 'UNAUTHORIZED';
+    let errorMessage = 'Session expired. Please sign in again.';
+    
+    try {
+      const errorData = await response.clone().json();
+      errorCode = errorData.code || 'UNAUTHORIZED';
+      errorMessage = errorData.error || 'Session expired. Please sign in again.';
+    } catch (parseError) {
+      // If can't parse JSON, use defaults (already set above)
+      console.warn('API: Could not parse 401 error response, using generic error');
+    }
+    
+    // Create error object with code property (always, even if parse failed)
+    const error: any = new Error(errorMessage);
+    error.code = errorCode;
+    throw error;
   }
   return response;
 };
