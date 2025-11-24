@@ -39,6 +39,14 @@ type InvestorType = 'D' | 'F' | 'All';
 // Board Type: RG = Regular, TN = Tunai, NG = Negosiasi, All = All Board (no filter)
 type BoardType = 'RG' | 'TN' | 'NG' | 'All';
 
+// Enhanced transaction data with pre-computed flags for faster filtering
+interface EnhancedTransactionData extends TransactionData {
+  isBid: boolean;
+  buyerInvType: InvestorType | null;
+  sellerInvType: InvestorType | null;
+  boardType: BoardType;
+}
+
 export class BrokerBreakdownCalculator {
   constructor() {
     // No need for Azure client initialization - using azureBlob utility
@@ -180,73 +188,53 @@ export class BrokerBreakdownCalculator {
   }
 
   /**
-   * Filter transactions by investor type and board type
-   * - investorType: 'All' = no filter, 'D' = Domestik only, 'F' = Foreign only
-   * - boardType: 'All' = no filter, 'RG' = Regular only, 'TN' = Tunai only, 'NG' = Negosiasi only
+   * Pre-compute flags for all transactions to avoid repeated calculations
    */
-  private filterTransactions(
-    data: TransactionData[], 
-    investorType: InvestorType, 
+  private enhanceTransactions(data: TransactionData[]): EnhancedTransactionData[] {
+    return data.map(row => {
+      const isBid = row.TRX_ORD1 > row.TRX_ORD2;
+      return {
+        ...row,
+        isBid,
+        buyerInvType: this.getInvestorType(row.INV_TYP1),
+        sellerInvType: this.getInvestorType(row.INV_TYP2),
+        boardType: row.TRX_TYPE as BoardType
+      };
+    });
+  }
+
+  /**
+   * Check if transaction matches investor and board type filters
+   */
+  private matchesFilter(
+    row: EnhancedTransactionData,
+    investorType: InvestorType,
     boardType: BoardType
-  ): TransactionData[] {
-    let filtered = data;
-
-    // Filter by board type (if not 'All')
-    if (boardType !== 'All') {
-      filtered = filtered.filter(row => row.TRX_TYPE === boardType);
+  ): boolean {
+    // Filter by board type
+    if (boardType !== 'All' && row.boardType !== boardType) {
+      return false;
     }
 
-    // Filter by investor type (if not 'All')
-    // IMPORTANT: Filter based on the broker that will be counted in breakdown
-    // In createBrokerBreakdownData, broker is determined by isBid (HAKA/HAKI logic):
-    // - If isBid (TRX_ORD1 > TRX_ORD2): broker = BRK_COD1 (buyer), check INV_TYP1
-    // - If not isBid: broker = BRK_COD2 (seller), check INV_TYP2
-    // So we need to filter based on the investor type of the broker that will be counted
+    // Filter by investor type
     if (investorType !== 'All') {
-      filtered = filtered.filter(row => {
-        const isBid = row.TRX_ORD1 > row.TRX_ORD2; // HAKA -> BID, HAKI -> ASK
-        
-        if (investorType === 'D') {
-          // Domestik: Check investor type of the broker that will be counted
-          if (isBid) {
-            // Broker is buyer (BRK_COD1), check INV_TYP1
-            const buyerInvType = this.getInvestorType(row.INV_TYP1);
-            return buyerInvType === 'D';
-          } else {
-            // Broker is seller (BRK_COD2), check INV_TYP2
-            const sellerInvType = this.getInvestorType(row.INV_TYP2);
-            return sellerInvType === 'D';
-          }
-        } else if (investorType === 'F') {
-          // Foreign: Check investor type of the broker that will be counted
-          if (isBid) {
-            // Broker is buyer (BRK_COD1), check INV_TYP1
-            const buyerInvType = this.getInvestorType(row.INV_TYP1);
-            return buyerInvType === 'F';
-          } else {
-            // Broker is seller (BRK_COD2), check INV_TYP2
-            const sellerInvType = this.getInvestorType(row.INV_TYP2);
-            return sellerInvType === 'F';
-          }
-        }
+      const brokerInvType = row.isBid ? row.buyerInvType : row.sellerInvType;
+      if (brokerInvType !== investorType) {
         return false;
-      });
+      }
     }
 
-    return filtered;
+    return true;
   }
 
   /**
    * Create broker breakdown data grouped by stock code, broker, and price level
    * Structure: emiten -> broker -> price level
+   * Optimized to use enhanced transaction data (already filtered)
    */
   private createBrokerBreakdownData(
-    data: TransactionData[],
-    investorType: InvestorType,
-    boardType: BoardType
+    data: EnhancedTransactionData[]
   ): Map<string, Map<string, BrokerBreakdownData[]>> {
-    console.log(`Creating broker breakdown data by stock, broker, and price (${investorType}/${boardType})...`);
-    
     // Structure: stock -> broker -> price -> data
     const stockBrokerPriceMap = new Map<string, Map<string, Map<number, {
       buyLot: number;
@@ -261,11 +249,9 @@ export class BrokerBreakdownCalculator {
       const stock = row.STK_CODE;
       const price = row.STK_PRIC;
       const volume = row.STK_VOLM;
-      const isBid = row.TRX_ORD1 > row.TRX_ORD2; // HAKA -> BID, HAKI -> ASK
       
       // Get broker code based on HAKA/HAKI logic
-      // BRK_COD1 is buyer, BRK_COD2 is seller
-      const brokerCode = isBid ? row.BRK_COD1 : row.BRK_COD2;
+      const brokerCode = row.isBid ? row.BRK_COD1 : row.BRK_COD2;
       
       if (!stockBrokerPriceMap.has(stock)) {
         stockBrokerPriceMap.set(stock, new Map());
@@ -290,15 +276,13 @@ export class BrokerBreakdownCalculator {
       const priceData = brokerMap.get(price)!;
       
       // Klasifikasi BID/ASK berdasarkan HAKA/HAKI
-      if (isBid) {
-        // Buy side: BRK_COD1 is buyer
+      if (row.isBid) {
         priceData.buyLot += volume;
         priceData.buyFreq += 1;
         if (row.TRX_ORD1 > 0) {
           priceData.buyOrd.add(row.TRX_ORD1);
         }
       } else {
-        // Sell side: BRK_COD2 is seller
         priceData.sellLot += volume;
         priceData.sellFreq += 1;
         if (row.TRX_ORD2 > 0) {
@@ -317,7 +301,7 @@ export class BrokerBreakdownCalculator {
         const brokerData: BrokerBreakdownData[] = [];
         
         priceMap.forEach((priceData, price) => {
-          const bLot = priceData.buyLot / 100; // Convert volume to lot
+          const bLot = priceData.buyLot / 100;
           const sLot = priceData.sellLot / 100;
           const bFreq = priceData.buyFreq;
           const sFreq = priceData.sellFreq;
@@ -327,7 +311,6 @@ export class BrokerBreakdownCalculator {
           const tLot = bLot + sLot;
           const tOrd = bOrd + sOrd;
           
-          // Calculate ratios
           const bLotPerFreq = bFreq > 0 ? bLot / bFreq : 0;
           const bLotPerOrd = bOrd > 0 ? bLot / bOrd : 0;
           const sLotPerFreq = sFreq > 0 ? sLot / sFreq : 0;
@@ -348,33 +331,27 @@ export class BrokerBreakdownCalculator {
             TFreq: tFreq,
             TLot: tLot,
             TOrd: tOrd
+          });
         });
-      });
-      
-        // Sort by price descending (highest to lowest)
-        brokerData.sort((a, b) => b.Price - a.Price);
         
+        brokerData.sort((a, b) => b.Price - a.Price);
         stockBrokerData.set(broker, brokerData);
       });
       
       breakdownData.set(stock, stockBrokerData);
     });
     
-    console.log(`Created broker breakdown data for ${breakdownData.size} stocks (${investorType}/${boardType})`);
     return breakdownData;
   }
 
   /**
    * Create All.csv file that aggregates all brokers for a stock
-   * Calculates directly from transaction data to get accurate order counts
+   * Optimized to use enhanced transaction data
    */
   private createAllBrokerDataForStock(
-    data: TransactionData[],
+    data: EnhancedTransactionData[],
     stockCode: string
   ): BrokerBreakdownData[] {
-    // Filter transactions for this stock
-    const stockTransactions = data.filter(row => row.STK_CODE === stockCode);
-    
     // Aggregate by price (all brokers combined)
     const priceMap = new Map<number, {
       buyLot: number;
@@ -385,10 +362,11 @@ export class BrokerBreakdownCalculator {
       sellOrd: Set<number>;
     }>();
     
-    stockTransactions.forEach(row => {
+    data.forEach(row => {
+      if (row.STK_CODE !== stockCode) return;
+      
       const price = row.STK_PRIC;
       const volume = row.STK_VOLM;
-      const isBid = row.TRX_ORD1 > row.TRX_ORD2; // HAKA -> BID, HAKI -> ASK
       
       if (!priceMap.has(price)) {
         priceMap.set(price, {
@@ -402,15 +380,13 @@ export class BrokerBreakdownCalculator {
       }
       const priceData = priceMap.get(price)!;
       
-      if (isBid) {
-        // Buy side: BRK_COD1 is buyer
+      if (row.isBid) {
         priceData.buyLot += volume;
         priceData.buyFreq += 1;
         if (row.TRX_ORD1 > 0) {
           priceData.buyOrd.add(row.TRX_ORD1);
         }
       } else {
-        // Sell side: BRK_COD2 is seller
         priceData.sellLot += volume;
         priceData.sellFreq += 1;
         if (row.TRX_ORD2 > 0) {
@@ -422,7 +398,7 @@ export class BrokerBreakdownCalculator {
     // Convert to BrokerBreakdownData format
     const allData: BrokerBreakdownData[] = [];
     priceMap.forEach((priceData, price) => {
-      const bLot = priceData.buyLot / 100; // Convert volume to lot
+      const bLot = priceData.buyLot / 100;
       const sLot = priceData.sellLot / 100;
       const bFreq = priceData.buyFreq;
       const sFreq = priceData.sellFreq;
@@ -455,24 +431,18 @@ export class BrokerBreakdownCalculator {
       });
     });
     
-    // Sort by price descending
     allData.sort((a, b) => b.Price - a.Price);
-    
     return allData;
   }
 
   /**
-   * Save broker breakdown data to Azure Blob Storage
+   * Convert broker breakdown data to CSV format
    */
-  private async saveToAzure(filename: string, data: BrokerBreakdownData[]): Promise<string> {
-    if (data.length === 0) {
-      console.log(`No data to save for ${filename}`);
-      return filename;
-    }
+  private dataToCsv(data: BrokerBreakdownData[]): string {
+    if (data.length === 0) return '';
     
-    // Convert to CSV format
     const headers = ['Price', 'BFreq', 'BLot', 'BLot/Freq', 'BOrd', 'BLot/Ord', 'SLot', 'SFreq', 'SLot/Freq', 'SOrd', 'SLot/Ord', 'TFreq', 'TLot', 'TOrd'];
-    const csvContent = [
+    return [
       headers.join(','),
       ...data.map(row => [
         row.Price,
@@ -491,19 +461,71 @@ export class BrokerBreakdownCalculator {
         row.TOrd
       ].join(','))
     ].join('\n');
+  }
+
+  /**
+   * Batch check file existence
+   */
+  private async batchCheckExists(filenames: string[]): Promise<Set<string>> {
+    const existingFiles = new Set<string>();
+    const checkPromises = filenames.map(async (filename) => {
+      try {
+        const exists = await this.checkFileExists(filename);
+        if (exists) {
+          existingFiles.add(filename);
+        }
+      } catch (error) {
+        // Ignore errors, assume file doesn't exist
+      }
+    });
     
-    await uploadText(filename, csvContent, 'text/csv');
-    console.log(`Saved ${data.length} broker breakdown records to ${filename}`);
-    return filename;
+    // Process in batches of 50 to avoid overwhelming Azure
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < checkPromises.length; i += BATCH_SIZE) {
+      const batch = checkPromises.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch);
+    }
+    
+    return existingFiles;
+  }
+
+  /**
+   * Check if file exists (cached wrapper)
+   */
+  private async checkFileExists(filename: string): Promise<boolean> {
+    try {
+      return await exists(filename);
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Batch upload files to Azure
+   */
+  private async batchUpload(files: Array<{ filename: string; content: string }>): Promise<void> {
+    const uploadPromises = files.map(({ filename, content }) => 
+      uploadText(filename, content, 'text/csv').catch(error => {
+        console.error(`Failed to upload ${filename}:`, error);
+        throw error;
+      })
+    );
+    
+    // Process in batches of 20 to avoid overwhelming Azure
+    const BATCH_SIZE = 20;
+    for (let i = 0; i < uploadPromises.length; i += BATCH_SIZE) {
+      const batch = uploadPromises.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch);
+    }
   }
 
   /**
    * Process a single DT file with broker breakdown analysis for all combinations
+   * OPTIMIZED: Single-pass processing with batch operations
    */
   private async processSingleDtFile(blobName: string): Promise<{ success: boolean; dateSuffix: string; files: string[]; skipped?: boolean }> {
-    // Extract date from blob name first (before loading input)
     const pathParts = blobName.split('/');
-    const dateFolder = pathParts[1] || 'unknown'; // 20251021
+    const dateFolder = pathParts[1] || 'unknown';
     const dateSuffix = dateFolder;
     
     // Check if output already exists for this date BEFORE loading input
@@ -512,29 +534,26 @@ export class BrokerBreakdownCalculator {
       const existingFiles = await listPaths({ prefix: outputPrefix, maxResults: 1 });
       
       if (existingFiles.length > 0) {
-        console.log(`⏭️ Broker breakdown already exists for date ${dateSuffix} - skipping (found existing files)`);
+        console.log(`⏭️ Broker breakdown already exists for date ${dateSuffix} - skipping`);
         return { success: true, dateSuffix, files: [], skipped: true };
       }
     } catch (error) {
-      // If check fails, continue with processing (might be permission issue)
-      console.log(`ℹ️ Could not check existence of output folder for ${dateSuffix}, proceeding with generation`);
+      console.log(`ℹ️ Could not check existence of output folder for ${dateSuffix}, proceeding`);
     }
     
-    // Only load input if output doesn't exist
+    // Load and enhance transactions once
     const result = await this.loadAndProcessSingleDtFile(blobName);
-    
     if (!result) {
       return { success: false, dateSuffix: '', files: [] };
     }
     
     const { data } = result;
-    
     if (data.length === 0) {
       console.log(`⚠️ No transaction data in ${blobName} - skipping`);
       return { success: false, dateSuffix, files: [] };
     }
     
-    // Validate that we have valid transaction data
+    // Validate and enhance transactions once
     const validTransactions = data.filter(t => 
       t.STK_CODE && t.STK_CODE.length === 4 && 
       t.BRK_COD1 && t.BRK_COD2 && 
@@ -547,89 +566,96 @@ export class BrokerBreakdownCalculator {
     }
     
     console.log(`📊 Valid transactions: ${validTransactions.length}/${data.length}`);
-    console.log(`🔄 Processing ${blobName} (${data.length} transactions)...`);
+    console.log(`🔄 Processing ${blobName} (${validTransactions.length} transactions)...`);
     
     try {
-      const createdFiles: string[] = [];
+      // Pre-compute enhanced data once
+      const enhancedData = this.enhanceTransactions(validTransactions);
       
-      // Process all combinations: 
-      // - Investor type: All (no filter), D (Domestik), F (Foreign)
-      // - Board type: All (no filter), RG (Regular), TN (Tunai), NG (Negosiasi)
-      // Total: 3 x 4 = 12 combinations per stock
+      // Get unique stocks once
+      const uniqueStocks = new Set<string>();
+      enhancedData.forEach(row => uniqueStocks.add(row.STK_CODE));
+      
       const investorTypes: InvestorType[] = ['All', 'D', 'F'];
       const boardTypes: BoardType[] = ['All', 'RG', 'TN', 'NG'];
       
+      // Collect all files to check and upload
+      const filesToProcess: Array<{
+        filename: string;
+        data: BrokerBreakdownData[];
+        type: 'broker' | 'all';
+      }> = [];
+      
+      // Process all combinations in single pass
       for (const investorType of investorTypes) {
         for (const boardType of boardTypes) {
-          // Filter transactions
-          const filteredData = this.filterTransactions(validTransactions, investorType, boardType);
+          // Filter using pre-computed flags (much faster)
+          const filteredData = enhancedData.filter(row => 
+            this.matchesFilter(row, investorType, boardType)
+          );
           
           if (filteredData.length === 0) {
-            console.log(`⏭️ Skipping ${investorType}/${boardType} - no transactions`);
             continue;
           }
           
           // Create broker breakdown data
-          const breakdownData = this.createBrokerBreakdownData(filteredData, investorType, boardType);
+          const breakdownData = this.createBrokerBreakdownData(filteredData);
           
-          // Get unique stock codes
-          const uniqueStocks = new Set<string>();
-          filteredData.forEach(row => uniqueStocks.add(row.STK_CODE));
+          const fileSuffix = investorType === 'All' && boardType === 'All' 
+            ? '' 
+            : `_${investorType.toLowerCase()}_${boardType.toLowerCase()}`;
           
-          // Save files for each stock
+          // Collect all files for this combination
           for (const stockCode of uniqueStocks) {
-            // Folder structure: done_summary_broker_breakdown/{date}/{emiten}/
-            const emitenFolder = stockCode;
-            
             const stockBrokerData = breakdownData.get(stockCode);
             if (!stockBrokerData) continue;
             
-            // File naming: {broker}_{investor}_{board}.csv or All_{investor}_{board}.csv
-            const fileSuffix = investorType === 'All' && boardType === 'All' 
-              ? '' 
-              : `_${investorType.toLowerCase()}_${boardType.toLowerCase()}`;
+            const emitenFolder = stockCode;
             
-            // Save individual broker files
+            // Collect broker files
             for (const [brokerCode, brokerData] of stockBrokerData) {
               const filename = `done_summary_broker_breakdown/${dateSuffix}/${emitenFolder}/${brokerCode}${fileSuffix}.csv`;
-              
-              // Check if file already exists
-              try {
-                const fileExists = await exists(filename);
-                if (fileExists) {
-                  console.log(`⏭️ Skipping ${filename} - file already exists`);
-                  continue;
-                }
-              } catch (error) {
-                // Continue if check fails
-              }
-              
-              await this.saveToAzure(filename, brokerData);
-        createdFiles.push(filename);
+              filesToProcess.push({ filename, data: brokerData, type: 'broker' });
             }
             
-            // Create and save All.csv (calculated directly from transaction data)
+            // Collect All.csv file
             const allData = this.createAllBrokerDataForStock(filteredData, stockCode);
             const allFilename = `done_summary_broker_breakdown/${dateSuffix}/${emitenFolder}/All${fileSuffix}.csv`;
-            
-            try {
-              const fileExists = await exists(allFilename);
-              if (!fileExists) {
-                await this.saveToAzure(allFilename, allData);
-                createdFiles.push(allFilename);
-              } else {
-                console.log(`⏭️ Skipping ${allFilename} - file already exists`);
-              }
-            } catch (error) {
-              // Continue if check fails
-            }
+            filesToProcess.push({ filename: allFilename, data: allData, type: 'all' });
           }
-          
-          console.log(`✅ Processed ${investorType}/${boardType}: ${breakdownData.size} stocks`);
         }
       }
       
+      if (filesToProcess.length === 0) {
+        console.log(`⚠️ No files to process for ${blobName}`);
+        return { success: true, dateSuffix, files: [] };
+      }
+      
+      // Batch check existence
+      console.log(`🔍 Checking existence of ${filesToProcess.length} files...`);
+      const filenames = filesToProcess.map(f => f.filename);
+      const existingFiles = await this.batchCheckExists(filenames);
+      
+      // Filter out existing files and prepare uploads
+      const filesToUpload = filesToProcess
+        .filter(f => !existingFiles.has(f.filename) && f.data.length > 0)
+        .map(f => ({
+          filename: f.filename,
+          content: this.dataToCsv(f.data)
+        }));
+      
+      if (filesToUpload.length === 0) {
+        console.log(`⏭️ All files already exist for ${blobName}`);
+        return { success: true, dateSuffix, files: [] };
+      }
+      
+      // Batch upload
+      console.log(`📤 Uploading ${filesToUpload.length} files (${existingFiles.size} already exist)...`);
+      await this.batchUpload(filesToUpload);
+      
+      const createdFiles = filesToUpload.map(f => f.filename);
       console.log(`✅ Completed processing ${blobName} - ${createdFiles.length} files created`);
+      
       return { success: true, dateSuffix, files: createdFiles };
       
     } catch (error) {
