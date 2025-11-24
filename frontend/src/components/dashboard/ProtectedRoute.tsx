@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 
 interface ProtectedRouteProps {
@@ -8,6 +8,7 @@ interface ProtectedRouteProps {
 
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const location = useLocation();
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -17,7 +18,7 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
 
     checkAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setIsAuthenticated(!!session?.user);
     });
 
@@ -33,6 +34,11 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   }
 
   if (!isAuthenticated) {
+    // Save current location to redirect back after login
+    const returnTo = location.pathname + location.search;
+    if (returnTo !== '/auth') {
+      sessionStorage.setItem('returnTo', returnTo);
+    }
     return <Navigate to="/auth" replace />;
   }
 

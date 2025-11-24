@@ -103,7 +103,15 @@ export function LoginForm({ onSwitchToSignUp, onSwitchToForgotPassword }: LoginF
           title: 'Login Berhasil!',
           message: 'Selamat datang kembali!',
         });
-        navigate('/dashboard');
+        
+        // Redirect to saved location or dashboard
+        const returnTo = sessionStorage.getItem('returnTo');
+        if (returnTo) {
+          sessionStorage.removeItem('returnTo');
+          navigate(returnTo);
+        } else {
+          navigate('/dashboard');
+        }
       } else {
         // Handle structured error responses
         let errorMessage = result.error || 'Login failed. Please try again.';
