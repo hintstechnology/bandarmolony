@@ -104,13 +104,19 @@ export function LoginForm({ onSwitchToSignUp, onSwitchToForgotPassword }: LoginF
           message: 'Selamat datang kembali!',
         });
         
-        // Redirect to saved location or dashboard
+        // Redirect to saved location (kecuali dashboard/home) atau ke profile
         const returnTo = sessionStorage.getItem('returnTo');
-        if (returnTo) {
+        const isDashboardReturn =
+          returnTo === '/' ||
+          returnTo === '/dashboard' ||
+          returnTo === '/dashboard/';
+
+        if (returnTo && !isDashboardReturn) {
           sessionStorage.removeItem('returnTo');
           navigate(returnTo);
         } else {
-          navigate('/dashboard');
+          sessionStorage.removeItem('returnTo');
+          navigate('/profile');
         }
       } else {
         // Handle structured error responses

@@ -36,7 +36,14 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   if (!isAuthenticated) {
     // Save current location to redirect back after login
     const returnTo = location.pathname + location.search;
-    if (returnTo !== '/auth') {
+    // Jangan simpan tujuan jika hanya ingin ke dashboard default.
+    // Biarkan login normal selalu jatuh ke /profile.
+    if (
+      returnTo !== '/auth' &&
+      returnTo !== '/' &&
+      returnTo !== '/dashboard' &&
+      returnTo !== '/dashboard/'
+    ) {
       sessionStorage.setItem('returnTo', returnTo);
     }
     return <Navigate to="/auth" replace />;
