@@ -329,15 +329,15 @@ export function SupabaseRedirectHandler() {
     });
 
     // If we're showing success screen AND user is authenticated with profile
-    // Redirect to dashboard
+    // Redirect to profile (or last requested page handled by AuthPage/ProtectedRoute)
     if (status === 'success' && isAuthenticated && profile) {
-      console.log('SupabaseRedirectHandler: ✅ Profile ready, redirecting to dashboard...');
+      console.log('SupabaseRedirectHandler: ✅ Profile ready, redirecting to profile...');
       hasRedirected.current = true;
       
       // Small delay to let user see the success message
       setTimeout(() => {
-        console.log('SupabaseRedirectHandler: Navigating to dashboard now');
-        navigate('/dashboard', { replace: true });
+        console.log('SupabaseRedirectHandler: Navigating to profile now');
+        navigate('/profile', { replace: true });
       }, 1500);
     }
   }, [status, isAuthenticated, profile, navigate]);
