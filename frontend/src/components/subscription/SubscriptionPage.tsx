@@ -58,8 +58,8 @@ export function SubscriptionPage() {
   const getPaymentMethodDisplayName = (paymentMethod: string) => {
     if (!paymentMethod || paymentMethod === 'snap') return '-';
     
-    // Backend already formats payment method correctly (e.g., "VISA Debit BCA", "Mastercard Credit")
-    // Just display it as-is, no mapping needed
+    // Backend formats ALL payment methods correctly from Midtrans webhook data
+    // Just display it as-is
     return paymentMethod;
   };
 
