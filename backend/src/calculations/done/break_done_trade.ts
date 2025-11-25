@@ -17,6 +17,8 @@ interface DoneTradeData {
   TRX_SESS: number;  // Transaction session
   TRX_ORD1: number;  // Order 1
   TRX_ORD2: number;  // Order 2
+  HAKA_HAKI: number; // HAKA = 1 if TRX_ORD1 > TRX_ORD2, HAKI = 0 otherwise
+  VALUE: number;     // Volume * Price / 100
   [key: string]: any; // Allow additional columns
 }
 
@@ -57,11 +59,11 @@ export class BreakDoneTradeCalculator {
   }
 
   /**
-   * Check if done_detail folder for specific date already exists and has files
+   * Check if done_detail folder for specific date already exists and has files in STOCK subfolder
    */
   private async checkDoneDetailExists(dateSuffix: string): Promise<boolean> {
     try {
-      const prefix = `done_detail/${dateSuffix}/`;
+      const prefix = `done_detail/${dateSuffix}/STOCK/`;
       const existingFiles = await listPaths({ prefix, maxResults: 1 });
       return existingFiles.length > 0;
     } catch (error) {
@@ -186,12 +188,23 @@ export class BreakDoneTradeCalculator {
       if (values.length < header.length) continue;
       
       // Parse numeric fields
+      const stkVolm = parseFloat(values[stkVolmIndex]?.trim() || '0') || 0;
+      const stkPric = parseFloat(values[stkPricIndex]?.trim() || '0') || 0;
+      const trxOrd1 = trxOrd1Index !== -1 ? parseInt(values[trxOrd1Index]?.trim() || '0') || 0 : 0;
+      const trxOrd2 = trxOrd2Index !== -1 ? parseInt(values[trxOrd2Index]?.trim() || '0') || 0 : 0;
+      
+      // Calculate HAKA/HAKI: HAKA = 1 if TRX_ORD1 > TRX_ORD2, HAKI = 0 otherwise
+      const hakaHaki = trxOrd1 > trxOrd2 ? 1 : 0;
+      
+      // Calculate VALUE: Volume * Price / 100
+      const value = (stkVolm * stkPric) / 100;
+      
       const doneTradeData: DoneTradeData = {
         STK_CODE: values[stkCodeIndex]?.trim() || '',
         BRK_COD1: values[brkCod1Index]?.trim() || '',
         BRK_COD2: values[brkCod2Index]?.trim() || '',
-        STK_VOLM: parseFloat(values[stkVolmIndex]?.trim() || '0') || 0,
-        STK_PRIC: parseFloat(values[stkPricIndex]?.trim() || '0') || 0,
+        STK_VOLM: stkVolm,
+        STK_PRIC: stkPric,
         TRX_DATE: trxDateIndex !== -1 ? values[trxDateIndex]?.trim() || '' : '',
         TRX_TIME: trxTimeIndex !== -1 ? parseInt(values[trxTimeIndex]?.trim() || '0') || 0 : 0,
         INV_TYP1: invTyp1Index !== -1 ? values[invTyp1Index]?.trim() || '' : '',
@@ -199,8 +212,10 @@ export class BreakDoneTradeCalculator {
         TYP: typIndex !== -1 ? values[typIndex]?.trim() || '' : '',
         TRX_CODE: trxCodeIndex !== -1 ? parseInt(values[trxCodeIndex]?.trim() || '0') || 0 : 0,
         TRX_SESS: trxSessIndex !== -1 ? parseInt(values[trxSessIndex]?.trim() || '0') || 0 : 0,
-        TRX_ORD1: trxOrd1Index !== -1 ? parseInt(values[trxOrd1Index]?.trim() || '0') || 0 : 0,
-        TRX_ORD2: trxOrd2Index !== -1 ? parseInt(values[trxOrd2Index]?.trim() || '0') || 0 : 0
+        TRX_ORD1: trxOrd1,
+        TRX_ORD2: trxOrd2,
+        HAKA_HAKI: hakaHaki,
+        VALUE: value
       };
       
       // Add any additional columns that might exist - same as original file
@@ -218,29 +233,40 @@ export class BreakDoneTradeCalculator {
   }
 
   /**
-   * Group data by stock code - same as original file
+   * Group data by stock code - only include stock codes with 4 characters
    */
   private groupDataByStockCode(data: DoneTradeData[]): Map<string, DoneTradeData[]> {
-    console.log("Grouping data by stock code...");
+    console.log("Grouping data by stock code (4 characters only)...");
     
     const groupedData = new Map<string, DoneTradeData[]>();
+    let filteredCount = 0;
     
     data.forEach(row => {
       const stockCode = row.STK_CODE;
       
-      if (!groupedData.has(stockCode)) {
-        groupedData.set(stockCode, []);
+      // Only include stock codes with exactly 4 characters
+      if (stockCode && stockCode.length === 4) {
+        if (!groupedData.has(stockCode)) {
+          groupedData.set(stockCode, []);
+        }
+        
+        groupedData.get(stockCode)!.push(row);
+      } else {
+        filteredCount++;
       }
-      
-      groupedData.get(stockCode)!.push(row);
     });
     
-    console.log(`Grouped data into ${groupedData.size} stock codes`);
+    console.log(`Grouped data into ${groupedData.size} stock codes (4 characters)`);
+    if (filteredCount > 0) {
+      console.log(`Filtered out ${filteredCount} records with non-4-character stock codes`);
+    }
     return groupedData;
   }
 
   /**
    * Save data to Azure Blob Storage
+   * Column order: TRX_CODE,TRX_SESS,TRX_TYPE,BRK_COD2,INV_TYP2,BRK_COD1,INV_TYP1,STK_VOLM,STK_PRIC,TRX_ORD2,TRX_ORD1,TRX_TIME,HAKA_HAKI,VALUE
+   * (Same as DT251105.csv but without STK_CODE and TRX_DATE, with added HAKA_HAKI and VALUE)
    */
   private async saveToAzure(filename: string, data: DoneTradeData[]): Promise<void> {
     if (data.length === 0) {
@@ -248,16 +274,41 @@ export class BreakDoneTradeCalculator {
       return;
     }
     
-    // Get all unique column names from the data - same as original file
-    const allColumns = new Set<string>();
-    data.forEach(row => {
-      Object.keys(row).forEach(key => allColumns.add(key));
-    });
+    // Define column order: same as DT251105.csv but without STK_CODE and TRX_DATE, with added HAKA_HAKI and VALUE
+    const columnOrder = [
+      'TRX_CODE',
+      'TRX_SESS',
+      'TRX_TYPE',
+      'BRK_COD2',
+      'INV_TYP2',
+      'BRK_COD1',
+      'INV_TYP1',
+      'STK_VOLM',
+      'STK_PRIC',
+      'TRX_ORD2',
+      'TRX_ORD1',
+      'TRX_TIME',
+      'HAKA_HAKI',
+      'VALUE'
+    ];
     
-    const headers = Array.from(allColumns);
+    // Use TRX_TYPE from TYP field (mapping)
     const csvContent = [
-      headers.join(','),
-      ...data.map(row => headers.map(header => row[header] || '').join(','))
+      columnOrder.join(','),
+      ...data.map(row => {
+        return columnOrder.map(header => {
+          // Map TYP to TRX_TYPE for output
+          if (header === 'TRX_TYPE') {
+            return row['TYP'] || '';
+          }
+          const value = row[header];
+          // Handle values that might contain commas
+          if (typeof value === 'string' && value.includes(',')) {
+            return `"${value}"`;
+          }
+          return value !== undefined && value !== null ? String(value) : '';
+        }).join(',');
+      })
     ].join('\n');
     
     await uploadText(filename, csvContent, 'text/csv');
@@ -299,12 +350,12 @@ export class BreakDoneTradeCalculator {
       // Group data by stock code - same as original file
       const groupedData = this.groupDataByStockCode(data);
       
-      // Save each stock's data to separate CSV file - same as original file
+      // Save each stock's data to separate CSV file in STOCK subfolder
       const createdFiles: string[] = [];
       let totalRecords = 0;
       
       for (const [stockCode, stockData] of groupedData) {
-        const filename = `done_detail/${dateSuffix}/${stockCode}.csv`;
+        const filename = `done_detail/${dateSuffix}/STOCK/${stockCode}.csv`;
         await this.saveToAzure(filename, stockData);
         createdFiles.push(filename);
         totalRecords += stockData.length;
