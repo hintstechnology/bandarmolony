@@ -34,9 +34,11 @@ class BrokerTransactionStockIDXDataScheduler {
           const folderName = parts[1]; // broker_transaction_stock_{date} or broker_transaction_stock_{inv}_{date}
           
           // Extract date (8 digits YYYYMMDD) from folder name
-          const dateMatch = folderName.match(/(\d{8})/);
-          if (dateMatch && dateMatch[1]) {
-            dates.add(dateMatch[1]);
+          if (folderName) {
+            const dateMatch = folderName.match(/(\d{8})/);
+            if (dateMatch && dateMatch[1]) {
+              dates.add(dateMatch[1]);
+            }
           }
         }
       }
