@@ -396,7 +396,12 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               cachedSectorMapping = parsed;
               // Set cached sector mapping immediately for instant colors
               setStockToSectorMap(parsed.stockToSector);
-              setAvailableSectors(parsed.sectors); // Exclude 'All' from available sectors
+              // Ensure IDX is included in cached sectors (for backward compatibility with old cache)
+              const cachedSectors = parsed.sectors || [];
+              if (!cachedSectors.includes('IDX')) {
+                cachedSectors.push('IDX');
+              }
+              setAvailableSectors(cachedSectors.sort()); // Exclude 'All' from available sectors
             }
           }
         } catch (e) {
@@ -431,19 +436,43 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         // Update sector mapping if we got fresh data (not from cache)
         if (sectorResponse.success && sectorResponse.data && !cachedSectorMapping) {
           setStockToSectorMap(sectorResponse.data.stockToSector);
-          setAvailableSectors(sectorResponse.data.sectors); // Exclude 'All' from available sectors
+          // Ensure IDX is included in sectors (IDX is a special sector for aggregate index data)
+          const sectorsWithIdx = sectorResponse.data.sectors || [];
+          if (!sectorsWithIdx.includes('IDX')) {
+            sectorsWithIdx.push('IDX');
+          }
+          setAvailableSectors(sectorsWithIdx.sort()); // Exclude 'All' from available sectors
           // Cache for next time
           try {
             localStorage.setItem(SECTOR_MAPPING_CACHE_KEY, JSON.stringify({
               stockToSector: sectorResponse.data.stockToSector,
-              sectors: sectorResponse.data.sectors,
+              sectors: sectorsWithIdx,
               timestamp: Date.now()
             }));
           } catch (e) {
             // Ignore cache errors
           }
+        } else if (cachedSectorMapping) {
+          // Update cache to include IDX if not present (for old cache)
+          const cachedSectors = cachedSectorMapping.sectors || [];
+          if (!cachedSectors.includes('IDX')) {
+            cachedSectors.push('IDX');
+            setAvailableSectors(cachedSectors.sort());
+            // Update cache
+            try {
+              localStorage.setItem(SECTOR_MAPPING_CACHE_KEY, JSON.stringify({
+                stockToSector: cachedSectorMapping.stockToSector,
+                sectors: cachedSectors,
+                timestamp: cachedSectorMapping.timestamp
+              }));
+            } catch (e) {
+              // Ignore cache errors
+            }
+          }
         } else if (!cachedSectorMapping && (!sectorResponse.success || !sectorResponse.data)) {
           console.warn('[BrokerTransaction] Failed to load sector mapping, sector filter will not work');
+          // Fallback: ensure IDX is available even if API fails
+          setAvailableSectors(['IDX']);
         }
         // Sort by date (oldest first) for display
         const sortedDates = [...initialDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());

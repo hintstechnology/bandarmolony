@@ -25,6 +25,7 @@ import BrokerTransactionStockDataScheduler from './brokerTransactionStockDataSch
 import BrokerTransactionStockFDDataScheduler from './brokerTransactionStockFDDataScheduler';
 import BrokerTransactionStockRGTNNGDataScheduler from './brokerTransactionStockRGTNNGDataScheduler';
 import BrokerTransactionStockFDRGTNNGDataScheduler from './brokerTransactionStockFDRGTNNGDataScheduler';
+import BrokerTransactionIDXDataScheduler from './brokerTransactionIDXDataScheduler';
 import { SchedulerLogService, SchedulerLog } from './schedulerLogService';
 import { updateDoneSummaryData } from './doneSummaryDataScheduler';
 import { updateStockData } from './stockDataScheduler';
@@ -214,6 +215,7 @@ const brokerTransactionStockService = new BrokerTransactionStockDataScheduler();
 const brokerTransactionStockFDService = new BrokerTransactionStockFDDataScheduler();
 const brokerTransactionStockRGTNNGService = new BrokerTransactionStockRGTNNGDataScheduler();
 const brokerTransactionStockFDRGTNNGService = new BrokerTransactionStockFDRGTNNGDataScheduler();
+const brokerTransactionIDXService = new BrokerTransactionIDXDataScheduler();
 
 // Memory monitoring variables
 let memoryMonitorInterval: NodeJS.Timeout | null = null;
@@ -918,17 +920,26 @@ export async function runPhase5BroktransBrokerCalculations(): Promise<void> {
     const resultTransactionFDRGTNNG = await brokerTransactionFDRGTNNGService.generateBrokerTransactionData('all');
     const brokerTransactionFDRGTNNGDuration = Math.round((Date.now() - brokerTransactionFDRGTNNGStartTime) / 1000);
     console.log(`📊 Broker Transaction F/D RG/TN/NG completed in ${brokerTransactionFDRGTNNGDuration}s`);
+
+    console.log('🔄 Starting Broker Transaction IDX calculation...');
+    const brokerTransactionIDXStartTime = Date.now();
+    const resultTransactionIDX = await brokerTransactionIDXService.generateBrokerTransactionIDXData('all');
+    const brokerTransactionIDXDuration = Math.round((Date.now() - brokerTransactionIDXStartTime) / 1000);
+    console.log(`📊 Broker Transaction IDX completed in ${brokerTransactionIDXDuration}s`);
     
     const phaseEndTime = new Date();
     const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
     
     console.log(`\n📊 ===== PHASE 5 BROKTRANS BROKER COMPLETED =====`);
-    const successCount = (resultTransaction.success ? 1 : 0) + (resultTransactionRGTNNG.success ? 1 : 0) + (resultTransactionFD.success ? 1 : 0) + (resultTransactionFDRGTNNG.success ? 1 : 0);
-    console.log(`✅ Success: ${successCount}/4 calculations`);
+    const successCount = (resultTransaction.success ? 1 : 0) + (resultTransactionRGTNNG.success ? 1 : 0) + (resultTransactionFD.success ? 1 : 0) + (resultTransactionFDRGTNNG.success ? 1 : 0) + (resultTransactionIDX.success ? 1 : 0);
+    const totalCalculations = 5;
+    console.log(`✅ Success: ${successCount}/${totalCalculations} calculations`);
     console.log(`📊 Broker Transaction: ${resultTransaction.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionDuration}s)`);
     console.log(`📊 Broker Transaction RG/TN/NG: ${resultTransactionRGTNNG.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionRGTNNGDuration}s)`);
     console.log(`📊 Broker Transaction F/D: ${resultTransactionFD.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionFDDuration}s)`);
     console.log(`📊 Broker Transaction F/D RG/TN/NG: ${resultTransactionFDRGTNNG.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionFDRGTNNGDuration}s)`);
+    console.log(`📊 Broker Transaction IDX: ${resultTransactionIDX.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionIDXDuration}s)`);
+    console.log(`📊 Broker Transaction IDX: ${resultTransactionIDX.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionIDXDuration}s)`);
     console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
     console.log(`⏱️ Total Duration: ${totalDuration}s`);
     
@@ -936,12 +947,12 @@ export async function runPhase5BroktransBrokerCalculations(): Promise<void> {
     if (logEntry) {
       if (successCount >= 3) {
         await SchedulerLogService.markCompleted(logEntry.id!, {
-          total_files_processed: 4,
+          total_files_processed: totalCalculations,
           files_created: successCount,
-          files_failed: 4 - successCount
+          files_failed: totalCalculations - successCount
         });
       } else {
-        await SchedulerLogService.markFailed(logEntry.id!, `Phase 5 Broktrans Broker failed: ${successCount}/4 calculations successful`, { successCount, totalDuration, results: { resultTransaction, resultTransactionRGTNNG, resultTransactionFD, resultTransactionFDRGTNNG } });
+        await SchedulerLogService.markFailed(logEntry.id!, `Phase 5 Broktrans Broker failed: ${successCount}/${totalCalculations} calculations successful`, { successCount, totalCalculations, totalDuration, results: { resultTransaction, resultTransactionRGTNNG, resultTransactionFD, resultTransactionFDRGTNNG, resultTransactionIDX } });
       }
     }
     

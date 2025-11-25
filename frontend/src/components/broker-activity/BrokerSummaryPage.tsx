@@ -272,23 +272,22 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           setSectorMapping(mapping);
         }
         
-        // Add IDX to the stock list if not already present
-        const stocksWithIdx = stocks.includes('IDX') 
-          ? stocks 
-          : [...stocks, 'IDX'];
+        // Remove IDX from ticker list (IDX is now a sector, not a ticker)
+        const stocksWithoutIdx = stocks.filter(stock => stock !== 'IDX');
         
         // Add sectors to the list (with prefix to distinguish from stocks)
+        // IDX should already be in sectors from backend
         const sectorsWithPrefix = sectors.map(sector => `[SECTOR] ${sector}`);
         
         // Combine stocks and sectors, then sort alphabetically
-        const allItems = [...stocksWithIdx, ...sectorsWithPrefix].sort((a: string, b: string) => a.localeCompare(b));
+        const allItems = [...stocksWithoutIdx, ...sectorsWithPrefix].sort((a: string, b: string) => a.localeCompare(b));
         
         setAvailableStocks(allItems);
-        console.log(`[BrokerSummary] Loaded ${stocks.length} stocks and ${sectors.length} sectors`);
+        console.log(`[BrokerSummary] Loaded ${stocksWithoutIdx.length} stocks and ${sectors.length} sectors (IDX moved to sectors)`);
       } catch (err) {
         console.error('[BrokerSummary] Error loading stock list:', err);
-        // Even if API fails, ensure IDX is available
-        setAvailableStocks(['IDX']);
+        // Even if API fails, ensure IDX is available as sector
+        setAvailableStocks(['[SECTOR] IDX']);
       }
     };
     
@@ -1277,22 +1276,39 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
       const timeout = setTimeout(async () => {
         try {
           console.log('[BrokerSummary] Loading stock list on demand...');
-          const result = await api.getStockList();
-          if (result.success && result.data?.stocks && Array.isArray(result.data.stocks)) {
-            // Add IDX to the stock list if not already present
-            const stocksWithIdx = result.data.stocks.includes('IDX') 
-              ? result.data.stocks 
-              : [...result.data.stocks, 'IDX'];
-            const sortedStocks = stocksWithIdx.sort((a: string, b: string) => a.localeCompare(b));
-            setAvailableStocks(sortedStocks);
-          } else {
-            // Even if API fails, ensure IDX is available
-            setAvailableStocks(['IDX']);
+          const [stockResult, sectorResult] = await Promise.all([
+            api.getStockList(),
+            api.getSectorMapping()
+          ]);
+          
+          let stocks: string[] = [];
+          let sectors: string[] = [];
+          let mapping: { [sector: string]: string[] } = {};
+          
+          if (stockResult.success && stockResult.data?.stocks && Array.isArray(stockResult.data.stocks)) {
+            stocks = stockResult.data.stocks;
           }
+          
+          if (sectorResult.success && sectorResult.data) {
+            sectors = sectorResult.data.sectors || [];
+            mapping = sectorResult.data.sectorMapping || {};
+            setSectorMapping(mapping);
+          }
+          
+          // Remove IDX from ticker list (IDX is now a sector, not a ticker)
+          const stocksWithoutIdx = stocks.filter(stock => stock !== 'IDX');
+          
+          // Add sectors to the list (with prefix to distinguish from stocks)
+          const sectorsWithPrefix = sectors.map(sector => `[SECTOR] ${sector}`);
+          
+          // Combine stocks and sectors, then sort alphabetically
+          const allItems = [...stocksWithoutIdx, ...sectorsWithPrefix].sort((a: string, b: string) => a.localeCompare(b));
+          
+          setAvailableStocks(allItems);
         } catch (err) {
           console.error('Error loading stocks:', err);
-          // Even if API fails, ensure IDX is available
-          setAvailableStocks(['IDX']);
+          // Even if API fails, ensure IDX is available as sector
+          setAvailableStocks(['[SECTOR] IDX']);
         }
       }, 100); // Short delay only if needed
       setStockSearchTimeout(timeout);
