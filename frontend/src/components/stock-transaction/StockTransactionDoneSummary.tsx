@@ -722,75 +722,157 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
       setIsDataReady(false);
 
       try {
-        // Determine broker parameter: if empty, use 'All', otherwise use first selected broker
-        const brokerParam = selectedBrokers.length === 0 ? 'All' : selectedBrokers[0];
         // Determine fd parameter: if empty, use 'all', otherwise use lowercase
         const fdParam = invFilter === '' ? 'all' : invFilter.toLowerCase();
         // Determine board parameter: if empty (All Trade), use 'all', otherwise use lowercase
         const boardParam = boardFilter === '' ? 'all' : boardFilter.toLowerCase();
         
-        console.log('API parameters:', { brokerParam, fdParam, boardParam });
+        // Determine brokers to fetch: if empty, use 'All', otherwise fetch all selected brokers
+        const brokersToFetch = selectedBrokers.length === 0 ? ['All'] : selectedBrokers;
         
-        // Fetch broker breakdown data for all selected dates
-        const promises = selectedDates.map(date => 
-          api.getDoneSummaryBrokerBreakdown(selectedStock, date, brokerParam, fdParam, boardParam)
-        );
+        console.log('API parameters:', { brokersToFetch, fdParam, boardParam });
         
-        const results = await Promise.allSettled(promises);
+        // Fetch broker breakdown data for all selected dates and all selected brokers
+        const allPromises: Array<{ date: string; broker: string; promise: Promise<any> }> = [];
         
+        selectedDates.forEach(date => {
+          brokersToFetch.forEach(broker => {
+            allPromises.push({
+              date,
+              broker,
+              promise: api.getDoneSummaryBrokerBreakdown(selectedStock, date, broker, fdParam, boardParam)
+            });
+          });
+        });
+        
+        const allResults = await Promise.allSettled(allPromises.map(p => p.promise));
+        
+        // Store raw data per date and broker
+        const rawDataByDateAndBroker: { [date: string]: { [broker: string]: any[] } } = {};
+        
+        allResults.forEach((result, index) => {
+          const promiseData = allPromises[index];
+          if (!promiseData) return;
+          
+          const { date, broker } = promiseData;
+          if (!date) return;
+          
+          if (!rawDataByDateAndBroker[date]) {
+            rawDataByDateAndBroker[date] = {};
+          }
+          
+          if (result.status === 'fulfilled' && result.value.success && result.value.data?.records) {
+            rawDataByDateAndBroker[date][broker] = result.value.data.records;
+          } else {
+            rawDataByDateAndBroker[date][broker] = [];
+          }
+        });
+        
+        // Aggregate data from all brokers per date
         const newPriceDataByDate: { [date: string]: PriceData[] } = {};
         const newBrokerDataByDate: { [date: string]: BrokerBreakdownData[] } = {};
         
-        results.forEach((result, index) => {
-          const date = selectedDates[index];
-          if (!date) return;
+        selectedDates.forEach(date => {
+          const brokerDataMap = rawDataByDateAndBroker[date] || {};
           
-          if (result.status === 'fulfilled' && result.value.success && result.value.data?.records) {
-            const records = result.value.data.records;
+          // Aggregate data from all brokers by price level
+          const aggregatedByPrice = new Map<number, {
+            bFreq: number;
+            bLot: number;
+            bOrd: number;
+            sLot: number;
+            sFreq: number;
+            sOrd: number;
+          }>();
+          
+          // Collect all prices first to preserve order
+          const allPrices = new Set<number>();
+          
+          // Process data from each broker
+          Object.entries(brokerDataMap).forEach(([_broker, records]) => {
+            if (!Array.isArray(records)) return;
             
-            // Convert CSV records to PriceData format (for summary view)
-            // CSV columns: Price, BFreq, BLot, BLot/Freq, BOrd, BLot/Ord, SLot, SFreq, SLot/Freq, SOrd, SLot/Ord, TFreq, TLot, TOrd
-            // Preserve order from CSV (no filtering, no sorting)
-            const priceData: PriceData[] = records.map((row: any) => ({
-              price: Number(row.Price) || 0,
-              bFreq: Number(row.BFreq) || 0,
-              bLot: Number(row.BLot) || 0,
-              bOrd: Number(row.BOrd) || 0,
-              sLot: Number(row.SLot) || 0,
-              sFreq: Number(row.SFreq) || 0,
-              sOrd: Number(row.SOrd) || 0,
-              tFreq: Number(row.TFreq) || 0,
-              tLot: Number(row.TLot) || 0,
-              tOrd: Number(row.TOrd) || 0
-            }));
+            records.forEach((row: any) => {
+              const price = Number(row.Price) || 0;
+              if (price === 0) return;
+              
+              allPrices.add(price);
+              
+              if (!aggregatedByPrice.has(price)) {
+                aggregatedByPrice.set(price, {
+                  bFreq: 0,
+                  bLot: 0,
+                  bOrd: 0,
+                  sLot: 0,
+                  sFreq: 0,
+                  sOrd: 0
+                });
+              }
+              
+              const priceData = aggregatedByPrice.get(price)!;
+              
+              // Aggregate buy side - sum all values from all brokers
+              priceData.bFreq += Number(row.BFreq) || 0;
+              priceData.bLot += Number(row.BLot) || 0;
+              priceData.bOrd += Number(row.BOrd) || 0;
+              
+              // Aggregate sell side - sum all values from all brokers
+              priceData.sLot += Number(row.SLot) || 0;
+              priceData.sFreq += Number(row.SFreq) || 0;
+              priceData.sOrd += Number(row.SOrd) || 0;
+            });
+          });
+          
+          // Convert aggregated data to PriceData format
+          // Sort prices in descending order (highest first)
+          const sortedPrices = Array.from(allPrices).sort((a, b) => b - a);
+          
+          const priceData: PriceData[] = sortedPrices.map(price => {
+            const agg = aggregatedByPrice.get(price)!;
+            const tFreq = agg.bFreq + agg.sFreq;
+            const tLot = agg.bLot + agg.sLot;
+            const tOrd = agg.bOrd + agg.sOrd;
             
-            // Convert to BrokerBreakdownData format (for broker breakdown view)
-            // Preserve order from CSV (no filtering, no sorting)
-            const brokerData: BrokerBreakdownData[] = records.map((row: any) => ({
-              broker: brokerParam,
-              price: Number(row.Price) || 0,
-              bFreq: Number(row.BFreq) || 0,
-              bLot: Number(row.BLot) || 0,
-              bLotPerFreq: Number(row['BLot/Freq']) || 0,
-              bOrd: Number(row.BOrd) || 0,
-              bLotPerOrd: Number(row['BLot/Ord']) || 0,
-              sLot: Number(row.SLot) || 0,
-              sFreq: Number(row.SFreq) || 0,
-              sLotPerFreq: Number(row['SLot/Freq']) || 0,
-              sOrd: Number(row.SOrd) || 0,
-              sLotPerOrd: Number(row['SLot/Ord']) || 0,
-              tFreq: Number(row.TFreq) || 0,
-              tLot: Number(row.TLot) || 0,
-              tOrd: Number(row.TOrd) || 0
-            }));
-            
-            newPriceDataByDate[date] = priceData;
-            newBrokerDataByDate[date] = brokerData;
-          } else {
-            // No data for this date
-            newPriceDataByDate[date] = [];
-            newBrokerDataByDate[date] = [];
-          }
+            return {
+              price,
+              bFreq: agg.bFreq,
+              bLot: agg.bLot,
+              bOrd: agg.bOrd,
+              sLot: agg.sLot,
+              sFreq: agg.sFreq,
+              sOrd: agg.sOrd,
+              tFreq,
+              tLot,
+              tOrd
+            };
+          });
+          
+          // Convert to BrokerBreakdownData format (for compatibility)
+          // Use combined broker name or 'All' if multiple brokers
+          const combinedBrokerName = brokersToFetch.length === 1 
+            ? brokersToFetch[0] 
+            : brokersToFetch.join('+');
+          
+          const brokerData: BrokerBreakdownData[] = priceData.map(pd => ({
+            broker: combinedBrokerName || 'All',
+            price: pd.price,
+            bFreq: pd.bFreq,
+            bLot: pd.bLot,
+            bLotPerFreq: pd.bFreq > 0 ? pd.bLot / pd.bFreq : 0,
+            bOrd: pd.bOrd,
+            bLotPerOrd: pd.bOrd > 0 ? pd.bLot / pd.bOrd : 0,
+            sLot: pd.sLot,
+            sFreq: pd.sFreq,
+            sLotPerFreq: pd.sFreq > 0 ? pd.sLot / pd.sFreq : 0,
+            sOrd: pd.sOrd,
+            sLotPerOrd: pd.sOrd > 0 ? pd.sLot / pd.sOrd : 0,
+            tFreq: pd.tFreq,
+            tLot: pd.tLot,
+            tOrd: pd.tOrd
+          }));
+          
+          newPriceDataByDate[date] = priceData;
+          newBrokerDataByDate[date] = brokerData;
         });
         
         setPriceDataByDate(newPriceDataByDate);
