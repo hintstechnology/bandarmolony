@@ -32,7 +32,7 @@ import BrokerTransactionStockDataScheduler from '../services/brokerTransactionSt
 import BrokerTransactionStockFDDataScheduler from '../services/brokerTransactionStockFDDataScheduler';
 import BrokerTransactionStockRGTNNGDataScheduler from '../services/brokerTransactionStockRGTNNGDataScheduler';
 import BrokerTransactionStockFDRGTNNGDataScheduler from '../services/brokerTransactionStockFDRGTNNGDataScheduler';
-import BrokerTransactionIDXDataScheduler from '../services/brokerTransactionIDXDataScheduler';
+import { BrokerTransactionIDXDataScheduler } from '../services/brokerTransactionIDXDataScheduler';
 import { BrokerDataRGTNNGCalculator } from '../calculations/broker/broker_data_rg_tn_ng';
 import { updateWatchlistSnapshot } from '../services/watchlistSnapshotService';
 
@@ -1253,7 +1253,7 @@ router.post('/broker-transaction-idx', async (_req, res) => {
     const brokerTransactionIDXService = new BrokerTransactionIDXDataScheduler();
     
     // Execute in background and return immediately
-    brokerTransactionIDXService.generateBrokerTransactionIDXData('all').then(async (result) => {
+    brokerTransactionIDXService.generateBrokerTransactionIDXData('all').then(async (result: { success: boolean; message?: string; data?: any }) => {
       await AzureLogger.logInfo('broker_transaction_idx', `Manual broker transaction IDX calculation completed: ${result.message || 'OK'}`);
       console.log(`✅ Broker Transaction IDX calculation completed: ${result.message}`);
       if (logEntry.id) {

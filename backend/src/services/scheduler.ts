@@ -25,7 +25,7 @@ import BrokerTransactionStockDataScheduler from './brokerTransactionStockDataSch
 import BrokerTransactionStockFDDataScheduler from './brokerTransactionStockFDDataScheduler';
 import BrokerTransactionStockRGTNNGDataScheduler from './brokerTransactionStockRGTNNGDataScheduler';
 import BrokerTransactionStockFDRGTNNGDataScheduler from './brokerTransactionStockFDRGTNNGDataScheduler';
-import BrokerTransactionIDXDataScheduler from './brokerTransactionIDXDataScheduler';
+import { BrokerTransactionIDXDataScheduler } from './brokerTransactionIDXDataScheduler';
 import { SchedulerLogService, SchedulerLog } from './schedulerLogService';
 import { updateDoneSummaryData } from './doneSummaryDataScheduler';
 import { updateStockData } from './stockDataScheduler';
