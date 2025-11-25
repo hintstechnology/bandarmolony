@@ -25,7 +25,8 @@ import BrokerTransactionStockDataScheduler from './brokerTransactionStockDataSch
 import BrokerTransactionStockFDDataScheduler from './brokerTransactionStockFDDataScheduler';
 import BrokerTransactionStockRGTNNGDataScheduler from './brokerTransactionStockRGTNNGDataScheduler';
 import BrokerTransactionStockFDRGTNNGDataScheduler from './brokerTransactionStockFDRGTNNGDataScheduler';
-import BrokerTransactionIDXDataScheduler from './brokerTransactionIDXDataScheduler';
+import { BrokerTransactionIDXDataScheduler } from './brokerTransactionIDXDataScheduler';
+import { BrokerTransactionStockIDXDataScheduler } from './brokerTransactionStockIDXDataScheduler';
 import { SchedulerLogService, SchedulerLog } from './schedulerLogService';
 import { updateDoneSummaryData } from './doneSummaryDataScheduler';
 import { updateStockData } from './stockDataScheduler';
@@ -216,6 +217,7 @@ const brokerTransactionStockFDService = new BrokerTransactionStockFDDataSchedule
 const brokerTransactionStockRGTNNGService = new BrokerTransactionStockRGTNNGDataScheduler();
 const brokerTransactionStockFDRGTNNGService = new BrokerTransactionStockFDRGTNNGDataScheduler();
 const brokerTransactionIDXService = new BrokerTransactionIDXDataScheduler();
+const brokerTransactionStockIDXService = new BrokerTransactionStockIDXDataScheduler();
 
 // Memory monitoring variables
 let memoryMonitorInterval: NodeJS.Timeout | null = null;
@@ -1059,12 +1061,18 @@ export async function runPhase6BroktransStockCalculations(): Promise<void> {
     const resultTransactionStockFDRGTNNG = await brokerTransactionStockFDRGTNNGService.generateBrokerTransactionData('all');
     const brokerTransactionStockFDRGTNNGDuration = Math.round((Date.now() - brokerTransactionStockFDRGTNNGStartTime) / 1000);
     console.log(`📊 Broker Transaction Stock F/D RG/TN/NG completed in ${brokerTransactionStockFDRGTNNGDuration}s`);
+
+    console.log('🔄 Starting Broker Transaction Stock IDX calculation...');
+    const brokerTransactionStockIDXStartTime = Date.now();
+    const resultTransactionStockIDX = await brokerTransactionStockIDXService.generateBrokerTransactionStockIDXData('all');
+    const brokerTransactionStockIDXDuration = Math.round((Date.now() - brokerTransactionStockIDXStartTime) / 1000);
+    console.log(`📊 Broker Transaction Stock IDX completed in ${brokerTransactionStockIDXDuration}s`);
     
     const phaseEndTime = new Date();
     const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
     
-    const successCount = (resultTransactionStock.success ? 1 : 0) + (resultTransactionStockFD.success ? 1 : 0) + (resultTransactionStockRGTNNG.success ? 1 : 0) + (resultTransactionStockFDRGTNNG.success ? 1 : 0);
-    const totalCalculations = 4;
+    const successCount = (resultTransactionStock.success ? 1 : 0) + (resultTransactionStockFD.success ? 1 : 0) + (resultTransactionStockRGTNNG.success ? 1 : 0) + (resultTransactionStockFDRGTNNG.success ? 1 : 0) + (resultTransactionStockIDX.success ? 1 : 0);
+    const totalCalculations = 5;
     
     console.log(`\n📊 ===== PHASE 6 BROKTRANS STOCK COMPLETED =====`);
     console.log(`✅ Success: ${successCount}/${totalCalculations} calculations`);
@@ -1072,6 +1080,7 @@ export async function runPhase6BroktransStockCalculations(): Promise<void> {
     console.log(`📊 Broker Transaction Stock F/D: ${resultTransactionStockFD.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionStockFDDuration}s)`);
     console.log(`📊 Broker Transaction Stock RG/TN/NG: ${resultTransactionStockRGTNNG.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionStockRGTNNGDuration}s)`);
     console.log(`📊 Broker Transaction Stock F/D RG/TN/NG: ${resultTransactionStockFDRGTNNG.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionStockFDRGTNNGDuration}s)`);
+    console.log(`📊 Broker Transaction Stock IDX: ${resultTransactionStockIDX.success ? 'SUCCESS' : 'FAILED'} (${brokerTransactionStockIDXDuration}s)`);
     console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
     console.log(`⏱️ Total Duration: ${totalDuration}s`);
     
@@ -1084,7 +1093,7 @@ export async function runPhase6BroktransStockCalculations(): Promise<void> {
           files_failed: totalCalculations - successCount
         });
       } else {
-        await SchedulerLogService.markFailed(logEntry.id!, `Phase 6 Broktrans Stock failed: ${successCount}/${totalCalculations} calculations successful`, { successCount, totalCalculations, totalDuration, results: { resultTransactionStock, resultTransactionStockFD, resultTransactionStockRGTNNG, resultTransactionStockFDRGTNNG } });
+        await SchedulerLogService.markFailed(logEntry.id!, `Phase 6 Broktrans Stock failed: ${successCount}/${totalCalculations} calculations successful`, { successCount, totalCalculations, totalDuration, results: { resultTransactionStock, resultTransactionStockFD, resultTransactionStockRGTNNG, resultTransactionStockFDRGTNNG, resultTransactionStockIDX } });
       }
     }
     

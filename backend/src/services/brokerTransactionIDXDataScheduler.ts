@@ -34,9 +34,11 @@ export class BrokerTransactionIDXDataScheduler {
           const folderName = parts[1]; // broker_transaction_{date} or broker_transaction_{inv}_{date}
           
           // Extract date (8 digits YYYYMMDD) from folder name
-          const dateMatch = folderName.match(/(\d{8})/);
-          if (dateMatch && dateMatch[1]) {
-            dates.add(dateMatch[1]);
+          if (folderName) {
+            const dateMatch = folderName.match(/(\d{8})/);
+            if (dateMatch && dateMatch[1]) {
+              dates.add(dateMatch[1]);
+            }
           }
         }
       }
@@ -144,7 +146,12 @@ export class BrokerTransactionIDXDataScheduler {
           
           // Get brokers for first date to see if this combination exists
           // If no brokers found, skip this combination
-          const brokersForFirstDate = await this.getAvailableBrokers(dates[0], investorType, marketType);
+          const firstDate = dates[0];
+          if (!firstDate) {
+            console.log(`⏭️ Skipping ${comboName} - no dates available`);
+            continue;
+          }
+          const brokersForFirstDate = await this.getAvailableBrokers(firstDate, investorType, marketType);
           if (brokersForFirstDate.length === 0) {
             console.log(`⏭️ Skipping ${comboName} - no brokers found for this combination`);
             continue;

@@ -92,6 +92,7 @@ const MANUAL_TRIGGERS_BY_PHASE: PhaseGroup[] = [
       { name: "Broker Transaction Stock F/D", type: "broker-transaction-stock-fd", description: "Calculate broker transaction data pivoted by stock, filtered by Investor Type (F/D)" },
       { name: "Broker Transaction Stock RG/TN/NG", type: "broker-transaction-stock-rgtnng", description: "Calculate broker transaction data pivoted by stock, filtered by Board Type (RG, TN, NG)" },
       { name: "Broker Transaction Stock F/D RG/TN/NG", type: "broker-transaction-stock-fd-rgtnng", description: "Calculate broker transaction data pivoted by stock, filtered by Investor Type (F/D) and Board Type (RG, TN, NG)" },
+      { name: "Broker Transaction Stock IDX", type: "broker-transaction-stock-idx", description: "Generate aggregated IDX.csv for broker transaction stock (all dates and combinations)" },
     ]
   },
   {
@@ -309,6 +310,7 @@ export function ManualTriggerControl() {
       'broker_transaction_stock_rgtnng': 'broker-transaction-stock-rgtnng',
       'broker_transaction_stock_fd_rgtnng': 'broker-transaction-stock-fd-rgtnng',
       'broker_transaction_idx': 'broker-transaction-idx',
+      'broker_transaction_stock_idx': 'broker-transaction-stock-idx',
       'break_done_trade': 'break-done-trade',
     };
     
