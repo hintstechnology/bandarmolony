@@ -549,6 +549,14 @@ router.get('/sector-mapping', async (_req, res) => {
     // Also get list of all sectors
     const sectors = Object.keys(SECTOR_MAPPING).filter(sector => SECTOR_MAPPING[sector] && SECTOR_MAPPING[sector].length > 0);
     
+    // Add IDX as a special sector (for aggregate index data)
+    // IDX is not a regular stock but an aggregated index, so it should appear as a sector
+    if (!SECTOR_MAPPING['IDX']) {
+      SECTOR_MAPPING['IDX'] = ['IDX'];
+    }
+    if (!sectors.includes('IDX')) {
+      sectors.push('IDX');
+    }
     
     return res.json({
       success: true,
