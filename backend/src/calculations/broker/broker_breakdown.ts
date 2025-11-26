@@ -1,5 +1,20 @@
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
-import { BATCH_SIZE_PHASE_6 } from '../../services/dataUpdateService';
+import { BATCH_SIZE_PHASE_7_8, MAX_CONCURRENT_REQUESTS_PHASE_7_8 } from '../../services/dataUpdateService';
+
+// Helper function to limit concurrency for Phase 7-8
+async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
+  const results: T[] = [];
+  for (let i = 0; i < promises.length; i += maxConcurrency) {
+    const batch = promises.slice(i, i + maxConcurrency);
+    const batchResults = await Promise.allSettled(batch);
+    batchResults.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        results.push(result.value);
+      }
+    });
+  }
+  return results;
+}
 
 // Type definitions for broker breakdown data
 interface TransactionData {
@@ -686,8 +701,9 @@ export class BrokerBreakdownCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
-      // Process files in batches
-      const BATCH_SIZE = BATCH_SIZE_PHASE_6; // Phase 6: 1 file at a time
+      // Process files in batches (Phase 7: 50 files at a time)
+      const BATCH_SIZE = BATCH_SIZE_PHASE_7_8; // Phase 7: 50 files
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_7_8; // Phase 7: 25 concurrent
       const allResults: { success: boolean; dateSuffix: string; files: string[] }[] = [];
       let processed = 0;
       let successful = 0;
@@ -717,10 +733,9 @@ export class BrokerBreakdownCalculator {
           }
         }
         
-        // Process batch in parallel
-        const batchResults = await Promise.allSettled(
-          batch.map(blobName => this.processSingleDtFile(blobName))
-        );
+        // Process batch in parallel with concurrency limit 25
+        const batchPromises = batch.map(blobName => this.processSingleDtFile(blobName));
+        const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT);
         
         // Memory cleanup after batch
         if (global.gc) {
@@ -732,19 +747,16 @@ export class BrokerBreakdownCalculator {
         
         // Collect results
         let batchSkipped = 0;
-        batchResults.forEach((result, index) => {
-          if (result.status === 'fulfilled') {
-            allResults.push(result.value);
+        batchResults.forEach((result) => {
+          if (result && result.success !== undefined) {
+            allResults.push(result);
             processed++;
-            if (result.value.success) {
+            if (result.success) {
               successful++;
-              if (result.value.skipped) {
+              if (result.skipped) {
                 batchSkipped++;
               }
             }
-          } else {
-            console.error(`Error processing ${batch[index]}:`, result.reason);
-            processed++;
           }
         });
         

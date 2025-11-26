@@ -1,5 +1,20 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
 
+// Helper function to limit concurrency for Phase 4
+async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
+  const results: T[] = [];
+  for (let i = 0; i < promises.length; i += maxConcurrency) {
+    const batch = promises.slice(i, i + maxConcurrency);
+    const batchResults = await Promise.allSettled(batch);
+    batchResults.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        results.push(result.value);
+      }
+    });
+  }
+  return results;
+}
+
 // Type definitions - same as broker_summary.ts
 interface BrokerSummary {
   BrokerCode: string;
@@ -252,8 +267,9 @@ export class BrokerSummaryIDXCalculator {
 
       console.log(`📊 Found ${emitenFiles.length} emiten CSV files`);
 
-      // Batch processing configuration
-      const BATCH_SIZE = 50; // Process 50 emiten files at a time to manage memory
+      // Batch processing configuration (Phase 4: 50 files at a time)
+      const BATCH_SIZE = 50; // Phase 4: 50 files
+      const MAX_CONCURRENT = 25; // Phase 4: 25 concurrent
 
       // Read and parse all emiten CSV files in batches
       const allBrokerData: BrokerSummary[] = [];
@@ -276,9 +292,8 @@ export class BrokerSummaryIDXCalculator {
           }
         }
         
-        // Process batch in parallel
-        const batchResults = await Promise.allSettled(
-          batch.map(async (file) => {
+        // Process batch in parallel with concurrency limit 25
+        const batchPromises = batch.map(async (file) => {
             try {
               const csvContent = await downloadText(file);
               const brokerData = this.parseCSV(csvContent);
@@ -289,14 +304,14 @@ export class BrokerSummaryIDXCalculator {
               console.warn(`  ⚠️ Failed to process ${emitenCode}: ${error.message}`);
               return { emitenCode, brokerData: [], success: false };
             }
-          })
-        );
+          });
+        const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT);
         
         // Collect results from batch
-        batchResults.forEach((result) => {
-          if (result.status === 'fulfilled' && result.value.success) {
-            allBrokerData.push(...result.value.brokerData);
-            console.log(`  ✓ Processed ${result.value.emitenCode}: ${result.value.brokerData.length} brokers`);
+        batchResults.forEach((result: any) => {
+          if (result && result.success) {
+            allBrokerData.push(...result.brokerData);
+            console.log(`  ✓ Processed ${result.emitenCode}: ${result.brokerData.length} brokers`);
           }
         });
         

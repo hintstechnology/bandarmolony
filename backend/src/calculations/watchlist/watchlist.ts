@@ -265,6 +265,20 @@ export class WatchlistCalculator {
     return emitenMap;
   }
 
+  private async limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
+    const results: T[] = [];
+    for (let i = 0; i < promises.length; i += maxConcurrency) {
+      const batch = promises.slice(i, i + maxConcurrency);
+      const batchResults = await Promise.allSettled(batch);
+      batchResults.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          results.push(result.value);
+        }
+      });
+    }
+    return results;
+  }
+
   private async streamToString(readableStream: NodeJS.ReadableStream): Promise<string> {
     return new Promise((resolve, reject) => {
       const chunks: any[] = [];
@@ -314,10 +328,13 @@ export class WatchlistCalculator {
       const watchlistStocks: WatchlistStock[] = [];
       
       // Process stocks in batches
-      const BATCH_SIZE = 150; // Phase 2: 150 stocks at a time
+      const BATCH_SIZE = 500; // Phase 2: 500 stocks at a time
       for (let i = 0; i < normalizedSymbols.length; i += BATCH_SIZE) {
         const batch = normalizedSymbols.slice(i, i + BATCH_SIZE);
         const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+        
+        // Update progress (if logId is passed through options, but we'll handle it in service)
+        // Note: Progress tracking for watchlist is handled in watchlistSnapshotService.ts
         
         // Memory check before batch
         if (global.gc) {
@@ -375,7 +392,8 @@ export class WatchlistCalculator {
           };
         });
 
-        const batchResults = await Promise.all(batchPromises);
+        // Limit concurrency to 250 for Phase 2
+        const batchResults = await this.limitConcurrency(batchPromises, 250);
         const validResults = batchResults.filter((result) => result !== null) as WatchlistStock[];
         watchlistStocks.push(...validResults);
 

@@ -1,4 +1,20 @@
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
+import { MAX_CONCURRENT_REQUESTS_PHASE_5_6 } from '../../services/dataUpdateService';
+
+// Helper function to limit concurrency for Phase 5-6
+async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
+  const results: T[] = [];
+  for (let i = 0; i < promises.length; i += maxConcurrency) {
+    const batch = promises.slice(i, i + maxConcurrency);
+    const batchResults = await Promise.allSettled(batch);
+    batchResults.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        results.push(result.value);
+      }
+    });
+  }
+  return results;
+}
 
 // Type definitions - same as broker_transaction_stock.ts
 interface BrokerTransactionData {
@@ -403,7 +419,8 @@ export class BrokerTransactionStockIDXCalculator {
       console.log(`📊 Found ${stockFiles.length} stock CSV files`);
 
       // Batch processing configuration
-      const BATCH_SIZE = 50; // Process 50 stock files at a time to manage memory
+      const BATCH_SIZE = 50; // Phase 6: 50 stock files at a time
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_5_6; // Phase 6: 25 concurrent
 
       // Read and parse all stock CSV files in batches
       const allBrokerData: BrokerTransactionData[] = [];
@@ -415,27 +432,26 @@ export class BrokerTransactionStockIDXCalculator {
         
         console.log(`📦 Processing stock batch ${batchNum}/${totalBatches} (${batch.length} files)...`);
         
-        // Process batch in parallel
-        const batchResults = await Promise.allSettled(
-          batch.map(async (file) => {
-            try {
-              const csvContent = await downloadText(file);
-              const brokerData = this.parseCSV(csvContent);
-              const stockCode = file.split('/').pop()?.replace('.csv', '') || 'unknown';
-              return { stockCode, brokerData, success: true };
-            } catch (error: any) {
-              const stockCode = file.split('/').pop()?.replace('.csv', '') || 'unknown';
-              console.warn(`  ⚠️ Failed to process ${stockCode}: ${error.message}`);
-              return { stockCode, brokerData: [], success: false };
-            }
-          })
-        );
+        // Process batch in parallel with concurrency limit 25
+        const batchPromises = batch.map(async (file) => {
+          try {
+            const csvContent = await downloadText(file);
+            const brokerData = this.parseCSV(csvContent);
+            const stockCode = file.split('/').pop()?.replace('.csv', '') || 'unknown';
+            return { stockCode, brokerData, success: true };
+          } catch (error: any) {
+            const stockCode = file.split('/').pop()?.replace('.csv', '') || 'unknown';
+            console.warn(`  ⚠️ Failed to process ${stockCode}: ${error.message}`);
+            return { stockCode, brokerData: [], success: false };
+          }
+        });
+        const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT);
         
         // Collect results from batch (aggregate all brokers from all stocks)
-        batchResults.forEach((result) => {
-          if (result.status === 'fulfilled' && result.value.success) {
-            allBrokerData.push(...result.value.brokerData);
-            console.log(`  ✓ Processed ${result.value.stockCode}: ${result.value.brokerData.length} brokers`);
+        batchResults.forEach((result: any) => {
+          if (result && result.success) {
+            allBrokerData.push(...result.brokerData);
+            console.log(`  ✓ Processed ${result.stockCode}: ${result.brokerData.length} brokers`);
           }
         });
         

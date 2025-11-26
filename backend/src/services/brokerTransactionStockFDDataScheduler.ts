@@ -45,7 +45,7 @@ export class BrokerTransactionStockFDDataScheduler {
         });
       }
       
-      const result = await this.calculator.generateBrokerTransactionData(targetDate);
+      const result = await this.calculator.generateBrokerTransactionData(targetDate, finalLogId);
       
       if (result.success) {
         console.log('✅ Broker Transaction Stock F/D calculation completed successfully');

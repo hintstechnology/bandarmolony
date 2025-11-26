@@ -10,8 +10,8 @@ import {
   removeDuplicates,
   convertToCsv,
   parseCsvString,
-  BATCH_SIZE_PHASE_1_2,
-  MAX_CONCURRENT_REQUESTS
+  BATCH_SIZE_PHASE_1_INDEX,
+  MAX_CONCURRENT_REQUESTS_INDEX
 } from './dataUpdateService';
 import { SchedulerLogService } from './schedulerLogService';
 
@@ -214,7 +214,6 @@ export async function updateIndexData(logId?: string | null, triggeredBy?: strin
     
     const azureStorage = new OptimizedAzureStorageService();
     await azureStorage.ensureContainerExists();
-    console.log('ℹ️ Azure Storage initialized');
 
     // Get list of indexes from CSV input
     const indexesCsvData = await azureStorage.downloadCsvData('csv_input/index_list.csv');
@@ -250,8 +249,8 @@ export async function updateIndexData(logId?: string | null, triggeredBy?: strin
           finalLogId
         );
       },
-      BATCH_SIZE_PHASE_1_2,
-      MAX_CONCURRENT_REQUESTS
+      BATCH_SIZE_PHASE_1_INDEX,
+      MAX_CONCURRENT_REQUESTS_INDEX
     );
 
     const endTime = Date.now();

@@ -376,7 +376,6 @@ export async function updateStockData(logId?: string | null, triggeredBy?: strin
     
     const azureStorage = new OptimizedAzureStorageService();
     await azureStorage.ensureContainerExists();
-    console.log('ℹ️ Azure Storage initialized');
 
     await buildSectorMappingFromCsv(azureStorage);
     console.log('ℹ️ Sector mapping built from CSV');

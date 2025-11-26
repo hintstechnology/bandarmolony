@@ -45,7 +45,7 @@ export class ForeignFlowDataScheduler {
         });
       }
       
-      const result = await this.calculator.generateForeignFlowData(targetDate);
+      const result = await this.calculator.generateForeignFlowData(targetDate, finalLogId);
       
       if (result.success) {
         console.log('✅ Foreign Flow calculation completed successfully');

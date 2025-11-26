@@ -10,7 +10,7 @@ import {
   removeDuplicates,
   convertToCsv,
   parseCsvString,
-  BATCH_SIZE_PHASE_1_2,
+  BATCH_SIZE_PHASE_1_STOCK,
   MAX_CONCURRENT_REQUESTS
 } from './dataUpdateService';
 import { SchedulerLogService } from './schedulerLogService';
@@ -263,7 +263,6 @@ export async function updateHoldingData(logId?: string | null, triggeredBy?: str
     
     const azureStorage = new OptimizedAzureStorageService();
     await azureStorage.ensureContainerExists();
-    console.log('ℹ️ Azure Storage initialized');
 
     // Get list of emitens from CSV input
     const emitensCsvData = await azureStorage.downloadCsvData('csv_input/emiten_list.csv');
@@ -299,7 +298,7 @@ export async function updateHoldingData(logId?: string | null, triggeredBy?: str
           finalLogId
         );
       },
-      BATCH_SIZE_PHASE_1_2,
+      BATCH_SIZE_PHASE_1_STOCK,
       MAX_CONCURRENT_REQUESTS
     );
 

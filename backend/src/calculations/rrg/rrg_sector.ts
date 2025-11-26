@@ -8,6 +8,21 @@
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
 import * as path from 'path';
 
+// Helper function to limit concurrency for Phase 2
+async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
+  const results: T[] = [];
+  for (let i = 0; i < promises.length; i += maxConcurrency) {
+    const batch = promises.slice(i, i + maxConcurrency);
+    const batchResults = await Promise.allSettled(batch);
+    batchResults.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        results.push(result.value);
+      }
+    });
+  }
+  return results;
+}
+
 type NumericArray = number[];
 type DateArray = string[];
 
@@ -288,7 +303,7 @@ async function calculateSectorAverage(sectorCodes: string[], sectorFolder: strin
   let validCount = 0;
   
   // Process stocks in batches for better performance
-  const BATCH_SIZE = 150; // Phase 2: 150 stocks at a time
+  const BATCH_SIZE = 500; // Phase 2: 500 stocks at a time
   console.log(`📦 Processing ${sectorCodes.length} stocks in batches of ${BATCH_SIZE}...`);
   
   for (let i = 0; i < sectorCodes.length; i += BATCH_SIZE) {
@@ -307,8 +322,8 @@ async function calculateSectorAverage(sectorCodes: string[], sectorFolder: strin
       }
     }
     
-    // Process batch in parallel
-    const batchResults = await Promise.allSettled(batch.map(async (code) => {
+    // Process batch in parallel with concurrency limit 250
+    const batchPromises = batch.map(async (code) => {
       const stockPath = await findStockCsv(code, sectorFolder);
       if (stockPath) {
         try {
@@ -323,12 +338,13 @@ async function calculateSectorAverage(sectorCodes: string[], sectorFolder: strin
         }
       }
       return { success: false, reason: 'not_found', code };
-    }));
+    });
+    const batchResults = await limitConcurrency(batchPromises, 250);
     
     // Process batch results
     for (const result of batchResults) {
-      if (result.status === 'fulfilled') {
-        const { success, data, code, reason, error } = result.value;
+      if (result && typeof result === 'object' && 'success' in result) {
+        const { success, data, code, reason, error } = result;
         if (success && data) {
           stockDataList.push(data);
           validCount++;

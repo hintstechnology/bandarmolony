@@ -1,5 +1,20 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
-import { BATCH_SIZE_PHASE_6 } from '../../services/dataUpdateService';
+import { BATCH_SIZE_PHASE_7_8, MAX_CONCURRENT_REQUESTS_PHASE_7_8 } from '../../services/dataUpdateService';
+
+// Helper function to limit concurrency for Phase 7-8
+async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
+  const results: T[] = [];
+  for (let i = 0; i < promises.length; i += maxConcurrency) {
+    const batch = promises.slice(i, i + maxConcurrency);
+    const batchResults = await Promise.allSettled(batch);
+    batchResults.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        results.push(result.value);
+      }
+    });
+  }
+  return results;
+}
 
 // Type definitions untuk Accumulation Distribution
 interface BidAskData {
@@ -645,9 +660,10 @@ export class AccumulationDistributionCalculator {
           }
         }
 
-        // Load stock data for all stocks in batches (Phase 6: 1 stock at a time)
+        // Load stock data for all stocks in batches (Phase 8: 50 stocks at a time)
         const stockDataMap = new Map<string, StockData[]>();
-        const STOCK_BATCH_SIZE = BATCH_SIZE_PHASE_6; // Phase 6: 1 stock at a time
+        const STOCK_BATCH_SIZE = BATCH_SIZE_PHASE_7_8; // Phase 8: 50 stocks at a time
+        const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_7_8; // Phase 8: 25 concurrent
         let missingStocksCount = 0;
         const totalStocks = stockCodes.length;
         
@@ -666,18 +682,32 @@ export class AccumulationDistributionCalculator {
             }
           }
           
-          for (const stockCode of batch) {
+          // Process stocks in parallel with concurrency limit 25
+          const stockPromises = batch.map(async (stockCode) => {
             try {
               const stockData = await this.loadStockDataFromAzure(stockCode, stockFilesList);
               if (stockData && stockData.length > 0) {
-                stockDataMap.set(stockCode, stockData);
+                return { stockCode, stockData, success: true };
               } else {
-                missingStocksCount++;
-                console.warn(`⚠️ No data found for stock ${stockCode}`);
+                return { stockCode, stockData: null, success: false, missing: true };
               }
             } catch (error) {
+              return { stockCode, stockData: null, success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+            }
+          });
+          const stockResults = await limitConcurrency(stockPromises, MAX_CONCURRENT);
+          
+          // Collect results
+          for (const result of stockResults) {
+            if (result && result.success && result.stockData) {
+              stockDataMap.set(result.stockCode, result.stockData);
+            } else {
               missingStocksCount++;
-              console.warn(`⚠️ Failed to load data for stock ${stockCode}:`, error instanceof Error ? error.message : 'Unknown error');
+              if (result && result.missing) {
+                console.warn(`⚠️ No data found for stock ${result.stockCode}`);
+              } else if (result && result.error) {
+                console.warn(`⚠️ Failed to load data for stock ${result.stockCode}:`, result.error);
+              }
             }
           }
           
