@@ -8,7 +8,7 @@ import {
   CacheService,
   getTodayDate,
   parseCsvString,
-  BATCH_SIZE_PHASE_1_2,
+  BATCH_SIZE_PHASE_1_STOCK,
   MAX_CONCURRENT_REQUESTS
 } from './dataUpdateService';
 import { SchedulerLogService } from './schedulerLogService';
@@ -342,7 +342,7 @@ async function processEmiten(
 }
 
 // Main update function
-export async function updateStockData(logId?: string | null): Promise<void> {
+export async function updateStockData(logId?: string | null, triggeredBy?: string): Promise<void> {
   // Skip if weekend
   const today = new Date();
   const dayOfWeek = today.getDay();
@@ -357,8 +357,8 @@ export async function updateStockData(logId?: string | null): Promise<void> {
   if (!finalLogId) {
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'stock',
-      trigger_type: 'scheduled',
-      triggered_by: 'system',
+      trigger_type: triggeredBy ? 'manual' : 'scheduled',
+      triggered_by: triggeredBy || 'system',
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -396,25 +396,63 @@ export async function updateStockData(logId?: string | null): Promise<void> {
     console.log(`🚀 Starting optimized parallel processing for ${emitenList.length} emitens...`);
     const startTime = Date.now();
 
-    // Process emitens in parallel batches
-    const results = await ParallelProcessor.processInBatches(
-      emitenList,
-      async (emiten: string, index: number) => {
-        return processEmiten(
-          emiten,
-          index,
-          emitenList.length,
-          httpClient,
-          azureStorage,
-          todayDate,
-          baseUrl,
-          cache,
-          finalLogId
-        );
-      },
-      BATCH_SIZE_PHASE_1_2,
-      MAX_CONCURRENT_REQUESTS
-    );
+    // Process emitens in parallel batches with memory management
+    const results: Array<{ success: boolean; skipped: boolean; error?: string }> = [];
+    const BATCH_SIZE = BATCH_SIZE_PHASE_1_STOCK; // 400 stocks per batch
+    
+    for (let i = 0; i < emitenList.length; i += BATCH_SIZE) {
+      const batch = emitenList.slice(i, i + BATCH_SIZE);
+      const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+      const totalBatches = Math.ceil(emitenList.length / BATCH_SIZE);
+      
+      console.log(`📦 Processing batch ${batchNumber}/${totalBatches} (${batch.length} stocks)...`);
+      
+      // Memory check before batch
+      if (global.gc) {
+        const memBefore = process.memoryUsage();
+        const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
+        if (heapUsedMB > 10240) { // 10GB threshold
+          console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+          global.gc();
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+      
+      // Process batch
+      const batchResults = await ParallelProcessor.processInBatches(
+        batch,
+        async (emiten: string, batchIndex: number) => {
+          return processEmiten(
+            emiten,
+            i + batchIndex,
+            emitenList.length,
+            httpClient,
+            azureStorage,
+            todayDate,
+            baseUrl,
+            cache,
+            finalLogId
+          );
+        },
+        BATCH_SIZE,
+        MAX_CONCURRENT_REQUESTS
+      );
+      
+      results.push(...batchResults);
+      
+      // Memory cleanup after batch
+      if (global.gc) {
+        global.gc();
+        const memAfter = process.memoryUsage();
+        const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+        console.log(`📊 Batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
+      }
+      
+      // Small delay between batches for event loop breathing room
+      if (i + BATCH_SIZE < emitenList.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
 
     const endTime = Date.now();
     const processingTime = (endTime - startTime) / 1000;

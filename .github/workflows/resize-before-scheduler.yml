@@ -210,7 +210,7 @@ jobs:
         id: should-run
         if: steps.check-weekend-quick.outputs.is_weekend != 'true'
         run: |
-          # Get current time in UTC
+          # Get current time in UTC (GitHub Actions runs in UTC)
           CURRENT_TIME_UTC=$(date -u +"%H:%M")
           CURRENT_DATE_UTC=$(date -u +"%Y-%m-%d")
           CURRENT_DATETIME_UTC=$(date -u +"%Y-%m-%d %H:%M:%S")
@@ -223,12 +223,37 @@ jobs:
           RESIZE_TIME_WIB="${{ steps.quick-calculate.outputs.resize_time_wib }}"
           SCHEDULER_TIME_WIB="${{ steps.quick-calculate.outputs.scheduler_time_wib }}"
           
-          # Get current time in WIB for display
-          CURRENT_TIME_WIB=$(TZ='Asia/Jakarta' date +"%H:%M")
-          CURRENT_DATETIME_WIB=$(TZ='Asia/Jakarta' date +"%Y-%m-%d %H:%M:%S")
+          # Convert current UTC time to WIB for display (WIB = UTC + 7 hours)
+          # Use Python for accurate timezone conversion
+          CURRENT_WIB_INFO=$(python3 << 'EOF'
+          from datetime import datetime
+          import pytz
+          
+          # Get current UTC time
+          utc_now = datetime.now(pytz.UTC)
+          
+          # Convert to WIB (Asia/Jakarta)
+          wib_tz = pytz.timezone('Asia/Jakarta')
+          wib_now = utc_now.astimezone(wib_tz)
+          
+          # Format for display
+          current_time_wib = wib_now.strftime("%H:%M")
+          current_date_wib = wib_now.strftime("%Y-%m-%d")
+          current_datetime_wib = wib_now.strftime("%Y-%m-%d %H:%M:%S")
+          
+          print(f"CURRENT_TIME_WIB={current_time_wib}")
+          print(f"CURRENT_DATE_WIB={current_date_wib}")
+          print(f"CURRENT_DATETIME_WIB={current_datetime_wib}")
+          EOF
+          )
+          
+          # Extract WIB values
+          CURRENT_TIME_WIB=$(echo "$CURRENT_WIB_INFO" | grep "^CURRENT_TIME_WIB=" | cut -d'=' -f2)
+          CURRENT_DATE_WIB=$(echo "$CURRENT_WIB_INFO" | grep "^CURRENT_DATE_WIB=" | cut -d'=' -f2)
+          CURRENT_DATETIME_WIB=$(echo "$CURRENT_WIB_INFO" | grep "^CURRENT_DATETIME_WIB=" | cut -d'=' -f2)
           
           echo "🔍 Window Check:"
-          echo "  Current Time: $CURRENT_TIME_WIB WIB ($CURRENT_TIME_UTC UTC) on $CURRENT_DATE_UTC"
+          echo "  Current Time: $CURRENT_TIME_WIB WIB ($CURRENT_TIME_UTC UTC) on $CURRENT_DATE_WIB"
           echo "  Resize Time: $RESIZE_TIME_WIB WIB ($RESIZE_TIME_UTC UTC) on $RESIZE_DATE_UTC"
           echo "  Scheduler Time: $SCHEDULER_TIME_WIB WIB ($SCHEDULER_TIME_UTC UTC) on $SCHEDULER_DATE_UTC"
           

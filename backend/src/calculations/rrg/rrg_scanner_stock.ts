@@ -321,12 +321,24 @@ async function scanAllStocks(): Promise<ScannerResult[]> {
   let errorCount = 0;
   
   // Process stocks in batches for better performance
-  const BATCH_SIZE = 50; // Process 50 stocks at a time (increased for speed)
+  const BATCH_SIZE = 150; // Phase 2: 150 stocks at a time
   console.log(`📦 Processing stocks in batches of ${BATCH_SIZE}...`);
   
   for (let i = 0; i < stockList.length; i += BATCH_SIZE) {
     const batch = stockList.slice(i, i + BATCH_SIZE);
-    console.log(`📦 Processing stock batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(stockList.length / BATCH_SIZE)}: ${batch.slice(0, 5).join(', ')}${batch.length > 5 ? `... (+${batch.length - 5} more)` : ''}`);
+    const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+    console.log(`📦 Processing stock batch ${batchNumber}/${Math.ceil(stockList.length / BATCH_SIZE)}: ${batch.slice(0, 5).join(', ')}${batch.length > 5 ? `... (+${batch.length - 5} more)` : ''}`);
+    
+    // Memory check before batch
+    if (global.gc) {
+      const memBefore = process.memoryUsage();
+      const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
+      if (heapUsedMB > 10240) { // 10GB threshold
+        console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+        global.gc();
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
     
     // Process batch in parallel
     const batchResults = await Promise.allSettled(batch.map(async (stockCode) => {
@@ -398,11 +410,19 @@ async function scanAllStocks(): Promise<ScannerResult[]> {
     const batchSkipped = batchResults.filter(r => r.status === 'fulfilled' && r.value.status === 'skipped').length;
     const batchErrors = batchResults.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && r.value.status === 'error')).length;
     
-    console.log(`📦 Batch ${Math.floor(i / BATCH_SIZE) + 1} complete: ✅ ${batchSuccess} success, ⏭️ ${batchSkipped} skipped, ❌ ${batchErrors} errors`);
+    console.log(`📦 Batch ${batchNumber} complete: ✅ ${batchSuccess} success, ⏭️ ${batchSkipped} skipped, ❌ ${batchErrors} errors`);
+    
+    // Memory cleanup after batch
+    if (global.gc) {
+      global.gc();
+      const memAfter = process.memoryUsage();
+      const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+      console.log(`📊 Batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
+    }
     
     // Small delay to give event loop breathing room
     if (i + BATCH_SIZE < stockList.length) {
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
   }
   

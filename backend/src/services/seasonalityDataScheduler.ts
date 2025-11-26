@@ -7,6 +7,7 @@
 import { generateIndexSeasonality } from '../calculations/seasonal/seasonality_index';
 import { generateSectorSeasonality } from '../calculations/seasonal/seasonality_sector';
 import { generateStockSeasonality } from '../calculations/seasonal/seasonality_stock';
+import { SchedulerLogService } from './schedulerLogService';
 
 let isGenerating = false;
 let generationStatus = {
@@ -27,16 +28,42 @@ export function getGenerationStatus() {
 /**
  * Generate all seasonal analysis (indexes, sectors, stocks)
  */
-export async function forceRegenerate(triggerType: 'startup' | 'scheduled' | 'manual' | 'debug' = 'manual'): Promise<void> {
+export async function forceRegenerate(triggerType: 'startup' | 'scheduled' | 'manual' | 'debug' = 'manual', logId?: string | null, triggeredBy?: string): Promise<void> {
   if (isGenerating) {
     console.log('⚠️ Seasonal generation already in progress');
     return;
+  }
+
+  // Only create log entry if logId is not provided (called from scheduler, not manual trigger)
+  let finalLogId = logId;
+  if (!finalLogId) {
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'seasonality',
+      trigger_type: triggerType,
+      triggered_by: triggeredBy || (triggerType === 'manual' || triggerType === 'debug' ? 'user' : 'system'),
+      status: 'running',
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      console.error('❌ Failed to create scheduler log entry');
+      return;
+    }
+
+    finalLogId = logEntry.id!;
   }
 
   isGenerating = true;
   console.log(`🔄 Starting seasonal analysis generation (${triggerType})...`);
 
   try {
+    if (finalLogId) {
+      await SchedulerLogService.updateLog(finalLogId, {
+        progress_percentage: 0,
+        current_processing: 'Starting seasonal analysis generation...'
+      });
+    }
+
     // Reset status
     generationStatus = {
       indexes: { status: 'idle', progress: 0, total: 0, current: '' },
@@ -47,6 +74,12 @@ export async function forceRegenerate(triggerType: 'startup' | 'scheduled' | 'ma
     // 1. Generate Index Seasonality
     console.log('📊 Starting Index Seasonality Analysis...');
     generationStatus.indexes = { status: 'running', progress: 0, total: 0, current: 'Initializing...' };
+    if (finalLogId) {
+      await SchedulerLogService.updateLog(finalLogId, {
+        progress_percentage: 10,
+        current_processing: 'Generating Index Seasonality...'
+      });
+    }
     
     const indexResults = await generateIndexSeasonality();
     generationStatus.indexes = { 
@@ -60,6 +93,12 @@ export async function forceRegenerate(triggerType: 'startup' | 'scheduled' | 'ma
     // 2. Generate Sector Seasonality
     console.log('📊 Starting Sector Seasonality Analysis...');
     generationStatus.sectors = { status: 'running', progress: 0, total: 0, current: 'Initializing...' };
+    if (finalLogId) {
+      await SchedulerLogService.updateLog(finalLogId, {
+        progress_percentage: 40,
+        current_processing: 'Generating Sector Seasonality...'
+      });
+    }
     
     const sectorResults = await generateSectorSeasonality();
     generationStatus.sectors = { 
@@ -73,6 +112,12 @@ export async function forceRegenerate(triggerType: 'startup' | 'scheduled' | 'ma
     // 3. Generate Stock Seasonality
     console.log('📊 Starting Stock Seasonality Analysis...');
     generationStatus.stocks = { status: 'running', progress: 0, total: 0, current: 'Initializing...' };
+    if (finalLogId) {
+      await SchedulerLogService.updateLog(finalLogId, {
+        progress_percentage: 70,
+        current_processing: 'Generating Stock Seasonality...'
+      });
+    }
     
     const stockResults = await generateStockSeasonality();
     generationStatus.stocks = { 
@@ -84,6 +129,15 @@ export async function forceRegenerate(triggerType: 'startup' | 'scheduled' | 'ma
     console.log(`✅ Stock Seasonality completed - ${stockResults.stocks.length} stocks processed`);
 
     console.log('✅ All seasonal analysis completed successfully');
+    
+    if (finalLogId) {
+      const totalProcessed = indexResults.indexes.length + sectorResults.sectors.length + stockResults.stocks.length;
+      await SchedulerLogService.markCompleted(finalLogId, {
+        total_files_processed: totalProcessed,
+        files_created: totalProcessed,
+        files_failed: 0
+      });
+    }
     
   } catch (error) {
     console.error('❌ Error during seasonal generation:', error);
@@ -97,6 +151,11 @@ export async function forceRegenerate(triggerType: 'startup' | 'scheduled' | 'ma
     }
     if (generationStatus.stocks.status === 'running') {
       generationStatus.stocks = { status: 'error', progress: 0, total: 0, current: 'Error occurred' };
+    }
+    
+    if (finalLogId) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      await SchedulerLogService.markFailed(finalLogId, errorMessage, error);
     }
     
     throw error;

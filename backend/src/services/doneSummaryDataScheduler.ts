@@ -127,7 +127,7 @@ async function streamToBuffer(readableStream: NodeJS.ReadableStream): Promise<Bu
 }
 
 // Main update function
-export async function updateDoneSummaryData(logId?: string | null): Promise<void> {
+export async function updateDoneSummaryData(logId?: string | null, triggeredBy?: string): Promise<void> {
   // Skip if weekend
   const today = new Date();
   const dayOfWeek = today.getDay();
@@ -142,8 +142,8 @@ export async function updateDoneSummaryData(logId?: string | null): Promise<void
   if (!finalLogId) {
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'done-summary',
-      trigger_type: 'scheduled',
-      triggered_by: 'system',
+      trigger_type: triggeredBy ? 'manual' : 'scheduled',
+      triggered_by: triggeredBy || 'system',
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });

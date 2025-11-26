@@ -284,12 +284,24 @@ export async function generateAllStocksSeasonality(): Promise<SeasonalityResults
   console.log(`📊 Unique stocks after deduplication: ${uniqueStocks.size} (from ${allStocks.length} total)`);
   
   // Process stocks in batches for better performance
-  const BATCH_SIZE = 50;
+  const BATCH_SIZE = 150; // Phase 2: 150 stocks at a time
   const uniqueStocksArray = Array.from(uniqueStocks.values());
   
   for (let i = 0; i < uniqueStocksArray.length; i += BATCH_SIZE) {
     const batch = uniqueStocksArray.slice(i, i + BATCH_SIZE);
-    console.log(`Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(uniqueStocksArray.length / BATCH_SIZE)} (${batch.length} stocks)`);
+    const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+    console.log(`Processing batch ${batchNumber}/${Math.ceil(uniqueStocksArray.length / BATCH_SIZE)} (${batch.length} stocks)`);
+    
+    // Memory check before batch
+    if (global.gc) {
+      const memBefore = process.memoryUsage();
+      const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
+      if (heapUsedMB > 10240) { // 10GB threshold
+        console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+        global.gc();
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
     
     const batchResults = await Promise.allSettled(
       batch.map(async (stock) => {
@@ -309,6 +321,19 @@ export async function generateAllStocksSeasonality(): Promise<SeasonalityResults
         stocksData.push(result.value);
       }
     });
+    
+    // Memory cleanup after batch
+    if (global.gc) {
+      global.gc();
+      const memAfter = process.memoryUsage();
+      const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+      console.log(`📊 Batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
+    }
+    
+    // Small delay between batches
+    if (i + BATCH_SIZE < uniqueStocksArray.length) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
     
     // Small delay between batches
     if (i + BATCH_SIZE < uniqueStocksArray.length) {

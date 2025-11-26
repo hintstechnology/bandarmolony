@@ -460,7 +460,19 @@ export class MoneyFlowCalculator {
     let processed = 0;
     for (let i = 0; i < allStockFiles.length; i += BATCH_SIZE) {
       const batch = allStockFiles.slice(i, i + BATCH_SIZE);
-      console.log(`📦 Processing stock batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(allStockFiles.length / BATCH_SIZE)} (${batch.length} files)`);
+      const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+      console.log(`📦 Processing stock batch ${batchNumber}/${Math.ceil(allStockFiles.length / BATCH_SIZE)} (${batch.length} files)`);
+      
+      // Memory check before batch
+      if (global.gc) {
+        const memBefore = process.memoryUsage();
+        const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
+        if (heapUsedMB > 10240) { // 10GB threshold
+          console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+          global.gc();
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
       
       // Process batch in parallel
       const batchResults = await Promise.allSettled(
@@ -523,15 +535,20 @@ export class MoneyFlowCalculator {
         processed++;
       });
       
-      console.log(`📊 Stock batch complete: ✅ ${batchSuccess} success, ⏭️  ${batchSkipped} skipped (no new dates), ❌ ${batchFailed} failed (${processed}/${allStockFiles.length} total)`);
+      console.log(`📊 Stock batch ${batchNumber} complete: ✅ ${batchSuccess} success, ⏭️  ${batchSkipped} skipped (no new dates), ❌ ${batchFailed} failed (${processed}/${allStockFiles.length} total)`);
       
-      // Force garbage collection after each batch
+      // Memory cleanup after batch
       if (global.gc) {
         global.gc();
+        const memAfter = process.memoryUsage();
+        const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+        console.log(`📊 Stock batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
       }
       
       // Small delay to allow GC to complete
-      await new Promise(resolve => setTimeout(resolve, 100));
+      if (i + BATCH_SIZE < allStockFiles.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
     }
     
     // Process index files second
@@ -542,7 +559,19 @@ export class MoneyFlowCalculator {
     processed = 0;
     for (let i = 0; i < allIndexFiles.length; i += BATCH_SIZE) {
       const batch = allIndexFiles.slice(i, i + BATCH_SIZE);
-      console.log(`📦 Processing index batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(allIndexFiles.length / BATCH_SIZE)} (${batch.length} files)`);
+      const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+      console.log(`📦 Processing index batch ${batchNumber}/${Math.ceil(allIndexFiles.length / BATCH_SIZE)} (${batch.length} files)`);
+      
+      // Memory check before batch
+      if (global.gc) {
+        const memBefore = process.memoryUsage();
+        const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
+        if (heapUsedMB > 10240) { // 10GB threshold
+          console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+          global.gc();
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
       
       // Process batch in parallel
       const batchResults = await Promise.allSettled(
@@ -605,15 +634,20 @@ export class MoneyFlowCalculator {
         processed++;
       });
       
-      console.log(`📊 Index batch complete: ✅ ${batchSuccess} success, ⏭️  ${batchSkipped} skipped (no new dates), ❌ ${batchFailed} failed (${processed}/${allIndexFiles.length} total)`);
+      console.log(`📊 Index batch ${batchNumber} complete: ✅ ${batchSuccess} success, ⏭️  ${batchSkipped} skipped (no new dates), ❌ ${batchFailed} failed (${processed}/${allIndexFiles.length} total)`);
       
-      // Force garbage collection after each batch
+      // Memory cleanup after batch
       if (global.gc) {
         global.gc();
+        const memAfter = process.memoryUsage();
+        const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+        console.log(`📊 Index batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
       }
       
       // Small delay to allow GC to complete
-      await new Promise(resolve => setTimeout(resolve, 100));
+      if (i + BATCH_SIZE < allIndexFiles.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
     }
     
     console.log(`\nProcessed ${moneyFlowData.size} files successfully (${allStockFiles.length} stocks + ${allIndexFiles.length} indices)`);

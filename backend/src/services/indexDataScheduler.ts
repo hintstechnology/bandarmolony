@@ -180,7 +180,7 @@ async function processIndex(
 }
 
 // Main update function
-export async function updateIndexData(logId?: string | null): Promise<void> {
+export async function updateIndexData(logId?: string | null, triggeredBy?: string): Promise<void> {
   // Skip if weekend
   const today = new Date();
   const dayOfWeek = today.getDay();
@@ -195,8 +195,8 @@ export async function updateIndexData(logId?: string | null): Promise<void> {
   if (!finalLogId) {
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'index',
-      trigger_type: 'scheduled',
-      triggered_by: 'system',
+      trigger_type: triggeredBy ? 'manual' : 'scheduled',
+      triggered_by: triggeredBy || 'system',
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });

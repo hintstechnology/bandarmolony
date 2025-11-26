@@ -353,9 +353,21 @@ export class TrendFilterCalculator {
       console.log(`⏰ Analyzing ${period} period (${periodDays} days)...`);
 
       // Process stocks in batches
-      const BATCH_SIZE = 50;
+      const BATCH_SIZE = 150; // Phase 2: 150 stocks at a time
       for (let i = 0; i < allStocks.length; i += BATCH_SIZE) {
         const batch = allStocks.slice(i, i + BATCH_SIZE);
+        const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+        
+        // Memory check before batch
+        if (global.gc) {
+          const memBefore = process.memoryUsage();
+          const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
+          if (heapUsedMB > 10240) { // 10GB threshold
+            console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+            global.gc();
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        }
         
         const batchPromises = batch.map(async (stock) => {
           const data = await this.loadStockDataFromAzure(stock.sector, stock.ticker);
@@ -398,7 +410,20 @@ export class TrendFilterCalculator {
         const validResults = batchResults.filter((result): result is TrendData => result !== null);
         stocksData.push(...validResults);
 
-        console.log(`📊 Processed batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(allStocks.length / BATCH_SIZE)} for ${period} - Valid: ${validResults.length}/${batch.length}`);
+        console.log(`📊 Processed batch ${batchNumber}/${Math.ceil(allStocks.length / BATCH_SIZE)} for ${period} - Valid: ${validResults.length}/${batch.length}`);
+        
+        // Memory cleanup after batch
+        if (global.gc) {
+          global.gc();
+          const memAfter = process.memoryUsage();
+          const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+          console.log(`📊 Batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
+        }
+        
+        // Small delay between batches
+        if (i + BATCH_SIZE < allStocks.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
       }
 
       console.log(`📊 ${period} Summary: Total=${allStocks.length}, Processed=${processedCount}, NoData=${noDataCount}, NoTrend=${noTrendCount}, Final=${stocksData.length}`);
