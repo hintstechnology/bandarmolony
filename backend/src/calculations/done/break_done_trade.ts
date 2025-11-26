@@ -417,8 +417,8 @@ export class BreakDoneTradeCalculator {
         console.log(`🔍 Memory before batch ${Math.floor(i / BATCH_SIZE) + 1}: ${usedMB.toFixed(2)}MB`);
         
         // If memory usage is high, force cleanup
-        if (usedMB > 4000) {
-          console.log(`⚠️ High memory usage detected, forcing cleanup before batch...`);
+        if (usedMB > 10240) { // 10GB threshold (updated from 4GB for consistency)
+          console.log(`⚠️ High memory usage detected: ${usedMB.toFixed(2)}MB, forcing cleanup before batch...`);
           if (global.gc) {
             for (let j = 0; j < 5; j++) {
               global.gc();
@@ -428,24 +428,24 @@ export class BreakDoneTradeCalculator {
         }
         
         const batch = dtFiles.slice(i, i + BATCH_SIZE);
-        console.log(`📦 Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`);
+        const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+        console.log(`📦 Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`);
         
         // Process batch in parallel
         const batchResults = await Promise.allSettled(
           batch.map(blobName => this.processSingleDtFile(blobName))
         );
         
-        // Force garbage collection after each batch
+        // Memory cleanup after batch
         if (global.gc) {
           global.gc();
-          console.log(`🧹 Garbage collection completed after batch ${Math.floor(i / BATCH_SIZE) + 1}`);
+          const memAfter = process.memoryUsage();
+          const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+          console.log(`📊 Batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
         }
         
         // Additional memory cleanup
-        await new Promise(resolve => setTimeout(resolve, 500)); // Give GC time to complete
-        
-        // Log memory usage after each batch
-        this.logMemoryUsage(`After batch ${Math.floor(i / BATCH_SIZE) + 1}`);
+        await new Promise(resolve => setTimeout(resolve, 100)); // Give GC time to complete
         
         // Collect results
         batchResults.forEach((result, index) => {

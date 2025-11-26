@@ -288,12 +288,24 @@ async function calculateSectorAverage(sectorCodes: string[], sectorFolder: strin
   let validCount = 0;
   
   // Process stocks in batches for better performance
-  const BATCH_SIZE = 20; // Process 20 stocks at a time
+  const BATCH_SIZE = 150; // Phase 2: 150 stocks at a time
   console.log(`📦 Processing ${sectorCodes.length} stocks in batches of ${BATCH_SIZE}...`);
   
   for (let i = 0; i < sectorCodes.length; i += BATCH_SIZE) {
     const batch = sectorCodes.slice(i, i + BATCH_SIZE);
-    console.log(`📦 Processing stock batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(sectorCodes.length / BATCH_SIZE)} (${batch.length} stocks)`);
+    const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+    console.log(`📦 Processing stock batch ${batchNumber}/${Math.ceil(sectorCodes.length / BATCH_SIZE)} (${batch.length} stocks)`);
+    
+    // Memory check before batch
+    if (global.gc) {
+      const memBefore = process.memoryUsage();
+      const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
+      if (heapUsedMB > 10240) { // 10GB threshold
+        console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+        global.gc();
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
     
     // Process batch in parallel
     const batchResults = await Promise.allSettled(batch.map(async (code) => {
@@ -332,6 +344,14 @@ async function calculateSectorAverage(sectorCodes: string[], sectorFolder: strin
           }
         }
       }
+    }
+    
+    // Memory cleanup after batch
+    if (global.gc) {
+      global.gc();
+      const memAfter = process.memoryUsage();
+      const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+      console.log(`📊 Stock batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
     }
     
     // Small delay between batches

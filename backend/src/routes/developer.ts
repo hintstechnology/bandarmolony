@@ -1590,7 +1590,9 @@ router.post('/scheduler/phases/:phaseId/trigger', requireDeveloper, async (req, 
   try {
     const { phaseId } = req.params;
     
-    const result = await triggerPhase(phaseId);
+    const anyReq = req as any;
+    const triggeredBy = anyReq.user?.email || anyReq.user?.id || 'admin';
+    const result = await triggerPhase(phaseId, triggeredBy);
     
     if (result.success) {
       return res.json(createSuccessResponse(result, result.message));

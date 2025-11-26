@@ -1,5 +1,6 @@
 import WatchlistCalculator, { WatchlistStock } from '../calculations/watchlist/watchlist';
 import { uploadText } from '../utils/azureBlob';
+import { SchedulerLogService } from './schedulerLogService';
 
 const SNAPSHOT_BLOB_PATH = 'watchlist/watchlist.csv';
 
@@ -33,29 +34,82 @@ function buildCsvContent(stocks: WatchlistStock[]): string {
   return [header.join(','), ...rows].join('\n');
 }
 
-export async function updateWatchlistSnapshot(): Promise<void> {
-  console.log('📊 Watchlist Snapshot: starting generation');
+export async function updateWatchlistSnapshot(logId?: string | null, triggeredBy?: string): Promise<void> {
+  // Only create log entry if logId is not provided (called from scheduler, not manual trigger)
+  let finalLogId = logId;
+  if (!finalLogId) {
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'watchlist_snapshot',
+      trigger_type: triggeredBy ? 'manual' : 'scheduled',
+      triggered_by: triggeredBy || 'system',
+      status: 'running',
+      environment: process.env['NODE_ENV'] || 'development'
+    });
 
-  const calculator = new WatchlistCalculator();
-  const stockMetadata = await calculator.getAllStocksFromAzure();
-  const stockLookup = new Map<string, { sector: string; ticker: string }>();
-  stockMetadata.forEach((entry) => {
-    if (entry.ticker) {
-      stockLookup.set(entry.ticker.toUpperCase(), { sector: entry.sector, ticker: entry.ticker });
+    if (!logEntry) {
+      console.error('❌ Failed to create scheduler log entry');
+      return;
     }
-  });
-  const tickers = Array.from(stockLookup.keys());
 
-  if (!tickers.length) {
-    console.warn('⚠️ Watchlist Snapshot: no tickers found, skipping upload');
-    return;
+    finalLogId = logEntry.id!;
   }
 
-  console.log(`📊 Watchlist Snapshot: generating data for ${tickers.length} tickers`);
-  const emitenDetails = await calculator.loadEmitenDetailsFromAzure();
-  const data = await calculator.getWatchlistData(tickers, { stockLookup, emitenDetails });
-  const csvContent = buildCsvContent(data);
+  console.log('📊 Watchlist Snapshot: starting generation');
 
-  await uploadText(SNAPSHOT_BLOB_PATH, csvContent, 'text/csv');
-  console.log(`✅ Watchlist Snapshot: uploaded ${data.length} records to ${SNAPSHOT_BLOB_PATH}`);
+  try {
+    if (finalLogId) {
+      await SchedulerLogService.updateLog(finalLogId, {
+        progress_percentage: 0,
+        current_processing: 'Starting watchlist snapshot generation...'
+      });
+    }
+
+    const calculator = new WatchlistCalculator();
+    const stockMetadata = await calculator.getAllStocksFromAzure();
+    const stockLookup = new Map<string, { sector: string; ticker: string }>();
+    stockMetadata.forEach((entry) => {
+      if (entry.ticker) {
+        stockLookup.set(entry.ticker.toUpperCase(), { sector: entry.sector, ticker: entry.ticker });
+      }
+    });
+    const tickers = Array.from(stockLookup.keys());
+
+    if (!tickers.length) {
+      console.warn('⚠️ Watchlist Snapshot: no tickers found, skipping upload');
+      if (finalLogId) {
+        await SchedulerLogService.markFailed(finalLogId, 'No tickers found');
+      }
+      return;
+    }
+
+    if (finalLogId) {
+      await SchedulerLogService.updateLog(finalLogId, {
+        progress_percentage: 50,
+        current_processing: `Generating data for ${tickers.length} tickers...`
+      });
+    }
+
+    console.log(`📊 Watchlist Snapshot: generating data for ${tickers.length} tickers`);
+    const emitenDetails = await calculator.loadEmitenDetailsFromAzure();
+    const data = await calculator.getWatchlistData(tickers, { stockLookup, emitenDetails });
+    const csvContent = buildCsvContent(data);
+
+    await uploadText(SNAPSHOT_BLOB_PATH, csvContent, 'text/csv');
+    console.log(`✅ Watchlist Snapshot: uploaded ${data.length} records to ${SNAPSHOT_BLOB_PATH}`);
+
+    if (finalLogId) {
+      await SchedulerLogService.markCompleted(finalLogId, {
+        total_files_processed: 1,
+        files_created: 1,
+        files_failed: 0
+      });
+    }
+  } catch (error) {
+    console.error('❌ Error generating watchlist snapshot:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    if (finalLogId) {
+      await SchedulerLogService.markFailed(finalLogId, errorMessage, error);
+    }
+    throw error;
+  }
 }

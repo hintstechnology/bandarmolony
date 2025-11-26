@@ -265,6 +265,17 @@ export class BrokerSummaryIDXCalculator {
         
         console.log(`📦 Processing emiten batch ${batchNum}/${totalBatches} (${batch.length} files)...`);
         
+        // Memory check before batch
+        if (global.gc) {
+          const memBefore = process.memoryUsage();
+          const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
+          if (heapUsedMB > 10240) { // 10GB threshold
+            console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+            global.gc();
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        }
+        
         // Process batch in parallel
         const batchResults = await Promise.allSettled(
           batch.map(async (file) => {
@@ -289,14 +300,17 @@ export class BrokerSummaryIDXCalculator {
           }
         });
         
-        // Force garbage collection after each batch if available
+        // Memory cleanup after batch
         if (global.gc) {
           global.gc();
+          const memAfter = process.memoryUsage();
+          const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+          console.log(`📊 Emiten batch ${batchNum} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
         }
         
         // Small delay between batches to prevent overwhelming the system
         if (i + BATCH_SIZE < emitenFiles.length) {
-          await new Promise(resolve => setTimeout(resolve, 50));
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
 

@@ -39,8 +39,14 @@ import { updateWatchlistSnapshot } from '../services/watchlistSnapshotService';
 
 const router = express.Router();
 
+// Helper: get who triggered the manual action (prefer email, fallback to id/admin)
+function getTriggeredBy(req: express.Request): string {
+  const anyReq = req as any;
+  return anyReq.user?.email || anyReq.user?.id || 'admin';
+}
+
 // Manual trigger for stock data update
-router.post('/stock', async (_req, res) => {
+router.post('/stock', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Stock data update');
     
@@ -48,7 +54,7 @@ router.post('/stock', async (_req, res) => {
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'stock',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -89,14 +95,14 @@ router.post('/stock', async (_req, res) => {
 });
 
 // Manual trigger for index data update
-router.post('/index', async (_req, res) => {
+router.post('/index', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Index data update');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'index',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -136,14 +142,14 @@ router.post('/index', async (_req, res) => {
 });
 
 // Manual trigger for shareholders data update
-router.post('/shareholders', async (_req, res) => {
+router.post('/shareholders', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Shareholders data update');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'shareholders',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -183,14 +189,14 @@ router.post('/shareholders', async (_req, res) => {
 });
 
 // Manual trigger for holding data update
-router.post('/holding', async (_req, res) => {
+router.post('/holding', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Holding data update');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'holding',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -230,14 +236,14 @@ router.post('/holding', async (_req, res) => {
 });
 
 // Manual trigger for done summary data update
-router.post('/done-summary', async (_req, res) => {
+router.post('/done-summary', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Done summary data update');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'done-summary',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -277,7 +283,7 @@ router.post('/done-summary', async (_req, res) => {
 });
 
 // Manual trigger for Accumulation Distribution calculation
-router.post('/accumulation', async (_req, res) => {
+router.post('/accumulation', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Accumulation Distribution calculation');
     
@@ -288,7 +294,7 @@ router.post('/accumulation', async (_req, res) => {
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'accumulation_distribution',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -336,7 +342,7 @@ router.post('/accumulation', async (_req, res) => {
 });
 
 // Manual trigger for Bid/Ask Footprint calculation
-router.post('/bidask', async (_req, res) => {
+router.post('/bidask', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Bid/Ask Footprint calculation');
     
@@ -347,7 +353,7 @@ router.post('/bidask', async (_req, res) => {
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'bidask_footprint',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -395,14 +401,14 @@ router.post('/bidask', async (_req, res) => {
 });
 
 // Manual trigger for Broker Breakdown calculation
-router.post('/broker-breakdown', async (_req, res) => {
+router.post('/broker-breakdown', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Breakdown calculation');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_breakdown',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -453,14 +459,14 @@ router.post('/broker-breakdown', async (_req, res) => {
 });
 
 // Manual trigger for Broker Summary calculation
-router.post('/broker-summary', async (_req, res) => {
+router.post('/broker-summary', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Summary calculation');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker-summary',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -508,14 +514,14 @@ router.post('/broker-summary', async (_req, res) => {
 });
 
 // Manual trigger for Top Broker calculation
-router.post('/top-broker', async (_req, res) => {
+router.post('/top-broker', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Top Broker calculation');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'top-broker',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -563,7 +569,7 @@ router.post('/top-broker', async (_req, res) => {
 });
 
 // Manual trigger for Broker Inventory calculation
-router.post('/broker-inventory', async (_req, res) => {
+router.post('/broker-inventory', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Inventory calculation');
     
@@ -574,7 +580,7 @@ router.post('/broker-inventory', async (_req, res) => {
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_inventory',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -632,7 +638,8 @@ router.post('/broker-summary-rg', async (_req, res) => {
     // Execute in background and return immediately
     (async () => {
       try {
-        const result = await calculator.generateBrokerDataForType('RG');
+        // Type assertion to fix TypeScript error (method exists but TypeScript doesn't recognize it)
+        const result = await (calculator as any).generateBrokerDataForType('RG');
         await AzureLogger.logInfo('broker_summary_rg', `Manual broker summary RG calculation completed: ${result.message || 'OK'}`);
         console.log(`✅ Broker Summary RG calculation completed: ${result.message}`);
       } catch (error: any) {
@@ -655,14 +662,14 @@ router.post('/broker-summary-rg', async (_req, res) => {
 });
 
 // Manual trigger for Broker Summary by Type (RG/TN/NG)
-router.post('/broker-summary-type', async (_req, res) => {
+router.post('/broker-summary-type', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Summary by Type (RG/TN/NG) calculation');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_summary_type',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -712,7 +719,7 @@ router.post('/broker-summary-type', async (_req, res) => {
 });
 
 // Manual trigger for Foreign Flow calculation
-router.post('/foreign-flow', async (_req, res) => {
+router.post('/foreign-flow', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Foreign Flow calculation');
     
@@ -723,7 +730,7 @@ router.post('/foreign-flow', async (_req, res) => {
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'foreign_flow',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -771,7 +778,7 @@ router.post('/foreign-flow', async (_req, res) => {
 });
 
 // Manual trigger for Money Flow calculation
-router.post('/money-flow', async (_req, res) => {
+router.post('/money-flow', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Money Flow calculation');
     
@@ -782,7 +789,7 @@ router.post('/money-flow', async (_req, res) => {
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'money_flow',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -975,14 +982,14 @@ router.post('/logs/:id/cancel', async (req, res) => {
 });
 
 // Manual trigger for RRC calculation
-router.post('/rrc', async (_req, res) => {
+router.post('/rrc', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: RRC calculation');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'rrc',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1022,14 +1029,14 @@ router.post('/rrc', async (_req, res) => {
 });
 
 // Manual trigger for RRG calculation
-router.post('/rrg', async (_req, res) => {
+router.post('/rrg', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: RRG calculation');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'rrg',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1069,14 +1076,14 @@ router.post('/rrg', async (_req, res) => {
 });
 
 // Manual trigger for Seasonal calculation
-router.post('/seasonal', async (_req, res) => {
+router.post('/seasonal', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Seasonal calculation');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'seasonality',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1122,14 +1129,14 @@ router.post('/seasonal', async (_req, res) => {
 });
 
 // Manual trigger for Trend Filter calculation
-router.post('/trend-filter', async (_req, res) => {
+router.post('/trend-filter', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Trend Filter calculation');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'trend_filter',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1177,14 +1184,14 @@ router.post('/trend-filter', async (_req, res) => {
 });
 
 // Manual trigger for Watchlist Snapshot
-router.post('/watchlist-snapshot', async (_req, res) => {
+router.post('/watchlist-snapshot', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Watchlist Snapshot generation');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'watchlist_snapshot',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1352,14 +1359,14 @@ router.post('/broker-transaction-stock-idx', async (_req, res) => {
 });
 
 // Manual trigger for Broker Summary IDX calculation
-router.post('/broker-summary-idx', async (_req, res) => {
+router.post('/broker-summary-idx', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Summary IDX calculation');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_summary_idx',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1412,14 +1419,14 @@ router.post('/broker-summary-idx', async (_req, res) => {
 });
 
 // Manual trigger for Broker Transaction calculation
-router.post('/broker-transaction', async (_req, res) => {
+router.post('/broker-transaction', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction calculation');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1471,14 +1478,14 @@ router.post('/broker-transaction', async (_req, res) => {
 });
 
 // Manual trigger for Broker Transaction RG/TN/NG calculation
-router.post('/broker-transaction-rgtnng', async (_req, res) => {
+router.post('/broker-transaction-rgtnng', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction RG/TN/NG calculation');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_rgtnng',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1530,14 +1537,14 @@ router.post('/broker-transaction-rgtnng', async (_req, res) => {
 });
 
 // Manual trigger for Broker Transaction F/D calculation (filtered by Investor Type)
-router.post('/broker-transaction-fd', async (_req, res) => {
+router.post('/broker-transaction-fd', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction F/D calculation');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_fd',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1589,14 +1596,14 @@ router.post('/broker-transaction-fd', async (_req, res) => {
 });
 
 // Manual trigger for Broker Transaction F/D RG/TN/NG calculation (filtered by Investor Type and Board Type)
-router.post('/broker-transaction-fd-rgtnng', async (_req, res) => {
+router.post('/broker-transaction-fd-rgtnng', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction F/D RG/TN/NG calculation');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_fd_rgtnng',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1648,14 +1655,14 @@ router.post('/broker-transaction-fd-rgtnng', async (_req, res) => {
 });
 
 // Manual trigger for Broker Transaction Stock calculation (pivoted by stock)
-router.post('/broker-transaction-stock', async (_req, res) => {
+router.post('/broker-transaction-stock', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction Stock calculation');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_stock',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1707,14 +1714,14 @@ router.post('/broker-transaction-stock', async (_req, res) => {
 });
 
 // Manual trigger for Broker Transaction Stock F/D calculation (pivoted by stock, filtered by Investor Type)
-router.post('/broker-transaction-stock-fd', async (_req, res) => {
+router.post('/broker-transaction-stock-fd', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction Stock F/D calculation');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_stock_fd',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1766,14 +1773,14 @@ router.post('/broker-transaction-stock-fd', async (_req, res) => {
 });
 
 // Manual trigger for Broker Transaction Stock RG/TN/NG calculation (pivoted by stock, filtered by Board Type)
-router.post('/broker-transaction-stock-rgtnng', async (_req, res) => {
+router.post('/broker-transaction-stock-rgtnng', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction Stock RG/TN/NG calculation');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_stock_rgtnng',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1825,14 +1832,14 @@ router.post('/broker-transaction-stock-rgtnng', async (_req, res) => {
 });
 
 // Manual trigger for Broker Transaction Stock F/D RG/TN/NG calculation (pivoted by stock, filtered by Investor Type and Board Type)
-router.post('/broker-transaction-stock-fd-rgtnng', async (_req, res) => {
+router.post('/broker-transaction-stock-fd-rgtnng', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction Stock F/D RG/TN/NG calculation');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_stock_fd_rgtnng',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1884,14 +1891,14 @@ router.post('/broker-transaction-stock-fd-rgtnng', async (_req, res) => {
 });
 
 // Manual trigger for Break Done Trade calculation
-router.post('/break-done-trade', async (_req, res) => {
+router.post('/break-done-trade', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Break Done Trade calculation');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'break_done_trade',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });

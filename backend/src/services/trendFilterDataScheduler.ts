@@ -1,4 +1,5 @@
 import TrendFilterCalculator from '../calculations/trend/trend_filter';
+import { SchedulerLogService } from './schedulerLogService';
 
 export class TrendFilterDataScheduler {
   private trendFilterCalculator: TrendFilterCalculator;
@@ -9,7 +10,7 @@ export class TrendFilterDataScheduler {
     this.trendFilterCalculator = new TrendFilterCalculator();
   }
 
-  public async generateTrendFilterData(): Promise<{ success: boolean; message: string; data?: any }> {
+  public async generateTrendFilterData(logId?: string | null, triggeredBy?: string): Promise<{ success: boolean; message: string; data?: any }> {
     if (this.isGenerating) {
       return {
         success: false,
@@ -17,14 +18,51 @@ export class TrendFilterDataScheduler {
       };
     }
 
+    // Only create log entry if logId is not provided (called from scheduler, not manual trigger)
+    let finalLogId = logId;
+    if (!finalLogId) {
+      const logEntry = await SchedulerLogService.createLog({
+        feature_name: 'trend_filter',
+        trigger_type: triggeredBy ? 'manual' : 'scheduled',
+        triggered_by: triggeredBy || 'system',
+        status: 'running',
+        environment: process.env['NODE_ENV'] || 'development'
+      });
+
+      if (!logEntry) {
+        console.error('❌ Failed to create scheduler log entry');
+        return {
+          success: false,
+          message: 'Failed to create scheduler log entry'
+        };
+      }
+
+      finalLogId = logEntry.id!;
+    }
+
     try {
       this.isGenerating = true;
       console.log('🔄 Starting trend filter auto-generation...');
+
+      if (finalLogId) {
+        await SchedulerLogService.updateLog(finalLogId, {
+          progress_percentage: 0,
+          current_processing: 'Starting trend filter generation...'
+        });
+      }
 
       await this.trendFilterCalculator.generateTrendFilterData();
 
       this.lastGenerated = new Date();
       this.isGenerating = false;
+
+      if (finalLogId) {
+        await SchedulerLogService.markCompleted(finalLogId, {
+          total_files_processed: 1,
+          files_created: 1,
+          files_failed: 0
+        });
+      }
 
       return {
         success: true,
@@ -37,9 +75,13 @@ export class TrendFilterDataScheduler {
     } catch (error) {
       this.isGenerating = false;
       console.error('❌ Error generating trend filter data:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      if (finalLogId) {
+        await SchedulerLogService.markFailed(finalLogId, errorMessage, error);
+      }
       return {
         success: false,
-        message: `Failed to generate trend filter data: ${error instanceof Error ? error.message : 'Unknown error'}`
+        message: `Failed to generate trend filter data: ${errorMessage}`
       };
     }
   }

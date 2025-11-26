@@ -309,52 +309,94 @@ export class BrokerInventoryCalculator {
         return;
       }
       
-      // Load broker transaction data for all dates
+      // Load broker transaction data for all dates in batches
       console.log("\nLoading broker transaction data for all dates...");
       const allBrokerData = new Map<string, Map<string, BrokerTransactionData[]>>();
       
-      // For each date, list brokers available for that date
-      for (let dateIndex = 0; dateIndex < dates.length; dateIndex++) {
-        const date = dates[dateIndex];
-        if (!date) {
-          console.log(`Skip undefined date at index ${dateIndex}`);
-          continue;
+      // Process dates in batches (10 dates per batch - memory intensive)
+      const DATE_BATCH_SIZE = 10;
+      let processedDates = 0;
+      
+      for (let i = 0; i < dates.length; i += DATE_BATCH_SIZE) {
+        const dateBatch = dates.slice(i, i + DATE_BATCH_SIZE);
+        const batchNumber = Math.floor(i / DATE_BATCH_SIZE) + 1;
+        console.log(`📦 Processing date batch ${batchNumber}/${Math.ceil(dates.length / DATE_BATCH_SIZE)} (${dateBatch.length} dates)`);
+        
+        // Memory check before batch
+        if (global.gc) {
+          const memBefore = process.memoryUsage();
+          const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
+          if (heapUsedMB > 10240) { // 10GB threshold
+            console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+            global.gc();
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
         }
         
-        console.log(`Loading data for date: ${date}`);
+        // Process dates in batch in parallel
+        const batchResults = await Promise.allSettled(
+          dateBatch.map(async (date) => {
+            if (!date) {
+              return { date: '', success: false };
+            }
+            
+            console.log(`Loading data for date: ${date}`);
+            
+            const brokerMap = new Map<string, BrokerTransactionData[]>();
+            
+            const datePrefix = `broker_transaction/broker_transaction_${date}/`;
+            const blobs = await listPaths({ prefix: datePrefix });
+            const brokersForDate: string[] = [];
+            for (const blobName of blobs) {
+              const fileName = blobName.split('/').pop();
+              if (fileName && fileName.endsWith('.csv')) {
+                brokersForDate.push(fileName.replace('.csv', ''));
+              }
+            }
+            
+            for (const brokerCode of brokersForDate) {
+              if (!brokerCode) {
+                continue;
+              }
+              const brokerData = await this.loadBrokerTransactionDataFromAzure(brokerCode, date);
+              if (brokerData.length > 0) {
+                brokerMap.set(brokerCode, brokerData);
+              }
+            }
+            
+            return { date, success: true, brokerMap };
+          })
+        );
+        
+        // Collect results from batch
+        for (const result of batchResults) {
+          if (result.status === 'fulfilled' && result.value.success && result.value.brokerMap) {
+            allBrokerData.set(result.value.date, result.value.brokerMap);
+            processedDates++;
+          }
+        }
         
         // Update progress
         if (logId) {
           const { SchedulerLogService } = await import('../../services/schedulerLogService');
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: Math.round(((dateIndex + 1) / dates.length) * 50), // First 50% for loading data
-            current_processing: `Loading broker transaction data for date ${date} (${dateIndex + 1}/${dates.length})`
+            progress_percentage: Math.round((processedDates / dates.length) * 50), // First 50% for loading data
+            current_processing: `Loading date batch ${batchNumber}/${Math.ceil(dates.length / DATE_BATCH_SIZE)} (${processedDates}/${dates.length} dates loaded)`
           });
         }
         
-        const brokerMap = new Map<string, BrokerTransactionData[]>();
-        
-        const datePrefix = `broker_transaction/broker_transaction_${date}/`;
-        const blobs = await listPaths({ prefix: datePrefix });
-        const brokersForDate: string[] = [];
-        for (const blobName of blobs) {
-          const fileName = blobName.split('/').pop();
-          if (fileName && fileName.endsWith('.csv')) {
-            brokersForDate.push(fileName.replace('.csv', ''));
-          }
+        // Memory cleanup after batch
+        if (global.gc) {
+          global.gc();
+          const memAfter = process.memoryUsage();
+          const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+          console.log(`📊 Date batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
         }
         
-        for (const brokerCode of brokersForDate) {
-          if (!brokerCode) {
-            continue;
-          }
-          const brokerData = await this.loadBrokerTransactionDataFromAzure(brokerCode, date);
-          if (brokerData.length > 0) {
-            brokerMap.set(brokerCode, brokerData);
-          }
+        // Small delay between batches
+        if (i + DATE_BATCH_SIZE < dates.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
-        
-        allBrokerData.set(date, brokerMap);
       }
       
       // Update progress for file creation phase

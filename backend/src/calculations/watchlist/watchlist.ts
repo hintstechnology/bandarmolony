@@ -314,9 +314,21 @@ export class WatchlistCalculator {
       const watchlistStocks: WatchlistStock[] = [];
       
       // Process stocks in batches
-      const BATCH_SIZE = 50;
+      const BATCH_SIZE = 150; // Phase 2: 150 stocks at a time
       for (let i = 0; i < normalizedSymbols.length; i += BATCH_SIZE) {
         const batch = normalizedSymbols.slice(i, i + BATCH_SIZE);
+        const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+        
+        // Memory check before batch
+        if (global.gc) {
+          const memBefore = process.memoryUsage();
+          const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
+          if (heapUsedMB > 10240) { // 10GB threshold
+            console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+            global.gc();
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        }
         
         const batchPromises = batch.map(async (symbol) => {
           const stock = stockLookup.get(symbol);
@@ -367,7 +379,20 @@ export class WatchlistCalculator {
         const validResults = batchResults.filter((result) => result !== null) as WatchlistStock[];
         watchlistStocks.push(...validResults);
 
-        console.log(`📊 Processed batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(symbols.length / BATCH_SIZE)} - Valid: ${validResults.length}/${batch.length}`);
+        console.log(`📊 Processed batch ${batchNumber}/${Math.ceil(normalizedSymbols.length / BATCH_SIZE)} - Valid: ${validResults.length}/${batch.length}`);
+        
+        // Memory cleanup after batch
+        if (global.gc) {
+          global.gc();
+          const memAfter = process.memoryUsage();
+          const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+          console.log(`📊 Batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
+        }
+        
+        // Small delay between batches
+        if (i + BATCH_SIZE < normalizedSymbols.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
       }
 
       console.log(`✅ Watchlist data fetched: ${watchlistStocks.length}/${symbols.length} stocks`);

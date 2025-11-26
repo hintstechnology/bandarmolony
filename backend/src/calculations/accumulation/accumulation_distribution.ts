@@ -653,6 +653,18 @@ export class AccumulationDistributionCalculator {
         
         for (let i = 0; i < stockCodes.length; i += STOCK_BATCH_SIZE) {
           const batch = stockCodes.slice(i, i + STOCK_BATCH_SIZE);
+          const batchNumber = Math.floor(i / STOCK_BATCH_SIZE) + 1;
+          
+          // Memory check before batch
+          if (global.gc) {
+            const memBefore = process.memoryUsage();
+            const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
+            if (heapUsedMB > 10240) { // 10GB threshold
+              console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+              global.gc();
+              await new Promise(resolve => setTimeout(resolve, 100));
+            }
+          }
           
           for (const stockCode of batch) {
             try {
@@ -669,8 +681,18 @@ export class AccumulationDistributionCalculator {
             }
           }
           
-          // No memory cleanup during data loading to prevent data loss
-          // Let Node.js handle memory management naturally
+          // Memory cleanup after batch
+          if (global.gc) {
+            global.gc();
+            const memAfter = process.memoryUsage();
+            const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+            console.log(`📊 Stock batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
+          }
+          
+          // Small delay between batches
+          if (i + STOCK_BATCH_SIZE < stockCodes.length) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
         }
         
         // Check if too many stocks are missing (fail if > 10% missing)

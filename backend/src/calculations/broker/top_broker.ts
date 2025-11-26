@@ -400,14 +400,26 @@ export class TopBrokerCalculator {
       
       for (let i = 0; i < dtFiles.length; i += BATCH_SIZE) {
         const batch = dtFiles.slice(i, i + BATCH_SIZE);
-        console.log(`📦 Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`);
+        const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+        console.log(`📦 Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`);
+        
+        // Memory check before batch
+        if (global.gc) {
+          const memBefore = process.memoryUsage();
+          const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
+          if (heapUsedMB > 10240) { // 10GB threshold
+            console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+            global.gc();
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        }
         
         // Update progress
         if (logId) {
           const { SchedulerLogService } = await import('../../services/schedulerLogService');
           await SchedulerLogService.updateLog(logId, {
             progress_percentage: Math.round(((i + batch.length) / dtFiles.length) * 100),
-            current_processing: `Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`
+            current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`
           });
         }
         
@@ -416,9 +428,12 @@ export class TopBrokerCalculator {
           batch.map(blobName => this.processSingleDtFile(blobName))
         );
         
-        // Force garbage collection after each batch
+        // Memory cleanup after batch
         if (global.gc) {
           global.gc();
+          const memAfter = process.memoryUsage();
+          const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+          console.log(`📊 Batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
         }
         
         // Collect results

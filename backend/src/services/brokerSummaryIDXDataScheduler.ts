@@ -1,4 +1,5 @@
 import { BrokerSummaryIDXCalculator } from '../calculations/broker/broker_summary_IDX';
+import { SchedulerLogService } from './schedulerLogService';
 
 export class BrokerSummaryIDXDataScheduler {
   private calculator: BrokerSummaryIDXCalculator;
@@ -11,9 +12,38 @@ export class BrokerSummaryIDXDataScheduler {
    * Generate IDX.csv for all dates and market types
    * @param _scope 'all' to process all available dates (reserved for future use)
    */
-  async generateBrokerSummaryIDXData(_scope: 'all' = 'all'): Promise<{ success: boolean; message?: string; data?: any }> {
+  async generateBrokerSummaryIDXData(_scope: 'all' = 'all', logId?: string | null, triggeredBy?: string): Promise<{ success: boolean; message?: string; data?: any }> {
+    // Only create log entry if logId is not provided (called from scheduler, not manual trigger)
+    let finalLogId = logId;
+    if (!finalLogId) {
+      const logEntry = await SchedulerLogService.createLog({
+        feature_name: 'broker_summary_idx',
+        trigger_type: triggeredBy ? 'manual' : 'scheduled',
+        triggered_by: triggeredBy || 'system',
+        status: 'running',
+        environment: process.env['NODE_ENV'] || 'development'
+      });
+
+      if (!logEntry) {
+        console.error('❌ Failed to create scheduler log entry');
+        return {
+          success: false,
+          message: 'Failed to create scheduler log entry'
+        };
+      }
+
+      finalLogId = logEntry.id!;
+    }
+
     try {
       console.log('🔄 Generating Broker Summary IDX (aggregated all emiten)...');
+      
+      if (finalLogId) {
+        await SchedulerLogService.updateLog(finalLogId, {
+          progress_percentage: 0,
+          current_processing: 'Starting Broker Summary IDX calculation...'
+        });
+      }
       
       // Get list of all dates from broker_summary folders
       const dates = await this.getAvailableDates();
@@ -35,8 +65,18 @@ export class BrokerSummaryIDXDataScheduler {
       let totalSkipped = 0;
       const results: any = {};
 
-      for (const marketType of marketTypes) {
-        console.log(`\n🔄 Processing ${marketType || 'All Trade'} market...`);
+      for (let idx = 0; idx < marketTypes.length; idx++) {
+        const marketType = marketTypes[idx];
+        console.log(`\n🔄 Processing ${marketType || 'All Trade'} market (${idx + 1}/${marketTypes.length})...`);
+        
+        // Update progress
+        if (finalLogId) {
+          await SchedulerLogService.updateLog(finalLogId, {
+            progress_percentage: Math.round((idx / marketTypes.length) * 100),
+            current_processing: `Processing ${marketType || 'All Trade'} market (${idx + 1}/${marketTypes.length})...`
+          });
+        }
+        
         const batchResult = await this.calculator.generateIDXBatch(dates, marketType);
         results[marketType || 'all'] = batchResult;
         totalSuccess += batchResult.success;
@@ -44,6 +84,14 @@ export class BrokerSummaryIDXDataScheduler {
         totalSkipped += batchResult.skipped || 0;
         
         console.log(`✅ ${marketType || 'All Trade'}: ${batchResult.success} success, ${batchResult.skipped || 0} skipped, ${batchResult.failed} failed`);
+        
+        // Update progress after each market type
+        if (finalLogId) {
+          await SchedulerLogService.updateLog(finalLogId, {
+            progress_percentage: Math.round(((idx + 1) / marketTypes.length) * 100),
+            current_processing: `Completed ${marketType || 'All Trade'} market (${idx + 1}/${marketTypes.length})`
+          });
+        }
       }
 
       const totalProcessed = totalSuccess + totalFailed + totalSkipped;
@@ -52,16 +100,34 @@ export class BrokerSummaryIDXDataScheduler {
       console.log(`⏭️  Total Skipped: ${totalSkipped}/${totalProcessed}`);
       console.log(`❌ Total Failed: ${totalFailed}/${totalProcessed}`);
 
+      const finalSuccess = totalSuccess > 0 || totalSkipped > 0;
+      if (finalLogId) {
+        if (finalSuccess) {
+          await SchedulerLogService.markCompleted(finalLogId, {
+            total_files_processed: totalProcessed,
+            files_created: totalSuccess,
+            files_skipped: totalSkipped,
+            files_failed: totalFailed
+          });
+        } else {
+          await SchedulerLogService.markFailed(finalLogId, `IDX generation failed: ${totalFailed} failed across ${marketTypes.length} market types`);
+        }
+      }
+
       return {
-        success: totalSuccess > 0 || totalSkipped > 0,
+        success: finalSuccess,
         message: `IDX generation completed: ${totalSuccess} success, ${totalSkipped} skipped, ${totalFailed} failed across ${marketTypes.length} market types`,
         data: results
       };
     } catch (error: any) {
       console.error('❌ Broker Summary IDX generation failed:', error?.message || error);
+      const errorMessage = error?.message || 'Unknown error';
+      if (finalLogId) {
+        await SchedulerLogService.markFailed(finalLogId, errorMessage, error);
+      }
       return {
         success: false,
-        message: error?.message || 'Unknown error'
+        message: errorMessage
       };
     }
   }

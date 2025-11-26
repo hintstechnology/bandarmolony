@@ -1,4 +1,5 @@
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
+import { BATCH_SIZE_PHASE_3_5 } from '../../services/dataUpdateService';
 
 // Type definitions, sama seperti broker_summary.ts
 type TransactionType = 'RG' | 'TN' | 'NG';
@@ -271,54 +272,121 @@ export class BrokerDataRGTNNGCalculator {
       const dtFiles = await this.findAllDtFiles();
       if (dtFiles.length === 0) return { success: true, message: `No DT files found - skipped broker data generation` };
       
-      for (const blobName of dtFiles) {
-        // Extract date from blob name first (before loading input)
-        const pathParts = blobName.split('/');
-        const dateFolder = pathParts[1] || 'unknown'; // 20251021
-        const dateSuffix = dateFolder;
+      // Process files in batches
+      const BATCH_SIZE = BATCH_SIZE_PHASE_3_5; // Phase 3-5: 5 files at a time
+      let processed = 0;
+      let successful = 0;
+      let skipped = 0;
+      
+      for (let i = 0; i < dtFiles.length; i += BATCH_SIZE) {
+        const batch = dtFiles.slice(i, i + BATCH_SIZE);
+        const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+        console.log(`📦 Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`);
         
-        // Check if output already exists for this date BEFORE loading input
-        // Check key output files for each type (RG, TN, NG)
-        let shouldSkip = true;
-        
-        for (const type of ['RG', 'TN', 'NG'] as const) {
-          const paths = this.getSummaryPaths(type, dateSuffix);
-          // Check if at least one output file exists for this type and date
-          try {
-            // List files in broker_summary folder for this type and date
-            const summaryPrefix = `${paths.brokerSummary}/`;
-            const summaryFiles = await listPaths({ prefix: summaryPrefix, maxResults: 1 });
-            if (summaryFiles.length === 0) {
-              shouldSkip = false;
-              break; // At least one type is missing, need to process
-            }
-          } catch (error) {
-            // If check fails, continue with processing
-            shouldSkip = false;
-            break;
+        // Memory check before batch
+        if (global.gc) {
+          const memBefore = process.memoryUsage();
+          const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
+          if (heapUsedMB > 10240) { // 10GB threshold
+            console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+            global.gc();
+            await new Promise(resolve => setTimeout(resolve, 100));
           }
         }
         
-        if (shouldSkip) {
-          console.log(`⏭️ Broker data (RG/TN/NG) already exists for date ${dateSuffix} - skipping`);
-          continue;
+        // Process batch in parallel
+        const batchResults = await Promise.allSettled(
+          batch.map(async (blobName) => {
+            try {
+              // Extract date from blob name first (before loading input)
+              const pathParts = blobName.split('/');
+              const dateFolder = pathParts[1] || 'unknown'; // 20251021
+              const dateSuffix = dateFolder;
+              
+              // Check if output already exists for this date BEFORE loading input
+              // Check key output files for each type (RG, TN, NG)
+              let shouldSkip = true;
+              
+              for (const type of ['RG', 'TN', 'NG'] as const) {
+                const paths = this.getSummaryPaths(type, dateSuffix);
+                // Check if at least one output file exists for this type and date
+                try {
+                  // List files in broker_summary folder for this type and date
+                  const summaryPrefix = `${paths.brokerSummary}/`;
+                  const summaryFiles = await listPaths({ prefix: summaryPrefix, maxResults: 1 });
+                  if (summaryFiles.length === 0) {
+                    shouldSkip = false;
+                    break; // At least one type is missing, need to process
+                  }
+                } catch (error) {
+                  // If check fails, continue with processing
+                  shouldSkip = false;
+                  break;
+                }
+              }
+              
+              if (shouldSkip) {
+                console.log(`⏭️ Broker data (RG/TN/NG) already exists for date ${dateSuffix} - skipping`);
+                return { success: true, skipped: true, dateSuffix };
+              }
+              
+              // Only load input if output doesn't exist
+              const result = await this.loadAndProcessSingleDtFile(blobName);
+              if (!result) {
+                return { success: false, skipped: false, dateSuffix };
+              }
+              
+              const { data, dateSuffix: date } = result;
+              
+              for (const type of ['RG', 'TN', 'NG'] as const) {
+                const filtered = this.filterByType(data, type);
+                if (filtered.length === 0) continue;
+                await this.createBrokerSummaryPerEmiten(filtered, date, type);
+              }
+              
+              return { success: true, skipped: false, dateSuffix: date };
+            } catch (error: any) {
+              console.error(`❌ Error processing ${blobName}:`, error.message);
+              return { success: false, skipped: false, error: error.message };
+            }
+          })
+        );
+        
+        // Collect results
+        batchResults.forEach((result) => {
+          if (result.status === 'fulfilled') {
+            processed++;
+            if (result.value.success) {
+              successful++;
+              if (result.value.skipped) {
+                skipped++;
+              }
+            }
+          } else {
+            processed++;
+          }
+        });
+        
+        console.log(`📊 Batch ${batchNumber} complete: ✅ ${successful}/${processed} successful, ⏭️ ${skipped} skipped`);
+        
+        // Memory cleanup after batch
+        if (global.gc) {
+          global.gc();
+          const memAfter = process.memoryUsage();
+          const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+          console.log(`📊 Batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
         }
         
-        // Only load input if output doesn't exist
-        const result = await this.loadAndProcessSingleDtFile(blobName);
-        if (!result) continue;
-        
-        const { data, dateSuffix: date } = result;
-        
-        for (const type of ['RG', 'TN', 'NG'] as const) {
-          const filtered = this.filterByType(data, type);
-          if (filtered.length === 0) continue;
-          await this.createBrokerSummaryPerEmiten(filtered, date, type);
+        // Small delay between batches
+        if (i + BATCH_SIZE < dtFiles.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
-      return { success: true, message: 'Broker RG/TN/NG data generated' };
+      
+      return { success: true, message: `Broker RG/TN/NG data generated: ${successful}/${processed} successful, ${skipped} skipped` };
     } catch (e) {
-      return { success: false, message: (e as Error).message };
+      const error = e as Error;
+      return { success: false, message: error.message };
     }
   }
 
@@ -332,7 +400,7 @@ export class BrokerDataRGTNNGCalculator {
   public async generateBrokerDataForType(type: 'RG' | 'TN' | 'NG'): Promise<{ success: boolean; message: string; data?: any }> {
     try {
       console.log(`🔄 Starting Broker ${type} data generation...`);
-    const dtFiles = await this.findAllDtFiles();
+      const dtFiles = await this.findAllDtFiles();
       console.log(`📊 Found ${dtFiles.length} DT files to process`);
       
       if (dtFiles.length === 0) {
