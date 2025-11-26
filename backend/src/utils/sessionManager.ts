@@ -4,6 +4,7 @@
  */
 
 import { supabaseAdmin } from '../supabaseClient';
+import config from '../config';
 import crypto from 'crypto';
 
 export class SessionManager {
@@ -312,6 +313,26 @@ export class SessionManager {
    */
   static generateTokenHash(token: string): string {
     return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  /**
+   * Get session expiry date based on configured duration
+   * Uses SESSION_DURATION_HOURS from config (default: 168 hours = 7 days)
+   * Set to 0 for never expire (not recommended)
+   */
+  static getSessionExpiry(): Date {
+    const durationHours = config.SESSION_DURATION_HOURS || 168; // Default 7 days
+    
+    if (durationHours === 0) {
+      // Never expire - set to far future (100 years)
+      const farFuture = new Date();
+      farFuture.setFullYear(farFuture.getFullYear() + 100);
+      return farFuture;
+    }
+    
+    // Calculate expiry: now + duration in milliseconds
+    const durationMs = durationHours * 60 * 60 * 1000;
+    return new Date(Date.now() + durationMs);
   }
 
   /**
