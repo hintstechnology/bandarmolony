@@ -88,8 +88,10 @@ jobs:
             MIDTRANS_UNFINISH_REDIRECT_URL="${{ secrets.MIDTRANS_UNFINISH_REDIRECT_URL }}" \
             MIDTRANS_ERROR_REDIRECT_URL="${{ secrets.MIDTRANS_ERROR_REDIRECT_URL }}" \
             FRONTEND_URL="${{ secrets.FRONTEND_URL }}" \
+            BACKEND_URL="${{ secrets.BACKEND_URL }}" \
             CORS_ORIGIN="${{ secrets.CORS_ORIGIN }}" \
             PAYMENT_TIMEOUT_MINUTES="${{ secrets.PAYMENT_TIMEOUT_MINUTES }}" \
+            SESSION_DURATION_HOURS="${{ secrets.SESSION_DURATION_HOURS }}" \
             AZURE_STORAGE_CONNECTION_STRING="${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" \
             AZURE_STORAGE_CONTAINER_NAME="${{ secrets.AZURE_STORAGE_CONTAINER_NAME }}" \
             TICMI_JWT_TOKEN="${{ secrets.TICMI_JWT_TOKEN }}" \
