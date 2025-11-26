@@ -701,9 +701,28 @@ export class BrokerTransactionStockFDRGTNNGCalculator {
         
         console.log(`\n📦 Processing batch ${batchNum}/${totalBatches} (${batch.length} files)...`);
         
+        // Memory check before batch
+        if (global.gc) {
+          const memBefore = process.memoryUsage();
+          const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
+          if (heapUsedMB > 10240) { // 10GB threshold
+            console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+            global.gc();
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        }
+        
         const batchResults = await Promise.allSettled(
           batch.map(blobName => this.processSingleDtFile(blobName))
         );
+        
+        // Memory cleanup after batch
+        if (global.gc) {
+          global.gc();
+          const memAfter = process.memoryUsage();
+          const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+          console.log(`📊 Batch ${batchNum} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
+        }
         
         // Collect results
         for (const result of batchResults) {
@@ -724,6 +743,11 @@ export class BrokerTransactionStockFDRGTNNGCalculator {
         }
         
         console.log(`📊 Batch ${batchNum}/${totalBatches} complete: ${totalProcessed} processed, ${totalSkipped} skipped, ${totalErrors} errors`);
+        
+        // Small delay between batches
+        if (i + BATCH_SIZE_PHASE_6 < dtFiles.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
       }
       
       const message = `Broker Transaction Stock RG/TN/NG x D/F data generated: ${totalProcessed} dates processed, ${totalFilesCreated} files created, ${totalSkipped} skipped, ${totalErrors} errors`;

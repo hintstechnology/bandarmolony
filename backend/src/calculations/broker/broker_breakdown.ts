@@ -667,7 +667,7 @@ export class BrokerBreakdownCalculator {
   /**
    * Main function to generate broker breakdown data for all DT files
    */
-  public async generateBrokerBreakdownData(_dateSuffix: string): Promise<{ success: boolean; message: string; data?: any }> {
+  public async generateBrokerBreakdownData(_dateSuffix: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
     const startTime = Date.now();
     try {
       console.log(`Starting broker breakdown analysis for all DT files...`);
@@ -694,25 +694,53 @@ export class BrokerBreakdownCalculator {
       
       for (let i = 0; i < dtFiles.length; i += BATCH_SIZE) {
         const batch = dtFiles.slice(i, i + BATCH_SIZE);
-        console.log(`📦 Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`);
+        const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+        console.log(`📦 Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`);
+        
+        // Update progress
+        if (logId) {
+          const { SchedulerLogService } = await import('../../services/schedulerLogService');
+          await SchedulerLogService.updateLog(logId, {
+            progress_percentage: Math.round((i / dtFiles.length) * 100),
+            current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} processed)`
+          });
+        }
+        
+        // Memory check before batch
+        if (global.gc) {
+          const memBefore = process.memoryUsage();
+          const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
+          if (heapUsedMB > 10240) { // 10GB threshold
+            console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+            global.gc();
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        }
         
         // Process batch in parallel
         const batchResults = await Promise.allSettled(
           batch.map(blobName => this.processSingleDtFile(blobName))
         );
         
-        // Force garbage collection after each batch
+        // Memory cleanup after batch
         if (global.gc) {
           global.gc();
+          const memAfter = process.memoryUsage();
+          const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+          console.log(`📊 Batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
         }
         
         // Collect results
+        let batchSkipped = 0;
         batchResults.forEach((result, index) => {
           if (result.status === 'fulfilled') {
             allResults.push(result.value);
             processed++;
             if (result.value.success) {
               successful++;
+              if (result.value.skipped) {
+                batchSkipped++;
+              }
             }
           } else {
             console.error(`Error processing ${batch[index]}:`, result.reason);
@@ -720,7 +748,16 @@ export class BrokerBreakdownCalculator {
           }
         });
         
-        console.log(`📊 Batch complete: ${successful}/${processed} successful`);
+        console.log(`📊 Batch ${batchNumber} complete: ✅ ${successful}/${processed} successful, ⏭️ ${batchSkipped} skipped`);
+        
+        // Update progress after batch
+        if (logId) {
+          const { SchedulerLogService } = await import('../../services/schedulerLogService');
+          await SchedulerLogService.updateLog(logId, {
+            progress_percentage: Math.round((processed / dtFiles.length) * 100),
+            current_processing: `Completed batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} processed)`
+          });
+        }
         
         // Small delay between batches
         if (i + BATCH_SIZE < dtFiles.length) {

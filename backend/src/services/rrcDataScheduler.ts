@@ -10,7 +10,7 @@ import {
 } from '../calculations/rrc/rrc_sector';
 import { exists } from '../utils/azureBlob';
 import { SchedulerLogService, SchedulerLog } from './schedulerLogService';
-import { BATCH_SIZE_PHASE_1_2 } from './dataUpdateService';
+import { BATCH_SIZE_PHASE_2 } from './dataUpdateService';
 
 // Global state for tracking generation status
 let isGenerating = false;
@@ -133,12 +133,24 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
     let filesCreated = 0, filesUpdated = 0, filesSkipped = 0, filesFailed = 0;
 
     // Process sectors in BATCHES (parallel) for better performance
-    const BATCH_SIZE = BATCH_SIZE_PHASE_1_2; // Phase 1-2: 250 sectors at a time
+    const BATCH_SIZE = BATCH_SIZE_PHASE_2; // Phase 2: 150 sectors at a time
     console.log(`📦 Processing sectors in batches of ${BATCH_SIZE}...`);
     
     for (let i = 0; i < sectors.length; i += BATCH_SIZE) {
       const batch = sectors.slice(i, i + BATCH_SIZE);
-      console.log(`📦 Processing sector batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(sectors.length / BATCH_SIZE)}: ${batch.join(', ')}`);
+      const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+      console.log(`📦 Processing sector batch ${batchNumber}/${Math.ceil(sectors.length / BATCH_SIZE)}: ${batch.join(', ')}`);
+      
+      // Memory check before batch
+      if (global.gc) {
+        const memBefore = process.memoryUsage();
+        const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
+        if (heapUsedMB > 10240) { // 10GB threshold
+          console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+          global.gc();
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
       
       // Process batch in parallel
       const batchResults = await Promise.allSettled(batch.map(async (sector) => {
@@ -209,9 +221,17 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
         });
       }
       
+      // Memory cleanup after batch
+      if (global.gc) {
+        global.gc();
+        const memAfter = process.memoryUsage();
+        const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+        console.log(`📊 Sector batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
+      }
+      
       // Small delay to give event loop breathing room (keep server responsive)
       if (i + BATCH_SIZE < sectors.length) {
-        await new Promise(resolve => setTimeout(resolve, 25));
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
 
@@ -220,7 +240,19 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
     
     for (let i = 0; i < indexes.length; i += BATCH_SIZE) {
       const batch = indexes.slice(i, i + BATCH_SIZE);
-      console.log(`📦 Processing index batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(indexes.length / BATCH_SIZE)}: ${batch.join(', ')}`);
+      const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+      console.log(`📦 Processing index batch ${batchNumber}/${Math.ceil(indexes.length / BATCH_SIZE)}: ${batch.join(', ')}`);
+      
+      // Memory check before batch
+      if (global.gc) {
+        const memBefore = process.memoryUsage();
+        const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
+        if (heapUsedMB > 10240) { // 10GB threshold
+          console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+          global.gc();
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
       
       // Process batch in parallel
       await Promise.all(batch.map(async (index) => {
@@ -269,14 +301,22 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
         });
       }
       
+      // Memory cleanup after batch
+      if (global.gc) {
+        global.gc();
+        const memAfter = process.memoryUsage();
+        const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+        console.log(`📊 Index batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
+      }
+      
       // Small delay to give event loop breathing room
       if (i + BATCH_SIZE < indexes.length) {
-        await new Promise(resolve => setTimeout(resolve, 25));
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
 
     // Process ALL individual stocks from each sector in BATCHES (parallel)
-    const STOCK_BATCH_SIZE = BATCH_SIZE_PHASE_1_2; // Phase 1-2: 250 stocks at a time
+    const STOCK_BATCH_SIZE = BATCH_SIZE_PHASE_2; // Phase 2: 150 stocks at a time
     console.log(`📦 Processing stocks in batches of ${STOCK_BATCH_SIZE}...`);
     
     for (const sector of sectors) {
@@ -288,7 +328,19 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
         // Process stocks in batches
         for (let i = 0; i < stocks.length; i += STOCK_BATCH_SIZE) {
           const batch = stocks.slice(i, i + STOCK_BATCH_SIZE);
-          console.log(`📦 Processing stock batch ${Math.floor(i / STOCK_BATCH_SIZE) + 1}/${Math.ceil(stocks.length / STOCK_BATCH_SIZE)} from ${sector}: ${batch.join(', ')}`);
+          const batchNumber = Math.floor(i / STOCK_BATCH_SIZE) + 1;
+          console.log(`📦 Processing stock batch ${batchNumber}/${Math.ceil(stocks.length / STOCK_BATCH_SIZE)} from ${sector}: ${batch.join(', ')}`);
+          
+          // Memory check before batch
+          if (global.gc) {
+            const memBefore = process.memoryUsage();
+            const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
+            if (heapUsedMB > 10240) { // 10GB threshold
+              console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+              global.gc();
+              await new Promise(resolve => setTimeout(resolve, 100));
+            }
+          }
           
           // Process batch in parallel
           await Promise.all(batch.map(async (stock) => {
@@ -337,14 +389,22 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
             });
           }
           
+          // Memory cleanup after batch
+          if (global.gc) {
+            global.gc();
+            const memAfter = process.memoryUsage();
+            const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+            console.log(`📊 Stock batch ${batchNumber} from ${sector} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
+          }
+          
           // Small delay to give event loop breathing room (CRITICAL for server responsiveness)
           if (i + STOCK_BATCH_SIZE < stocks.length) {
-            await new Promise(resolve => setTimeout(resolve, 10)); // 10ms delay for stocks (reduced for speed)
+            await new Promise(resolve => setTimeout(resolve, 100));
           }
         }
         
         // Delay between sectors untuk kasih breathing room lebih
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await new Promise(resolve => setTimeout(resolve, 100));
         
       } catch (error) {
         console.error(`❌ Error getting stocks from sector ${sector}:`, error);

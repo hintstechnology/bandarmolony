@@ -12,7 +12,9 @@ const RETRY_ATTEMPTS = 3;
 const RETRY_DELAY = 1000;
 
 // Memory Management - Batch sizes per phase
+const BATCH_SIZE_PHASE_1_STOCK = 400; // Phase 1 Stock: 400
 const BATCH_SIZE_PHASE_1_2 = 250; // Phase 1-2: 250
+const BATCH_SIZE_PHASE_2 = 150; // Phase 2: 150
 const BATCH_SIZE_PHASE_3_5 = 5;   // Phase 3-5: 5
 const BATCH_SIZE_PHASE_6 = 1;     // Phase 6: 1
 const MEMORY_CLEANUP_INTERVAL = 100;
@@ -386,7 +388,9 @@ export {
   removeDuplicates,
   convertToCsv,
   parseCsvString,
+  BATCH_SIZE_PHASE_1_STOCK,
   BATCH_SIZE_PHASE_1_2,
+  BATCH_SIZE_PHASE_2,
   BATCH_SIZE_PHASE_3_5,
   BATCH_SIZE_PHASE_6,
   MAX_CONCURRENT_REQUESTS

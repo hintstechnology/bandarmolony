@@ -14,7 +14,7 @@ import { generateRrgStockScanner } from '../calculations/rrg/rrg_scanner_stock';
 import { generateRrgSectorScanner } from '../calculations/rrg/rrg_scanner_sector';
 import { exists } from '../utils/azureBlob';
 import { SchedulerLogService } from './schedulerLogService';
-import { BATCH_SIZE_PHASE_1_2 } from './dataUpdateService';
+import { BATCH_SIZE_PHASE_2 } from './dataUpdateService';
 
 let isGenerating = false;
 let lastGenerationTime: Date | null = null;
@@ -121,12 +121,24 @@ export async function preGenerateAllRRG(forceOverride: boolean = false, triggerT
     let filesCreated = 0, filesUpdated = 0, filesSkipped = 0, filesFailed = 0;
 
     // Process stocks in BATCHES (parallel) for better performance
-    const STOCK_BATCH_SIZE = BATCH_SIZE_PHASE_1_2; // Phase 1-2: 250 stocks at a time
+    const STOCK_BATCH_SIZE = BATCH_SIZE_PHASE_2; // Phase 2: 150 stocks at a time
     console.log(`📦 Processing ${stocks.length} stocks in batches of ${STOCK_BATCH_SIZE}...`);
     
     for (let i = 0; i < stocks.length; i += STOCK_BATCH_SIZE) {
       const batch = stocks.slice(i, i + STOCK_BATCH_SIZE);
-      console.log(`📦 Processing stock batch ${Math.floor(i / STOCK_BATCH_SIZE) + 1}/${Math.ceil(stocks.length / STOCK_BATCH_SIZE)}: ${batch.join(', ')}`);
+      const batchNumber = Math.floor(i / STOCK_BATCH_SIZE) + 1;
+      console.log(`📦 Processing stock batch ${batchNumber}/${Math.ceil(stocks.length / STOCK_BATCH_SIZE)}: ${batch.join(', ')}`);
+      
+      // Memory check before batch
+      if (global.gc) {
+        const memBefore = process.memoryUsage();
+        const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
+        if (heapUsedMB > 10240) { // 10GB threshold
+          console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+          global.gc();
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
       
       // Process batch in parallel
       await Promise.all(batch.map(async (stock) => {
@@ -174,9 +186,17 @@ export async function preGenerateAllRRG(forceOverride: boolean = false, triggerT
         });
       }
       
+      // Memory cleanup after batch
+      if (global.gc) {
+        global.gc();
+        const memAfter = process.memoryUsage();
+        const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+        console.log(`📊 Stock batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
+      }
+      
       // Small delay for event loop breathing room
       if (i + STOCK_BATCH_SIZE < stocks.length) {
-        await new Promise(resolve => setTimeout(resolve, 10));
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
 

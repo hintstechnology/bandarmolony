@@ -244,7 +244,7 @@ async function processShareholdersEmiten(
 }
 
 // Main update function
-export async function updateShareholdersData(logId?: string | null): Promise<void> {
+export async function updateShareholdersData(logId?: string | null, triggeredBy?: string): Promise<void> {
   // Weekend skip temporarily disabled for testing
   // const today = new Date();
   // const dayOfWeek = today.getDay();
@@ -258,8 +258,8 @@ export async function updateShareholdersData(logId?: string | null): Promise<voi
   if (!finalLogId) {
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'shareholders',
-      trigger_type: 'scheduled',
-      triggered_by: 'system',
+      trigger_type: triggeredBy ? 'manual' : 'scheduled',
+      triggered_by: triggeredBy || 'system',
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
