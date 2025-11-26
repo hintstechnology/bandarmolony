@@ -45,7 +45,7 @@ export class BrokerTransactionStockDataScheduler {
         });
       }
       
-      const result = await this.calculator.generateBrokerTransactionData(targetDate);
+      const result = await this.calculator.generateBrokerTransactionData(targetDate, finalLogId);
       
       if (result.success) {
         console.log('✅ Broker Transaction Stock calculation completed successfully');

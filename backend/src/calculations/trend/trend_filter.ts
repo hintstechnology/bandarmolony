@@ -228,6 +228,20 @@ export class TrendFilterCalculator {
     return emitenMap;
   }
 
+  private async limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
+    const results: T[] = [];
+    for (let i = 0; i < promises.length; i += maxConcurrency) {
+      const batch = promises.slice(i, i + maxConcurrency);
+      const batchResults = await Promise.allSettled(batch);
+      batchResults.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          results.push(result.value);
+        }
+      });
+    }
+    return results;
+  }
+
   private calculateTrend(data: StockData[], periodDays: number): { trend: string; changePct: number; latestPrice: number } | null {
     if (data.length < periodDays) {
       return null;
@@ -320,7 +334,7 @@ export class TrendFilterCalculator {
     };
   }
 
-  private async generateTrendAnalysis(timePeriods: string[] = ['3D', '5D', '2W', '1M']): Promise<TrendResults> {
+  private async generateTrendAnalysis(timePeriods: string[] = ['3D', '5D', '2W', '1M'], logId?: string | null): Promise<TrendResults> {
     // Define period mappings
     const periodMapping: { [key: string]: number } = {
       '3D': 3,
@@ -353,10 +367,19 @@ export class TrendFilterCalculator {
       console.log(`⏰ Analyzing ${period} period (${periodDays} days)...`);
 
       // Process stocks in batches
-      const BATCH_SIZE = 150; // Phase 2: 150 stocks at a time
+      const BATCH_SIZE = 500; // Phase 2: 500 stocks at a time
       for (let i = 0; i < allStocks.length; i += BATCH_SIZE) {
         const batch = allStocks.slice(i, i + BATCH_SIZE);
         const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+        
+        // Update progress
+        if (logId) {
+          const { SchedulerLogService } = await import('../../services/schedulerLogService');
+          await SchedulerLogService.updateLog(logId, {
+            progress_percentage: Math.round((i / allStocks.length) * 100),
+            current_processing: `Processing ${period} period - batch ${batchNumber}/${Math.ceil(allStocks.length / BATCH_SIZE)} (${processedCount}/${allStocks.length} stocks)`
+          });
+        }
         
         // Memory check before batch
         if (global.gc) {
@@ -406,11 +429,21 @@ export class TrendFilterCalculator {
           }
         });
 
-        const batchResults = await Promise.all(batchPromises);
+        // Limit concurrency to 250 for Phase 2
+        const batchResults = await this.limitConcurrency(batchPromises, 250);
         const validResults = batchResults.filter((result): result is TrendData => result !== null);
         stocksData.push(...validResults);
 
         console.log(`📊 Processed batch ${batchNumber}/${Math.ceil(allStocks.length / BATCH_SIZE)} for ${period} - Valid: ${validResults.length}/${batch.length}`);
+        
+        // Update progress after batch
+        if (logId) {
+          const { SchedulerLogService } = await import('../../services/schedulerLogService');
+          await SchedulerLogService.updateLog(logId, {
+            progress_percentage: Math.round((processedCount / allStocks.length) * 100),
+            current_processing: `Completed ${period} period - batch ${batchNumber}/${Math.ceil(allStocks.length / BATCH_SIZE)} (${processedCount}/${allStocks.length} stocks)`
+          });
+        }
         
         // Memory cleanup after batch
         if (global.gc) {
@@ -562,13 +595,13 @@ export class TrendFilterCalculator {
     });
   }
 
-  public async generateTrendFilterData(): Promise<void> {
+  public async generateTrendFilterData(logId?: string | null): Promise<void> {
     try {
       console.log('🔄 Starting trend filter analysis...');
       console.log('⚠️ Note: This will regenerate all trend data to ensure consistency');
       
       const timePeriods = ['3D', '5D', '2W', '1M'];
-      const results = await this.generateTrendAnalysis(timePeriods);
+      const results = await this.generateTrendAnalysis(timePeriods, logId);
       
       console.log('💾 Saving to Azure...');
       await this.saveToCSV(results);

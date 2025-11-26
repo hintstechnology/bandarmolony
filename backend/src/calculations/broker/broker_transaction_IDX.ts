@@ -1,4 +1,20 @@
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
+import { MAX_CONCURRENT_REQUESTS_PHASE_5_6 } from '../../services/dataUpdateService';
+
+// Helper function to limit concurrency for Phase 5-6
+async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
+  const results: T[] = [];
+  for (let i = 0; i < promises.length; i += maxConcurrency) {
+    const batch = promises.slice(i, i + maxConcurrency);
+    const batchResults = await Promise.allSettled(batch);
+    batchResults.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        results.push(result.value);
+      }
+    });
+  }
+  return results;
+}
 
 // Type definitions - same as broker_transaction.ts
 interface BrokerTransactionData {
@@ -342,7 +358,8 @@ export class BrokerTransactionIDXCalculator {
       console.log(`📊 Found ${brokerFiles.length} broker CSV files`);
 
       // Batch processing configuration
-      const BATCH_SIZE = 50; // Process 50 broker files at a time to manage memory
+      const BATCH_SIZE = 50; // Phase 5: 50 broker files at a time
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_5_6; // Phase 5: 25 concurrent
 
       // Read and parse all broker CSV files in batches
       const allBrokerData: BrokerTransactionData[] = [];
@@ -354,9 +371,8 @@ export class BrokerTransactionIDXCalculator {
         
         console.log(`📦 Processing broker batch ${batchNum}/${totalBatches} (${batch.length} files)...`);
         
-        // Process batch in parallel
-        const batchResults = await Promise.allSettled(
-          batch.map(async (file) => {
+        // Process batch in parallel with concurrency limit 25
+        const batchPromises = batch.map(async (file) => {
             try {
               const csvContent = await downloadText(file);
               const brokerData = this.parseCSV(csvContent);
@@ -367,14 +383,14 @@ export class BrokerTransactionIDXCalculator {
               console.warn(`  ⚠️ Failed to process ${brokerCode}: ${error.message}`);
               return { brokerCode, brokerData: [], success: false };
             }
-          })
-        );
+          });
+        const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT);
         
         // Collect results from batch (aggregate all emiten from all brokers)
-        batchResults.forEach((result) => {
-          if (result.status === 'fulfilled' && result.value.success) {
-            allBrokerData.push(...result.value.brokerData);
-            console.log(`  ✓ Processed ${result.value.brokerCode}: ${result.value.brokerData.length} emiten`);
+        batchResults.forEach((result: any) => {
+          if (result && result.success) {
+            allBrokerData.push(...result.brokerData);
+            console.log(`  ✓ Processed ${result.brokerCode}: ${result.brokerData.length} emiten`);
           }
         });
         

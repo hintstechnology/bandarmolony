@@ -46,7 +46,7 @@ export class MoneyFlowDataScheduler {
       }
       
       // Money flow calculator processes specific date or all files
-      const result = await this.calculator.generateMoneyFlowData(targetDate);
+      const result = await this.calculator.generateMoneyFlowData(targetDate, finalLogId);
       
       if (result.success) {
         console.log('✅ Money Flow calculation completed successfully');

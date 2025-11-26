@@ -1,5 +1,20 @@
-import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
-import { BATCH_SIZE_PHASE_6 } from '../../services/dataUpdateService';
+import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
+import { BATCH_SIZE_PHASE_5_6, MAX_CONCURRENT_REQUESTS_PHASE_5_6 } from '../../services/dataUpdateService';
+
+// Helper function to limit concurrency for Phase 5-6
+async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
+  const results: T[] = [];
+  for (let i = 0; i < promises.length; i += maxConcurrency) {
+    const batch = promises.slice(i, i + maxConcurrency);
+    const batchResults = await Promise.allSettled(batch);
+    batchResults.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        results.push(result.value);
+      }
+    });
+  }
+  return results;
+}
 
 // Type definitions
 interface TransactionData {
@@ -400,26 +415,12 @@ export class BrokerTransactionStockFDCalculator {
     console.log(`Found ${uniqueStocks.length} unique stocks`);
     
     const createdFiles: string[] = [];
-    const skippedFiles: string[] = [];
     
     for (const stock of uniqueStocks) {
       // Process for both D (Domestik) and F (Foreign)
       for (const invType of ['D', 'F'] as const) {
         const folderPrefix = invType === 'D' ? 'd' : 'f';
         const filename = `broker_transaction_stock/broker_transaction_stock_${folderPrefix}_${dateSuffix}/${stock}.csv`;
-        
-        // OPTIMIZATION: Check if file already exists - skip if exists
-        try {
-          const fileExists = await exists(filename);
-          if (fileExists) {
-            console.log(`⏭️ Skipping ${filename} - file already exists`);
-            skippedFiles.push(filename);
-            continue;
-          }
-        } catch (error: any) {
-          // If check fails, continue with generation (might be folder not found yet)
-          console.log(`ℹ️ Could not check existence of ${filename}, proceeding with generation`);
-        }
         
         console.log(`Processing stock: ${stock} (${invType === 'D' ? 'Domestik' : 'Foreign'})`);
         
@@ -623,10 +624,6 @@ export class BrokerTransactionStockFDCalculator {
       }
     }
     
-    if (skippedFiles.length > 0) {
-      console.log(`⏭️ Skipped ${skippedFiles.length} broker transaction stock files that already exist`);
-    }
-    
     console.log(`Created ${createdFiles.length} broker transaction stock files`);
     return createdFiles;
   }
@@ -710,7 +707,7 @@ export class BrokerTransactionStockFDCalculator {
   /**
    * Main function to generate broker transaction data for all DT files (D/F split, pivoted by stock)
    */
-  public async generateBrokerTransactionData(_dateSuffix: string): Promise<{ success: boolean; message: string; data?: any }> {
+  public async generateBrokerTransactionData(_dateSuffix: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
     const startTime = Date.now();
     try {
       console.log(`Starting broker transaction stock data analysis (D/F split, pivoted by stock) for all DT files...`);
@@ -729,8 +726,9 @@ export class BrokerTransactionStockFDCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
-      // Process files in batches for speed (1 file at a time to prevent OOM)
-      const BATCH_SIZE = BATCH_SIZE_PHASE_6; // Phase 6: 1 file at a time
+      // Process files in batches (Phase 6: 50 files at a time)
+      const BATCH_SIZE = BATCH_SIZE_PHASE_5_6; // Phase 6: 50 files
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_5_6; // Phase 6: 25 concurrent
       const allResults: { success: boolean; dateSuffix: string; files: string[]; timing?: any }[] = [];
       let processed = 0;
       let successful = 0;
@@ -739,6 +737,15 @@ export class BrokerTransactionStockFDCalculator {
         const batch = dtFiles.slice(i, i + BATCH_SIZE);
         const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
         console.log(`📦 Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`);
+        
+        // Update progress
+        if (logId) {
+          const { SchedulerLogService } = await import('../../services/schedulerLogService');
+          await SchedulerLogService.updateLog(logId, {
+            progress_percentage: Math.round((i / dtFiles.length) * 100),
+            current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} processed)`
+          });
+        }
         
         // Memory check before batch
         if (global.gc) {
@@ -751,10 +758,9 @@ export class BrokerTransactionStockFDCalculator {
           }
         }
         
-        // Process batch in parallel
-        const batchResults = await Promise.allSettled(
-          batch.map(blobName => this.processSingleDtFile(blobName))
-        );
+        // Process batch in parallel with concurrency limit 25
+        const batchPromises = batch.map(blobName => this.processSingleDtFile(blobName));
+        const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT);
         
         // Memory cleanup after batch
         if (global.gc) {
@@ -765,20 +771,26 @@ export class BrokerTransactionStockFDCalculator {
         }
         
         // Collect results
-        batchResults.forEach((result, index) => {
-          if (result.status === 'fulfilled') {
-            allResults.push(result.value);
+        batchResults.forEach((result) => {
+          if (result && result.success !== undefined) {
+            allResults.push(result);
             processed++;
-            if (result.value.success) {
+            if (result.success) {
               successful++;
             }
-          } else {
-            console.error(`Error processing ${batch[index]}:`, result.reason);
-            processed++;
           }
         });
         
         console.log(`📊 Batch ${batchNumber} complete: ✅ ${successful}/${processed} successful`);
+        
+        // Update progress after batch
+        if (logId) {
+          const { SchedulerLogService } = await import('../../services/schedulerLogService');
+          await SchedulerLogService.updateLog(logId, {
+            progress_percentage: Math.round((processed / dtFiles.length) * 100),
+            current_processing: `Completed batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} processed)`
+          });
+        }
         
         // Small delay between batches
         if (i + BATCH_SIZE < dtFiles.length) {

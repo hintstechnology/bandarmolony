@@ -45,7 +45,7 @@ export class BrokerTransactionFDRGTNNGDataScheduler {
         });
       }
       
-      const result = await this.calculator.generateBrokerTransactionData(targetDate);
+      const result = await this.calculator.generateBrokerTransactionData(targetDate, finalLogId);
       
       if (result.success) {
         console.log('✅ Broker Transaction F/D RG/TN/NG calculation completed successfully');

@@ -6,17 +6,27 @@ import { BlobServiceClient, StorageSharedKeyCredential } from '@azure/storage-bl
 // Removed unused imports
 
 // Connection Pool Configuration
-const MAX_CONCURRENT_REQUESTS = 10;
+const MAX_CONCURRENT_REQUESTS = 250;
 const REQUEST_TIMEOUT = 30000;
 const RETRY_ATTEMPTS = 3;
 const RETRY_DELAY = 1000;
 
 // Memory Management - Batch sizes per phase
-const BATCH_SIZE_PHASE_1_STOCK = 400; // Phase 1 Stock: 400
-const BATCH_SIZE_PHASE_1_2 = 250; // Phase 1-2: 250
-const BATCH_SIZE_PHASE_2 = 150; // Phase 2: 150
-const BATCH_SIZE_PHASE_3_5 = 5;   // Phase 3-5: 5
-const BATCH_SIZE_PHASE_6 = 1;     // Phase 6: 1
+const BATCH_SIZE_PHASE_1_STOCK = 500; // Phase 1 Stock: 500
+const BATCH_SIZE_PHASE_1_INDEX = 44; // Phase 1 Index: 44
+const BATCH_SIZE_PHASE_1_2 = 500; // Phase 1-2: 500 (Shareholders, Holding)
+const BATCH_SIZE_PHASE_2 = 500; // Phase 2: 500
+const MAX_CONCURRENT_REQUESTS_INDEX = 44; // Index Data: 44 concurrent
+const BATCH_SIZE_PHASE_3 = 50;   // Phase 3: 50
+const MAX_CONCURRENT_REQUESTS_PHASE_3 = 25; // Phase 3: 25 concurrent
+const BATCH_SIZE_PHASE_4 = 50;   // Phase 4: 50
+const MAX_CONCURRENT_REQUESTS_PHASE_4 = 25; // Phase 4: 25 concurrent
+const BATCH_SIZE_PHASE_5_6 = 50;   // Phase 5-6: 50
+const MAX_CONCURRENT_REQUESTS_PHASE_5_6 = 25; // Phase 5-6: 25 concurrent
+const BATCH_SIZE_PHASE_7_8 = 50;   // Phase 7-8: 50
+const MAX_CONCURRENT_REQUESTS_PHASE_7_8 = 25; // Phase 7-8: 25 concurrent
+const BATCH_SIZE_PHASE_3_5 = 5;   // Phase 3-5: 5 (deprecated, use BATCH_SIZE_PHASE_5_6)
+const BATCH_SIZE_PHASE_6 = 50;     // Phase 6: 50 (updated from 1)
 const MEMORY_CLEANUP_INTERVAL = 100;
 
 // Azure Storage Service with Connection Pooling
@@ -218,7 +228,7 @@ class ParallelProcessor {
     return results;
   }
   
-  private static async limitConcurrency<T>(
+  static async limitConcurrency<T>(
     promises: Promise<T>[],
     maxConcurrency: number
   ): Promise<T[]> {
@@ -389,9 +399,19 @@ export {
   convertToCsv,
   parseCsvString,
   BATCH_SIZE_PHASE_1_STOCK,
+  BATCH_SIZE_PHASE_1_INDEX,
   BATCH_SIZE_PHASE_1_2,
   BATCH_SIZE_PHASE_2,
+  BATCH_SIZE_PHASE_3,
+  MAX_CONCURRENT_REQUESTS_PHASE_3,
+  BATCH_SIZE_PHASE_4,
+  MAX_CONCURRENT_REQUESTS_PHASE_4,
+  BATCH_SIZE_PHASE_5_6,
+  MAX_CONCURRENT_REQUESTS_PHASE_5_6,
+  BATCH_SIZE_PHASE_7_8,
+  MAX_CONCURRENT_REQUESTS_PHASE_7_8,
   BATCH_SIZE_PHASE_3_5,
   BATCH_SIZE_PHASE_6,
+  MAX_CONCURRENT_REQUESTS_INDEX,
   MAX_CONCURRENT_REQUESTS
 };

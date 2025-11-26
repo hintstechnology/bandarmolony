@@ -6,6 +6,21 @@
 
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
 
+// Helper function to limit concurrency for Phase 2
+async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
+  const results: T[] = [];
+  for (let i = 0; i < promises.length; i += maxConcurrency) {
+    const batch = promises.slice(i, i + maxConcurrency);
+    const batchResults = await Promise.allSettled(batch);
+    batchResults.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        results.push(result.value);
+      }
+    });
+  }
+  return results;
+}
+
 interface StockData {
   Date: string;
   Open: number;
@@ -284,7 +299,7 @@ export async function generateAllStocksSeasonality(): Promise<SeasonalityResults
   console.log(`📊 Unique stocks after deduplication: ${uniqueStocks.size} (from ${allStocks.length} total)`);
   
   // Process stocks in batches for better performance
-  const BATCH_SIZE = 150; // Phase 2: 150 stocks at a time
+  const BATCH_SIZE = 500; // Phase 2: 500 stocks at a time
   const uniqueStocksArray = Array.from(uniqueStocks.values());
   
   for (let i = 0; i < uniqueStocksArray.length; i += BATCH_SIZE) {
@@ -303,22 +318,22 @@ export async function generateAllStocksSeasonality(): Promise<SeasonalityResults
       }
     }
     
-    const batchResults = await Promise.allSettled(
-      batch.map(async (stock) => {
-        try {
-          console.log(`Processing ${uniqueStocksArray.indexOf(stock) + 1}/${uniqueStocksArray.length}: ${stock.ticker} (${stock.sector})`);
-          return await generateStockSeasonalityData(stock.sector, stock.ticker);
-        } catch (error) {
-          console.warn(`⚠️ Warning: Could not process ${stock.ticker}: ${error}`);
-          return null;
-        }
-      })
-    );
+    // Limit concurrency to 250 for Phase 2
+    const batchPromises = batch.map(async (stock) => {
+      try {
+        console.log(`Processing ${uniqueStocksArray.indexOf(stock) + 1}/${uniqueStocksArray.length}: ${stock.ticker} (${stock.sector})`);
+        return await generateStockSeasonalityData(stock.sector, stock.ticker);
+      } catch (error) {
+        console.warn(`⚠️ Warning: Could not process ${stock.ticker}: ${error}`);
+        return null;
+      }
+    });
+    const batchResults = await limitConcurrency(batchPromises, 250);
     
     // Add successful results
     batchResults.forEach(result => {
-      if (result.status === 'fulfilled' && result.value) {
-        stocksData.push(result.value);
+      if (result) {
+        stocksData.push(result);
       }
     });
     

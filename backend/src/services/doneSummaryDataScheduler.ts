@@ -161,7 +161,6 @@ export async function updateDoneSummaryData(logId?: string | null, triggeredBy?:
     
     const azureStorage = new AzureStorageService();
     await azureStorage.ensureContainerExists();
-    console.log('ℹ️ Azure Storage initialized');
 
     // Download GCS credentials from Azure
     const credentialsBlobName = 'csv_input/cred-bucket-ferry.json';
@@ -186,7 +185,6 @@ export async function updateDoneSummaryData(logId?: string | null, triggeredBy?:
     }
     
     const gcsStorage = new GoogleCloudStorageService(gcsCredentials);
-    console.log('ℹ️ GCS Storage initialized with credentials from Azure');
 
     // List all files in GCS and check which ones don't exist in Azure
     console.log('ℹ️ Listing all files in GCS...');
@@ -265,7 +263,7 @@ export async function updateDoneSummaryData(logId?: string | null, triggeredBy?:
         : `done-summary/${gcsFileName}`; // fallback: mirror structure under done-summary/
       
       try {
-        if ((i + 1) % 5 === 0 || i === 0) {
+        if ((i + 1) % 50 === 0 || i === 0) {
           const percentage = Math.round(((i + 1) / filesToProcess.length) * 100);
           console.log(`📊 Done Summary progress - ${i + 1}/${filesToProcess.length} (${percentage}%) - Syncing ${gcsFileName}`);
           if (finalLogId) {

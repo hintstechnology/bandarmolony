@@ -91,7 +91,29 @@ export async function updateWatchlistSnapshot(logId?: string | null, triggeredBy
 
     console.log(`📊 Watchlist Snapshot: generating data for ${tickers.length} tickers`);
     const emitenDetails = await calculator.loadEmitenDetailsFromAzure();
-    const data = await calculator.getWatchlistData(tickers, { stockLookup, emitenDetails });
+    
+    // Process in batches with progress tracking
+    const BATCH_SIZE = 500;
+    const allData: any[] = [];
+    for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
+      const batch = tickers.slice(i, i + BATCH_SIZE);
+      const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+      
+      // Update progress
+      if (finalLogId) {
+        await SchedulerLogService.updateLog(finalLogId, {
+          progress_percentage: 50 + Math.round((i / tickers.length) * 50), // Second 50% for processing
+          current_processing: `Processing batch ${batchNumber}/${Math.ceil(tickers.length / BATCH_SIZE)} (${i + batch.length}/${tickers.length} tickers)`
+        });
+      }
+      
+      const batchData = await calculator.getWatchlistData(batch, { stockLookup, emitenDetails });
+      allData.push(...batchData);
+      
+      console.log(`📊 Processed batch ${batchNumber}/${Math.ceil(tickers.length / BATCH_SIZE)} - ${batchData.length} valid tickers`);
+    }
+    
+    const data = allData;
     const csvContent = buildCsvContent(data);
 
     await uploadText(SNAPSHOT_BLOB_PATH, csvContent, 'text/csv');
