@@ -384,53 +384,9 @@ export class BrokerDataRGTNNGCalculator {
       }
       
       return { success: true, message: `Broker RG/TN/NG data generated: ${successful}/${processed} successful, ${skipped} skipped` };
-        // Extract date from blob name first (before loading input)
-        const pathParts = blobName.split('/');
-        const dateFolder = pathParts[1] || 'unknown'; // 20251021
-        const dateSuffix = dateFolder;
-        
-        // Check if output already exists for this date BEFORE loading input
-        // Check key output files for each type (RG, TN, NG)
-        let shouldSkip = true;
-        
-        for (const type of ['RG', 'TN', 'NG'] as const) {
-          const paths = this.getSummaryPaths(type, dateSuffix);
-          // Check if at least one output file exists for this type and date
-          try {
-            // List files in broker_summary folder for this type and date
-            const summaryPrefix = `${paths.brokerSummary}/`;
-            const summaryFiles = await listPaths({ prefix: summaryPrefix, maxResults: 1 });
-            if (summaryFiles.length === 0) {
-              shouldSkip = false;
-              break; // At least one type is missing, need to process
-            }
-          } catch (error) {
-            // If check fails, continue with processing
-            shouldSkip = false;
-            break;
-          }
-        }
-        
-        if (shouldSkip) {
-          console.log(`⏭️ Broker data (RG/TN/NG) already exists for date ${dateSuffix} - skipping`);
-          continue;
-        }
-        
-        // Only load input if output doesn't exist
-        const result = await this.loadAndProcessSingleDtFile(blobName);
-        if (!result) continue;
-        
-        const { data, dateSuffix: date } = result;
-        
-        for (const type of ['RG', 'TN', 'NG'] as const) {
-          const filtered = this.filterByType(data, type);
-          if (filtered.length === 0) continue;
-          await this.createBrokerSummaryPerEmiten(filtered, date, type);
-        }
-      }
-      return { success: true, message: 'Broker RG/TN/NG data generated' };
     } catch (e) {
-      return { success: false, message: (e as Error).message };
+      const error = e as Error;
+      return { success: false, message: error.message };
     }
   }
 
@@ -444,7 +400,7 @@ export class BrokerDataRGTNNGCalculator {
   public async generateBrokerDataForType(type: 'RG' | 'TN' | 'NG'): Promise<{ success: boolean; message: string; data?: any }> {
     try {
       console.log(`🔄 Starting Broker ${type} data generation...`);
-    const dtFiles = await this.findAllDtFiles();
+      const dtFiles = await this.findAllDtFiles();
       console.log(`📊 Found ${dtFiles.length} DT files to process`);
       
       if (dtFiles.length === 0) {

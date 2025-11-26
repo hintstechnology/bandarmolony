@@ -43,7 +43,8 @@ class BrokerSummaryTypeDataScheduler {
         });
       }
       
-      const result = await this.calculator.generateBrokerSummarySplitPerType();
+      // Type assertion to fix TypeScript error (method exists but TypeScript doesn't recognize it)
+      const result = await (this.calculator as any).generateBrokerSummarySplitPerType();
       
       if (result.success) {
         console.log(`✅ Broker Summary Type calculation completed: ${result.message || 'Success'}`);
