@@ -44,17 +44,11 @@ const app = express();
 app.use(securityHeaders);
 app.use(sanitizeInput);
 
-// CORS configuration using environment variables
+// CORS configuration - semua dari .env (CORS_ORIGIN)
+// Tidak ada hardcode, semua konfigurasi hanya dari .env
 const allowedOrigins = config.CORS_ORIGIN
   ? config.CORS_ORIGIN.split(',').map(origin => origin.trim()).filter(Boolean)
-  : [
-      'http://localhost:3000',
-      'http://localhost:5173',
-      'https://bandarmolony.com',
-      'https://www.bandarmolony.com',
-      'https://dev.bandarmolony.com',
-      'https://bandarmolony-frontend.proudforest-3316dee8.eastus.azurecontainerapps.io',
-    ];
+  : []; // Jika CORS_ORIGIN tidak di-set, tidak ada origin yang di-allow (user harus set di .env)
 
 // CORS configuration - allow webhooks from Midtrans (server-to-server requests have no origin)
 app.use(cors({ 
@@ -155,9 +149,10 @@ process.on('uncaughtException', (error: Error) => {
   console.warn('⚠️ Continuing execution despite uncaught exception...');
 });
 
-const PORT = config.PORT;
-app.listen(PORT, async () => {
-  console.log(`Backend listening on port ${PORT}`);
+const PORT = parseInt(config.PORT) || 3001;
+const HOST = process.env['HOST'] || '0.0.0.0'; // Listen on all interfaces to allow access from public IP
+app.listen(PORT, HOST, async () => {
+  console.log(`Backend listening on ${HOST}:${PORT}`);
   console.log(`Environment used: ${config.NODE_ENV}`);
   console.log(`Frontend URL: ${config.FRONTEND_URL}`);
   console.log(`CORS Origin: ${config.CORS_ORIGIN}`);

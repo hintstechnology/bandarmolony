@@ -50,10 +50,12 @@ export async function requireSupabaseUser(req: any, res: any, next: any) {
       }
       
       // Fresh user - create/update session with current token
+      // Use configured session duration from config
+      const expiresAt = SessionManager.getSessionExpiry();
       await SessionManager.createOrUpdateSession(
         user.id,
         tokenHash,
-        new Date(Date.now() + 3600000), // 1 hour
+        expiresAt,
         req.ip || req.connection.remoteAddress || 'Unknown',
         req.headers['user-agent'] || 'Unknown'
       );
