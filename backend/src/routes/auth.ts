@@ -358,8 +358,9 @@ router.post('/login', async (req, res) => {
     console.log(`✅ Login successful: ${data.user.email}`);
 
     // Track session in user_sessions table
-    if (data.session?.access_token && data.session?.expires_at) {
-      const expiresAt = new Date(data.session.expires_at * 1000); // Convert from seconds to milliseconds
+    if (data.session?.access_token) {
+      // Use configured session duration from config (not Supabase JWT expiry)
+      const expiresAt = SessionManager.getSessionExpiry();
       const ipAddress = req.ip || req.connection.remoteAddress || 'unknown';
       const userAgent = req.get('User-Agent') || 'unknown';
 
@@ -943,10 +944,12 @@ router.post('/init-session', async (req, res) => {
     // Create session in database
     try {
       const tokenHash = SessionManager.generateTokenHash(token || '');
+      // Use configured session duration from config
+      const expiresAt = SessionManager.getSessionExpiry();
       await SessionManager.createOrUpdateSession(
         user.id,
         tokenHash,
-        new Date(Date.now() + 3600000), // 1 hour from now
+        expiresAt,
         req.ip || req.connection.remoteAddress || 'Unknown',
         req.headers['user-agent'] || 'Unknown'
       );
@@ -1069,10 +1072,12 @@ router.post('/verify-email', async (req, res) => {
     if (data.session && data.user) {
       try {
         const tokenHash = SessionManager.generateTokenHash(data.session.access_token);
+        // Use configured session duration from config (not Supabase JWT expiry)
+        const expiresAt = SessionManager.getSessionExpiry();
         await SessionManager.createOrUpdateSession(
           data.user.id,
           tokenHash,
-          data.session.expires_at ? new Date(data.session.expires_at * 1000) : new Date(Date.now() + 3600000),
+          expiresAt,
           req.ip || req.connection.remoteAddress || 'Unknown',
           req.headers['user-agent'] || 'Unknown'
         );
