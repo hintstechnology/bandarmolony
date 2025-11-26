@@ -25,7 +25,20 @@ let generationProgress = {
   errors: 0
 };
 
-// Helper functions removed as they're not used in current implementation
+// Helper function to limit concurrency for Phase 2
+async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
+  const results: T[] = [];
+  for (let i = 0; i < promises.length; i += maxConcurrency) {
+    const batch = promises.slice(i, i + maxConcurrency);
+    const batchResults = await Promise.allSettled(batch);
+    batchResults.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        results.push(result.value);
+      }
+    });
+  }
+  return results;
+}
 
 // Main RRG auto-generation function
 export async function preGenerateAllRRG(forceOverride: boolean = false, triggerType: 'startup' | 'scheduled' | 'manual' | 'debug' = 'startup', logId?: string | null): Promise<void> {
@@ -121,7 +134,7 @@ export async function preGenerateAllRRG(forceOverride: boolean = false, triggerT
     let filesCreated = 0, filesUpdated = 0, filesSkipped = 0, filesFailed = 0;
 
     // Process stocks in BATCHES (parallel) for better performance
-    const STOCK_BATCH_SIZE = BATCH_SIZE_PHASE_2; // Phase 2: 150 stocks at a time
+    const STOCK_BATCH_SIZE = BATCH_SIZE_PHASE_2; // Phase 2: 500 stocks at a time
     console.log(`📦 Processing ${stocks.length} stocks in batches of ${STOCK_BATCH_SIZE}...`);
     
     for (let i = 0; i < stocks.length; i += STOCK_BATCH_SIZE) {
@@ -140,8 +153,8 @@ export async function preGenerateAllRRG(forceOverride: boolean = false, triggerT
         }
       }
       
-      // Process batch in parallel
-      await Promise.all(batch.map(async (stock) => {
+      // Process batch in parallel with concurrency limit 250
+      const batchPromises = batch.map(async (stock) => {
         const cleanedStock = stock.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
         
         stockProcessed++;
@@ -173,7 +186,8 @@ export async function preGenerateAllRRG(forceOverride: boolean = false, triggerT
             console.error(`❌ Error generating RRG data for stock ${cleanedStock}:`, error);
           }
         }
-      }));
+      });
+      await limitConcurrency(batchPromises, 250);
       
       // Update progress after batch
       generationProgress.completed = stockProcessed;

@@ -1,4 +1,20 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
+import { BATCH_SIZE_PHASE_7_8, MAX_CONCURRENT_REQUESTS_PHASE_7_8 } from '../../services/dataUpdateService';
+
+// Helper function to limit concurrency for Phase 7-8
+async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
+  const results: T[] = [];
+  for (let i = 0; i < promises.length; i += maxConcurrency) {
+    const batch = promises.slice(i, i + maxConcurrency);
+    const batchResults = await Promise.allSettled(batch);
+    batchResults.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        results.push(result.value);
+      }
+    });
+  }
+  return results;
+}
 
 // Type definitions for broker inventory data
 interface BrokerInventoryData {
@@ -313,8 +329,9 @@ export class BrokerInventoryCalculator {
       console.log("\nLoading broker transaction data for all dates...");
       const allBrokerData = new Map<string, Map<string, BrokerTransactionData[]>>();
       
-      // Process dates in batches (10 dates per batch - memory intensive)
-      const DATE_BATCH_SIZE = 10;
+      // Process dates in batches (Phase 8: 50 dates per batch)
+      const DATE_BATCH_SIZE = BATCH_SIZE_PHASE_7_8; // Phase 8: 50 dates
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_7_8; // Phase 8: 25 concurrent
       let processedDates = 0;
       
       for (let i = 0; i < dates.length; i += DATE_BATCH_SIZE) {
@@ -333,9 +350,8 @@ export class BrokerInventoryCalculator {
           }
         }
         
-        // Process dates in batch in parallel
-        const batchResults = await Promise.allSettled(
-          dateBatch.map(async (date) => {
+        // Process dates in batch in parallel with concurrency limit 25
+        const batchPromises = dateBatch.map(async (date) => {
             if (!date) {
               return { date: '', success: false };
             }
@@ -365,13 +381,13 @@ export class BrokerInventoryCalculator {
             }
             
             return { date, success: true, brokerMap };
-          })
-        );
+          });
+        const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT);
         
         // Collect results from batch
         for (const result of batchResults) {
-          if (result.status === 'fulfilled' && result.value.success && result.value.brokerMap) {
-            allBrokerData.set(result.value.date, result.value.brokerMap);
+          if (result && result.success && result.brokerMap) {
+            allBrokerData.set(result.date, result.brokerMap);
             processedDates++;
           }
         }

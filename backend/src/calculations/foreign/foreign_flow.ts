@@ -1,5 +1,20 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
 
+// Helper function to limit concurrency for Phase 3
+async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
+  const results: T[] = [];
+  for (let i = 0; i < promises.length; i += maxConcurrency) {
+    const batch = promises.slice(i, i + maxConcurrency);
+    const batchResults = await Promise.allSettled(batch);
+    batchResults.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        results.push(result.value);
+      }
+    });
+  }
+  return results;
+}
+
 // Type definitions untuk Foreign Flow
 interface TransactionData {
   STK_CODE: string;
@@ -473,7 +488,7 @@ export class ForeignFlowCalculator {
    * Main function to generate foreign flow data for all DT files
    * OPTIMIZED: Pre-load existing dates to skip already processed dates
    */
-  public async generateForeignFlowData(_dateSuffix: string): Promise<{ success: boolean; message: string; data?: any }> {
+  public async generateForeignFlowData(_dateSuffix: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
     try {
       console.log(`Starting foreign flow data extraction for all DT files...`);
       
@@ -494,8 +509,9 @@ export class ForeignFlowCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
-      // Process files in batches for speed (2 files at a time to prevent OOM)
-      const BATCH_SIZE = 10;
+      // Process files in batches for speed (Phase 3: 50 files at a time)
+      const BATCH_SIZE = 50;
+      const MAX_CONCURRENT = 25; // Phase 3: 25 concurrent
       const allResults: { success: boolean; dateSuffix: string; files: string[] }[] = [];
       let processed = 0;
       let successful = 0;
@@ -505,6 +521,15 @@ export class ForeignFlowCalculator {
         const batch = dtFiles.slice(i, i + BATCH_SIZE);
         const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
         console.log(`📦 Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`);
+        
+        // Update progress
+        if (logId) {
+          const { SchedulerLogService } = await import('../../services/schedulerLogService');
+          await SchedulerLogService.updateLog(logId, {
+            progress_percentage: Math.round((i / dtFiles.length) * 100),
+            current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} processed)`
+          });
+        }
         
         // Memory check before batch
         if (global.gc) {
@@ -517,10 +542,9 @@ export class ForeignFlowCalculator {
           }
         }
         
-        // Process batch in parallel
-        const batchResults = await Promise.allSettled(
-          batch.map(blobName => this.processSingleDtFile(blobName, existingDatesByStock))
-        );
+        // Process batch in parallel with concurrency limit 25
+        const batchPromises = batch.map(blobName => this.processSingleDtFile(blobName, existingDatesByStock));
+        const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT);
         
         // Memory cleanup after batch
         if (global.gc) {
@@ -531,22 +555,28 @@ export class ForeignFlowCalculator {
         }
         
         // Collect results
-        batchResults.forEach((result, index) => {
-          if (result.status === 'fulfilled') {
-            allResults.push(result.value);
+        batchResults.forEach((result: any) => {
+          if (result && result.success !== undefined) {
+            allResults.push(result);
             processed++;
-            if (result.value.success) {
+            if (result.success) {
               successful++;
-            } else if (result.value.files.length === 0) {
+            } else if (result.files && result.files.length === 0) {
               skippedCount++;
             }
-          } else {
-            console.error(`Error processing ${batch[index]}:`, result.reason);
-            processed++;
           }
         });
         
         console.log(`📊 Batch complete: ${successful}/${processed} successful, ${skippedCount} skipped (no new dates)`);
+        
+        // Update progress after batch
+        if (logId) {
+          const { SchedulerLogService } = await import('../../services/schedulerLogService');
+          await SchedulerLogService.updateLog(logId, {
+            progress_percentage: Math.round((processed / dtFiles.length) * 100),
+            current_processing: `Completed batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} processed)`
+          });
+        }
         
         // Small delay between batches
         if (i + BATCH_SIZE < dtFiles.length) {

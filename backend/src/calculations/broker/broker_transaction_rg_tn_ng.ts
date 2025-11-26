@@ -1,5 +1,20 @@
-import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
-import { BATCH_SIZE_PHASE_6 } from '../../services/dataUpdateService';
+import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
+import { BATCH_SIZE_PHASE_5_6, MAX_CONCURRENT_REQUESTS_PHASE_5_6 } from '../../services/dataUpdateService';
+
+// Helper function to limit concurrency for Phase 5-6
+async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
+  const results: T[] = [];
+  for (let i = 0; i < promises.length; i += maxConcurrency) {
+    const batch = promises.slice(i, i + maxConcurrency);
+    const batchResults = await Promise.allSettled(batch);
+    batchResults.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        results.push(result.value);
+      }
+    });
+  }
+  return results;
+}
 
 // Type definitions
 type TransactionType = 'RG' | 'TN' | 'NG';
@@ -447,23 +462,9 @@ export class BrokerTransactionRGTNNGCalculator {
     const paths = this.getTransactionPaths(type, dateSuffix);
     const uniqueBrokers = [...new Set([ ...data.map(r => r.BRK_COD1), ...data.map(r => r.BRK_COD2)])];
     const createdFiles: string[] = [];
-    const skippedFiles: string[] = [];
     
     for (const broker of uniqueBrokers) {
       const filename = `${paths.brokerTransaction}/${broker}.csv`;
-      
-      // Check if file already exists - skip if exists
-      try {
-        const fileExists = await exists(filename);
-        if (fileExists) {
-          console.log(`⏭️ Skipping ${filename} - file already exists`);
-          skippedFiles.push(filename);
-          continue;
-        }
-      } catch (error: any) {
-        // If check fails, continue with generation (might be folder not found yet)
-        console.log(`ℹ️ Could not check existence of ${filename}, proceeding with generation`);
-      }
       
       const brokerData = data.filter(row => row.BRK_COD1 === broker || row.BRK_COD2 === broker);
       const stockGroups = new Map<string, TransactionData[]>();
@@ -607,10 +608,6 @@ export class BrokerTransactionRGTNNGCalculator {
       createdFiles.push(filename);
     }
     
-    if (skippedFiles.length > 0) {
-      console.log(`⏭️ Skipped ${skippedFiles.length} broker transaction files that already exist`);
-    }
-    
     return createdFiles;
   }
 
@@ -636,7 +633,7 @@ export class BrokerTransactionRGTNNGCalculator {
    * Main function to generate broker transaction data for all DT files (RG/TN/NG split)
    * OPTIMIZED: Batch processing with skip logic
    */
-  public async generateBrokerTransactionData(_dateSuffix?: string): Promise<{ success: boolean; message: string; data?: any }> {
+  public async generateBrokerTransactionData(_dateSuffix?: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
     try {
       console.log(`🔄 Starting Broker Transaction RG/TN/NG calculation...`);
       const dtFiles = await this.findAllDtFiles();
@@ -646,20 +643,31 @@ export class BrokerTransactionRGTNNGCalculator {
         return { success: true, message: `No DT files found - skipped broker transaction RG/TN/NG data generation` };
       }
       
-      console.log(`📊 Processing ${dtFiles.length} DT files in batches of ${BATCH_SIZE_PHASE_6}...`);
+      console.log(`📊 Processing ${dtFiles.length} DT files in batches of ${BATCH_SIZE_PHASE_5_6}...`);
       
       let totalProcessed = 0;
       let totalSkipped = 0;
       let totalFilesCreated = 0;
       let totalErrors = 0;
       
-      // Process in batches to manage memory
-      for (let i = 0; i < dtFiles.length; i += BATCH_SIZE_PHASE_6) {
-        const batch = dtFiles.slice(i, i + BATCH_SIZE_PHASE_6);
-        const batchNum = Math.floor(i / BATCH_SIZE_PHASE_6) + 1;
-        const totalBatches = Math.ceil(dtFiles.length / BATCH_SIZE_PHASE_6);
+      // Process in batches to manage memory (Phase 5: 50 files at a time)
+      const BATCH_SIZE = BATCH_SIZE_PHASE_5_6; // Phase 5: 50 files
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_5_6; // Phase 5: 25 concurrent
+      for (let i = 0; i < dtFiles.length; i += BATCH_SIZE) {
+        const batch = dtFiles.slice(i, i + BATCH_SIZE);
+        const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(dtFiles.length / BATCH_SIZE);
         
         console.log(`\n📦 Processing batch ${batchNum}/${totalBatches} (${batch.length} files)...`);
+        
+        // Update progress
+        if (logId) {
+          const { SchedulerLogService } = await import('../../services/schedulerLogService');
+          await SchedulerLogService.updateLog(logId, {
+            progress_percentage: Math.round((i / dtFiles.length) * 100),
+            current_processing: `Processing batch ${batchNum}/${totalBatches} (${totalProcessed}/${dtFiles.length} processed)`
+          });
+        }
         
         // Memory check before batch
         if (global.gc) {
@@ -672,9 +680,8 @@ export class BrokerTransactionRGTNNGCalculator {
           }
         }
         
-        const batchResults = await Promise.allSettled(
-          batch.map(blobName => this.processSingleDtFile(blobName))
-        );
+        const batchPromises = batch.map(blobName => this.processSingleDtFile(blobName));
+        const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT);
         
         // Memory cleanup after batch
         if (global.gc) {
@@ -686,26 +693,32 @@ export class BrokerTransactionRGTNNGCalculator {
         
         // Collect results
         for (const result of batchResults) {
-          if (result.status === 'fulfilled') {
-            const { success, files, dateSuffix } = result.value;
+          if (result && result.success !== undefined) {
+            const { success, files, dateSuffix } = result;
             if (success) {
               totalProcessed++;
-              totalFilesCreated += files.length;
-              console.log(`✅ ${dateSuffix}: ${files.length} files created`);
+              totalFilesCreated += files ? files.length : 0;
+              console.log(`✅ ${dateSuffix}: ${files ? files.length : 0} files created`);
             } else {
               totalSkipped++;
               console.log(`⏭️ ${dateSuffix}: Skipped (already exists or no data)`);
             }
-          } else {
-            totalErrors++;
-            console.error(`❌ Error in batch:`, result.reason);
           }
         }
         
         console.log(`📊 Batch ${batchNum}/${totalBatches} complete: ${totalProcessed} processed, ${totalSkipped} skipped, ${totalErrors} errors`);
         
+        // Update progress after batch
+        if (logId) {
+          const { SchedulerLogService } = await import('../../services/schedulerLogService');
+          await SchedulerLogService.updateLog(logId, {
+            progress_percentage: Math.round((totalProcessed / dtFiles.length) * 100),
+            current_processing: `Completed batch ${batchNum}/${totalBatches} (${totalProcessed}/${dtFiles.length} processed)`
+          });
+        }
+        
         // Small delay between batches
-        if (i + BATCH_SIZE_PHASE_6 < dtFiles.length) {
+        if (i + BATCH_SIZE < dtFiles.length) {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
       }

@@ -1,5 +1,20 @@
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
-import { BATCH_SIZE_PHASE_3_5 } from '../../services/dataUpdateService';
+import { BATCH_SIZE_PHASE_4, MAX_CONCURRENT_REQUESTS_PHASE_4 } from '../../services/dataUpdateService';
+
+// Helper function to limit concurrency for Phase 4
+async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
+  const results: T[] = [];
+  for (let i = 0; i < promises.length; i += maxConcurrency) {
+    const batch = promises.slice(i, i + maxConcurrency);
+    const batchResults = await Promise.allSettled(batch);
+    batchResults.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        results.push(result.value);
+      }
+    });
+  }
+  return results;
+}
 
 // Type definitions, sama seperti broker_summary.ts
 type TransactionType = 'RG' | 'TN' | 'NG';
@@ -273,7 +288,8 @@ export class BrokerDataRGTNNGCalculator {
       if (dtFiles.length === 0) return { success: true, message: `No DT files found - skipped broker data generation` };
       
       // Process files in batches
-      const BATCH_SIZE = BATCH_SIZE_PHASE_3_5; // Phase 3-5: 5 files at a time
+      const BATCH_SIZE = BATCH_SIZE_PHASE_4; // Phase 4: 50 files at a time
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_4; // Phase 4: 25 concurrent
       let processed = 0;
       let successful = 0;
       let skipped = 0;
@@ -294,9 +310,8 @@ export class BrokerDataRGTNNGCalculator {
           }
         }
         
-        // Process batch in parallel
-        const batchResults = await Promise.allSettled(
-          batch.map(async (blobName) => {
+        // Process batch in parallel with concurrency limit 25
+        const batchPromises = batch.map(async (blobName) => {
             try {
               // Extract date from blob name first (before loading input)
               const pathParts = blobName.split('/');
@@ -349,16 +364,16 @@ export class BrokerDataRGTNNGCalculator {
               console.error(`❌ Error processing ${blobName}:`, error.message);
               return { success: false, skipped: false, error: error.message };
             }
-          })
-        );
+          });
+        const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT);
         
         // Collect results
         batchResults.forEach((result) => {
-          if (result.status === 'fulfilled') {
+          if (result) {
             processed++;
-            if (result.value.success) {
+            if (result.success) {
               successful++;
-              if (result.value.skipped) {
+              if (result.skipped) {
                 skipped++;
               }
             }

@@ -12,6 +12,21 @@ import { exists } from '../utils/azureBlob';
 import { SchedulerLogService, SchedulerLog } from './schedulerLogService';
 import { BATCH_SIZE_PHASE_2 } from './dataUpdateService';
 
+// Helper function to limit concurrency for Phase 2
+async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
+  const results: T[] = [];
+  for (let i = 0; i < promises.length; i += maxConcurrency) {
+    const batch = promises.slice(i, i + maxConcurrency);
+    const batchResults = await Promise.allSettled(batch);
+    batchResults.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        results.push(result.value);
+      }
+    });
+  }
+  return results;
+}
+
 // Global state for tracking generation status
 let isGenerating = false;
 let lastGenerationTime: Date | null = null;
@@ -133,7 +148,7 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
     let filesCreated = 0, filesUpdated = 0, filesSkipped = 0, filesFailed = 0;
 
     // Process sectors in BATCHES (parallel) for better performance
-    const BATCH_SIZE = BATCH_SIZE_PHASE_2; // Phase 2: 150 sectors at a time
+    const BATCH_SIZE = BATCH_SIZE_PHASE_2; // Phase 2: 500 sectors at a time
     console.log(`📦 Processing sectors in batches of ${BATCH_SIZE}...`);
     
     for (let i = 0; i < sectors.length; i += BATCH_SIZE) {
@@ -152,8 +167,8 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
         }
       }
       
-      // Process batch in parallel
-      const batchResults = await Promise.allSettled(batch.map(async (sector) => {
+      // Process batch in parallel with concurrency limit 250
+      const batchPromises = batch.map(async (sector) => {
         try {
           sectorProcessed++;
           generationProgress.current = `Checking sector: ${sector}`;
@@ -205,12 +220,13 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
           generationProgress.completed++;
           return { status: 'failed', sector, error };
         }
-      }));
+      });
+      const batchResults = await limitConcurrency(batchPromises, 250);
       
       // Log batch results
-      const succeeded = batchResults.filter(r => r.status === 'fulfilled' && r.value.status === 'success').length;
-      const failed = batchResults.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && r.value.status === 'failed')).length;
-      const skipped = batchResults.filter(r => r.status === 'fulfilled' && r.value.status === 'skipped').length;
+      const succeeded = batchResults.filter(r => r && r.status === 'success').length;
+      const failed = batchResults.filter(r => r && r.status === 'failed').length;
+      const skipped = batchResults.filter(r => r && r.status === 'skipped').length;
       console.log(`📦 Batch ${Math.floor(i / BATCH_SIZE) + 1} complete: ✅ ${succeeded} success, ❌ ${failed} failed, ⏭️ ${skipped} skipped`);
       
       // Update progress in database after batch
@@ -316,7 +332,7 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
     }
 
     // Process ALL individual stocks from each sector in BATCHES (parallel)
-    const STOCK_BATCH_SIZE = BATCH_SIZE_PHASE_2; // Phase 2: 150 stocks at a time
+    const STOCK_BATCH_SIZE = BATCH_SIZE_PHASE_2; // Phase 2: 500 stocks at a time
     console.log(`📦 Processing stocks in batches of ${STOCK_BATCH_SIZE}...`);
     
     for (const sector of sectors) {
@@ -342,8 +358,8 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
             }
           }
           
-          // Process batch in parallel
-          await Promise.all(batch.map(async (stock) => {
+          // Process batch in parallel with concurrency limit 250
+          const stockPromises = batch.map(async (stock) => {
             try {
               stockProcessed++;
               generationProgress.current = `Checking stock: ${stock}`;
@@ -379,7 +395,8 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
               generationProgress.errors++;
               generationProgress.completed++;
             }
-          }));
+          });
+          await limitConcurrency(stockPromises, 250);
           
           // Update progress in database after each stock batch
           if (currentLogId) {

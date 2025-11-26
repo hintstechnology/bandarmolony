@@ -51,7 +51,7 @@ export class TrendFilterDataScheduler {
         });
       }
 
-      await this.trendFilterCalculator.generateTrendFilterData();
+      await this.trendFilterCalculator.generateTrendFilterData(finalLogId);
 
       this.lastGenerated = new Date();
       this.isGenerating = false;

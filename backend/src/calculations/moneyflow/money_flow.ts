@@ -1,5 +1,20 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
 
+// Helper function to limit concurrency for Phase 3
+async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
+  const results: T[] = [];
+  for (let i = 0; i < promises.length; i += maxConcurrency) {
+    const batch = promises.slice(i, i + maxConcurrency);
+    const batchResults = await Promise.allSettled(batch);
+    batchResults.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        results.push(result.value);
+      }
+    });
+  }
+  return results;
+}
+
 // Type definitions untuk Money Flow
 interface OHLCData {
   Date: string;
@@ -446,11 +461,12 @@ export class MoneyFlowCalculator {
    * OPTIMIZED: Only process dates that don't exist in output
    * Returns Map with composite key: "type:code" to preserve source folder info
    */
-  private async processAllFiles(_indexList: string[], existingDatesByStock: Map<string, Set<string>>): Promise<Map<string, { code: string; type: 'stock' | 'index'; mfiData: MoneyFlowData[] }>> {
+  private async processAllFiles(_indexList: string[], existingDatesByStock: Map<string, Set<string>>, logId?: string | null): Promise<Map<string, { code: string; type: 'stock' | 'index'; mfiData: MoneyFlowData[] }>> {
     console.log("\nProcessing all files (stock and index) separately...");
     
     const moneyFlowData = new Map<string, { code: string; type: 'stock' | 'index'; mfiData: MoneyFlowData[] }>();
-    const BATCH_SIZE = 10; // Optimal batch size for 12GB threshold
+    const BATCH_SIZE = 50; // Phase 3: 50 files at a time
+    const MAX_CONCURRENT = 25; // Phase 3: 25 concurrent
     
     // Process stock files first
     console.log("\n📈 Processing STOCK files...");
@@ -458,12 +474,21 @@ export class MoneyFlowCalculator {
     console.log(`Found ${allStockFiles.length} stock files`);
     
     let processed = 0;
-    for (let i = 0; i < allStockFiles.length; i += BATCH_SIZE) {
-      const batch = allStockFiles.slice(i, i + BATCH_SIZE);
-      const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
-      console.log(`📦 Processing stock batch ${batchNumber}/${Math.ceil(allStockFiles.length / BATCH_SIZE)} (${batch.length} files)`);
-      
-      // Memory check before batch
+      for (let i = 0; i < allStockFiles.length; i += BATCH_SIZE) {
+        const batch = allStockFiles.slice(i, i + BATCH_SIZE);
+        const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+        console.log(`📦 Processing stock batch ${batchNumber}/${Math.ceil(allStockFiles.length / BATCH_SIZE)} (${batch.length} files)`);
+        
+        // Update progress
+        if (logId) {
+          const { SchedulerLogService } = await import('../../services/schedulerLogService');
+          await SchedulerLogService.updateLog(logId, {
+            progress_percentage: Math.round((i / allStockFiles.length) * 50), // First 50% for stocks
+            current_processing: `Processing stock batch ${batchNumber}/${Math.ceil(allStockFiles.length / BATCH_SIZE)} (${processed}/${allStockFiles.length} stocks)`
+          });
+        }
+        
+        // Memory check before batch
       if (global.gc) {
         const memBefore = process.memoryUsage();
         const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
@@ -474,9 +499,8 @@ export class MoneyFlowCalculator {
         }
       }
       
-      // Process batch in parallel
-      const batchResults = await Promise.allSettled(
-        batch.map(async (blobName) => {
+      // Process batch in parallel with concurrency limit 25
+      const batchPromises = batch.map(async (blobName) => {
           const code = this.extractStockCode(blobName);
           const key = `stock:${code}`;
           const existingDates = existingDatesByStock.get(key) || new Set<string>();
@@ -508,8 +532,8 @@ export class MoneyFlowCalculator {
             console.error(`Error processing stock ${blobName}:`, error);
             return { code, mfiData: [], success: false, error: error instanceof Error ? error.message : 'Unknown error', type: 'stock' as const };
           }
-        })
-      );
+        });
+      const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT);
       
       // Process batch results
       let batchSuccess = 0;
@@ -517,8 +541,8 @@ export class MoneyFlowCalculator {
       let batchSkipped = 0;
       
       batchResults.forEach((result) => {
-        if (result.status === 'fulfilled') {
-          const { code, mfiData, success, type, skipped } = result.value;
+        if (result) {
+          const { code, mfiData, success, type, skipped } = result;
           if (success && mfiData.length > 0) {
             // Use composite key to avoid collision
             const key = `stock:${code}`;
@@ -536,6 +560,15 @@ export class MoneyFlowCalculator {
       });
       
       console.log(`📊 Stock batch ${batchNumber} complete: ✅ ${batchSuccess} success, ⏭️  ${batchSkipped} skipped (no new dates), ❌ ${batchFailed} failed (${processed}/${allStockFiles.length} total)`);
+      
+      // Update progress after batch
+      if (logId) {
+        const { SchedulerLogService } = await import('../../services/schedulerLogService');
+        await SchedulerLogService.updateLog(logId, {
+          progress_percentage: Math.round((processed / allStockFiles.length) * 50), // First 50% for stocks
+          current_processing: `Completed stock batch ${batchNumber}/${Math.ceil(allStockFiles.length / BATCH_SIZE)} (${processed}/${allStockFiles.length} stocks)`
+        });
+      }
       
       // Memory cleanup after batch
       if (global.gc) {
@@ -573,9 +606,8 @@ export class MoneyFlowCalculator {
         }
       }
       
-      // Process batch in parallel
-      const batchResults = await Promise.allSettled(
-        batch.map(async (blobName) => {
+      // Process batch in parallel with concurrency limit 25
+      const batchPromises = batch.map(async (blobName) => {
           const code = this.extractStockCode(blobName);
           const key = `index:${code}`;
           const existingDates = existingDatesByStock.get(key) || new Set<string>();
@@ -607,8 +639,8 @@ export class MoneyFlowCalculator {
             console.error(`Error processing index ${blobName}:`, error);
             return { code, mfiData: [], success: false, error: error instanceof Error ? error.message : 'Unknown error', type: 'index' as const };
           }
-        })
-      );
+        });
+      const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT);
       
       // Process batch results
       let batchSuccess = 0;
@@ -616,8 +648,8 @@ export class MoneyFlowCalculator {
       
       let batchSkipped = 0;
       batchResults.forEach((result) => {
-        if (result.status === 'fulfilled') {
-          const { code, mfiData, success, type, skipped } = result.value;
+        if (result) {
+          const { code, mfiData, success, type, skipped } = result;
           if (success && mfiData.length > 0) {
             // Use composite key to avoid collision
             const key = `index:${code}`;
@@ -635,6 +667,15 @@ export class MoneyFlowCalculator {
       });
       
       console.log(`📊 Index batch ${batchNumber} complete: ✅ ${batchSuccess} success, ⏭️  ${batchSkipped} skipped (no new dates), ❌ ${batchFailed} failed (${processed}/${allIndexFiles.length} total)`);
+      
+      // Update progress after batch
+      if (logId) {
+        const { SchedulerLogService } = await import('../../services/schedulerLogService');
+        await SchedulerLogService.updateLog(logId, {
+          progress_percentage: 50 + Math.round((processed / allIndexFiles.length) * 50), // Second 50% for indices
+          current_processing: `Completed index batch ${batchNumber}/${Math.ceil(allIndexFiles.length / BATCH_SIZE)} (${processed}/${allIndexFiles.length} indices)`
+        });
+      }
       
       // Memory cleanup after batch
       if (global.gc) {
@@ -658,7 +699,7 @@ export class MoneyFlowCalculator {
    * Main function to generate money flow data
    * OPTIMIZED: Pre-load existing dates to skip already processed dates
    */
-  public async generateMoneyFlowData(dateSuffix: string): Promise<{ success: boolean; message: string; data?: any }> {
+  public async generateMoneyFlowData(dateSuffix: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
     try {
       console.log(`Starting money flow data extraction for date: ${dateSuffix}`);
       
@@ -671,7 +712,7 @@ export class MoneyFlowCalculator {
       
       // Process ALL files (both stock and index) - type preserved from source folder
       // OPTIMIZED: Only process dates that don't exist in output
-      const allMoneyFlowData = await this.processAllFiles(indexList, existingDatesByStock);
+      const allMoneyFlowData = await this.processAllFiles(indexList, existingDatesByStock, logId);
       
       // Create or update individual CSV files (type from source folder)
       const createdFiles = await this.createMoneyFlowCsvFiles(allMoneyFlowData);

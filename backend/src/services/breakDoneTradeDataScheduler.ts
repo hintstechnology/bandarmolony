@@ -44,7 +44,7 @@ export class BreakDoneTradeDataScheduler {
         });
       }
       
-      const result = await this.calculator.generateBreakDoneTradeData(dateSuffix);
+      const result = await this.calculator.generateBreakDoneTradeData(dateSuffix, finalLogId);
       
       if (result.success) {
         console.log('✅ Break Done Trade calculation completed successfully');

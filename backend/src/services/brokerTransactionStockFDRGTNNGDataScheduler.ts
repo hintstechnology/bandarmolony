@@ -45,7 +45,7 @@ export class BrokerTransactionStockFDRGTNNGDataScheduler {
         });
       }
       
-      const result = await this.calculator.generateBrokerTransactionData(targetDate);
+      const result = await this.calculator.generateBrokerTransactionData(targetDate, finalLogId);
       
       if (result.success) {
         console.log('✅ Broker Transaction Stock F/D RG/TN/NG calculation completed successfully');
