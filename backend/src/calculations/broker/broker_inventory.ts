@@ -1,5 +1,4 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
-import { BATCH_SIZE_PHASE_3_5 } from '../../services/dataUpdateService';
 
 // Type definitions for broker inventory data
 interface BrokerInventoryData {
@@ -371,7 +370,7 @@ export class BrokerInventoryCalculator {
         
         // Collect results from batch
         for (const result of batchResults) {
-          if (result.status === 'fulfilled' && result.value.success) {
+          if (result.status === 'fulfilled' && result.value.success && result.value.brokerMap) {
             allBrokerData.set(result.value.date, result.value.brokerMap);
             processedDates++;
           }

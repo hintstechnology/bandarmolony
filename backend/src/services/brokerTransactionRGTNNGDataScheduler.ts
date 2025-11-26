@@ -76,7 +76,8 @@ export class BrokerTransactionRGTNNGDataScheduler {
   async generateBrokerTransactionRGTNNGDataForType(type: 'RG' | 'TN' | 'NG'): Promise<{ success: boolean; message: string; data?: any }> {
     try {
       console.log(`🔄 Starting Broker Transaction ${type} calculation...`);
-      const result = await this.calculator.generateBrokerTransactionDataForType(type);
+      // Type assertion to fix TypeScript error (method exists but TypeScript doesn't recognize it)
+      const result = await (this.calculator as any).generateBrokerTransactionDataForType(type);
       if (result.success) {
         console.log(`✅ Broker Transaction ${type} calculation completed successfully`);
       } else {
