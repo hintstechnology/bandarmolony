@@ -1,5 +1,5 @@
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
-import { BATCH_SIZE_PHASE_7_8, MAX_CONCURRENT_REQUESTS_PHASE_7_8 } from '../../services/dataUpdateService';
+import { BATCH_SIZE_PHASE_7, MAX_CONCURRENT_REQUESTS_PHASE_7 } from '../../services/dataUpdateService';
 
 // Helper function to limit concurrency for Phase 7-8
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -494,8 +494,8 @@ export class BrokerBreakdownCalculator {
       }
     });
     
-    // Process in batches of 50 to avoid overwhelming Azure
-    const BATCH_SIZE = 50;
+    // Process in batches to avoid overwhelming Azure (Phase 7: 50 files)
+    const BATCH_SIZE = BATCH_SIZE_PHASE_7;
     for (let i = 0; i < checkPromises.length; i += BATCH_SIZE) {
       const batch = checkPromises.slice(i, i + BATCH_SIZE);
       await Promise.all(batch);
@@ -526,7 +526,8 @@ export class BrokerBreakdownCalculator {
       })
     );
     
-    // Process in batches of 20 to avoid overwhelming Azure
+    // Process in batches to avoid overwhelming Azure (using smaller batch for uploads)
+    // Using 20 for uploads to avoid overwhelming Azure storage
     const BATCH_SIZE = 20;
     for (let i = 0; i < uploadPromises.length; i += BATCH_SIZE) {
       const batch = uploadPromises.slice(i, i + BATCH_SIZE);
@@ -702,8 +703,8 @@ export class BrokerBreakdownCalculator {
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
       // Process files in batches (Phase 7: 50 files at a time)
-      const BATCH_SIZE = BATCH_SIZE_PHASE_7_8; // Phase 7: 50 files
-      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_7_8; // Phase 7: 25 concurrent
+      const BATCH_SIZE = BATCH_SIZE_PHASE_7; // Phase 7: 50 files
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_7; // Phase 7: 25 concurrent
       const allResults: { success: boolean; dateSuffix: string; files: string[] }[] = [];
       let processed = 0;
       let successful = 0;

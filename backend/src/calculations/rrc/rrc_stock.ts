@@ -8,6 +8,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
+import { BATCH_SIZE_PHASE_2, MAX_CONCURRENT_REQUESTS_PHASE_2 } from '../../services/dataUpdateService';
 
 type NumericArray = number[];
 
@@ -335,36 +336,91 @@ async function main(): Promise<void> {
   
   console.log(`Ditemukan ${csvFiles.length} file CSV di ${stockDir}`);
   
+  // Helper function to limit concurrency for Phase 2
+  async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
+    const results: T[] = [];
+    for (let i = 0; i < promises.length; i += maxConcurrency) {
+      const batch = promises.slice(i, i + maxConcurrency);
+      const batchResults = await Promise.allSettled(batch);
+      batchResults.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          results.push(result.value);
+        }
+      });
+    }
+    return results;
+  }
+  
   let processed = 0;
   let errors = 0;
   
-  for (const csvFile of csvFiles) {
-    try {
-      const emitter = extractEmitterName(csvFile);
-      console.log(`Memproses: ${path.basename(csvFile)} -> ${emitter}`);
-      
-      const {values, dates} = await readCsvCloseValues(csvFile, "close");
-      if (values.length === 0) {
-        console.warn(`Tidak ada nilai 'close' yang valid pada ${csvFile}`);
-        errors++;
-        continue;
+  // Process files in batches (Phase 2: 500 files at a time)
+  const BATCH_SIZE = BATCH_SIZE_PHASE_2;
+  const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_2;
+  console.log(`📦 Processing ${csvFiles.length} CSV files in batches of ${BATCH_SIZE}...`);
+  
+  for (let i = 0; i < csvFiles.length; i += BATCH_SIZE) {
+    const batch = csvFiles.slice(i, i + BATCH_SIZE);
+    const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+    console.log(`📦 Processing batch ${batchNumber}/${Math.ceil(csvFiles.length / BATCH_SIZE)} (${batch.length} files)`);
+    
+    // Memory check before batch
+    if (global.gc) {
+      const memBefore = process.memoryUsage();
+      const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
+      if (heapUsedMB > 10240) { // 10GB threshold
+        console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+        global.gc();
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
-      
-      const result = transformSeries(emitter, values, dates);
-      const csvOutput = resultToCsv(result);
-      
-      // Generate output filename
-      const outputFilename = `o1-rrc-${emitter}.csv`;
-      const outputPath = path.join(outputDir, outputFilename);
-      
-      // Upload CSV to Azure
-      await uploadText(outputPath, csvOutput, 'text/csv');
-      console.log(`  -> Output: ${outputPath}`);
-      processed++;
-      
-    } catch (err) {
-      console.error(`Error memproses ${csvFile}: ${err}`);
-      errors++;
+    }
+    
+    // Process batch in parallel with concurrency limit
+    const batchPromises = batch.map(async (csvFile) => {
+      try {
+        const emitter = extractEmitterName(csvFile);
+        console.log(`📈 Processing: ${path.basename(csvFile)} -> ${emitter}`);
+        
+        const {values, dates} = await readCsvCloseValues(csvFile, "close");
+        if (values.length === 0) {
+          console.warn(`⚠️ No valid 'close' values in ${csvFile}`);
+          return { success: false, error: 'No valid values' };
+        }
+        
+        const result = transformSeries(emitter, values, dates);
+        const csvOutput = resultToCsv(result);
+        
+        // Generate output filename
+        const outputFilename = `o1-rrc-${emitter}.csv`;
+        const outputPath = path.join(outputDir, outputFilename);
+        
+        // Upload CSV to Azure
+        await uploadText(outputPath, csvOutput, 'text/csv');
+        console.log(`  ✅ Output: ${outputPath}`);
+        return { success: true };
+      } catch (err) {
+        console.error(`❌ Error processing ${csvFile}: ${err}`);
+        return { success: false, error: err };
+      }
+    });
+    
+    const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT);
+    
+    // Count results
+    batchResults.forEach((result) => {
+      if (result && result.success) {
+        processed++;
+      } else {
+        errors++;
+      }
+    });
+    
+    // Memory cleanup after batch
+    if (global.gc) {
+      global.gc();
+      const memAfter = process.memoryUsage();
+      const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+      console.log(`📊 Batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
     }
   }
   

@@ -14,7 +14,7 @@ import { generateRrgStockScanner } from '../calculations/rrg/rrg_scanner_stock';
 import { generateRrgSectorScanner } from '../calculations/rrg/rrg_scanner_sector';
 import { exists } from '../utils/azureBlob';
 import { SchedulerLogService } from './schedulerLogService';
-import { BATCH_SIZE_PHASE_2 } from './dataUpdateService';
+import { BATCH_SIZE_PHASE_2, MAX_CONCURRENT_REQUESTS_PHASE_2 } from './dataUpdateService';
 
 let isGenerating = false;
 let lastGenerationTime: Date | null = null;
@@ -187,7 +187,7 @@ export async function preGenerateAllRRG(forceOverride: boolean = false, triggerT
           }
         }
       });
-      await limitConcurrency(batchPromises, 250);
+      await limitConcurrency(batchPromises, MAX_CONCURRENT_REQUESTS_PHASE_2);
       
       // Update progress after batch
       generationProgress.completed = stockProcessed;

@@ -1,5 +1,5 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
-import { BATCH_SIZE_PHASE_7_8, MAX_CONCURRENT_REQUESTS_PHASE_7_8 } from '../../services/dataUpdateService';
+import { BATCH_SIZE_PHASE_8, MAX_CONCURRENT_REQUESTS_PHASE_8 } from '../../services/dataUpdateService';
 
 // Helper function to limit concurrency for Phase 7-8
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -330,8 +330,8 @@ export class BrokerInventoryCalculator {
       const allBrokerData = new Map<string, Map<string, BrokerTransactionData[]>>();
       
       // Process dates in batches (Phase 8: 50 dates per batch)
-      const DATE_BATCH_SIZE = BATCH_SIZE_PHASE_7_8; // Phase 8: 50 dates
-      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_7_8; // Phase 8: 25 concurrent
+      const DATE_BATCH_SIZE = BATCH_SIZE_PHASE_8; // Phase 8: 50 dates
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_8; // Phase 8: 25 concurrent
       let processedDates = 0;
       
       for (let i = 0; i < dates.length; i += DATE_BATCH_SIZE) {

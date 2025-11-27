@@ -7,6 +7,7 @@
 
 import * as path from "path";
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
+import { BATCH_SIZE_PHASE_2, MAX_CONCURRENT_REQUESTS_PHASE_2 } from '../../services/dataUpdateService';
 
 type NumericArray = number[];
 
@@ -315,30 +316,84 @@ export async function calculateRrcSector(sectorName: string, config: { stockDir:
   
   console.log(`📊 Found ${csvFiles.length} CSV files in sector '${sectorName}'`);
   
+  // Helper function to limit concurrency for Phase 2
+  async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
+    const results: T[] = [];
+    for (let i = 0; i < promises.length; i += maxConcurrency) {
+      const batch = promises.slice(i, i + maxConcurrency);
+      const batchResults = await Promise.allSettled(batch);
+      batchResults.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          results.push(result.value);
+        }
+      });
+    }
+    return results;
+  }
+  
   const sectorResults: TransformResult[] = [];
   let processed = 0;
   let errors = 0;
   
-  // Process all CSV files in the sector
-  for (const csvFile of csvFiles) {
-    try {
-      const emitter = extractEmitterName(csvFile);
-      console.log(`📈 Processing: ${csvFile.split('/').pop()} -> ${emitter}`);
-      
-      const {values, dates} = await readCsvCloseValues(csvFile, "close");
-      if (values.length === 0) {
-        console.warn(`⚠️ No valid 'close' values in ${csvFile}`);
-        errors++;
-        continue;
+  // Process files in batches (Phase 2: 500 files at a time)
+  const BATCH_SIZE = BATCH_SIZE_PHASE_2;
+  const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_2;
+  console.log(`📦 Processing ${csvFiles.length} CSV files in batches of ${BATCH_SIZE}...`);
+  
+  for (let i = 0; i < csvFiles.length; i += BATCH_SIZE) {
+    const batch = csvFiles.slice(i, i + BATCH_SIZE);
+    const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+    console.log(`📦 Processing batch ${batchNumber}/${Math.ceil(csvFiles.length / BATCH_SIZE)} (${batch.length} files)`);
+    
+    // Memory check before batch
+    if (global.gc) {
+      const memBefore = process.memoryUsage();
+      const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
+      if (heapUsedMB > 10240) { // 10GB threshold
+        console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+        global.gc();
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
-      
-      const result = transformSeries(emitter, sectorName, values, dates);
-      sectorResults.push(result);
-      processed++;
-      
-    } catch (err) {
-      console.error(`❌ Error processing ${csvFile}:`, err);
-      errors++;
+    }
+    
+    // Process batch in parallel with concurrency limit
+    const batchPromises = batch.map(async (csvFile) => {
+      try {
+        const emitter = extractEmitterName(csvFile);
+        console.log(`📈 Processing: ${csvFile.split('/').pop()} -> ${emitter}`);
+        
+        const {values, dates} = await readCsvCloseValues(csvFile, "close");
+        if (values.length === 0) {
+          console.warn(`⚠️ No valid 'close' values in ${csvFile}`);
+          return null;
+        }
+        
+        const result = transformSeries(emitter, sectorName, values, dates);
+        return result;
+      } catch (err) {
+        console.error(`❌ Error processing ${csvFile}:`, err);
+        return null;
+      }
+    });
+    
+    const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT);
+    
+    // Collect valid results
+    batchResults.forEach((result) => {
+      if (result) {
+        sectorResults.push(result);
+        processed++;
+      } else {
+        errors++;
+      }
+    });
+    
+    // Memory cleanup after batch
+    if (global.gc) {
+      global.gc();
+      const memAfter = process.memoryUsage();
+      const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+      console.log(`📊 Batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
     }
   }
   

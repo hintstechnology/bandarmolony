@@ -1,5 +1,5 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
-import { BATCH_SIZE_PHASE_5_6, MAX_CONCURRENT_REQUESTS_PHASE_5_6 } from '../../services/dataUpdateService';
+import { BATCH_SIZE_PHASE_5, MAX_CONCURRENT_REQUESTS_PHASE_5 } from '../../services/dataUpdateService';
 
 // Helper function to limit concurrency for Phase 5-6
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -667,7 +667,7 @@ export class BrokerTransactionFDRGTNNGCalculator {
         return { success: true, message: `No DT files found - skipped broker transaction RG/TN/NG x D/F data generation` };
       }
       
-      console.log(`📊 Processing ${dtFiles.length} DT files in batches of ${BATCH_SIZE_PHASE_5_6}...`);
+      console.log(`📊 Processing ${dtFiles.length} DT files in batches of ${BATCH_SIZE_PHASE_5}...`);
       
       let totalProcessed = 0;
       let totalSkipped = 0;
@@ -675,8 +675,8 @@ export class BrokerTransactionFDRGTNNGCalculator {
       let totalErrors = 0;
       
       // Process in batches to manage memory (Phase 5: 50 files at a time)
-      const BATCH_SIZE = BATCH_SIZE_PHASE_5_6; // Phase 5: 50 files
-      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_5_6; // Phase 5: 25 concurrent
+      const BATCH_SIZE = BATCH_SIZE_PHASE_5; // Phase 5: 50 files
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_5; // Phase 5: 25 concurrent
       for (let i = 0; i < dtFiles.length; i += BATCH_SIZE) {
         const batch = dtFiles.slice(i, i + BATCH_SIZE);
         const batchNum = Math.floor(i / BATCH_SIZE) + 1;

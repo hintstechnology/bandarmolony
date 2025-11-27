@@ -265,19 +265,6 @@ export class WatchlistCalculator {
     return emitenMap;
   }
 
-  private async limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
-    const results: T[] = [];
-    for (let i = 0; i < promises.length; i += maxConcurrency) {
-      const batch = promises.slice(i, i + maxConcurrency);
-      const batchResults = await Promise.allSettled(batch);
-      batchResults.forEach((result) => {
-        if (result.status === 'fulfilled') {
-          results.push(result.value);
-        }
-      });
-    }
-    return results;
-  }
 
   private async streamToString(readableStream: NodeJS.ReadableStream): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -325,29 +312,11 @@ export class WatchlistCalculator {
         options?.emitenDetails ?? (await this.loadEmitenDetailsFromAzure());
 
       // Get watchlist stocks data
+      // Note: Batch processing is handled by watchlistSnapshotService.ts
+      // This function processes all symbols directly without internal batching
       const watchlistStocks: WatchlistStock[] = [];
       
-      // Process stocks in batches
-      const BATCH_SIZE = 500; // Phase 2: 500 stocks at a time
-      for (let i = 0; i < normalizedSymbols.length; i += BATCH_SIZE) {
-        const batch = normalizedSymbols.slice(i, i + BATCH_SIZE);
-        const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
-        
-        // Update progress (if logId is passed through options, but we'll handle it in service)
-        // Note: Progress tracking for watchlist is handled in watchlistSnapshotService.ts
-        
-        // Memory check before batch
-        if (global.gc) {
-          const memBefore = process.memoryUsage();
-          const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
-          if (heapUsedMB > 10240) { // 10GB threshold
-            console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
-            global.gc();
-            await new Promise(resolve => setTimeout(resolve, 100));
-          }
-        }
-        
-        const batchPromises = batch.map(async (symbol) => {
+      const stockPromises = normalizedSymbols.map(async (symbol) => {
           const stock = stockLookup.get(symbol);
           if (!stock) {
             return null;
@@ -391,27 +360,14 @@ export class WatchlistCalculator {
             lastUpdate: latestData.Date
           };
         });
-
-        // Limit concurrency to 250 for Phase 2
-        const batchResults = await this.limitConcurrency(batchPromises, 250);
-        const validResults = batchResults.filter((result) => result !== null) as WatchlistStock[];
-        watchlistStocks.push(...validResults);
-
-        console.log(`📊 Processed batch ${batchNumber}/${Math.ceil(normalizedSymbols.length / BATCH_SIZE)} - Valid: ${validResults.length}/${batch.length}`);
-        
-        // Memory cleanup after batch
-        if (global.gc) {
-          global.gc();
-          const memAfter = process.memoryUsage();
-          const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
-          console.log(`📊 Batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
+      
+      const results = await Promise.allSettled(stockPromises);
+      
+      results.forEach((result) => {
+        if (result.status === 'fulfilled' && result.value) {
+          watchlistStocks.push(result.value);
         }
-        
-        // Small delay between batches
-        if (i + BATCH_SIZE < normalizedSymbols.length) {
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
-      }
+      });
 
       console.log(`✅ Watchlist data fetched: ${watchlistStocks.length}/${symbols.length} stocks`);
       return watchlistStocks;

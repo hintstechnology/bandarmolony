@@ -5,6 +5,7 @@
 // ------------------------------------------------------------
 
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
+import { BATCH_SIZE_PHASE_3, MAX_CONCURRENT_REQUESTS_PHASE_3 } from '../../services/dataUpdateService';
 
 interface StockData {
   time: string;
@@ -244,21 +245,75 @@ async function getAvailableIndexes(): Promise<string[]> {
  * Generate seasonality data for all indexes
  */
 export async function generateAllIndexesSeasonality(): Promise<SeasonalityResults> {
+  // Helper function to limit concurrency for Phase 3
+  async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
+    const results: T[] = [];
+    for (let i = 0; i < promises.length; i += maxConcurrency) {
+      const batch = promises.slice(i, i + maxConcurrency);
+      const batchResults = await Promise.allSettled(batch);
+      batchResults.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          results.push(result.value);
+        }
+      });
+    }
+    return results;
+  }
+  
   const allIndexes = await getAvailableIndexes();
   const indexesData: IndexSeasonalityData[] = [];
   
   console.log(`📊 Processing ${allIndexes.length} indexes...`);
   
-  for (let i = 0; i < allIndexes.length; i++) {
-    const ticker = allIndexes[i];
-    try {
-      console.log(`Processing ${i + 1}/${allIndexes.length}: ${ticker}`);
-      
-      const data = await loadIndexData(ticker);
-      const seasonalityData = generateIndexSeasonalityData(data, ticker);
-      indexesData.push(seasonalityData);
-    } catch (error) {
-      console.warn(`⚠️ Warning: Could not process index ${ticker}: ${error}`);
+  // Process indexes in batches (Phase 3: 50 at a time)
+  const BATCH_SIZE = BATCH_SIZE_PHASE_3;
+  const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_3;
+  console.log(`📦 Processing indexes in batches of ${BATCH_SIZE}...`);
+  
+  for (let i = 0; i < allIndexes.length; i += BATCH_SIZE) {
+    const batch = allIndexes.slice(i, i + BATCH_SIZE);
+    const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+    console.log(`📦 Processing batch ${batchNumber}/${Math.ceil(allIndexes.length / BATCH_SIZE)} (${batch.length} indexes)`);
+    
+    // Memory check before batch
+    if (global.gc) {
+      const memBefore = process.memoryUsage();
+      const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
+      if (heapUsedMB > 10240) { // 10GB threshold
+        console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+        global.gc();
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+    
+    // Process batch in parallel with concurrency limit
+    const batchPromises = batch.map(async (ticker) => {
+      try {
+        console.log(`📈 Processing: ${ticker}`);
+        const data = await loadIndexData(ticker);
+        const seasonalityData = generateIndexSeasonalityData(data, ticker);
+        return seasonalityData;
+      } catch (error) {
+        console.warn(`⚠️ Warning: Could not process index ${ticker}: ${error}`);
+        return null;
+      }
+    });
+    
+    const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT);
+    
+    // Collect valid results
+    batchResults.forEach((result) => {
+      if (result) {
+        indexesData.push(result);
+      }
+    });
+    
+    // Memory cleanup after batch
+    if (global.gc) {
+      global.gc();
+      const memAfter = process.memoryUsage();
+      const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+      console.log(`📊 Batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
     }
   }
   

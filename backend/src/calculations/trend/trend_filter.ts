@@ -1,4 +1,5 @@
 import { BlobServiceClient } from '@azure/storage-blob';
+import { BATCH_SIZE_PHASE_2 } from '../../services/dataUpdateService';
 
 interface StockData {
   Date: string;
@@ -367,7 +368,7 @@ export class TrendFilterCalculator {
       console.log(`⏰ Analyzing ${period} period (${periodDays} days)...`);
 
       // Process stocks in batches
-      const BATCH_SIZE = 500; // Phase 2: 500 stocks at a time
+      const BATCH_SIZE = BATCH_SIZE_PHASE_2; // Phase 2: 500 stocks at a time
       for (let i = 0; i < allStocks.length; i += BATCH_SIZE) {
         const batch = allStocks.slice(i, i + BATCH_SIZE);
         const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
