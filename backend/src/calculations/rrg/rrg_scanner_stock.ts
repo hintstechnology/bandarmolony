@@ -6,6 +6,7 @@
 // ------------------------------------------------------------
 
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
+import { BATCH_SIZE_PHASE_2 } from '../../services/dataUpdateService';
 
 // Helper function to limit concurrency for Phase 2
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -336,7 +337,7 @@ async function scanAllStocks(): Promise<ScannerResult[]> {
   let errorCount = 0;
   
   // Process stocks in batches for better performance
-  const BATCH_SIZE = 500; // Phase 2: 500 stocks at a time
+  const BATCH_SIZE = BATCH_SIZE_PHASE_2; // Phase 2: 500 stocks at a time
   console.log(`📦 Processing stocks in batches of ${BATCH_SIZE}...`);
   
   for (let i = 0; i < stockList.length; i += BATCH_SIZE) {

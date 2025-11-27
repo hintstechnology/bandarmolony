@@ -1,4 +1,5 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
+import { BATCH_SIZE_PHASE_3, MAX_CONCURRENT_REQUESTS_PHASE_3 } from '../../services/dataUpdateService';
 
 // Helper function to limit concurrency for Phase 3
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -389,7 +390,7 @@ export class MoneyFlowCalculator {
       console.log(`Found ${allFiles.length} existing money flow files (${stockFiles.length} stock, ${indexFiles.length} index)`);
       
       // Load each file and extract dates (in batches to avoid memory issues)
-      const BATCH_SIZE = 50;
+      const BATCH_SIZE = BATCH_SIZE_PHASE_3;
       for (let i = 0; i < allFiles.length; i += BATCH_SIZE) {
         const batch = allFiles.slice(i, i + BATCH_SIZE);
         
@@ -465,8 +466,8 @@ export class MoneyFlowCalculator {
     console.log("\nProcessing all files (stock and index) separately...");
     
     const moneyFlowData = new Map<string, { code: string; type: 'stock' | 'index'; mfiData: MoneyFlowData[] }>();
-    const BATCH_SIZE = 50; // Phase 3: 50 files at a time
-    const MAX_CONCURRENT = 25; // Phase 3: 25 concurrent
+    const BATCH_SIZE = BATCH_SIZE_PHASE_3; // Phase 3: 50 files at a time
+    const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_3; // Phase 3: 25 concurrent
     
     // Process stock files first
     console.log("\n📈 Processing STOCK files...");

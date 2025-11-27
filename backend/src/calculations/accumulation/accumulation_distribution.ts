@@ -1,5 +1,5 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
-import { BATCH_SIZE_PHASE_7_8, MAX_CONCURRENT_REQUESTS_PHASE_7_8 } from '../../services/dataUpdateService';
+import { BATCH_SIZE_PHASE_8, MAX_CONCURRENT_REQUESTS_PHASE_8 } from '../../services/dataUpdateService';
 
 // Helper function to limit concurrency for Phase 7-8
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -662,8 +662,8 @@ export class AccumulationDistributionCalculator {
 
         // Load stock data for all stocks in batches (Phase 8: 50 stocks at a time)
         const stockDataMap = new Map<string, StockData[]>();
-        const STOCK_BATCH_SIZE = BATCH_SIZE_PHASE_7_8; // Phase 8: 50 stocks at a time
-        const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_7_8; // Phase 8: 25 concurrent
+        const STOCK_BATCH_SIZE = BATCH_SIZE_PHASE_8; // Phase 8: 50 stocks at a time
+        const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_8; // Phase 8: 25 concurrent
         let missingStocksCount = 0;
         const totalStocks = stockCodes.length;
         

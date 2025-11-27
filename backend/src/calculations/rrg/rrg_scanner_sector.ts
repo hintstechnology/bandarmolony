@@ -6,6 +6,7 @@
 // ------------------------------------------------------------
 
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
+import { BATCH_SIZE_PHASE_2, MAX_CONCURRENT_REQUESTS_PHASE_2 } from '../../services/dataUpdateService';
 
 interface SectorScannerResult {
   sector: string;
@@ -217,38 +218,92 @@ async function scanAllSectors(): Promise<SectorScannerResult[]> {
   
   console.log(`📊 Processing ${sectorFiles.length} RRG sector files...`);
   
-  // Process each sector file (following original approach)
-  for (const file of sectorFiles) {
-    try {
-      // Read sector RRG data
-      const rrgData = await readSectorRRGData(file);
-      if (!rrgData) {
-        console.log(`⚠️ Could not read RRG data from ${file}`);
-        continue;
-      }
-      
-      // Get sector display name
-      const sectorDisplayName = getSectorDisplayName(file);
-      
-      // Calculate performance
-      const performance = calculateSectorPerformance(rrgData);
-      
-      // Determine trend
-      const trend = determineSectorTrend(rrgData.rs_ratio, rrgData.rs_momentum, performance);
-      
-      results.push({
-        sector: sectorDisplayName,
-        rs_ratio: Number(rrgData.rs_ratio.toFixed(1)),
-        rs_momentum: Number(rrgData.rs_momentum.toFixed(1)),
-        performance: Number(performance.toFixed(1)),
-        trend: trend
+  // Helper function to limit concurrency for Phase 2
+  async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
+    const results: T[] = [];
+    for (let i = 0; i < promises.length; i += maxConcurrency) {
+      const batch = promises.slice(i, i + maxConcurrency);
+      const batchResults = await Promise.allSettled(batch);
+      batchResults.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          results.push(result.value);
+        }
       });
-      
-      console.log(`✅ Processed sector: ${sectorDisplayName} (RS-Ratio: ${rrgData.rs_ratio.toFixed(1)}, RS-Momentum: ${rrgData.rs_momentum.toFixed(1)}, Trend: ${trend})`);
-      
-    } catch (error) {
-      console.log(`⚠️ Error processing ${file}: ${error}`);
-      continue;
+    }
+    return results;
+  }
+  
+  // Process files in batches (Phase 2: 500 files at a time)
+  const BATCH_SIZE = BATCH_SIZE_PHASE_2;
+  const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_2;
+  console.log(`📦 Processing sector files in batches of ${BATCH_SIZE}...`);
+  
+  for (let i = 0; i < sectorFiles.length; i += BATCH_SIZE) {
+    const batch = sectorFiles.slice(i, i + BATCH_SIZE);
+    const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+    console.log(`📦 Processing batch ${batchNumber}/${Math.ceil(sectorFiles.length / BATCH_SIZE)} (${batch.length} files)`);
+    
+    // Memory check before batch
+    if (global.gc) {
+      const memBefore = process.memoryUsage();
+      const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
+      if (heapUsedMB > 10240) { // 10GB threshold
+        console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+        global.gc();
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+    
+    // Process batch in parallel with concurrency limit
+    const batchPromises = batch.map(async (file) => {
+      try {
+        // Read sector RRG data
+        const rrgData = await readSectorRRGData(file);
+        if (!rrgData) {
+          console.log(`⚠️ Could not read RRG data from ${file}`);
+          return null;
+        }
+        
+        // Get sector display name
+        const sectorDisplayName = getSectorDisplayName(file);
+        
+        // Calculate performance
+        const performance = calculateSectorPerformance(rrgData);
+        
+        // Determine trend
+        const trend = determineSectorTrend(rrgData.rs_ratio, rrgData.rs_momentum, performance);
+        
+        const result = {
+          sector: sectorDisplayName,
+          rs_ratio: Number(rrgData.rs_ratio.toFixed(1)),
+          rs_momentum: Number(rrgData.rs_momentum.toFixed(1)),
+          performance: Number(performance.toFixed(1)),
+          trend: trend
+        };
+        
+        console.log(`✅ Processed sector: ${sectorDisplayName} (RS-Ratio: ${rrgData.rs_ratio.toFixed(1)}, RS-Momentum: ${rrgData.rs_momentum.toFixed(1)}, Trend: ${trend})`);
+        return result;
+      } catch (error) {
+        console.log(`⚠️ Error processing ${file}: ${error}`);
+        return null;
+      }
+    });
+    
+    const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT);
+    
+    // Collect valid results
+    batchResults.forEach((result) => {
+      if (result) {
+        results.push(result);
+      }
+    });
+    
+    // Memory cleanup after batch
+    if (global.gc) {
+      global.gc();
+      const memAfter = process.memoryUsage();
+      const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+      console.log(`📊 Batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
     }
   }
   

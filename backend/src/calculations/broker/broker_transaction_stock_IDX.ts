@@ -1,5 +1,5 @@
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
-import { MAX_CONCURRENT_REQUESTS_PHASE_5_6 } from '../../services/dataUpdateService';
+import { BATCH_SIZE_PHASE_6, MAX_CONCURRENT_REQUESTS_PHASE_6 } from '../../services/dataUpdateService';
 
 // Helper function to limit concurrency for Phase 5-6
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -419,8 +419,8 @@ export class BrokerTransactionStockIDXCalculator {
       console.log(`📊 Found ${stockFiles.length} stock CSV files`);
 
       // Batch processing configuration
-      const BATCH_SIZE = 50; // Phase 6: 50 stock files at a time
-      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_5_6; // Phase 6: 25 concurrent
+      const BATCH_SIZE = BATCH_SIZE_PHASE_6; // Phase 6: 50 stock files at a time
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_6; // Phase 6: 25 concurrent
 
       // Read and parse all stock CSV files in batches
       const allBrokerData: BrokerTransactionData[] = [];
