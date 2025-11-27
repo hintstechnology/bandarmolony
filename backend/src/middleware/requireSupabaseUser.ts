@@ -24,6 +24,7 @@ export async function requireSupabaseUser(req: any, res: any, next: any) {
     }
 
     // Validate session in database
+    // This will automatically sync token_hash if token was refreshed
     const tokenHash = SessionManager.generateTokenHash(token);
     const sessionValidation = await SessionManager.validateSession(user.id, tokenHash);
     
@@ -51,6 +52,7 @@ export async function requireSupabaseUser(req: any, res: any, next: any) {
       
       // Fresh user - create/update session with current token
       // Use configured session duration from config
+      // This will also handle token refresh by updating token_hash if needed
       const expiresAt = SessionManager.getSessionExpiry();
       await SessionManager.createOrUpdateSession(
         user.id,
@@ -60,6 +62,8 @@ export async function requireSupabaseUser(req: any, res: any, next: any) {
         req.headers['user-agent'] || 'Unknown'
       );
     }
+    // Note: If sessionValidation.isValid is true, token_hash has been synced automatically
+    // by validateSession() if token was refreshed
 
     // Note: Session validation moved to backend logic
     // Since database minimal doesn't have RLS policies, we rely on Supabase Auth validation

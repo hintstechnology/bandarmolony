@@ -422,4 +422,26 @@ export class SchedulerLogService {
       return null;
     }
   }
+
+  /**
+   * Delete a scheduler log
+   */
+  static async deleteLog(id: string): Promise<boolean> {
+    try {
+      const { error } = await supabaseAdmin
+        .from('scheduler_logs')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        console.error('❌ Error deleting scheduler log:', error);
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.error('❌ Error deleting scheduler log:', error);
+      return false;
+    }
+  }
 }

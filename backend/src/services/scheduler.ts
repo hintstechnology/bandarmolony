@@ -1026,7 +1026,8 @@ export async function runPhase5BroktransBrokerCalculations(): Promise<void> {
 
     console.log('🔄 Starting Broker Transaction calculation...');
     const brokerTransactionStartTime = Date.now();
-    const resultTransaction = await brokerTransactionService.generateBrokerTransactionData('all', null, triggeredBy);
+    // Pass logId to enable progress tracking
+    const resultTransaction = await brokerTransactionService.generateBrokerTransactionData('all', logEntry?.id || null, triggeredBy);
     const brokerTransactionDuration = Math.round((Date.now() - brokerTransactionStartTime) / 1000);
     console.log(`📊 Broker Transaction completed in ${brokerTransactionDuration}s`);
     if (logEntry) {
@@ -1050,7 +1051,8 @@ export async function runPhase5BroktransBrokerCalculations(): Promise<void> {
 
     console.log('🔄 Starting Broker Transaction F/D calculation...');
     const brokerTransactionFDStartTime = Date.now();
-    const resultTransactionFD = await brokerTransactionFDService.generateBrokerTransactionData('all', null, triggeredBy);
+    // Pass logId to enable progress tracking
+    const resultTransactionFD = await brokerTransactionFDService.generateBrokerTransactionData('all', logEntry?.id || null, triggeredBy);
     const brokerTransactionFDDuration = Math.round((Date.now() - brokerTransactionFDStartTime) / 1000);
     console.log(`📊 Broker Transaction F/D completed in ${brokerTransactionFDDuration}s`);
     if (logEntry) {
@@ -1062,7 +1064,8 @@ export async function runPhase5BroktransBrokerCalculations(): Promise<void> {
 
     console.log('🔄 Starting Broker Transaction F/D RG/TN/NG calculation...');
     const brokerTransactionFDRGTNNGStartTime = Date.now();
-    const resultTransactionFDRGTNNG = await brokerTransactionFDRGTNNGService.generateBrokerTransactionData('all', null, triggeredBy);
+    // Pass logId to enable progress tracking
+    const resultTransactionFDRGTNNG = await brokerTransactionFDRGTNNGService.generateBrokerTransactionData('all', logEntry?.id || null, triggeredBy);
     const brokerTransactionFDRGTNNGDuration = Math.round((Date.now() - brokerTransactionFDRGTNNGStartTime) / 1000);
     console.log(`📊 Broker Transaction F/D RG/TN/NG completed in ${brokerTransactionFDRGTNNGDuration}s`);
     if (logEntry) {
@@ -1196,7 +1199,8 @@ export async function runPhase6BroktransStockCalculations(): Promise<void> {
 
     console.log('🔄 Starting Broker Transaction Stock calculation...');
     const brokerTransactionStockStartTime = Date.now();
-    const resultTransactionStock = await brokerTransactionStockService.generateBrokerTransactionData('all', null, triggeredBy);
+    // Pass logId to enable progress tracking
+    const resultTransactionStock = await brokerTransactionStockService.generateBrokerTransactionData('all', logEntry?.id || null, triggeredBy);
     const brokerTransactionStockDuration = Math.round((Date.now() - brokerTransactionStockStartTime) / 1000);
     console.log(`📊 Broker Transaction Stock completed in ${brokerTransactionStockDuration}s`);
     if (logEntry) {
@@ -1208,7 +1212,8 @@ export async function runPhase6BroktransStockCalculations(): Promise<void> {
 
     console.log('🔄 Starting Broker Transaction Stock F/D calculation...');
     const brokerTransactionStockFDStartTime = Date.now();
-    const resultTransactionStockFD = await brokerTransactionStockFDService.generateBrokerTransactionData('all', null, triggeredBy);
+    // Pass logId to enable progress tracking
+    const resultTransactionStockFD = await brokerTransactionStockFDService.generateBrokerTransactionData('all', logEntry?.id || null, triggeredBy);
     const brokerTransactionStockFDDuration = Math.round((Date.now() - brokerTransactionStockFDStartTime) / 1000);
     console.log(`📊 Broker Transaction Stock F/D completed in ${brokerTransactionStockFDDuration}s`);
     if (logEntry) {
@@ -1220,7 +1225,8 @@ export async function runPhase6BroktransStockCalculations(): Promise<void> {
 
     console.log('🔄 Starting Broker Transaction Stock RG/TN/NG calculation...');
     const brokerTransactionStockRGTNNGStartTime = Date.now();
-    const resultTransactionStockRGTNNG = await brokerTransactionStockRGTNNGService.generateBrokerTransactionData('all', null, triggeredBy);
+    // Pass logId to enable progress tracking
+    const resultTransactionStockRGTNNG = await brokerTransactionStockRGTNNGService.generateBrokerTransactionData('all', logEntry?.id || null, triggeredBy);
     const brokerTransactionStockRGTNNGDuration = Math.round((Date.now() - brokerTransactionStockRGTNNGStartTime) / 1000);
     console.log(`📊 Broker Transaction Stock RG/TN/NG completed in ${brokerTransactionStockRGTNNGDuration}s`);
     if (logEntry) {
@@ -1232,7 +1238,8 @@ export async function runPhase6BroktransStockCalculations(): Promise<void> {
 
     console.log('🔄 Starting Broker Transaction Stock F/D RG/TN/NG calculation...');
     const brokerTransactionStockFDRGTNNGStartTime = Date.now();
-    const resultTransactionStockFDRGTNNG = await brokerTransactionStockFDRGTNNGService.generateBrokerTransactionData('all', null, triggeredBy);
+    // Pass logId to enable progress tracking
+    const resultTransactionStockFDRGTNNG = await brokerTransactionStockFDRGTNNGService.generateBrokerTransactionData('all', logEntry?.id || null, triggeredBy);
     const brokerTransactionStockFDRGTNNGDuration = Math.round((Date.now() - brokerTransactionStockFDRGTNNGStartTime) / 1000);
     console.log(`📊 Broker Transaction Stock F/D RG/TN/NG completed in ${brokerTransactionStockFDRGTNNGDuration}s`);
     if (logEntry) {
@@ -1380,7 +1387,8 @@ export async function runPhase7BidBreakdownCalculations(): Promise<void> {
 
     console.log('🔄 Starting Broker Breakdown calculation...');
     const brokerBreakdownStartTime = Date.now();
-    const brokerBreakdownResult = await brokerBreakdownService.generateBrokerBreakdownData('all', null, triggeredBy);
+    // Pass logId to enable progress tracking
+    const brokerBreakdownResult = await brokerBreakdownService.generateBrokerBreakdownData('all', logEntry?.id || null, triggeredBy);
     const brokerBreakdownDuration = Math.round((Date.now() - brokerBreakdownStartTime) / 1000);
     
     console.log(`📊 Broker Breakdown completed in ${brokerBreakdownDuration}s`);

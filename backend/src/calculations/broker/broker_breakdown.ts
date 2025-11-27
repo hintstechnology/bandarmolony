@@ -1,5 +1,6 @@
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_7, MAX_CONCURRENT_REQUESTS_PHASE_7 } from '../../services/dataUpdateService';
+import { SchedulerLogService } from '../../services/schedulerLogService';
 
 // Helper function to limit concurrency for Phase 7-8
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -494,7 +495,7 @@ export class BrokerBreakdownCalculator {
       }
     });
     
-    // Process in batches to avoid overwhelming Azure (Phase 7: 50 files)
+    // Process in batches to avoid overwhelming Azure (Phase 7: 6 files)
     const BATCH_SIZE = BATCH_SIZE_PHASE_7;
     for (let i = 0; i < checkPromises.length; i += BATCH_SIZE) {
       const batch = checkPromises.slice(i, i + BATCH_SIZE);
@@ -527,8 +528,8 @@ export class BrokerBreakdownCalculator {
     );
     
     // Process in batches to avoid overwhelming Azure (using smaller batch for uploads)
-    // Using 20 for uploads to avoid overwhelming Azure storage
-    const BATCH_SIZE = 20;
+    // Using half of Phase 7 batch size for uploads to avoid overwhelming Azure storage
+    const BATCH_SIZE = Math.floor(BATCH_SIZE_PHASE_7 / 2.5);
     for (let i = 0; i < uploadPromises.length; i += BATCH_SIZE) {
       const batch = uploadPromises.slice(i, i + BATCH_SIZE);
       await Promise.all(batch);
@@ -702,9 +703,9 @@ export class BrokerBreakdownCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
-      // Process files in batches (Phase 7: 50 files at a time)
-      const BATCH_SIZE = BATCH_SIZE_PHASE_7; // Phase 7: 50 files
-      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_7; // Phase 7: 25 concurrent
+      // Process files in batches (Phase 7: 6 files at a time)
+      const BATCH_SIZE = BATCH_SIZE_PHASE_7; // Phase 7: 6 files
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_7; // Phase 7: 3 concurrent
       const allResults: { success: boolean; dateSuffix: string; files: string[] }[] = [];
       let processed = 0;
       let successful = 0;
@@ -714,11 +715,10 @@ export class BrokerBreakdownCalculator {
         const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
         console.log(`📦 Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`);
         
-        // Update progress
+        // Update progress before batch (use processed count, not batch index)
         if (logId) {
-          const { SchedulerLogService } = await import('../../services/schedulerLogService');
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: Math.round((i / dtFiles.length) * 100),
+            progress_percentage: Math.round((processed / dtFiles.length) * 100),
             current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} processed)`
           });
         }
@@ -765,7 +765,6 @@ export class BrokerBreakdownCalculator {
         
         // Update progress after batch
         if (logId) {
-          const { SchedulerLogService } = await import('../../services/schedulerLogService');
           await SchedulerLogService.updateLog(logId, {
             progress_percentage: Math.round((processed / dtFiles.length) * 100),
             current_processing: `Completed batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} processed)`

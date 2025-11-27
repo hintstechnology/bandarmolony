@@ -268,9 +268,9 @@ export class BrokerSummaryIDXCalculator {
 
       console.log(`📊 Found ${emitenFiles.length} emiten CSV files`);
 
-      // Batch processing configuration (Phase 4: 50 files at a time)
-      const BATCH_SIZE = BATCH_SIZE_PHASE_4; // Phase 4: 50 files
-      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_4; // Phase 4: 25 concurrent
+      // Batch processing configuration (Phase 4: 6 files at a time)
+      const BATCH_SIZE = BATCH_SIZE_PHASE_4; // Phase 4: 6 files
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_4; // Phase 4: 3 concurrent
 
       // Read and parse all emiten CSV files in batches
       const allBrokerData: BrokerSummary[] = [];

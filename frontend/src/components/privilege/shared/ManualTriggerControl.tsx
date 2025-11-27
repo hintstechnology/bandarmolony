@@ -3,9 +3,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Badge } from "../../ui/badge";
 import { Progress } from "../../ui/progress";
-import { Loader2, Square, CheckCircle, AlertCircle, X, RefreshCw, Play } from "lucide-react";
+import { Loader2, CheckCircle, AlertCircle, X, RefreshCw, Play } from "lucide-react";
 import { useToast } from "../../../contexts/ToastContext";
 import { api } from "../../../services/api";
+import { ConfirmationDialog } from "../../ui/confirmation-dialog";
 
 const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
 
@@ -117,6 +118,17 @@ export function ManualTriggerControl() {
   const [loading, setLoading] = useState(false);
   const [triggering, setTriggering] = useState<{[key: string]: boolean}>({});
   const [activeLogs, setActiveLogs] = useState<{[key: string]: { logId: string; progress: number; status: string } | null}>({});
+  const [confirmationDialog, setConfirmationDialog] = useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void;
+  }>({
+    open: false,
+    title: '',
+    description: '',
+    onConfirm: () => {},
+  });
 
   // Load running tasks - only manual triggers from Data Input Updates or Data Calculations (not from SchedulerConfigControl)
   const loadRunningTasks = async () => {
@@ -161,7 +173,13 @@ export function ManualTriggerControl() {
 
   // Handle manual trigger
   const handleTriggerDataUpdate = async (type: string) => {
-    setTriggering(prev => ({ ...prev, [type]: true }));
+    const item = MANUAL_TRIGGERS_BY_PHASE.flatMap(p => p.items).find(i => i.type === type);
+    setConfirmationDialog({
+      open: true,
+      title: 'Trigger Data Update',
+      description: `Are you sure you want to trigger ${item?.name || type}?`,
+      onConfirm: async () => {
+        setTriggering(prev => ({ ...prev, [type]: true }));
     
     try {
       const response = await fetch(`${API_URL}/api/trigger/${type}`, {
@@ -193,18 +211,25 @@ export function ManualTriggerControl() {
     } catch (error) {
       console.error(`Error triggering ${type} update:`, error);
       showToast({ type: 'error', title: 'Error', message: `Error triggering ${type} update` });
-    } finally {
-      // Don't reset triggering immediately if we have a log_id (task is running in background)
-      const logId = activeLogs[type]?.logId;
-      if (!logId) {
-        setTriggering(prev => ({ ...prev, [type]: false }));
+      } finally {
+        // Don't reset triggering immediately if we have a log_id (task is running in background)
+        const logId = activeLogs[type]?.logId;
+        if (!logId) {
+          setTriggering(prev => ({ ...prev, [type]: false }));
+        }
       }
-    }
+    },
+    });
   };
 
   // Cancel a running task
   const handleCancelTask = async (logId: string, featureName: string) => {
-    try {
+    setConfirmationDialog({
+      open: true,
+      title: 'Cancel Task',
+      description: `Are you sure you want to cancel ${featureName}?`,
+      onConfirm: async () => {
+        try {
       const result = await api.cancelSchedulerLog(logId, 'Cancelled by user from Manual Trigger Control');
       
       if (result.success) {
@@ -232,13 +257,15 @@ export function ManualTriggerControl() {
           message: result.error || 'Failed to cancel task'
         });
       }
-    } catch (error: any) {
-      showToast({
-        type: 'error',
-        title: 'Cancel Error',
-        message: error.message || 'Failed to cancel task'
-      });
-    }
+        } catch (error: any) {
+          showToast({
+            type: 'error',
+            title: 'Cancel Error',
+            message: error.message || 'Failed to cancel task'
+          });
+        }
+      },
+    });
   };
 
   const formatTime = (dateString: string): string => {
@@ -480,16 +507,15 @@ export function ManualTriggerControl() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className="flex items-center gap-2 flex-shrink-0 sm:ml-auto">
                       {getStatusBadge(task.status)}
                       {task.status === 'running' && (
                         <Button
                           onClick={() => handleCancelTask(task.logId, task.featureName)}
                           variant="destructive"
                           size="sm"
-                          className="w-full sm:w-auto"
+                          className="flex-shrink-0"
                         >
-                          <Square className="w-3 h-3 mr-1" />
                           Cancel
                         </Button>
                       )}
@@ -516,6 +542,16 @@ export function ManualTriggerControl() {
           )}
         </CardContent>
       </Card>
+
+      <ConfirmationDialog
+        open={confirmationDialog.open}
+        onOpenChange={(open) => setConfirmationDialog({ ...confirmationDialog, open })}
+        title={confirmationDialog.title}
+        description={confirmationDialog.description}
+        onConfirm={confirmationDialog.onConfirm}
+        confirmText="Yes"
+        cancelText="No"
+      />
     </>
   );
 }

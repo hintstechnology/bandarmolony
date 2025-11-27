@@ -540,9 +540,9 @@ export class BrokerSummaryCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
-      // Process files in batches (Phase 4: 50 files at a time)
-      const BATCH_SIZE = BATCH_SIZE_PHASE_4; // Phase 4: 50 files
-      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_4; // Phase 4: 25 concurrent
+      // Process files in batches (Phase 4: 6 files at a time)
+      const BATCH_SIZE = BATCH_SIZE_PHASE_4; // Phase 4: 6 files
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_4; // Phase 4: 3 concurrent
       const allResults: { success: boolean; dateSuffix: string; files: string[]; timing?: any }[] = [];
       let processed = 0;
       let successful = 0;
@@ -551,12 +551,12 @@ export class BrokerSummaryCalculator {
         const batch = dtFiles.slice(i, i + BATCH_SIZE);
         console.log(`📦 Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`);
         
-        // Update progress
+        // Update progress before batch (use processed count, not batch index)
         if (logId) {
           const { SchedulerLogService } = await import('../../services/schedulerLogService');
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: Math.round(((i + batch.length) / dtFiles.length) * 100),
-            current_processing: `Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`
+            progress_percentage: Math.round((processed / dtFiles.length) * 100),
+            current_processing: `Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} processed)`
           });
         }
         

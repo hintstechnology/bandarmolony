@@ -6,7 +6,7 @@
 // ------------------------------------------------------------
 
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
-import { BATCH_SIZE_PHASE_2 } from '../../services/dataUpdateService';
+import { BATCH_SIZE_PHASE_2, MAX_CONCURRENT_REQUESTS_PHASE_2 } from '../../services/dataUpdateService';
 
 // Helper function to limit concurrency for Phase 2
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -402,7 +402,7 @@ async function scanAllStocks(): Promise<ScannerResult[]> {
         return { status: 'error', stockCode, error: error instanceof Error ? error.message : String(error) };
       }
     });
-    const batchResults = await limitConcurrency(batchPromises, 250);
+    const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT_REQUESTS_PHASE_2);
     
     // Process batch results
     for (const batchResult of batchResults) {

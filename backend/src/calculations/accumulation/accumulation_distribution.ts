@@ -660,10 +660,10 @@ export class AccumulationDistributionCalculator {
           }
         }
 
-        // Load stock data for all stocks in batches (Phase 8: 50 stocks at a time)
+        // Load stock data for all stocks in batches (Phase 8: 6 stocks at a time)
         const stockDataMap = new Map<string, StockData[]>();
-        const STOCK_BATCH_SIZE = BATCH_SIZE_PHASE_8; // Phase 8: 50 stocks at a time
-        const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_8; // Phase 8: 25 concurrent
+        const STOCK_BATCH_SIZE = BATCH_SIZE_PHASE_8; // Phase 8: 6 stocks at a time
+        const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_8; // Phase 8: 3 concurrent
         let missingStocksCount = 0;
         const totalStocks = stockCodes.length;
         
