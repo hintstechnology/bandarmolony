@@ -71,11 +71,47 @@ const checkResponse = async (response: Response, endpoint: string) => {
   return response;
 };
 
+// Wrapper function for authenticated fetch - automatically checks 401
+const authenticatedFetch = async (
+  url: string,
+  options: RequestInit = {},
+  endpoint?: string
+): Promise<Response> => {
+  // Get session and add Authorization header
+  const { data: { session } } = await supabase.auth.getSession();
+  
+  if (!session?.access_token) {
+    console.log(`❌ API: No active session for authenticatedFetch to ${endpoint || url}`);
+    // Emit 401 event to trigger global logout flow
+    emit401Event();
+    // Throw an error that ProfileContext can catch to force logout
+    const error: any = new Error('No active session');
+    error.code = 'NO_ACTIVE_SESSION';
+    throw error;
+  }
+
+  const headers = {
+    ...options.headers,
+    'Authorization': `Bearer ${session.access_token}`,
+    'Content-Type': 'application/json', // Default to JSON
+  };
+
+  const response = await fetch(url, {
+    ...options,
+    headers,
+  });
+  
+  // Always check for 401 on authenticated requests
+  const endpointName = endpoint || url.replace(API_URL, '');
+  await checkResponse(response, endpointName);
+  return response;
+};
+
 export const api = {
   // Market Rotation Outputs (Azure-backed)
   async listMarketRotationOutputs(feature: 'rrc' | 'rrg' | 'seasonal' | 'trend'): Promise<{ success: boolean; data?: { prefix: string; files: string[] }; error?: string }> {
     try {
-      const res = await fetch(`${API_URL}/api/market-rotation/outputs/${feature}/list`);
+      const res = await authenticatedFetch(`${API_URL}/api/market-rotation/outputs/${feature}/list`, {}, `/api/market-rotation/outputs/${feature}/list`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to list outputs');
       return { success: true, data: json.data };
@@ -91,7 +127,7 @@ export const api = {
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
       
-      const res = await fetch(`${API_URL}/api/seasonality/data/${type}?${params}`);
+      const res = await authenticatedFetch(`${API_URL}/api/seasonality/data/${type}?${params}`, {}, `/api/seasonality/data/${type}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to get seasonality data');
       return { success: true, data: json.data };
@@ -102,7 +138,7 @@ export const api = {
 
   async getSeasonalityStatus(): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
-      const res = await fetch(`${API_URL}/api/seasonality/status`);
+      const res = await authenticatedFetch(`${API_URL}/api/seasonality/status`, {}, '/api/seasonality/status');
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to get seasonality status');
       return { success: true, data: json.data };
@@ -113,11 +149,10 @@ export const api = {
 
   async generateSeasonality(triggerType: 'manual' | 'scheduled' = 'manual'): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
-      const res = await fetch(`${API_URL}/api/seasonality/generate`, {
+      const res = await authenticatedFetch(`${API_URL}/api/seasonality/generate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ triggerType })
-      });
+      }, '/api/seasonality/generate');
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to generate seasonality');
       return { success: true, data: json.data };
@@ -127,7 +162,7 @@ export const api = {
   },
 
   async getMarketRotationOutputFile(feature: 'rrc' | 'rrg' | 'seasonal' | 'trend', path: string): Promise<string> {
-    const res = await fetch(`${API_URL}/api/market-rotation/outputs/${feature}/file?path=${encodeURIComponent(path)}`);
+    const res = await authenticatedFetch(`${API_URL}/api/market-rotation/outputs/${feature}/file?path=${encodeURIComponent(path)}`, {}, `/api/market-rotation/outputs/${feature}/file`);
     if (!res.ok) {
       const err = await res.text();
       throw new Error(err || 'Failed to fetch output file');
@@ -137,7 +172,7 @@ export const api = {
 
   async backfillMarketRotationOutputs(feature: 'rrc' | 'rrg' | 'seasonal' | 'trend'): Promise<{ success: boolean; uploaded?: number; error?: string }> {
     try {
-      const res = await fetch(`${API_URL}/api/market-rotation/backfill/${feature}`, { method: 'POST' });
+      const res = await authenticatedFetch(`${API_URL}/api/market-rotation/backfill/${feature}`, { method: 'POST' }, `/api/market-rotation/backfill/${feature}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to backfill outputs');
       return { success: true, uploaded: json?.data?.uploaded };
@@ -147,7 +182,7 @@ export const api = {
   },
   async listMarketRotationInputs(): Promise<{ success: boolean; data?: { index: string[]; stockSectors: string[]; holding: string[]; shareholders: string[] }; error?: string }> {
     try {
-      const res = await fetch(`${API_URL}/api/market-rotation/inputs`);
+      const res = await authenticatedFetch(`${API_URL}/api/market-rotation/inputs`, {}, '/api/market-rotation/inputs');
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to list inputs');
       return { success: true, data: json.data };
@@ -158,10 +193,9 @@ export const api = {
 
   async preGenerateOutputs(feature: string): Promise<{ success: boolean; data?: { message: string; feature: string }; error?: string }> {
     try {
-      const res = await fetch(`${API_URL}/api/market-rotation/pre-generate/${feature}`, {
+      const res = await authenticatedFetch(`${API_URL}/api/market-rotation/pre-generate/${feature}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
+      }, `/api/market-rotation/pre-generate/${feature}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to pre-generate outputs');
       return { success: true, data: json.data };
@@ -184,7 +218,7 @@ export const api = {
     params.set('symbols', uniqueSymbols.join(','));
 
     try {
-      const response = await fetch(`${API_URL}/api/watchlist?${params.toString()}`);
+      const response = await authenticatedFetch(`${API_URL}/api/watchlist?${params.toString()}`, {}, '/api/watchlist');
       const json = await response.json();
 
       if (!response.ok || !json?.success) {
@@ -205,7 +239,7 @@ export const api = {
 
   async getWatchlistSnapshot(): Promise<{ success: boolean; data?: { stocks: Array<{ symbol: string; name: string; price: number; change: number; changePercent: number; lastUpdate?: string }> }; error?: string }> {
     try {
-      const response = await fetch(`${API_URL}/api/watchlist`);
+      const response = await authenticatedFetch(`${API_URL}/api/watchlist`, {}, '/api/watchlist');
       const json = await response.json();
 
       if (!response.ok || !json?.success) {
@@ -247,18 +281,11 @@ export const api = {
     }, 30000); // 30 seconds timeout
     
     try {
-      const response = await fetch(`${API_URL}/api/me`, {
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json'
-        },
+      const response = await authenticatedFetch(`${API_URL}/api/me`, {
         signal: controller.signal
-      });
+      }, '/api/me');
       
       clearTimeout(timeoutId);
-      
-      // Check for 401 using global handler
-      await checkResponse(response, '/api/me');
       
       if (!response.ok) {
         const errorText = await response.text();
@@ -333,13 +360,17 @@ export const api = {
       const formData = new FormData();
       formData.append('avatar', file);
 
-      const response = await fetch(`${API_URL}/api/auth/upload-avatar`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`
+      const response = await authenticatedFetch(
+        `${API_URL}/api/auth/upload-avatar`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: formData
         },
-        body: formData
-      });
+        '/api/auth/upload-avatar'
+      );
 
       if (!response.ok) {
         let errorMessage = 'Failed to upload avatar';
@@ -387,13 +418,17 @@ export const api = {
         throw new Error('No active session');
       }
 
-      const response = await fetch(`${API_URL}/api/auth/avatar`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const response = await authenticatedFetch(
+        `${API_URL}/api/auth/avatar`,
+        {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json'
+          }
+        },
+        '/api/auth/avatar'
+      );
 
       if (!response.ok) {
         let errorMessage = 'Failed to delete avatar';
@@ -433,12 +468,16 @@ export const api = {
         throw new Error('No active session');
       }
 
-      const response = await fetch(`${API_URL}/api/auth/sessions`, {
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const response = await authenticatedFetch(
+        `${API_URL}/api/auth/sessions`,
+        {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json'
+          }
+        },
+        '/api/auth/sessions'
+      );
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -460,13 +499,17 @@ export const api = {
         throw new Error('No active session');
       }
 
-      const response = await fetch(`${API_URL}/api/auth/sessions/${sessionId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const response = await authenticatedFetch(
+        `${API_URL}/api/auth/sessions/${sessionId}`,
+        {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json'
+          }
+        },
+        '/api/auth/sessions/:id'
+      );
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -485,13 +528,17 @@ export const api = {
         throw new Error('No active session');
       }
 
-      const response = await fetch(`${API_URL}/api/auth/sessions/all`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const response = await authenticatedFetch(
+        `${API_URL}/api/auth/sessions/all`,
+        {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json'
+          }
+        },
+        '/api/auth/sessions/all'
+      );
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -511,14 +558,18 @@ export const api = {
       }
 
 
-      const response = await fetch(`${API_URL}/api/me`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json'
+      const response = await authenticatedFetch(
+        `${API_URL}/api/me`,
+        {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(data)
         },
-        body: JSON.stringify(data)
-      });
+        '/api/me'
+      );
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -573,14 +624,18 @@ export const api = {
       }
 
       console.log('📤 API: Changing password...');
-      const response = await fetch(`${API_URL}/api/auth/change-password`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json'
+      const response = await authenticatedFetch(
+        `${API_URL}/api/auth/change-password`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ currentPassword, newPassword })
         },
-        body: JSON.stringify({ currentPassword, newPassword })
-      });
+        '/api/auth/change-password'
+      );
 
       const result = await response.json();
       
@@ -791,27 +846,36 @@ export const api = {
 
   async forgotPassword(email: string): Promise<{ success: boolean; error?: string; message?: string }> {
     try {
-      // Use Supabase direct forgot password
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth/callback`
+      // Use backend API to check email exists and send reset email
+      const response = await fetch(`${API_URL}/api/auth/forgot-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
       });
 
-      if (error) {
+      const result = await response.json();
+
+      if (!response.ok) {
+        // Handle error response from backend (404 for user not found, etc.)
+        const errorMessage = result.error || 'Gagal mengirim link reset password';
         return {
           success: false,
-          error: error.message || 'Failed to send password reset email'
+          error: errorMessage
         };
       }
 
+      // Success response
       return {
         success: true,
-        message: 'Jika email terdaftar, kami telah mengirim link reset password.'
+        message: result.message || 'Email berhasil dikirim, silahkan cek akun Anda'
       };
     } catch (error: any) {
       console.error('Forgot password error:', error);
       return {
         success: false,
-        error: error.message || 'Failed to send reset email. Please try again.'
+        error: error.message || 'Gagal mengirim link reset password'
       };
     }
   },
@@ -1022,14 +1086,18 @@ export const api = {
         throw new Error('No active session found');
       }
       
-      const response = await fetch(`${API_URL}/api/auth/reset-password`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
+      const response = await authenticatedFetch(
+        `${API_URL}/api/auth/reset-password`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: JSON.stringify({ password: newPassword })
         },
-        body: JSON.stringify({ password: newPassword })
-      });
+        '/api/auth/reset-password'
+      );
 
       const result = await response.json();
       
@@ -1046,7 +1114,7 @@ export const api = {
   // Subscription API methods
   async getSubscriptionPlans(): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
-      const response = await fetch(`${API_URL}/api/subscription/plans`);
+      const response = await authenticatedFetch(`${API_URL}/api/subscription/plans`, {}, '/api/subscription/plans');
       const result = await response.json();
       
       if (!response.ok) {
@@ -1061,7 +1129,7 @@ export const api = {
 
   async getPaymentMethods(): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
-      const response = await fetch(`${API_URL}/api/subscription/payment-methods`);
+      const response = await authenticatedFetch(`${API_URL}/api/subscription/payment-methods`, {}, '/api/subscription/payment-methods');
       const result = await response.json();
       
       if (!response.ok) {
@@ -1085,14 +1153,18 @@ export const api = {
         throw new Error('No active session found');
       }
 
-      const response = await fetch(`${API_URL}/api/subscription/create-order`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
+      const response = await authenticatedFetch(
+        `${API_URL}/api/subscription/create-order`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: JSON.stringify(data)
         },
-        body: JSON.stringify(data)
-      });
+        '/api/subscription/create-order'
+      );
 
       const result = await response.json();
       
@@ -1114,11 +1186,15 @@ export const api = {
         throw new Error('No active session found');
       }
 
-      const response = await fetch(`${API_URL}/api/subscription/status`, {
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`
-        }
-      });
+      const response = await authenticatedFetch(
+        `${API_URL}/api/subscription/status`,
+        {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`
+          }
+        },
+        '/api/subscription/status'
+      );
 
       const result = await response.json();
       
@@ -1139,15 +1215,17 @@ export const api = {
       throw new Error('No active session');
     }
 
-    const response = await fetch(`${API_URL}/api/subscription/start-trial`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${session.access_token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    await checkResponse(response, '/api/subscription/start-trial');
+    const response = await authenticatedFetch(
+      `${API_URL}/api/subscription/start-trial`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        }
+      },
+      '/api/subscription/start-trial'
+    );
 
     if (!response.ok) {
       const errorData = await response.json();
@@ -1167,15 +1245,17 @@ export const api = {
       throw new Error('No active session');
     }
 
-    const response = await fetch(`${API_URL}/api/subscription/trial-status`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${session.access_token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    await checkResponse(response, '/api/subscription/trial-status');
+    const response = await authenticatedFetch(
+      `${API_URL}/api/subscription/trial-status`,
+      {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        }
+      },
+      '/api/subscription/trial-status'
+    );
 
     if (!response.ok) {
       const errorData = await response.json();
@@ -1200,14 +1280,18 @@ export const api = {
         throw new Error('No active session found');
       }
 
-      const response = await fetch(`${API_URL}/api/subscription/cancel`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
+      const response = await authenticatedFetch(
+        `${API_URL}/api/subscription/cancel`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: JSON.stringify(data)
         },
-        body: JSON.stringify(data)
-      });
+        '/api/subscription/cancel'
+      );
 
       const result = await response.json();
       
@@ -1236,11 +1320,15 @@ export const api = {
       if (params?.limit) queryParams.append('limit', params.limit.toString());
       if (params?.offset) queryParams.append('offset', params.offset.toString());
 
-      const response = await fetch(`${API_URL}/api/subscription/payment-activity?${queryParams}`, {
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`
-        }
-      });
+      const response = await authenticatedFetch(
+        `${API_URL}/api/subscription/payment-activity?${queryParams}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`
+          }
+        },
+        '/api/subscription/payment-activity'
+      );
 
       const result = await response.json();
       
@@ -1262,14 +1350,18 @@ export const api = {
         throw new Error('No active session found');
       }
 
-      const response = await fetch(`${API_URL}/api/subscription/check-status`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
+      const response = await authenticatedFetch(
+        `${API_URL}/api/subscription/check-status`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: JSON.stringify({ orderId })
         },
-        body: JSON.stringify({ orderId })
-      });
+        '/api/subscription/check-status'
+      );
 
       const result = await response.json();
       
@@ -1293,14 +1385,18 @@ export const api = {
         throw new Error('No active session found');
       }
 
-      const response = await fetch(`${API_URL}/api/subscription/regenerate-snap-token`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
+      const response = await authenticatedFetch(
+        `${API_URL}/api/subscription/regenerate-snap-token`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: JSON.stringify(data)
         },
-        body: JSON.stringify(data)
-      });
+        '/api/subscription/regenerate-snap-token'
+      );
 
       const result = await response.json();
       
@@ -1325,14 +1421,18 @@ export const api = {
         throw new Error('No active session found');
       }
 
-      const response = await fetch(`${API_URL}/api/subscription/cancel-pending`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
+      const response = await authenticatedFetch(
+        `${API_URL}/api/subscription/cancel-pending`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: JSON.stringify(data)
         },
-        body: JSON.stringify(data)
-      });
+        '/api/subscription/cancel-pending'
+      );
 
       const result = await response.json();
       
@@ -1357,14 +1457,18 @@ export const api = {
         throw new Error('No active session found');
       }
 
-      const response = await fetch(`${API_URL}/api/subscription/update-payment-method`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
+      const response = await authenticatedFetch(
+        `${API_URL}/api/subscription/update-payment-method`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: JSON.stringify(params)
         },
-        body: JSON.stringify(params)
-      });
+        '/api/subscription/update-payment-method'
+      );
 
       const result = await response.json();
 
@@ -1381,10 +1485,7 @@ export const api = {
   // RRC API methods
   async listRRCInputs(): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
-      const res = await fetch(`${API_URL}/api/rrc/inputs`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      });
+      const res = await authenticatedFetch(`${API_URL}/api/rrc/inputs`, {}, '/api/rrc/inputs');
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to list RRC inputs');
       return { success: true, data: json.data };
@@ -1395,10 +1496,7 @@ export const api = {
 
   async getRRCStatus(): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
-      const res = await fetch(`${API_URL}/api/rrc/status`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      });
+      const res = await authenticatedFetch(`${API_URL}/api/rrc/status`, {}, '/api/rrc/status');
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to get RRC status');
       return { success: true, data: json.data };
@@ -1410,10 +1508,9 @@ export const api = {
   // Debug API methods
   async triggerRRCUpdate(): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
-      const res = await fetch(`${API_URL}/api/rrc/debug/trigger-update`, {
+      const res = await authenticatedFetch(`${API_URL}/api/rrc/debug/trigger-update`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
+      }, '/api/rrc/debug/trigger-update');
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to trigger RRC update');
       return { success: true, data: json.data };
@@ -1425,10 +1522,9 @@ export const api = {
   // Unified trigger with options
   async triggerGeneration(feature: 'rrc' | 'rrg' | 'seasonal' | 'all' = 'all'): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
-      const res = await fetch(`${API_URL}/api/trigger/generate?feature=${feature}`, {
+      const res = await authenticatedFetch(`${API_URL}/api/trigger/generate?feature=${feature}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
+      }, '/api/trigger/generate');
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to trigger generation');
       return { success: true, data: json.data };
@@ -1439,7 +1535,7 @@ export const api = {
 
   async getGenerationStatus(): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
-      const res = await fetch(`${API_URL}/api/trigger/status`);
+      const res = await authenticatedFetch(`${API_URL}/api/trigger/status`, {}, '/api/trigger/status');
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to get status');
       return { success: true, data: json.data };
@@ -1450,10 +1546,9 @@ export const api = {
 
   async stopRRCGeneration(): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
-      const res = await fetch(`${API_URL}/api/rrc/debug/stop-generation`, {
+      const res = await authenticatedFetch(`${API_URL}/api/rrc/debug/stop-generation`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
+      }, '/api/rrc/debug/stop-generation');
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to stop RRC generation');
       return { success: true, data: json.data };

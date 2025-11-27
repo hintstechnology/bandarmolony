@@ -10,6 +10,7 @@ import crypto from 'crypto';
 export class SessionManager {
   /**
    * Create or update user session
+   * Handles token refresh by updating token_hash when token changes
    */
   static async createOrUpdateSession(
     userId: string,
@@ -19,17 +20,17 @@ export class SessionManager {
     userAgent?: string
   ) {
     try {
-      // Check if session already exists
-      const { data: existingSession } = await supabaseAdmin
+      // First, check if session exists with exact token_hash match
+      const { data: exactMatch } = await supabaseAdmin
         .from('user_sessions')
-        .select('id')
+        .select('id, token_hash')
         .eq('user_id', userId)
         .eq('token_hash', tokenHash)
         .eq('is_active', true)
         .single();
 
-      if (existingSession) {
-        // Update existing session
+      if (exactMatch) {
+        // Session exists with same token_hash - just update metadata
         const { data, error } = await supabaseAdmin
           .from('user_sessions')
           .update({
@@ -39,7 +40,7 @@ export class SessionManager {
             is_active: true,
             updated_at: new Date().toISOString()
           })
-          .eq('id', existingSession.id)
+          .eq('id', exactMatch.id)
           .select()
           .single();
 
@@ -49,28 +50,65 @@ export class SessionManager {
         }
 
         return { success: true, data };
-      } else {
-        // Create new session
+      }
+
+      // No exact match - check if there's an active session for this user (token refresh scenario)
+      const { data: activeSession } = await supabaseAdmin
+        .from('user_sessions')
+        .select('id, token_hash, expires_at')
+        .eq('user_id', userId)
+        .eq('is_active', true)
+        .gt('expires_at', new Date().toISOString()) // Only active, non-expired sessions
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (activeSession) {
+        // Active session exists but with different token_hash (token was refreshed)
+        // Update the token_hash to sync with new token
         const { data, error } = await supabaseAdmin
           .from('user_sessions')
-          .insert({
-            user_id: userId,
-            token_hash: tokenHash,
+          .update({
+            token_hash: tokenHash, // Update with new token hash (token refresh)
             expires_at: expiresAt.toISOString(),
             ip_address: ipAddress,
             user_agent: userAgent,
-            is_active: true
+            is_active: true,
+            updated_at: new Date().toISOString()
           })
+          .eq('id', activeSession.id)
           .select()
           .single();
 
         if (error) {
-          console.error('Error creating session:', error);
+          console.error('Error updating session token hash (refresh):', error);
           return { success: false, error: error.message };
         }
 
+        console.log(`SessionManager: Updated token_hash for user ${userId} (token refresh detected)`);
         return { success: true, data };
       }
+
+      // No active session found - create new session
+      const { data, error } = await supabaseAdmin
+        .from('user_sessions')
+        .insert({
+          user_id: userId,
+          token_hash: tokenHash,
+          expires_at: expiresAt.toISOString(),
+          ip_address: ipAddress,
+          user_agent: userAgent,
+          is_active: true
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error creating session:', error);
+        return { success: false, error: error.message };
+      }
+
+      return { success: true, data };
     } catch (error) {
       console.error('Database error in createOrUpdateSession:', error);
       return { success: false, error: 'Database error' };
@@ -79,6 +117,7 @@ export class SessionManager {
 
   /**
    * Validate user session
+   * Handles token refresh by syncing token_hash when token changes
    * Returns object with isValid, reason, and message for better error handling
    */
   static async validateSession(userId: string, tokenHash: string): Promise<{
@@ -87,10 +126,10 @@ export class SessionManager {
     message?: string;
   }> {
     try {
-      // For minimal database, we'll do basic session tracking
-      const { data, error } = await supabaseAdmin
+      // First, try to find session with exact token_hash match
+      const { data: exactMatch, error: exactError } = await supabaseAdmin
         .from('user_sessions')
-        .select('id, expires_at, updated_at')
+        .select('id, expires_at, updated_at, token_hash')
         .eq('user_id', userId)
         .eq('token_hash', tokenHash)
         .eq('is_active', true)
@@ -98,54 +137,84 @@ export class SessionManager {
         .limit(1)
         .single();
 
-      if (error || !data) {
-        // If no session found, could be:
-        // 1. Kicked by other device
-        // 2. Server restart (session cleared)
-        // 3. Manual logout
-        console.log('SessionManager: No active session found for user:', userId);
-        return {
-          isValid: false,
-          reason: 'not_found',
-          message: 'Session not found. You may have been logged out or logged in from another device.'
-        };
+      if (!exactError && exactMatch) {
+        // Found exact match - validate expiry
+        const now = new Date();
+        const expiresAt = new Date(exactMatch.expires_at);
+
+        if (expiresAt < now) {
+          // Deactivate expired session
+          await supabaseAdmin
+            .from('user_sessions')
+            .update({
+              is_active: false,
+              updated_at: now.toISOString()
+            })
+            .eq('id', exactMatch.id);
+
+          return {
+            isValid: false,
+            reason: 'expired',
+            message: 'Session expired. Please sign in again.'
+          };
+        }
+
+        // Update last activity (only if not updated in last minute)
+        const lastUpdate = new Date(exactMatch.updated_at);
+        const oneMinuteAgo = new Date(now.getTime() - 60 * 1000);
+
+        if (lastUpdate < oneMinuteAgo) {
+          await supabaseAdmin
+            .from('user_sessions')
+            .update({
+              updated_at: now.toISOString()
+            })
+            .eq('id', exactMatch.id);
+        }
+
+        return { isValid: true };
       }
 
-      // Check if session is expired
-      const now = new Date();
-      const expiresAt = new Date(data.expires_at);
+      // No exact match - check if there's an active session for this user (token refresh scenario)
+      const { data: activeSession, error: activeError } = await supabaseAdmin
+        .from('user_sessions')
+        .select('id, expires_at, updated_at, token_hash')
+        .eq('user_id', userId)
+        .eq('is_active', true)
+        .gt('expires_at', new Date().toISOString()) // Only active, non-expired sessions
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
 
-      if (expiresAt < now) {
-        // Deactivate expired session
+      if (!activeError && activeSession) {
+        // Active session exists but with different token_hash (token was refreshed)
+        // Update the token_hash to sync with new token
+        const now = new Date();
+        
         await supabaseAdmin
           .from('user_sessions')
           .update({
-            is_active: false,
+            token_hash: tokenHash, // Sync token_hash with new token (token refresh)
             updated_at: now.toISOString()
           })
-          .eq('id', data.id);
+          .eq('id', activeSession.id);
 
-        return {
-          isValid: false,
-          reason: 'expired',
-          message: 'Session expired. Please sign in again.'
-        };
+        console.log(`SessionManager: Synced token_hash for user ${userId} (token refresh detected)`);
+        return { isValid: true };
       }
 
-      // Update last activity (only if not updated in last minute)
-      const lastUpdate = new Date(data.updated_at);
-      const oneMinuteAgo = new Date(now.getTime() - 60 * 1000);
-
-      if (lastUpdate < oneMinuteAgo) {
-        await supabaseAdmin
-          .from('user_sessions')
-          .update({
-            updated_at: now.toISOString()
-          })
-          .eq('id', data.id);
-      }
-
-      return { isValid: true };
+      // No active session found
+      // Could be:
+      // 1. Kicked by other device
+      // 2. Server restart (session cleared)
+      // 3. Manual logout
+      // 4. Session expired
+      console.log('SessionManager: No active session found for user:', userId);
+      return {
+        isValid: false,
+        reason: 'not_found',
+        message: 'Session not found. You may have been logged out or logged in from another device.'
+      };
     } catch (error) {
       console.error('Database error in validateSession:', error);
       // On database error, allow access (fail open)

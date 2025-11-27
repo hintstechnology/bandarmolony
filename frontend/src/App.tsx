@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { ThemeProvider } from "./components/dashboard/ThemeProvider";
-import { AuthProvider } from "./contexts/AuthContext";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { ProfileProvider } from "./contexts/ProfileContext";
 import { ToastProvider } from "./contexts/ToastContext";
 import { ConfirmationProvider } from "./contexts/ConfirmationContext";
 import { ErrorBoundary } from "./components/landing-page/ErrorBoundary";
+import { Toaster } from "sonner";
 import { useNavigation } from "./hooks/useNavigation";
 import { AuthPage } from "./components/auth/AuthPage";
 import { EmailVerificationHandler } from "./components/auth/EmailVerificationHandler";
@@ -407,6 +408,40 @@ function DashboardLayout() {
 // Navigation wrapper component for public routes
 function PublicRouteWrapper() {
   const navigate = useNavigate();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  
+  // Handle Start Free Trial - check if already authenticated
+  const handleStartTrial = () => {
+    if (!authLoading && isAuthenticated) {
+      // Already logged in, go directly to profile/subscription
+      navigate('/subscription');
+    } else {
+      // Not logged in, go to register
+      navigate('/auth?mode=register');
+    }
+  };
+  
+  // Handle Sign In - check if already authenticated
+  const handleSignIn = () => {
+    if (!authLoading && isAuthenticated) {
+      // Already logged in, go directly to profile
+      navigate('/profile');
+    } else {
+      // Not logged in, go to login
+      navigate('/auth?mode=login');
+    }
+  };
+  
+  // Handle Register - check if already authenticated
+  const handleRegister = () => {
+    if (!authLoading && isAuthenticated) {
+      // Already logged in, go directly to profile
+      navigate('/profile');
+    } else {
+      // Not logged in, go to register
+      navigate('/auth?mode=register');
+    }
+  };
   
   return (
     <Routes>
@@ -415,9 +450,9 @@ function PublicRouteWrapper() {
         path="/" 
         element={
           <LandingPage 
-            onStartTrial={() => navigate('/auth?mode=register')} 
-            onSignIn={() => navigate('/auth?mode=login')}
-            onRegister={() => navigate('/auth?mode=register')}
+            onStartTrial={handleStartTrial} 
+            onSignIn={handleSignIn}
+            onRegister={handleRegister}
           />
         } 
       />
@@ -582,6 +617,28 @@ export default function App() {
           </AuthProvider>
         </ConfirmationProvider>
       </ToastProvider>
+      <Toaster 
+        position="bottom-right" 
+        richColors
+        toastOptions={{
+          success: {
+            className: 'bg-green-500 text-white border-green-600',
+            style: {
+              background: '#22c55e',
+              color: '#ffffff',
+              borderColor: '#16a34a',
+            },
+          },
+          warning: {
+            className: 'bg-yellow-500 text-white border-yellow-600',
+            style: {
+              background: '#eab308',
+              color: '#ffffff',
+              borderColor: '#ca8a04',
+            },
+          },
+        }}
+      />
     </ThemeProvider>
   );
 }

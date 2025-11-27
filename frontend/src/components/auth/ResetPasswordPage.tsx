@@ -22,6 +22,29 @@ export function ResetPasswordPage() {
 
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  
+  // Helper function to navigate back to login or dashboard
+  const handleBackToLogin = async () => {
+    // Check if user is already authenticated
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (session?.user) {
+      // User is authenticated, redirect directly to profile/dashboard
+      const returnTo = sessionStorage.getItem('returnTo');
+      const isDashboardReturn = returnTo === '/' || returnTo === '/dashboard' || returnTo === '/dashboard/';
+      
+      if (returnTo && !isDashboardReturn) {
+        sessionStorage.removeItem('returnTo');
+        navigate(returnTo, { replace: true });
+      } else {
+        sessionStorage.removeItem('returnTo');
+        navigate('/profile', { replace: true });
+      }
+    } else {
+      // User is not authenticated, go to login page
+      navigate('/auth?mode=login', { replace: true });
+    }
+  };
 
   // Handle password reset access on component mount
   useEffect(() => {
@@ -213,7 +236,8 @@ export function ResetPasswordPage() {
         // Wait a bit for sign out to complete
         await new Promise(resolve => setTimeout(resolve, 300));
         
-        toast.success('Password Anda berhasil diubah! Silakan login dengan password baru.');
+        // Don't show toast here - AuthPage will handle it via URL parameter
+        // This prevents duplicate toast messages
         
         // Redirect to login with success parameter
         navigate('/auth?mode=login&password_reset=success', { replace: true });
@@ -275,7 +299,7 @@ export function ResetPasswordPage() {
                 {error}
               </p>
               <Button
-                onClick={() => navigate('/auth?mode=login', { replace: true })}
+                onClick={handleBackToLogin}
                 className="w-full"
               >
                 Kembali ke Login
@@ -301,7 +325,7 @@ export function ResetPasswordPage() {
               </p>
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-600 mx-auto mb-4"></div>
               <Button
-                onClick={() => navigate('/auth?mode=login', { replace: true })}
+                onClick={handleBackToLogin}
                 className="w-full"
               >
                 Kembali ke Login
@@ -354,7 +378,7 @@ export function ResetPasswordPage() {
                     className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                     onClick={() => setShowPassword(!showPassword)}
                   >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    {showPassword ? <EyeOff className="h-4 w-4 text-slate-600 dark:text-slate-400" /> : <Eye className="h-4 w-4 text-slate-600 dark:text-slate-400" />}
                   </Button>
                 </div>
               </div>
@@ -378,7 +402,7 @@ export function ResetPasswordPage() {
                     className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                   >
-                    {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    {showConfirmPassword ? <EyeOff className="h-4 w-4 text-slate-600 dark:text-slate-400" /> : <Eye className="h-4 w-4 text-slate-600 dark:text-slate-400" />}
                   </Button>
                 </div>
               </div>
@@ -402,11 +426,26 @@ export function ResetPasswordPage() {
                 // Clear the password reset session flag
                 localStorage.removeItem('passwordResetSession');
                 
-                // Sign out to clear the password reset session
-                await supabase.auth.signOut();
+                // Check if user is authenticated before signing out
+                const { data: { session } } = await supabase.auth.getSession();
                 
-                // Navigate to login
-                navigate('/auth?mode=login', { replace: true });
+                if (session?.user) {
+                  // User is authenticated, redirect directly to profile/dashboard
+                  const returnTo = sessionStorage.getItem('returnTo');
+                  const isDashboardReturn = returnTo === '/' || returnTo === '/dashboard' || returnTo === '/dashboard/';
+                  
+                  if (returnTo && !isDashboardReturn) {
+                    sessionStorage.removeItem('returnTo');
+                    navigate(returnTo, { replace: true });
+                  } else {
+                    sessionStorage.removeItem('returnTo');
+                    navigate('/profile', { replace: true });
+                  }
+                } else {
+                  // User is not authenticated, sign out and go to login
+                  await supabase.auth.signOut();
+                  navigate('/auth?mode=login', { replace: true });
+                }
               }}
               className="w-full"
             >
