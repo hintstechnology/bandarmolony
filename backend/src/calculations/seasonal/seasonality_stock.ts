@@ -5,7 +5,7 @@
 // ------------------------------------------------------------
 
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
-import { BATCH_SIZE_PHASE_2 } from '../../services/dataUpdateService';
+import { BATCH_SIZE_PHASE_2, MAX_CONCURRENT_REQUESTS_PHASE_2 } from '../../services/dataUpdateService';
 
 // Helper function to limit concurrency for Phase 2
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -321,15 +321,15 @@ export async function generateAllStocksSeasonality(): Promise<SeasonalityResults
     
     // Limit concurrency to 250 for Phase 2
     const batchPromises = batch.map(async (stock) => {
-      try {
-        console.log(`Processing ${uniqueStocksArray.indexOf(stock) + 1}/${uniqueStocksArray.length}: ${stock.ticker} (${stock.sector})`);
-        return await generateStockSeasonalityData(stock.sector, stock.ticker);
-      } catch (error) {
-        console.warn(`⚠️ Warning: Could not process ${stock.ticker}: ${error}`);
-        return null;
-      }
+        try {
+          console.log(`Processing ${uniqueStocksArray.indexOf(stock) + 1}/${uniqueStocksArray.length}: ${stock.ticker} (${stock.sector})`);
+          return await generateStockSeasonalityData(stock.sector, stock.ticker);
+        } catch (error) {
+          console.warn(`⚠️ Warning: Could not process ${stock.ticker}: ${error}`);
+          return null;
+        }
     });
-    const batchResults = await limitConcurrency(batchPromises, 250);
+    const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT_REQUESTS_PHASE_2);
     
     // Add successful results
     batchResults.forEach(result => {

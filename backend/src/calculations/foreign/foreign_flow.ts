@@ -510,9 +510,9 @@ export class ForeignFlowCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
-      // Process files in batches for speed (Phase 3: 50 files at a time)
+      // Process files in batches for speed (Phase 3: 6 files at a time)
       const BATCH_SIZE = BATCH_SIZE_PHASE_3;
-      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_3; // Phase 3: 25 concurrent
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_3; // Phase 3: 3 concurrent
       const allResults: { success: boolean; dateSuffix: string; files: string[] }[] = [];
       let processed = 0;
       let successful = 0;
@@ -523,11 +523,11 @@ export class ForeignFlowCalculator {
         const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
         console.log(`📦 Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`);
         
-        // Update progress
+        // Update progress before batch (use processed count, not batch index)
         if (logId) {
           const { SchedulerLogService } = await import('../../services/schedulerLogService');
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: Math.round((i / dtFiles.length) * 100),
+            progress_percentage: Math.round((processed / dtFiles.length) * 100),
             current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} processed)`
           });
         }

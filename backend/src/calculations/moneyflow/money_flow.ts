@@ -466,8 +466,8 @@ export class MoneyFlowCalculator {
     console.log("\nProcessing all files (stock and index) separately...");
     
     const moneyFlowData = new Map<string, { code: string; type: 'stock' | 'index'; mfiData: MoneyFlowData[] }>();
-    const BATCH_SIZE = BATCH_SIZE_PHASE_3; // Phase 3: 50 files at a time
-    const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_3; // Phase 3: 25 concurrent
+    const BATCH_SIZE = BATCH_SIZE_PHASE_3; // Phase 3: 6 files at a time
+    const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_3; // Phase 3: 3 concurrent
     
     // Process stock files first
     console.log("\n📈 Processing STOCK files...");
@@ -475,21 +475,21 @@ export class MoneyFlowCalculator {
     console.log(`Found ${allStockFiles.length} stock files`);
     
     let processed = 0;
-      for (let i = 0; i < allStockFiles.length; i += BATCH_SIZE) {
-        const batch = allStockFiles.slice(i, i + BATCH_SIZE);
-        const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
-        console.log(`📦 Processing stock batch ${batchNumber}/${Math.ceil(allStockFiles.length / BATCH_SIZE)} (${batch.length} files)`);
+    for (let i = 0; i < allStockFiles.length; i += BATCH_SIZE) {
+      const batch = allStockFiles.slice(i, i + BATCH_SIZE);
+      const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+      console.log(`📦 Processing stock batch ${batchNumber}/${Math.ceil(allStockFiles.length / BATCH_SIZE)} (${batch.length} files)`);
         
-        // Update progress
+        // Update progress before batch (use processed count, not batch index)
         if (logId) {
           const { SchedulerLogService } = await import('../../services/schedulerLogService');
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: Math.round((i / allStockFiles.length) * 50), // First 50% for stocks
+            progress_percentage: Math.round((processed / allStockFiles.length) * 50), // First 50% for stocks
             current_processing: `Processing stock batch ${batchNumber}/${Math.ceil(allStockFiles.length / BATCH_SIZE)} (${processed}/${allStockFiles.length} stocks)`
           });
         }
-        
-        // Memory check before batch
+      
+      // Memory check before batch
       if (global.gc) {
         const memBefore = process.memoryUsage();
         const heapUsedMB = memBefore.heapUsed / 1024 / 1024;

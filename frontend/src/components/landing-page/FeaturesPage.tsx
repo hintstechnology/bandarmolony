@@ -13,6 +13,7 @@ import {
 import { Navbar } from "./Navbar";
 import { Footer } from "./Footer";
 import { Button } from "../ui/button";
+import { useAuth } from "../../contexts/AuthContext";
 
 const featureSections = [
   {
@@ -85,6 +86,18 @@ const featureSections = [
 
 export function FeaturesPage() {
   const navigate = useNavigate();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  
+  // Handle Start Free Trial - check if already authenticated
+  const handleStartTrial = () => {
+    if (!authLoading && isAuthenticated) {
+      // Already logged in, go directly to subscription
+      navigate('/subscription');
+    } else {
+      // Not logged in, go to register
+      navigate('/auth?mode=register');
+    }
+  };
   
   return (
     <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-background via-muted/20 to-background text-foreground">
@@ -177,7 +190,7 @@ export function FeaturesPage() {
             <Button
               size="lg"
               className="rounded-2xl px-8 py-6 text-base font-semibold shadow-lg hover:-translate-y-1 hover:shadow-primary/40 transition-transform"
-              onClick={() => navigate("/auth?mode=register")}
+              onClick={handleStartTrial}
             >
               Mulai Free Trial
             </Button>

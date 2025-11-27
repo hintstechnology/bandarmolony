@@ -407,9 +407,9 @@ export class TopBrokerCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
-      // Process files in batches (Phase 4: 50 files at a time)
-      const BATCH_SIZE = BATCH_SIZE_PHASE_4; // Phase 4: 50 files
-      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_4; // Phase 4: 25 concurrent
+      // Process files in batches (Phase 4: 6 files at a time)
+      const BATCH_SIZE = BATCH_SIZE_PHASE_4; // Phase 4: 6 files
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_4; // Phase 4: 3 concurrent
       const allResults: { success: boolean; dateSuffix: string; files: string[]; timing?: any }[] = [];
       let processed = 0;
       let successful = 0;

@@ -452,9 +452,9 @@ export class BidAskCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
-      // Process files in batches (Phase 7: 50 files at a time)
-      const BATCH_SIZE = BATCH_SIZE_PHASE_7; // Phase 7: 50 files
-      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_7; // Phase 7: 25 concurrent
+      // Process files in batches (Phase 7: 6 files at a time)
+      const BATCH_SIZE = BATCH_SIZE_PHASE_7; // Phase 7: 6 files
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_7; // Phase 7: 3 concurrent
       const allResults: { success: boolean; dateSuffix: string; files: string[] }[] = [];
       let processed = 0;
       let successful = 0;
@@ -475,11 +475,11 @@ export class BidAskCalculator {
           }
         }
         
-        // Update progress
+        // Update progress before batch (use processed count, not batch index)
         if (logId) {
           const { SchedulerLogService } = await import('../../services/schedulerLogService');
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: Math.round((i / dtFiles.length) * 100),
+            progress_percentage: Math.round((processed / dtFiles.length) * 100),
             current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} processed)`
           });
         }

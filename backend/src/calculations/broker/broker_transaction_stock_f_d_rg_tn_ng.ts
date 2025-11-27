@@ -683,9 +683,9 @@ export class BrokerTransactionStockFDRGTNNGCalculator {
         return { success: true, message: `No DT files found - skipped broker transaction stock RG/TN/NG x D/F data generation` };
       }
       
-      // Process in batches to manage memory (Phase 6: 50 files at a time)
-      const BATCH_SIZE = BATCH_SIZE_PHASE_6; // Phase 6: 50 files
-      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_6; // Phase 6: 25 concurrent
+      // Process in batches to manage memory (Phase 6: 6 files at a time)
+      const BATCH_SIZE = BATCH_SIZE_PHASE_6; // Phase 6: 6 files
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_6; // Phase 6: 3 concurrent
       
       console.log(`📊 Processing ${dtFiles.length} DT files in batches of ${BATCH_SIZE}...`);
       
@@ -700,11 +700,11 @@ export class BrokerTransactionStockFDRGTNNGCalculator {
         
         console.log(`\n📦 Processing batch ${batchNum}/${totalBatches} (${batch.length} files)...`);
         
-        // Update progress
+        // Update progress before batch (use totalProcessed count, not batch index)
         if (logId) {
           const { SchedulerLogService } = await import('../../services/schedulerLogService');
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: Math.round((i / dtFiles.length) * 100),
+            progress_percentage: Math.round((totalProcessed / dtFiles.length) * 100),
             current_processing: `Processing batch ${batchNum}/${totalBatches} (${totalProcessed}/${dtFiles.length} processed)`
           });
         }

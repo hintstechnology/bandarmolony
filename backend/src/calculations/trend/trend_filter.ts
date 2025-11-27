@@ -1,5 +1,5 @@
 import { BlobServiceClient } from '@azure/storage-blob';
-import { BATCH_SIZE_PHASE_2 } from '../../services/dataUpdateService';
+import { BATCH_SIZE_PHASE_2, MAX_CONCURRENT_REQUESTS_PHASE_2 } from '../../services/dataUpdateService';
 
 interface StockData {
   Date: string;
@@ -373,11 +373,11 @@ export class TrendFilterCalculator {
         const batch = allStocks.slice(i, i + BATCH_SIZE);
         const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
         
-        // Update progress
+        // Update progress before batch (use processedCount, not batch index)
         if (logId) {
           const { SchedulerLogService } = await import('../../services/schedulerLogService');
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: Math.round((i / allStocks.length) * 100),
+            progress_percentage: Math.round((processedCount / allStocks.length) * 100),
             current_processing: `Processing ${period} period - batch ${batchNumber}/${Math.ceil(allStocks.length / BATCH_SIZE)} (${processedCount}/${allStocks.length} stocks)`
           });
         }
@@ -430,8 +430,8 @@ export class TrendFilterCalculator {
           }
         });
 
-        // Limit concurrency to 250 for Phase 2
-        const batchResults = await this.limitConcurrency(batchPromises, 250);
+        // Limit concurrency for Phase 2
+        const batchResults = await this.limitConcurrency(batchPromises, MAX_CONCURRENT_REQUESTS_PHASE_2);
         const validResults = batchResults.filter((result): result is TrendData => result !== null);
         stocksData.push(...validResults);
 
