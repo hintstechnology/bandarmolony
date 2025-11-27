@@ -3,9 +3,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Badge } from "../../ui/badge";
 import { Progress } from "../../ui/progress";
-import { Clock, Loader2, RefreshCw, Square } from "lucide-react";
+import { Clock, Loader2, RefreshCw } from "lucide-react";
 import { useToast } from "../../../contexts/ToastContext";
 import { api } from "../../../services/api";
+import { ConfirmationDialog } from "../../ui/confirmation-dialog";
 
 interface ScheduledTask {
   logId: string;
@@ -22,6 +23,17 @@ export function DataSchedulerControl() {
   const { showToast } = useToast();
   const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([]);
   const [loading, setLoading] = useState(false);
+  const [confirmationDialog, setConfirmationDialog] = useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void;
+  }>({
+    open: false,
+    title: '',
+    description: '',
+    onConfirm: () => {},
+  });
 
   // Load scheduled tasks (status = 'running' and trigger_type = 'scheduled' OR manual phase triggers from SchedulerConfigControl)
   const loadScheduledTasks = async () => {
@@ -66,7 +78,12 @@ export function DataSchedulerControl() {
 
   // Cancel a running scheduled task
   const handleCancelTask = async (logId: string, featureName: string) => {
-    try {
+    setConfirmationDialog({
+      open: true,
+      title: 'Cancel Task',
+      description: `Are you sure you want to cancel ${featureName}?`,
+      onConfirm: async () => {
+        try {
       const result = await api.cancelSchedulerLog(logId, 'Cancelled by user from Scheduler Data Progress');
       
       if (result.success) {
@@ -84,13 +101,15 @@ export function DataSchedulerControl() {
           message: result.error || 'Failed to cancel task'
         });
       }
-    } catch (error: any) {
-      showToast({
-        type: 'error',
-        title: 'Cancel Error',
-        message: error.message || 'Failed to cancel task'
-      });
-    }
+        } catch (error: any) {
+          showToast({
+            type: 'error',
+            title: 'Cancel Error',
+            message: error.message || 'Failed to cancel task'
+          });
+        }
+      },
+    });
   };
 
   const formatTime = (dateString: string): string => {
@@ -171,16 +190,15 @@ export function DataSchedulerControl() {
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
+                  <div className="flex items-center gap-2 flex-shrink-0 sm:ml-auto">
                     {getStatusBadge(task.status === 'running')}
                     {task.status === 'running' && (
                       <Button
                         onClick={() => handleCancelTask(task.logId, task.featureName)}
                         variant="destructive"
                         size="sm"
-                        className="w-full sm:w-auto"
+                        className="flex-shrink-0"
                       >
-                        <Square className="w-3 h-3 mr-1" />
                         Cancel
                       </Button>
                     )}
@@ -206,6 +224,16 @@ export function DataSchedulerControl() {
           </div>
         )}
       </CardContent>
+
+      <ConfirmationDialog
+        open={confirmationDialog.open}
+        onOpenChange={(open) => setConfirmationDialog({ ...confirmationDialog, open })}
+        title={confirmationDialog.title}
+        description={confirmationDialog.description}
+        onConfirm={confirmationDialog.onConfirm}
+        confirmText="Yes"
+        cancelText="No"
+      />
     </Card>
   );
 }

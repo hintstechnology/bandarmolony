@@ -419,8 +419,8 @@ export class BrokerTransactionStockIDXCalculator {
       console.log(`📊 Found ${stockFiles.length} stock CSV files`);
 
       // Batch processing configuration
-      const BATCH_SIZE = BATCH_SIZE_PHASE_6; // Phase 6: 50 stock files at a time
-      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_6; // Phase 6: 25 concurrent
+      const BATCH_SIZE = BATCH_SIZE_PHASE_6; // Phase 6: 6 stock files at a time
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_6; // Phase 6: 3 concurrent
 
       // Read and parse all stock CSV files in batches
       const allBrokerData: BrokerTransactionData[] = [];

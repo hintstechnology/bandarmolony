@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from "../../ui/dialog";
 import { useToast } from "../../../contexts/ToastContext";
+import { ConfirmationDialog } from "../../ui/confirmation-dialog";
 import { 
   Search, 
   Mail,
@@ -156,6 +157,17 @@ export function UserManagement({ apiPrefix, onUserStatusChange }: UserManagement
     userEmail?: string;
     currentStatus?: boolean;
   } | null>(null);
+  const [confirmationDialog, setConfirmationDialog] = useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void;
+  }>({
+    open: false,
+    title: '',
+    description: '',
+    onConfirm: () => {},
+  });
 
   const loadUsers = async (reset: boolean = false) => {
     if (reset) {
@@ -240,16 +252,23 @@ export function UserManagement({ apiPrefix, onUserStatusChange }: UserManagement
 
 
   const toggleUserStatus = async (userId: string, currentStatus: boolean, userEmail: string) => {
-    // Show password dialog first
-    setPendingAction({
-      type: 'suspend',
-      userId,
-      userEmail,
-      currentStatus
+    // Show confirmation dialog first
+    setConfirmationDialog({
+      open: true,
+      title: currentStatus ? 'Suspend User' : 'Activate User',
+      description: `Are you sure you want to ${currentStatus ? 'suspend' : 'activate'} user ${userEmail}?`,
+      onConfirm: () => {
+        setPendingAction({
+          type: 'suspend',
+          userId,
+          userEmail,
+          currentStatus
+        });
+        setShowPasswordDialog(true);
+        setAdminPassword('');
+        setAdminPasswordError('');
+      },
     });
-    setShowPasswordDialog(true);
-    setAdminPassword('');
-    setAdminPasswordError('');
   };
 
   const executeToggleUserStatus = async (userId: string, currentStatus: boolean) => {
@@ -297,15 +316,22 @@ export function UserManagement({ apiPrefix, onUserStatusChange }: UserManagement
   };
 
   const deleteUser = async (userId: string, userEmail: string) => {
-    // Show password dialog first
-    setPendingAction({
-      type: 'delete',
-      userId,
-      userEmail
+    // Show confirmation dialog first
+    setConfirmationDialog({
+      open: true,
+      title: 'Delete User',
+      description: `Are you sure you want to delete user ${userEmail}? This action cannot be undone.`,
+      onConfirm: () => {
+        setPendingAction({
+          type: 'delete',
+          userId,
+          userEmail
+        });
+        setShowPasswordDialog(true);
+        setAdminPassword('');
+        setAdminPasswordError('');
+      },
     });
-    setShowPasswordDialog(true);
-    setAdminPassword('');
-    setAdminPasswordError('');
   };
 
   const executeDeleteUser = async (userId: string) => {
@@ -351,15 +377,22 @@ export function UserManagement({ apiPrefix, onUserStatusChange }: UserManagement
   };
 
   const reinviteUser = async (userId: string, userEmail: string) => {
-    // Show password dialog first
-    setPendingAction({
-      type: 'reinvite',
-      userId,
-      userEmail
+    // Show confirmation dialog first
+    setConfirmationDialog({
+      open: true,
+      title: 'Reinvite User',
+      description: `Are you sure you want to reinvite user ${userEmail}?`,
+      onConfirm: () => {
+        setPendingAction({
+          type: 'reinvite',
+          userId,
+          userEmail
+        });
+        setShowPasswordDialog(true);
+        setAdminPassword('');
+        setAdminPasswordError('');
+      },
     });
-    setShowPasswordDialog(true);
-    setAdminPassword('');
-    setAdminPasswordError('');
   };
 
   const executeReinviteUser = async (userId: string, userEmail: string) => {
@@ -1141,7 +1174,11 @@ export function UserManagement({ apiPrefix, onUserStatusChange }: UserManagement
                                   size="sm"
                                   variant="outline"
                                   onClick={() => toggleUserStatus(user.id, user.is_active, user.email)}
-                                  className="h-7 px-2 text-xs whitespace-nowrap min-h-[28px]"
+                                  className={`h-7 px-2 text-xs whitespace-nowrap min-h-[28px] ${
+                                    user.is_active 
+                                      ? 'bg-yellow-500 hover:bg-yellow-600 text-white border-yellow-500 hover:border-yellow-600' 
+                                      : 'bg-green-600 hover:bg-green-700 text-white border-green-600 hover:border-green-700'
+                                  }`}
                                 >
                                   {user.is_active ? 'Suspend' : 'Activate'}
                                 </Button>
@@ -1159,7 +1196,7 @@ export function UserManagement({ apiPrefix, onUserStatusChange }: UserManagement
                                   size="sm"
                                   variant="destructive"
                                   onClick={() => deleteUser(user.id, user.email)}
-                                  className="h-7 px-2 text-xs whitespace-nowrap min-h-[28px]"
+                                  className="h-7 px-2 text-xs whitespace-nowrap min-h-[28px] bg-red-600 hover:bg-red-700 text-white border-red-600 hover:border-red-700"
                                 >
                                   Delete
                                 </Button>
@@ -1192,6 +1229,16 @@ export function UserManagement({ apiPrefix, onUserStatusChange }: UserManagement
             )}
           </CardContent>
         </Card>
+
+        <ConfirmationDialog
+          open={confirmationDialog.open}
+          onOpenChange={(open) => setConfirmationDialog({ ...confirmationDialog, open })}
+          title={confirmationDialog.title}
+          description={confirmationDialog.description}
+          onConfirm={confirmationDialog.onConfirm}
+          confirmText="Yes"
+          cancelText="No"
+        />
     </div>
   );
 }

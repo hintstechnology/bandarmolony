@@ -143,7 +143,7 @@ export function EditPassword({ isOpen, onClose, email, onSubmit }: Props) {
                 onClick={() => setShowCurrentPassword(!showCurrentPassword)}
                 disabled={loading}
               >
-                {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                {showCurrentPassword ? <EyeOff className="h-4 w-4 text-slate-600 dark:text-slate-400" /> : <Eye className="h-4 w-4 text-slate-600 dark:text-slate-400" />}
               </Button>
             </div>
           </div>
@@ -172,7 +172,7 @@ export function EditPassword({ isOpen, onClose, email, onSubmit }: Props) {
                 onClick={() => setShowNewPassword(!showNewPassword)}
                 disabled={loading}
               >
-                {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                {showNewPassword ? <EyeOff className="h-4 w-4 text-slate-600 dark:text-slate-400" /> : <Eye className="h-4 w-4 text-slate-600 dark:text-slate-400" />}
               </Button>
             </div>
           </div>

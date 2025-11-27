@@ -32,6 +32,43 @@ export function AuthProvider({ children }: AuthProviderProps) {
     let isMounted = true;
     let sessionCheckInterval: NodeJS.Timeout;
 
+    // CRITICAL: Check session immediately on mount (synchronous check)
+    // This prevents delay/redirect to login when user already has valid session
+    const checkInitialSession = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (isMounted) {
+          if (error || !session) {
+            setUser(null);
+            setIsLoading(false);
+          } else {
+            // Check if we have valid Supabase session in storage
+            const allLocalStorageKeys = Object.keys(localStorage);
+            const hasSupabaseAuthToken = allLocalStorageKeys.some(key => 
+              key.startsWith('sb-') && key.includes('auth-token')
+            );
+            
+            if (hasSupabaseAuthToken && session?.user) {
+              setUser(session.user);
+              setIsLoading(false);
+            } else {
+              setUser(null);
+              setIsLoading(false);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('AuthContext: Initial session check error:', error);
+        if (isMounted) {
+          setUser(null);
+          setIsLoading(false);
+        }
+      }
+    };
+
+    // Check session immediately
+    checkInitialSession();
+
     // Periodic session validation for multi-device sync
     const startSessionValidation = () => {
       if (sessionCheckInterval) {
@@ -69,18 +106,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isMounted) return;
       
-      
       if (event === 'SIGNED_IN') {
         // Check if we have valid Supabase session in storage
-        // Look for Supabase auth token keys specifically
         const allLocalStorageKeys = Object.keys(localStorage);
         const hasSupabaseAuthToken = allLocalStorageKeys.some(key => 
-          // Check for Supabase auth token keys (not just any supabase key)
           key.startsWith('sb-') && key.includes('auth-token')
         );
         
-        // Only set user if we have valid auth token in storage
-        // This prevents stale memory sessions from being used after logout
         if (hasSupabaseAuthToken && session?.user) {
           setUser(session.user);
           setIsLoading(false);
@@ -91,22 +123,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
         setIsLoading(false);
-        // CRITICAL: Reset isLoggingOut when signed out (for session expired cases)
         setIsLoggingOut(false);
       } else if (event === 'TOKEN_REFRESHED') {
-        // Always update user on token refresh to prevent stale state
         setUser(session?.user || null);
         setIsLoading(false);
       } else if (event === 'USER_UPDATED') {
-        // Handle user updates (e.g., email change, profile update)
         setUser(session?.user || null);
         setIsLoading(false);
       } else if (event === 'INITIAL_SESSION') {
-        // Handle initial session - set user immediately, ProfileContext will validate
-        if (session?.user) {
+        // This event may fire after we already checked, so only update if needed
+        if (session?.user && (!user || user.id !== session.user.id)) {
           setUser(session.user);
           setIsLoading(false);
-        } else {
+        } else if (!session?.user) {
           setUser(null);
           setIsLoading(false);
         }
@@ -123,7 +152,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         clearInterval(sessionCheckInterval);
       }
     };
-  }, []);
+  }, [user]);
 
   const signOut = async () => {
     try {

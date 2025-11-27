@@ -1,5 +1,6 @@
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_7, MAX_CONCURRENT_REQUESTS_PHASE_7 } from '../../services/dataUpdateService';
+import { SchedulerLogService } from '../../services/schedulerLogService';
 
 // Helper function to limit concurrency for Phase 7-8
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -7,9 +8,12 @@ async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: numbe
   for (let i = 0; i < promises.length; i += maxConcurrency) {
     const batch = promises.slice(i, i + maxConcurrency);
     const batchResults = await Promise.allSettled(batch);
-    batchResults.forEach((result) => {
+    batchResults.forEach((result, index) => {
       if (result.status === 'fulfilled') {
         results.push(result.value);
+      } else {
+        // Log error for debugging
+        console.error(`⚠️ Promise rejected in batch at index ${i + index}:`, result.reason);
       }
     });
   }
@@ -79,6 +83,7 @@ export class BrokerBreakdownCalculator {
 
   /**
    * Find all DT files in done-summary folder
+   * Returns files sorted by date descending (newest first)
    */
   private async findAllDtFiles(): Promise<string[]> {
     console.log("Scanning all DT files in done-summary folder...");
@@ -105,6 +110,56 @@ export class BrokerBreakdownCalculator {
   }
 
   /**
+   * Pre-check which dates already have broker breakdown output
+   * Returns array of files that need processing (sorted newest first)
+   */
+  private async filterExistingDates(dtFiles: string[]): Promise<string[]> {
+    console.log(`🔍 Pre-checking existing broker breakdown outputs (checking from newest to oldest)...`);
+    
+    const filesToProcess: string[] = [];
+    let skippedCount = 0;
+    
+    // Check sequentially from newest to oldest to maintain order
+    for (const blobName of dtFiles) {
+      const pathParts = blobName.split('/');
+      const dateFolder = pathParts[1] || 'unknown';
+      const dateSuffix = dateFolder;
+      
+      try {
+        const outputPrefix = `done_summary_broker_breakdown/${dateSuffix}/`;
+        const existingFiles = await listPaths({ prefix: outputPrefix, maxResults: 1 });
+        
+        if (existingFiles.length > 0) {
+          skippedCount++;
+          console.log(`⏭️ Broker breakdown already exists for date ${dateSuffix} - skipping`);
+        } else {
+          filesToProcess.push(blobName);
+          console.log(`✅ Date ${dateSuffix} needs processing`);
+        }
+      } catch (error) {
+        // If check fails, proceed with processing (safer to process than skip)
+        console.warn(`⚠️ Could not check existence for ${dateSuffix}, will process:`, error instanceof Error ? error.message : error);
+        filesToProcess.push(blobName);
+      }
+    }
+    
+    console.log(`📊 Pre-check complete: ${filesToProcess.length} files to process, ${skippedCount} already exist`);
+    
+    if (filesToProcess.length > 0) {
+      console.log(`📋 Processing order (newest first):`);
+      const dates = filesToProcess.map(f => f.split('/')[1]).filter((v, i, arr) => arr.indexOf(v) === i);
+      dates.slice(0, 10).forEach((date, idx) => {
+        console.log(`   ${idx + 1}. ${date}`);
+      });
+      if (dates.length > 10) {
+        console.log(`   ... and ${dates.length - 10} more dates`);
+      }
+    }
+    
+    return filesToProcess;
+  }
+
+  /**
    * Load and process a single DT file
    */
   private async loadAndProcessSingleDtFile(blobName: string): Promise<{ data: TransactionData[], dateSuffix: string } | null> {
@@ -127,7 +182,7 @@ export class BrokerBreakdownCalculator {
       
       return { data, dateSuffix };
     } catch (error) {
-      console.log(`📄 File not found, will create new: ${blobName}`);
+      console.error(`❌ Error loading file ${blobName}:`, error instanceof Error ? error.message : error);
       return null;
     }
   }
@@ -489,16 +544,27 @@ export class BrokerBreakdownCalculator {
         if (exists) {
           existingFiles.add(filename);
         }
+        return { filename, exists, success: true };
       } catch (error) {
         // Ignore errors, assume file doesn't exist
+        console.warn(`⚠️ Error checking existence of ${filename}:`, error instanceof Error ? error.message : error);
+        return { filename, exists: false, success: false };
       }
     });
     
-    // Process in batches to avoid overwhelming Azure (Phase 7: 50 files)
+    // Process in batches to avoid overwhelming Azure (Phase 7: 6 files)
+    // Use Promise.allSettled to handle errors gracefully
     const BATCH_SIZE = BATCH_SIZE_PHASE_7;
     for (let i = 0; i < checkPromises.length; i += BATCH_SIZE) {
       const batch = checkPromises.slice(i, i + BATCH_SIZE);
-      await Promise.all(batch);
+      const batchResults = await Promise.allSettled(batch);
+      batchResults.forEach((result) => {
+        if (result.status === 'fulfilled' && result.value.exists) {
+          existingFiles.add(result.value.filename);
+        } else if (result.status === 'rejected') {
+          console.warn(`⚠️ Error in batch check exists at index ${i}:`, result.reason);
+        }
+      });
     }
     
     return existingFiles;
@@ -519,19 +585,39 @@ export class BrokerBreakdownCalculator {
    * Batch upload files to Azure
    */
   private async batchUpload(files: Array<{ filename: string; content: string }>): Promise<void> {
-    const uploadPromises = files.map(({ filename, content }) => 
-      uploadText(filename, content, 'text/csv').catch(error => {
-        console.error(`Failed to upload ${filename}:`, error);
-        throw error;
-      })
-    );
+    const uploadPromises = files.map(async ({ filename, content }) => {
+      try {
+        await uploadText(filename, content, 'text/csv');
+        return { filename, success: true };
+      } catch (error) {
+        console.error(`❌ Failed to upload ${filename}:`, error);
+        return { filename, success: false, error };
+      }
+    });
     
     // Process in batches to avoid overwhelming Azure (using smaller batch for uploads)
-    // Using 20 for uploads to avoid overwhelming Azure storage
-    const BATCH_SIZE = 20;
+    // Using half of Phase 7 batch size for uploads to avoid overwhelming Azure storage
+    // Use Promise.allSettled to handle errors gracefully (don't fail entire batch if one upload fails)
+    const BATCH_SIZE = Math.floor(BATCH_SIZE_PHASE_7 / 2.5);
+    let failedUploads = 0;
     for (let i = 0; i < uploadPromises.length; i += BATCH_SIZE) {
       const batch = uploadPromises.slice(i, i + BATCH_SIZE);
-      await Promise.all(batch);
+      const batchResults = await Promise.allSettled(batch);
+      batchResults.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          if (!result.value.success) {
+            failedUploads++;
+          }
+        } else {
+          failedUploads++;
+          console.error(`❌ Upload promise rejected at index ${i + index}:`, result.reason);
+        }
+      });
+    }
+    
+    if (failedUploads > 0) {
+      console.warn(`⚠️ ${failedUploads} file(s) failed to upload (out of ${files.length} total)`);
+      // Don't throw error - allow partial success
     }
   }
 
@@ -544,18 +630,8 @@ export class BrokerBreakdownCalculator {
     const dateFolder = pathParts[1] || 'unknown';
     const dateSuffix = dateFolder;
     
-    // Check if output already exists for this date BEFORE loading input
-    try {
-      const outputPrefix = `done_summary_broker_breakdown/${dateSuffix}/`;
-      const existingFiles = await listPaths({ prefix: outputPrefix, maxResults: 1 });
-      
-      if (existingFiles.length > 0) {
-        console.log(`⏭️ Broker breakdown already exists for date ${dateSuffix} - skipping`);
-        return { success: true, dateSuffix, files: [], skipped: true };
-      }
-    } catch (error) {
-      console.log(`ℹ️ Could not check existence of output folder for ${dateSuffix}, proceeding`);
-    }
+    // Note: Pre-checking is done in filterExistingDates() before batch processing
+    // This function only processes files that are confirmed to need processing
     
     // Load and enhance transactions once
     const result = await this.loadAndProcessSingleDtFile(blobName);
@@ -675,7 +751,10 @@ export class BrokerBreakdownCalculator {
       return { success: true, dateSuffix, files: createdFiles };
       
     } catch (error) {
-      console.error(`Error processing ${blobName}:`, error);
+      console.error(`❌ Error processing ${blobName}:`, error instanceof Error ? error.message : error);
+      if (error instanceof Error && error.stack) {
+        console.error(`   Stack trace:`, error.stack);
+      }
       return { success: false, dateSuffix, files: [] };
     }
   }
@@ -688,10 +767,10 @@ export class BrokerBreakdownCalculator {
     try {
       console.log(`Starting broker breakdown analysis for all DT files...`);
       
-      // Find all DT files
-      const dtFiles = await this.findAllDtFiles();
+      // Find all DT files (sorted newest first)
+      const allDtFiles = await this.findAllDtFiles();
       
-      if (dtFiles.length === 0) {
+      if (allDtFiles.length === 0) {
         console.log(`⚠️ No DT files found in done-summary folder`);
         return {
           success: true,
@@ -700,11 +779,24 @@ export class BrokerBreakdownCalculator {
         };
       }
       
-      console.log(`📊 Processing ${dtFiles.length} DT files...`);
+      // Pre-check existing dates (sequentially, from newest to oldest)
+      // This ensures we only process files that need processing
+      const dtFiles = await this.filterExistingDates(allDtFiles);
       
-      // Process files in batches (Phase 7: 50 files at a time)
-      const BATCH_SIZE = BATCH_SIZE_PHASE_7; // Phase 7: 50 files
-      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_7; // Phase 7: 25 concurrent
+      if (dtFiles.length === 0) {
+        console.log(`✅ All DT files already have broker breakdown output - nothing to process`);
+        return {
+          success: true,
+          message: `All DT files already processed - skipped broker breakdown generation`,
+          data: { skipped: true, reason: 'All files already exist', totalFiles: allDtFiles.length }
+        };
+      }
+      
+      console.log(`📊 Processing ${dtFiles.length} DT files (out of ${allDtFiles.length} total)...`);
+      
+      // Process files in batches (Phase 7: 6 files at a time)
+      const BATCH_SIZE = BATCH_SIZE_PHASE_7; // Phase 7: 6 files
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_7; // Phase 7: 3 concurrent
       const allResults: { success: boolean; dateSuffix: string; files: string[] }[] = [];
       let processed = 0;
       let successful = 0;
@@ -714,11 +806,10 @@ export class BrokerBreakdownCalculator {
         const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
         console.log(`📦 Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`);
         
-        // Update progress
+        // Update progress before batch (use processed count, not batch index)
         if (logId) {
-          const { SchedulerLogService } = await import('../../services/schedulerLogService');
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: Math.round((i / dtFiles.length) * 100),
+            progress_percentage: Math.round((processed / dtFiles.length) * 100),
             current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} processed)`
           });
         }
@@ -748,7 +839,8 @@ export class BrokerBreakdownCalculator {
         
         // Collect results
         let batchSkipped = 0;
-        batchResults.forEach((result) => {
+        let batchFailed = 0;
+        batchResults.forEach((result, index) => {
           if (result && result.success !== undefined) {
             allResults.push(result);
             processed++;
@@ -757,15 +849,28 @@ export class BrokerBreakdownCalculator {
               if (result.skipped) {
                 batchSkipped++;
               }
+            } else {
+              batchFailed++;
+              // Log failed file for debugging
+              const failedFile = batch[index];
+              if (failedFile) {
+                console.warn(`⚠️ Failed to process file: ${failedFile}`);
+              }
+            }
+          } else {
+            // Handle case where result is null/undefined (promise rejected but not caught)
+            batchFailed++;
+            const failedFile = batch[index];
+            if (failedFile) {
+              console.error(`❌ File processing returned invalid result: ${failedFile}`);
             }
           }
         });
         
-        console.log(`📊 Batch ${batchNumber} complete: ✅ ${successful}/${processed} successful, ⏭️ ${batchSkipped} skipped`);
+        console.log(`📊 Batch ${batchNumber} complete: ✅ ${successful}/${processed} successful, ⏭️ ${batchSkipped} skipped, ❌ ${batchFailed} failed`);
         
         // Update progress after batch
         if (logId) {
-          const { SchedulerLogService } = await import('../../services/schedulerLogService');
           await SchedulerLogService.updateLog(logId, {
             progress_percentage: Math.round((processed / dtFiles.length) * 100),
             current_processing: `Completed batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} processed)`

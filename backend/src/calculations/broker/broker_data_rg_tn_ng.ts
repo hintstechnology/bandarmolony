@@ -288,8 +288,8 @@ export class BrokerDataRGTNNGCalculator {
       if (dtFiles.length === 0) return { success: true, message: `No DT files found - skipped broker data generation` };
       
       // Process files in batches
-      const BATCH_SIZE = BATCH_SIZE_PHASE_4; // Phase 4: 50 files at a time
-      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_4; // Phase 4: 25 concurrent
+      const BATCH_SIZE = BATCH_SIZE_PHASE_4; // Phase 4: 6 files at a time
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_4; // Phase 4: 3 concurrent
       let processed = 0;
       let successful = 0;
       let skipped = 0;

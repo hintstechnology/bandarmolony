@@ -13,6 +13,7 @@ import {
 import { Loader2, Clock, Save, Play, RefreshCw, AlertCircle, Edit2, X, Info } from "lucide-react";
 import { useToast } from "../../../contexts/ToastContext";
 import { api } from "../../../services/api";
+import { ConfirmationDialog } from "../../ui/confirmation-dialog";
 
 interface Phase {
   id: string;
@@ -51,6 +52,17 @@ export function SchedulerConfigControl() {
   const [editTimezone, setEditTimezone] = useState<string>('');
   const [editMemoryThreshold, setEditMemoryThreshold] = useState<string>('');
   const timeInputRef = useRef<HTMLInputElement>(null);
+  const [confirmationDialog, setConfirmationDialog] = useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void;
+  }>({
+    open: false,
+    title: '',
+    description: '',
+    onConfirm: () => {},
+  });
 
   // Helper function to trigger time picker
   const triggerTimePicker = (inputRef: React.RefObject<HTMLInputElement>) => {
@@ -67,6 +79,18 @@ export function SchedulerConfigControl() {
       return `${parts[0]}:${parts[1]}`;
     }
     return time;
+  };
+
+  // Helper function to extract phase short name (e.g., "Phase 1a", "Phase 2")
+  const getPhaseShortName = (phaseName: string): string => {
+    // Extract phase number/letter from phase name
+    // Examples: "Phase 1a Input Daily" -> "1a", "Phase 2 Market Rotation" -> "2"
+    const match = phaseName.match(/Phase\s+(\d+[a-z]?)/i);
+    if (match && match[1]) {
+      return match[1];
+    }
+    // Fallback: try to extract from phase.id
+    return '';
   };
 
   // Load phases on mount (no auto refresh - manual refresh only)
@@ -99,64 +123,81 @@ export function SchedulerConfigControl() {
     }
   };
 
-  const handleTriggerPhase = async (phaseId: string) => {
-    setTriggering(prev => ({ ...prev, [phaseId]: true }));
-    try {
-      const result = await api.triggerPhase(phaseId);
-      if (result.success) {
-        showToast({
-          type: 'success',
-          title: 'Phase Triggered',
-          message: result.message || `Phase ${phaseId} triggered successfully`
-        });
-        // Reload phases after a short delay
-        setTimeout(() => loadPhases(), 1000);
-      } else {
-        showToast({
-          type: 'error',
-          title: 'Trigger Failed',
-          message: result.error || `Failed to trigger phase ${phaseId}`
-        });
-      }
-    } catch (error: any) {
-      showToast({
-        type: 'error',
-        title: 'Trigger Error',
-        message: error.message || 'Failed to trigger phase'
-      });
-    } finally {
-      setTriggering(prev => ({ ...prev, [phaseId]: false }));
-    }
+  const handleTriggerPhase = async (phaseId: string, skipNext: boolean = false) => {
+    const phase = phases.find(p => p.id === phaseId);
+    const actionText = skipNext ? 'run' : 'run and trigger next phase';
+    setConfirmationDialog({
+      open: true,
+      title: skipNext ? 'Run Phase' : 'Run & Trigger',
+      description: `Are you sure you want to ${actionText} for ${phase?.name || phaseId}?`,
+      onConfirm: async () => {
+        setTriggering(prev => ({ ...prev, [phaseId]: true }));
+        try {
+          const result = await api.triggerPhase(phaseId);
+          if (result.success) {
+            showToast({
+              type: 'success',
+              title: 'Phase Triggered',
+              message: result.message || `Phase ${phaseId} triggered successfully`
+            });
+            // Reload phases after a short delay
+            setTimeout(() => loadPhases(), 1000);
+          } else {
+            showToast({
+              type: 'error',
+              title: 'Trigger Failed',
+              message: result.error || `Failed to trigger phase ${phaseId}`
+            });
+          }
+        } catch (error: any) {
+          showToast({
+            type: 'error',
+            title: 'Trigger Error',
+            message: error.message || 'Failed to trigger phase'
+          });
+        } finally {
+          setTriggering(prev => ({ ...prev, [phaseId]: false }));
+        }
+      },
+    });
   };
 
   const handleToggleEnabled = async (phaseId: string, enabled: boolean) => {
-    setToggling(prev => ({ ...prev, [phaseId]: true }));
-    try {
-      const result = await api.togglePhaseEnabled(phaseId, enabled);
-      if (result.success) {
-        showToast({
-          type: 'success',
-          title: enabled ? 'Phase Enabled' : 'Phase Disabled',
-          message: result.message || `Phase ${phaseId} ${enabled ? 'enabled' : 'disabled'} successfully`
-        });
-        // Reload phases after a short delay
-        setTimeout(() => loadPhases(), 500);
-      } else {
-        showToast({
-          type: 'error',
-          title: 'Toggle Failed',
-          message: result.error || `Failed to toggle phase ${phaseId}`
-        });
-      }
-    } catch (error: any) {
-      showToast({
-        type: 'error',
-        title: 'Toggle Error',
-        message: error.message || 'Failed to toggle phase'
-      });
-    } finally {
-      setToggling(prev => ({ ...prev, [phaseId]: false }));
-    }
+    const phase = phases.find(p => p.id === phaseId);
+    setConfirmationDialog({
+      open: true,
+      title: enabled ? 'Enable Phase' : 'Disable Phase',
+      description: `Are you sure you want to ${enabled ? 'enable' : 'disable'} ${phase?.name || phaseId}?`,
+      onConfirm: async () => {
+        setToggling(prev => ({ ...prev, [phaseId]: true }));
+        try {
+          const result = await api.togglePhaseEnabled(phaseId, enabled);
+          if (result.success) {
+            showToast({
+              type: 'success',
+              title: enabled ? 'Phase Enabled' : 'Phase Disabled',
+              message: result.message || `Phase ${phaseId} ${enabled ? 'enabled' : 'disabled'} successfully`
+            });
+            // Reload phases after a short delay
+            setTimeout(() => loadPhases(), 500);
+          } else {
+            showToast({
+              type: 'error',
+              title: 'Toggle Failed',
+              message: result.error || `Failed to toggle phase ${phaseId}`
+            });
+          }
+        } catch (error: any) {
+          showToast({
+            type: 'error',
+            title: 'Toggle Error',
+            message: error.message || 'Failed to toggle phase'
+          });
+        } finally {
+          setToggling(prev => ({ ...prev, [phaseId]: false }));
+        }
+      },
+    });
   };
 
   const handleEditTrigger = (phase: Phase) => {
@@ -215,7 +256,13 @@ export function SchedulerConfigControl() {
   };
 
   const handleSaveTriggerConfig = async (phaseId: string) => {
-    setSaving(prev => ({ ...prev, [phaseId]: true }));
+    const phase = phases.find(p => p.id === phaseId);
+    setConfirmationDialog({
+      open: true,
+      title: 'Save Configuration',
+      description: `Are you sure you want to save the trigger configuration for ${phase?.name || phaseId}?`,
+      onConfirm: async () => {
+        setSaving(prev => ({ ...prev, [phaseId]: true }));
     
     try {
       let schedule: string | undefined;
@@ -283,35 +330,37 @@ export function SchedulerConfigControl() {
         triggerAfterPhase = editTriggerAfterPhase;
       }
       
-      const result = await api.updatePhaseTriggerConfig(phaseId, editTriggerType, schedule, triggerAfterPhase);
-      
-      if (result.success) {
-        showToast({
-          type: 'success',
-          title: 'Trigger Config Updated',
-          message: result.message || 'Phase trigger configuration updated successfully'
-        });
-        setEditingPhase(null);
-        setEditTime('');
-        setEditTriggerType('scheduled');
-        setEditTriggerAfterPhase('');
-        setTimeout(() => loadPhases(), 1000);
-      } else {
+        const result = await api.updatePhaseTriggerConfig(phaseId, editTriggerType, schedule, triggerAfterPhase);
+        
+        if (result.success) {
+          showToast({
+            type: 'success',
+            title: 'Trigger Config Updated',
+            message: result.message || 'Phase trigger configuration updated successfully'
+          });
+          setEditingPhase(null);
+          setEditTime('');
+          setEditTriggerType('scheduled');
+          setEditTriggerAfterPhase('');
+          setTimeout(() => loadPhases(), 1000);
+        } else {
+          showToast({
+            type: 'error',
+            title: 'Update Failed',
+            message: result.error || 'Failed to update trigger configuration'
+          });
+        }
+      } catch (error: any) {
         showToast({
           type: 'error',
-          title: 'Update Failed',
-          message: result.error || 'Failed to update trigger configuration'
+          title: 'Update Error',
+          message: error.message || 'Failed to update trigger configuration'
         });
+      } finally {
+        setSaving(prev => ({ ...prev, [phaseId]: false }));
       }
-    } catch (error: any) {
-      showToast({
-        type: 'error',
-        title: 'Update Error',
-        message: error.message || 'Failed to update trigger configuration'
-      });
-    } finally {
-      setSaving(prev => ({ ...prev, [phaseId]: false }));
-    }
+    },
+    });
   };
 
   if (loading && phases.length === 0) {
@@ -394,31 +443,38 @@ export function SchedulerConfigControl() {
                     placeholder="e.g., Asia/Jakarta"
                   />
                   <Button
-                    onClick={async () => {
-                      try {
-                        const result = await api.updateSchedulerConfig({ TIMEZONE: editTimezone });
-                        if (result.success) {
-                          showToast({
-                            type: 'success',
-                            title: 'Timezone Updated',
-                            message: 'Timezone updated successfully'
-                          });
-                          setEditingConfig(prev => ({ ...prev, timezone: false }));
-                          setTimeout(() => loadPhases(), 500);
-                        } else {
-                          showToast({
-                            type: 'error',
-                            title: 'Update Failed',
-                            message: result.error || 'Failed to update timezone'
-                          });
-                        }
-                      } catch (error: any) {
-                        showToast({
-                          type: 'error',
-                          title: 'Update Error',
-                          message: error.message || 'Failed to update timezone'
-                        });
-                      }
+                    onClick={() => {
+                      setConfirmationDialog({
+                        open: true,
+                        title: 'Save Timezone',
+                        description: `Are you sure you want to save timezone configuration as ${editTimezone}?`,
+                        onConfirm: async () => {
+                          try {
+                            const result = await api.updateSchedulerConfig({ TIMEZONE: editTimezone });
+                            if (result.success) {
+                              showToast({
+                                type: 'success',
+                                title: 'Timezone Updated',
+                                message: 'Timezone updated successfully'
+                              });
+                              setEditingConfig(prev => ({ ...prev, timezone: false }));
+                              setTimeout(() => loadPhases(), 500);
+                            } else {
+                              showToast({
+                                type: 'error',
+                                title: 'Update Failed',
+                                message: result.error || 'Failed to update timezone'
+                              });
+                            }
+                          } catch (error: any) {
+                            showToast({
+                              type: 'error',
+                              title: 'Update Error',
+                              message: error.message || 'Failed to update timezone'
+                            });
+                          }
+                        },
+                      });
                     }}
                     size="sm"
                     variant="default"
@@ -469,50 +525,57 @@ export function SchedulerConfigControl() {
                     placeholder="e.g., 12GB"
                   />
                   <Button
-                    onClick={async () => {
-                      try {
-                        // Extract number from string (e.g., "12GB" -> 12)
-                        const match = editMemoryThreshold.match(/(\d+)/);
-                        if (!match || !match[1]) {
-                          showToast({
-                            type: 'error',
-                            title: 'Invalid Format',
-                            message: 'Please enter a valid memory threshold (e.g., 12GB)'
-                          });
-                          return;
-                        }
-                        const memoryGB = parseInt(match[1], 10);
-                        if (isNaN(memoryGB) || memoryGB < 1) {
-                          showToast({
-                            type: 'error',
-                            title: 'Invalid Value',
-                            message: 'Memory threshold must be at least 1GB'
-                          });
-                          return;
-                        }
-                        const result = await api.updateSchedulerConfig({ MEMORY_THRESHOLD_GB: memoryGB });
-                        if (result.success) {
-                          showToast({
-                            type: 'success',
-                            title: 'Memory Threshold Updated',
-                            message: 'Memory threshold updated successfully'
-                          });
-                          setEditingConfig(prev => ({ ...prev, memoryThreshold: false }));
-                          setTimeout(() => loadPhases(), 500);
-                        } else {
-                          showToast({
-                            type: 'error',
-                            title: 'Update Failed',
-                            message: result.error || 'Failed to update memory threshold'
-                          });
-                        }
-                      } catch (error: any) {
-                        showToast({
-                          type: 'error',
-                          title: 'Update Error',
-                          message: error.message || 'Failed to update memory threshold'
-                        });
-                      }
+                    onClick={() => {
+                      setConfirmationDialog({
+                        open: true,
+                        title: 'Save Memory Threshold',
+                        description: `Are you sure you want to save memory threshold as ${editMemoryThreshold}?`,
+                        onConfirm: async () => {
+                          try {
+                            // Extract number from string (e.g., "12GB" -> 12)
+                            const match = editMemoryThreshold.match(/(\d+)/);
+                            if (!match || !match[1]) {
+                              showToast({
+                                type: 'error',
+                                title: 'Invalid Format',
+                                message: 'Please enter a valid memory threshold (e.g., 12GB)'
+                              });
+                              return;
+                            }
+                            const memoryGB = parseInt(match[1], 10);
+                            if (isNaN(memoryGB) || memoryGB < 1) {
+                              showToast({
+                                type: 'error',
+                                title: 'Invalid Value',
+                                message: 'Memory threshold must be at least 1GB'
+                              });
+                              return;
+                            }
+                            const result = await api.updateSchedulerConfig({ MEMORY_THRESHOLD_GB: memoryGB });
+                            if (result.success) {
+                              showToast({
+                                type: 'success',
+                                title: 'Memory Threshold Updated',
+                                message: 'Memory threshold updated successfully'
+                              });
+                              setEditingConfig(prev => ({ ...prev, memoryThreshold: false }));
+                              setTimeout(() => loadPhases(), 500);
+                            } else {
+                              showToast({
+                                type: 'error',
+                                title: 'Update Failed',
+                                message: result.error || 'Failed to update memory threshold'
+                              });
+                            }
+                          } catch (error: any) {
+                            showToast({
+                              type: 'error',
+                              title: 'Update Error',
+                              message: error.message || 'Failed to update memory threshold'
+                            });
+                          }
+                        },
+                      });
                     }}
                     size="sm"
                     variant="default"
@@ -558,30 +621,37 @@ export function SchedulerConfigControl() {
                   <input
                     type="checkbox"
                     checked={scheduler.weekendSkip}
-                    onChange={async (e) => {
-                      try {
-                        const result = await api.updateSchedulerConfig({ WEEKEND_SKIP: e.target.checked });
-                        if (result.success) {
-                          showToast({
-                            type: 'success',
-                            title: 'Weekend Skip Updated',
-                            message: `Weekend skip ${e.target.checked ? 'enabled' : 'disabled'} successfully`
-                          });
-                          setTimeout(() => loadPhases(), 500);
-                        } else {
-                          showToast({
-                            type: 'error',
-                            title: 'Update Failed',
-                            message: result.error || 'Failed to update weekend skip'
-                          });
-                        }
-                      } catch (error: any) {
-                        showToast({
-                          type: 'error',
-                          title: 'Update Error',
-                          message: error.message || 'Failed to update weekend skip'
-                        });
-                      }
+                    onChange={(e) => {
+                      setConfirmationDialog({
+                        open: true,
+                        title: 'Update Weekend Skip',
+                        description: `Are you sure you want to ${e.target.checked ? 'enable' : 'disable'} weekend skip?`,
+                        onConfirm: async () => {
+                          try {
+                            const result = await api.updateSchedulerConfig({ WEEKEND_SKIP: e.target.checked });
+                            if (result.success) {
+                              showToast({
+                                type: 'success',
+                                title: 'Weekend Skip Updated',
+                                message: `Weekend skip ${e.target.checked ? 'enabled' : 'disabled'} successfully`
+                              });
+                              setTimeout(() => loadPhases(), 500);
+                            } else {
+                              showToast({
+                                type: 'error',
+                                title: 'Update Failed',
+                                message: result.error || 'Failed to update weekend skip'
+                              });
+                            }
+                          } catch (error: any) {
+                            showToast({
+                              type: 'error',
+                              title: 'Update Error',
+                              message: error.message || 'Failed to update weekend skip'
+                            });
+                          }
+                        },
+                      });
                     }}
                     className="sr-only peer"
                   />
@@ -611,10 +681,10 @@ export function SchedulerConfigControl() {
                 <TableRow key={phase.id} className={index === phases.length - 1 ? "!border-b-0" : ""}>
                   {/* Phase Name with Info Tooltip */}
                   <TableCell className="overflow-visible">
-                    <div className="flex items-center gap-2 relative">
+                    <div className="flex items-center gap-0.5 sm:gap-1 relative">
                       <span className="font-semibold text-sm sm:text-base break-words">{phase.name}</span>
                       <div className="relative group flex-shrink-0">
-                        <Info className="w-4 h-4 text-muted-foreground cursor-help" />
+                        <Info className="w-3 h-3 sm:w-4 sm:h-4 text-muted-foreground cursor-help" />
                         <div className="absolute left-0 bottom-full mb-2 w-[280px] sm:w-72 p-3 bg-popover border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[9999] pointer-events-none whitespace-normal">
                           <div className="text-sm font-semibold mb-2">{phase.name}</div>
                           <div className="text-xs text-muted-foreground mb-2">{phase.description}</div>
@@ -791,32 +861,77 @@ export function SchedulerConfigControl() {
                     )}
                   </TableCell>
 
-                  {/* Trigger Button */}
+                  {/* Trigger Buttons */}
                   <TableCell>
-                    <Button
-                      onClick={() => handleTriggerPhase(phase.id)}
-                      disabled={triggering[phase.id] || phase.status === 'running' || phase.enabled === false}
-                      size="sm"
-                      variant={phase.status === 'running' ? "secondary" : "default"}
-                      className="w-full sm:w-auto"
-                    >
-                      {triggering[phase.id] ? (
-                        <>
-                          <Loader2 className="w-4 h-4 sm:mr-2 animate-spin" />
-                          <span className="hidden sm:inline">Triggering...</span>
-                        </>
-                      ) : phase.status === 'running' ? (
-                        <>
-                          <Loader2 className="w-4 h-4 sm:mr-2 animate-spin" />
-                          <span className="hidden sm:inline">Running...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Play className="w-4 h-4 sm:mr-2" />
-                          <span className="hidden sm:inline">Trigger</span>
-                        </>
-                      )}
-                    </Button>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      {/* Run Phase Button - Run without triggering next phase */}
+                      <div className="relative group">
+                        <Button
+                          onClick={() => handleTriggerPhase(phase.id, true)}
+                          disabled={triggering[phase.id] || phase.status === 'running' || phase.enabled === false}
+                          size="sm"
+                          variant={phase.status === 'running' ? "secondary" : "outline"}
+                          className={`w-full sm:w-auto ${phase.status !== 'running' && phase.enabled !== false ? 'bg-green-600 hover:bg-green-700 text-white border-green-600 hover:border-green-700' : ''}`}
+                          title="Run this phase without triggering the next phase"
+                        >
+                          {triggering[phase.id] ? (
+                            <>
+                              <Loader2 className="w-4 h-4 sm:mr-1 animate-spin" />
+                              <span className="hidden sm:inline">Running...</span>
+                            </>
+                          ) : phase.status === 'running' ? (
+                            <>
+                              <Loader2 className="w-4 h-4 sm:mr-1 animate-spin" />
+                              <span className="hidden sm:inline">Running</span>
+                            </>
+                          ) : (
+                            <>
+                              <Play className="w-4 h-4 sm:mr-1" />
+                              <span className="text-xs sm:text-sm">
+                                Run Phase {getPhaseShortName(phase.name) || phase.name.replace('Phase ', '').split(' ')[0]}
+                              </span>
+                            </>
+                          )}
+                        </Button>
+                        {/* Tooltip */}
+                        <div className="absolute left-0 bottom-full mb-2 w-48 p-2 bg-popover border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[9999] pointer-events-none text-xs">
+                          Run this phase without triggering the next phase
+                        </div>
+                      </div>
+                      
+                      {/* Run & Trigger Button - Run and trigger next phase */}
+                      <div className="relative group">
+                        <Button
+                          onClick={() => handleTriggerPhase(phase.id, false)}
+                          disabled={triggering[phase.id] || phase.status === 'running' || phase.enabled === false}
+                          size="sm"
+                          variant={phase.status === 'running' ? "secondary" : "default"}
+                          className={`w-full sm:w-auto ${phase.status !== 'running' && phase.enabled !== false ? 'bg-yellow-500 hover:bg-yellow-600 text-white border-yellow-500 hover:border-yellow-600' : ''}`}
+                          title="Run this phase and trigger the next phase automatically"
+                        >
+                          {triggering[phase.id] ? (
+                            <>
+                              <Loader2 className="w-4 h-4 sm:mr-1 animate-spin" />
+                              <span className="hidden sm:inline">Triggering...</span>
+                            </>
+                          ) : phase.status === 'running' ? (
+                            <>
+                              <Loader2 className="w-4 h-4 sm:mr-1 animate-spin" />
+                              <span className="hidden sm:inline">Running</span>
+                            </>
+                          ) : (
+                            <>
+                              <Play className="w-4 h-4 sm:mr-1" />
+                              <span className="text-xs sm:text-sm">Run & Trigger</span>
+                            </>
+                          )}
+                        </Button>
+                        {/* Tooltip */}
+                        <div className="absolute left-0 bottom-full mb-2 w-48 p-2 bg-popover border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[9999] pointer-events-none text-xs">
+                          Run this phase and trigger the next phase automatically
+                        </div>
+                      </div>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -833,6 +948,16 @@ export function SchedulerConfigControl() {
           </p>
         </div>
       </CardContent>
+
+      <ConfirmationDialog
+        open={confirmationDialog.open}
+        onOpenChange={(open) => setConfirmationDialog({ ...confirmationDialog, open })}
+        title={confirmationDialog.title}
+        description={confirmationDialog.description}
+        onConfirm={confirmationDialog.onConfirm}
+        confirmText="Yes"
+        cancelText="No"
+      />
     </Card>
   );
 }

@@ -3,8 +3,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Badge } from "../../ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../ui/table";
-import { Loader2, CheckCircle, AlertCircle, RefreshCw, Clock, User } from "lucide-react";
+import { Loader2, CheckCircle, AlertCircle, RefreshCw, Clock, User, Trash2 } from "lucide-react";
 import { useToast } from "../../../contexts/ToastContext";
+import { ConfirmationDialog } from "../../ui/confirmation-dialog";
 
 const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
 
@@ -39,6 +40,9 @@ export function SchedulerLogs() {
   const [logsCurrentPage, setLogsCurrentPage] = useState(1);
   const [logsTotalPages, setLogsTotalPages] = useState(1);
   const [logsTotal, setLogsTotal] = useState(0);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [logToDelete, setLogToDelete] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const loadSchedulerLogs = async (page: number = 1, limit: number = 10) => {
     setLoadingLogs(true);
@@ -78,6 +82,44 @@ export function SchedulerLogs() {
   useEffect(() => {
     loadSchedulerLogs(1, 10);
   }, []);
+
+  const handleDeleteClick = (logId: string) => {
+    setLogToDelete(logId);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!logToDelete) return;
+    
+    setDeleting(true);
+    try {
+      const response = await fetch(`${API_URL}/api/trigger/logs/${logToDelete}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        showToast({ type: 'success', title: 'Success', message: 'Log deleted successfully' });
+        await loadSchedulerLogs(logsCurrentPage, 10);
+      } else {
+        showToast({ type: 'error', title: 'Error', message: result.error || 'Failed to delete log' });
+      }
+    } catch (error) {
+      console.error('Error deleting log:', error);
+      showToast({ type: 'error', title: 'Error', message: 'Error deleting log' });
+    } finally {
+      setDeleting(false);
+      setLogToDelete(null);
+    }
+  };
 
   return (
     <Card>
@@ -128,6 +170,7 @@ export function SchedulerLogs() {
                     <TableHead>Completed</TableHead>
                     <TableHead>Duration</TableHead>
                     <TableHead>Triggered By</TableHead>
+                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -136,6 +179,7 @@ export function SchedulerLogs() {
                       <TableCell className="text-center py-8 text-muted-foreground">
                         No logs found
                       </TableCell>
+                      <TableCell>{null}</TableCell>
                       <TableCell>{null}</TableCell>
                       <TableCell>{null}</TableCell>
                       <TableCell>{null}</TableCell>
@@ -211,6 +255,17 @@ export function SchedulerLogs() {
                             <span className="text-sm">{log.triggered_by}</span>
                           </div>
                         </TableCell>
+                        <TableCell>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => handleDeleteClick(log.id)}
+                            className="h-7 px-2 text-xs whitespace-nowrap min-h-[28px] bg-red-600 hover:bg-red-700 text-white border-red-600 hover:border-red-700"
+                          >
+                            <Trash2 className="w-3 h-3 mr-1" />
+                            Delete
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     ))
                   )}
@@ -264,6 +319,17 @@ export function SchedulerLogs() {
           </>
         )}
       </CardContent>
+
+      <ConfirmationDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete Log"
+        description="Are you sure you want to delete this log? This action cannot be undone."
+        onConfirm={handleDeleteConfirm}
+        confirmText="Yes"
+        cancelText="No"
+        isLoading={deleting}
+      />
     </Card>
   );
 }

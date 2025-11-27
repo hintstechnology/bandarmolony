@@ -358,17 +358,17 @@ export async function calculateRrcSector(sectorName: string, config: { stockDir:
     
     // Process batch in parallel with concurrency limit
     const batchPromises = batch.map(async (csvFile) => {
-      try {
-        const emitter = extractEmitterName(csvFile);
-        console.log(`📈 Processing: ${csvFile.split('/').pop()} -> ${emitter}`);
-        
-        const {values, dates} = await readCsvCloseValues(csvFile, "close");
-        if (values.length === 0) {
-          console.warn(`⚠️ No valid 'close' values in ${csvFile}`);
+    try {
+      const emitter = extractEmitterName(csvFile);
+      console.log(`📈 Processing: ${csvFile.split('/').pop()} -> ${emitter}`);
+      
+      const {values, dates} = await readCsvCloseValues(csvFile, "close");
+      if (values.length === 0) {
+        console.warn(`⚠️ No valid 'close' values in ${csvFile}`);
           return null;
-        }
-        
-        const result = transformSeries(emitter, sectorName, values, dates);
+      }
+      
+      const result = transformSeries(emitter, sectorName, values, dates);
         return result;
       } catch (err) {
         console.error(`❌ Error processing ${csvFile}:`, err);
@@ -381,8 +381,8 @@ export async function calculateRrcSector(sectorName: string, config: { stockDir:
     // Collect valid results
     batchResults.forEach((result) => {
       if (result) {
-        sectorResults.push(result);
-        processed++;
+      sectorResults.push(result);
+      processed++;
       } else {
         errors++;
       }

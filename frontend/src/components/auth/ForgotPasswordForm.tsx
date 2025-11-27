@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Mail, RefreshCw } from 'lucide-react';
-import { toast } from 'sonner';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -25,6 +24,7 @@ export function ForgotPasswordForm({ onSwitchToLogin, onForgotPassword }: Forgot
       const timer = setTimeout(() => setResendCooldown(resendCooldown - 1), 1000);
       return () => clearTimeout(timer);
     }
+    return undefined;
   }, [resendCooldown]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -32,13 +32,13 @@ export function ForgotPasswordForm({ onSwitchToLogin, onForgotPassword }: Forgot
     
     if (!email.trim()) {
       setError('Email is required');
-      toast.error('Please enter your email address');
+      // Don't show toast - error message already displayed in form
       return;
     }
     
     if (!email.includes('@')) {
       setError('Please enter a valid email');
-      toast.error('Please enter a valid email address');
+      // Don't show toast - error message already displayed in form
       return;
     }
 
@@ -49,20 +49,25 @@ export function ForgotPasswordForm({ onSwitchToLogin, onForgotPassword }: Forgot
       const result = await onForgotPassword(email);
       if (result && typeof result === 'object' && 'success' in result) {
         if (result.success) {
+          // Email found and sent successfully - show success page, NO toast (redundant)
           setEmailSent(true);
           setResendCooldown(60); // 60 seconds cooldown
-          toast.success(result.message || 'Password reset email sent successfully!');
+          // Don't show toast - success page already shows the message
         } else {
-          // Handle error case
-          const errorMessage = result.error || 'Failed to send password reset email';
+          // Handle error case - Email not found or other error
+          const errorMessage = result.error || 'Gagal mengirim link reset password';
           setError(errorMessage);
-          toast.error(errorMessage);
+          // Don't set emailSent = true, so success page won't show
+          setEmailSent(false);
+          // Don't show toast - error message already displayed in form
         }
       }
     } catch (error: any) {
-      const errorMessage = error.message || 'Something went wrong. Please try again.';
+      const errorMessage = error.message || 'Terjadi kesalahan. Silakan coba lagi.';
       setError(errorMessage);
-      toast.error(errorMessage);
+      // Don't set emailSent = true on error
+      setEmailSent(false);
+      // Don't show toast - error message already displayed in form
     } finally {
       setLoading(false);
     }
@@ -79,16 +84,21 @@ export function ForgotPasswordForm({ onSwitchToLogin, onForgotPassword }: Forgot
       
       if (result.success) {
         setResendCooldown(60); // 60 seconds cooldown
-        toast.success('Password reset email sent successfully!');
+        // Don't show toast - user is already on success page
+        // Just reset the cooldown, no need for redundant message
       } else {
-        const errorMessage = result.error || 'Failed to resend password reset email';
+        const errorMessage = result.error || 'Gagal mengirim ulang link reset password';
         setError(errorMessage);
-        toast.error(errorMessage);
+        // Hide success page if email not found
+        setEmailSent(false);
+        // Don't show toast - error message already displayed in form
       }
     } catch (error: any) {
-      const errorMessage = error.message || 'Failed to resend password reset email';
+      const errorMessage = error.message || 'Gagal mengirim ulang link reset password';
       setError(errorMessage);
-      toast.error(errorMessage);
+      // Hide success page on error
+      setEmailSent(false);
+      // Don't show toast - error message already displayed in form
     } finally {
       setResendLoading(false);
     }
@@ -239,33 +249,6 @@ export function ForgotPasswordForm({ onSwitchToLogin, onForgotPassword }: Forgot
           {loading ? 'Sending...' : 'Send Reset Link'}
         </Button>
       </form>
-
-      {/* Resend Section */}
-      {emailSent && (
-        <div className="text-center space-y-2">
-          <p className="text-sm text-muted-foreground">
-            Didn't receive the email?
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleResend}
-            disabled={resendLoading || resendCooldown > 0}
-            className="text-sm"
-          >
-            {resendLoading ? (
-              <>
-                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                Sending...
-              </>
-            ) : resendCooldown > 0 ? (
-              `Resend in ${resendCooldown}s`
-            ) : (
-              'Resend Email'
-            )}
-          </Button>
-        </div>
-      )}
 
       {/* Back to Login */}
       <div className="text-center">

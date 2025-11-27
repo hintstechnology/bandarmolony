@@ -423,7 +423,8 @@ router.post('/broker-breakdown', async (req, res) => {
     const brokerBreakdownService = new BrokerBreakdownDataScheduler();
     
     // Execute in background and return immediately
-    brokerBreakdownService.generateBrokerBreakdownData('all').then(async (result) => {
+    // Pass logId to enable progress tracking
+    brokerBreakdownService.generateBrokerBreakdownData('all', logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
       await AzureLogger.logInfo('broker_breakdown', `Manual broker breakdown calculation completed: ${result.message || 'OK'}`);
       console.log(`✅ Broker Breakdown calculation completed: ${result.message}`);
       if (logEntry.id) {
@@ -981,6 +982,46 @@ router.post('/logs/:id/cancel', async (req, res) => {
   }
 });
 
+// Delete a scheduler log
+router.delete('/logs/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // ID is UUID string, not integer
+    // Check if log exists
+    const log = await SchedulerLogService.getLogById(id);
+    
+    if (!log) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Log not found' 
+      });
+    }
+
+    // Delete the log
+    const success = await SchedulerLogService.deleteLog(id);
+    
+    if (!success) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to delete scheduler log' 
+      });
+    }
+
+    return res.json({ 
+      success: true, 
+      message: 'Scheduler log deleted successfully' 
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error deleting scheduler log:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+});
+
 // Manual trigger for RRC calculation
 router.post('/rrc', async (req, res) => {
   try {
@@ -1441,8 +1482,8 @@ router.post('/broker-transaction', async (req, res) => {
     const brokerTransactionService = new BrokerTransactionDataScheduler();
     
     // Execute in background and return immediately
-    // Pass undefined to process all DT files (as per generateBrokerTransactionData implementation)
-    brokerTransactionService.generateBrokerTransactionData(undefined).then(async (result) => {
+    // Pass undefined to process all DT files, and logId to enable progress tracking
+    brokerTransactionService.generateBrokerTransactionData(undefined, logEntry.id || null).then(async (result) => {
       await AzureLogger.logInfo('broker_transaction', `Manual broker transaction calculation completed: ${result.message || 'OK'}`);
       console.log(`✅ Broker Transaction calculation completed: ${result.message}`);
       if (logEntry.id) {
@@ -1559,8 +1600,8 @@ router.post('/broker-transaction-fd', async (req, res) => {
     const brokerTransactionFDService = new BrokerTransactionFDDataScheduler();
     
     // Execute in background and return immediately
-    // Pass undefined to process all DT files (as per generateBrokerTransactionData implementation)
-    brokerTransactionFDService.generateBrokerTransactionData(undefined).then(async (result) => {
+    // Pass undefined to process all DT files, and logId to enable progress tracking
+    brokerTransactionFDService.generateBrokerTransactionData(undefined, logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
       await AzureLogger.logInfo('broker_transaction_fd', `Manual broker transaction F/D calculation completed: ${result.message || 'OK'}`);
       console.log(`✅ Broker Transaction F/D calculation completed: ${result.message}`);
       if (logEntry.id) {
@@ -1618,8 +1659,8 @@ router.post('/broker-transaction-fd-rgtnng', async (req, res) => {
     const brokerTransactionFDRGTNNGService = new BrokerTransactionFDRGTNNGDataScheduler();
     
     // Execute in background and return immediately
-    // Pass undefined to process all DT files (as per generateBrokerTransactionData implementation)
-    brokerTransactionFDRGTNNGService.generateBrokerTransactionData(undefined).then(async (result) => {
+    // Pass undefined to process all DT files, and logId to enable progress tracking
+    brokerTransactionFDRGTNNGService.generateBrokerTransactionData(undefined, logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
       await AzureLogger.logInfo('broker_transaction_fd_rgtnng', `Manual broker transaction F/D RG/TN/NG calculation completed: ${result.message || 'OK'}`);
       console.log(`✅ Broker Transaction F/D RG/TN/NG calculation completed: ${result.message}`);
       if (logEntry.id) {
@@ -1677,8 +1718,8 @@ router.post('/broker-transaction-stock', async (req, res) => {
     const brokerTransactionStockService = new BrokerTransactionStockDataScheduler();
     
     // Execute in background and return immediately
-    // Pass undefined to process all DT files (as per generateBrokerTransactionData implementation)
-    brokerTransactionStockService.generateBrokerTransactionData(undefined).then(async (result) => {
+    // Pass undefined to process all DT files, and logId to enable progress tracking
+    brokerTransactionStockService.generateBrokerTransactionData(undefined, logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
       await AzureLogger.logInfo('broker_transaction_stock', `Manual broker transaction stock calculation completed: ${result.message || 'OK'}`);
       console.log(`✅ Broker Transaction Stock calculation completed: ${result.message}`);
       if (logEntry.id) {
@@ -1736,8 +1777,8 @@ router.post('/broker-transaction-stock-fd', async (req, res) => {
     const brokerTransactionStockFDService = new BrokerTransactionStockFDDataScheduler();
     
     // Execute in background and return immediately
-    // Pass undefined to process all DT files (as per generateBrokerTransactionData implementation)
-    brokerTransactionStockFDService.generateBrokerTransactionData(undefined).then(async (result) => {
+    // Pass undefined to process all DT files, and logId to enable progress tracking
+    brokerTransactionStockFDService.generateBrokerTransactionData(undefined, logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
       await AzureLogger.logInfo('broker_transaction_stock_fd', `Manual broker transaction stock F/D calculation completed: ${result.message || 'OK'}`);
       console.log(`✅ Broker Transaction Stock F/D calculation completed: ${result.message}`);
       if (logEntry.id) {
@@ -1795,8 +1836,8 @@ router.post('/broker-transaction-stock-rgtnng', async (req, res) => {
     const brokerTransactionStockRGTNNGService = new BrokerTransactionStockRGTNNGDataScheduler();
     
     // Execute in background and return immediately
-    // Pass undefined to process all DT files (as per generateBrokerTransactionData implementation)
-    brokerTransactionStockRGTNNGService.generateBrokerTransactionData(undefined).then(async (result) => {
+    // Pass undefined to process all DT files, and logId to enable progress tracking
+    brokerTransactionStockRGTNNGService.generateBrokerTransactionData(undefined, logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
       await AzureLogger.logInfo('broker_transaction_stock_rgtnng', `Manual broker transaction stock RG/TN/NG calculation completed: ${result.message || 'OK'}`);
       console.log(`✅ Broker Transaction Stock RG/TN/NG calculation completed: ${result.message}`);
       if (logEntry.id) {
@@ -1854,8 +1895,8 @@ router.post('/broker-transaction-stock-fd-rgtnng', async (req, res) => {
     const brokerTransactionStockFDRGTNNGService = new BrokerTransactionStockFDRGTNNGDataScheduler();
     
     // Execute in background and return immediately
-    // Pass undefined to process all DT files (as per generateBrokerTransactionData implementation)
-    brokerTransactionStockFDRGTNNGService.generateBrokerTransactionData(undefined).then(async (result) => {
+    // Pass undefined to process all DT files, and logId to enable progress tracking
+    brokerTransactionStockFDRGTNNGService.generateBrokerTransactionData(undefined, logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
       await AzureLogger.logInfo('broker_transaction_stock_fd_rgtnng', `Manual broker transaction stock F/D RG/TN/NG calculation completed: ${result.message || 'OK'}`);
       console.log(`✅ Broker Transaction Stock F/D RG/TN/NG calculation completed: ${result.message}`);
       if (logEntry.id) {
@@ -1913,8 +1954,8 @@ router.post('/break-done-trade', async (req, res) => {
     const breakDoneTradeService = new BreakDoneTradeDataScheduler();
     
     // Execute in background and return immediately
-    // Pass undefined to process all DT files (as per generateBreakDoneTradeData implementation)
-    breakDoneTradeService.generateBreakDoneTradeData(undefined).then(async (result) => {
+    // Pass undefined to process all DT files, and logId to enable progress tracking
+    breakDoneTradeService.generateBreakDoneTradeData(undefined, logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
       await AzureLogger.logInfo('break_done_trade', `Manual break done trade calculation completed: ${result.message || 'OK'}`);
       console.log(`✅ Break Done Trade calculation completed: ${result.message}`);
       if (logEntry.id) {

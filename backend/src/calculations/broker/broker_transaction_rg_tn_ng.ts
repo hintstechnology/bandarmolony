@@ -650,9 +650,9 @@ export class BrokerTransactionRGTNNGCalculator {
       let totalFilesCreated = 0;
       let totalErrors = 0;
       
-      // Process in batches to manage memory (Phase 5: 50 files at a time)
-      const BATCH_SIZE = BATCH_SIZE_PHASE_5; // Phase 5: 50 files
-      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_5; // Phase 5: 25 concurrent
+      // Process in batches to manage memory (Phase 5: 6 files at a time)
+      const BATCH_SIZE = BATCH_SIZE_PHASE_5; // Phase 5: 6 files
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_5; // Phase 5: 3 concurrent
       for (let i = 0; i < dtFiles.length; i += BATCH_SIZE) {
         const batch = dtFiles.slice(i, i + BATCH_SIZE);
         const batchNum = Math.floor(i / BATCH_SIZE) + 1;
@@ -660,11 +660,11 @@ export class BrokerTransactionRGTNNGCalculator {
         
         console.log(`\n📦 Processing batch ${batchNum}/${totalBatches} (${batch.length} files)...`);
         
-        // Update progress
+        // Update progress before batch (use totalProcessed count, not batch index)
         if (logId) {
           const { SchedulerLogService } = await import('../../services/schedulerLogService');
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: Math.round((i / dtFiles.length) * 100),
+            progress_percentage: Math.round((totalProcessed / dtFiles.length) * 100),
             current_processing: `Processing batch ${batchNum}/${totalBatches} (${totalProcessed}/${dtFiles.length} processed)`
           });
         }

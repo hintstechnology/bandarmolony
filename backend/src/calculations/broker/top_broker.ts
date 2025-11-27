@@ -75,8 +75,48 @@ export class TopBrokerCalculator {
         return dateB.localeCompare(dateA); // Descending order (newest first)
       });
       
-      console.log(`Found ${sortedFiles.length} DT files to process (sorted newest first)`);
-      return sortedFiles;
+      // OPTIMIZATION: Pre-check which dates already have top_broker output (sequential, newest to oldest)
+      console.log("🔍 Pre-checking existing top_broker outputs (checking from newest to oldest)...");
+      const filesToProcess: string[] = [];
+      let skippedCount = 0;
+      
+      for (const file of sortedFiles) {
+        const dateFolder = file.split('/')[1] || '';
+        const dateSuffix = dateFolder;
+        
+        // Check key output file: top_broker.csv
+        const keyOutputFile = `top_broker/top_broker_${dateSuffix}/top_broker.csv`;
+        
+        try {
+          const outputExists = await exists(keyOutputFile);
+          if (outputExists) {
+            skippedCount++;
+            console.log(`⏭️ Top broker already exists for date ${dateSuffix} - skipping`);
+          } else {
+            filesToProcess.push(file);
+            console.log(`✅ Date ${dateSuffix} needs processing`);
+          }
+        } catch (error) {
+          // If check fails, proceed with processing (safer to process than skip)
+          console.warn(`⚠️ Could not check existence for ${dateSuffix}, will process:`, error instanceof Error ? error.message : error);
+          filesToProcess.push(file);
+        }
+      }
+      
+      console.log(`📊 Pre-check complete: ${filesToProcess.length} files to process, ${skippedCount} already exist`);
+      
+      if (filesToProcess.length > 0) {
+        console.log(`📋 Processing order (newest first):`);
+        const dates = filesToProcess.map(f => f.split('/')[1]).filter((v, i, arr) => arr.indexOf(v) === i);
+        dates.slice(0, 10).forEach((date, idx) => {
+          console.log(`   ${idx + 1}. ${date}`);
+        });
+        if (dates.length > 10) {
+          console.log(`   ... and ${dates.length - 10} more dates`);
+        }
+      }
+      
+      return filesToProcess;
     } catch (error) {
       console.error('Error scanning DT files:', error);
       return [];
@@ -317,22 +357,10 @@ export class TopBrokerCalculator {
     const dateFolder = pathParts[1] || 'unknown'; // 20251021
     const dateSuffix = dateFolder;
     
-    // Check if output already exists for this date BEFORE loading input
-    // Check key output file: top_broker.csv
-    const keyOutputFile = `top_broker/top_broker_${dateSuffix}/top_broker.csv`;
+    // Note: Pre-checking is done in findAllDtFiles() before batch processing
+    // This function only processes files that are confirmed to need processing
     
-    try {
-      const outputExists = await exists(keyOutputFile);
-      if (outputExists) {
-        console.log(`⏭️ Top broker already exists for date ${dateSuffix} - skipping (checked ${keyOutputFile})`);
-        return { success: true, dateSuffix, files: [], skipped: true };
-      }
-    } catch (error) {
-      // If check fails, continue with processing (might be permission issue)
-      console.log(`ℹ️ Could not check existence of ${keyOutputFile}, proceeding with generation`);
-    }
-    
-    // Only load input if output doesn't exist
+    // Load input and process
     const result = await this.loadAndProcessSingleDtFile(blobName);
     
     if (!result) {
@@ -407,9 +435,9 @@ export class TopBrokerCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
-      // Process files in batches (Phase 4: 50 files at a time)
-      const BATCH_SIZE = BATCH_SIZE_PHASE_4; // Phase 4: 50 files
-      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_4; // Phase 4: 25 concurrent
+      // Process files in batches (Phase 4: 6 files at a time)
+      const BATCH_SIZE = BATCH_SIZE_PHASE_4; // Phase 4: 6 files
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_4; // Phase 4: 3 concurrent
       const allResults: { success: boolean; dateSuffix: string; files: string[]; timing?: any }[] = [];
       let processed = 0;
       let successful = 0;

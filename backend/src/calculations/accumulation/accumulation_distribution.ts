@@ -1,4 +1,4 @@
-import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
+import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_8, MAX_CONCURRENT_REQUESTS_PHASE_8 } from '../../services/dataUpdateService';
 
 // Helper function to limit concurrency for Phase 7-8
@@ -583,23 +583,26 @@ export class AccumulationDistributionCalculator {
           continue;
         }
         
-        // Check if output file already exists
+        // Check if output file already exists (using exists() instead of downloadText() for efficiency)
         const checkFilename = `accumulation_distribution/${dateSuffix}.csv`;
         try {
-          await downloadText(checkFilename);
-          console.log(`⏭️ Skipping ${dateSuffix} - file already exists`);
-          skippedCount++;
-          // Update progress even for skipped files
-          if (logId) {
-            const { SchedulerLogService } = await import('../../services/schedulerLogService');
-            await SchedulerLogService.updateLog(logId, {
-              progress_percentage: Math.round(((di + 1) / limitedDates.length) * 100),
-              current_processing: `Processing accumulation for date ${dateSuffix} (${di + 1}/${limitedDates.length}) - Skipped (already exists)`
-            });
+          const fileExists = await exists(checkFilename);
+          if (fileExists) {
+            console.log(`⏭️ Skipping ${dateSuffix} - file already exists`);
+            skippedCount++;
+            // Update progress even for skipped files
+            if (logId) {
+              const { SchedulerLogService } = await import('../../services/schedulerLogService');
+              await SchedulerLogService.updateLog(logId, {
+                progress_percentage: Math.round(((di + 1) / limitedDates.length) * 100),
+                current_processing: `Processing accumulation for date ${dateSuffix} (${di + 1}/${limitedDates.length}) - Skipped (already exists)`
+              });
+            }
+            continue;
           }
-          continue;
         } catch (error) {
-          // File doesn't exist, continue processing
+          // If check fails, proceed with processing (safer to process than skip)
+          console.warn(`⚠️ Could not check existence for ${dateSuffix}, will process:`, error instanceof Error ? error.message : error);
         }
         
         processedCount++;
@@ -660,10 +663,10 @@ export class AccumulationDistributionCalculator {
           }
         }
 
-        // Load stock data for all stocks in batches (Phase 8: 50 stocks at a time)
+        // Load stock data for all stocks in batches (Phase 8: 6 stocks at a time)
         const stockDataMap = new Map<string, StockData[]>();
-        const STOCK_BATCH_SIZE = BATCH_SIZE_PHASE_8; // Phase 8: 50 stocks at a time
-        const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_8; // Phase 8: 25 concurrent
+        const STOCK_BATCH_SIZE = BATCH_SIZE_PHASE_8; // Phase 8: 6 stocks at a time
+        const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_8; // Phase 8: 3 concurrent
         let missingStocksCount = 0;
         const totalStocks = stockCodes.length;
         

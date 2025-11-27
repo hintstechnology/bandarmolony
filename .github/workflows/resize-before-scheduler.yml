@@ -8,6 +8,17 @@ on:
   # 3. Scheduler is restarted
   repository_dispatch:
     types: [scheduler-time-changed]
+  # Scheduled trigger: Run at default resize time (18:45 WIB = 11:45 UTC) as backup ONLY
+  # This is a fallback in case backend webhook doesn't trigger (e.g., server restart after 18:45)
+  # Backend webhook is the primary trigger (more efficient, triggered via node-cron)
+  # Logic check will prevent duplicate resize if both trigger at the same time
+  schedule:
+    # Run at 18:45 WIB (11:45 UTC) every day
+    # Cron format: MM HH * * * (minute hour day month day-of-week, UTC time)
+    # 18:45 WIB = 11:45 UTC (WIB = UTC + 7 hours)
+    # NOTE: Backend webhook also triggers at this time, but "Determine if Resize Needed" step
+    # will check if container is already large (CPU = 4) and skip resize to prevent duplicate
+    - cron: '45 11 * * *'
   # Manual trigger (for testing/debugging)
   workflow_dispatch:
 
@@ -34,7 +45,7 @@ jobs:
           
           # If triggered via webhook from backend, use payload
           if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
-            echo "✅ Triggered via repository_dispatch webhook from backend node-cron"
+            echo "✅ Triggered via repository_dispatch webhook from backend node-cron (PRIMARY)"
             SCHEDULER_TIME="${{ github.event.client_payload.new_time }}"
             TIMEZONE="${{ github.event.client_payload.timezone }}"
             WEEKEND_SKIP="${{ github.event.client_payload.weekend_skip }}"
@@ -44,6 +55,21 @@ jobs:
             echo "   new_time: $SCHEDULER_TIME"
             echo "   timezone: $TIMEZONE"
             echo "   weekend_skip: $WEEKEND_SKIP"
+          elif [ "${{ github.event_name }}" = "schedule" ]; then
+            # If triggered via scheduled cron, fetch from API
+            # This is a BACKUP trigger in case backend webhook doesn't trigger
+            echo "⏰ Triggered via scheduled cron (BACKUP) - fetching config from API"
+            echo "⚠️ NOTE: Backend webhook should have triggered first. This is a fallback."
+            RESPONSE=$(curl -s "${{ secrets.VITE_API_URL }}/api/public/scheduler/config")
+            SCHEDULER_TIME=$(echo $RESPONSE | jq -r '.data.config.PHASE1_DATA_COLLECTION_TIME')
+            TIMEZONE=$(echo $RESPONSE | jq -r '.data.config.TIMEZONE')
+            WEEKEND_SKIP=$(echo $RESPONSE | jq -r '.data.config.WEEKEND_SKIP')
+            
+            # Log API response for debugging
+            echo "📋 API Config (from scheduled trigger):"
+            echo "   PHASE1_DATA_COLLECTION_TIME: $SCHEDULER_TIME"
+            echo "   TIMEZONE: $TIMEZONE"
+            echo "   WEEKEND_SKIP: $WEEKEND_SKIP"
           else
             # If triggered manually (workflow_dispatch), fetch from API
             echo "📡 Triggered manually (workflow_dispatch) - fetching config from API"
@@ -360,14 +386,15 @@ jobs:
           
           # Workflow sudah di-check di "Check if Workflow Should Run"
           # Jika sampai sini, berarti kondisi sudah terpenuhi (current time >= resize time AND < scheduler time)
-          # Tinggal check apakah container sudah besar atau belum
+          # Check apakah container sudah besar atau belum
+          # This prevents duplicate resize if both backend webhook and scheduled trigger run at the same time
           
           if [ "$CURRENT_CPU" != "4" ]; then
             echo "resize_needed=true" >> $GITHUB_OUTPUT
-            echo "✅ Resize needed: Container is small, will resize to 4 vCPU/8GB"
+            echo "✅ Resize needed: Container is small (CPU: $CURRENT_CPU), will resize to 4 vCPU/8GB"
           else
             echo "resize_needed=false" >> $GITHUB_OUTPUT
-            echo "⏭️ Container already large (CPU: $CURRENT_CPU)"
+            echo "⏭️ Container already large (CPU: $CURRENT_CPU) - skipping resize (likely already resized by backend webhook)"
           fi
       
       - name: Resize Container to Large

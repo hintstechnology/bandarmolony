@@ -329,9 +329,9 @@ export class BrokerInventoryCalculator {
       console.log("\nLoading broker transaction data for all dates...");
       const allBrokerData = new Map<string, Map<string, BrokerTransactionData[]>>();
       
-      // Process dates in batches (Phase 8: 50 dates per batch)
-      const DATE_BATCH_SIZE = BATCH_SIZE_PHASE_8; // Phase 8: 50 dates
-      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_8; // Phase 8: 25 concurrent
+      // Process dates in batches (Phase 8: 6 dates per batch)
+      const DATE_BATCH_SIZE = BATCH_SIZE_PHASE_8; // Phase 8: 6 dates
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_8; // Phase 8: 3 concurrent
       let processedDates = 0;
       
       for (let i = 0; i < dates.length; i += DATE_BATCH_SIZE) {

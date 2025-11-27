@@ -7,7 +7,7 @@
 
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
 import * as path from 'path';
-import { BATCH_SIZE_PHASE_2 } from '../../services/dataUpdateService';
+import { BATCH_SIZE_PHASE_2, MAX_CONCURRENT_REQUESTS_PHASE_2 } from '../../services/dataUpdateService';
 
 // Helper function to limit concurrency for Phase 2
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -340,7 +340,7 @@ async function calculateSectorAverage(sectorCodes: string[], sectorFolder: strin
       }
       return { success: false, reason: 'not_found', code };
     });
-    const batchResults = await limitConcurrency(batchPromises, 250);
+    const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT_REQUESTS_PHASE_2);
     
     // Process batch results
     for (const result of batchResults) {

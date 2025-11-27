@@ -81,8 +81,48 @@ export class BidAskCalculator {
         return dateB.localeCompare(dateA); // Descending order (newest first)
       });
       
-      console.log(`Found ${sortedFiles.length} DT files to process (sorted newest first)`);
-      return sortedFiles;
+      // OPTIMIZATION: Pre-check which dates already have bid_ask output (sequential, newest to oldest)
+      console.log("🔍 Pre-checking existing bid_ask outputs (checking from newest to oldest)...");
+      const filesToProcess: string[] = [];
+      let skippedCount = 0;
+      
+      for (const file of sortedFiles) {
+        const dateFolder = file.split('/')[1] || '';
+        const dateSuffix = dateFolder;
+        
+        // Check if bid_ask folder exists for this date
+        const outputPrefix = `bid_ask/bid_ask_${dateSuffix}/`;
+        
+        try {
+          const existingFiles = await listPaths({ prefix: outputPrefix, maxResults: 1 });
+          if (existingFiles.length > 0) {
+            skippedCount++;
+            console.log(`⏭️ Bid/Ask already exists for date ${dateSuffix} - skipping`);
+          } else {
+            filesToProcess.push(file);
+            console.log(`✅ Date ${dateSuffix} needs processing`);
+          }
+        } catch (error) {
+          // If check fails, proceed with processing (safer to process than skip)
+          console.warn(`⚠️ Could not check existence for ${dateSuffix}, will process:`, error instanceof Error ? error.message : error);
+          filesToProcess.push(file);
+        }
+      }
+      
+      console.log(`📊 Pre-check complete: ${filesToProcess.length} files to process, ${skippedCount} already exist`);
+      
+      if (filesToProcess.length > 0) {
+        console.log(`📋 Processing order (newest first):`);
+        const dates = filesToProcess.map(f => f.split('/')[1]).filter((v, i, arr) => arr.indexOf(v) === i);
+        dates.slice(0, 10).forEach((date, idx) => {
+          console.log(`   ${idx + 1}. ${date}`);
+        });
+        if (dates.length > 10) {
+          console.log(`   ... and ${dates.length - 10} more dates`);
+        }
+      }
+      
+      return filesToProcess;
     } catch (error) {
       console.error('Error scanning DT files:', error);
       return [];
@@ -452,9 +492,9 @@ export class BidAskCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
-      // Process files in batches (Phase 7: 50 files at a time)
-      const BATCH_SIZE = BATCH_SIZE_PHASE_7; // Phase 7: 50 files
-      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_7; // Phase 7: 25 concurrent
+      // Process files in batches (Phase 7: 6 files at a time)
+      const BATCH_SIZE = BATCH_SIZE_PHASE_7; // Phase 7: 6 files
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_7; // Phase 7: 3 concurrent
       const allResults: { success: boolean; dateSuffix: string; files: string[] }[] = [];
       let processed = 0;
       let successful = 0;
@@ -475,11 +515,11 @@ export class BidAskCalculator {
           }
         }
         
-        // Update progress
+        // Update progress before batch (use processed count, not batch index)
         if (logId) {
           const { SchedulerLogService } = await import('../../services/schedulerLogService');
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: Math.round((i / dtFiles.length) * 100),
+            progress_percentage: Math.round((processed / dtFiles.length) * 100),
             current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} processed)`
           });
         }
