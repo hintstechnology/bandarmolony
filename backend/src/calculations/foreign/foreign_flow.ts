@@ -1,4 +1,5 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
+import { BATCH_SIZE_PHASE_3, MAX_CONCURRENT_REQUESTS_PHASE_3 } from '../../services/dataUpdateService';
 
 // Helper function to limit concurrency for Phase 3
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -395,7 +396,7 @@ export class ForeignFlowCalculator {
       console.log(`Found ${csvFiles.length} existing foreign flow files`);
       
       // Load each file and extract dates (in batches to avoid memory issues)
-      const BATCH_SIZE = 50;
+      const BATCH_SIZE = BATCH_SIZE_PHASE_3;
       for (let i = 0; i < csvFiles.length; i += BATCH_SIZE) {
         const batch = csvFiles.slice(i, i + BATCH_SIZE);
         
@@ -510,8 +511,8 @@ export class ForeignFlowCalculator {
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
       // Process files in batches for speed (Phase 3: 50 files at a time)
-      const BATCH_SIZE = 50;
-      const MAX_CONCURRENT = 25; // Phase 3: 25 concurrent
+      const BATCH_SIZE = BATCH_SIZE_PHASE_3;
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_3; // Phase 3: 25 concurrent
       const allResults: { success: boolean; dateSuffix: string; files: string[] }[] = [];
       let processed = 0;
       let successful = 0;

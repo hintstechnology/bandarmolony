@@ -1,6 +1,7 @@
 import WatchlistCalculator, { WatchlistStock } from '../calculations/watchlist/watchlist';
 import { uploadText } from '../utils/azureBlob';
 import { SchedulerLogService } from './schedulerLogService';
+import { BATCH_SIZE_PHASE_2 } from './dataUpdateService';
 
 const SNAPSHOT_BLOB_PATH = 'watchlist/watchlist.csv';
 
@@ -93,7 +94,7 @@ export async function updateWatchlistSnapshot(logId?: string | null, triggeredBy
     const emitenDetails = await calculator.loadEmitenDetailsFromAzure();
     
     // Process in batches with progress tracking
-    const BATCH_SIZE = 500;
+    const BATCH_SIZE = BATCH_SIZE_PHASE_2; // Phase 2: 500
     const allData: any[] = [];
     for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
       const batch = tickers.slice(i, i + BATCH_SIZE);

@@ -1,4 +1,5 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
+import { BATCH_SIZE_PHASE_4, MAX_CONCURRENT_REQUESTS_PHASE_4 } from '../../services/dataUpdateService';
 
 // Helper function to limit concurrency for Phase 4
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -268,8 +269,8 @@ export class BrokerSummaryIDXCalculator {
       console.log(`📊 Found ${emitenFiles.length} emiten CSV files`);
 
       // Batch processing configuration (Phase 4: 50 files at a time)
-      const BATCH_SIZE = 50; // Phase 4: 50 files
-      const MAX_CONCURRENT = 25; // Phase 4: 25 concurrent
+      const BATCH_SIZE = BATCH_SIZE_PHASE_4; // Phase 4: 50 files
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_4; // Phase 4: 25 concurrent
 
       // Read and parse all emiten CSV files in batches
       const allBrokerData: BrokerSummary[] = [];

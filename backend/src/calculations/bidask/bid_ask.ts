@@ -1,5 +1,5 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
-import { BATCH_SIZE_PHASE_7_8, MAX_CONCURRENT_REQUESTS_PHASE_7_8 } from '../../services/dataUpdateService';
+import { BATCH_SIZE_PHASE_7, MAX_CONCURRENT_REQUESTS_PHASE_7 } from '../../services/dataUpdateService';
 
 // Helper function to limit concurrency for Phase 7-8
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -453,8 +453,8 @@ export class BidAskCalculator {
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
       // Process files in batches (Phase 7: 50 files at a time)
-      const BATCH_SIZE = BATCH_SIZE_PHASE_7_8; // Phase 7: 50 files
-      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_7_8; // Phase 7: 25 concurrent
+      const BATCH_SIZE = BATCH_SIZE_PHASE_7; // Phase 7: 50 files
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_7; // Phase 7: 25 concurrent
       const allResults: { success: boolean; dateSuffix: string; files: string[] }[] = [];
       let processed = 0;
       let successful = 0;

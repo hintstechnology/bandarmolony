@@ -10,7 +10,7 @@ import {
 } from '../calculations/rrc/rrc_sector';
 import { exists } from '../utils/azureBlob';
 import { SchedulerLogService, SchedulerLog } from './schedulerLogService';
-import { BATCH_SIZE_PHASE_2 } from './dataUpdateService';
+import { BATCH_SIZE_PHASE_2, MAX_CONCURRENT_REQUESTS_PHASE_2 } from './dataUpdateService';
 
 // Helper function to limit concurrency for Phase 2
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -221,7 +221,7 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
           return { status: 'failed', sector, error };
         }
       });
-      const batchResults = await limitConcurrency(batchPromises, 250);
+      const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT_REQUESTS_PHASE_2);
       
       // Log batch results
       const succeeded = batchResults.filter(r => r && r.status === 'success').length;
@@ -396,7 +396,7 @@ export async function preGenerateAllRRC(forceOverride: boolean = false, triggerT
               generationProgress.completed++;
             }
           });
-          await limitConcurrency(stockPromises, 250);
+          await limitConcurrency(stockPromises, MAX_CONCURRENT_REQUESTS_PHASE_2);
           
           // Update progress in database after each stock batch
           if (currentLogId) {
