@@ -27,13 +27,15 @@ export function Navbar(props?: NavbarProps): JSX.Element {
     setIsMenuOpen(false);
   };
 
-  const handleSignIn = () => {
+  const handleSignIn = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault(); // Prevent default Link navigation
     if (typeof onSignIn === "function") {
       onSignIn();
     }
   };
 
-  const handleRegister = () => {
+  const handleRegister = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault(); // Prevent default Link navigation
     if (typeof onRegister === "function") {
       onRegister();
     }
@@ -79,20 +81,20 @@ export function Navbar(props?: NavbarProps): JSX.Element {
             ))}
           </div>
           <div className="flex items-center gap-3">
-            <Link
-              to="/auth?mode=login"
+            <a
+              href="#"
               onClick={handleSignIn}
-              className="rounded-full border border-foreground/40 px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-foreground/10 dark:border-white/60 dark:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              className="rounded-full border border-foreground/40 px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-foreground/10 dark:border-white/60 dark:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary cursor-pointer"
             >
               Sign In
-            </Link>
-            <Link
-              to="/auth?mode=register"
+            </a>
+            <a
+              href="#"
               onClick={handleRegister}
-              className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-transform hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary cursor-pointer"
             >
               Register
-            </Link>
+            </a>
           </div>
         </div>
 
@@ -130,26 +132,26 @@ export function Navbar(props?: NavbarProps): JSX.Element {
             </Link>
           ))}
           <div className="flex flex-col gap-3 pt-2">
-            <Link
-              to="/auth?mode=login"
-              onClick={() => {
-                handleSignIn();
+            <a
+              href="#"
+              onClick={(e) => {
+                handleSignIn(e);
                 closeMenu();
               }}
-              className="rounded-full border border-foreground/40 px-4 py-3 text-center text-sm font-semibold text-foreground transition-colors hover:bg-foreground/10 dark:border-white/60 dark:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              className="rounded-full border border-foreground/40 px-4 py-3 text-center text-sm font-semibold text-foreground transition-colors hover:bg-foreground/10 dark:border-white/60 dark:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary cursor-pointer"
             >
               Sign In
-            </Link>
-            <Link
-              to="/auth?mode=register"
-              onClick={() => {
-                handleRegister();
+            </a>
+            <a
+              href="#"
+              onClick={(e) => {
+                handleRegister(e);
                 closeMenu();
               }}
-              className="rounded-full bg-primary px-4 py-3 text-center text-sm font-semibold text-primary-foreground transition-transform hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              className="rounded-full bg-primary px-4 py-3 text-center text-sm font-semibold text-primary-foreground transition-transform hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary cursor-pointer"
             >
               Register
-            </Link>
+            </a>
           </div>
         </div>
       </div>

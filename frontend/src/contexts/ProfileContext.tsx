@@ -3,6 +3,7 @@ import { ProfileData, api } from '../services/api';
 import { getAvatarUrl } from '../utils/avatar';
 import { useAuth } from './AuthContext';
 import { clearAuthState } from '../utils/auth';
+import { toast } from 'sonner';
 
 interface ProfileContextType {
   profile: ProfileData | null;
@@ -36,6 +37,7 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [hasConnectionError, setHasConnectionError] = useState(false);
   const hasInitialized = useRef(false);
+  const isRedirecting = useRef(false); // Prevent multiple redirects
 
   const refreshProfile = async (force = false) => {
     // Skip profile refresh if we're in password reset flow
@@ -90,21 +92,121 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
 
       if (isAuthError) {
         // ✅ SIMPLE, CLEAN LOGOUT FOR ALL AUTH ERRORS (SESSION NOT FOUND, EXPIRED, ETC)
+        
+        // Prevent multiple redirects
+        if (isRedirecting.current) {
+          console.log('ProfileContext: Already redirecting, skipping duplicate redirect');
+          return;
+        }
+        
+        // Check if already at /auth to prevent redirect
+        const currentPath = window.location.pathname;
+        if (currentPath.includes('/auth')) {
+          console.log('ProfileContext: Already at auth page, skipping redirect');
+          return;
+        }
+        
         try {
           console.log('ProfileContext: Auth error detected, clearing all auth storage and forcing logout');
+          
+          // Set redirecting flag immediately
+          isRedirecting.current = true;
+          
+          // Show toast message immediately (before any async operations)
+          // Use setTimeout to ensure Toaster component is ready
+          setTimeout(() => {
+            toast.warning('Sesi Anda telah habis', {
+              description: 'Silakan login kembali untuk melanjutkan.',
+              duration: 5000,
+              className: 'bg-yellow-500 text-white border-yellow-600',
+              style: {
+                background: '#eab308',
+                color: '#ffffff',
+                borderColor: '#ca8a04',
+              },
+            });
+          }, 100);
+          
+          // Set flag for AuthPage to show toast (backup, ONLY if toast doesn't show)
+          // But clear it immediately to prevent duplicate
+          localStorage.setItem('kickedByOtherDevice', 'true');
+          // Clear flag after a short delay to prevent duplicate toast in AuthPage
+          setTimeout(() => {
+            localStorage.removeItem('kickedByOtherDevice');
+          }, 500);
+          
+          // Clear state first
           clearAuthState();
+          setProfile(null);
+          hasInitialized.current = false;
+          setIsLoggingOut(false);
+          setIsLoading(false);
+          setIsValidating(false);
+
+          // Hard redirect to auth page – NO retry, NO loop
+          // Use replace to prevent multiple redirects and back button issues
+          // Delay to ensure toast is visible (increased to 2000ms)
+          setTimeout(() => {
+            // Double-check we're not already redirecting or at /auth
+            if (!isRedirecting.current) {
+              console.log('ProfileContext: Redirect flag cleared, skipping redirect');
+              return;
+            }
+            const checkPath = window.location.pathname;
+            if (checkPath.includes('/auth')) {
+              console.log('ProfileContext: Already at auth page before redirect, skipping');
+              isRedirecting.current = false;
+              setIsLoggingOut(false);
+              return;
+            }
+            console.log('ProfileContext: Executing redirect to /auth');
+            // Reset flags before redirect to ensure clean state
+            isRedirecting.current = false;
+            setIsLoggingOut(false);
+            window.location.replace('/auth?mode=login');
+          }, 2000);
         } catch (cleanupError) {
           console.error('ProfileContext: Error during storage cleanup:', cleanupError);
+          
+          // Only proceed if not already redirecting
+          if (!isRedirecting.current) {
+            // Set redirecting flag
+            isRedirecting.current = true;
+            
+            // Show toast even on error
+            setTimeout(() => {
+              toast.warning('Sesi Anda telah habis', {
+                description: 'Silakan login kembali untuk melanjutkan.',
+                duration: 5000,
+                className: 'bg-yellow-500 text-white border-yellow-600',
+                style: {
+                  background: '#eab308',
+                  color: '#ffffff',
+                  borderColor: '#ca8a04',
+                },
+              });
+            }, 100);
+            
+            // Set flag for AuthPage (backup), but clear it to prevent duplicate
+            localStorage.setItem('kickedByOtherDevice', 'true');
+            setTimeout(() => {
+              localStorage.removeItem('kickedByOtherDevice');
+            }, 500);
+            
+            // Fallback: redirect even if cleanup fails (use replace to prevent multiple redirects)
+            setTimeout(() => {
+              if (!isRedirecting.current) {
+                return;
+              }
+              const checkPath = window.location.pathname;
+              if (checkPath.includes('/auth')) {
+                isRedirecting.current = false;
+                return;
+              }
+              window.location.replace('/auth?mode=login');
+            }, 2000);
+          }
         }
-
-        setProfile(null);
-        hasInitialized.current = false;
-        setIsLoggingOut(false);
-        setIsLoading(false);
-        setIsValidating(false);
-
-        // Hard redirect to auth page – NO retry, NO loop
-        window.location.href = '/auth?mode=login';
         return;
       }
 
@@ -168,7 +270,23 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
       
       // Only handle if user is authenticated AND has profile
       if (isAuthenticated && user && profile) {
+        // Prevent multiple redirects
+        if (isRedirecting.current) {
+          console.log('ProfileContext: global-401 already redirecting, skipping');
+          return;
+        }
+        
+        // Check if already at /auth
+        const currentPath = window.location.pathname;
+        if (currentPath.includes('/auth')) {
+          console.log('ProfileContext: global-401 already at auth page, skipping redirect');
+          return;
+        }
+        
         console.log('ProfileContext: global-401 handler executing (user had active profile)');
+        
+        // Set redirecting flag immediately
+        isRedirecting.current = true;
         
         setProfile(null);
         hasInitialized.current = false;
@@ -177,58 +295,103 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
         // Clear storage using helper (following LOGIN_LOGOUT_TROUBLESHOOTING.md line 552-565)
         console.log('ProfileContext: Clearing all auth storage using helper (global handler)');
         try {
-          clearAuthState();
+          // Show toast message immediately (before any async operations)
+          // Use setTimeout to ensure Toaster component is ready
+          setTimeout(() => {
+            toast.warning('Sesi Anda telah habis', {
+              description: 'Silakan login kembali untuk melanjutkan.',
+              duration: 5000,
+              className: 'bg-yellow-500 text-white border-yellow-600',
+              style: {
+                background: '#eab308',
+                color: '#ffffff',
+                borderColor: '#ca8a04',
+              },
+            });
+          }, 100);
           
           const isEmailVerificationFlow = localStorage.getItem('emailVerificationSuccess') === 'true';
           if (isEmailVerificationFlow) {
             console.log('ProfileContext: Email verification flow - skipping logout, will retry');
             // Don't proceed with reload for email verification
             setIsLoggingOut(false);
+            isRedirecting.current = false; // Reset flag
             return; // Let retry logic handle it
           }
           
-          // Set flag for AuthPage to show "Sesi Berakhir" toast
-          // This covers: kicked, expired, server restart (we can't distinguish)
-          // Generic message prevents false accusations
+          // Set flag for AuthPage (backup), but clear it to prevent duplicate
           localStorage.setItem('kickedByOtherDevice', 'true');
+          setTimeout(() => {
+            localStorage.removeItem('kickedByOtherDevice');
+          }, 500);
           console.log('ProfileContext: Session invalid (global handler), setting expiry flag');
+          
+          // Clear state and redirect (no requestAnimationFrame to prevent multiple redirects)
+          clearAuthState();
+          
+          // PAKSA LOGOUT dengan Supabase signOut
+          console.log('ProfileContext: Global-401, forcing logout');
+          
+          // CRITICAL: DON'T set isLoading/isLoggingOut to false before redirect!
+          // Setting them to false triggers App.tsx useEffect → infinite loop!
+          setProfile(null);
+          hasInitialized.current = false;
+          // KEEP isLoggingOut = true to prevent App.tsx redirect loop!
+          
+          // Force Supabase logout untuk clear session dari memory
+          import('../lib/supabase').then(({ supabase }) => {
+            supabase.auth.signOut().then(() => {
+              // Reset flags after signOut completes
+              setIsLoggingOut(false);
+              
+              // Force reload ke auth page (HARD RELOAD) - SINGLE redirect, no multiple
+              // Use replace to prevent back button issues and multiple redirects
+              // Delay to ensure toast is visible (increased to 2000ms)
+              setTimeout(() => {
+                // Double-check we're not already redirecting or at /auth
+                if (!isRedirecting.current) {
+                  console.log('ProfileContext: global-401 redirect flag cleared, skipping redirect');
+                  return;
+                }
+                const checkPath = window.location.pathname;
+                if (checkPath.includes('/auth')) {
+                  console.log('ProfileContext: global-401 already at auth page before redirect, skipping');
+                  isRedirecting.current = false;
+                  setIsLoggingOut(false);
+                  return;
+                }
+                console.log('ProfileContext: global-401 executing redirect to /auth');
+                // Reset flags before redirect to ensure clean state
+                isRedirecting.current = false;
+                setIsLoggingOut(false);
+                window.location.replace('/auth?mode=login');
+              }, 2000);
+            }).catch((error) => {
+              console.error('ProfileContext: Supabase signOut error:', error);
+              // Reset flags even on error
+              isRedirecting.current = false;
+              setIsLoggingOut(false);
+              // Still redirect to auth page
+              setTimeout(() => {
+                window.location.replace('/auth?mode=login');
+              }, 2000);
+            });
+          });
           
         } catch (cleanupError) {
           console.error('ProfileContext: Error during storage cleanup:', cleanupError);
+          // Fallback: redirect even if cleanup fails (only if not already redirecting)
+          if (isRedirecting.current) {
+            setTimeout(() => {
+              const checkPath = window.location.pathname;
+              if (!checkPath.includes('/auth')) {
+                window.location.replace('/auth?mode=login');
+              } else {
+                isRedirecting.current = false;
+              }
+            }, 2000);
+          }
         }
-        
-        // CRITICAL: Check if already at /auth to prevent loop
-        const currentPath = window.location.pathname;
-        if (currentPath.includes('/auth')) {
-          console.log('ProfileContext: Global-401, already at auth page, forcing signOut');
-          setProfile(null);
-          hasInitialized.current = false;
-          setIsLoggingOut(false);
-          setIsLoading(false);
-          
-          // CRITICAL: MUST signOut from Supabase to clear isAuthenticated!
-          // Without this, AuthContext still has user = true → triggers useEffect loop!
-          const { supabase } = await import('../lib/supabase');
-          await supabase.auth.signOut();
-          console.log('ProfileContext: Supabase signOut completed at auth page');
-          return;
-        }
-        
-        // PAKSA LOGOUT dengan Supabase signOut
-        console.log('ProfileContext: Global-401, forcing logout');
-        
-        // CRITICAL: DON'T set isLoading/isLoggingOut to false before redirect!
-        // Setting them to false triggers App.tsx useEffect → infinite loop!
-        setProfile(null);
-        hasInitialized.current = false;
-        // KEEP isLoggingOut = true to prevent App.tsx redirect loop!
-        
-        // Force Supabase logout untuk clear session dari memory
-        const { supabase } = await import('../lib/supabase');
-        await supabase.auth.signOut();
-        
-        // Force reload ke auth page (HARD RELOAD)
-        window.location.href = '/auth?mode=login';
       }
     };
     
@@ -236,6 +399,8 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
     
     return () => {
       window.removeEventListener('global-401', handle401);
+      // Reset redirect flag on unmount
+      isRedirecting.current = false;
     };
   }, [isAuthenticated, user, profile, isLoggingOut]);
 
@@ -243,7 +408,22 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
 
+    // CRITICAL: Reset all flags when not authenticated (after logout)
+    if (!isAuthenticated || !user) {
+      // Clear profile immediately when not authenticated
+      hasInitialized.current = false;
+      isRedirecting.current = false; // Reset redirect flag
+      setIsLoggingOut(false); // Reset logging out flag
+      clearProfile();
+      return;
+    }
+
     if (isAuthenticated && user) {
+      // CRITICAL: Reset flags when authenticated (after successful login)
+      // This ensures clean state for login after logout
+      isRedirecting.current = false;
+      setIsLoggingOut(false);
+      
       // Skip profile refresh if we're in password reset flow
       const passwordResetSession = localStorage.getItem('passwordResetSession');
       if (passwordResetSession === 'true') {
@@ -264,11 +444,6 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
           }
         }, 10000); // 10 second timeout
       }
-    } else {
-      // Clear profile immediately when not authenticated
-      hasInitialized.current = false;
-      // Don't reset isLoggingOut here - let AuthContext handle it on SIGNED_OUT
-      clearProfile();
     }
 
     return () => {

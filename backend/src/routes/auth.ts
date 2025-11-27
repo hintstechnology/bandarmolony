@@ -694,26 +694,8 @@ router.post('/forgot-password', async (req, res) => {
     const { email } = forgotPasswordSchema.parse(req.body);
     const normalizedEmail = email.toLowerCase().trim();
 
-    // Note: We'll let Supabase Auth handle user existence check
-    // This provides better error messages and handles edge cases
-
-    // First check if user exists by querying the users table
-    const { data: userData, error: _userError } = await supabaseAdmin
-      .from('users')
-      .select('id, email')
-      .eq('email', normalizedEmail)
-      .single();
-    
-    if (_userError || !userData) {
-      console.log(`User not found for email: ${normalizedEmail}`);
-      return res.status(404).json(createErrorResponse(
-        'No account found with this email address',
-        'USER_NOT_FOUND',
-        'email',
-        404
-      ));
-    }
-
+    // Optimize: Skip database query - Supabase resetPasswordForEmail already checks user existence
+    // This reduces latency by removing one database round-trip
     const { error } = await supabaseAdmin.auth.resetPasswordForEmail(normalizedEmail, {
       redirectTo: `${process.env['FRONTEND_URL'] || 'http://localhost:3000'}/auth/callback`
     });
@@ -722,21 +704,27 @@ router.post('/forgot-password', async (req, res) => {
       console.error('Password reset email error:', error);
       
       // Handle specific errors
-      let errorMessage = 'Failed to send password reset email';
+      let errorMessage = 'Gagal mengirim link reset password';
       let statusCode = 400;
 
       switch (error.message) {
         case 'For security purposes, you can only request this once every 60 seconds':
-          errorMessage = 'Please wait 60 seconds before requesting another password reset';
+          errorMessage = 'Harap tunggu 60 detik sebelum meminta reset password lagi';
           statusCode = 429;
           break;
         case 'Email rate limit exceeded':
-          errorMessage = 'Too many password reset requests. Please try again later';
+          errorMessage = 'Terlalu banyak permintaan reset password. Silakan coba lagi nanti';
           statusCode = 429;
           break;
         case 'Invalid email':
-          errorMessage = 'Please enter a valid email address';
+          errorMessage = 'Silakan masukkan alamat email yang valid';
           statusCode = 400;
+          break;
+        case 'User not found':
+        case 'Invalid login credentials':
+          // User not found - return 404 with Indonesian message
+          errorMessage = `Akun dengan email ${normalizedEmail} tidak ditemukan`;
+          statusCode = 404;
           break;
         default:
           errorMessage = error.message;
@@ -744,7 +732,7 @@ router.post('/forgot-password', async (req, res) => {
 
       return res.status(statusCode).json(createErrorResponse(
         errorMessage,
-        'RESET_EMAIL_FAILED',
+        statusCode === 404 ? 'USER_NOT_FOUND' : 'RESET_EMAIL_FAILED',
         'email',
         statusCode
       ));
@@ -752,7 +740,7 @@ router.post('/forgot-password', async (req, res) => {
 
     return res.json(createSuccessResponse(
       null,
-      'Password reset link has been sent to your email'
+      'Email berhasil dikirim, silahkan cek akun Anda'
     ));
   } catch (err: any) {
     if (err.name === 'ZodError') {
@@ -1291,23 +1279,8 @@ router.post('/resend-forgot-password', async (req, res) => {
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    // First check if user exists by querying the users table
-    const { data: userData, error: _userError } = await supabaseAdmin
-      .from('users')
-      .select('id, email')
-      .eq('email', normalizedEmail)
-      .single();
-    
-    if (_userError || !userData) {
-      console.log(`User not found for email: ${normalizedEmail}`);
-      return res.status(404).json(createErrorResponse(
-        'No account found with this email address',
-        'USER_NOT_FOUND',
-        'email',
-        404
-      ));
-    }
-
+    // Optimize: Skip database query - Supabase resetPasswordForEmail already checks user existence
+    // This reduces latency by removing one database round-trip
     const { error } = await supabaseAdmin.auth.resetPasswordForEmail(normalizedEmail, {
       redirectTo: `${process.env['FRONTEND_URL'] || 'http://localhost:3000'}/auth/callback`
     });
@@ -1315,25 +1288,25 @@ router.post('/resend-forgot-password', async (req, res) => {
     if (error) {
       console.error('Resend forgot password error:', error);
       
-      let errorMessage = 'Failed to resend password reset email';
+      let errorMessage = 'Gagal mengirim ulang link reset password';
       let statusCode = 400;
 
       switch (error.message) {
         case 'For security purposes, you can only request this once every 60 seconds':
-          errorMessage = 'Please wait 60 seconds before requesting another password reset email';
+          errorMessage = 'Harap tunggu 60 detik sebelum meminta reset password lagi';
           statusCode = 429;
           break;
         case 'Email rate limit exceeded':
-          errorMessage = 'Too many password reset requests. Please try again later';
+          errorMessage = 'Terlalu banyak permintaan reset password. Silakan coba lagi nanti';
           statusCode = 429;
           break;
         case 'Invalid email':
-          errorMessage = 'Please enter a valid email address';
+          errorMessage = 'Silakan masukkan alamat email yang valid';
           statusCode = 400;
           break;
         case 'User not found':
         case 'Invalid login credentials':
-          errorMessage = 'No account found with this email address';
+          errorMessage = `Akun dengan email ${normalizedEmail} tidak ditemukan`;
           statusCode = 404;
           break;
         default:
@@ -1342,7 +1315,7 @@ router.post('/resend-forgot-password', async (req, res) => {
 
       return res.status(statusCode).json(createErrorResponse(
         errorMessage,
-        'RESEND_FORGOT_PASSWORD_FAILED',
+        statusCode === 404 ? 'USER_NOT_FOUND' : 'RESEND_FORGOT_PASSWORD_FAILED',
         'email',
         statusCode
       ));
@@ -1350,7 +1323,7 @@ router.post('/resend-forgot-password', async (req, res) => {
 
     return res.json(createSuccessResponse(
       { email: normalizedEmail },
-      'Password reset email sent successfully! Check your inbox.'
+      'Email berhasil dikirim, silahkan cek akun Anda'
     ));
 
   } catch (error: any) {

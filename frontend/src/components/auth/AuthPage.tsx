@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { LoginForm } from './LoginForm';
 import { SignUpForm } from './SignUpForm';
@@ -28,11 +28,25 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
   const [searchParams] = useSearchParams();
   
   const { isAuthenticated, isLoading: authLoading } = useAuth();
-  const { isLoading: profileLoading } = useProfile();
+  const { isLoading: profileLoading, isLoggingOut: profileLoggingOut } = useProfile();
   const { showToast } = useToast();
   
   // Combined loading state - wait for both auth and profile
   const isLoading = authLoading || profileLoading;
+  
+  // Ref to prevent duplicate toast for password reset success
+  const passwordResetToastShown = useRef(false);
+  
+  // CRITICAL: Reset all flags when on auth page (after logout)
+  // This ensures clean state for next login attempt
+  useEffect(() => {
+    if (!isAuthenticated && !isLoading) {
+      // Reset any lingering flags from previous session
+      // This prevents infinite loading on next login
+      console.log('AuthPage: Not authenticated, ensuring clean state for login');
+      // The ProfileContext useEffect will handle resetting flags when isAuthenticated = false
+    }
+  }, [isAuthenticated, isLoading]);
 
   useEffect(() => {
     const mode = searchParams.get('mode');
@@ -42,14 +56,28 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
       setIsLogin(true);
       
       // Check if user just reset password
-      if (passwordReset === 'success') {
-        showToast({
-          type: 'success',
-          title: 'Password Berhasil Dirubah',
-          message: 'Silakan login dengan password baru Anda.',
+      if (passwordReset === 'success' && !passwordResetToastShown.current) {
+        // Prevent duplicate toast
+        passwordResetToastShown.current = true;
+        
+        // Use sonner toast with green color styling
+        toast.success('Password Anda berhasil diubah! Silakan login dengan password baru.', {
+          duration: 5000,
+          className: 'bg-green-500 text-white border-green-600',
+          style: {
+            background: '#22c55e',
+            color: '#ffffff',
+            borderColor: '#16a34a',
+          },
         });
+        
         // Remove the parameter from URL
         navigate('/auth?mode=login', { replace: true });
+        
+        // Reset flag after a delay to allow for future resets
+        setTimeout(() => {
+          passwordResetToastShown.current = false;
+        }, 1000);
       }
     } else if (mode === 'register') {
       setIsLogin(false);
@@ -91,19 +119,38 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
     }
 
     // Check if user session expired (generic message, no false "kicked" accusation)
+    // NOTE: Toast should already be shown by ProfileContext, this is just a backup
+    // Only show if flag exists AND toast hasn't been shown yet (check after delay)
     const checkKickedFlag = () => {
       const kickedFlag = localStorage.getItem('kickedByOtherDevice');
       if (kickedFlag === 'true') {
-        showToast({
-          type: 'info',
-          title: 'Sesi Berakhir',
-          message: 'Silakan login kembali untuk melanjutkan.',
-        });
-        localStorage.removeItem('kickedByOtherDevice');
+        // Only show toast if ProfileContext didn't show it (backup only)
+        // Use longer delay to ensure ProfileContext toast is shown first
+        setTimeout(() => {
+          // Double-check flag still exists (not cleared by ProfileContext)
+          const stillExists = localStorage.getItem('kickedByOtherDevice');
+          if (stillExists === 'true') {
+            toast.warning('Sesi Anda telah habis', {
+              description: 'Silakan login kembali untuk melanjutkan.',
+              duration: 5000,
+              className: 'bg-yellow-500 text-white border-yellow-600',
+              style: {
+                background: '#eab308',
+                color: '#ffffff',
+                borderColor: '#ca8a04',
+              },
+            });
+            localStorage.removeItem('kickedByOtherDevice');
+          }
+        }, 1000); // Longer delay to let ProfileContext show toast first
       }
     };
     
-    checkKickedFlag();
+    // Check immediately on mount (for page refresh scenario)
+    // Use setTimeout to ensure component is fully mounted
+    setTimeout(() => {
+      checkKickedFlag();
+    }, 200);
     
     const handleFocus = () => { checkKickedFlag(); };
     window.addEventListener('focus', handleFocus);
@@ -128,9 +175,23 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
     };
   }, [showToast]);
 
-  // Redirect if already authenticated
+  // Redirect if already authenticated (only when not loading)
   useEffect(() => {
-    if (!isLoading && isAuthenticated) {
+    // Don't redirect while still loading - wait for auth check to complete
+    if (isLoading) {
+      return;
+    }
+    
+    // CRITICAL: Reset all flags when on auth page (after logout)
+    // This ensures clean state for next login attempt
+    if (!isAuthenticated) {
+      // Reset any lingering flags from previous session
+      // This prevents infinite loading on next login
+      console.log('AuthPage: Not authenticated, ensuring clean state');
+      // Flags will be reset by ProfileContext useEffect when isAuthenticated = false
+    }
+    
+    if (isAuthenticated) {
       console.log('AuthPage: Already authenticated, redirecting...');
       // Redirect to saved location (kecuali dashboard/home) atau ke profile
       const returnTo = sessionStorage.getItem('returnTo');
@@ -196,15 +257,11 @@ export function AuthPage({ initialMode = 'login' }: AuthPageProps) {
   const handleForgotPassword = async (email: string) => {
     try {
       const response = await api.forgotPassword(email);
-      if (response.success) {
-        toast.success(response.message || 'Jika email terdaftar, kami telah mengirim link reset.');
-        return response; // Return response so ForgotPasswordForm can handle it
-      } else {
-        toast.error(response.error || 'Gagal mengirim link reset password');
-        return response;
-      }
+      // Don't show toast here - ForgotPasswordForm will handle it
+      // This prevents duplicate toast messages
+      return response;
     } catch (error: any) {
-      toast.error(error.message || 'Gagal mengirim link reset password');
+      // Don't show toast here - ForgotPasswordForm will handle it
       return { success: false, error: error.message };
     }
   };
