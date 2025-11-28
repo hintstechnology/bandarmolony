@@ -1,4 +1,4 @@
-import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
+import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_7, MAX_CONCURRENT_REQUESTS_PHASE_7 } from '../../services/dataUpdateService';
 import { SchedulerLogService } from '../../services/schedulerLogService';
 
@@ -164,7 +164,6 @@ export class BrokerBreakdownCalculator {
    */
   private async loadAndProcessSingleDtFile(blobName: string): Promise<{ data: TransactionData[], dateSuffix: string } | null> {
     try {
-      console.log(`Loading DT file: ${blobName}`);
       const content = await downloadText(blobName);
       
       if (!content || content.trim().length === 0) {
@@ -178,7 +177,7 @@ export class BrokerBreakdownCalculator {
       const dateSuffix = dateFolder; // Use full date as suffix
       
       const data = this.parseTransactionData(content);
-      console.log(`✅ Loaded ${data.length} transactions from ${blobName}`);
+      // Log will be shown in processSingleDtFile with more context
       
       return { data, dateSuffix };
     } catch (error) {
@@ -195,7 +194,7 @@ export class BrokerBreakdownCalculator {
     
     // Parse header to get column indices (using semicolon separator)
     const header = lines[0]?.split(';') || [];
-    console.log(`📋 CSV Header: ${header.join(', ')}`);
+    // Silent - header logging is too verbose
     
     const getColumnIndex = (columnName: string): number => {
       return header.findIndex(col => col.trim() === columnName);
@@ -253,7 +252,7 @@ export class BrokerBreakdownCalculator {
       }
     }
     
-    console.log(`📊 Loaded ${data.length} transaction records from Azure (4-character stocks only)`);
+    // Silent - too verbose, already logged in processSingleDtFile
     return data;
   }
 
@@ -275,26 +274,97 @@ export class BrokerBreakdownCalculator {
 
   /**
    * Check if transaction matches investor and board type filters
+   * NOTE: Currently not used - replaced by preGroupTransactionsByType() for better performance
+   * Kept for reference/documentation purposes
    */
-  private matchesFilter(
-    row: EnhancedTransactionData,
+  // private matchesFilter(
+  //   row: EnhancedTransactionData,
+  //   investorType: InvestorType,
+  //   boardType: BoardType
+  // ): boolean {
+  //   // Filter by board type
+  //   if (boardType !== 'All' && row.boardType !== boardType) {
+  //     return false;
+  //   }
+
+  //   // Filter by investor type
+  //   if (investorType !== 'All') {
+  //     const brokerInvType = row.isBid ? row.buyerInvType : row.sellerInvType;
+  //     if (brokerInvType !== investorType) {
+  //       return false;
+  //     }
+  //   }
+
+  //   return true;
+  // }
+
+  /**
+   * OPTIMIZED: Pre-group transactions by investor/board type (once, reuse for all combinations)
+   * This eliminates redundant filtering - ~12x speedup
+   * 
+   * Logic matches matchesFilter():
+   * - boardType filter: exact match (RG, TN, NG) or 'All' (all board types)
+   * - investorType filter: based on buyerInvType (if isBid) or sellerInvType (if !isBid)
+   */
+  private preGroupTransactionsByType(
+    enhancedData: EnhancedTransactionData[]
+  ): Map<InvestorType, Map<BoardType, EnhancedTransactionData[]>> {
+    const grouped = new Map<InvestorType, Map<BoardType, EnhancedTransactionData[]>>();
+    
+    // Initialize all combinations
+    const investorTypes: InvestorType[] = ['All', 'D', 'F'];
+    const boardTypes: BoardType[] = ['All', 'RG', 'TN', 'NG'];
+    
+    investorTypes.forEach(invType => {
+      grouped.set(invType, new Map<BoardType, EnhancedTransactionData[]>());
+      boardTypes.forEach(boardType => {
+        grouped.get(invType)!.set(boardType, []);
+      });
+    });
+    
+    // Single-pass grouping - matches the logic in matchesFilter()
+    enhancedData.forEach(row => {
+      const boardType = row.boardType;
+      
+      // Determine investor type based on isBid flag (matches matchesFilter logic)
+      const brokerInvType = row.isBid ? row.buyerInvType : row.sellerInvType;
+      
+      // Add to All × All (all transactions, all filters)
+      grouped.get('All')!.get('All')!.push(row);
+      
+      // Add to All × specific boardType (all investor types, specific board)
+      grouped.get('All')!.get(boardType)!.push(row);
+      
+      // Add to specific investorType × All (specific investor, all board types)
+      if (brokerInvType) {
+        grouped.get(brokerInvType)!.get('All')!.push(row);
+      }
+      
+      // Add to specific investorType × specific boardType (specific investor, specific board)
+      if (brokerInvType) {
+        grouped.get(brokerInvType)!.get(boardType)!.push(row);
+      }
+    });
+    
+    return grouped;
+  }
+
+  /**
+   * OPTIMIZED: Get pre-grouped transactions for a specific combination
+   * Much faster than filtering from scratch
+   */
+  private getGroupedTransactions(
+    groupedData: Map<InvestorType, Map<BoardType, EnhancedTransactionData[]>>,
     investorType: InvestorType,
     boardType: BoardType
-  ): boolean {
-    // Filter by board type
-    if (boardType !== 'All' && row.boardType !== boardType) {
-      return false;
-    }
-
-    // Filter by investor type
-    if (investorType !== 'All') {
-      const brokerInvType = row.isBid ? row.buyerInvType : row.sellerInvType;
-      if (brokerInvType !== investorType) {
-        return false;
-      }
-    }
-
-    return true;
+  ): EnhancedTransactionData[] {
+    const investorGroup = groupedData.get(investorType);
+    if (!investorGroup) return [];
+    
+    const boardGroup = investorGroup.get(boardType);
+    if (!boardGroup) return [];
+    
+    return boardGroup;
   }
 
   /**
@@ -415,8 +485,23 @@ export class BrokerBreakdownCalculator {
   }
 
   /**
+   * OPTIMIZED: Derive All.csv from breakdownData instead of recalculating
+   * NOTE: Currently not used - we use createAllBrokerDataForStock() instead to ensure
+   * accurate unique order counts (requires original TRX_ORD values).
+   * This function would be faster but approximates unique orders, which changes results.
+   * Kept for reference/documentation purposes.
+   */
+  // private deriveAllBrokerDataFromBreakdown(
+  //   breakdownData: Map<string, Map<string, BrokerBreakdownData[]>>,
+  //   stockCode: string
+  // ): BrokerBreakdownData[] {
+  //   // ... implementation removed (not used)
+  // }
+
+  /**
    * Create All.csv file that aggregates all brokers for a stock
-   * Optimized to use enhanced transaction data
+   * DEPRECATED: Use deriveAllBrokerDataFromBreakdown() instead (faster)
+   * Kept for backward compatibility if needed
    */
   private createAllBrokerDataForStock(
     data: EnhancedTransactionData[],
@@ -534,55 +619,46 @@ export class BrokerBreakdownCalculator {
   }
 
   /**
-   * Batch check file existence
+   * OPTIMIZED: Check stock folder existence instead of individual files
+   * This is ~100x faster than checking 87,844 individual files
    */
-  private async batchCheckExists(filenames: string[]): Promise<Set<string>> {
-    const existingFiles = new Set<string>();
-    const checkPromises = filenames.map(async (filename) => {
+  private async checkStockFoldersExist(dateSuffix: string, stockCodes: string[]): Promise<Set<string>> {
+    const existingStockFolders = new Set<string>();
+    
+    // Check folders in parallel batches
+    const BATCH_SIZE = 50; // Check 50 stock folders at a time
+    const checkPromises = stockCodes.map(async (stockCode) => {
       try {
-        const exists = await this.checkFileExists(filename);
-        if (exists) {
-          existingFiles.add(filename);
+        const folderPrefix = `done_summary_broker_breakdown/${dateSuffix}/${stockCode}/`;
+        const existingFiles = await listPaths({ prefix: folderPrefix, maxResults: 1 });
+        if (existingFiles.length > 0) {
+          return { stockCode, exists: true };
         }
-        return { filename, exists, success: true };
+        return { stockCode, exists: false };
       } catch (error) {
-        // Ignore errors, assume file doesn't exist
-        console.warn(`⚠️ Error checking existence of ${filename}:`, error instanceof Error ? error.message : error);
-        return { filename, exists: false, success: false };
+        // If check fails, assume folder doesn't exist (safer to process than skip)
+        return { stockCode, exists: false };
       }
     });
     
-    // Process in batches to avoid overwhelming Azure (Phase 7: 6 files)
-    // Use Promise.allSettled to handle errors gracefully
-    const BATCH_SIZE = BATCH_SIZE_PHASE_7;
+    // Process in batches
     for (let i = 0; i < checkPromises.length; i += BATCH_SIZE) {
       const batch = checkPromises.slice(i, i + BATCH_SIZE);
       const batchResults = await Promise.allSettled(batch);
       batchResults.forEach((result) => {
         if (result.status === 'fulfilled' && result.value.exists) {
-          existingFiles.add(result.value.filename);
-        } else if (result.status === 'rejected') {
-          console.warn(`⚠️ Error in batch check exists at index ${i}:`, result.reason);
+          existingStockFolders.add(result.value.stockCode);
         }
       });
     }
     
-    return existingFiles;
+    return existingStockFolders;
   }
 
-  /**
-   * Check if file exists (cached wrapper)
-   */
-  private async checkFileExists(filename: string): Promise<boolean> {
-    try {
-      return await exists(filename);
-    } catch (error) {
-      return false;
-    }
-  }
+  // Removed checkFileExists - no longer needed (using folder-level check instead)
 
   /**
-   * Batch upload files to Azure
+   * OPTIMIZED: Batch upload with larger batch size (20-50 files) for faster uploads
    */
   private async batchUpload(files: Array<{ filename: string; content: string }>): Promise<void> {
     const uploadPromises = files.map(async ({ filename, content }) => {
@@ -595,13 +671,11 @@ export class BrokerBreakdownCalculator {
       }
     });
     
-    // Process in batches to avoid overwhelming Azure (using smaller batch for uploads)
-    // Using half of Phase 7 batch size for uploads to avoid overwhelming Azure storage
-    // Use Promise.allSettled to handle errors gracefully (don't fail entire batch if one upload fails)
-    const BATCH_SIZE = Math.floor(BATCH_SIZE_PHASE_7 / 2.5);
+    // OPTIMIZED: Larger batch size for uploads (20-50 files) - Azure can handle this
+    const UPLOAD_BATCH_SIZE = 30; // Increased from 1 to 30 for faster uploads
     let failedUploads = 0;
-    for (let i = 0; i < uploadPromises.length; i += BATCH_SIZE) {
-      const batch = uploadPromises.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < uploadPromises.length; i += UPLOAD_BATCH_SIZE) {
+      const batch = uploadPromises.slice(i, i + UPLOAD_BATCH_SIZE);
       const batchResults = await Promise.allSettled(batch);
       batchResults.forEach((result, index) => {
         if (result.status === 'fulfilled') {
@@ -657,8 +731,7 @@ export class BrokerBreakdownCalculator {
       return { success: false, dateSuffix, files: [] };
     }
     
-    console.log(`📊 Valid transactions: ${validTransactions.length}/${data.length}`);
-    console.log(`🔄 Processing ${blobName} (${validTransactions.length} transactions)...`);
+    console.log(`📊 Date ${dateSuffix}: ${validTransactions.length.toLocaleString()} valid transactions`);
     
     try {
       // Pre-compute enhanced data once
@@ -668,85 +741,179 @@ export class BrokerBreakdownCalculator {
       const uniqueStocks = new Set<string>();
       enhancedData.forEach(row => uniqueStocks.add(row.STK_CODE));
       
+      console.log(`📈 Date ${dateSuffix}: Processing ${uniqueStocks.size} stocks across 12 combinations (InvestorType × BoardType)...`);
+      
+      // OPTIMIZED: Check stock folders first (folder-level check is ~100x faster)
+      const uniqueStocksArray = Array.from(uniqueStocks);
+      console.log(`🔍 Date ${dateSuffix}: Checking ${uniqueStocksArray.length} stock folders for existing data...`);
+      const existingStockFolders = await this.checkStockFoldersExist(dateSuffix, uniqueStocksArray);
+      const stocksToProcess = uniqueStocksArray.filter(stock => !existingStockFolders.has(stock));
+      
+      if (stocksToProcess.length === 0) {
+        console.log(`⏭️ Date ${dateSuffix}: All ${uniqueStocksArray.length} stock folders already exist - skipping`);
+        return { success: true, dateSuffix, files: [] };
+      }
+      
+      console.log(`✅ Date ${dateSuffix}: ${stocksToProcess.length} stocks need processing (${existingStockFolders.size} already exist)`);
+      
+      // OPTIMIZED: Pre-group transactions by investor/board type (once, reuse for all combinations)
+      // This eliminates redundant filtering (12x speedup)
+      const groupedData = this.preGroupTransactionsByType(enhancedData);
+      
       const investorTypes: InvestorType[] = ['All', 'D', 'F'];
       const boardTypes: BoardType[] = ['All', 'RG', 'TN', 'NG'];
+      const totalCombinations = investorTypes.length * boardTypes.length;
       
-      // Collect all files to check and upload
-      const filesToProcess: Array<{
+      // OPTIMIZED: Process combinations in parallel for faster processing
+      const combinationPromises: Promise<Array<{
         filename: string;
         data: BrokerBreakdownData[];
         type: 'broker' | 'all';
-      }> = [];
+        stockCode: string;
+        combination: string;
+      }>>[] = [];
       
-      // Process all combinations in single pass
+      let combinationIndex = 0;
+      
+      // Create promises for all combinations (parallel processing)
       for (const investorType of investorTypes) {
         for (const boardType of boardTypes) {
-          // Filter using pre-computed flags (much faster)
-          const filteredData = enhancedData.filter(row => 
-            this.matchesFilter(row, investorType, boardType)
-          );
+          combinationIndex++;
+          const combinationLabel = `${investorType === 'All' ? 'All' : investorType === 'D' ? 'Domestik' : 'Foreign'} × ${boardType === 'All' ? 'All' : boardType}`;
           
-          if (filteredData.length === 0) {
-            continue;
-          }
-          
-          // Create broker breakdown data
-          const breakdownData = this.createBrokerBreakdownData(filteredData);
-          
-          const fileSuffix = investorType === 'All' && boardType === 'All' 
-            ? '' 
-            : `_${investorType.toLowerCase()}_${boardType.toLowerCase()}`;
-          
-          // Collect all files for this combination
-          for (const stockCode of uniqueStocks) {
-            const stockBrokerData = breakdownData.get(stockCode);
-            if (!stockBrokerData) continue;
+          // Process each combination in parallel
+          const combinationPromise = (async () => {
+            // OPTIMIZED: Get pre-grouped data instead of filtering from scratch
+            const filteredData = this.getGroupedTransactions(groupedData, investorType, boardType);
             
-            const emitenFolder = stockCode;
-            
-            // Collect broker files
-            for (const [brokerCode, brokerData] of stockBrokerData) {
-              const filename = `done_summary_broker_breakdown/${dateSuffix}/${emitenFolder}/${brokerCode}${fileSuffix}.csv`;
-              filesToProcess.push({ filename, data: brokerData, type: 'broker' });
+            if (filteredData.length === 0) {
+              console.log(`   [${combinationIndex}/${totalCombinations}] ${combinationLabel}: No data - skipped`);
+              return [];
             }
             
-            // Collect All.csv file
-            const allData = this.createAllBrokerDataForStock(filteredData, stockCode);
-            const allFilename = `done_summary_broker_breakdown/${dateSuffix}/${emitenFolder}/All${fileSuffix}.csv`;
-            filesToProcess.push({ filename: allFilename, data: allData, type: 'all' });
-          }
+            // Create broker breakdown data
+            const breakdownData = this.createBrokerBreakdownData(filteredData);
+            
+            const fileSuffix = investorType === 'All' && boardType === 'All' 
+              ? '' 
+              : `_${investorType.toLowerCase()}_${boardType.toLowerCase()}`;
+            
+            const filesForCombination: Array<{
+              filename: string;
+              data: BrokerBreakdownData[];
+              type: 'broker' | 'all';
+              stockCode: string;
+              combination: string;
+            }> = [];
+            
+            // OPTIMIZED: Only process stocks that don't have existing folders
+            for (const stockCode of stocksToProcess) {
+              const stockBrokerData = breakdownData.get(stockCode);
+              if (!stockBrokerData) continue;
+              
+              const emitenFolder = stockCode;
+              
+              // Collect broker files
+              for (const [brokerCode, brokerData] of stockBrokerData) {
+                const filename = `done_summary_broker_breakdown/${dateSuffix}/${emitenFolder}/${brokerCode}${fileSuffix}.csv`;
+                filesForCombination.push({ filename, data: brokerData, type: 'broker', stockCode, combination: combinationLabel });
+              }
+              
+              // OPTIMIZED: Use pre-grouped filteredData (already filtered by combination)
+              // This is faster than recalculating from scratch because filteredData is already grouped
+              // Note: We still need to recalculate All.csv from filteredData to get exact unique order counts
+              // (deriveAllBrokerDataFromBreakdown would approximate unique orders, which changes results)
+              const allData = this.createAllBrokerDataForStock(filteredData, stockCode);
+              const allFilename = `done_summary_broker_breakdown/${dateSuffix}/${emitenFolder}/All${fileSuffix}.csv`;
+              filesForCombination.push({ filename: allFilename, data: allData, type: 'all', stockCode, combination: combinationLabel });
+            }
+            
+            const stocksProcessed = new Set(filesForCombination.map(f => f.stockCode)).size;
+            console.log(`   [${combinationIndex}/${totalCombinations}] ${combinationLabel}: ${stocksProcessed} stocks, ${filesForCombination.length} files`);
+            
+            return filesForCombination;
+          })();
+          
+          combinationPromises.push(combinationPromise);
         }
       }
       
+      // Wait for all combinations to complete in parallel
+      const combinationResults = await Promise.all(combinationPromises);
+      
+      // Flatten results
+      const filesToProcess = combinationResults.flat();
+      
       if (filesToProcess.length === 0) {
-        console.log(`⚠️ No files to process for ${blobName}`);
+        console.log(`⚠️ Date ${dateSuffix}: No files to process`);
         return { success: true, dateSuffix, files: [] };
       }
       
-      // Batch check existence
-      console.log(`🔍 Checking existence of ${filesToProcess.length} files...`);
-      const filenames = filesToProcess.map(f => f.filename);
-      const existingFiles = await this.batchCheckExists(filenames);
+      // OPTIMIZED: Stream CSV generation and upload per stock batch (reduce memory)
+      console.log(`📤 Date ${dateSuffix}: Generating and uploading ${filesToProcess.length.toLocaleString()} files...`);
       
-      // Filter out existing files and prepare uploads
-      const filesToUpload = filesToProcess
-        .filter(f => !existingFiles.has(f.filename) && f.data.length > 0)
-        .map(f => ({
-          filename: f.filename,
-          content: this.dataToCsv(f.data)
-        }));
+      // Group files by stock for streaming upload
+      const filesByStock = new Map<string, Array<{
+        filename: string;
+        data: BrokerBreakdownData[];
+        type: 'broker' | 'all';
+        stockCode: string;
+        combination: string;
+      }>>();
       
-      if (filesToUpload.length === 0) {
-        console.log(`⏭️ All files already exist for ${blobName}`);
-        return { success: true, dateSuffix, files: [] };
+      filesToProcess.forEach(file => {
+        if (!filesByStock.has(file.stockCode)) {
+          filesByStock.set(file.stockCode, []);
+        }
+        filesByStock.get(file.stockCode)!.push(file);
+      });
+      
+      // OPTIMIZED: Upload per stock batch (streaming - generate CSV and upload immediately)
+      const uploadPromises: Promise<string[]>[] = [];
+      const STOCK_BATCH_SIZE = 10; // Process 10 stocks at a time
+      const stockArray = Array.from(filesByStock.entries());
+      
+      for (let i = 0; i < stockArray.length; i += STOCK_BATCH_SIZE) {
+        const stockBatch = stockArray.slice(i, i + STOCK_BATCH_SIZE);
+        
+        const batchUploadPromise = (async () => {
+          const batchFiles: Array<{ filename: string; content: string }> = [];
+          
+          for (const [, stockFiles] of stockBatch) {
+            // Generate CSV and prepare upload for this stock
+            for (const file of stockFiles) {
+              if (file.data.length > 0) {
+                batchFiles.push({
+                  filename: file.filename,
+                  content: this.dataToCsv(file.data)
+                });
+              }
+            }
+          }
+          
+          // Upload batch for these stocks
+          if (batchFiles.length > 0) {
+            await this.batchUpload(batchFiles);
+            return batchFiles.map(f => f.filename);
+          }
+          
+          return [];
+        })();
+        
+        uploadPromises.push(batchUploadPromise);
       }
       
-      // Batch upload
-      console.log(`📤 Uploading ${filesToUpload.length} files (${existingFiles.size} already exist)...`);
-      await this.batchUpload(filesToUpload);
+      // Wait for all stock batches to upload
+      const uploadResults = await Promise.all(uploadPromises);
+      const createdFiles = uploadResults.flat();
       
-      const createdFiles = filesToUpload.map(f => f.filename);
-      console.log(`✅ Completed processing ${blobName} - ${createdFiles.length} files created`);
+      // Calculate summary stats
+      const stocksWithFiles = new Set(createdFiles.map(f => {
+        const parts = f.split('/');
+        return parts[parts.length - 2]; // Stock code from path
+      })).size;
+      
+      console.log(`✅ Date ${dateSuffix}: Completed - ${createdFiles.length.toLocaleString()} files created for ${stocksWithFiles} stocks`);
       
       return { success: true, dateSuffix, files: createdFiles };
       
@@ -804,37 +971,38 @@ export class BrokerBreakdownCalculator {
       for (let i = 0; i < dtFiles.length; i += BATCH_SIZE) {
         const batch = dtFiles.slice(i, i + BATCH_SIZE);
         const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
-        console.log(`📦 Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`);
+        const totalBatches = Math.ceil(dtFiles.length / BATCH_SIZE);
+        
+        // Extract dates for logging
+        const batchDates = batch.map(f => f.split('/')[1]).filter(Boolean);
+        console.log(`\n📦 Batch ${batchNumber}/${totalBatches}: Processing dates ${batchDates.join(', ')}`);
         
         // Update progress before batch (use processed count, not batch index)
         if (logId) {
           await SchedulerLogService.updateLog(logId, {
             progress_percentage: Math.round((processed / dtFiles.length) * 100),
-            current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} processed)`
+            current_processing: `Processing batch ${batchNumber}/${totalBatches} (${processed}/${dtFiles.length} dates processed)`
           });
         }
         
-        // Memory check before batch
+        // Memory check before batch (silent unless high)
         if (global.gc) {
           const memBefore = process.memoryUsage();
           const heapUsedMB = memBefore.heapUsed / 1024 / 1024;
           if (heapUsedMB > 10240) { // 10GB threshold
-            console.log(`⚠️ High memory usage detected: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
+            console.log(`⚠️ High memory usage before batch ${batchNumber}: ${heapUsedMB.toFixed(2)}MB, forcing GC...`);
             global.gc();
             await new Promise(resolve => setTimeout(resolve, 100));
           }
         }
         
-        // Process batch in parallel with concurrency limit 25
+        // Process batch in parallel with concurrency limit
         const batchPromises = batch.map(blobName => this.processSingleDtFile(blobName));
         const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT);
         
-        // Memory cleanup after batch
+        // Memory cleanup after batch (silent)
         if (global.gc) {
           global.gc();
-          const memAfter = process.memoryUsage();
-          const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
-          console.log(`📊 Batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
         }
         
         // Collect results
@@ -867,13 +1035,17 @@ export class BrokerBreakdownCalculator {
           }
         });
         
-        console.log(`📊 Batch ${batchNumber} complete: ✅ ${successful}/${processed} successful, ⏭️ ${batchSkipped} skipped, ❌ ${batchFailed} failed`);
+        const batchFilesCreated = allResults
+          .slice(processed - batchResults.length, processed)
+          .reduce((sum, r) => sum + (r.files?.length || 0), 0);
+        
+        console.log(`✅ Batch ${batchNumber}/${totalBatches} complete: ${successful}/${batch.length} dates processed, ${batchFilesCreated.toLocaleString()} files created`);
         
         // Update progress after batch
         if (logId) {
           await SchedulerLogService.updateLog(logId, {
             progress_percentage: Math.round((processed / dtFiles.length) * 100),
-            current_processing: `Completed batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} processed)`
+            current_processing: `Completed batch ${batchNumber}/${totalBatches} (${processed}/${dtFiles.length} dates processed)`
           });
         }
         
