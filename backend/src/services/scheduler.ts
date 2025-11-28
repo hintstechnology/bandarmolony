@@ -376,7 +376,7 @@ async function monitorMemoryUsage(): Promise<boolean> {
   const usedGB = usedMB / 1024;
   const totalGB = totalMB / 1024;
   
-  // Update performance metrics
+  // Update performance metrics (silent - no logging)
   performanceMetrics.totalMemoryUsed += usedMB;
   performanceMetrics.batchCount++;
   
@@ -384,21 +384,20 @@ async function monitorMemoryUsage(): Promise<boolean> {
   const maxOldSpaceSize = process.env['NODE_OPTIONS']?.includes('--max-old-space-size=') 
     ? parseInt(process.env['NODE_OPTIONS'].split('--max-old-space-size=')[1]?.split(' ')[0] || '0') 
     : 0;
-  const maxGB = maxOldSpaceSize / 1024;
   
-  console.log(`📊 Memory Usage: ${usedMB.toFixed(2)}MB / ${totalMB.toFixed(2)}MB (${usedGB.toFixed(2)}GB / ${totalGB.toFixed(2)}GB allocated)`);
-  console.log(`🔧 Node.js Memory Limit: ${maxOldSpaceSize}MB (${maxGB.toFixed(1)}GB)`);
-  
-  // Performance tracking
-  const avgMemory = performanceMetrics.totalMemoryUsed / performanceMetrics.batchCount;
-  console.log(`📈 Performance Metrics: Batches: ${performanceMetrics.batchCount}, Avg Memory: ${avgMemory.toFixed(2)}MB, GC Count: ${performanceMetrics.gcCount}, Errors: ${performanceMetrics.errorCount}`);
-  
-  // If memory usage > 6GB, force cleanup
-  if (usedMB > 12000) {
-    console.log('⚠️ High memory usage detected, forcing aggressive cleanup...');
-    await aggressiveMemoryCleanup();
-    performanceMetrics.gcCount++;
-    return false; // Skip next calculation
+  // Only log if memory usage is high (> 10GB) to reduce spam
+  if (usedMB > 10000) {
+    const maxGB = maxOldSpaceSize / 1024;
+    console.log(`⚠️ High Memory Usage: ${usedMB.toFixed(2)}MB / ${totalMB.toFixed(2)}MB (${usedGB.toFixed(2)}GB / ${totalGB.toFixed(2)}GB allocated)`);
+    console.log(`🔧 Node.js Memory Limit: ${maxOldSpaceSize}MB (${maxGB.toFixed(1)}GB)`);
+    
+    // If memory usage > 12GB, force cleanup
+    if (usedMB > 12000) {
+      console.log('⚠️ Critical memory usage detected, forcing aggressive cleanup...');
+      await aggressiveMemoryCleanup();
+      performanceMetrics.gcCount++;
+      return false; // Skip next calculation
+    }
   }
   
   return true;
