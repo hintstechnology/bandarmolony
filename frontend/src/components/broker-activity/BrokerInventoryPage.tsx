@@ -116,7 +116,7 @@ const BrokerLegend = ({
     <div className="rounded-lg border border-[#3a4252] bg-background/70 px-3 py-2">
       <div className="flex items-center justify-between mb-2">
         <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          {title}
+        {title}
         </div>
         {onRemoveAll && brokers.length > 0 && (
           <button
@@ -2562,7 +2562,8 @@ const visibleBrokers = useMemo(
   }, [ohlcData]);
 
   // Load broker inventory data (cumulative net flow) for selected brokers
-  const [brokerInventoryData, setBrokerInventoryData] = useState<{ [broker: string]: any[] }>({});
+  // Note: brokerInventoryData is set but not currently used - kept for potential future use
+  const [_brokerInventoryData, setBrokerInventoryData] = useState<{ [broker: string]: any[] }>({});
   const [isLoadingInventoryData, setIsLoadingInventoryData] = useState(false);
 
   // Load broker inventory data when Show button is clicked
@@ -3139,36 +3140,53 @@ const visibleBrokers = useMemo(
   ]);
 
 
-  // Generate unique colors for brokers (avoiding white/gray colors)
+  // Generate unique colors for brokers (dark colors with high contrast for white text)
+  // Ensures each broker gets a unique, highly contrasting color
   const generateUniqueBrokerColor = (broker: string | undefined | null, allBrokers: string[]): string => {
     // Handle undefined/null broker
     if (!broker || typeof broker !== 'string') {
-      return 'hsl(0, 0%, 50%)'; // Return gray color for invalid broker
+      return 'hsl(0, 0%, 35%)'; // Return dark gray color for invalid broker
     }
     
     const sortedBrokers = [...new Set(allBrokers)].sort();
     const brokerIndex = sortedBrokers.indexOf(broker);
     
+    // Create a hash from broker code for more random distribution
+    const brokerHash = broker.split('').reduce((acc, char, idx) => {
+      return acc + char.charCodeAt(0) * (idx + 1);
+    }, 0);
+    
     if (brokerIndex === -1) {
       // Fallback for unknown brokers
-      const hash = broker.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-      const hue = hash % 360;
-      return `hsl(${hue}, 60%, 45%)`;
+      const hue = brokerHash % 360;
+      return `hsl(${hue}, 75%, 30%)`; // Darker for better text contrast
     }
     
-    // Generate darker, vibrant colors (not too bright, suitable for white text)
-    const hueStep = 360 / Math.max(sortedBrokers.length, 1);
-    const baseHue = (brokerIndex * hueStep) % 360;
+    // Use both brokerIndex and brokerHash to ensure unique colors
+    // This combination ensures different brokers get different colors even if they're close in index
     
-    // Add variation to avoid similar colors
-    const variation = (brokerIndex * 7) % 30;
-    const finalHue = (baseHue + variation) % 360;
+    // Calculate hue with larger variation to ensure contrast
+    // Distribute hues evenly across 360 degrees with minimum spacing
+    const totalBrokers = sortedBrokers.length;
+    const baseHueStep = 360 / Math.max(totalBrokers, 1);
+    const baseHue = (brokerIndex * baseHueStep) % 360;
     
-    // Medium saturation, darker lightness for better contrast with white text
-    const saturation = 60 + (brokerIndex % 20); // 60-80% saturation
-    const lightness = 40 + (brokerIndex % 15); // 40-55% lightness (darker, not too bright)
+    // Add significant variation from hash to differentiate brokers with similar indices
+    // This ensures brokers get unique colors even if they're adjacent in the sorted list
+    const hashHueVariation = (brokerHash % 40) - 20; // -20 to +20 degrees variation
+    const finalHue = (baseHue + hashHueVariation + 360) % 360;
     
-    return `hsl(${finalHue}, ${saturation}%, ${lightness}%)`;
+    // Use hash to create more variation in saturation
+    // Wider saturation range (65-90%) for better distinction
+    const satHash = brokerHash % 26; // 0-25
+    const saturation = 65 + satHash; // 65-90% saturation
+    
+    // Use hash to create more variation in lightness
+    // Wider lightness range (22-35%) for better distinction
+    const lightHash = (brokerHash * 7) % 14; // 0-13
+    const lightness = 22 + lightHash; // 22-35% lightness (dark enough for white text)
+    
+    return `hsl(${Math.round(finalHue)}, ${saturation}%, ${lightness}%)`;
   };
 
   // Generate Top Brokers data by date from brokerSummaryData (from top_broker API)
@@ -3317,13 +3335,13 @@ const visibleBrokers = useMemo(
           {/* Controls */}
           {!hideControls && (
             <>
-              <div className="fixed top-14 left-20 right-0 z-40 bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg">
-                <div ref={controlMenuRef} className="flex flex-row items-center gap-3 flex-wrap">
-                  {/* Ticker Selection - Single select */}
-                  <div className="flex flex-row items-center gap-2">
-                    <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
-                    <div className="relative" ref={dropdownRef}>
-                    <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+              {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
+              <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
+                <div ref={controlMenuRef} className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
+                {/* Ticker Selection */}
+                <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+                  <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
+                  <div className="relative flex-1 md:flex-none">
                     <input
                       type="text"
                       value={tickerInput || (selectedTicker ? formatStockDisplayName(selectedTicker) : '')}
@@ -3488,18 +3506,18 @@ const visibleBrokers = useMemo(
                             <div className="flex flex-row h-full max-h-96 overflow-hidden">
                               {/* Left column: Brokers */}
                               <div className="flex-1 border-r border-[#3a4252] overflow-y-auto">
-                                {filteredBrokers.length === 0 ? (
-                                  <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
-                                    {brokerSearch !== '' ? `No brokers found matching "${brokerSearch}"` : `No brokers available for ${getActualTicker || 'selected ticker'}`}
-                                  </div>
-                                ) : (
-                                  <>
-                                    {recommendedBrokers.length > 0 && (
-                                      <>
+                          {filteredBrokers.length === 0 ? (
+                            <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
+                              {brokerSearch !== '' ? `No brokers found matching "${brokerSearch}"` : `No brokers available for ${selectedTicker}`}
+                            </div>
+                          ) : (
+                            <>
+                              {recommendedBrokers.length > 0 && (
+                                <>
                                         <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
                                           Recommended ({recommendedBrokers.length})
-                                        </div>
-                                        {recommendedBrokers.map((broker, index) => {
+                                  </div>
+                                  {recommendedBrokers.map((broker, index) => {
                                     const hasQuickSelect = brokerNetStats.topBuyers.length > 0 && brokerSearch === '';
                                     const quickSelectCount = hasQuickSelect ? 2 : 0;
                                     const globalIndex = quickSelectCount + index;
@@ -3518,7 +3536,7 @@ const visibleBrokers = useMemo(
                                               removeBroker(broker);
                                             } else {
                                               // If not selected, add it
-                                              handleBrokerSelect(broker);
+                                            handleBrokerSelect(broker);
                                             }
                                             // Keep suggestions open to allow multiple selections
                                           }
@@ -3560,92 +3578,92 @@ const visibleBrokers = useMemo(
                                       </div>
                                     );
                                   })}
-                                      </>
-                                    )}
-                                    {otherBrokers.length > 0 && (
-                                      <>
-                                        <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
-                                          {recommendedBrokers.length > 0 ? 'All Brokers' : `Brokers (${totalOtherBrokersCount})`}
+                                </>
+                              )}
+                              {otherBrokers.length > 0 && (
+                                <>
+                                  <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
+                                    {recommendedBrokers.length > 0 ? 'All Brokers' : `Brokers (${totalOtherBrokersCount})`}
+                                  </div>
+                                  {otherBrokers.map((broker, index) => {
+                                    const hasQuickSelect = brokerNetStats.topBuyers.length > 0 && brokerSearch === '';
+                                    const quickSelectCount = hasQuickSelect ? 2 : 0;
+                                    const globalIndex = quickSelectCount + recommendedBrokers.length + index;
+                                    return (
+                                      <div
+                                        key={`option-${broker}`}
+                                        onClick={(e) => {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          // Only handle click if not clicking directly on checkbox
+                                          const target = e.target as HTMLElement;
+                                          if (target.tagName !== 'INPUT' && !target.closest('input')) {
+                                            // Allow selecting individual brokers even after quick select
+                                            if (selectedBrokers.includes(broker)) {
+                                              // If already selected, remove it
+                                              removeBroker(broker);
+                                            } else {
+                                              // If not selected, add it
+                                            handleBrokerSelect(broker);
+                                            }
+                                            // Keep suggestions open to allow multiple selections
+                                          }
+                                        }}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            if (selectedBrokers.includes(broker)) {
+                                              removeBroker(broker);
+                                            } else {
+                                              handleBrokerSelect(broker);
+                                            }
+                                          }
+                                        }}
+                                        onMouseDown={(e) => {
+                                          // Prevent mousedown from closing dropdown
+                                          e.stopPropagation();
+                                        }}
+                                        tabIndex={0}
+                                        role="option"
+                                        aria-selected={selectedBrokers.includes(broker)}
+                                        className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${globalIndex === highlightedBrokerIndex ? 'bg-accent' : ''} ${selectedBrokers.includes(broker) ? 'bg-accent/50' : ''}`}
+                                        onMouseEnter={() => handleBrokerMouseEnter(globalIndex)}
+                                      >
+                                        <div className="flex items-center gap-2">
+                                          <input
+                                            type="checkbox"
+                                            checked={selectedBrokers.includes(broker)}
+                                            onChange={(e) => {
+                                              e.stopPropagation();
+                                              if (e.target.checked) {
+                                                if (!selectedBrokers.includes(broker)) {
+                                                  handleBrokerSelect(broker);
+                                                }
+                                              } else {
+                                                removeBroker(broker);
+                                              }
+                                            }}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onMouseDown={(e) => e.stopPropagation()}
+                                            className="h-4 w-4 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary cursor-pointer"
+                                          />
+                                          <div
+                                            className="w-2 h-2 rounded-full"
+                                            style={{ backgroundColor: generateBrokerColor(broker, selectedBrokers) }}
+                                          />
+                                          {broker}
                                         </div>
-                                        {otherBrokers.map((broker, index) => {
-                                          const hasQuickSelect = brokerNetStats.topBuyers.length > 0 && brokerSearch === '';
-                                          const quickSelectCount = hasQuickSelect ? 2 : 0;
-                                          const globalIndex = quickSelectCount + recommendedBrokers.length + index;
-                                          return (
-                                            <div
-                                              key={`option-${broker}`}
-                                              onClick={(e) => {
-                                                e.preventDefault();
-                                                e.stopPropagation();
-                                                // Only handle click if not clicking directly on checkbox
-                                                const target = e.target as HTMLElement;
-                                                if (target.tagName !== 'INPUT' && !target.closest('input')) {
-                                                  // Allow selecting individual brokers even after quick select
-                                                  if (selectedBrokers.includes(broker)) {
-                                                    // If already selected, remove it
-                                                    removeBroker(broker);
-                                                  } else {
-                                                    // If not selected, add it
-                                                    handleBrokerSelect(broker);
-                                                  }
-                                                  // Keep suggestions open to allow multiple selections
-                                                }
-                                              }}
-                                              onKeyDown={(e) => {
-                                                if (e.key === 'Enter' || e.key === ' ') {
-                                                  e.preventDefault();
-                                                  e.stopPropagation();
-                                                  if (selectedBrokers.includes(broker)) {
-                                                    removeBroker(broker);
-                                                  } else {
-                                                    handleBrokerSelect(broker);
-                                                  }
-                                                }
-                                              }}
-                                              onMouseDown={(e) => {
-                                                // Prevent mousedown from closing dropdown
-                                                e.stopPropagation();
-                                              }}
-                                              tabIndex={0}
-                                              role="option"
-                                              aria-selected={selectedBrokers.includes(broker)}
-                                              className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${globalIndex === highlightedBrokerIndex ? 'bg-accent' : ''} ${selectedBrokers.includes(broker) ? 'bg-accent/50' : ''}`}
-                                              onMouseEnter={() => handleBrokerMouseEnter(globalIndex)}
-                                            >
-                                              <div className="flex items-center gap-2">
-                                                <input
-                                                  type="checkbox"
-                                                  checked={selectedBrokers.includes(broker)}
-                                                  onChange={(e) => {
-                                                    e.stopPropagation();
-                                                    if (e.target.checked) {
-                                                      if (!selectedBrokers.includes(broker)) {
-                                                        handleBrokerSelect(broker);
-                                                      }
-                                                    } else {
-                                                      removeBroker(broker);
-                                                    }
-                                                  }}
-                                                  onClick={(e) => e.stopPropagation()}
-                                                  onMouseDown={(e) => e.stopPropagation()}
-                                                  className="h-4 w-4 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary cursor-pointer"
-                                                />
-                                                <div
-                                                  className="w-2 h-2 rounded-full"
-                                                  style={{ backgroundColor: generateBrokerColor(broker, selectedBrokers) }}
-                                                />
-                                                {broker}
-                                              </div>
-                                            </div>
-                                          );
-                                        })}
-                                      </>
-                                    )}
-                                  </>
-                                )}
-                              </div>
-                              {/* Right column: Quick Select */}
-                              <div className="flex-1 overflow-y-auto">
+                                      </div>
+                                    );
+                                  })}
+                                </>
+                              )}
+                            </>
+                          )}
+                            </div>
+                            {/* Right column: Quick Select */}
+                            <div className="flex-1 overflow-y-auto">
                               {brokerNetStats.topBuyers.length > 0 && brokerSearch === '' ? (
                                 <>
                                   <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
@@ -3763,15 +3781,17 @@ const visibleBrokers = useMemo(
                               ) : (
                                 <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
                                   Quick Select
-                                </div>
-                              )}
-                              </div>
-                            </div>
-                          )}
                         </div>
                       )}
                     </div>
+                    </div>
+                        )}
+                      </div>
+                    )}
                   </div>
+                    </div>
+                  </div>
+                </div>
 
                   {/* Date Range */}
                   <div className="flex flex-row items-center gap-2">
@@ -3908,9 +3928,10 @@ const visibleBrokers = useMemo(
                 >
                   Show
                 </button>
-                </div>
               </div>
-              <div style={{ height: `${controlSpacerHeight}px` }} />
+              </div>
+              {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
+              <div className="hidden lg:block" style={{ height: `${controlSpacerHeight}px` }} />
             </>
           )}
 
