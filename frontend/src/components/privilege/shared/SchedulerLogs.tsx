@@ -31,6 +31,42 @@ function formatJakartaTime(dateString: string): string {
     .replace(/(\s)(\d{2})\.(\d{2})\.(\d{2})$/, '$1$2:$3:$4'); // Fallback for any remaining time format
 }
 
+function formatDuration(seconds: number | null | undefined): string {
+  if (!seconds && seconds !== 0) return '-';
+  
+  const totalSeconds = Math.floor(seconds);
+  
+  // Jika <= 60 detik, tampilkan hanya detik
+  if (totalSeconds <= 60) {
+    return `${totalSeconds}s`;
+  }
+  
+  // Jika > 60 detik dan <= 3600 detik, tampilkan menit dan detik
+  if (totalSeconds <= 3600) {
+    const minutes = Math.floor(totalSeconds / 60);
+    const remainingSeconds = totalSeconds % 60;
+    if (remainingSeconds === 0) {
+      return `${minutes}m`;
+    }
+    return `${minutes}m ${remainingSeconds}s`;
+  }
+  
+  // Jika > 3600 detik, tampilkan jam, menit, dan detik
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const remainingSeconds = totalSeconds % 60;
+  
+  const parts: string[] = [`${hours}h`];
+  if (minutes > 0) {
+    parts.push(`${minutes}m`);
+  }
+  if (remainingSeconds > 0) {
+    parts.push(`${remainingSeconds}s`);
+  }
+  
+  return parts.join(' ');
+}
+
 export function SchedulerLogs() {
   const { showToast } = useToast();
   
@@ -247,7 +283,7 @@ export function SchedulerLogs() {
                           {formatJakartaTime(log.completed_at)}
                         </TableCell>
                         <TableCell className="text-sm">
-                          {log.duration_seconds ? `${log.duration_seconds}s` : '-'}
+                          {formatDuration(log.duration_seconds)}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
