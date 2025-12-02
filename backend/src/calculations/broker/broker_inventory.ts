@@ -103,7 +103,18 @@ export class BrokerInventoryCalculator {
         }
       }
       
-      const dateList = Array.from(dates).sort();
+      // Normalize dates to YYYYMMDD format for consistency
+      const normalizedDates = Array.from(dates).map(date => {
+        if (date.length === 6) {
+          // Convert YYMMDD to YYYYMMDD
+          const year = 2000 + parseInt(date.substring(0, 2) || '0');
+          return `${year}${date.substring(2)}`;
+        }
+        return date; // Already YYYYMMDD
+      });
+      
+      // Sort dates in ascending order (oldest first) for proper cumulative calculation
+      const dateList = normalizedDates.sort();
       console.log(`Discovered ${dateList.length} broker_transaction dates: ${dateList.join(', ')}`);
       return dateList;
     } catch (error) {
@@ -168,26 +179,54 @@ export class BrokerInventoryCalculator {
 
   /**
    * Calculate the previous date (baseline date)
+   * Supports both YYMMDD (6 digits) and YYYYMMDD (8 digits) formats
+   * Returns date in the same format as input
    */
   private getPreviousDate(dateStr: string): string {
-    // Convert YYMMDD to Date object
-    const year = 2000 + parseInt(dateStr.substring(0, 2) || '0');
-    const month = parseInt(dateStr.substring(2, 4) || '0') - 1; // Month is 0-indexed
-    const day = parseInt(dateStr.substring(4, 6) || '0');
+    if (!dateStr || dateStr.length < 6) {
+      console.warn(`⚠️ Invalid date format: ${dateStr}`);
+      return dateStr;
+    }
+    
+    let year: number;
+    let month: number;
+    let day: number;
+    const isYYYYMMDD = dateStr.length === 8;
+    
+    if (isYYYYMMDD) {
+      // YYYYMMDD format (8 digits)
+      year = parseInt(dateStr.substring(0, 4) || '0');
+      month = parseInt(dateStr.substring(4, 6) || '0') - 1; // Month is 0-indexed
+      day = parseInt(dateStr.substring(6, 8) || '0');
+    } else {
+      // YYMMDD format (6 digits)
+      year = 2000 + parseInt(dateStr.substring(0, 2) || '0');
+      month = parseInt(dateStr.substring(2, 4) || '0') - 1; // Month is 0-indexed
+      day = parseInt(dateStr.substring(4, 6) || '0');
+    }
     
     const date = new Date(year, month, day);
     date.setDate(date.getDate() - 1);
     
-    // Convert back to YYMMDD format
-    const prevYear = date.getFullYear() % 100;
-    const prevMonth = (date.getMonth() + 1).toString().padStart(2, '0');
-    const prevDay = date.getDate().toString().padStart(2, '0');
-    
-    return `${prevYear.toString().padStart(2, '0')}${prevMonth}${prevDay}`;
+    // Convert back to same format as input
+    if (isYYYYMMDD) {
+      // Return YYYYMMDD format
+      const prevYear = date.getFullYear();
+      const prevMonth = (date.getMonth() + 1).toString().padStart(2, '0');
+      const prevDay = date.getDate().toString().padStart(2, '0');
+      return `${prevYear}${prevMonth}${prevDay}`;
+    } else {
+      // Return YYMMDD format
+      const prevYear = date.getFullYear() % 100;
+      const prevMonth = (date.getMonth() + 1).toString().padStart(2, '0');
+      const prevDay = date.getDate().toString().padStart(2, '0');
+      return `${prevYear.toString().padStart(2, '0')}${prevMonth}${prevDay}`;
+    }
   }
 
   /**
    * Create broker inventory data for a specific broker and emiten across date range
+   * dateRange should be sorted in ascending order (oldest first) for proper cumulative calculation
    */
   private createBrokerInventoryData(
     brokerCode: string,
@@ -200,9 +239,12 @@ export class BrokerInventoryCalculator {
     let cumulativeSellVol = 0;
     let cumulativeNetBuyVol = 0;
     
-    // Add baseline date (start date - 1) with zero values
-    if (dateRange.length > 0) {
-      const firstDate = dateRange[0];
+    // Ensure dateRange is sorted in ascending order (oldest first)
+    const sortedDateRange = [...dateRange].sort();
+    
+    // Add baseline date (first date - 1) with zero values
+    if (sortedDateRange.length > 0) {
+      const firstDate = sortedDateRange[0];
       if (firstDate) {
         const baselineDate = this.getPreviousDate(firstDate);
         inventoryData.push({
@@ -217,7 +259,8 @@ export class BrokerInventoryCalculator {
       }
     }
     
-    for (const date of dateRange) {
+    // Process dates in chronological order (oldest first) for cumulative calculation
+    for (const date of sortedDateRange) {
       const brokerDataForDate = allBrokerData.get(date)?.get(brokerCode) || [];
       const emitenRecord = brokerDataForDate.find(e => e.Emiten === emitenCode);
       
@@ -240,7 +283,7 @@ export class BrokerInventoryCalculator {
       });
     }
     
-    // Sort by date in descending order (newest first)
+    // Sort by date in descending order (newest first) for output
     return inventoryData.sort((a, b) => {
       const dateA = a.Date || '';
       const dateB = b.Date || '';
