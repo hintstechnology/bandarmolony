@@ -1,5 +1,6 @@
 import { listPaths } from '../utils/azureBlob';
 import { BrokerTransactionStockIDXCalculator } from '../calculations/broker/broker_transaction_stock_IDX';
+import { SchedulerLogService } from './schedulerLogService';
 
 /**
  * Service to schedule and manage Broker Transaction Stock IDX data generation
@@ -57,16 +58,52 @@ class BrokerTransactionStockIDXDataScheduler {
   /**
    * Generate IDX.csv for all dates, and market types
    * @param _scope 'all' to process all available dates (reserved for future use)
+   * @param logId Optional log ID for progress tracking (if provided, uses existing log entry)
+   * @param triggeredBy Optional trigger source for logging
    */
-  async generateBrokerTransactionStockIDXData(_scope: 'all' = 'all'): Promise<{ success: boolean; message?: string; data?: any }> {
+  async generateBrokerTransactionStockIDXData(_scope: 'all' = 'all', logId?: string | null, triggeredBy?: string): Promise<{ success: boolean; message?: string; data?: any }> {
+    // Only create log entry if logId is not provided (called from scheduler, not manual trigger)
+    let finalLogId = logId;
+    if (!finalLogId) {
+      const logEntry = await SchedulerLogService.createLog({
+        feature_name: 'broker_transaction_stock_idx',
+        trigger_type: triggeredBy ? 'manual' : 'scheduled',
+        triggered_by: triggeredBy || 'system',
+        status: 'running',
+        environment: process.env['NODE_ENV'] || 'development'
+      });
+
+      if (!logEntry) {
+        console.error('❌ Failed to create scheduler log entry');
+        return {
+          success: false,
+          message: 'Failed to create scheduler log entry'
+        };
+      }
+
+      finalLogId = logEntry.id!;
+    }
+
     try {
       console.log('🔄 Generating Broker Transaction Stock IDX (aggregated all brokers per stock)...');
+      
+      if (finalLogId) {
+        await SchedulerLogService.updateLog(finalLogId, {
+          progress_percentage: 0,
+          current_processing: 'Starting Broker Transaction Stock IDX calculation...'
+        });
+      }
       
       // Get list of all dates from broker_transaction_stock folders
       const dates = await this.getAvailableDates();
       
       if (dates.length === 0) {
         console.log('⚠️ No dates found with broker transaction stock data');
+        // Check if this is called from a Phase (don't mark failed if so, Phase will handle it)
+        const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+        if (finalLogId && !isFromPhase) {
+          await SchedulerLogService.markFailed(finalLogId, 'No dates found with broker transaction stock data');
+        }
         return {
           success: false,
           message: 'No dates found with broker transaction stock data'
@@ -78,6 +115,9 @@ class BrokerTransactionStockIDXDataScheduler {
       // Process each combination of investor type and market type for all dates
       const investorTypes: Array<'D' | 'F' | ''> = ['', 'D', 'F'];
       const marketTypes: Array<'RG' | 'TN' | 'NG' | ''> = ['', 'RG', 'TN', 'NG'];
+      
+      const totalCombinations = investorTypes.length * marketTypes.length;
+      let processedCombinations = 0;
       
       let totalSuccess = 0;
       let totalFailed = 0;
@@ -91,6 +131,13 @@ class BrokerTransactionStockIDXDataScheduler {
             : (marketType ? marketType : 'all');
           
           console.log(`\n🔄 Processing ${comboName}...`);
+          
+          if (finalLogId) {
+            await SchedulerLogService.updateLog(finalLogId, {
+              progress_percentage: Math.round((processedCombinations / totalCombinations) * 100),
+              current_processing: `Processing ${comboName}...`
+            });
+          }
           
           // Check if this combination exists by checking first date
           // If no stocks found, skip this combination
@@ -117,6 +164,7 @@ class BrokerTransactionStockIDXDataScheduler {
 
           if (stockFiles.length === 0) {
             console.log(`⏭️ Skipping ${comboName} - no stocks found for this combination`);
+            processedCombinations++;
             continue;
           }
 
@@ -126,6 +174,7 @@ class BrokerTransactionStockIDXDataScheduler {
           totalFailed += batchResult.failed;
           totalSkipped += batchResult.skipped || 0;
           
+          processedCombinations++;
           console.log(`✅ ${comboName}: ${batchResult.success} success, ${batchResult.skipped || 0} skipped, ${batchResult.failed} failed`);
         }
       }
@@ -135,6 +184,20 @@ class BrokerTransactionStockIDXDataScheduler {
       console.log(`✅ Total Success: ${totalSuccess}/${totalProcessed}`);
       console.log(`⏭️  Total Skipped: ${totalSkipped}/${totalProcessed}`);
       console.log(`❌ Total Failed: ${totalFailed}/${totalProcessed}`);
+
+      // Check if this is called from a Phase (don't mark completed/failed if so, Phase will handle it)
+      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      if (finalLogId && !isFromPhase) {
+        if (totalSuccess > 0) {
+          await SchedulerLogService.markCompleted(finalLogId, {
+            total_files_processed: totalProcessed,
+            files_created: totalSuccess,
+            files_failed: totalFailed
+          });
+        } else {
+          await SchedulerLogService.markFailed(finalLogId, `No IDX files generated successfully`);
+        }
+      }
 
       return {
         success: totalSuccess > 0,
@@ -147,10 +210,16 @@ class BrokerTransactionStockIDXDataScheduler {
         }
       };
     } catch (error: any) {
-      console.error('❌ Error generating Broker Transaction Stock IDX data:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('❌ Error generating Broker Transaction Stock IDX data:', errorMessage);
+      // Check if this is called from a Phase (don't mark failed if so, Phase will handle it)
+      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      if (finalLogId && !isFromPhase) {
+        await SchedulerLogService.markFailed(finalLogId, errorMessage, error);
+      }
       return {
         success: false,
-        message: `Failed to generate Broker Transaction Stock IDX data: ${error.message}`
+        message: `Failed to generate Broker Transaction Stock IDX data: ${errorMessage}`
       };
     }
   }

@@ -378,6 +378,13 @@ export class BrokerTransactionFDRGTNNGCalculator {
         }
         
         for (const invType of ['D', 'F'] as const) {
+          // OPTIMIZATION: Check if folder for this combination already exists before processing
+          const combinationExists = await this.checkBrokerTransactionFDRGTNNGExists(dateSuffix, type, invType);
+          if (combinationExists) {
+            console.log(`⏭️ Skipping ${dateSuffix} (${type}, ${invType}) - broker_transaction_${type.toLowerCase()}_${invType.toLowerCase()} folder already exists`);
+            continue;
+          }
+          
           const startTime = Date.now();
           const transactionFiles = await this.createBrokerTransactionPerBroker(filteredByType, dateSuffix, type, invType);
           const duration = Math.round((Date.now() - startTime) / 1000);

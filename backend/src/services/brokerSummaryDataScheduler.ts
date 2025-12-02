@@ -47,9 +47,12 @@ export class BrokerSummaryDataScheduler {
       
       const result = await this.calculator.generateBrokerSummaryData(targetDate, finalLogId);
       
+      // Check if this is called from a Phase (don't mark completed/failed if so, Phase will handle it)
+      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      
       if (result.success) {
         console.log('✅ Broker Summary calculation completed successfully');
-        if (finalLogId) {
+        if (finalLogId && !isFromPhase) {
           await SchedulerLogService.markCompleted(finalLogId, {
             total_files_processed: 1,
             files_created: 1,
@@ -58,7 +61,7 @@ export class BrokerSummaryDataScheduler {
         }
       } else {
         console.error('❌ Broker Summary calculation failed:', result.message);
-        if (finalLogId) {
+        if (finalLogId && !isFromPhase) {
           await SchedulerLogService.markFailed(finalLogId, result.message);
         }
       }
@@ -67,7 +70,9 @@ export class BrokerSummaryDataScheduler {
     } catch (error) {
       console.error('❌ Error during Broker Summary calculation:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      if (finalLogId) {
+      // Check if this is called from a Phase (don't mark failed if so, Phase will handle it)
+      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      if (finalLogId && !isFromPhase) {
         await SchedulerLogService.markFailed(finalLogId, errorMessage, error);
       }
       return {
