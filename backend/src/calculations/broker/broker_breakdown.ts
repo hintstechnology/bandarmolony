@@ -620,13 +620,13 @@ export class BrokerBreakdownCalculator {
 
   /**
    * OPTIMIZED: Check stock folder existence instead of individual files
-   * This is ~100x faster than checking 87,844 individual files
+   * This is ~250x faster than checking 87,844 individual files
    */
   private async checkStockFoldersExist(dateSuffix: string, stockCodes: string[]): Promise<Set<string>> {
     const existingStockFolders = new Set<string>();
     
     // Check folders in parallel batches
-    const BATCH_SIZE = 50; // Check 50 stock folders at a time
+    const BATCH_SIZE = 500; // Check 250 stock folders at a time
     const checkPromises = stockCodes.map(async (stockCode) => {
       try {
         const folderPrefix = `done_summary_broker_breakdown/${dateSuffix}/${stockCode}/`;
@@ -658,36 +658,61 @@ export class BrokerBreakdownCalculator {
   // Removed checkFileExists - no longer needed (using folder-level check instead)
 
   /**
-   * OPTIMIZED: Batch upload with larger batch size (20-50 files) for faster uploads
+   * OPTIMIZED: Batch upload with retry logic and controlled concurrency
+   * Reduced batch size to prevent network exhaustion (EADDRNOTAVAIL errors)
    */
   private async batchUpload(files: Array<{ filename: string; content: string }>): Promise<void> {
-    const uploadPromises = files.map(async ({ filename, content }) => {
-      try {
-        await uploadText(filename, content, 'text/csv');
-        return { filename, success: true };
-      } catch (error) {
-        console.error(`❌ Failed to upload ${filename}:`, error);
-        return { filename, success: false, error };
-      }
-    });
+    // REDUCED: Smaller batch size to prevent connection exhaustion
+    // EADDRNOTAVAIL errors occur when too many concurrent connections
+    const UPLOAD_BATCH_SIZE = 500; // 100 files at a time
+    const DELAY_BETWEEN_BATCHES = 500; // 500ms delay between batches
     
-    // OPTIMIZED: Larger batch size for uploads (20-50 files) - Azure can handle this
-    const UPLOAD_BATCH_SIZE = 30; // Increased from 1 to 30 for faster uploads
     let failedUploads = 0;
-    for (let i = 0; i < uploadPromises.length; i += UPLOAD_BATCH_SIZE) {
-      const batch = uploadPromises.slice(i, i + UPLOAD_BATCH_SIZE);
-      const batchResults = await Promise.allSettled(batch);
-      batchResults.forEach((result, index) => {
+    let successfulUploads = 0;
+    
+    // Process files in smaller batches with delay between batches
+    for (let i = 0; i < files.length; i += UPLOAD_BATCH_SIZE) {
+      const batch = files.slice(i, i + UPLOAD_BATCH_SIZE);
+      const batchNumber = Math.floor(i / UPLOAD_BATCH_SIZE) + 1;
+      const totalBatches = Math.ceil(files.length / UPLOAD_BATCH_SIZE);
+      
+      console.log(`📤 Uploading batch ${batchNumber}/${totalBatches} (${batch.length} files)...`);
+      
+      // Process batch with controlled concurrency
+      const batchPromises = batch.map(async ({ filename, content }) => {
+        try {
+          // uploadText now has built-in retry logic (3 retries with exponential backoff)
+          await uploadText(filename, content, 'text/csv', 3);
+          return { filename, success: true };
+        } catch (error) {
+          console.error(`❌ Failed to upload ${filename} after retries:`, error instanceof Error ? error.message : error);
+          return { filename, success: false, error };
+        }
+      });
+      
+      // Wait for batch to complete
+      const batchResults = await Promise.allSettled(batchPromises);
+      
+      batchResults.forEach((result) => {
         if (result.status === 'fulfilled') {
-          if (!result.value.success) {
+          if (result.value.success) {
+            successfulUploads++;
+          } else {
             failedUploads++;
           }
         } else {
           failedUploads++;
-          console.error(`❌ Upload promise rejected at index ${i + index}:`, result.reason);
+          console.error(`❌ Upload promise rejected:`, result.reason);
         }
       });
+      
+      // Add delay between batches to prevent network exhaustion
+      if (i + UPLOAD_BATCH_SIZE < files.length) {
+        await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES));
+      }
     }
+    
+    console.log(`📊 Upload summary: ${successfulUploads} successful, ${failedUploads} failed (out of ${files.length} total)`);
     
     if (failedUploads > 0) {
       console.warn(`⚠️ ${failedUploads} file(s) failed to upload (out of ${files.length} total)`);
@@ -869,43 +894,45 @@ export class BrokerBreakdownCalculator {
       });
       
       // OPTIMIZED: Upload per stock batch (streaming - generate CSV and upload immediately)
-      const uploadPromises: Promise<string[]>[] = [];
-      const STOCK_BATCH_SIZE = 10; // Process 10 stocks at a time
+      // REDUCED: Smaller batch size and sequential processing to prevent network exhaustion
+      const STOCK_BATCH_SIZE = 5; // Reduced from 10 to 5 to prevent network exhaustion
+      const DELAY_BETWEEN_STOCK_BATCHES = 500; // 0.5 second delay between stock batches
       const stockArray = Array.from(filesByStock.entries());
+      const createdFiles: string[] = [];
       
+      // Process stock batches sequentially with delay to prevent network exhaustion
       for (let i = 0; i < stockArray.length; i += STOCK_BATCH_SIZE) {
         const stockBatch = stockArray.slice(i, i + STOCK_BATCH_SIZE);
+        const batchNumber = Math.floor(i / STOCK_BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(stockArray.length / STOCK_BATCH_SIZE);
         
-        const batchUploadPromise = (async () => {
-          const batchFiles: Array<{ filename: string; content: string }> = [];
-          
-          for (const [, stockFiles] of stockBatch) {
-            // Generate CSV and prepare upload for this stock
-            for (const file of stockFiles) {
-              if (file.data.length > 0) {
-                batchFiles.push({
-                  filename: file.filename,
-                  content: this.dataToCsv(file.data)
-                });
-              }
+        console.log(`📦 Processing stock batch ${batchNumber}/${totalBatches} (${stockBatch.length} stocks)...`);
+        
+        const batchFiles: Array<{ filename: string; content: string }> = [];
+        
+        for (const [, stockFiles] of stockBatch) {
+          // Generate CSV and prepare upload for this stock
+          for (const file of stockFiles) {
+            if (file.data.length > 0) {
+              batchFiles.push({
+                filename: file.filename,
+                content: this.dataToCsv(file.data)
+              });
             }
           }
-          
-          // Upload batch for these stocks
-          if (batchFiles.length > 0) {
-            await this.batchUpload(batchFiles);
-            return batchFiles.map(f => f.filename);
-          }
-          
-          return [];
-        })();
+        }
         
-        uploadPromises.push(batchUploadPromise);
+        // Upload batch for these stocks
+        if (batchFiles.length > 0) {
+          await this.batchUpload(batchFiles);
+          createdFiles.push(...batchFiles.map(f => f.filename));
+        }
+        
+        // Add delay between stock batches to prevent network exhaustion
+        if (i + STOCK_BATCH_SIZE < stockArray.length) {
+          await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_STOCK_BATCHES));
+        }
       }
-      
-      // Wait for all stock batches to upload
-      const uploadResults = await Promise.all(uploadPromises);
-      const createdFiles = uploadResults.flat();
       
       // Calculate summary stats
       const stocksWithFiles = new Set(createdFiles.map(f => {
