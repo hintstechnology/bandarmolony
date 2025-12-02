@@ -112,13 +112,33 @@ class BrokerTransactionStockIDXDataScheduler {
 
       console.log(`📅 Found ${dates.length} dates to process`);
 
-      // Process each combination of investor type and market type for all dates
+      // Estimate total stocks: average stocks per date * dates * combinations
+      // Typical stock count per date is around 600-800, we'll use 700 as average
+      const avgStocksPerDate = 700;
       const investorTypes: Array<'D' | 'F' | ''> = ['', 'D', 'F'];
       const marketTypes: Array<'RG' | 'TN' | 'NG' | ''> = ['', 'RG', 'TN', 'NG'];
-      
       const totalCombinations = investorTypes.length * marketTypes.length;
-      let processedCombinations = 0;
+      const estimatedTotalStocks = dates.length * totalCombinations * avgStocksPerDate;
       
+      // Create progress tracker for thread-safe stock counting
+      const progressTracker: { totalStocks: number; processedStocks: number; logId: string | null; updateProgress: () => Promise<void> } = {
+        totalStocks: estimatedTotalStocks,
+        processedStocks: 0,
+        logId: finalLogId || null,
+        updateProgress: async () => {
+          if (progressTracker.logId) {
+            const percentage = estimatedTotalStocks > 0 
+              ? Math.min(100, Math.round((progressTracker.processedStocks / estimatedTotalStocks) * 100))
+              : 0;
+            await SchedulerLogService.updateLog(progressTracker.logId, {
+              progress_percentage: percentage,
+              current_processing: `Processing stocks: ${progressTracker.processedStocks.toLocaleString()}/${estimatedTotalStocks.toLocaleString()} stocks processed`
+            });
+          }
+        }
+      };
+      
+      let processedCombinations = 0;
       let totalSuccess = 0;
       let totalFailed = 0;
       let totalSkipped = 0;
@@ -132,10 +152,13 @@ class BrokerTransactionStockIDXDataScheduler {
           
           console.log(`\n🔄 Processing ${comboName}...`);
           
+          // Update progress before combination
           if (finalLogId) {
             await SchedulerLogService.updateLog(finalLogId, {
-              progress_percentage: Math.round((processedCombinations / totalCombinations) * 100),
-              current_processing: `Processing ${comboName}...`
+              progress_percentage: estimatedTotalStocks > 0 
+                ? Math.min(100, Math.round((progressTracker.processedStocks / estimatedTotalStocks) * 100))
+                : Math.round((processedCombinations / totalCombinations) * 100),
+              current_processing: `Processing ${comboName}... (${processedCombinations}/${totalCombinations} combinations, ${progressTracker.processedStocks.toLocaleString()}/${estimatedTotalStocks.toLocaleString()} stocks)`
             });
           }
           
@@ -168,14 +191,27 @@ class BrokerTransactionStockIDXDataScheduler {
             continue;
           }
 
-          const batchResult = await this.calculator.generateIDXBatch(dates, investorType, marketType);
+          const batchResult = await this.calculator.generateIDXBatch(dates, investorType, marketType, progressTracker);
           results[comboName] = batchResult;
           totalSuccess += batchResult.success;
           totalFailed += batchResult.failed;
           totalSkipped += batchResult.skipped || 0;
           
+          // Calculate total stocks processed from batch results
+          const stocksProcessed = batchResult.results.reduce((sum, r) => sum + (r.stockCount || 0), 0);
+          
           processedCombinations++;
-          console.log(`✅ ${comboName}: ${batchResult.success} success, ${batchResult.skipped || 0} skipped, ${batchResult.failed} failed`);
+          console.log(`✅ ${comboName}: ${batchResult.success} success, ${batchResult.skipped || 0} skipped, ${batchResult.failed} failed, ${stocksProcessed} stocks processed`);
+          
+          // Update progress after combination (based on stocks processed)
+          if (finalLogId) {
+            await SchedulerLogService.updateLog(finalLogId, {
+              progress_percentage: estimatedTotalStocks > 0 
+                ? Math.min(100, Math.round((progressTracker.processedStocks / estimatedTotalStocks) * 100))
+                : Math.round((processedCombinations / totalCombinations) * 100),
+              current_processing: `Completed ${comboName} (${processedCombinations}/${totalCombinations} combinations, ${progressTracker.processedStocks.toLocaleString()}/${estimatedTotalStocks.toLocaleString()} stocks processed)`
+            });
+          }
         }
       }
 

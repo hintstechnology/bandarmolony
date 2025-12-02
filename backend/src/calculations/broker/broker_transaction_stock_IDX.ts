@@ -1,5 +1,14 @@
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_6, MAX_CONCURRENT_REQUESTS_PHASE_6 } from '../../services/dataUpdateService';
+import { SchedulerLogService } from '../../services/schedulerLogService';
+
+// Progress tracker interface for thread-safe stock counting
+interface ProgressTracker {
+  totalStocks: number;
+  processedStocks: number;
+  logId: string | null;
+  updateProgress: () => Promise<void>;
+}
 
 // Helper function to limit concurrency for Phase 5-6
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -321,8 +330,9 @@ export class BrokerTransactionStockIDXCalculator {
   public async generateIDX(
     dateSuffix: string, 
     investorType: 'D' | 'F' | '' = '',
-    marketType: 'RG' | 'TN' | 'NG' | '' = ''
-  ): Promise<{ success: boolean; message: string; file?: string }> {
+    marketType: 'RG' | 'TN' | 'NG' | '' = '',
+    progressTracker?: ProgressTracker
+  ): Promise<{ success: boolean; message: string; file?: string; stockCount?: number }> {
     try {
       // Validate dateSuffix format (YYYYMMDD - 8 digits)
       if (!dateSuffix || !/^\d{8}$/.test(dateSuffix)) {
@@ -481,12 +491,20 @@ export class BrokerTransactionStockIDXCalculator {
       // Save IDX.csv to the same folder
       await uploadText(idxFilePath, csvContent, 'text/csv');
 
-      console.log(`✅ Successfully created ${idxFilePath} with ${aggregatedData.length} brokers aggregated from ${stockFiles.length} stocks`);
+      const stockCount = stockFiles.length;
+      console.log(`✅ Successfully created ${idxFilePath} with ${aggregatedData.length} brokers aggregated from ${stockCount} stocks`);
+
+      // Update progress tracker
+      if (progressTracker && stockCount > 0) {
+        progressTracker.processedStocks += stockCount;
+        await progressTracker.updateProgress();
+      }
 
       return {
         success: true,
-        message: `IDX.csv created successfully with ${aggregatedData.length} brokers aggregated from ${stockFiles.length} stocks`,
-        file: idxFilePath
+        message: `IDX.csv created successfully with ${aggregatedData.length} brokers aggregated from ${stockCount} stocks`,
+        file: idxFilePath,
+        stockCount
       };
     } catch (error: any) {
       console.error(`❌ Error generating IDX.csv:`, error);
@@ -506,8 +524,9 @@ export class BrokerTransactionStockIDXCalculator {
   public async generateIDXBatch(
     dateSuffixes: string[],
     investorType: 'D' | 'F' | '' = '',
-    marketType: 'RG' | 'TN' | 'NG' | '' = ''
-  ): Promise<{ success: number; failed: number; skipped: number; results: Array<{ date: string; success: boolean; message: string; file?: string; skipped?: boolean }> }> {
+    marketType: 'RG' | 'TN' | 'NG' | '' = '',
+    progressTracker?: ProgressTracker
+  ): Promise<{ success: number; failed: number; skipped: number; results: Array<{ date: string; success: boolean; message: string; file?: string; skipped?: boolean; stockCount?: number }> }> {
     const results: Array<{ date: string; success: boolean; message: string; file?: string; skipped?: boolean }> = [];
     let successCount = 0;
     let failedCount = 0;
@@ -529,15 +548,17 @@ export class BrokerTransactionStockIDXCalculator {
       
       try {
         console.log(`${progress} Processing date ${dateSuffix}...`);
-        const result = await this.generateIDX(dateSuffix, investorType, marketType);
+        const result = await this.generateIDX(dateSuffix, investorType, marketType, progressTracker);
         
         // Check if skipped (already exists)
         const skipped = result.message.includes('already exists');
+        const stockCount = result.stockCount || 0;
         
         results.push({
           date: dateSuffix,
           ...result,
-          skipped
+          skipped,
+          stockCount
         });
 
         if (skipped) {

@@ -1,5 +1,14 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_8, MAX_CONCURRENT_REQUESTS_PHASE_8 } from '../../services/dataUpdateService';
+import { SchedulerLogService } from '../../services/schedulerLogService';
+
+// Progress tracker interface for thread-safe broker-emiten counting
+interface ProgressTracker {
+  totalCombinations: number;
+  processedCombinations: number;
+  logId: string | null;
+  updateProgress: () => Promise<void>;
+}
 
 // Helper function to limit concurrency for Phase 7-8
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -264,8 +273,9 @@ export class BrokerInventoryCalculator {
    */
   private async createBrokerInventoryFiles(
     allBrokerData: Map<string, Map<string, BrokerTransactionData[]>>,
-    dateRange: string[]
-  ): Promise<string[]> {
+    dateRange: string[],
+    progressTracker?: ProgressTracker
+  ): Promise<{ files: string[]; combinationCount: number }> {
     console.log("\nCreating broker inventory files...");
     
     // Get all unique broker-emiten combinations across all dates
@@ -285,6 +295,7 @@ export class BrokerInventoryCalculator {
     console.log(`Found ${brokerEmitenCombinations.size} brokers with emiten data`);
     
     const createdFiles: string[] = [];
+    let totalCombinations = 0;
     
     // Create inventory data for each broker-emiten combination
     for (const [brokerCode, emitenSet] of brokerEmitenCombinations) {
@@ -296,6 +307,7 @@ export class BrokerInventoryCalculator {
         const blobName = `broker_inventory/${emitenCode}/${brokerCode}.csv`;
         await this.saveToAzure(blobName, inventoryData);
         createdFiles.push(blobName);
+        totalCombinations++;
         
         console.log(`Created ${blobName} with ${inventoryData.length} records`);
         
@@ -304,11 +316,17 @@ export class BrokerInventoryCalculator {
           console.log(`Sample data for broker ${brokerCode} - emiten ${emitenCode}:`);
           console.log(inventoryData.slice(0, 3));
         }
+        
+        // Update progress tracker after each broker-emiten combination
+        if (progressTracker) {
+          progressTracker.processedCombinations++;
+          await progressTracker.updateProgress();
+        }
       }
     }
     
     console.log(`\nCreated ${createdFiles.length} broker inventory files`);
-    return createdFiles;
+    return { files: createdFiles, combinationCount: totalCombinations };
   }
 
   /**
@@ -415,17 +433,49 @@ export class BrokerInventoryCalculator {
         }
       }
       
+      // Pre-count total broker-emiten combinations for accurate progress tracking
+      const brokerEmitenCombinations = new Map<string, Set<string>>();
+      allBrokerData.forEach((brokerMap, _date) => {
+        brokerMap.forEach((emitenData, brokerCode) => {
+          if (!brokerEmitenCombinations.has(brokerCode)) {
+            brokerEmitenCombinations.set(brokerCode, new Set());
+          }
+          emitenData.forEach(emiten => {
+            brokerEmitenCombinations.get(brokerCode)!.add(emiten.Emiten);
+          });
+        });
+      });
+      const totalCombinations = Array.from(brokerEmitenCombinations.values()).reduce((sum, set) => sum + set.size, 0);
+      
+      // Create progress tracker for thread-safe combination counting
+      const progressTracker: ProgressTracker = {
+        totalCombinations,
+        processedCombinations: 0,
+        logId: logId || null,
+        updateProgress: async () => {
+          if (progressTracker.logId) {
+            const percentage = totalCombinations > 0 
+              ? Math.round(50 + (progressTracker.processedCombinations / totalCombinations) * 50) // 50-100% for file creation
+              : 50;
+            await SchedulerLogService.updateLog(progressTracker.logId, {
+              progress_percentage: percentage,
+              current_processing: `Creating broker inventory files: ${progressTracker.processedCombinations.toLocaleString()}/${totalCombinations.toLocaleString()} combinations processed`
+            });
+          }
+        }
+      };
+      
       // Update progress for file creation phase
       if (logId) {
-        const { SchedulerLogService } = await import('../../services/schedulerLogService');
         await SchedulerLogService.updateLog(logId, {
           progress_percentage: 50,
-          current_processing: 'Creating broker inventory files...'
+          current_processing: `Creating broker inventory files... (0/${totalCombinations.toLocaleString()} combinations)`
         });
       }
       
       // Create broker inventory files (per broker-emiten combination)
-      const createdFiles = await this.createBrokerInventoryFiles(allBrokerData, dates);
+      const result = await this.createBrokerInventoryFiles(allBrokerData, dates, progressTracker);
+      const createdFiles = result.files;
       
       console.log("\nBroker inventory analysis completed successfully!");
       console.log(`Total broker inventory files created: ${createdFiles.length}`);

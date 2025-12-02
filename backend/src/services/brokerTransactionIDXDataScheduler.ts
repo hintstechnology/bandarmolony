@@ -161,13 +161,33 @@ export class BrokerTransactionIDXDataScheduler {
 
       console.log(`📅 Found ${dates.length} dates to process`);
 
-      // Process each combination of investor type and market type for all dates
+      // Estimate total brokers: average brokers per date * dates * combinations
+      // Typical broker count per date is around 100-150, we'll use 120 as average
+      const avgBrokersPerDate = 120;
       const investorTypes: Array<'D' | 'F' | ''> = ['', 'D', 'F'];
       const marketTypes: Array<'RG' | 'TN' | 'NG' | ''> = ['', 'RG', 'TN', 'NG'];
-      
       const totalCombinations = investorTypes.length * marketTypes.length;
-      let processedCombinations = 0;
+      const estimatedTotalBrokers = dates.length * totalCombinations * avgBrokersPerDate;
       
+      // Create progress tracker for thread-safe broker counting
+      const progressTracker: { totalBrokers: number; processedBrokers: number; logId: string | null; updateProgress: () => Promise<void> } = {
+        totalBrokers: estimatedTotalBrokers,
+        processedBrokers: 0,
+        logId: finalLogId || null,
+        updateProgress: async () => {
+          if (progressTracker.logId) {
+            const percentage = estimatedTotalBrokers > 0 
+              ? Math.min(100, Math.round((progressTracker.processedBrokers / estimatedTotalBrokers) * 100))
+              : 0;
+            await SchedulerLogService.updateLog(progressTracker.logId, {
+              progress_percentage: percentage,
+              current_processing: `Processing brokers: ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers processed`
+            });
+          }
+        }
+      };
+      
+      let processedCombinations = 0;
       let totalSuccess = 0;
       let totalFailed = 0;
       let totalSkipped = 0;
@@ -175,19 +195,19 @@ export class BrokerTransactionIDXDataScheduler {
 
       for (const investorType of investorTypes) {
         for (const marketType of marketTypes) {
-          // Skip invalid combinations (both can't be empty together if one is specified)
-          // Actually, all combinations are valid
-          
           const comboName = investorType 
             ? (marketType ? `${investorType}_${marketType}` : investorType)
             : (marketType ? marketType : 'all');
           
           console.log(`\n🔄 Processing ${comboName}...`);
           
+          // Update progress before combination
           if (finalLogId) {
             await SchedulerLogService.updateLog(finalLogId, {
-              progress_percentage: Math.round((processedCombinations / totalCombinations) * 100),
-              current_processing: `Processing ${comboName}...`
+              progress_percentage: estimatedTotalBrokers > 0 
+                ? Math.min(100, Math.round((progressTracker.processedBrokers / estimatedTotalBrokers) * 100))
+                : Math.round((processedCombinations / totalCombinations) * 100),
+              current_processing: `Processing ${comboName}... (${processedCombinations}/${totalCombinations} combinations, ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers)`
             });
           }
           
@@ -206,14 +226,27 @@ export class BrokerTransactionIDXDataScheduler {
             continue;
           }
 
-          const batchResult = await this.calculator.generateIDXBatch(dates, investorType, marketType);
+          const batchResult = await this.calculator.generateIDXBatch(dates, investorType, marketType, progressTracker);
           results[comboName] = batchResult;
           totalSuccess += batchResult.success;
           totalFailed += batchResult.failed;
           totalSkipped += batchResult.skipped || 0;
           
+          // Calculate total brokers processed from batch results
+          const brokersProcessed = batchResult.results.reduce((sum, r) => sum + (r.brokerCount || 0), 0);
+          
           processedCombinations++;
-          console.log(`✅ ${comboName}: ${batchResult.success} success, ${batchResult.skipped || 0} skipped, ${batchResult.failed} failed`);
+          console.log(`✅ ${comboName}: ${batchResult.success} success, ${batchResult.skipped || 0} skipped, ${batchResult.failed} failed, ${brokersProcessed} brokers processed`);
+          
+          // Update progress after combination (based on brokers processed)
+          if (finalLogId) {
+            await SchedulerLogService.updateLog(finalLogId, {
+              progress_percentage: estimatedTotalBrokers > 0 
+                ? Math.min(100, Math.round((progressTracker.processedBrokers / estimatedTotalBrokers) * 100))
+                : Math.round((processedCombinations / totalCombinations) * 100),
+              current_processing: `Completed ${comboName} (${processedCombinations}/${totalCombinations} combinations, ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers processed)`
+            });
+          }
         }
       }
 

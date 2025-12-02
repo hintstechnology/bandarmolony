@@ -1,6 +1,14 @@
 import { BrokerSummaryIDXCalculator } from '../calculations/broker/broker_summary_IDX';
 import { SchedulerLogService } from './schedulerLogService';
 
+// Progress tracker interface for thread-safe broker counting
+interface ProgressTracker {
+  totalBrokers: number;
+  processedBrokers: number;
+  logId: string | null;
+  updateProgress: () => Promise<void>;
+}
+
 export class BrokerSummaryIDXDataScheduler {
   private calculator: BrokerSummaryIDXCalculator;
 
@@ -58,6 +66,29 @@ export class BrokerSummaryIDXDataScheduler {
 
       console.log(`📅 Found ${dates.length} dates to process`);
 
+      // Estimate total brokers: average brokers per date * dates * market types
+      // Typical broker count per date is around 100-150, we'll use 120 as average
+      const avgBrokersPerDate = 120;
+      const estimatedTotalBrokers = dates.length * marketTypes.length * avgBrokersPerDate;
+      
+      // Create progress tracker for thread-safe broker counting
+      const progressTracker: ProgressTracker = {
+        totalBrokers: estimatedTotalBrokers,
+        processedBrokers: 0,
+        logId: finalLogId || null,
+        updateProgress: async () => {
+          if (progressTracker.logId) {
+            const percentage = estimatedTotalBrokers > 0 
+              ? Math.min(100, Math.round((progressTracker.processedBrokers / estimatedTotalBrokers) * 100))
+              : 0;
+            await SchedulerLogService.updateLog(progressTracker.logId, {
+              progress_percentage: percentage,
+              current_processing: `Processing brokers: ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers processed`
+            });
+          }
+        }
+      };
+
       // Process each market type for all dates
       const marketTypes: Array<'' | 'RG' | 'TN' | 'NG'> = ['', 'RG', 'TN', 'NG'];
       let totalSuccess = 0;
@@ -69,27 +100,34 @@ export class BrokerSummaryIDXDataScheduler {
         const marketType = marketTypes[idx];
         console.log(`\n🔄 Processing ${marketType || 'All Trade'} market (${idx + 1}/${marketTypes.length})...`);
         
-        // Update progress
+        // Update progress before market type
         if (finalLogId) {
           await SchedulerLogService.updateLog(finalLogId, {
-            progress_percentage: Math.round((idx / marketTypes.length) * 100),
-            current_processing: `Processing ${marketType || 'All Trade'} market (${idx + 1}/${marketTypes.length})...`
+            progress_percentage: estimatedTotalBrokers > 0 
+              ? Math.min(100, Math.round((progressTracker.processedBrokers / estimatedTotalBrokers) * 100))
+              : Math.round((idx / marketTypes.length) * 100),
+            current_processing: `Processing ${marketType || 'All Trade'} market (${idx + 1}/${marketTypes.length}, ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers)...`
           });
         }
         
-        const batchResult = await this.calculator.generateIDXBatch(dates, marketType);
+        const batchResult = await this.calculator.generateIDXBatch(dates, marketType, progressTracker);
         results[marketType || 'all'] = batchResult;
         totalSuccess += batchResult.success;
         totalFailed += batchResult.failed;
         totalSkipped += batchResult.skipped || 0;
         
-        console.log(`✅ ${marketType || 'All Trade'}: ${batchResult.success} success, ${batchResult.skipped || 0} skipped, ${batchResult.failed} failed`);
+        // Calculate total brokers processed from batch results
+        const brokersProcessed = batchResult.results.reduce((sum, r) => sum + (r.brokerCount || 0), 0);
         
-        // Update progress after each market type
+        console.log(`✅ ${marketType || 'All Trade'}: ${batchResult.success} success, ${batchResult.skipped || 0} skipped, ${batchResult.failed} failed, ${brokersProcessed} brokers processed`);
+        
+        // Update progress after each market type (based on brokers processed)
         if (finalLogId) {
           await SchedulerLogService.updateLog(finalLogId, {
-            progress_percentage: Math.round(((idx + 1) / marketTypes.length) * 100),
-            current_processing: `Completed ${marketType || 'All Trade'} market (${idx + 1}/${marketTypes.length})`
+            progress_percentage: estimatedTotalBrokers > 0 
+              ? Math.min(100, Math.round((progressTracker.processedBrokers / estimatedTotalBrokers) * 100))
+              : Math.round(((idx + 1) / marketTypes.length) * 100),
+            current_processing: `Completed ${marketType || 'All Trade'} market (${idx + 1}/${marketTypes.length}, ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers processed)`
           });
         }
       }
