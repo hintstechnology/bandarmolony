@@ -1,6 +1,5 @@
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_5, MAX_CONCURRENT_REQUESTS_PHASE_5 } from '../../services/dataUpdateService';
-import { SchedulerLogService } from '../../services/schedulerLogService';
 
 // Progress tracker interface for thread-safe broker counting
 interface ProgressTracker {
@@ -466,7 +465,7 @@ export class BrokerTransactionIDXCalculator {
     marketType: 'RG' | 'TN' | 'NG' | '' = '',
     progressTracker?: ProgressTracker
   ): Promise<{ success: number; failed: number; skipped: number; results: Array<{ date: string; success: boolean; message: string; file?: string; skipped?: boolean; brokerCount?: number }> }> {
-    const results: Array<{ date: string; success: boolean; message: string; file?: string; skipped?: boolean }> = [];
+    const results: Array<{ date: string; success: boolean; message: string; file?: string; skipped?: boolean; brokerCount?: number }> = [];
     let successCount = 0;
     let failedCount = 0;
     let skippedCount = 0;

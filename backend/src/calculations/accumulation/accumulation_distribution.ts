@@ -580,8 +580,10 @@ export class AccumulationDistributionCalculator {
       console.log(`🔍 Pre-counting total stocks from ${limitedDates.length} dates...`);
       const allStocks = new Set<string>();
       for (let i = 0; i < Math.min(limitedDates.length, 10); i++) { // Sample first 10 dates
+        const date = limitedDates[i];
+        if (!date) continue; // Skip undefined dates
         try {
-          const bidAskData = await this.loadBidAskDataFromAzure(limitedDates[i]);
+          const bidAskData = await this.loadBidAskDataFromAzure(date);
           bidAskData.forEach(d => allStocks.add(d.StockCode));
         } catch (error) {
           // Skip dates that can't be read
@@ -794,11 +796,11 @@ export class AccumulationDistributionCalculator {
         const accumulationData: AccumulationDistributionData[] = [];
         let processedStocksForDate = 0;
         
-        stockCodes.forEach(stockCode => {
+        for (const stockCode of stockCodes) {
           const stockData = stockDataMap.get(stockCode);
-          if (!stockData || stockData.length === 0) return;
+          if (!stockData || stockData.length === 0) continue;
           const latest = stockData[stockData.length - 1];
-          if (!latest) return;
+          if (!latest) continue;
 
           const weekly = weeklyAccumulation.get(stockCode) || { W4: 0, W3: 0, W2: 0, W1: 0 };
           const daily = dailyAccumulation.get(stockCode) || { D4: 0, D3: 0, D2: 0, D1: 0, D0: 0 };
@@ -848,7 +850,7 @@ export class AccumulationDistributionCalculator {
             progressTracker.processedStocks++;
             await progressTracker.updateProgress();
           }
-        });
+        }
 
         // Save to Azure per-date
         const outputFilename = `accumulation_distribution/${dateSuffix as string}.csv`;

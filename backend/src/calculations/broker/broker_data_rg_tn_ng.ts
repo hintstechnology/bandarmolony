@@ -209,7 +209,6 @@ export class BrokerDataRGTNNGCalculator {
         sellerSummary.set(broker, { totalVol, avgPrice, transactionCount: txs.length, totalValue });
       });
       const allBrokers = new Set([...buyerSummary.keys(), ...sellerSummary.keys()]);
-      const brokerCount = allBrokers.size;
       const finalSummary: BrokerSummary[] = [];
       allBrokers.forEach(broker => {
         const buyer = buyerSummary.get(broker) || { totalVol: 0, avgPrice: 0, transactionCount: 0, totalValue: 0 };
@@ -561,10 +560,10 @@ export class BrokerDataRGTNNGCalculator {
           
           console.log(`📝 Creating broker summary for ${date} (${type})...`);
           const summaryFiles = await this.createBrokerSummaryPerEmiten(filtered, date, type);
-          console.log(`✅ Created ${summaryFiles.length} broker summary files for ${date} (skipped files that already exist)`);
+          console.log(`✅ Created ${summaryFiles.files.length} broker summary files for ${date} (skipped files that already exist)`);
           
           processedDates++;
-          totalFilesCreated += summaryFiles.length;
+          totalFilesCreated += summaryFiles.files.length;
         } catch (error: any) {
           console.error(`❌ Error processing file ${blobName}:`, error.message);
           continue;
