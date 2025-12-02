@@ -365,7 +365,9 @@ export class ForeignFlowCalculator {
     
     for (let i = 0; i < stocks.length; i++) {
       const stockCode = stocks[i];
-      const flowData = foreignFlowData.get(stockCode)!;
+      if (!stockCode) continue; // Skip if undefined
+      const flowData = foreignFlowData.get(stockCode);
+      if (!flowData) continue; // Skip if no data
       const filename = `foreign_flow/${stockCode}.csv`;
       
       // Check if file already exists

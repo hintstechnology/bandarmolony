@@ -483,6 +483,7 @@ export class BrokerTransactionRGTNNGCalculator {
     
     for (let i = 0; i < uniqueBrokers.length; i++) {
       const broker = uniqueBrokers[i];
+      if (!broker) continue; // Skip if undefined
       const filename = `${paths.brokerTransaction}/${broker}.csv`;
       
       const brokerData = data.filter(row => row.BRK_COD1 === broker || row.BRK_COD2 === broker);

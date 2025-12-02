@@ -462,6 +462,7 @@ export class BrokerTransactionStockRGTNNGCalculator {
     
     for (let i = 0; i < uniqueStocks.length; i++) {
       const stock = uniqueStocks[i];
+      if (!stock) continue; // Skip if undefined
       const filename = `${paths.brokerTransaction}/${stock}.csv`;
       
       console.log(`Processing stock: ${stock} (${type})`);

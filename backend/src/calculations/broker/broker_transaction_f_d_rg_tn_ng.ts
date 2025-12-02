@@ -487,6 +487,7 @@ export class BrokerTransactionFDRGTNNGCalculator {
     
     for (let i = 0; i < uniqueBrokers.length; i++) {
       const broker = uniqueBrokers[i];
+      if (!broker) continue; // Skip if undefined
       const filename = `${paths.brokerTransaction}/${broker}.csv`;
       
       // Filter data for this broker and investor type

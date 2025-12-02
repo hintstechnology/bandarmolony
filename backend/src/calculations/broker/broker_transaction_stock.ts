@@ -407,6 +407,7 @@ export class BrokerTransactionStockCalculator {
     
     for (let i = 0; i < uniqueStocks.length; i++) {
       const stock = uniqueStocks[i];
+      if (!stock) continue; // Skip if undefined
       const filename = `broker_transaction_stock/broker_transaction_stock_${dateSuffix}/${stock}.csv`;
       
       console.log(`Processing stock: ${stock}`);
