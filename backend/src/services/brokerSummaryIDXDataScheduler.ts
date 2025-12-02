@@ -66,6 +66,9 @@ export class BrokerSummaryIDXDataScheduler {
 
       console.log(`📅 Found ${dates.length} dates to process`);
 
+      // Process each market type for all dates
+      const marketTypes: Array<'' | 'RG' | 'TN' | 'NG'> = ['', 'RG', 'TN', 'NG'];
+
       // Estimate total brokers: average brokers per date * dates * market types
       // Typical broker count per date is around 100-150, we'll use 120 as average
       const avgBrokersPerDate = 120;
@@ -88,9 +91,6 @@ export class BrokerSummaryIDXDataScheduler {
           }
         }
       };
-
-      // Process each market type for all dates
-      const marketTypes: Array<'' | 'RG' | 'TN' | 'NG'> = ['', 'RG', 'TN', 'NG'];
       let totalSuccess = 0;
       let totalFailed = 0;
       let totalSkipped = 0;

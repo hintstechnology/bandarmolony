@@ -130,12 +130,38 @@ export class BrokerInventoryCalculator {
 
   /**
    * Load broker transaction data for a specific broker and date from Azure
+   * Tries both YYYYMMDD and YYMMDD formats to handle different folder naming conventions
    */
   private async loadBrokerTransactionDataFromAzure(brokerCode: string, date: string): Promise<BrokerTransactionData[]> {
-    const blobName = `broker_transaction/broker_transaction_${date}/${brokerCode}.csv`;
+    // Try YYYYMMDD format first (normalized)
+    let blobName = `broker_transaction/broker_transaction_${date}/${brokerCode}.csv`;
+    let csvContent: string | null = null;
     
     try {
-      const csvContent = await downloadText(blobName);
+      csvContent = await downloadText(blobName);
+    } catch (error) {
+      // If YYYYMMDD format fails and date is 8 digits, try YYMMDD format (original)
+      if (date.length === 8) {
+        // Convert YYYYMMDD to YYMMDD: 20251201 -> 251201
+        const yyMMdd = `${date.substring(2, 4)}${date.substring(4, 6)}${date.substring(6, 8)}`;
+        blobName = `broker_transaction/broker_transaction_${yyMMdd}/${brokerCode}.csv`;
+        try {
+          csvContent = await downloadText(blobName);
+        } catch {
+          console.warn(`⚠️ File not found for broker ${brokerCode} on date ${date} (tried both YYYYMMDD and YYMMDD formats)`);
+          return [];
+        }
+      } else {
+        console.warn(`⚠️ File not found for broker ${brokerCode} on date ${date}`);
+        return [];
+      }
+    }
+    
+    if (!csvContent) {
+      return [];
+    }
+    
+    try {
       
       const data: BrokerTransactionData[] = [];
       const lines = csvContent.split('\n');
@@ -421,8 +447,17 @@ export class BrokerInventoryCalculator {
             
             const brokerMap = new Map<string, BrokerTransactionData[]>();
             
-            const datePrefix = `broker_transaction/broker_transaction_${date}/`;
-            const blobs = await listPaths({ prefix: datePrefix });
+            // Try YYYYMMDD format first, then YYMMDD format
+            let datePrefix = `broker_transaction/broker_transaction_${date}/`;
+            let blobs = await listPaths({ prefix: datePrefix });
+            
+            // If no blobs found and date is YYYYMMDD format, try YYMMDD format
+            if (blobs.length === 0 && date.length === 8) {
+              // Convert YYYYMMDD to YYMMDD: 20251201 -> 251201
+              const yyMMdd = `${date.substring(2, 4)}${date.substring(4, 6)}${date.substring(6, 8)}`;
+              datePrefix = `broker_transaction/broker_transaction_${yyMMdd}/`;
+              blobs = await listPaths({ prefix: datePrefix });
+            }
             const brokersForDate: string[] = [];
             for (const blobName of blobs) {
               const fileName = blobName.split('/').pop();
