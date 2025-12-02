@@ -616,10 +616,11 @@ export async function runPhase2MarketRotationCalculations(manualTriggeredBy?: st
     // Stop memory monitoring for this phase
     stopMemoryMonitoring();
     
-    // Trigger Phase 3 automatically if Phase 2 succeeded and Phase 3 is enabled
+      // Trigger Phase 3 automatically if Phase 2 succeeded and Phase 3 is enabled
+      // Pass manualTriggeredBy if this was manually triggered
     if (successCount >= 4 && phaseEnabled['phase3_flow_trade']) { // Trigger Phase 3 if at least 4/5 succeed
       console.log('🔄 Triggering Phase 3 Flow Trade calculations...');
-      await runPhase3FlowTradeCalculations();
+      await runPhase3FlowTradeCalculations(fromManual ? manualTriggeredBy : undefined);
     } else {
       if (!phaseEnabled['phase3_flow_trade']) {
         console.log('⚠️ Skipping Phase 3 - Phase 3 is disabled');
@@ -722,8 +723,8 @@ export async function runPhase3FlowTradeCalculations(manualTriggeredBy?: string)
           });
         }
         
-        // Run calculation - service will create its own log entry
-        await (task.service as any)[task.method]('all', null, triggeredBy);
+        // Run calculation - pass logId to enable progress tracking
+        await (task.service as any)[task.method]('all', logEntry?.id || null, triggeredBy);
         
         const duration = Date.now() - startTime;
         
@@ -785,9 +786,10 @@ export async function runPhase3FlowTradeCalculations(manualTriggeredBy?: string)
     stopMemoryMonitoring();
     
     // Trigger Phase 4 automatically if Phase 3 succeeded and Phase 4 is enabled
+      // Pass manualTriggeredBy if this was manually triggered
     if (successCount >= 2 && phaseEnabled['phase4_broker_summary']) { // Trigger Phase 4 if at least 2/3 succeed
       console.log('🔄 Triggering Phase 4 Broker Summary calculations...');
-      await runPhase4BrokerSummaryCalculations();
+      await runPhase4BrokerSummaryCalculations(fromManual ? manualTriggeredBy : undefined);
       } else {
         if (!phaseEnabled['phase4_broker_summary']) {
           console.log('⚠️ Skipping Phase 4 - Phase 4 is disabled');
@@ -811,7 +813,7 @@ export async function runPhase3FlowTradeCalculations(manualTriggeredBy?: string)
     }
 }
 
-export async function runPhase4BrokerSummaryCalculations(): Promise<void> {
+export async function runPhase4BrokerSummaryCalculations(manualTriggeredBy?: string): Promise<void> {
   // Check if phase is enabled before starting
   if (!phaseEnabled['phase4_broker_summary']) {
     console.log('⚠️ Phase 4 Broker Summary is disabled - skipping');
@@ -839,11 +841,14 @@ export async function runPhase4BrokerSummaryCalculations(): Promise<void> {
       return;
     }
 
+    // Determine if this is manual or scheduled trigger
+    const fromManual = !!manualTriggeredBy;
+
     // Create database log entry
     const logData: Partial<SchedulerLog> = {
       feature_name: 'phase4_broker_summary',
-      trigger_type: 'scheduled',
-      triggered_by: 'phase3',
+      trigger_type: fromManual ? 'manual' : 'scheduled',
+      triggered_by: fromManual ? manualTriggeredBy! : 'phase3',
       status: 'running',
       phase_id: 'phase4_broker_summary',
       started_at: new Date().toISOString(),
@@ -865,7 +870,8 @@ export async function runPhase4BrokerSummaryCalculations(): Promise<void> {
     // Top Broker
     console.log('🔄 Starting Top Broker calculation...');
     const topBrokerStartTime = Date.now();
-    const resultTopBroker = await topBrokerService.generateTopBrokerData('all', null, 'phase4_broker_summary');
+    // Pass logId to enable progress tracking
+    const resultTopBroker = await topBrokerService.generateTopBrokerData('all', logEntry?.id || null, 'phase4_broker_summary');
     const topBrokerDuration = Math.round((Date.now() - topBrokerStartTime) / 1000);
     console.log(`📊 Top Broker completed in ${topBrokerDuration}s`);
     if (logEntry) {
@@ -878,7 +884,8 @@ export async function runPhase4BrokerSummaryCalculations(): Promise<void> {
     // Broker Summary
     console.log('🔄 Starting Broker Summary calculation...');
     const brokerSummaryStartTime = Date.now();
-    const resultSummary = await brokerSummaryService.generateBrokerSummaryData('all', null, 'phase4_broker_summary');
+    // Pass logId to enable progress tracking
+    const resultSummary = await brokerSummaryService.generateBrokerSummaryData('all', logEntry?.id || null, 'phase4_broker_summary');
     const brokerSummaryDuration = Math.round((Date.now() - brokerSummaryStartTime) / 1000);
     console.log(`📊 Broker Summary completed in ${brokerSummaryDuration}s`);
     if (logEntry) {
@@ -891,7 +898,8 @@ export async function runPhase4BrokerSummaryCalculations(): Promise<void> {
     // Broker Summary IDX
     console.log('🔄 Starting Broker Summary IDX calculation...');
     const idxStartTime = Date.now();
-    const resultIDX = await brokerSummaryIDXService.generateBrokerSummaryIDXData('all', null, 'phase4_broker_summary');
+    // Pass logId to enable progress tracking
+    const resultIDX = await brokerSummaryIDXService.generateBrokerSummaryIDXData('all', logEntry?.id || null, 'phase4_broker_summary');
     const idxDuration = Math.round((Date.now() - idxStartTime) / 1000);
     console.log(`📊 Broker Summary IDX completed in ${idxDuration}s`);
     if (logEntry) {
@@ -904,7 +912,8 @@ export async function runPhase4BrokerSummaryCalculations(): Promise<void> {
     // Broker Summary by Type
     console.log('🔄 Starting Broker Summary by Type (RG/TN/NG) calculation...');
     const brokerSummaryTypeStartTime = Date.now();
-    const resultType = await brokerSummaryTypeService.generateBrokerSummaryTypeData('all', null, 'phase4_broker_summary');
+    // Pass logId to enable progress tracking
+    const resultType = await brokerSummaryTypeService.generateBrokerSummaryTypeData('all', logEntry?.id || null, 'phase4_broker_summary');
     const brokerSummaryTypeDuration = Math.round((Date.now() - brokerSummaryTypeStartTime) / 1000);
     console.log(`📊 Broker Summary Type completed in ${brokerSummaryTypeDuration}s`);
     if (logEntry) {
@@ -949,9 +958,10 @@ export async function runPhase4BrokerSummaryCalculations(): Promise<void> {
     stopMemoryMonitoring();
     
     // Trigger Phase 5 automatically if Phase 4 succeeded and Phase 5 is enabled
+      // Pass manualTriggeredBy if this was manually triggered
     if (successCount >= 3 && phaseEnabled['phase5_broktrans_broker']) {
       console.log('🔄 Triggering Phase 5 Broktrans Broker calculations...');
-      await runPhase5BroktransBrokerCalculations();
+      await runPhase5BroktransBrokerCalculations(fromManual ? manualTriggeredBy : undefined);
     } else {
       if (!phaseEnabled['phase5_broktrans_broker']) {
         console.log('⚠️ Skipping Phase 5 - Phase 5 is disabled');
@@ -978,7 +988,7 @@ export async function runPhase4BrokerSummaryCalculations(): Promise<void> {
 /**
  * Run Phase 5 - Broktrans Broker (Broker Transaction, Broker Transaction RG/TN/NG, Broker Transaction F/D, Broker Transaction F/D RG/TN/NG)
  */
-export async function runPhase5BroktransBrokerCalculations(): Promise<void> {
+export async function runPhase5BroktransBrokerCalculations(manualTriggeredBy?: string): Promise<void> {
   // Check if phase is enabled before starting
   if (!phaseEnabled['phase5_broktrans_broker']) {
     console.log('⚠️ Phase 5 Broktrans Broker is disabled - skipping');
@@ -1005,11 +1015,14 @@ export async function runPhase5BroktransBrokerCalculations(): Promise<void> {
         return;
       }
       
+      // Determine if this is manual or scheduled trigger
+      const fromManual = !!manualTriggeredBy;
+      
       // Create database log entry
       const logData: Partial<SchedulerLog> = {
       feature_name: 'phase5_broktrans_broker',
-        trigger_type: 'scheduled',
-      triggered_by: 'phase4',
+        trigger_type: fromManual ? 'manual' : 'scheduled',
+      triggered_by: fromManual ? manualTriggeredBy! : 'phase4',
         status: 'running',
         phase_id: 'phase5_broktrans_broker',
         started_at: new Date().toISOString(),
@@ -1021,7 +1034,7 @@ export async function runPhase5BroktransBrokerCalculations(): Promise<void> {
       console.log('📊 Phase 5 Broktrans Broker database log created:', logEntry.id);
     }
     
-    const triggeredBy = 'phase5_broktrans_broker';
+    const triggeredBy = fromManual ? manualTriggeredBy! : 'phase5_broktrans_broker';
 
     console.log('🔄 Starting Broker Transaction calculation...');
     const brokerTransactionStartTime = Date.now();
@@ -1038,7 +1051,8 @@ export async function runPhase5BroktransBrokerCalculations(): Promise<void> {
 
     console.log('🔄 Starting Broker Transaction RG/TN/NG calculation...');
     const brokerTransactionRGTNNGStartTime = Date.now();
-    const resultTransactionRGTNNG = await brokerTransactionRGTNNGService.generateBrokerTransactionRGTNNGData('all', null, triggeredBy);
+    // Pass logId to enable progress tracking
+    const resultTransactionRGTNNG = await brokerTransactionRGTNNGService.generateBrokerTransactionRGTNNGData('all', logEntry?.id || null, triggeredBy);
     const brokerTransactionRGTNNGDuration = Math.round((Date.now() - brokerTransactionRGTNNGStartTime) / 1000);
     console.log(`📊 Broker Transaction RG/TN/NG completed in ${brokerTransactionRGTNNGDuration}s`);
     if (logEntry) {
@@ -1076,7 +1090,8 @@ export async function runPhase5BroktransBrokerCalculations(): Promise<void> {
 
     console.log('🔄 Starting Broker Transaction IDX calculation...');
     const brokerTransactionIDXStartTime = Date.now();
-    const resultTransactionIDX = await brokerTransactionIDXService.generateBrokerTransactionIDXData('all');
+    // Pass logId to enable progress tracking
+    const resultTransactionIDX = await brokerTransactionIDXService.generateBrokerTransactionIDXData('all', logEntry?.id || null, triggeredBy);
     const brokerTransactionIDXDuration = Math.round((Date.now() - brokerTransactionIDXStartTime) / 1000);
     console.log(`📊 Broker Transaction IDX completed in ${brokerTransactionIDXDuration}s`);
     if (logEntry) {
@@ -1121,9 +1136,10 @@ export async function runPhase5BroktransBrokerCalculations(): Promise<void> {
     stopMemoryMonitoring();
     
     // Trigger Phase 6 automatically if Phase 5 succeeded and Phase 6 is enabled
+      // Pass manualTriggeredBy if this was manually triggered
     if (successCount >= 3 && phaseEnabled['phase6_broktrans_stock']) {
       console.log('🔄 Triggering Phase 6 Broktrans Stock calculations...');
-      await runPhase6BroktransStockCalculations();
+      await runPhase6BroktransStockCalculations(fromManual ? manualTriggeredBy : undefined);
       } else {
         if (!phaseEnabled['phase6_broktrans_stock']) {
           console.log('⚠️ Skipping Phase 6 - Phase 6 is disabled');
@@ -1150,7 +1166,7 @@ export async function runPhase5BroktransBrokerCalculations(): Promise<void> {
 /**
  * Run Phase 6 - Broktrans Stock (Broker Transaction Stock, Broker Transaction Stock F/D, Broker Transaction Stock RG/TN/NG, Broker Transaction Stock F/D RG/TN/NG)
  */
-export async function runPhase6BroktransStockCalculations(): Promise<void> {
+export async function runPhase6BroktransStockCalculations(manualTriggeredBy?: string): Promise<void> {
   // Check if phase is enabled before starting
   if (!phaseEnabled['phase6_broktrans_stock']) {
     console.log('⚠️ Phase 6 Broktrans Stock is disabled - skipping');
@@ -1178,11 +1194,14 @@ export async function runPhase6BroktransStockCalculations(): Promise<void> {
       return;
     }
     
+    // Determine if this is manual or scheduled trigger
+    const fromManual = !!manualTriggeredBy;
+    
     // Create database log entry
     const logData: Partial<SchedulerLog> = {
       feature_name: 'phase6_broktrans_stock',
-      trigger_type: 'scheduled',
-      triggered_by: 'phase5',
+      trigger_type: fromManual ? 'manual' : 'scheduled',
+      triggered_by: fromManual ? manualTriggeredBy! : 'phase5',
       status: 'running',
       phase_id: 'phase6_broktrans_stock',
       started_at: new Date().toISOString(),
@@ -1194,7 +1213,7 @@ export async function runPhase6BroktransStockCalculations(): Promise<void> {
       console.log('📊 Phase 6 Broktrans Stock database log created:', logEntry.id);
     }
     
-    const triggeredBy = 'phase6_broktrans_stock';
+    const triggeredBy = fromManual ? manualTriggeredBy! : 'phase6_broktrans_stock';
 
     console.log('🔄 Starting Broker Transaction Stock calculation...');
     const brokerTransactionStockStartTime = Date.now();
@@ -1250,7 +1269,8 @@ export async function runPhase6BroktransStockCalculations(): Promise<void> {
 
     console.log('🔄 Starting Broker Transaction Stock IDX calculation...');
     const brokerTransactionStockIDXStartTime = Date.now();
-    const resultTransactionStockIDX = await brokerTransactionStockIDXService.generateBrokerTransactionStockIDXData('all');
+    // Pass logId to enable progress tracking
+    const resultTransactionStockIDX = await brokerTransactionStockIDXService.generateBrokerTransactionStockIDXData('all', logEntry?.id || null, triggeredBy);
     const brokerTransactionStockIDXDuration = Math.round((Date.now() - brokerTransactionStockIDXStartTime) / 1000);
     console.log(`📊 Broker Transaction Stock IDX completed in ${brokerTransactionStockIDXDuration}s`);
     if (logEntry) {
@@ -1296,9 +1316,10 @@ export async function runPhase6BroktransStockCalculations(): Promise<void> {
     stopMemoryMonitoring();
     
     // Trigger Phase 7 automatically if Phase 6 succeeded and Phase 7 is enabled
+      // Pass manualTriggeredBy if this was manually triggered
     if (successCount >= 3 && phaseEnabled['phase7_bid_breakdown']) {
       console.log('🔄 Triggering Phase 7 Bid Breakdown calculations...');
-      await runPhase7BidBreakdownCalculations();
+      await runPhase7BidBreakdownCalculations(fromManual ? manualTriggeredBy : undefined);
     } else {
       if (!phaseEnabled['phase7_bid_breakdown']) {
         console.log('⚠️ Skipping Phase 7 - Phase 7 is disabled');
@@ -1325,7 +1346,7 @@ export async function runPhase6BroktransStockCalculations(): Promise<void> {
 /**
  * Run Phase 7 - Bid Breakdown (Bid/Ask Footprint, Broker Breakdown)
  */
-export async function runPhase7BidBreakdownCalculations(): Promise<void> {
+export async function runPhase7BidBreakdownCalculations(manualTriggeredBy?: string): Promise<void> {
   // Check if phase is enabled before starting
   if (!phaseEnabled['phase7_bid_breakdown']) {
     console.log('⚠️ Phase 7 Bid Breakdown is disabled - skipping');
@@ -1353,11 +1374,14 @@ export async function runPhase7BidBreakdownCalculations(): Promise<void> {
       return;
     }
 
+    // Determine if this is manual or scheduled trigger
+    const fromManual = !!manualTriggeredBy;
+
     // Create database log entry
     const logData: Partial<SchedulerLog> = {
       feature_name: 'phase7_bid_breakdown',
-      trigger_type: 'scheduled',
-      triggered_by: 'phase6',
+      trigger_type: fromManual ? 'manual' : 'scheduled',
+      triggered_by: fromManual ? manualTriggeredBy! : 'phase6',
       status: 'running',
       phase_id: 'phase7_bid_breakdown',
       started_at: new Date().toISOString(),
@@ -1369,11 +1393,12 @@ export async function runPhase7BidBreakdownCalculations(): Promise<void> {
       console.log('📊 Phase 7 Bid Breakdown database log created:', logEntry.id);
     }
     
-    const triggeredBy = 'phase7_bid_breakdown';
+    const triggeredBy = fromManual ? manualTriggeredBy! : 'phase7_bid_breakdown';
 
     console.log('🔄 Starting Bid/Ask Footprint calculation...');
     const bidAskStartTime = Date.now();
-    const bidAskResult = await bidAskService.generateBidAskData('all', null, triggeredBy);
+    // Pass logId to enable progress tracking
+    const bidAskResult = await bidAskService.generateBidAskData('all', logEntry?.id || null, triggeredBy);
     const bidAskDuration = Math.round((Date.now() - bidAskStartTime) / 1000);
     
     console.log(`📊 Bid/Ask Footprint completed in ${bidAskDuration}s`);
@@ -1431,9 +1456,10 @@ export async function runPhase7BidBreakdownCalculations(): Promise<void> {
     stopMemoryMonitoring();
     
     // Trigger Phase 8 automatically if Phase 7 succeeded and Phase 8 is enabled
+      // Pass manualTriggeredBy if this was manually triggered
     if (successCount >= 1 && phaseEnabled['phase8_additional']) {
       console.log('🔄 Triggering Phase 8 Additional calculations...');
-      await runPhase8AdditionalCalculations();
+      await runPhase8AdditionalCalculations(fromManual ? manualTriggeredBy : undefined);
     } else {
       if (!phaseEnabled['phase8_additional']) {
         console.log('⚠️ Skipping Phase 8 - Phase 8 is disabled');
@@ -1460,7 +1486,7 @@ export async function runPhase7BidBreakdownCalculations(): Promise<void> {
 /**
  * Run Phase 8 - Additional (Broker Inventory, Accumulation Distribution)
  */
-export async function runPhase8AdditionalCalculations(): Promise<void> {
+export async function runPhase8AdditionalCalculations(manualTriggeredBy?: string): Promise<void> {
   // Check if phase is enabled before starting
   if (!phaseEnabled['phase8_additional']) {
     console.log('⚠️ Phase 8 Additional is disabled - skipping');
@@ -1488,11 +1514,14 @@ export async function runPhase8AdditionalCalculations(): Promise<void> {
       return;
     }
     
+    // Determine if this is manual or scheduled trigger
+    const fromManual = !!manualTriggeredBy;
+    
     // Create database log entry
     const logData: Partial<SchedulerLog> = {
       feature_name: 'phase8_additional',
-      trigger_type: 'scheduled',
-      triggered_by: 'phase7',
+      trigger_type: fromManual ? 'manual' : 'scheduled',
+      triggered_by: fromManual ? manualTriggeredBy! : 'phase7',
       status: 'running',
       phase_id: 'phase8_additional',
       started_at: new Date().toISOString(),
@@ -1505,7 +1534,7 @@ export async function runPhase8AdditionalCalculations(): Promise<void> {
     }
     
     console.log('🔄 Starting Additional calculations (SEQUENTIAL)...');
-    const triggeredBy = 'phase8_additional';
+    const triggeredBy = fromManual ? manualTriggeredBy! : 'phase8_additional';
     const additionalCalculations = [
       { name: 'Broker Inventory', featureName: 'broker_inventory', service: brokerInventoryService, method: 'generateBrokerInventoryData' },
       { name: 'Accumulation Distribution', featureName: 'accumulation_distribution', service: accumulationService, method: 'generateAccumulationData' }
@@ -1526,8 +1555,8 @@ export async function runPhase8AdditionalCalculations(): Promise<void> {
       
       const calcStartTime = Date.now();
       try {
-        // Services will create their own log entries
-        const result = await (calc.service as any)[calc.method]('all', null, triggeredBy);
+        // Pass logId to enable progress tracking
+        const result = await (calc.service as any)[calc.method]('all', logEntry?.id || null, triggeredBy);
         const calcDuration = Math.round((Date.now() - calcStartTime) / 1000);
       
       if (result.success) {
@@ -1661,12 +1690,16 @@ export async function runPhase1DataCollection(manualTriggeredBy?: string): Promi
         return;
       }
       
+      // Determine if this is manual or scheduled trigger
+      const fromManual = !!manualTriggeredBy;
+      
       // Create database log entry
       const logData: Partial<SchedulerLog> = {
         feature_name: 'phase1a_input_daily',
-        trigger_type: 'manual',
-        triggered_by: manualTriggeredBy || 'admin',
+        trigger_type: fromManual ? 'manual' : 'scheduled',
+        triggered_by: fromManual ? manualTriggeredBy! : 'scheduler',
         status: 'running',
+        phase_id: 'phase1a_input_daily',
         started_at: new Date().toISOString(),
         environment: process.env['NODE_ENV'] || 'development'
       };
@@ -1688,7 +1721,10 @@ export async function runPhase1DataCollection(manualTriggeredBy?: string): Promi
         { name: 'Done Summary Data', service: updateDoneSummaryData, method: null }
       ];
       const totalTasks = dataCollectionTasks.length;
-      const triggeredBy = 'phase1a_input_daily';
+      // Pass logId and triggeredBy to services
+      // If manual, use email user; if scheduled, use 'phase1a_input_daily' for consistency
+      // Note: Services will use logId if provided, so triggeredBy is mainly for reference
+      const triggeredBy = fromManual ? manualTriggeredBy! : 'phase1a_input_daily';
       
       const dataCollectionPromises = dataCollectionTasks.map(async (task, index) => {
         const startTime = Date.now();
@@ -1711,8 +1747,8 @@ export async function runPhase1DataCollection(manualTriggeredBy?: string): Promi
             });
           }
           
-          // Run calculation - services will create their own log entries
-          await (task.service as any)(null, triggeredBy);
+          // Run calculation - pass logId and triggeredBy to services
+          await (task.service as any)(logEntry?.id || null, triggeredBy);
           
           // Check again after task completes
           if (!phaseEnabled['phase1a_input_daily']) {
@@ -1788,9 +1824,10 @@ export async function runPhase1DataCollection(manualTriggeredBy?: string): Promi
       await aggressiveMemoryCleanup();
       
       // Trigger Phase 2 automatically if Phase 1 succeeded and Phase 2 is enabled
+      // Pass manualTriggeredBy if this was manually triggered
       if (successCount === totalTasks && phaseEnabled['phase2_market_rotation']) {
         console.log('🔄 Triggering Phase 2 Market Rotation calculations...');
-        await runPhase2MarketRotationCalculations();
+        await runPhase2MarketRotationCalculations(fromManual ? manualTriggeredBy : undefined);
       } else {
         if (!phaseEnabled['phase2_market_rotation']) {
           console.log('⚠️ Skipping Phase 2 - Phase 2 is disabled');
@@ -2203,19 +2240,19 @@ export async function triggerPhase(phaseId: string, triggeredBy?: string): Promi
         await runPhase3FlowTradeCalculations(triggeredBy);
         return { success: true, message: 'Phase 3 Flow Trade triggered successfully' };
       case 'phase4_broker_summary':
-        await runPhase4BrokerSummaryCalculations();
+        await runPhase4BrokerSummaryCalculations(triggeredBy);
         return { success: true, message: 'Phase 4 Broker Summary triggered successfully' };
       case 'phase5_broktrans_broker':
-        await runPhase5BroktransBrokerCalculations();
+        await runPhase5BroktransBrokerCalculations(triggeredBy);
         return { success: true, message: 'Phase 5 Broktrans Broker triggered successfully' };
       case 'phase6_broktrans_stock':
-        await runPhase6BroktransStockCalculations();
+        await runPhase6BroktransStockCalculations(triggeredBy);
         return { success: true, message: 'Phase 6 Broktrans Stock triggered successfully' };
       case 'phase7_bid_breakdown':
-        await runPhase7BidBreakdownCalculations();
+        await runPhase7BidBreakdownCalculations(triggeredBy);
         return { success: true, message: 'Phase 7 Bid Breakdown triggered successfully' };
       case 'phase8_additional':
-        await runPhase8AdditionalCalculations();
+        await runPhase8AdditionalCalculations(triggeredBy);
         return { success: true, message: 'Phase 8 Additional triggered successfully' };
       default:
         return { success: false, message: `Unknown phase: ${phaseId}` };
@@ -2327,8 +2364,8 @@ export function startScheduler(): void {
             });
           }
           
-          // Run calculation - services will create their own log entries
-          await (task.service as any)(null, triggeredBy);
+          // Run calculation - pass logId and triggeredBy to services
+          await (task.service as any)(logEntry?.id || null, triggeredBy);
           
           // Check again after task completes
           if (!phaseEnabled['phase1a_input_daily']) {
@@ -2404,6 +2441,7 @@ export function startScheduler(): void {
       await aggressiveMemoryCleanup();
       
       // Trigger Phase 2 automatically if Phase 1 succeeded and Phase 2 is enabled
+      // Phase 2 will be triggered from scheduled Phase 1, so no manualTriggeredBy needed
       if (successCount >= Math.ceil(totalTasks * 0.67) && phaseEnabled['phase2_market_rotation']) { // Trigger Phase 2 if at least ~2/3 succeed
         console.log('🔄 Triggering Phase 2 Market Rotation calculations...');
         await runPhase2MarketRotationCalculations();
@@ -2503,8 +2541,8 @@ export function startScheduler(): void {
               });
             }
             
-            // Run calculation - services will create their own log entries
-            await (task.service as any)(null, triggeredBy);
+            // Run calculation - pass logId and triggeredBy to services
+            await (task.service as any)(logEntry?.id || null, triggeredBy);
             
             const duration = Date.now() - startTime;
             

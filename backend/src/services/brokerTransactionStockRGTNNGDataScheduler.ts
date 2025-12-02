@@ -47,9 +47,12 @@ export class BrokerTransactionStockRGTNNGDataScheduler {
       
       const result = await this.calculator.generateBrokerTransactionData(targetDate, finalLogId);
       
+      // Check if this is called from a Phase (don't mark completed/failed if so, Phase will handle it)
+      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      
       if (result.success) {
         console.log('✅ Broker Transaction Stock RG/TN/NG calculation completed successfully');
-        if (finalLogId) {
+        if (finalLogId && !isFromPhase) {
           await SchedulerLogService.markCompleted(finalLogId, {
             total_files_processed: 1,
             files_created: 1,
@@ -58,7 +61,7 @@ export class BrokerTransactionStockRGTNNGDataScheduler {
         }
       } else {
         console.error('❌ Broker Transaction Stock RG/TN/NG calculation failed:', result.message);
-        if (finalLogId) {
+        if (finalLogId && !isFromPhase) {
           await SchedulerLogService.markFailed(finalLogId, result.message);
         }
       }
@@ -67,7 +70,9 @@ export class BrokerTransactionStockRGTNNGDataScheduler {
     } catch (error) {
       console.error('❌ Error during Broker Transaction Stock RG/TN/NG calculation:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      if (finalLogId) {
+      // Check if this is called from a Phase (don't mark failed if so, Phase will handle it)
+      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      if (finalLogId && !isFromPhase) {
         await SchedulerLogService.markFailed(finalLogId, errorMessage, error);
       }
       return {

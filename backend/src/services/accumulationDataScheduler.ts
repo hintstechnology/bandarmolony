@@ -48,9 +48,12 @@ export class AccumulationDataScheduler {
       // Accumulation distribution calculator processes specific date or all dates
       const result = await this.calculator.generateAccumulationDistributionData(targetDate, finalLogId);
       
+      // Check if this is called from a Phase (don't mark completed/failed if so, Phase will handle it)
+      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      
       if (result.success) {
         console.log('✅ Accumulation Distribution calculation completed successfully');
-        if (finalLogId) {
+        if (finalLogId && !isFromPhase) {
           await SchedulerLogService.markCompleted(finalLogId, {
             total_files_processed: 1,
             files_created: 1,
@@ -59,7 +62,7 @@ export class AccumulationDataScheduler {
         }
       } else {
         console.error('❌ Accumulation Distribution calculation failed:', result.message);
-        if (finalLogId) {
+        if (finalLogId && !isFromPhase) {
           await SchedulerLogService.markFailed(finalLogId, result.message);
         }
       }
@@ -68,7 +71,9 @@ export class AccumulationDataScheduler {
     } catch (error) {
       console.error('❌ Error during Accumulation Distribution calculation:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      if (finalLogId) {
+      // Check if this is called from a Phase (don't mark failed if so, Phase will handle it)
+      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      if (finalLogId && !isFromPhase) {
         await SchedulerLogService.markFailed(finalLogId, errorMessage, error);
       }
       return {

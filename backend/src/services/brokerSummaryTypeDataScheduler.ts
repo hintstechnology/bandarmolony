@@ -46,9 +46,12 @@ class BrokerSummaryTypeDataScheduler {
       // Type assertion to fix TypeScript error (method exists but TypeScript doesn't recognize it)
       const result = await (this.calculator as any).generateBrokerSummarySplitPerType();
       
+      // Check if this is called from a Phase (don't mark completed/failed if so, Phase will handle it)
+      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      
       if (result.success) {
         console.log(`✅ Broker Summary Type calculation completed: ${result.message || 'Success'}`);
-        if (finalLogId) {
+        if (finalLogId && !isFromPhase) {
           await SchedulerLogService.markCompleted(finalLogId, {
             total_files_processed: 1,
             files_created: 1,
@@ -57,7 +60,7 @@ class BrokerSummaryTypeDataScheduler {
         }
       } else {
         console.error(`❌ Broker Summary Type calculation failed: ${result.message || 'Unknown error'}`);
-        if (finalLogId) {
+        if (finalLogId && !isFromPhase) {
           await SchedulerLogService.markFailed(finalLogId, result.message || 'Unknown error');
         }
       }
@@ -66,7 +69,9 @@ class BrokerSummaryTypeDataScheduler {
     } catch (error: any) {
       const errorMessage = error?.message || 'Unknown error';
       console.error('❌ Broker Summary by Type generation failed:', errorMessage);
-      if (finalLogId) {
+      // Check if this is called from a Phase (don't mark failed if so, Phase will handle it)
+      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      if (finalLogId && !isFromPhase) {
         await SchedulerLogService.markFailed(finalLogId, errorMessage, error);
       }
       return { success: false, message: errorMessage };

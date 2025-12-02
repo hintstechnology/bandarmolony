@@ -357,6 +357,13 @@ export class BrokerTransactionStockRGTNNGCalculator {
       
       // Process each type (RG, TN, NG)
       for (const type of ['RG', 'TN', 'NG'] as const) {
+        // OPTIMIZATION: Check if folder for this type already exists before processing
+        const typeExists = await this.checkBrokerTransactionStockRGTNNGExists(dateSuffix, type);
+        if (typeExists) {
+          console.log(`⏭️ Skipping ${dateSuffix} (${type}) - broker_transaction_stock_${type.toLowerCase()} folder already exists`);
+          continue;
+        }
+        
         const filtered = this.filterByType(data, type);
         if (filtered.length === 0) {
           console.log(`⏭️ Skipping ${dateSuffix} (${type}) - no ${type} transactions found`);

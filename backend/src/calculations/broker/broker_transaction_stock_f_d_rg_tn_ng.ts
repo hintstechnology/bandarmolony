@@ -376,6 +376,13 @@ export class BrokerTransactionStockFDRGTNNGCalculator {
         }
         
         for (const investorType of investorTypes) {
+          // OPTIMIZATION: Check if folder for this combination already exists before processing
+          const combinationExists = await this.checkBrokerTransactionStockFDRGTNNGExists(dateSuffix, type, investorType);
+          if (combinationExists) {
+            console.log(`⏭️ Skipping ${dateSuffix} (${type}, ${investorType}) - broker_transaction_stock_${type.toLowerCase()}_${investorType.toLowerCase()} folder already exists`);
+            continue;
+          }
+          
           const filtered = this.filterByInvestorType(typeFiltered, investorType);
           if (filtered.length === 0) {
             console.log(`⏭️ Skipping ${dateSuffix} (${type}, ${investorType}) - no transactions found`);

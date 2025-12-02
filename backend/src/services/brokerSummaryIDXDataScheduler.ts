@@ -101,7 +101,9 @@ export class BrokerSummaryIDXDataScheduler {
       console.log(`❌ Total Failed: ${totalFailed}/${totalProcessed}`);
 
       const finalSuccess = totalSuccess > 0 || totalSkipped > 0;
-      if (finalLogId) {
+      // Check if this is called from a Phase (don't mark completed/failed if so, Phase will handle it)
+      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      if (finalLogId && !isFromPhase) {
         if (finalSuccess) {
           await SchedulerLogService.markCompleted(finalLogId, {
             total_files_processed: totalProcessed,
@@ -122,7 +124,9 @@ export class BrokerSummaryIDXDataScheduler {
     } catch (error: any) {
       console.error('❌ Broker Summary IDX generation failed:', error?.message || error);
       const errorMessage = error?.message || 'Unknown error';
-      if (finalLogId) {
+      // Check if this is called from a Phase (don't mark failed if so, Phase will handle it)
+      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      if (finalLogId && !isFromPhase) {
         await SchedulerLogService.markFailed(finalLogId, errorMessage, error);
       }
       return {

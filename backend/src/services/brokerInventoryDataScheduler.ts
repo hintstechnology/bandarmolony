@@ -48,7 +48,10 @@ export class BrokerInventoryDataScheduler {
       await this.calculator.generateBrokerInventoryData(targetDate, finalLogId);
       console.log('✅ Broker Inventory calculation completed successfully');
       
-      if (finalLogId) {
+      // Check if this is called from a Phase (don't mark completed/failed if so, Phase will handle it)
+      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      
+      if (finalLogId && !isFromPhase) {
         await SchedulerLogService.markCompleted(finalLogId, {
           total_files_processed: 1,
           files_created: 1,
@@ -67,7 +70,9 @@ export class BrokerInventoryDataScheduler {
     } catch (error) {
       console.error('❌ Error during Broker Inventory calculation:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      if (finalLogId) {
+      // Check if this is called from a Phase (don't mark failed if so, Phase will handle it)
+      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      if (finalLogId && !isFromPhase) {
         await SchedulerLogService.markFailed(finalLogId, errorMessage, error);
       }
       return {
