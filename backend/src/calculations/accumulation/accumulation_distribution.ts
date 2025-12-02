@@ -1,5 +1,14 @@
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_8, MAX_CONCURRENT_REQUESTS_PHASE_8 } from '../../services/dataUpdateService';
+import { SchedulerLogService } from '../../services/schedulerLogService';
+
+// Progress tracker interface for thread-safe stock counting
+interface ProgressTracker {
+  totalStocks: number;
+  processedStocks: number;
+  logId: string | null;
+  updateProgress: () => Promise<void>;
+}
 
 // Helper function to limit concurrency for Phase 7-8
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -567,6 +576,41 @@ export class AccumulationDistributionCalculator {
         };
       }
 
+      // Pre-count total stocks from all dates for accurate progress tracking
+      console.log(`🔍 Pre-counting total stocks from ${limitedDates.length} dates...`);
+      const allStocks = new Set<string>();
+      for (let i = 0; i < Math.min(limitedDates.length, 10); i++) { // Sample first 10 dates
+        const date = limitedDates[i];
+        if (!date) continue; // Skip undefined dates
+        try {
+          const bidAskData = await this.loadBidAskDataFromAzure(date);
+          bidAskData.forEach(d => allStocks.add(d.StockCode));
+        } catch (error) {
+          // Skip dates that can't be read
+        }
+      }
+      const avgStocksPerDate = allStocks.size;
+      const estimatedTotalStocks = limitedDates.length * avgStocksPerDate;
+      console.log(`✅ Pre-count complete: ~${avgStocksPerDate} stocks per date, estimated ${estimatedTotalStocks.toLocaleString()} total stocks`);
+      
+      // Create progress tracker for thread-safe stock counting
+      const progressTracker: ProgressTracker = {
+        totalStocks: estimatedTotalStocks,
+        processedStocks: 0,
+        logId: logId || null,
+        updateProgress: async () => {
+          if (progressTracker.logId) {
+            const percentage = estimatedTotalStocks > 0 
+              ? Math.min(100, Math.round((progressTracker.processedStocks / estimatedTotalStocks) * 100))
+              : 0;
+            await SchedulerLogService.updateLog(progressTracker.logId, {
+              progress_percentage: percentage,
+              current_processing: `Processing stocks: ${progressTracker.processedStocks.toLocaleString()}/${estimatedTotalStocks.toLocaleString()} stocks processed`
+            });
+          }
+        }
+      };
+
       // Load stock files list ONCE to avoid calling listPaths repeatedly
       console.log("📁 Loading stock files list from Azure (one-time operation)...");
       const stockFilesList = await listPaths({ prefix: 'stock/' });
@@ -607,12 +651,13 @@ export class AccumulationDistributionCalculator {
         
         processedCount++;
         
-        // Update progress
+        // Update progress (showing date progress)
         if (logId) {
-          const { SchedulerLogService } = await import('../../services/schedulerLogService');
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: Math.round(((di + 1) / limitedDates.length) * 100),
-            current_processing: `Processing accumulation for date ${dateSuffix} (${di + 1}/${limitedDates.length})`
+            progress_percentage: estimatedTotalStocks > 0 
+              ? Math.round((progressTracker.processedStocks / estimatedTotalStocks) * 100)
+              : Math.round(((di + 1) / limitedDates.length) * 100),
+            current_processing: `Processing accumulation for date ${dateSuffix} (${di + 1}/${limitedDates.length} dates, ${progressTracker.processedStocks.toLocaleString()}/${estimatedTotalStocks.toLocaleString()} stocks)`
           });
         }
         
@@ -749,11 +794,13 @@ export class AccumulationDistributionCalculator {
 
         // Combine all data
         const accumulationData: AccumulationDistributionData[] = [];
-        stockCodes.forEach(stockCode => {
+        let processedStocksForDate = 0;
+        
+        for (const stockCode of stockCodes) {
           const stockData = stockDataMap.get(stockCode);
-          if (!stockData || stockData.length === 0) return;
+          if (!stockData || stockData.length === 0) continue;
           const latest = stockData[stockData.length - 1];
-          if (!latest) return;
+          if (!latest) continue;
 
           const weekly = weeklyAccumulation.get(stockCode) || { W4: 0, W3: 0, W2: 0, W1: 0 };
           const daily = dailyAccumulation.get(stockCode) || { D4: 0, D3: 0, D2: 0, D1: 0, D0: 0 };
@@ -795,13 +842,21 @@ export class AccumulationDistributionCalculator {
             Price: latest.Close,
             Volume: latest.Volume
           });
-        });
+          
+          processedStocksForDate++;
+          
+          // Update progress tracker after each stock
+          if (progressTracker) {
+            progressTracker.processedStocks++;
+            await progressTracker.updateProgress();
+          }
+        }
 
         // Save to Azure per-date
         const outputFilename = `accumulation_distribution/${dateSuffix as string}.csv`;
         await this.saveToAzure(outputFilename, accumulationData);
         createdFilesSummary.push({ date: dateSuffix, file: outputFilename, count: accumulationData.length });
-        console.log(`Saved ${accumulationData.length} rows to ${outputFilename}`);
+        console.log(`Saved ${accumulationData.length} rows to ${outputFilename}, ${processedStocksForDate} stocks processed, ${progressTracker.processedStocks.toLocaleString()}/${estimatedTotalStocks.toLocaleString()} total stocks processed`);
       }
 
       return {

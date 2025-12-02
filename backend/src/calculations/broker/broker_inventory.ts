@@ -1,5 +1,14 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_8, MAX_CONCURRENT_REQUESTS_PHASE_8 } from '../../services/dataUpdateService';
+import { SchedulerLogService } from '../../services/schedulerLogService';
+
+// Progress tracker interface for thread-safe broker-emiten counting
+interface ProgressTracker {
+  totalCombinations: number;
+  processedCombinations: number;
+  logId: string | null;
+  updateProgress: () => Promise<void>;
+}
 
 // Helper function to limit concurrency for Phase 7-8
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -94,7 +103,18 @@ export class BrokerInventoryCalculator {
         }
       }
       
-      const dateList = Array.from(dates).sort();
+      // Normalize dates to YYYYMMDD format for consistency
+      const normalizedDates = Array.from(dates).map(date => {
+        if (date.length === 6) {
+          // Convert YYMMDD to YYYYMMDD
+          const year = 2000 + parseInt(date.substring(0, 2) || '0');
+          return `${year}${date.substring(2)}`;
+        }
+        return date; // Already YYYYMMDD
+      });
+      
+      // Sort dates in ascending order (oldest first) for proper cumulative calculation
+      const dateList = normalizedDates.sort();
       console.log(`Discovered ${dateList.length} broker_transaction dates: ${dateList.join(', ')}`);
       return dateList;
     } catch (error) {
@@ -110,12 +130,38 @@ export class BrokerInventoryCalculator {
 
   /**
    * Load broker transaction data for a specific broker and date from Azure
+   * Tries both YYYYMMDD and YYMMDD formats to handle different folder naming conventions
    */
   private async loadBrokerTransactionDataFromAzure(brokerCode: string, date: string): Promise<BrokerTransactionData[]> {
-    const blobName = `broker_transaction/broker_transaction_${date}/${brokerCode}.csv`;
+    // Try YYYYMMDD format first (normalized)
+    let blobName = `broker_transaction/broker_transaction_${date}/${brokerCode}.csv`;
+    let csvContent: string | null = null;
     
     try {
-      const csvContent = await downloadText(blobName);
+      csvContent = await downloadText(blobName);
+    } catch (error) {
+      // If YYYYMMDD format fails and date is 8 digits, try YYMMDD format (original)
+      if (date.length === 8) {
+        // Convert YYYYMMDD to YYMMDD: 20251201 -> 251201
+        const yyMMdd = `${date.substring(2, 4)}${date.substring(4, 6)}${date.substring(6, 8)}`;
+        blobName = `broker_transaction/broker_transaction_${yyMMdd}/${brokerCode}.csv`;
+        try {
+          csvContent = await downloadText(blobName);
+        } catch {
+          console.warn(`⚠️ File not found for broker ${brokerCode} on date ${date} (tried both YYYYMMDD and YYMMDD formats)`);
+          return [];
+        }
+      } else {
+        console.warn(`⚠️ File not found for broker ${brokerCode} on date ${date}`);
+        return [];
+      }
+    }
+    
+    if (!csvContent) {
+      return [];
+    }
+    
+    try {
       
       const data: BrokerTransactionData[] = [];
       const lines = csvContent.split('\n');
@@ -159,26 +205,54 @@ export class BrokerInventoryCalculator {
 
   /**
    * Calculate the previous date (baseline date)
+   * Supports both YYMMDD (6 digits) and YYYYMMDD (8 digits) formats
+   * Returns date in the same format as input
    */
   private getPreviousDate(dateStr: string): string {
-    // Convert YYMMDD to Date object
-    const year = 2000 + parseInt(dateStr.substring(0, 2) || '0');
-    const month = parseInt(dateStr.substring(2, 4) || '0') - 1; // Month is 0-indexed
-    const day = parseInt(dateStr.substring(4, 6) || '0');
+    if (!dateStr || dateStr.length < 6) {
+      console.warn(`⚠️ Invalid date format: ${dateStr}`);
+      return dateStr;
+    }
+    
+    let year: number;
+    let month: number;
+    let day: number;
+    const isYYYYMMDD = dateStr.length === 8;
+    
+    if (isYYYYMMDD) {
+      // YYYYMMDD format (8 digits)
+      year = parseInt(dateStr.substring(0, 4) || '0');
+      month = parseInt(dateStr.substring(4, 6) || '0') - 1; // Month is 0-indexed
+      day = parseInt(dateStr.substring(6, 8) || '0');
+    } else {
+      // YYMMDD format (6 digits)
+      year = 2000 + parseInt(dateStr.substring(0, 2) || '0');
+      month = parseInt(dateStr.substring(2, 4) || '0') - 1; // Month is 0-indexed
+      day = parseInt(dateStr.substring(4, 6) || '0');
+    }
     
     const date = new Date(year, month, day);
     date.setDate(date.getDate() - 1);
     
-    // Convert back to YYMMDD format
-    const prevYear = date.getFullYear() % 100;
-    const prevMonth = (date.getMonth() + 1).toString().padStart(2, '0');
-    const prevDay = date.getDate().toString().padStart(2, '0');
-    
-    return `${prevYear.toString().padStart(2, '0')}${prevMonth}${prevDay}`;
+    // Convert back to same format as input
+    if (isYYYYMMDD) {
+      // Return YYYYMMDD format
+      const prevYear = date.getFullYear();
+      const prevMonth = (date.getMonth() + 1).toString().padStart(2, '0');
+      const prevDay = date.getDate().toString().padStart(2, '0');
+      return `${prevYear}${prevMonth}${prevDay}`;
+    } else {
+      // Return YYMMDD format
+      const prevYear = date.getFullYear() % 100;
+      const prevMonth = (date.getMonth() + 1).toString().padStart(2, '0');
+      const prevDay = date.getDate().toString().padStart(2, '0');
+      return `${prevYear.toString().padStart(2, '0')}${prevMonth}${prevDay}`;
+    }
   }
 
   /**
    * Create broker inventory data for a specific broker and emiten across date range
+   * dateRange should be sorted in ascending order (oldest first) for proper cumulative calculation
    */
   private createBrokerInventoryData(
     brokerCode: string,
@@ -191,9 +265,12 @@ export class BrokerInventoryCalculator {
     let cumulativeSellVol = 0;
     let cumulativeNetBuyVol = 0;
     
-    // Add baseline date (start date - 1) with zero values
-    if (dateRange.length > 0) {
-      const firstDate = dateRange[0];
+    // Ensure dateRange is sorted in ascending order (oldest first)
+    const sortedDateRange = [...dateRange].sort();
+    
+    // Add baseline date (first date - 1) with zero values
+    if (sortedDateRange.length > 0) {
+      const firstDate = sortedDateRange[0];
       if (firstDate) {
         const baselineDate = this.getPreviousDate(firstDate);
         inventoryData.push({
@@ -208,7 +285,8 @@ export class BrokerInventoryCalculator {
       }
     }
     
-    for (const date of dateRange) {
+    // Process dates in chronological order (oldest first) for cumulative calculation
+    for (const date of sortedDateRange) {
       const brokerDataForDate = allBrokerData.get(date)?.get(brokerCode) || [];
       const emitenRecord = brokerDataForDate.find(e => e.Emiten === emitenCode);
       
@@ -231,7 +309,7 @@ export class BrokerInventoryCalculator {
       });
     }
     
-    // Sort by date in descending order (newest first)
+    // Sort by date in descending order (newest first) for output
     return inventoryData.sort((a, b) => {
       const dateA = a.Date || '';
       const dateB = b.Date || '';
@@ -264,8 +342,9 @@ export class BrokerInventoryCalculator {
    */
   private async createBrokerInventoryFiles(
     allBrokerData: Map<string, Map<string, BrokerTransactionData[]>>,
-    dateRange: string[]
-  ): Promise<string[]> {
+    dateRange: string[],
+    progressTracker?: ProgressTracker
+  ): Promise<{ files: string[]; combinationCount: number }> {
     console.log("\nCreating broker inventory files...");
     
     // Get all unique broker-emiten combinations across all dates
@@ -285,6 +364,7 @@ export class BrokerInventoryCalculator {
     console.log(`Found ${brokerEmitenCombinations.size} brokers with emiten data`);
     
     const createdFiles: string[] = [];
+    let totalCombinations = 0;
     
     // Create inventory data for each broker-emiten combination
     for (const [brokerCode, emitenSet] of brokerEmitenCombinations) {
@@ -296,6 +376,7 @@ export class BrokerInventoryCalculator {
         const blobName = `broker_inventory/${emitenCode}/${brokerCode}.csv`;
         await this.saveToAzure(blobName, inventoryData);
         createdFiles.push(blobName);
+        totalCombinations++;
         
         console.log(`Created ${blobName} with ${inventoryData.length} records`);
         
@@ -304,11 +385,17 @@ export class BrokerInventoryCalculator {
           console.log(`Sample data for broker ${brokerCode} - emiten ${emitenCode}:`);
           console.log(inventoryData.slice(0, 3));
         }
+        
+        // Update progress tracker after each broker-emiten combination
+        if (progressTracker) {
+          progressTracker.processedCombinations++;
+          await progressTracker.updateProgress();
+        }
       }
     }
     
     console.log(`\nCreated ${createdFiles.length} broker inventory files`);
-    return createdFiles;
+    return { files: createdFiles, combinationCount: totalCombinations };
   }
 
   /**
@@ -360,8 +447,17 @@ export class BrokerInventoryCalculator {
             
             const brokerMap = new Map<string, BrokerTransactionData[]>();
             
-            const datePrefix = `broker_transaction/broker_transaction_${date}/`;
-            const blobs = await listPaths({ prefix: datePrefix });
+            // Try YYYYMMDD format first, then YYMMDD format
+            let datePrefix = `broker_transaction/broker_transaction_${date}/`;
+            let blobs = await listPaths({ prefix: datePrefix });
+            
+            // If no blobs found and date is YYYYMMDD format, try YYMMDD format
+            if (blobs.length === 0 && date.length === 8) {
+              // Convert YYYYMMDD to YYMMDD: 20251201 -> 251201
+              const yyMMdd = `${date.substring(2, 4)}${date.substring(4, 6)}${date.substring(6, 8)}`;
+              datePrefix = `broker_transaction/broker_transaction_${yyMMdd}/`;
+              blobs = await listPaths({ prefix: datePrefix });
+            }
             const brokersForDate: string[] = [];
             for (const blobName of blobs) {
               const fileName = blobName.split('/').pop();
@@ -415,17 +511,49 @@ export class BrokerInventoryCalculator {
         }
       }
       
+      // Pre-count total broker-emiten combinations for accurate progress tracking
+      const brokerEmitenCombinations = new Map<string, Set<string>>();
+      allBrokerData.forEach((brokerMap, _date) => {
+        brokerMap.forEach((emitenData, brokerCode) => {
+          if (!brokerEmitenCombinations.has(brokerCode)) {
+            brokerEmitenCombinations.set(brokerCode, new Set());
+          }
+          emitenData.forEach(emiten => {
+            brokerEmitenCombinations.get(brokerCode)!.add(emiten.Emiten);
+          });
+        });
+      });
+      const totalCombinations = Array.from(brokerEmitenCombinations.values()).reduce((sum, set) => sum + set.size, 0);
+      
+      // Create progress tracker for thread-safe combination counting
+      const progressTracker: ProgressTracker = {
+        totalCombinations,
+        processedCombinations: 0,
+        logId: logId || null,
+        updateProgress: async () => {
+          if (progressTracker.logId) {
+            const percentage = totalCombinations > 0 
+              ? Math.round(50 + (progressTracker.processedCombinations / totalCombinations) * 50) // 50-100% for file creation
+              : 50;
+            await SchedulerLogService.updateLog(progressTracker.logId, {
+              progress_percentage: percentage,
+              current_processing: `Creating broker inventory files: ${progressTracker.processedCombinations.toLocaleString()}/${totalCombinations.toLocaleString()} combinations processed`
+            });
+          }
+        }
+      };
+      
       // Update progress for file creation phase
       if (logId) {
-        const { SchedulerLogService } = await import('../../services/schedulerLogService');
         await SchedulerLogService.updateLog(logId, {
           progress_percentage: 50,
-          current_processing: 'Creating broker inventory files...'
+          current_processing: `Creating broker inventory files... (0/${totalCombinations.toLocaleString()} combinations)`
         });
       }
       
       // Create broker inventory files (per broker-emiten combination)
-      const createdFiles = await this.createBrokerInventoryFiles(allBrokerData, dates);
+      const result = await this.createBrokerInventoryFiles(allBrokerData, dates, progressTracker);
+      const createdFiles = result.files;
       
       console.log("\nBroker inventory analysis completed successfully!");
       console.log(`Total broker inventory files created: ${createdFiles.length}`);

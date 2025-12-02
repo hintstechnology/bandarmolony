@@ -1,5 +1,6 @@
 import { listPaths } from '../utils/azureBlob';
 import { BrokerTransactionIDXCalculator } from '../calculations/broker/broker_transaction_IDX';
+import { SchedulerLogService } from './schedulerLogService';
 
 /**
  * Service to schedule and manage Broker Transaction IDX data generation
@@ -106,16 +107,52 @@ export class BrokerTransactionIDXDataScheduler {
   /**
    * Generate IDX.csv for all dates, brokers, and market types
    * @param _scope 'all' to process all available dates (reserved for future use)
+   * @param logId Optional log ID for progress tracking (if provided, uses existing log entry)
+   * @param triggeredBy Optional trigger source for logging
    */
-  async generateBrokerTransactionIDXData(_scope: 'all' = 'all'): Promise<{ success: boolean; message?: string; data?: any }> {
+  async generateBrokerTransactionIDXData(_scope: 'all' = 'all', logId?: string | null, triggeredBy?: string): Promise<{ success: boolean; message?: string; data?: any }> {
+    // Only create log entry if logId is not provided (called from scheduler, not manual trigger)
+    let finalLogId = logId;
+    if (!finalLogId) {
+      const logEntry = await SchedulerLogService.createLog({
+        feature_name: 'broker_transaction_idx',
+        trigger_type: triggeredBy ? 'manual' : 'scheduled',
+        triggered_by: triggeredBy || 'system',
+        status: 'running',
+        environment: process.env['NODE_ENV'] || 'development'
+      });
+
+      if (!logEntry) {
+        console.error('❌ Failed to create scheduler log entry');
+        return {
+          success: false,
+          message: 'Failed to create scheduler log entry'
+        };
+      }
+
+      finalLogId = logEntry.id!;
+    }
+
     try {
       console.log('🔄 Generating Broker Transaction IDX (aggregated all emiten per broker)...');
+      
+      if (finalLogId) {
+        await SchedulerLogService.updateLog(finalLogId, {
+          progress_percentage: 0,
+          current_processing: 'Starting Broker Transaction IDX calculation...'
+        });
+      }
       
       // Get list of all dates from broker_transaction folders
       const dates = await this.getAvailableDates();
       
       if (dates.length === 0) {
         console.log('⚠️ No dates found with broker transaction data');
+        // Check if this is called from a Phase (don't mark failed if so, Phase will handle it)
+        const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+        if (finalLogId && !isFromPhase) {
+          await SchedulerLogService.markFailed(finalLogId, 'No dates found with broker transaction data');
+        }
         return {
           success: false,
           message: 'No dates found with broker transaction data'
@@ -124,10 +161,33 @@ export class BrokerTransactionIDXDataScheduler {
 
       console.log(`📅 Found ${dates.length} dates to process`);
 
-      // Process each combination of investor type and market type for all dates
+      // Estimate total brokers: average brokers per date * dates * combinations
+      // Typical broker count per date is around 100-150, we'll use 120 as average
+      const avgBrokersPerDate = 120;
       const investorTypes: Array<'D' | 'F' | ''> = ['', 'D', 'F'];
       const marketTypes: Array<'RG' | 'TN' | 'NG' | ''> = ['', 'RG', 'TN', 'NG'];
+      const totalCombinations = investorTypes.length * marketTypes.length;
+      const estimatedTotalBrokers = dates.length * totalCombinations * avgBrokersPerDate;
       
+      // Create progress tracker for thread-safe broker counting
+      const progressTracker: { totalBrokers: number; processedBrokers: number; logId: string | null; updateProgress: () => Promise<void> } = {
+        totalBrokers: estimatedTotalBrokers,
+        processedBrokers: 0,
+        logId: finalLogId || null,
+        updateProgress: async () => {
+          if (progressTracker.logId) {
+            const percentage = estimatedTotalBrokers > 0 
+              ? Math.min(100, Math.round((progressTracker.processedBrokers / estimatedTotalBrokers) * 100))
+              : 0;
+            await SchedulerLogService.updateLog(progressTracker.logId, {
+              progress_percentage: percentage,
+              current_processing: `Processing brokers: ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers processed`
+            });
+          }
+        }
+      };
+      
+      let processedCombinations = 0;
       let totalSuccess = 0;
       let totalFailed = 0;
       let totalSkipped = 0;
@@ -135,35 +195,58 @@ export class BrokerTransactionIDXDataScheduler {
 
       for (const investorType of investorTypes) {
         for (const marketType of marketTypes) {
-          // Skip invalid combinations (both can't be empty together if one is specified)
-          // Actually, all combinations are valid
-          
           const comboName = investorType 
             ? (marketType ? `${investorType}_${marketType}` : investorType)
             : (marketType ? marketType : 'all');
           
           console.log(`\n🔄 Processing ${comboName}...`);
           
+          // Update progress before combination
+          if (finalLogId) {
+            await SchedulerLogService.updateLog(finalLogId, {
+              progress_percentage: estimatedTotalBrokers > 0 
+                ? Math.min(100, Math.round((progressTracker.processedBrokers / estimatedTotalBrokers) * 100))
+                : Math.round((processedCombinations / totalCombinations) * 100),
+              current_processing: `Processing ${comboName}... (${processedCombinations}/${totalCombinations} combinations, ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers)`
+            });
+          }
+          
           // Get brokers for first date to see if this combination exists
           // If no brokers found, skip this combination
           const firstDate = dates[0];
           if (!firstDate) {
             console.log(`⏭️ Skipping ${comboName} - no dates available`);
+            processedCombinations++;
             continue;
           }
           const brokersForFirstDate = await this.getAvailableBrokers(firstDate, investorType, marketType);
           if (brokersForFirstDate.length === 0) {
             console.log(`⏭️ Skipping ${comboName} - no brokers found for this combination`);
+            processedCombinations++;
             continue;
           }
 
-          const batchResult = await this.calculator.generateIDXBatch(dates, investorType, marketType);
+          const batchResult = await this.calculator.generateIDXBatch(dates, investorType, marketType, progressTracker);
           results[comboName] = batchResult;
           totalSuccess += batchResult.success;
           totalFailed += batchResult.failed;
           totalSkipped += batchResult.skipped || 0;
           
-          console.log(`✅ ${comboName}: ${batchResult.success} success, ${batchResult.skipped || 0} skipped, ${batchResult.failed} failed`);
+          // Calculate total brokers processed from batch results
+          const brokersProcessed = batchResult.results.reduce((sum, r) => sum + (r.brokerCount || 0), 0);
+          
+          processedCombinations++;
+          console.log(`✅ ${comboName}: ${batchResult.success} success, ${batchResult.skipped || 0} skipped, ${batchResult.failed} failed, ${brokersProcessed} brokers processed`);
+          
+          // Update progress after combination (based on brokers processed)
+          if (finalLogId) {
+            await SchedulerLogService.updateLog(finalLogId, {
+              progress_percentage: estimatedTotalBrokers > 0 
+                ? Math.min(100, Math.round((progressTracker.processedBrokers / estimatedTotalBrokers) * 100))
+                : Math.round((processedCombinations / totalCombinations) * 100),
+              current_processing: `Completed ${comboName} (${processedCombinations}/${totalCombinations} combinations, ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers processed)`
+            });
+          }
         }
       }
 
@@ -172,6 +255,20 @@ export class BrokerTransactionIDXDataScheduler {
       console.log(`✅ Total Success: ${totalSuccess}/${totalProcessed}`);
       console.log(`⏭️  Total Skipped: ${totalSkipped}/${totalProcessed}`);
       console.log(`❌ Total Failed: ${totalFailed}/${totalProcessed}`);
+
+      // Check if this is called from a Phase (don't mark completed/failed if so, Phase will handle it)
+      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      if (finalLogId && !isFromPhase) {
+        if (totalSuccess > 0) {
+          await SchedulerLogService.markCompleted(finalLogId, {
+            total_files_processed: totalProcessed,
+            files_created: totalSuccess,
+            files_failed: totalFailed
+          });
+        } else {
+          await SchedulerLogService.markFailed(finalLogId, `No IDX files generated successfully`);
+        }
+      }
 
       return {
         success: totalSuccess > 0,
@@ -184,10 +281,16 @@ export class BrokerTransactionIDXDataScheduler {
         }
       };
     } catch (error: any) {
-      console.error('❌ Error generating Broker Transaction IDX data:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('❌ Error generating Broker Transaction IDX data:', errorMessage);
+      // Check if this is called from a Phase (don't mark failed if so, Phase will handle it)
+      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      if (finalLogId && !isFromPhase) {
+        await SchedulerLogService.markFailed(finalLogId, errorMessage, error);
+      }
       return {
         success: false,
-        message: `Failed to generate Broker Transaction IDX data: ${error.message}`
+        message: `Failed to generate Broker Transaction IDX data: ${errorMessage}`
       };
     }
   }

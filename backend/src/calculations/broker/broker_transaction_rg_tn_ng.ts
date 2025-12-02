@@ -1,5 +1,14 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_5, MAX_CONCURRENT_REQUESTS_PHASE_5 } from '../../services/dataUpdateService';
+import { SchedulerLogService } from '../../services/schedulerLogService';
+
+// Progress tracker interface for thread-safe broker counting
+interface ProgressTracker {
+  totalBrokers: number;
+  processedBrokers: number;
+  logId: string | null;
+  updateProgress: () => Promise<void>;
+}
 
 // Helper function to limit concurrency for Phase 5-6
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -313,7 +322,7 @@ export class BrokerTransactionRGTNNGCalculator {
    * Process a single DT file with broker transaction analysis (RG/TN/NG split)
    * OPTIMIZED: Double-check folders don't exist before processing (race condition protection)
    */
-  private async processSingleDtFile(blobName: string): Promise<{ success: boolean; dateSuffix: string; files: string[]; timing?: any }> {
+  private async processSingleDtFile(blobName: string, progressTracker?: ProgressTracker): Promise<{ success: boolean; dateSuffix: string; files: string[]; timing?: any; brokerCount?: number }> {
     // Extract date before loading to check early
     const pathParts = blobName.split('/');
     const dateFolder = pathParts[1] || 'unknown';
@@ -354,9 +363,17 @@ export class BrokerTransactionRGTNNGCalculator {
       };
       
       const allFiles: string[] = [];
+      let totalBrokerCount = 0;
       
       // Process each type (RG, TN, NG)
       for (const type of ['RG', 'TN', 'NG'] as const) {
+        // OPTIMIZATION: Check if folder for this type already exists before processing
+        const typeExists = await this.checkBrokerTransactionRGTNNGExists(dateSuffix, type);
+        if (typeExists) {
+          console.log(`⏭️ Skipping ${dateSuffix} (${type}) - broker_transaction_${type.toLowerCase()} folder already exists`);
+          continue;
+        }
+        
         const filtered = this.filterByType(data, type);
         if (filtered.length === 0) {
           console.log(`⏭️ Skipping ${dateSuffix} (${type}) - no ${type} transactions found`);
@@ -364,19 +381,20 @@ export class BrokerTransactionRGTNNGCalculator {
         }
         
         const startTime = Date.now();
-        const transactionFiles = await this.createBrokerTransactionPerBroker(filtered, dateSuffix, type);
+        const result = await this.createBrokerTransactionPerBroker(filtered, dateSuffix, type, progressTracker);
         const duration = Math.round((Date.now() - startTime) / 1000);
         
         if (type === 'RG') timing.brokerTransactionRG = duration;
         else if (type === 'TN') timing.brokerTransactionTN = duration;
         else if (type === 'NG') timing.brokerTransactionNG = duration;
         
-        allFiles.push(...transactionFiles);
-        console.log(`✅ Created ${transactionFiles.length} broker transaction files for ${dateSuffix} (${type})`);
+        allFiles.push(...result.files);
+        totalBrokerCount += result.brokerCount;
+        console.log(`✅ Created ${result.files.length} broker transaction files for ${dateSuffix} (${type}), ${result.brokerCount} brokers processed`);
       }
       
-      console.log(`✅ Completed processing ${blobName} - ${allFiles.length} files created`);
-      return { success: true, dateSuffix, files: allFiles, timing };
+      console.log(`✅ Completed processing ${blobName} - ${allFiles.length} files created, ${totalBrokerCount} brokers processed`);
+      return { success: true, dateSuffix, files: allFiles, timing, brokerCount: totalBrokerCount };
       
     } catch (error: any) {
       console.error(`❌ Error processing file ${blobName}:`, error.message);
@@ -458,12 +476,14 @@ export class BrokerTransactionRGTNNGCalculator {
     };
   }
 
-  private async createBrokerTransactionPerBroker(data: TransactionData[], dateSuffix: string, type: TransactionType): Promise<string[]> {
+  private async createBrokerTransactionPerBroker(data: TransactionData[], dateSuffix: string, type: TransactionType, progressTracker?: ProgressTracker): Promise<{ files: string[]; brokerCount: number }> {
     const paths = this.getTransactionPaths(type, dateSuffix);
     const uniqueBrokers = [...new Set([ ...data.map(r => r.BRK_COD1), ...data.map(r => r.BRK_COD2)])];
     const createdFiles: string[] = [];
     
-    for (const broker of uniqueBrokers) {
+    for (let i = 0; i < uniqueBrokers.length; i++) {
+      const broker = uniqueBrokers[i];
+      if (!broker) continue; // Skip if undefined
       const filename = `${paths.brokerTransaction}/${broker}.csv`;
       
       const brokerData = data.filter(row => row.BRK_COD1 === broker || row.BRK_COD2 === broker);
@@ -509,7 +529,7 @@ export class BrokerTransactionRGTNNGCalculator {
         const { newBuyerOrdNum, newSellerOrdNum } = this.calculateNewOrderNumbers(
           buyerTxs,
           sellerTxs,
-          broker,
+          broker || '',
           stock
         );
         
@@ -606,9 +626,15 @@ export class BrokerTransactionRGTNNGCalculator {
       stockSummary.sort((a, b) => b.NetBuyValue - a.NetBuyValue);
       await this.saveToAzure(filename, stockSummary);
       createdFiles.push(filename);
+      
+      // Update progress tracker after each broker
+      if (progressTracker) {
+        progressTracker.processedBrokers++;
+        await progressTracker.updateProgress();
+      }
     }
     
-    return createdFiles;
+    return { files: createdFiles, brokerCount: uniqueBrokers.length };
   }
 
   private async saveToAzure(filename: string, data: any[]): Promise<string> {
@@ -630,6 +656,47 @@ export class BrokerTransactionRGTNNGCalculator {
   }
 
   /**
+   * Pre-count total unique brokers from all DT files that need processing
+   * This is used for accurate progress tracking (per broker per type)
+   */
+  private async preCountTotalBrokers(dtFiles: string[]): Promise<number> {
+    console.log(`🔍 Pre-counting total brokers from ${dtFiles.length} DT files...`);
+    const allBrokers = new Set<string>();
+    let processedFiles = 0;
+    
+    // Process files in small batches to avoid memory issues
+    const PRE_COUNT_BATCH_SIZE = 10;
+    for (let i = 0; i < dtFiles.length; i += PRE_COUNT_BATCH_SIZE) {
+      const batch = dtFiles.slice(i, i + PRE_COUNT_BATCH_SIZE);
+      const batchPromises = batch.map(async (blobName) => {
+        try {
+          const result = await this.loadAndProcessSingleDtFile(blobName);
+          if (result && result.data.length > 0) {
+            result.data.forEach(t => {
+              if (t.BRK_COD1) allBrokers.add(t.BRK_COD1);
+              if (t.BRK_COD2) allBrokers.add(t.BRK_COD2);
+            });
+          }
+        } catch (error) {
+          // Skip files that can't be read during pre-count
+          console.warn(`⚠️ Could not pre-count brokers from ${blobName}:`, error instanceof Error ? error.message : error);
+        }
+      });
+      
+      await Promise.all(batchPromises);
+      processedFiles += batch.length;
+      
+      if ((i + PRE_COUNT_BATCH_SIZE) % 50 === 0 || i + PRE_COUNT_BATCH_SIZE >= dtFiles.length) {
+        console.log(`   Pre-counted ${processedFiles}/${dtFiles.length} files, found ${allBrokers.size} unique brokers so far...`);
+      }
+    }
+    
+    console.log(`✅ Pre-count complete: ${allBrokers.size} unique brokers found across ${dtFiles.length} DT files`);
+    // Estimate: brokers per type (RG/TN/NG) = unique brokers * 3 types * 1.5x for overlap
+    return Math.round(allBrokers.size * 3 * 1.5);
+  }
+
+  /**
    * Main function to generate broker transaction data for all DT files (RG/TN/NG split)
    * OPTIMIZED: Batch processing with skip logic
    */
@@ -644,6 +711,27 @@ export class BrokerTransactionRGTNNGCalculator {
       }
       
       console.log(`📊 Processing ${dtFiles.length} DT files in batches of ${BATCH_SIZE_PHASE_5}...`);
+      
+      // Pre-count total brokers for accurate progress tracking
+      const estimatedTotalBrokers = await this.preCountTotalBrokers(dtFiles);
+      
+      // Create progress tracker for thread-safe broker counting
+      const progressTracker: ProgressTracker = {
+        totalBrokers: estimatedTotalBrokers,
+        processedBrokers: 0,
+        logId: logId || null,
+        updateProgress: async () => {
+          if (progressTracker.logId) {
+            const percentage = estimatedTotalBrokers > 0 
+              ? Math.min(100, Math.round((progressTracker.processedBrokers / estimatedTotalBrokers) * 100))
+              : 0;
+            await SchedulerLogService.updateLog(progressTracker.logId, {
+              progress_percentage: percentage,
+              current_processing: `Processing brokers: ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers processed`
+            });
+          }
+        }
+      };
       
       let totalProcessed = 0;
       let totalSkipped = 0;
@@ -660,12 +748,13 @@ export class BrokerTransactionRGTNNGCalculator {
         
         console.log(`\n📦 Processing batch ${batchNum}/${totalBatches} (${batch.length} files)...`);
         
-        // Update progress before batch (use totalProcessed count, not batch index)
+        // Update progress before batch (showing DT file progress)
         if (logId) {
-          const { SchedulerLogService } = await import('../../services/schedulerLogService');
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: Math.round((totalProcessed / dtFiles.length) * 100),
-            current_processing: `Processing batch ${batchNum}/${totalBatches} (${totalProcessed}/${dtFiles.length} processed)`
+            progress_percentage: estimatedTotalBrokers > 0 
+              ? Math.min(100, Math.round((progressTracker.processedBrokers / estimatedTotalBrokers) * 100))
+              : Math.round((totalProcessed / dtFiles.length) * 100),
+            current_processing: `Processing batch ${batchNum}/${totalBatches} (${totalProcessed}/${dtFiles.length} dates, ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers)`
           });
         }
         
@@ -680,7 +769,8 @@ export class BrokerTransactionRGTNNGCalculator {
           }
         }
         
-        const batchPromises = batch.map(blobName => this.processSingleDtFile(blobName));
+        // Process batch in parallel with concurrency limit, pass progress tracker
+        const batchPromises = batch.map(blobName => this.processSingleDtFile(blobName, progressTracker));
         const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT);
         
         // Memory cleanup after batch
@@ -692,13 +782,15 @@ export class BrokerTransactionRGTNNGCalculator {
         }
         
         // Collect results
+        let batchBrokerCount = 0;
         for (const result of batchResults) {
           if (result && result.success !== undefined) {
-            const { success, files, dateSuffix } = result;
+            const { success, files, dateSuffix, brokerCount } = result;
             if (success) {
               totalProcessed++;
               totalFilesCreated += files ? files.length : 0;
-              console.log(`✅ ${dateSuffix}: ${files ? files.length : 0} files created`);
+              batchBrokerCount += brokerCount || 0;
+              console.log(`✅ ${dateSuffix}: ${files ? files.length : 0} files created, ${brokerCount || 0} brokers processed`);
             } else {
               totalSkipped++;
               console.log(`⏭️ ${dateSuffix}: Skipped (already exists or no data)`);
@@ -706,14 +798,15 @@ export class BrokerTransactionRGTNNGCalculator {
           }
         }
         
-        console.log(`📊 Batch ${batchNum}/${totalBatches} complete: ${totalProcessed} processed, ${totalSkipped} skipped, ${totalErrors} errors`);
+        console.log(`📊 Batch ${batchNum}/${totalBatches} complete: ${totalProcessed} processed, ${totalSkipped} skipped, ${totalErrors} errors, ${batchBrokerCount} brokers processed, ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} total brokers processed`);
         
-        // Update progress after batch
+        // Update progress after batch (based on brokers processed)
         if (logId) {
-          const { SchedulerLogService } = await import('../../services/schedulerLogService');
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: Math.round((totalProcessed / dtFiles.length) * 100),
-            current_processing: `Completed batch ${batchNum}/${totalBatches} (${totalProcessed}/${dtFiles.length} processed)`
+            progress_percentage: estimatedTotalBrokers > 0 
+              ? Math.min(100, Math.round((progressTracker.processedBrokers / estimatedTotalBrokers) * 100))
+              : Math.round((totalProcessed / dtFiles.length) * 100),
+            current_processing: `Completed batch ${batchNum}/${totalBatches} (${totalProcessed}/${dtFiles.length} dates, ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers processed)`
           });
         }
         
@@ -760,13 +853,13 @@ export class BrokerTransactionRGTNNGCalculator {
       for (const blobName of dtFiles) {
         try {
           console.log(`📂 Processing file: ${blobName}`);
-          const result = await this.loadAndProcessSingleDtFile(blobName);
-          if (!result) {
+          const loadResult = await this.loadAndProcessSingleDtFile(blobName);
+          if (!loadResult) {
             console.warn(`⚠️ Failed to load file: ${blobName}`);
             continue;
           }
           
-          const { data, dateSuffix: date } = result;
+          const { data, dateSuffix: date } = loadResult;
           console.log(`📊 Loaded ${data.length} transactions from ${date}`);
           
           const filtered = this.filterByType(data, type);
@@ -778,11 +871,11 @@ export class BrokerTransactionRGTNNGCalculator {
           }
           
           console.log(`📝 Creating broker transactions for ${date} (${type})...`);
-          const transactionFiles = await this.createBrokerTransactionPerBroker(filtered, date, type);
-          console.log(`✅ Created ${transactionFiles.length} broker transaction files for ${date} (skipped files that already exist)`);
+          const transactionResult = await this.createBrokerTransactionPerBroker(filtered, date, type);
+          console.log(`✅ Created ${transactionResult.files.length} broker transaction files for ${date} (skipped files that already exist)`);
           
           processedDates++;
-          totalFilesCreated += transactionFiles.length;
+          totalFilesCreated += transactionResult.files.length;
         } catch (error: any) {
           console.error(`❌ Error processing file ${blobName}:`, error.message);
           continue;

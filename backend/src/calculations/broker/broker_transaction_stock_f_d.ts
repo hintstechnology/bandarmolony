@@ -1,5 +1,14 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_6, MAX_CONCURRENT_REQUESTS_PHASE_6 } from '../../services/dataUpdateService';
+import { SchedulerLogService } from '../../services/schedulerLogService';
+
+// Progress tracker interface for thread-safe stock counting
+interface ProgressTracker {
+  totalStocks: number;
+  processedStocks: number;
+  logId: string | null;
+  updateProgress: () => Promise<void>;
+}
 
 // Helper function to limit concurrency for Phase 5-6
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -406,8 +415,9 @@ export class BrokerTransactionStockFDCalculator {
    */
   private async createBrokerTransactionPerStock(
     data: TransactionData[], 
-    dateSuffix: string
-  ): Promise<string[]> {
+    dateSuffix: string,
+    progressTracker?: ProgressTracker
+  ): Promise<{ files: string[]; stockCount: number }> {
     console.log("\nCreating broker transaction stock files per stock (D/F split, pivoted)...");
     
     // Get unique stock codes
@@ -415,8 +425,13 @@ export class BrokerTransactionStockFDCalculator {
     console.log(`Found ${uniqueStocks.length} unique stocks`);
     
     const createdFiles: string[] = [];
+    let processedStockCount = 0;
     
-    for (const stock of uniqueStocks) {
+    for (let i = 0; i < uniqueStocks.length; i++) {
+      const stock = uniqueStocks[i];
+      if (!stock) continue; // Skip if undefined
+      let stockProcessed = false;
+      
       // Process for both D (Domestik) and F (Foreign)
       for (const invType of ['D', 'F'] as const) {
         const folderPrefix = invType === 'D' ? 'd' : 'f';
@@ -621,11 +636,23 @@ export class BrokerTransactionStockFDCalculator {
         createdFiles.push(filename);
         
         console.log(`Created ${filename} with ${brokerSummary.length} brokers`);
+        
+        // Mark stock as processed if at least one investor type has data
+        if (!stockProcessed && brokerSummary.length > 0) {
+          stockProcessed = true;
+        }
+      }
+      
+      // Update progress tracker after each stock (count once per stock, not per investor type)
+      if (stockProcessed && progressTracker) {
+        progressTracker.processedStocks++;
+        await progressTracker.updateProgress();
+        processedStockCount++;
       }
     }
     
     console.log(`Created ${createdFiles.length} broker transaction stock files`);
-    return createdFiles;
+    return { files: createdFiles, stockCount: processedStockCount };
   }
 
   /**
@@ -653,7 +680,7 @@ export class BrokerTransactionStockFDCalculator {
    * Process a single DT file with broker transaction analysis (pivoted by stock, D/F split)
    * OPTIMIZED: Double-check folders don't exist before processing (race condition protection)
    */
-  private async processSingleDtFile(blobName: string): Promise<{ success: boolean; dateSuffix: string; files: string[]; timing?: any }> {
+  private async processSingleDtFile(blobName: string, progressTracker?: ProgressTracker): Promise<{ success: boolean; dateSuffix: string; files: string[]; timing?: any; stockCount?: number }> {
     // Extract date before loading to check early
     const pathParts = blobName.split('/');
     const dateFolder = pathParts[1] || 'unknown';
@@ -688,15 +715,14 @@ export class BrokerTransactionStockFDCalculator {
       
       // Create broker transaction stock files
       const startTime = Date.now();
-      const brokerTransactionFiles = await this.createBrokerTransactionPerStock(data, dateSuffix);
+      const result = await this.createBrokerTransactionPerStock(data, dateSuffix, progressTracker);
       timing.brokerTransactionStock = Math.round((Date.now() - startTime) / 1000);
       
-      const allFiles = [
-        ...brokerTransactionFiles
-      ];
+      const allFiles = result.files;
+      const stockCount = result.stockCount;
       
-      console.log(`✅ Completed processing ${blobName} - ${allFiles.length} files created`);
-      return { success: true, dateSuffix, files: allFiles, timing };
+      console.log(`✅ Completed processing ${blobName} - ${allFiles.length} files created, ${stockCount} stocks processed`);
+      return { success: true, dateSuffix, files: allFiles, timing, stockCount };
       
     } catch (error) {
       console.error(`Error processing ${blobName}:`, error);
@@ -707,6 +733,47 @@ export class BrokerTransactionStockFDCalculator {
   /**
    * Main function to generate broker transaction data for all DT files (D/F split, pivoted by stock)
    */
+  /**
+   * Pre-count total unique stocks from all DT files that need processing
+   * This is used for accurate progress tracking (per stock per investor type)
+   */
+  private async preCountTotalStocks(dtFiles: string[]): Promise<number> {
+    console.log(`🔍 Pre-counting total stocks from ${dtFiles.length} DT files...`);
+    const allStocks = new Set<string>();
+    let processedFiles = 0;
+    
+    // Process files in small batches to avoid memory issues
+    const PRE_COUNT_BATCH_SIZE = 10;
+    for (let i = 0; i < dtFiles.length; i += PRE_COUNT_BATCH_SIZE) {
+      const batch = dtFiles.slice(i, i + PRE_COUNT_BATCH_SIZE);
+      const batchPromises = batch.map(async (blobName) => {
+        try {
+          const result = await this.loadAndProcessSingleDtFile(blobName);
+          if (result && result.data.length > 0) {
+            const validTransactions = result.data.filter(t => 
+              t.STK_CODE && t.STK_CODE.length === 4
+            );
+            validTransactions.forEach(t => allStocks.add(t.STK_CODE));
+          }
+        } catch (error) {
+          // Skip files that can't be read during pre-count
+          console.warn(`⚠️ Could not pre-count stocks from ${blobName}:`, error instanceof Error ? error.message : error);
+        }
+      });
+      
+      await Promise.all(batchPromises);
+      processedFiles += batch.length;
+      
+      if ((i + PRE_COUNT_BATCH_SIZE) % 50 === 0 || i + PRE_COUNT_BATCH_SIZE >= dtFiles.length) {
+        console.log(`   Pre-counted ${processedFiles}/${dtFiles.length} files, found ${allStocks.size} unique stocks so far...`);
+      }
+    }
+    
+    console.log(`✅ Pre-count complete: ${allStocks.size} unique stocks found across ${dtFiles.length} DT files`);
+    // Estimate: stocks per investor type (D/F) = unique stocks * 2 types * 1.5x for overlap
+    return Math.round(allStocks.size * 2 * 1.5);
+  }
+
   public async generateBrokerTransactionData(_dateSuffix: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
     const startTime = Date.now();
     try {
@@ -726,10 +793,31 @@ export class BrokerTransactionStockFDCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
+      // Pre-count total stocks for accurate progress tracking
+      const estimatedTotalStocks = await this.preCountTotalStocks(dtFiles);
+      
+      // Create progress tracker for thread-safe stock counting
+      const progressTracker: ProgressTracker = {
+        totalStocks: estimatedTotalStocks,
+        processedStocks: 0,
+        logId: logId || null,
+        updateProgress: async () => {
+          if (progressTracker.logId) {
+            const percentage = estimatedTotalStocks > 0 
+              ? Math.min(100, Math.round((progressTracker.processedStocks / estimatedTotalStocks) * 100))
+              : 0;
+            await SchedulerLogService.updateLog(progressTracker.logId, {
+              progress_percentage: percentage,
+              current_processing: `Processing stocks: ${progressTracker.processedStocks.toLocaleString()}/${estimatedTotalStocks.toLocaleString()} stocks processed`
+            });
+          }
+        }
+      };
+      
       // Process files in batches (Phase 6: 6 files at a time)
       const BATCH_SIZE = BATCH_SIZE_PHASE_6; // Phase 6: 6 files
       const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_6; // Phase 6: 3 concurrent
-      const allResults: { success: boolean; dateSuffix: string; files: string[]; timing?: any }[] = [];
+      const allResults: { success: boolean; dateSuffix: string; files: string[]; timing?: any; stockCount?: number }[] = [];
       let processed = 0;
       let successful = 0;
       
@@ -738,12 +826,13 @@ export class BrokerTransactionStockFDCalculator {
         const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
         console.log(`📦 Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`);
         
-        // Update progress before batch (use processed count, not batch index)
+        // Update progress before batch (showing DT file progress)
         if (logId) {
-          const { SchedulerLogService } = await import('../../services/schedulerLogService');
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: Math.round((processed / dtFiles.length) * 100),
-            current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} processed)`
+            progress_percentage: estimatedTotalStocks > 0 
+              ? Math.round((progressTracker.processedStocks / estimatedTotalStocks) * 100)
+              : Math.round((processed / dtFiles.length) * 100),
+            current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} dates, ${progressTracker.processedStocks.toLocaleString()}/${estimatedTotalStocks.toLocaleString()} stocks)`
           });
         }
         
@@ -758,8 +847,8 @@ export class BrokerTransactionStockFDCalculator {
           }
         }
         
-        // Process batch in parallel with concurrency limit 25
-        const batchPromises = batch.map(blobName => this.processSingleDtFile(blobName));
+        // Process batch in parallel with concurrency limit, pass progress tracker
+        const batchPromises = batch.map(blobName => this.processSingleDtFile(blobName, progressTracker));
         const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT);
         
         // Memory cleanup after batch
@@ -781,14 +870,16 @@ export class BrokerTransactionStockFDCalculator {
           }
         });
         
-        console.log(`📊 Batch ${batchNumber} complete: ✅ ${successful}/${processed} successful`);
+        const batchStockCount = batchResults.reduce((sum, r: any) => sum + (r?.stockCount || 0), 0);
+        console.log(`📊 Batch ${batchNumber} complete: ✅ ${successful}/${processed} successful, ${batchStockCount} stocks processed, ${progressTracker.processedStocks.toLocaleString()}/${estimatedTotalStocks.toLocaleString()} total stocks processed`);
         
-        // Update progress after batch
+        // Update progress after batch (based on stocks processed)
         if (logId) {
-          const { SchedulerLogService } = await import('../../services/schedulerLogService');
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: Math.round((processed / dtFiles.length) * 100),
-            current_processing: `Completed batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} processed)`
+            progress_percentage: estimatedTotalStocks > 0 
+              ? Math.round((progressTracker.processedStocks / estimatedTotalStocks) * 100)
+              : Math.round((processed / dtFiles.length) * 100),
+            current_processing: `Completed batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} dates, ${progressTracker.processedStocks.toLocaleString()}/${estimatedTotalStocks.toLocaleString()} stocks processed)`
           });
         }
         

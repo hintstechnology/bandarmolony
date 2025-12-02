@@ -1,5 +1,14 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_3, MAX_CONCURRENT_REQUESTS_PHASE_3 } from '../../services/dataUpdateService';
+import { SchedulerLogService } from '../../services/schedulerLogService';
+
+// Progress tracker interface for thread-safe stock counting
+interface ProgressTracker {
+  totalStocks: number;
+  processedStocks: number;
+  logId: string | null;
+  updateProgress: () => Promise<void>;
+}
 
 // Helper function to limit concurrency for Phase 3
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -334,7 +343,7 @@ export class BreakDoneTradeCalculator {
    * Process a single DT file with break done trade analysis
    * OPTIMIZED: Double-check folder doesn't exist before processing (race condition protection)
    */
-  private async processSingleDtFile(blobName: string): Promise<{ success: boolean; dateSuffix: string; files: string[] }> {
+  private async processSingleDtFile(blobName: string, progressTracker?: ProgressTracker): Promise<{ success: boolean; dateSuffix: string; files: string[] }> {
     // Extract date before loading to check early
     const pathParts = blobName.split('/');
     const dateFolder = pathParts[1] || 'unknown';
@@ -368,14 +377,25 @@ export class BreakDoneTradeCalculator {
       // Save each stock's data to separate CSV file in STOCK subfolder
       const createdFiles: string[] = [];
       let totalRecords = 0;
+      const stocks = Array.from(groupedData.keys());
       
-      for (const [stockCode, stockData] of groupedData) {
+      for (let i = 0; i < stocks.length; i++) {
+        const stockCode = stocks[i];
+        if (!stockCode) continue; // Skip if undefined
+        const stockData = groupedData.get(stockCode);
+        if (!stockData) continue; // Skip if no data
         const filename = `done_detail/${dateSuffix}/STOCK/${stockCode}.csv`;
         await this.saveToAzure(filename, stockData);
         createdFiles.push(filename);
         totalRecords += stockData.length;
         
         console.log(`Created ${filename} with ${stockData.length} records`);
+        
+        // Update progress tracker after each stock
+        if (progressTracker) {
+          progressTracker.processedStocks++;
+          await progressTracker.updateProgress();
+        }
         
         // Memory cleanup after each stock (every 50 stocks)
         if (createdFiles.length % 50 === 0) {
@@ -393,6 +413,46 @@ export class BreakDoneTradeCalculator {
       console.error(`Error processing ${blobName}:`, error);
       return { success: false, dateSuffix, files: [] };
     }
+  }
+
+  /**
+   * Pre-count total unique stocks from all DT files that need processing
+   * This is used for accurate progress tracking
+   */
+  private async preCountTotalStocks(dtFiles: string[]): Promise<number> {
+    console.log(`🔍 Pre-counting total stocks from ${dtFiles.length} DT files...`);
+    const allStocks = new Set<string>();
+    let processedFiles = 0;
+    
+    // Process files in small batches to avoid memory issues
+    const PRE_COUNT_BATCH_SIZE = 10;
+    for (let i = 0; i < dtFiles.length; i += PRE_COUNT_BATCH_SIZE) {
+      const batch = dtFiles.slice(i, i + PRE_COUNT_BATCH_SIZE);
+      const batchPromises = batch.map(async (blobName) => {
+        try {
+          const result = await this.loadAndProcessSingleDtFile(blobName);
+          if (result && result.data.length > 0) {
+            const validTransactions = result.data.filter(t => 
+              t.STK_CODE && t.STK_CODE.length === 4
+            );
+            validTransactions.forEach(t => allStocks.add(t.STK_CODE));
+          }
+        } catch (error) {
+          // Skip files that can't be read during pre-count
+          console.warn(`⚠️ Could not pre-count stocks from ${blobName}:`, error instanceof Error ? error.message : error);
+        }
+      });
+      
+      await Promise.all(batchPromises);
+      processedFiles += batch.length;
+      
+      if ((i + PRE_COUNT_BATCH_SIZE) % 50 === 0 || i + PRE_COUNT_BATCH_SIZE >= dtFiles.length) {
+        console.log(`   Pre-counted ${processedFiles}/${dtFiles.length} files, found ${allStocks.size} unique stocks so far...`);
+      }
+    }
+    
+    console.log(`✅ Pre-count complete: ${allStocks.size} unique stocks found across ${dtFiles.length} DT files`);
+    return allStocks.size;
   }
 
   /**
@@ -418,6 +478,27 @@ export class BreakDoneTradeCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       this.logMemoryUsage('Start processing');
+      
+      // Pre-count total stocks for accurate progress tracking
+      const totalStocks = await this.preCountTotalStocks(dtFiles);
+      
+      // Create progress tracker for thread-safe stock counting
+      const progressTracker: ProgressTracker = {
+        totalStocks,
+        processedStocks: 0,
+        logId: logId || null,
+        updateProgress: async () => {
+          if (progressTracker.logId) {
+            const percentage = totalStocks > 0 
+              ? Math.round((progressTracker.processedStocks / totalStocks) * 100)
+              : 0;
+            await SchedulerLogService.updateLog(progressTracker.logId, {
+              progress_percentage: percentage,
+              current_processing: `Processing stocks: ${progressTracker.processedStocks.toLocaleString()}/${totalStocks.toLocaleString()} stocks processed`
+            });
+          }
+        }
+      };
       
       // Process files in batches for speed (Phase 3: 6 files at a time)
       const BATCH_SIZE = BATCH_SIZE_PHASE_3; // Phase 3: 6 files
@@ -447,17 +528,18 @@ export class BreakDoneTradeCalculator {
         const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
         console.log(`📦 Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${batch.length} files)`);
         
-        // Update progress before batch (use processed count, not batch index)
+        // Update progress before batch (showing DT file progress)
         if (logId) {
-          const { SchedulerLogService } = await import('../../services/schedulerLogService');
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: Math.round((processed / dtFiles.length) * 100),
-            current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} processed)`
+            progress_percentage: totalStocks > 0 
+              ? Math.round((progressTracker.processedStocks / totalStocks) * 100)
+              : Math.round((processed / dtFiles.length) * 100),
+            current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} dates, ${progressTracker.processedStocks.toLocaleString()}/${totalStocks.toLocaleString()} stocks)`
           });
         }
         
-        // Process batch in parallel with concurrency limit 25
-        const batchPromises = batch.map(blobName => this.processSingleDtFile(blobName));
+        // Process batch in parallel with concurrency limit, pass progress tracker
+        const batchPromises = batch.map(blobName => this.processSingleDtFile(blobName, progressTracker));
         const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT);
         
         // Memory cleanup after batch
@@ -482,14 +564,15 @@ export class BreakDoneTradeCalculator {
           }
         });
         
-        console.log(`📊 Batch complete: ${successful}/${processed} successful`);
+        console.log(`📊 Batch complete: ${successful}/${processed} successful, ${progressTracker.processedStocks.toLocaleString()}/${totalStocks.toLocaleString()} stocks processed`);
         
-        // Update progress after batch
+        // Update progress after batch (based on stocks processed)
         if (logId) {
-          const { SchedulerLogService } = await import('../../services/schedulerLogService');
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: Math.round((processed / dtFiles.length) * 100),
-            current_processing: `Completed batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} processed)`
+            progress_percentage: totalStocks > 0 
+              ? Math.round((progressTracker.processedStocks / totalStocks) * 100)
+              : Math.round((processed / dtFiles.length) * 100),
+            current_processing: `Completed batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} dates, ${progressTracker.processedStocks.toLocaleString()}/${totalStocks.toLocaleString()} stocks processed)`
           });
         }
         

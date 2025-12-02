@@ -191,7 +191,7 @@ export class BrokerSummaryIDXCalculator {
    * @param dateSuffix Date string in format YYYYMMDD
    * @param marketType Market type: '' (all), 'RG', 'TN', or 'NG'
    */
-  public async generateIDX(dateSuffix: string, marketType: '' | 'RG' | 'TN' | 'NG' = ''): Promise<{ success: boolean; message: string; file?: string }> {
+  public async generateIDX(dateSuffix: string, marketType: '' | 'RG' | 'TN' | 'NG' = ''): Promise<{ success: boolean; message: string; file?: string; brokerCount?: number }> {
     try {
       // Validate dateSuffix format (YYYYMMDD - 8 digits)
       if (!dateSuffix || !/^\d{8}$/.test(dateSuffix)) {
@@ -350,12 +350,14 @@ export class BrokerSummaryIDXCalculator {
       // Save IDX.csv to the same folder (reuse variable from skip check)
       await uploadText(idxFilePath, csvContent, 'text/csv');
 
-      console.log(`✅ Successfully created ${idxFilePath} with ${aggregatedData.length} brokers`);
+      const brokerCount = aggregatedData.length;
+      console.log(`✅ Successfully created ${idxFilePath} with ${brokerCount} brokers`);
 
       return {
         success: true,
-        message: `IDX.csv created successfully with ${aggregatedData.length} brokers from ${emitenFiles.length} emiten files`,
-        file: idxFilePath
+        message: `IDX.csv created successfully with ${brokerCount} brokers from ${emitenFiles.length} emiten files`,
+        file: idxFilePath,
+        brokerCount
       };
     } catch (error: any) {
       console.error(`❌ Error generating IDX.csv:`, error);
@@ -371,8 +373,8 @@ export class BrokerSummaryIDXCalculator {
    * @param dateSuffixes Array of date strings in format YYYYMMDD
    * @param marketType Market type: '' (all), 'RG', 'TN', or 'NG'
    */
-  public async generateIDXBatch(dateSuffixes: string[], marketType: '' | 'RG' | 'TN' | 'NG' = ''): Promise<{ success: number; failed: number; skipped: number; results: Array<{ date: string; success: boolean; message: string; file?: string; skipped?: boolean }> }> {
-    const results: Array<{ date: string; success: boolean; message: string; file?: string; skipped?: boolean }> = [];
+  public async generateIDXBatch(dateSuffixes: string[], marketType: '' | 'RG' | 'TN' | 'NG' = '', progressTracker?: { totalBrokers: number; processedBrokers: number; logId: string | null; updateProgress: () => Promise<void> }): Promise<{ success: number; failed: number; skipped: number; results: Array<{ date: string; success: boolean; message: string; file?: string; skipped?: boolean; brokerCount?: number }> }> {
+    const results: Array<{ date: string; success: boolean; message: string; file?: string; skipped?: boolean; brokerCount?: number }> = [];
     let successCount = 0;
     let failedCount = 0;
     let skippedCount = 0;
@@ -399,18 +401,26 @@ export class BrokerSummaryIDXCalculator {
         // Check if skipped (already exists)
         const skipped = result.message.includes('already exists');
         
+        const brokerCount = result.brokerCount || 0;
         results.push({
           date: dateSuffix,
           ...result,
-          skipped
+          skipped,
+          brokerCount
         });
+
+        // Update progress tracker
+        if (progressTracker && brokerCount > 0) {
+          progressTracker.processedBrokers += brokerCount;
+          await progressTracker.updateProgress();
+        }
 
         if (skipped) {
           skippedCount++;
           console.log(`${progress} ✅ ${dateSuffix}: Skipped (already exists)`);
         } else if (result.success) {
           successCount++;
-          console.log(`${progress} ✅ ${dateSuffix}: Success`);
+          console.log(`${progress} ✅ ${dateSuffix}: Success (${brokerCount} brokers)`);
         } else {
           failedCount++;
           console.log(`${progress} ❌ ${dateSuffix}: Failed - ${result.message}`);

@@ -1,6 +1,14 @@
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_5, MAX_CONCURRENT_REQUESTS_PHASE_5 } from '../../services/dataUpdateService';
 
+// Progress tracker interface for thread-safe broker counting
+interface ProgressTracker {
+  totalBrokers: number;
+  processedBrokers: number;
+  logId: string | null;
+  updateProgress: () => Promise<void>;
+}
+
 // Helper function to limit concurrency for Phase 5-6
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
   const results: T[] = [];
@@ -261,8 +269,9 @@ export class BrokerTransactionIDXCalculator {
   public async generateIDX(
     dateSuffix: string, 
     investorType: 'D' | 'F' | '' = '',
-    marketType: 'RG' | 'TN' | 'NG' | '' = ''
-  ): Promise<{ success: boolean; message: string; file?: string }> {
+    marketType: 'RG' | 'TN' | 'NG' | '' = '',
+    progressTracker?: ProgressTracker
+  ): Promise<{ success: boolean; message: string; file?: string; brokerCount?: number }> {
     try {
       // Validate dateSuffix format (YYYYMMDD - 8 digits)
       if (!dateSuffix || !/^\d{8}$/.test(dateSuffix)) {
@@ -420,12 +429,20 @@ export class BrokerTransactionIDXCalculator {
       // Save IDX.csv to the same folder
       await uploadText(idxFilePath, csvContentOutput, 'text/csv');
 
-      console.log(`✅ Successfully created ${idxFilePath} with aggregated IDX data`);
+      const brokerCount = brokerFiles.length;
+      console.log(`✅ Successfully created ${idxFilePath} with aggregated IDX data from ${brokerCount} brokers`);
+
+      // Update progress tracker
+      if (progressTracker && brokerCount > 0) {
+        progressTracker.processedBrokers += brokerCount;
+        await progressTracker.updateProgress();
+      }
 
       return {
         success: true,
-        message: `IDX.csv created successfully with ${allBrokerData.length} emiten records aggregated from ${brokerFiles.length} brokers`,
-        file: idxFilePath
+        message: `IDX.csv created successfully with ${allBrokerData.length} emiten records aggregated from ${brokerCount} brokers`,
+        file: idxFilePath,
+        brokerCount
       };
     } catch (error: any) {
       console.error(`❌ Error generating IDX.csv:`, error);
@@ -445,9 +462,10 @@ export class BrokerTransactionIDXCalculator {
   public async generateIDXBatch(
     dateSuffixes: string[],
     investorType: 'D' | 'F' | '' = '',
-    marketType: 'RG' | 'TN' | 'NG' | '' = ''
-  ): Promise<{ success: number; failed: number; skipped: number; results: Array<{ date: string; success: boolean; message: string; file?: string; skipped?: boolean }> }> {
-    const results: Array<{ date: string; success: boolean; message: string; file?: string; skipped?: boolean }> = [];
+    marketType: 'RG' | 'TN' | 'NG' | '' = '',
+    progressTracker?: ProgressTracker
+  ): Promise<{ success: number; failed: number; skipped: number; results: Array<{ date: string; success: boolean; message: string; file?: string; skipped?: boolean; brokerCount?: number }> }> {
+    const results: Array<{ date: string; success: boolean; message: string; file?: string; skipped?: boolean; brokerCount?: number }> = [];
     let successCount = 0;
     let failedCount = 0;
     let skippedCount = 0;
@@ -468,15 +486,17 @@ export class BrokerTransactionIDXCalculator {
       
       try {
         console.log(`${progress} Processing date ${dateSuffix}...`);
-        const result = await this.generateIDX(dateSuffix, investorType, marketType);
+        const result = await this.generateIDX(dateSuffix, investorType, marketType, progressTracker);
         
         // Check if skipped (already exists)
         const skipped = result.message.includes('already exists');
+        const brokerCount = result.brokerCount || 0;
         
         results.push({
           date: dateSuffix,
           ...result,
-          skipped
+          skipped,
+          brokerCount
         });
 
         if (skipped) {
@@ -484,7 +504,7 @@ export class BrokerTransactionIDXCalculator {
           console.log(`${progress} ✅ ${dateSuffix}: Skipped (already exists)`);
         } else if (result.success) {
           successCount++;
-          console.log(`${progress} ✅ ${dateSuffix}: Success`);
+          console.log(`${progress} ✅ ${dateSuffix}: Success (${brokerCount} brokers processed)`);
         } else {
           failedCount++;
           console.log(`${progress} ❌ ${dateSuffix}: Failed - ${result.message}`);
