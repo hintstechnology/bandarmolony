@@ -44,7 +44,7 @@ class BrokerSummaryTypeDataScheduler {
       }
       
       // Type assertion to fix TypeScript error (method exists but TypeScript doesn't recognize it)
-      const result = await (this.calculator as any).generateBrokerSummarySplitPerType();
+      const result = await (this.calculator as any).generateBrokerSummarySplitPerType(finalLogId);
       
       // Check if this is called from a Phase (don't mark completed/failed if so, Phase will handle it)
       const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
