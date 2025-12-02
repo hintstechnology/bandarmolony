@@ -2289,7 +2289,8 @@ const visibleBrokers = useMemo(
           {/* Controls */}
           {!hideControls && (
             <>
-              <div className="fixed top-14 left-20 right-0 z-40 bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg">
+              {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
+              <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
                 <div ref={controlMenuRef} className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
                 {/* Ticker Selection */}
                 <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
@@ -2640,7 +2641,8 @@ const visibleBrokers = useMemo(
                 </button>
               </div>
               </div>
-              <div style={{ height: `${controlSpacerHeight}px` }} />
+              {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
+              <div className="hidden lg:block" style={{ height: `${controlSpacerHeight}px` }} />
             </>
           )}
 

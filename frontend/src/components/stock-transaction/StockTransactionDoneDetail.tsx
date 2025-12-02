@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
-import { Calendar, Grid3X3, ChevronDown, Search, Loader2, RotateCcw, GripVertical, X } from 'lucide-react';
+import { Calendar, Grid3X3, Search, Loader2, GripVertical, X } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 import { api } from '../../services/api';
 import { STOCK_LIST, searchStocks } from '../../data/stockList';
@@ -71,12 +71,6 @@ const formatNumber = (num: number): string => {
   return num.toLocaleString();
 };
 
-const formatTime = (timeNum: number): string => {
-  // Convert number like 85800 to "08:58:00"
-  const timeStr = timeNum.toString().padStart(6, '0');
-  return `${timeStr.slice(0, 2)}:${timeStr.slice(2, 4)}:${timeStr.slice(4, 6)}`;
-};
-
 const formatDisplayDate = (dateString: string): string => {
   const date = new Date(dateString);
   return date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
@@ -134,7 +128,7 @@ export function StockTransactionDoneDetail() {
   const [itemsPerPage, setItemsPerPage] = useState(100); // Limit to 100 items per page
   const [pivotMode, setPivotMode] = useState<string>('custom');
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const [infoOpen, setInfoOpen] = useState(false); // collapsible info, default minimized
+  // const [infoOpen, setInfoOpen] = useState(false); // collapsible info, default minimized (currently unused)
 
   // Date picker refs
   const startDateRef = useRef<HTMLInputElement>(null);
@@ -611,11 +605,11 @@ export function StockTransactionDoneDetail() {
   }, [pivotConfig, pivotMode, isDataReady, selectedDates]);
 
   // Get unique values for filter options
-  const getUniqueValues = (field: keyof DoneDetailData): string[] => {
-    const allData = selectedDates.flatMap(date => doneDetailData.get(date) || []);
-    const uniqueValues = [...new Set(allData.map(item => String(item[field])))];
-    return uniqueValues.sort();
-  };
+  // const getUniqueValues = (field: keyof DoneDetailData): string[] => {
+  //   const allData = selectedDates.flatMap(date => doneDetailData.get(date) || []);
+  //   const uniqueValues = [...new Set(allData.map(item => String(item[field])))];
+  //   return uniqueValues.sort();
+  // };
 
   // Removed brokerOptions and priceOptions - no longer used
 
@@ -716,7 +710,7 @@ export function StockTransactionDoneDetail() {
             <table className="w-full text-xs border-collapse">
               <thead>
                 {/* Row dimension headers - First row for row dimensions and column group headers */}
-                {type === 'cross' && parsedColumns.length > 0 && columns.length > 1 ? (
+                    {type === 'cross' && parsedColumns.length > 0 && columns.length > 1 ? (
                   <>
                     {/* First row: Row dimension headers + Column group headers */}
                     <tr className="border-b border-border bg-muted/50">
@@ -757,29 +751,27 @@ export function StockTransactionDoneDetail() {
                     </tr>
                     {/* Second row: Aggregation headers for each column */}
                     <tr className="border-b border-border bg-muted/50">
-                      {parsedColumns.map((colParts: Array<{ fieldId: string; value: string }>, colIdx: number) => {
-                        return (
-                          <React.Fragment key={colIdx}>
-                            {values.map((val: any, valIdx: number) => {
-                              // Format aggregation label: "Count", "Sum", etc. (without column value)
-                              const aggregationLabel = val.aggregation === 'COUNT' ? 'Count' :
-                                val.aggregation === 'SUM' ? 'Sum' :
-                                  val.aggregation === 'AVG' ? 'Avg' :
-                                    val.aggregation === 'MIN' ? 'Min' :
-                                      val.aggregation === 'MAX' ? 'Max' :
-                                        val.aggregation;
-                              return (
-                                <th
-                                  key={`${colIdx}-${valIdx}`}
-                                  className="text-center py-2 px-2 font-medium border-l border-border"
-                                >
-                                  {aggregationLabel}
-                                </th>
-                              );
-                            })}
-                          </React.Fragment>
-                        );
-                      })}
+                      {parsedColumns.map((_colParts, colIdx: number) => (
+                        <React.Fragment key={colIdx}>
+                          {values.map((val: any, valIdx: number) => {
+                            // Format aggregation label: "Count", "Sum", dll (tanpa nama kolom)
+                            const aggregationLabel = val.aggregation === 'COUNT' ? 'Count' :
+                              val.aggregation === 'SUM' ? 'Sum' :
+                                val.aggregation === 'AVG' ? 'Avg' :
+                                  val.aggregation === 'MIN' ? 'Min' :
+                                    val.aggregation === 'MAX' ? 'Max' :
+                                      val.aggregation;
+                            return (
+                              <th
+                                key={`${colIdx}-${valIdx}`}
+                                className="text-center py-2 px-2 font-medium border-l border-border"
+                              >
+                                {aggregationLabel}
+                              </th>
+                            );
+                          })}
+                        </React.Fragment>
+                      ))}
                     </tr>
                   </>
                 ) : (
@@ -1371,9 +1363,10 @@ export function StockTransactionDoneDetail() {
 
 
   return (
-    <div className="w-full">
+  <div className="w-full">
       {/* Top Controls - Compact without Card, similar to DoneSummary */}
-      <div className="fixed top-14 left-20 right-0 z-40 bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1">
+      {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
+      <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
         <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-2 md:gap-x-7 md:gap-y-0.2">
           {/* Ticker Selection */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
@@ -1606,8 +1599,8 @@ export function StockTransactionDoneDetail() {
         </div>
       </div>
 
-      {/* Spacer for fixed menu */}
-      <div className="h-[38px] md:h-[35px]"></div>
+      {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
+      <div className="h-0 lg:h-[38px]"></div>
 
       {/* Drag and Drop Pivot Builder Section */}
       <div className="px-4 py-4 border-b border-[#3a4252] bg-[#0a0f20]">
