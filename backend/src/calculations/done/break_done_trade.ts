@@ -381,7 +381,9 @@ export class BreakDoneTradeCalculator {
       
       for (let i = 0; i < stocks.length; i++) {
         const stockCode = stocks[i];
-        const stockData = groupedData.get(stockCode)!;
+        if (!stockCode) continue; // Skip if undefined
+        const stockData = groupedData.get(stockCode);
+        if (!stockData) continue; // Skip if no data
         const filename = `done_detail/${dateSuffix}/STOCK/${stockCode}.csv`;
         await this.saveToAzure(filename, stockData);
         createdFiles.push(filename);

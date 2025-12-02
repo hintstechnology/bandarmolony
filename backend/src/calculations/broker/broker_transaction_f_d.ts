@@ -432,6 +432,7 @@ export class BrokerTransactionFDCalculator {
     
     for (let i = 0; i < uniqueBrokers.length; i++) {
       const broker = uniqueBrokers[i];
+      if (!broker) continue; // Skip if undefined
       let brokerProcessed = false;
       
       // Process for both D (Domestik) and F (Foreign)

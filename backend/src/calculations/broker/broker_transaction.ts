@@ -410,6 +410,7 @@ export class BrokerTransactionCalculator {
     
     for (let i = 0; i < uniqueBrokers.length; i++) {
       const broker = uniqueBrokers[i];
+      if (!broker) continue; // Skip if undefined
       const filename = `broker_transaction/broker_transaction_${dateSuffix}/${broker}.csv`;
       
       console.log(`Processing broker: ${broker}`);

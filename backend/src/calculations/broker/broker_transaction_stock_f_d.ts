@@ -429,6 +429,7 @@ export class BrokerTransactionStockFDCalculator {
     
     for (let i = 0; i < uniqueStocks.length; i++) {
       const stock = uniqueStocks[i];
+      if (!stock) continue; // Skip if undefined
       let stockProcessed = false;
       
       // Process for both D (Domestik) and F (Foreign)
