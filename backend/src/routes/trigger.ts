@@ -22,6 +22,7 @@ import { forceRegenerate as generateSeasonalityData } from '../services/seasonal
 import { TrendFilterDataScheduler } from '../services/trendFilterDataScheduler';
 import BrokerSummaryTypeDataScheduler from '../services/brokerSummaryTypeDataScheduler';
 import BrokerSummaryIDXDataScheduler from '../services/brokerSummaryIDXDataScheduler';
+import BrokerSummarySectorDataScheduler from '../services/brokerSummarySectorDataScheduler';
 import BrokerBreakdownDataScheduler from '../services/brokerBreakdownDataScheduler';
 import BreakDoneTradeDataScheduler from '../services/breakDoneTradeDataScheduler';
 import BrokerTransactionDataScheduler from '../services/brokerTransactionDataScheduler';
@@ -1986,6 +1987,66 @@ router.post('/break-done-trade', async (req, res) => {
     return res.status(500).json({
       success: false,
       message: error.message || 'Unknown error'
+    });
+  }
+});
+
+// Manual trigger for Broker Summary Sector calculation
+router.post('/broker-summary-sector', async (req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Broker Summary Sector calculation');
+    
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'broker_summary_sector',
+      trigger_type: 'manual',
+      triggered_by: getTriggeredBy(req),
+      status: 'running',
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    const brokerSummarySectorService = new BrokerSummarySectorDataScheduler();
+    
+    // Execute in background and return immediately
+    brokerSummarySectorService.generateBrokerSummarySectorData('all', logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
+      await AzureLogger.logInfo('broker_summary_sector', `Manual broker summary sector calculation completed: ${result.message || 'OK'}`);
+      console.log(`✅ Broker Summary Sector calculation completed: ${result.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: result.success ? 'completed' : 'failed',
+          progress_percentage: 100,
+          ...(result.success ? {} : { error_message: result.message })
+        });
+      }
+    }).catch(async (error: any) => {
+      const errorMessage = error?.message || error?.toString() || 'Unknown error';
+      await AzureLogger.logSchedulerError('broker_summary_sector', errorMessage);
+      console.error(`❌ Broker Summary Sector calculation error: ${errorMessage}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: errorMessage
+        });
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: 'Broker Summary Sector calculation triggered successfully',
+      log_id: logEntry.id
+    });
+  } catch (error: any) {
+    console.error('❌ Error triggering broker summary sector calculation:', error);
+    const errorMessage = error?.message || error?.toString() || 'Unknown error';
+    return res.status(500).json({
+      success: false,
+      message: `Failed to trigger broker-summary-sector update: ${errorMessage}`
     });
   }
 });

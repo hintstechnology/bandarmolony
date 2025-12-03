@@ -73,14 +73,29 @@ router.get('/stocks', async (req, res) => {
       files = await listPaths({ prefix: modernPrefix });
     }
 
+    // Separate stocks (4-character codes) and sectors (longer names)
     const stocks = (files || [])
       .filter(path => path.endsWith('.csv') && !path.includes('ALLSUM'))
       .map(path => path.split('/').pop() || '')
       .map(name => name.replace('.csv', ''))
-      .filter(code => code.length === 4 || code.toUpperCase() === 'IDX')
+      .filter(code => {
+        // Include 4-character stock codes and IDX
+        return (code.length === 4 && /^[A-Z]{4}$/.test(code)) || code.toUpperCase() === 'IDX';
+      })
       .sort();
 
-    return res.json({ success: true, data: { stocks, date, market: market || 'RG' } });
+    // Sectors are CSV files that are not 4-character stock codes and not IDX
+    const sectors = (files || [])
+      .filter(path => path.endsWith('.csv') && !path.includes('ALLSUM'))
+      .map(path => path.split('/').pop() || '')
+      .map(name => name.replace('.csv', ''))
+      .filter(code => {
+        // Exclude 4-character stock codes and IDX
+        return !(code.length === 4 && /^[A-Z]{4}$/.test(code)) && code.toUpperCase() !== 'IDX';
+      })
+      .sort();
+
+    return res.json({ success: true, data: { stocks, sectors, date, market: market || 'RG' } });
   } catch (error: any) {
     console.error('broker-summary/stocks error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to list stocks' });
@@ -96,6 +111,10 @@ router.get('/summary/:stockCode', async (req, res) => {
     
     let csvData: string | null = null;
     let usedPath = '';
+    
+    // Check if stockCode is a sector (not a 4-character stock code)
+    // Sectors are typically longer names like 'BANK', 'MINING', etc.
+    const isSector = stockCode.length !== 4 || !/^[A-Z]{4}$/.test(stockCode);
     
     // If modernPrefix is empty (All Trade), only try legacy path
     if (!modernPrefix) {
@@ -122,10 +141,11 @@ router.get('/summary/:stockCode', async (req, res) => {
     }
 
     if (!csvData) {
-      // This is a normal condition - some stocks may not have data for certain dates
+      // This is a normal condition - some stocks/sectors may not have data for certain dates
       // (e.g., new listings, suspended stocks, or dates with no trading activity)
       // Frontend will handle this gracefully by showing empty data
-      console.log(`[BrokerSummary] No data found for ${stockCode} on ${date} with market: ${market || 'All Trade'} (this is normal for some stocks)`);
+      const entityType = isSector ? 'sector' : 'stock';
+      console.log(`[BrokerSummary] No data found for ${entityType} ${stockCode} on ${date} with market: ${market || 'All Trade'} (this is normal for some ${entityType}s)`);
       return res.status(404).json({ success: false, error: `No data for ${stockCode} on ${date}` });
     }
 
