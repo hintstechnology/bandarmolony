@@ -197,11 +197,19 @@ export class BrokerSummarySectorCalculator {
     // Recalculate NetBuy/NetSell and all averages from aggregated totals
     const aggregatedSummary: BrokerSummary[] = [];
     brokerMap.forEach((data, broker) => {
-      // Calculate NetBuy and NetSell from aggregated BuyerVol/SellerVol
-      // NetBuy = Buy - Sell, if negative then 0
-      // NetSell = Sell - Buy, if negative then 0
-      const rawNetBuyVol = data.BuyerVol - data.SellerVol;
-      const rawNetBuyValue = data.BuyerValue - data.SellerValue;
+      // IMPORTANT: In broker_summary.ts, there's a SWAP in the CSV output:
+      // BuyerVol (in CSV) = seller.totalVol (actual seller)
+      // SellerVol (in CSV) = buyer.totalVol (actual buyer)
+      // So to calculate NetBuy correctly, we need to swap:
+      const actualBuyerVol = data.SellerVol;  // SellerVol (CSV) = actual buyer
+      const actualBuyerValue = data.SellerValue;
+      const actualSellerVol = data.BuyerVol;  // BuyerVol (CSV) = actual seller
+      const actualSellerValue = data.BuyerValue;
+      
+      // Calculate NetBuy and NetSell from actual buyer - seller
+      // NetBuy = actual buyer - actual seller
+      const rawNetBuyVol = actualBuyerVol - actualSellerVol;
+      const rawNetBuyValue = actualBuyerValue - actualSellerValue;
       
       let netBuyVol = 0;
       let netBuyValue = 0;
