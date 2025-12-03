@@ -1795,6 +1795,7 @@ const visibleBrokers = useMemo(
         });
       } finally {
         setIsLoadingData(false);
+        setShouldFetchData(false);
       }
     };
     
@@ -2003,6 +2004,7 @@ const visibleBrokers = useMemo(
         });
       } finally {
         setIsLoadingBrokerData(false);
+        setShouldFetchData(false);
       }
     };
     
@@ -3119,6 +3121,7 @@ const visibleBrokers = useMemo(
     }
 
     // Set selected brokers and activate top 5 modes
+    // NO auto-fetch - user must click Show button to fetch data
     setSelectedBrokers(combinedDefaults);
     if (topBuy.length > 0) {
       setBrokerSelectionMode(prev => ({ ...prev, top5buy: true }));
@@ -3127,7 +3130,7 @@ const visibleBrokers = useMemo(
       setBrokerSelectionMode(prev => ({ ...prev, top5sell: true }));
     }
     setIsDataReady(false);
-    setShouldFetchData(true);
+    // Removed: setShouldFetchData(true) - user must click Show button
   }, [
     brokerSummaryData,
     brokerNetStats,
@@ -3936,8 +3939,10 @@ const visibleBrokers = useMemo(
           )}
 
 
-          {/* Conditional Chart Rendering */}
-          {onlyShowInventoryChart ? (
+          {/* Conditional Chart Rendering - Only show when data is ready */}
+          {isDataReady && (
+            <>
+              {onlyShowInventoryChart ? (
             // Only show Broker Inventory Chart
             <Card>
               <CardHeader>
@@ -4344,10 +4349,10 @@ const visibleBrokers = useMemo(
                 </CardContent>
               </Card>
             </>
-          )}            
+          )}
 
-      {/* Top Brokers Table */}
-          <Card>
+              {/* Top Brokers Table - Only show when data is ready */}
+              <Card>
             <CardHeader>
           <div className="flex items-center justify-between">
             <div>
@@ -4444,6 +4449,8 @@ const visibleBrokers = useMemo(
               )}
             </CardContent>
           </Card>
+            </>
+          )}
 
         </div>
       </div>
