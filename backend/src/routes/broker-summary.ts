@@ -122,7 +122,10 @@ router.get('/summary/:stockCode', async (req, res) => {
     }
 
     if (!csvData) {
-      console.error(`[BrokerSummary] No data found for ${stockCode} on ${date} with market: ${market || 'All Trade'}`);
+      // This is a normal condition - some stocks may not have data for certain dates
+      // (e.g., new listings, suspended stocks, or dates with no trading activity)
+      // Frontend will handle this gracefully by showing empty data
+      console.log(`[BrokerSummary] No data found for ${stockCode} on ${date} with market: ${market || 'All Trade'} (this is normal for some stocks)`);
       return res.status(404).json({ success: false, error: `No data for ${stockCode} on ${date}` });
     }
 
