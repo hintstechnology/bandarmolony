@@ -1,4 +1,6 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
+import { stockCache } from '../../cache/stockCacheService';
+import { indexCache } from '../../cache/indexCacheService';
 import { BATCH_SIZE_PHASE_3, MAX_CONCURRENT_REQUESTS_PHASE_3 } from '../../services/dataUpdateService';
 
 // Helper function to limit concurrency for Phase 3
@@ -43,7 +45,20 @@ export class MoneyFlowCalculator {
     console.log(`Loading OHLC data from Azure: ${filename}`);
     
     try {
-      const content = await downloadText(filename);
+      // Use appropriate cache based on file path
+      let content: string | null;
+      if (filename.startsWith('stock/')) {
+        content = await stockCache.getRawContent(filename);
+      } else if (filename.startsWith('index/')) {
+        content = await indexCache.getRawContent(filename);
+      } else {
+        // Fallback to direct download for unknown paths
+        content = await downloadText(filename);
+      }
+      
+      if (!content) {
+        return [];
+      }
     
     const lines = content.trim().split('\n');
     const data: OHLCData[] = [];
