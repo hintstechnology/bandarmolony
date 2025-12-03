@@ -74,6 +74,7 @@ const MANUAL_TRIGGERS_BY_PHASE: PhaseGroup[] = [
       { name: "Broker Summary", type: "broker-summary", description: "Calculate broker summary per emiten and ALLSUM" },
       { name: "Broker Summary IDX", type: "broker-summary-idx", description: "Generate aggregated IDX.csv for all dates and market types" },
       { name: "Broker Summary by Type", type: "broker-summary-type", description: "Generate broker summary split by RK / TN / NG" },
+      { name: "Broker Summary Sector", type: "broker-summary-sector", description: "Generate broker summary aggregated by sector for all dates and market types" },
     ]
   },
   {
@@ -323,6 +324,7 @@ export function ManualTriggerControl() {
       'broker_inventory': 'broker-inventory',
       'broker_summary_type': 'broker-summary-type',
       'broker_summary_idx': 'broker-summary-idx',
+      'broker_summary_sector': 'broker-summary-sector',
       'foreign_flow': 'foreign-flow',
       'money_flow': 'money-flow',
       'seasonality': 'seasonal',
