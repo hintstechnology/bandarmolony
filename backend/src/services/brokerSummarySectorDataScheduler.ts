@@ -76,7 +76,7 @@ export class BrokerSummarySectorDataScheduler {
       const logEntry = await SchedulerLogService.createLog({
         feature_name: 'broker_summary_sector',
         trigger_type: triggeredBy ? 'manual' : 'scheduled',
-        triggered_by: triggeredBy || 'system',
+        triggered_by: triggeredBy || 'Scheduler',
         status: 'running',
         environment: process.env['NODE_ENV'] || 'development'
       });
