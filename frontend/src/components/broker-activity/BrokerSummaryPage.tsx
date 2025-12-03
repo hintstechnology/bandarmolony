@@ -547,42 +547,29 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         return;
       }
       
-      // Expand sectors to individual stocks for fetching
-      // Also check cache for sector aggregate data first (for faster loading)
-      const expandedTickers: string[] = [];
-      const sectorCacheChecks: Array<{ sectorName: string; dates: string[] }> = [];
+      // Process selected tickers - sectors are now fetched directly from backend (no expansion)
+      // Backend handles sector aggregation, frontend just fetches the sector CSV
+      const tickersToFetch: string[] = [];
       
       selectedTickers.forEach(ticker => {
         if (ticker.startsWith('[SECTOR] ')) {
           const sectorName = ticker.replace('[SECTOR] ', '');
-          
-          // Special handling for IDX: IDX is not a regular sector with multiple stocks
-          // IDX is a special ticker that exists as IDX.csv in broker_summary folders
-          // So IDX should be fetched directly as "IDX", not expanded from sector mapping
-          if (sectorName === 'IDX') {
-            expandedTickers.push('IDX');
-            console.log('[BrokerSummary] IDX selected - will fetch as IDX ticker directly');
-          } else {
-            // Regular sectors: expand to individual stocks from sector mapping
-            const stocksInSector = sectorMapping[sectorName] || [];
-            expandedTickers.push(...stocksInSector);
-            console.log(`[BrokerSummary] Sector ${sectorName} expanded to ${stocksInSector.length} stocks`);
-            
-            // Track sector for cache checking
-            sectorCacheChecks.push({ sectorName, dates: selectedDates });
-          }
+          // Fetch sector CSV directly from backend (backend already aggregated)
+          tickersToFetch.push(sectorName);
+          console.log(`[BrokerSummary] Sector ${sectorName} selected - will fetch sector CSV directly from backend`);
         } else {
-          expandedTickers.push(ticker);
+          // Regular stock - fetch directly
+          tickersToFetch.push(ticker);
         }
       });
       
       // Remove duplicates
-      const uniqueTickers = Array.from(new Set(expandedTickers));
+      const uniqueTickers = Array.from(new Set(tickersToFetch));
       
-      console.log(`[BrokerSummary] Expanded ${selectedTickers.length} selected tickers to ${uniqueTickers.length} unique tickers:`, uniqueTickers);
+      console.log(`[BrokerSummary] Processing ${selectedTickers.length} selected tickers (${uniqueTickers.length} unique):`, uniqueTickers);
       
       if (uniqueTickers.length === 0) {
-        console.warn('[BrokerSummary] No tickers to fetch after expansion. Sector mapping:', sectorMapping);
+        console.warn('[BrokerSummary] No tickers to fetch');
         setIsLoading(false);
         setIsDataReady(false);
         shouldFetchDataRef.current = false;
@@ -724,7 +711,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         const BATCH_SIZE = 20;
         
         // Create all fetch task descriptions (NOT promises yet - create promises only when needed)
-        // Use expandedTickers (with sectors expanded to individual stocks)
+        // Use uniqueTickers (sectors are fetched directly, not expanded)
         const allFetchTasks = selectedDates.flatMap(date =>
           uniqueTickers.map(ticker => ({ ticker, date }))
         );
