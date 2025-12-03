@@ -1,6 +1,7 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_3, MAX_CONCURRENT_REQUESTS_PHASE_3 } from '../../services/dataUpdateService';
 import { SchedulerLogService } from '../../services/schedulerLogService';
+import { doneSummaryCache } from '../../cache/doneSummaryCacheService';
 
 // Progress tracker interface for thread-safe stock counting
 interface ProgressTracker {
@@ -52,18 +53,17 @@ export class ForeignFlowCalculator {
 
   /**
    * Find all DT files in done-summary folder
+   * OPTIMIZED: Uses shared cache to avoid repeated listPaths calls
    */
   private async findAllDtFiles(): Promise<string[]> {
     console.log("Scanning all DT files in done-summary folder...");
     
     try {
-      const allFiles = await listPaths({ prefix: 'done-summary/' });
-      const dtFiles = allFiles.filter(file => 
-        file.includes('/DT') && file.endsWith('.csv')
-      );
+      // Use shared cache for DT files list
+      const allDtFiles = await doneSummaryCache.getDtFilesList();
       
       // Sort by date descending (newest first) - process from newest to oldest
-      const sortedFiles = dtFiles.sort((a, b) => {
+      const sortedFiles = allDtFiles.sort((a, b) => {
         const dateA = a.split('/')[1] || '';
         const dateB = b.split('/')[1] || '';
         return dateB.localeCompare(dateA); // Descending order (newest first)
@@ -79,11 +79,14 @@ export class ForeignFlowCalculator {
 
   /**
    * Load and process a single DT file
+   * OPTIMIZED: Uses shared cache to avoid repeated downloads
    */
   private async loadAndProcessSingleDtFile(blobName: string): Promise<{ data: TransactionData[], dateSuffix: string } | null> {
     try {
       console.log(`Loading DT file: ${blobName}`);
-      const content = await downloadText(blobName);
+      
+      // Use shared cache for raw content (will cache automatically if not exists)
+      const content = await doneSummaryCache.getRawContent(blobName);
       
       if (!content || content.trim().length === 0) {
         console.log(`⚠️ Empty file: ${blobName}`);

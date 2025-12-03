@@ -4,7 +4,8 @@
 // Output: CSV file dengan nama "o2-seasonal-stocks.csv" di folder seasonal_output
 // ------------------------------------------------------------
 
-import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
+import { uploadText, listPaths, exists } from '../../utils/azureBlob';
+import { stockCache } from '../../cache/stockCacheService';
 import { BATCH_SIZE_PHASE_2, MAX_CONCURRENT_REQUESTS_PHASE_2 } from '../../services/dataUpdateService';
 
 // Helper function to limit concurrency for Phase 2
@@ -109,7 +110,8 @@ async function loadStockData(sector: string, ticker: string): Promise<StockData[
     throw new Error(`Stock file not found: ${stockPath}`);
   }
   
-  const csvContent = await downloadText(stockPath);
+  // Use shared cache for raw content (will cache automatically if not exists)
+  const csvContent = await stockCache.getRawContent(stockPath) || '';
   const lines = csvContent.trim().split('\n');
   const headers = parseCsvLine(lines[0] || '');
   

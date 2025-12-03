@@ -34,6 +34,10 @@ import { updateIndexData } from './indexDataScheduler';
 import { updateShareholdersData } from './shareholdersDataScheduler';
 import { updateHoldingData } from './holdingDataScheduler';
 import { updateWatchlistSnapshot } from './watchlistSnapshotService';
+import { doneSummaryCache } from '../cache/doneSummaryCacheService';
+import { stockCache } from '../cache/stockCacheService';
+import { brokerTransactionCache } from '../cache/brokerTransactionCacheService';
+import { indexCache } from '../cache/indexCacheService';
 
 // ======================
 // SCHEDULER CONFIGURATION
@@ -1621,6 +1625,30 @@ export async function runPhase8AdditionalCalculations(manualTriggeredBy?: string
     
     console.log(`\n🎉 ===== ALL PHASES COMPLETED =====`);
     console.log(`📊 Total time from Phase 1a start: Check individual phase logs`);
+    
+    // Clear all caches after all phases complete to free memory
+    console.log('\n🧹 Clearing all caches after all phases completed...');
+    console.log('📊 Cache usage summary:');
+    console.log(`   - done-summary: Used by 15 calculations (Phase 3, 4, 5, 6, 7)`);
+    console.log(`   - stock: Used by multiple calculations (Phase 2, 3, 8)`);
+    console.log(`   - broker_transaction: Used by 2 calculations (Phase 5, 8)`);
+    console.log(`   - index: Used by 2 calculations (Phase 2, 3)`);
+    
+    // Print stats before clearing
+    console.log('\n📊 Cache statistics before clearing:');
+    doneSummaryCache.printStats();
+    stockCache.printStats();
+    brokerTransactionCache.printStats();
+    indexCache.printStats();
+    
+    // Clear all caches
+    console.log('\n🧹 Clearing all caches...');
+    doneSummaryCache.clearAll();
+    stockCache.clearAll();
+    brokerTransactionCache.clearAll();
+    indexCache.clearAll();
+    
+    console.log('✅ All caches cleared successfully');
     
     // Cleanup memory after all calculations are complete
     await aggressiveMemoryCleanup();

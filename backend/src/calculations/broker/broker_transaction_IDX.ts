@@ -1,4 +1,5 @@
-import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
+import { uploadText, listPaths, exists } from '../../utils/azureBlob';
+import { brokerTransactionCache } from '../../cache/brokerTransactionCacheService';
 import { BATCH_SIZE_PHASE_5, MAX_CONCURRENT_REQUESTS_PHASE_5 } from '../../services/dataUpdateService';
 
 // Progress tracker interface for thread-safe broker counting
@@ -383,9 +384,26 @@ export class BrokerTransactionIDXCalculator {
         // Process batch in parallel with concurrency limit 25
         const batchPromises = batch.map(async (file) => {
             try {
-              const csvContent = await downloadText(file);
+              // Extract brokerCode and date from file path
+              // Format: broker_transaction/broker_transaction_{date}/{broker}.csv
+              const pathParts = file.split('/');
+              const brokerCode = pathParts[pathParts.length - 1]?.replace('.csv', '') || 'unknown';
+              const folderName = pathParts[pathParts.length - 2] || '';
+              // Extract date from folder name (e.g., broker_transaction_20251021 -> 20251021)
+              const dateMatch = folderName.match(/broker_transaction_(?:[df]_)?(?:rg|tn|ng_)?(\d{6,8})/);
+              const date = dateMatch ? dateMatch[1] : (dateSuffix || '');
+              
+              if (!date) {
+                throw new Error(`Could not extract date from file path: ${file}`);
+              }
+              
+              // Use shared cache for raw content (will cache automatically if not exists)
+              const csvContent = await brokerTransactionCache.getRawContent(brokerCode, date);
+              if (!csvContent) {
+                throw new Error(`Could not load broker transaction data for ${brokerCode} on ${date}`);
+              }
+              
               const brokerData = this.parseCSV(csvContent);
-              const brokerCode = file.split('/').pop()?.replace('.csv', '') || 'unknown';
               return { brokerCode, brokerData, success: true };
             } catch (error: any) {
               const brokerCode = file.split('/').pop()?.replace('.csv', '') || 'unknown';

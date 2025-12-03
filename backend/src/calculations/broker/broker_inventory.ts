@@ -1,6 +1,7 @@
-import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
+import { uploadText, listPaths } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_8, MAX_CONCURRENT_REQUESTS_PHASE_8 } from '../../services/dataUpdateService';
 import { SchedulerLogService } from '../../services/schedulerLogService';
+import { brokerTransactionCache } from '../../cache/brokerTransactionCacheService';
 
 // Progress tracker interface for thread-safe broker-emiten counting
 interface ProgressTracker {
@@ -131,31 +132,11 @@ export class BrokerInventoryCalculator {
   /**
    * Load broker transaction data for a specific broker and date from Azure
    * Tries both YYYYMMDD and YYMMDD formats to handle different folder naming conventions
+   * OPTIMIZED: Uses shared cache to avoid repeated downloads
    */
   private async loadBrokerTransactionDataFromAzure(brokerCode: string, date: string): Promise<BrokerTransactionData[]> {
-    // Try YYYYMMDD format first (normalized)
-    let blobName = `broker_transaction/broker_transaction_${date}/${brokerCode}.csv`;
-    let csvContent: string | null = null;
-    
-    try {
-      csvContent = await downloadText(blobName);
-    } catch (error) {
-      // If YYYYMMDD format fails and date is 8 digits, try YYMMDD format (original)
-      if (date.length === 8) {
-        // Convert YYYYMMDD to YYMMDD: 20251201 -> 251201
-        const yyMMdd = `${date.substring(2, 4)}${date.substring(4, 6)}${date.substring(6, 8)}`;
-        blobName = `broker_transaction/broker_transaction_${yyMMdd}/${brokerCode}.csv`;
-        try {
-          csvContent = await downloadText(blobName);
-        } catch {
-          console.warn(`⚠️ File not found for broker ${brokerCode} on date ${date} (tried both YYYYMMDD and YYMMDD formats)`);
-          return [];
-        }
-      } else {
-        console.warn(`⚠️ File not found for broker ${brokerCode} on date ${date}`);
-        return [];
-      }
-    }
+    // Use shared cache for raw content (will handle both YYYYMMDD and YYMMDD formats automatically)
+    const csvContent = await brokerTransactionCache.getRawContent(brokerCode, date);
     
     if (!csvContent) {
       return [];

@@ -6,6 +6,8 @@
 // ------------------------------------------------------------
 
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
+import { stockCache } from '../../cache/stockCacheService';
+import { indexCache } from '../../cache/indexCacheService';
 import * as path from 'path';
 
 type NumericArray = number[];
@@ -128,7 +130,12 @@ function parseCsvLine(line: string): string[] {
 }
 
 async function readCsvData(filePath: string): Promise<StockData> {
-  const raw = await downloadText(filePath);
+  // Use appropriate cache based on file path
+  const raw = filePath.startsWith('stock/')
+    ? await stockCache.getRawContent(filePath) || ''
+    : filePath.startsWith('index/')
+    ? await indexCache.getRawContent(filePath) || ''
+    : await downloadText(filePath);
   const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
   
   if (lines.length === 0) {

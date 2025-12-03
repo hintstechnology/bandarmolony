@@ -1,6 +1,7 @@
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_8, MAX_CONCURRENT_REQUESTS_PHASE_8 } from '../../services/dataUpdateService';
 import { SchedulerLogService } from '../../services/schedulerLogService';
+import { stockCache } from '../../cache/stockCacheService';
 
 // Progress tracker interface for thread-safe stock counting
 interface ProgressTracker {
@@ -87,6 +88,7 @@ export class AccumulationDistributionCalculator {
 
   /**
    * Load bid/ask data from Azure Blob Storage
+   * OPTIMIZED: Uses shared cache to avoid repeated downloads
    */
   private async loadBidAskDataFromAzure(dateSuffix: string): Promise<BidAskData[]> {
     console.log(`Loading bid/ask data from Azure for date: ${dateSuffix}`);
@@ -147,7 +149,11 @@ export class AccumulationDistributionCalculator {
       }
       
       console.log(`🔍 Found stock ${stockCode} at: ${stockFile}`);
-      const content = await downloadText(stockFile);
+      // Use shared cache for raw content (will cache automatically if not exists)
+      const content = await stockCache.getRawContent(stockFile);
+      if (!content) {
+        return null;
+      }
     
     const lines = content.trim().split('\n');
     const data: StockData[] = [];
