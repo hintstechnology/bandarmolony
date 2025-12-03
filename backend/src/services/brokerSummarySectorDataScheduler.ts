@@ -185,8 +185,12 @@ export class BrokerSummarySectorDataScheduler {
             });
           }
           
-          const batchResult = await this.calculator.generateSectorBatch(dates, sectorName, marketType, progressTracker);
-          results[marketType || 'all'][sectorName] = batchResult;
+          const batchResult = await this.calculator.generateSectorBatch(dates, sectorName, marketType || '', progressTracker);
+          const marketKey = marketType || 'all';
+          if (!results[marketKey]) {
+            results[marketKey] = {};
+          }
+          results[marketKey][sectorName] = batchResult;
           totalSuccess += batchResult.success;
           totalFailed += batchResult.failed;
           totalSkipped += batchResult.skipped || 0;
