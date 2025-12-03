@@ -1,4 +1,4 @@
-import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
+import { downloadText, uploadText } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_4, MAX_CONCURRENT_REQUESTS_PHASE_4 } from '../../services/dataUpdateService';
 import { downloadText as downloadTextUtil } from '../../utils/azureBlob';
 
