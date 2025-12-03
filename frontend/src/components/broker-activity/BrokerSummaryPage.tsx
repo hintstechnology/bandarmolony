@@ -668,9 +668,29 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
               return { ticker, date, data: [] };
                 }
                 
+            // Check if this is a sector (sectors need NetBuy/NetSell swap)
+            const isSector = selectedTickers.some(t => t.startsWith('[SECTOR] ') && t.replace('[SECTOR] ', '') === ticker);
+            
             const rows: BrokerSummaryData[] = (res.data.brokerData ?? []).map((r: any) => {
             // Backend already calculates NetSellVol, NetSellValue, NetBuyerAvg, NetSellerAvg
             // Backend also handles the logic: if NetBuy is negative, it becomes NetSell and NetBuy = 0
+            // IMPORTANT: For sectors, NetBuy/NetSell need to be swapped because CSV has swap
+              const rawNetBuyVol = Number(r.NetBuyVol ?? 0);
+              const rawNetBuyValue = Number(r.NetBuyValue ?? 0);
+              const rawNetSellVol = Number(r.NetSellVol ?? 0);
+              const rawNetSellValue = Number(r.NetSellValue ?? 0);
+              const rawNetBuyerAvg = Number(r.NetBuyerAvg ?? 0);
+              const rawNetSellerAvg = Number(r.NetSellerAvg ?? 0);
+              
+              // For sectors: swap NetBuy and NetSell (because CSV has swap)
+              // For regular stocks: use as is
+              const netBuyVol = isSector ? rawNetSellVol : rawNetBuyVol;
+              const netBuyValue = isSector ? rawNetSellValue : rawNetBuyValue;
+              const netSellVol = isSector ? rawNetBuyVol : rawNetSellVol;
+              const netSellValue = isSector ? rawNetBuyValue : rawNetSellValue;
+              const netBuyerAvg = isSector ? rawNetSellerAvg : rawNetBuyerAvg;
+              const netSellerAvg = isSector ? rawNetBuyerAvg : rawNetSellerAvg;
+              
               return {
                     broker: r.BrokerCode ?? r.broker ?? r.BROKER ?? r.code ?? '',
                     buyerVol: Number(r.BuyerVol ?? 0),
@@ -679,20 +699,20 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     sellerVol: Number(r.SellerVol ?? 0),
                     sellerValue: Number(r.SellerValue ?? 0),
                     savg: Number(r.SellerAvg ?? r.savg ?? 0),
-              // Net Buy fields (already >= 0 from backend)
-                    netBuyVol: Number(r.NetBuyVol ?? 0),
-                    netBuyValue: Number(r.NetBuyValue ?? 0),
-              netBuyerAvg: Number(r.NetBuyerAvg ?? 0),
-              // Net Sell fields (already >= 0 from backend)
-              netSellVol: Number(r.NetSellVol ?? 0),
-              netSellValue: Number(r.NetSellValue ?? 0),
-              netSellerAvg: Number(r.NetSellerAvg ?? 0),
+              // Net Buy fields (swapped for sectors)
+                    netBuyVol: netBuyVol,
+                    netBuyValue: netBuyValue,
+              netBuyerAvg: netBuyerAvg,
+              // Net Sell fields (swapped for sectors)
+              netSellVol: netSellVol,
+              netSellValue: netSellValue,
+              netSellerAvg: netSellerAvg,
               // Legacy fields for backward compatibility
-                    nblot: Number(r.NetBuyVol ?? r.nblot ?? 0),
-                    nbval: Number(r.NetBuyValue ?? r.nbval ?? 0),
+                    nblot: netBuyVol,
+                    nbval: netBuyValue,
                     sl: Number(r.SellerVol ?? r.sl ?? 0),
-              nslot: Number(r.NetSellVol ?? 0), // Use NetSellVol instead of negative sellerVol
-              nsval: Number(r.NetSellValue ?? 0) // Use NetSellValue instead of negative sellerValue
+              nslot: netSellVol,
+              nsval: netSellValue
                   };
                 }) as BrokerSummaryData[];
                 
