@@ -165,43 +165,63 @@ export class BrokerSummarySectorDataScheduler {
       const results: any = {};
 
       for (let marketIdx = 0; marketIdx < marketTypes.length; marketIdx++) {
-        const marketType = marketTypes[marketIdx];
-        console.log(`\n🔄 Processing ${marketType || 'All Trade'} market (${marketIdx + 1}/${marketTypes.length})...`);
+        const marketTypeValue = marketTypes[marketIdx];
+        if (marketTypeValue === undefined) continue;
         
-        results[marketType || 'all'] = {};
-        
-        for (let sectorIdx = 0; sectorIdx < sectors.length; sectorIdx++) {
-          const sectorName = sectors[sectorIdx];
-          console.log(`\n  📊 Processing sector ${sectorName} (${sectorIdx + 1}/${sectors.length})...`);
+        // Create explicit block scope to help TypeScript with type narrowing
+        {
+          const marketType: '' | 'RG' | 'TN' | 'NG' = marketTypeValue;
+          const marketKey: string = marketType || 'all';
+          console.log(`\n🔄 Processing ${marketType || 'All Trade'} market (${marketIdx + 1}/${marketTypes.length})...`);
           
-          // Update progress before sector
-          if (finalLogId) {
-            const marketProgress = marketIdx / marketTypes.length;
-            const sectorProgress = sectorIdx / sectors.length;
-            const overallProgress = (marketProgress + sectorProgress / marketTypes.length) * 100;
-            await SchedulerLogService.updateLog(finalLogId, {
-              progress_percentage: Math.min(100, Math.round(overallProgress)),
-              current_processing: `Processing ${marketType || 'All Trade'} market, sector ${sectorName} (${sectorIdx + 1}/${sectors.length}, ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers)...`
-            });
+          results[marketKey] = {};
+          
+          for (let sectorIdx = 0; sectorIdx < sectors.length; sectorIdx++) {
+            const sectorNameValue = sectors[sectorIdx];
+            if (!sectorNameValue) continue;
+            
+            // Create explicit block scope to help TypeScript with type narrowing
+            {
+              const sectorName: string = sectorNameValue;
+              console.log(`\n  📊 Processing sector ${sectorName} (${sectorIdx + 1}/${sectors.length})...`);
+              
+              // Update progress before sector
+              if (finalLogId) {
+                const marketProgress = marketIdx / marketTypes.length;
+                const sectorProgress = sectorIdx / sectors.length;
+                const overallProgress = (marketProgress + sectorProgress / marketTypes.length) * 100;
+                await SchedulerLogService.updateLog(finalLogId, {
+                  progress_percentage: Math.min(100, Math.round(overallProgress)),
+                  current_processing: `Processing ${marketType || 'All Trade'} market, sector ${sectorName} (${sectorIdx + 1}/${sectors.length}, ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers)...`
+                });
+              }
+              
+              // TypeScript type narrowing: marketType and sectorName are guaranteed to be defined after type guards above
+              // After the continue checks, we know both are defined, so we can safely use them
+              // Use explicit type assertion to satisfy TypeScript compiler
+              const batchResult = await this.calculator.generateSectorBatch(
+                dates, 
+                sectorName as string, 
+                marketType as '' | 'RG' | 'TN' | 'NG', 
+                progressTracker
+              );
+              const marketResults = results[marketKey];
+              if (marketResults) {
+                marketResults[sectorName as string] = batchResult;
+              }
+              totalSuccess += batchResult.success;
+              totalFailed += batchResult.failed;
+              totalSkipped += batchResult.skipped || 0;
+              
+              // Calculate total brokers processed from batch results
+              const brokersProcessed = batchResult.results.reduce((sum, r) => sum + (r.brokerCount || 0), 0);
+              
+              console.log(`  ✅ ${sectorName}: ${batchResult.success} success, ${batchResult.skipped || 0} skipped, ${batchResult.failed} failed, ${brokersProcessed} brokers processed`);
+            }
           }
           
-          const batchResult = await this.calculator.generateSectorBatch(dates, sectorName, marketType || '', progressTracker);
-          const marketKey = marketType || 'all';
-          if (!results[marketKey]) {
-            results[marketKey] = {};
-          }
-          results[marketKey][sectorName] = batchResult;
-          totalSuccess += batchResult.success;
-          totalFailed += batchResult.failed;
-          totalSkipped += batchResult.skipped || 0;
-          
-          // Calculate total brokers processed from batch results
-          const brokersProcessed = batchResult.results.reduce((sum, r) => sum + (r.brokerCount || 0), 0);
-          
-          console.log(`  ✅ ${sectorName}: ${batchResult.success} success, ${batchResult.skipped || 0} skipped, ${batchResult.failed} failed, ${brokersProcessed} brokers processed`);
+          console.log(`✅ ${marketType || 'All Trade'}: Completed all sectors`);
         }
-        
-        console.log(`✅ ${marketType || 'All Trade'}: Completed all sectors`);
       }
 
       const totalProcessed = totalSuccess + totalFailed + totalSkipped;
