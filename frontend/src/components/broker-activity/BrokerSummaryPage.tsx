@@ -668,8 +668,11 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
               return { ticker, date, data: [] };
                 }
                 
-            // Check if this is a sector (sectors need NetBuy/NetSell swap)
-            const isSector = selectedTickers.some(t => t.startsWith('[SECTOR] ') && t.replace('[SECTOR] ', '') === ticker);
+            // Check if this is a sector or IDX (sectors and IDX need NetBuy/NetSell swap)
+            const isSector = selectedTickers.some(t => 
+              (t.startsWith('[SECTOR] ') && t.replace('[SECTOR] ', '') === ticker) || 
+              ticker === 'IDX'
+            );
             
             const rows: BrokerSummaryData[] = (res.data.brokerData ?? []).map((r: any) => {
             // Backend already calculates NetSellVol, NetSellValue, NetBuyerAvg, NetSellerAvg
