@@ -133,7 +133,7 @@ export class BrokerSummarySectorDataScheduler {
 
       console.log(`📅 Found ${dates.length} dates to process`);
 
-      // Process each market type for all dates and sectors
+      // Process each date, then all market types, then all sectors for that date
       const marketTypes: Array<'' | 'RG' | 'TN' | 'NG'> = ['', 'RG', 'TN', 'NG'];
 
       // Estimate total brokers: average brokers per date * dates * market types * sectors
@@ -164,64 +164,111 @@ export class BrokerSummarySectorDataScheduler {
       let totalSkipped = 0;
       const results: any = {};
 
-      for (let marketIdx = 0; marketIdx < marketTypes.length; marketIdx++) {
-        const marketTypeValue = marketTypes[marketIdx];
-        if (marketTypeValue === undefined) continue;
+      // NEW LOGIC: Loop by date first, then market type, then all sectors
+      for (let dateIdx = 0; dateIdx < dates.length; dateIdx++) {
+        const dateSuffix = dates[dateIdx];
+        if (!dateSuffix) continue;
         
-        // Create explicit block scope to help TypeScript with type narrowing
-        {
-          const marketType: '' | 'RG' | 'TN' | 'NG' = marketTypeValue;
-          const marketKey: string = marketType || 'all';
-          console.log(`\n🔄 Processing ${marketType || 'All Trade'} market (${marketIdx + 1}/${marketTypes.length})...`);
-          
-          results[marketKey] = {};
-          
-          for (let sectorIdx = 0; sectorIdx < sectors.length; sectorIdx++) {
-            const sectorNameValue = sectors[sectorIdx];
-            if (!sectorNameValue) continue;
-            
-            // Create explicit block scope to help TypeScript with type narrowing
-            {
-              const sectorName: string = sectorNameValue;
-              console.log(`\n  📊 Processing sector ${sectorName} (${sectorIdx + 1}/${sectors.length})...`);
-              
-              // Update progress before sector
-              if (finalLogId) {
-                const marketProgress = marketIdx / marketTypes.length;
-                const sectorProgress = sectorIdx / sectors.length;
-                const overallProgress = (marketProgress + sectorProgress / marketTypes.length) * 100;
-                await SchedulerLogService.updateLog(finalLogId, {
-                  progress_percentage: Math.min(100, Math.round(overallProgress)),
-                  current_processing: `Processing ${marketType || 'All Trade'} market, sector ${sectorName} (${sectorIdx + 1}/${sectors.length}, ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers)...`
-                });
-              }
-              
-              // TypeScript type narrowing: marketType and sectorName are guaranteed to be defined after type guards above
-              // After the continue checks, we know both are defined, so we can safely use them
-              // Use explicit type assertion to satisfy TypeScript compiler
-              const batchResult = await this.calculator.generateSectorBatch(
-                dates, 
-                sectorName as string, 
-                marketType as '' | 'RG' | 'TN' | 'NG', 
-                progressTracker
-              );
-              const marketResults = results[marketKey];
-              if (marketResults) {
-                marketResults[sectorName as string] = batchResult;
-              }
-              totalSuccess += batchResult.success;
-              totalFailed += batchResult.failed;
-              totalSkipped += batchResult.skipped || 0;
-              
-              // Calculate total brokers processed from batch results
-              const brokersProcessed = batchResult.results.reduce((sum, r) => sum + (r.brokerCount || 0), 0);
-              
-              console.log(`  ✅ ${sectorName}: ${batchResult.success} success, ${batchResult.skipped || 0} skipped, ${batchResult.failed} failed, ${brokersProcessed} brokers processed`);
-            }
-          }
-          
-          console.log(`✅ ${marketType || 'All Trade'}: Completed all sectors`);
+        console.log(`\n📅 Processing date ${dateSuffix} (${dateIdx + 1}/${dates.length})...`);
+        
+        // Initialize results for this date
+        if (!results[dateSuffix]) {
+          results[dateSuffix] = {};
         }
+        
+        // For each market type
+        for (let marketIdx = 0; marketIdx < marketTypes.length; marketIdx++) {
+          const marketTypeValue = marketTypes[marketIdx];
+          if (marketTypeValue === undefined) continue;
+          
+          // Create explicit block scope to help TypeScript with type narrowing
+          {
+            const marketType: '' | 'RG' | 'TN' | 'NG' = marketTypeValue;
+            const marketKey: string = marketType || 'all';
+            console.log(`\n  🔄 Processing ${marketType || 'All Trade'} market (${marketIdx + 1}/${marketTypes.length})...`);
+            
+            // Initialize results for this date + market
+            if (!results[dateSuffix][marketKey]) {
+              results[dateSuffix][marketKey] = {};
+            }
+            
+            // For each sector (process all sectors for this date + market)
+            for (let sectorIdx = 0; sectorIdx < sectors.length; sectorIdx++) {
+              const sectorNameValue = sectors[sectorIdx];
+              if (!sectorNameValue) continue;
+              
+              // Create explicit block scope to help TypeScript with type narrowing
+              {
+                const sectorName: string = sectorNameValue;
+                console.log(`\n    📊 Processing sector ${sectorName} (${sectorIdx + 1}/${sectors.length})...`);
+                
+                // Update progress
+                if (finalLogId) {
+                  const dateProgress = dateIdx / dates.length;
+                  const marketProgress = marketIdx / marketTypes.length;
+                  const sectorProgress = sectorIdx / sectors.length;
+                  const overallProgress = (dateProgress + (marketProgress + sectorProgress / marketTypes.length) / dates.length) * 100;
+                  await SchedulerLogService.updateLog(finalLogId, {
+                    progress_percentage: Math.min(100, Math.round(overallProgress)),
+                    current_processing: `Processing ${dateSuffix}, ${marketType || 'All Trade'} market, sector ${sectorName} (${sectorIdx + 1}/${sectors.length}, ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers)...`
+                  });
+                }
+                
+                // Process single date + sector (not batch)
+                try {
+                  const result = await this.calculator.generateSector(
+                    dateSuffix,
+                    sectorName as string,
+                    marketType as '' | 'RG' | 'TN' | 'NG'
+                  );
+                  
+                  // Store result
+                  const dateMarketResults = results[dateSuffix][marketKey];
+                  if (dateMarketResults) {
+                    dateMarketResults[sectorName as string] = result;
+                  }
+                  
+                  // Update counters
+                  if (result.success) {
+                    if (result.message?.includes('already exists')) {
+                      totalSkipped++;
+                    } else {
+                      totalSuccess++;
+                    }
+                  } else {
+                    totalFailed++;
+                  }
+                  
+                  // Update broker count if available
+                  if (result.brokerCount && progressTracker) {
+                    progressTracker.processedBrokers += result.brokerCount;
+                    await progressTracker.updateProgress();
+                  }
+                  
+                  const status = result.message?.includes('already exists') ? 'skipped' : (result.success ? 'success' : 'failed');
+                  console.log(`    ${status === 'success' ? '✅' : status === 'skipped' ? '⏭️' : '❌'} ${sectorName}: ${status}${result.brokerCount ? ` (${result.brokerCount} brokers)` : ''}`);
+                } catch (error: any) {
+                  totalFailed++;
+                  const errorMsg = error?.message || 'Unknown error';
+                  console.error(`    ❌ ${sectorName}: Error - ${errorMsg}`);
+                  
+                  // Store error result
+                  const dateMarketResults = results[dateSuffix][marketKey];
+                  if (dateMarketResults) {
+                    dateMarketResults[sectorName as string] = {
+                      success: false,
+                      message: errorMsg
+                    };
+                  }
+                }
+              }
+            }
+            
+            console.log(`  ✅ ${marketType || 'All Trade'}: Completed all sectors for ${dateSuffix}`);
+          }
+        }
+        
+        console.log(`✅ Date ${dateSuffix}: Completed all market types and sectors`);
       }
 
       const totalProcessed = totalSuccess + totalFailed + totalSkipped;
