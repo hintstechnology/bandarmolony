@@ -362,7 +362,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   // Request cancellation ref
   const abortControllerRef = useRef<AbortController | null>(null);
   const shouldFetchDataRef = useRef<boolean>(false); // Ref to track shouldFetchData for async functions (always up-to-date)
-  const hasInitialAutoFetchRef = useRef<boolean>(false); // Track if initial auto-fetch has been triggered (only once on mount)
   
   // Cache for API responses to avoid redundant calls
   // Key format: `${broker}-${date}-${market}`
@@ -378,10 +377,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   // Visible rows will reset automatically when new data is loaded (via transactionData change)
 
   // Load available brokers, tickers, and initial dates on component mount
-  // IMPORTANT: This effect runs ONLY ONCE on mount - auto-load default data (1x only)
+  // IMPORTANT: This effect runs ONLY ONCE on mount - load metadata only, NO auto-fetch data
   useEffect(() => {
     const loadInitialData = async () => {
-      setIsLoading(true);
       try {
         // OPTIMIZED: Try to load sector mapping from localStorage first for instant colors
         const SECTOR_MAPPING_CACHE_KEY = 'broker_transaction_sector_mapping';
@@ -474,47 +472,20 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           // Fallback: ensure IDX is available even if API fails
           setAvailableSectors(['IDX']);
         }
+        
         // Sort by date (oldest first) for display
         const sortedDates = [...initialDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
         
         // Set default to last 3 trading days (skip weekends)
-        // CRITICAL: Set hasInitialAutoFetchRef BEFORE setting dates to prevent useEffect from triggering
-        // This ensures useEffect update selectedDates knows that initial load is in progress
-        hasInitialAutoFetchRef.current = false; // Mark as not yet completed
-        
+        // NO auto-fetch - user must click Show button to fetch data
         setSelectedDates(sortedDates);
         if (sortedDates.length > 0) {
           setStartDate(sortedDates[0]);
           setEndDate(sortedDates[sortedDates.length - 1]);
         }
         
-        // Capture current values for initial auto-fetch (default menu)
-        const currentBrokers = ['AK']; // Default broker
-        const datesToUse = [...sortedDates];
-        
-        // Trigger initial auto-fetch AFTER all states are set (only once on mount)
-        // CRITICAL: Use setTimeout to ensure all state updates are batched and applied
-        setTimeout(() => {
-          // Only trigger if initial fetch hasn't happened AND we have dates and brokers
-          // Note: tickers and sectors can be empty (show all) - so we don't require them
-          if (!hasInitialAutoFetchRef.current && 
-              datesToUse.length > 0 && 
-              currentBrokers.length > 0) {
-            // Mark as triggered IMMEDIATELY (synchronously) before any async operations
-            hasInitialAutoFetchRef.current = true;
-            // Set ref first (synchronous), then state (async)
-            shouldFetchDataRef.current = true;
-            setShouldFetchData(true);
-          } else {
-            setIsLoading(false);
-          }
-        }, 0);
-        
-        // Loading akan di-reset oleh loadTransactionData jika fetch dilakukan
-        
       } catch (error) {
         console.error('Error loading initial data:', error);
-        setIsLoading(false);
         setIsLoadingStocks(false);
         
         // Fallback to hardcoded broker list and local date calculation
@@ -524,7 +495,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         // Default to last 3 trading days (skip weekends)
         const fallbackDates = getTradingDays(3);
         // Sort by date (oldest first) for display
-          const sortedDates = [...fallbackDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+        const sortedDates = [...fallbackDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
         setSelectedDates(sortedDates);
         
         if (sortedDates.length > 0) {
@@ -4174,10 +4145,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   
                   // CRITICAL: Reset shouldFetchData silently BEFORE updating dates to prevent auto-load
                   // This ensures data only changes when Show button is clicked
-                  if (hasInitialAutoFetchRef.current) {
-                    shouldFetchDataRef.current = false; // CRITICAL: Update ref first (synchronous) - SILENT
-                    setShouldFetchData(false); // SILENT
-                  }
+                  shouldFetchDataRef.current = false; // CRITICAL: Update ref first (synchronous) - SILENT
+                  setShouldFetchData(false); // SILENT
                   
                   setStartDate(e.target.value);
                   if (!endDate || new Date(e.target.value) > new Date(endDate)) {
@@ -4225,10 +4194,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   
                   // CRITICAL: Reset shouldFetchData silently BEFORE updating dates to prevent auto-load
                   // This ensures data only changes when Show button is clicked
-                  if (hasInitialAutoFetchRef.current) {
-                    shouldFetchDataRef.current = false; // CRITICAL: Update ref first (synchronous) - SILENT
-                    setShouldFetchData(false); // SILENT
-                  }
+                  shouldFetchDataRef.current = false; // CRITICAL: Update ref first (synchronous) - SILENT
+                  setShouldFetchData(false); // SILENT
                   
                   const newEndDate = e.target.value;
                   setEndDate(newEndDate);

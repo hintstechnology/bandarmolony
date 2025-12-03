@@ -1554,10 +1554,17 @@ const visibleBrokers = useMemo(
     }
   }, [startDate, endDate]);
 
-  // Load OHLC and volume data when ticker or date range changes
+  // Load OHLC and volume data when Show button is clicked
   useEffect(() => {
+    if (!shouldFetchData) {
+      return;
+    }
+
     const loadStockData = async () => {
-      if (!selectedTicker || !startDate || !endDate || isInitializing) return;
+      if (!selectedTicker || !startDate || !endDate || isInitializing) {
+        setShouldFetchData(false);
+        return;
+      }
       
       setIsLoadingData(true);
       setDataError(null);
@@ -1629,19 +1636,25 @@ const visibleBrokers = useMemo(
         });
       } finally {
         setIsLoadingData(false);
+        setShouldFetchData(false);
       }
     };
     
     loadStockData();
-  }, [selectedTicker, startDate, endDate, isInitializing, showToast]);
+  }, [shouldFetchData, selectedTicker, startDate, endDate, isInitializing, showToast]);
 
-  // Load top brokers data for table using broker-summary API (same as BrokerSummaryPage)
+  // Load top brokers data for table using broker-summary API when Show button is clicked
   useEffect(() => {
+    if (!shouldFetchData) {
+      return;
+    }
+
     const loadTopBrokersData = async () => {
       // Load top brokers data for table (not for chart)
       // Use startDate and endDate from input field (not dependent on ohlcData)
       if (!selectedTicker || !startDate || !endDate || isInitializing) {
         setBrokerSummaryData([]);
+        setShouldFetchData(false);
         return;
       }
       
@@ -1792,13 +1805,12 @@ const visibleBrokers = useMemo(
         });
       } finally {
         setIsLoadingBrokerData(false);
+        setShouldFetchData(false);
       }
     };
     
     loadTopBrokersData();
-    // Depend on startDate and endDate from input field (not ohlcData)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedTicker, startDate, endDate, isInitializing, showToast]);
+  }, [shouldFetchData, selectedTicker, startDate, endDate, isInitializing, showToast]);
 
   // Load available brokers for selected stock code from broker_inventory folder
   useEffect(() => {
@@ -2741,6 +2753,7 @@ const visibleBrokers = useMemo(
     }
 
     // Set selected brokers and activate top 5 modes
+    // NO auto-fetch - user must click Show button to fetch data
     setSelectedBrokers(combinedDefaults);
     if (topBuy.length > 0) {
       setBrokerSelectionMode(prev => ({ ...prev, top5buy: true }));
@@ -2749,7 +2762,7 @@ const visibleBrokers = useMemo(
       setBrokerSelectionMode(prev => ({ ...prev, top5sell: true }));
     }
     setIsDataReady(false);
-    setShouldFetchData(true);
+    // Removed: setShouldFetchData(true) - user must click Show button
   }, [
     brokerSummaryData,
     brokerNetStats,
@@ -3521,8 +3534,10 @@ const visibleBrokers = useMemo(
           )}
 
 
-          {/* Conditional Chart Rendering */}
-          {onlyShowInventoryChart ? (
+          {/* Conditional Chart Rendering - Only show when data is ready */}
+          {isDataReady && (
+            <>
+              {onlyShowInventoryChart ? (
             // Only show Broker Inventory Chart
             <Card>
               <CardHeader>
@@ -3929,10 +3944,10 @@ const visibleBrokers = useMemo(
                 </CardContent>
               </Card>
             </>
-          )}            
+          )}
 
-      {/* Top Brokers Table */}
-          <Card>
+              {/* Top Brokers Table - Only show when data is ready */}
+              <Card>
             <CardHeader>
           <div className="flex items-center justify-between">
             <div>
@@ -4029,6 +4044,8 @@ const visibleBrokers = useMemo(
               )}
             </CardContent>
           </Card>
+            </>
+          )}
 
         </div>
       </div>

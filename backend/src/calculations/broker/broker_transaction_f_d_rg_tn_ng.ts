@@ -1,6 +1,7 @@
-import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
+import { uploadText, listPaths } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_5, MAX_CONCURRENT_REQUESTS_PHASE_5 } from '../../services/dataUpdateService';
 import { SchedulerLogService } from '../../services/schedulerLogService';
+import { doneSummaryCache } from '../../cache/doneSummaryCacheService';
 
 // Progress tracker interface for thread-safe broker counting
 interface ProgressTracker {
@@ -285,15 +286,19 @@ export class BrokerTransactionFDRGTNNGCalculator {
     return true; // All combinations exist
   }
 
+  /**
+   * Find all DT files in done-summary folder
+   * OPTIMIZED: Uses shared cache to avoid repeated listPaths calls
+   */
   private async findAllDtFiles(): Promise<string[]> {
     console.log('🔍 Scanning for DT files in done-summary folder...');
     try {
-      const allFiles = await listPaths({ prefix: 'done-summary/' });
-      console.log(`📁 Found ${allFiles.length} total files in done-summary folder`);
-      const dtFiles = allFiles.filter(file => file.includes('/DT') && file.endsWith('.csv'));
+      // Use shared cache for DT files list
+      const allDtFiles = await doneSummaryCache.getDtFilesList();
+      console.log(`📁 Found ${allDtFiles.length} DT files from cache`);
       
       // Sort by date descending (newest first)
-      const sortedFiles = dtFiles.sort((a, b) => {
+      const sortedFiles = allDtFiles.sort((a, b) => {
         const dateA = a.split('/')[1] || '';
         const dateB = b.split('/')[1] || '';
         return dateB.localeCompare(dateA); // Descending order
@@ -354,13 +359,15 @@ export class BrokerTransactionFDRGTNNGCalculator {
     }
     
     try {
-      console.log(`📥 Downloading file: ${blobName}`);
-      const content = await downloadText(blobName);
+      console.log(`📥 Loading file: ${blobName}`);
+      
+      // Use shared cache for raw content (will cache automatically if not exists)
+      const content = await doneSummaryCache.getRawContent(blobName);
       if (!content || content.trim().length === 0) {
         console.warn(`⚠️ Empty file or no content: ${blobName}`);
         return { success: false, dateSuffix, files: [] };
       }
-      console.log(`✅ Downloaded ${blobName} (${content.length} characters)`);
+      console.log(`✅ Loaded ${blobName} (${content.length} characters)`);
       console.log(`📅 Extracted date suffix: ${dateSuffix} from ${blobName}`);
       
       const data = this.parseTransactionData(content);
@@ -699,7 +706,8 @@ export class BrokerTransactionFDRGTNNGCalculator {
       const batch = dtFiles.slice(i, i + PRE_COUNT_BATCH_SIZE);
       const batchPromises = batch.map(async (blobName) => {
         try {
-          const content = await downloadText(blobName);
+          // Use shared cache for raw content
+          const content = await doneSummaryCache.getRawContent(blobName);
           if (content && content.trim().length > 0) {
             const data = this.parseTransactionData(content);
             data.forEach((t: TransactionData) => {

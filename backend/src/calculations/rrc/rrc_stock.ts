@@ -119,7 +119,11 @@ function parseCsvLine(line: string): string[] {
 }
 
 async function readCsvCloseValues(filePath: string, closeColumnName: string = "close"): Promise<{values: NumericArray, dates: string[]}> {
-  const raw = await downloadText(filePath);
+  // Use stock cache if file is from stock/ folder
+  const { stockCache } = await import('../../cache/stockCacheService');
+  const raw = filePath.startsWith('stock/') 
+    ? await stockCache.getRawContent(filePath) || ''
+    : await downloadText(filePath);
   const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
   if (lines.length === 0) {
     throw new Error(`CSV kosong: ${filePath}`);

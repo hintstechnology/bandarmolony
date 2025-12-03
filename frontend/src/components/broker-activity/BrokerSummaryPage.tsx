@@ -131,17 +131,130 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   const [isDataReady, setIsDataReady] = useState<boolean>(false); // Control when to show tables
   const [shouldFetchData, setShouldFetchData] = useState<boolean>(false); // Control when to fetch data (only when Show button clicked)
   const [maxAvailableDate, setMaxAvailableDate] = useState<string>(''); // Maximum date available from API (format: YYYY-MM-DD)
-  const hasInitialAutoFetchRef = useRef<boolean>(false); // Track if initial auto-fetch has happened
-  const initialAutoFetchTriggeredRef = useRef<boolean>(false); // Track if initial auto-fetch has been triggered (to prevent useLayoutEffect from resetting it)
   const shouldFetchDataRef = useRef<boolean>(false); // Ref to track shouldFetchData for async functions (always up-to-date)
   const abortControllerRef = useRef<AbortController | null>(null); // Ref to abort ongoing fetch
 
-  // Cache for API responses to avoid redundant calls
-  // Key format: `${ticker}-${date}-${market}`
+  // Enhanced cache system with persistence and size limits
+  // Key format: `${ticker}-${date}-${market}` or `sector-${sectorName}-${date}-${market}`
   const dataCacheRef = useRef<Map<string, { data: BrokerSummaryData[]; timestamp: number }>>(new Map());
-
-  // Cache expiration time: 5 minutes
-  const CACHE_EXPIRY_MS = 5 * 60 * 1000;
+  
+  // Cache configuration
+  const CACHE_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes (increased from 5 minutes)
+  const CACHE_STORAGE_KEY = 'broker_summary_data_cache';
+  const MAX_CACHE_SIZE = 500; // Maximum number of cache entries (to prevent memory overflow)
+  const MAX_CACHE_AGE_DAYS = 1; // Cache can persist for 1 day in localStorage
+  
+  // Load cache from localStorage on mount
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem(CACHE_STORAGE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        const now = Date.now();
+        const maxAge = MAX_CACHE_AGE_DAYS * 24 * 60 * 60 * 1000;
+        
+        // Filter out expired entries
+        const validEntries: Array<[string, { data: BrokerSummaryData[]; timestamp: number }]> = [];
+        for (const [key, value] of Object.entries(parsed)) {
+          const entry = value as { data: BrokerSummaryData[]; timestamp: number };
+          if (now - entry.timestamp < maxAge) {
+            validEntries.push([key, entry]);
+          }
+        }
+        
+        // Restore valid cache entries
+        if (validEntries.length > 0) {
+          dataCacheRef.current = new Map(validEntries);
+          console.log(`[BrokerSummary] Loaded ${validEntries.length} cache entries from localStorage`);
+        }
+      }
+    } catch (e) {
+      console.warn('[BrokerSummary] Failed to load cache from localStorage:', e);
+    }
+  }, []);
+  
+  // Helper function to save cache to localStorage (debounced)
+  const saveCacheToStorageRef = useRef<NodeJS.Timeout | null>(null);
+  const saveCacheToStorage = () => {
+    if (saveCacheToStorageRef.current) {
+      clearTimeout(saveCacheToStorageRef.current);
+    }
+    
+    saveCacheToStorageRef.current = setTimeout(() => {
+      try {
+        const cacheObj: { [key: string]: { data: BrokerSummaryData[]; timestamp: number } } = {};
+        dataCacheRef.current.forEach((value, key) => {
+          cacheObj[key] = value;
+        });
+        
+        // Limit size before saving (keep most recent entries)
+        const entries = Object.entries(cacheObj);
+        if (entries.length > MAX_CACHE_SIZE) {
+          // Sort by timestamp (newest first) and keep only MAX_CACHE_SIZE
+          entries.sort((a, b) => b[1].timestamp - a[1].timestamp);
+          const limitedEntries = entries.slice(0, MAX_CACHE_SIZE);
+          const limitedObj: { [key: string]: { data: BrokerSummaryData[]; timestamp: number } } = {};
+          limitedEntries.forEach(([key, value]) => {
+            limitedObj[key] = value;
+          });
+          localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(limitedObj));
+          console.log(`[BrokerSummary] Cache size limited to ${MAX_CACHE_SIZE} entries`);
+        } else {
+          localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(cacheObj));
+        }
+      } catch (e) {
+        // Handle quota exceeded error
+        if (e instanceof Error && e.name === 'QuotaExceededError') {
+          console.warn('[BrokerSummary] localStorage quota exceeded, clearing old cache entries');
+          // Clear oldest 50% of cache
+          const entries = Array.from(dataCacheRef.current.entries());
+          entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
+          const toRemove = entries.slice(0, Math.floor(entries.length / 2));
+          toRemove.forEach(([key]) => {
+            dataCacheRef.current.delete(key);
+          });
+          // Retry saving
+          setTimeout(() => saveCacheToStorage(), 100);
+        } else {
+          console.warn('[BrokerSummary] Failed to save cache to localStorage:', e);
+        }
+      }
+    }, 1000); // Debounce: save 1 second after last update
+  };
+  
+  // Cleanup expired cache entries periodically
+  useEffect(() => {
+    const cleanupInterval = setInterval(() => {
+      const now = Date.now();
+      let cleaned = 0;
+      
+      for (const [key, value] of dataCacheRef.current.entries()) {
+        if (now - value.timestamp > CACHE_EXPIRY_MS) {
+          dataCacheRef.current.delete(key);
+          cleaned++;
+        }
+      }
+      
+      // Also check size limit
+      if (dataCacheRef.current.size > MAX_CACHE_SIZE) {
+        // Remove oldest entries
+        const entries = Array.from(dataCacheRef.current.entries());
+        entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
+        const toRemove = entries.slice(0, dataCacheRef.current.size - MAX_CACHE_SIZE);
+        toRemove.forEach(([key]) => {
+          dataCacheRef.current.delete(key);
+          cleaned++;
+        });
+      }
+      
+      if (cleaned > 0) {
+        console.log(`[BrokerSummary] Cleaned up ${cleaned} expired cache entries`);
+        saveCacheToStorage();
+      }
+    }, 5 * 60 * 1000); // Cleanup every 5 minutes
+    
+    return () => clearInterval(cleanupInterval);
+  }, []);
 
   // Check if more than 7 days selected - if so, only show Total column
   // CRITICAL: Calculate from summaryByDate (data that exists), not from selectedDates (which changes on date picker)
@@ -149,11 +262,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   const showOnlyTotal = summaryByDate.size > 7;
 
   // Load maximum available date on mount - use this for validation and default dates
-  // IMPORTANT: This effect runs ONLY ONCE on mount, not when tickers change
+  // IMPORTANT: This effect runs ONLY ONCE on mount - load metadata only, NO auto-fetch data
   useEffect(() => {
     const loadMaxDate = async () => {
-      // Set loading state saat fetch dates
-      setIsLoading(true);
       try {
         const result = await api.getBrokerSummaryDates();
         
@@ -175,37 +286,13 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           const formattedDate = `${latestDateStr.slice(0, 4)}-${latestDateStr.slice(4, 6)}-${latestDateStr.slice(6, 8)}`;
           
           // Set semua state sekaligus
+          // NO auto-fetch - user must click Show button to fetch data
           setMaxAvailableDate(formattedDate);
           setSelectedDates(lastThreeDates);
           setStartDate(lastThreeDates[0]);
           setEndDate(lastThreeDates[lastThreeDates.length - 1]);
-          
-          // Trigger initial auto-fetch AFTER all states are set
-          // CRITICAL: Use setTimeout to ensure all state updates are batched and applied
-          // Also capture selectedTickers value from closure to avoid reading stale state
-          const currentTickers = [...selectedTickers]; // Capture current value (copy array)
-          // Capture dates to ensure we use the same dates that were set
-          const datesToUse = [...lastThreeDates];
-          setTimeout(() => {
-            // TRIPLE-CHECK: only trigger if initial fetch hasn't happened AND we have dates and tickers
-            // Check that we're still in initial load phase (hasInitialAutoFetchRef is still false)
-            // This prevents trigger if user changed dates during setTimeout
-            if (!hasInitialAutoFetchRef.current && 
-                datesToUse.length > 0 && 
-                currentTickers.length > 0) {
-              // Mark as triggered IMMEDIATELY (synchronously) before any async operations
-              hasInitialAutoFetchRef.current = true;
-              initialAutoFetchTriggeredRef.current = true;
-              // Set ref first (synchronous), then state (async)
-              shouldFetchDataRef.current = true;
-              setShouldFetchData(true);
-            }
-          }, 0);
-          
-          // Loading akan di-reset oleh fetchAll
         } else {
           console.warn('[BrokerSummary] No dates available from API', result);
-          setIsLoading(false);
           // Show error toast
           if (result.error) {
             showToast({
@@ -217,7 +304,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         }
       } catch (err) {
         console.error('Error loading max available date:', err);
-        setIsLoading(false);
         showToast({
           type: 'error',
           title: 'Error',
@@ -243,35 +329,22 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
 
   // Toast "Range Tanggal Lebih dari 7 Hari" is now shown only after clicking Show button (in fetchAll)
 
-  // Load available stocks ONCE on mount - use getStockList() which doesn't need date
+  // Load available stocks ONCE on mount - OPTIMIZED with localStorage cache for instant display
   // This is faster than getBrokerSummaryStocks() which requires a date
   useEffect(() => {
     const loadStocks = async () => {
       if (availableStocks.length > 0) return; // Already loaded
       
-      try {
-        console.log('[BrokerSummary] Loading stock list and sector mapping...');
-        
-        // Load both stock list and sector mapping in parallel
-        const [stockResult, sectorResult] = await Promise.all([
-          api.getStockList(),
-          api.getSectorMapping()
-        ]);
-        
-        let stocks: string[] = [];
-        let sectors: string[] = [];
-        let mapping: { [sector: string]: string[] } = {};
-        
-        if (stockResult.success && stockResult.data?.stocks && Array.isArray(stockResult.data.stocks)) {
-          stocks = stockResult.data.stocks;
-        }
-        
-        if (sectorResult.success && sectorResult.data) {
-          sectors = sectorResult.data.sectors || [];
-          mapping = sectorResult.data.sectorMapping || {};
-          setSectorMapping(mapping);
-        }
-        
+      // Cache keys and TTL
+      const STOCK_LIST_CACHE_KEY = 'broker_summary_stock_list';
+      const SECTOR_MAPPING_CACHE_KEY = 'broker_summary_sector_mapping';
+      const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+      
+      // Helper function to process and combine stocks + sectors
+      const processStocksAndSectors = (
+        stocks: string[],
+        sectors: string[]
+      ): string[] => {
         // Remove IDX from ticker list (IDX is now a sector, not a ticker)
         const stocksWithoutIdx = stocks.filter(stock => stock !== 'IDX');
         
@@ -280,14 +353,120 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         const sectorsWithPrefix = sectors.map(sector => `[SECTOR] ${sector}`);
         
         // Combine stocks and sectors, then sort alphabetically
-        const allItems = [...stocksWithoutIdx, ...sectorsWithPrefix].sort((a: string, b: string) => a.localeCompare(b));
+        return [...stocksWithoutIdx, ...sectorsWithPrefix].sort((a: string, b: string) => a.localeCompare(b));
+      };
+      
+      // Try to load from cache first for instant display
+      let cachedStocks: string[] | null = null;
+      let cachedSectorMapping: { sectors: string[]; sectorMapping: { [sector: string]: string[] }; timestamp: number } | null = null;
+      
+      try {
+        // Load cached stock list
+        const cachedStockData = localStorage.getItem(STOCK_LIST_CACHE_KEY);
+        if (cachedStockData) {
+          const parsed = JSON.parse(cachedStockData);
+          if (parsed.timestamp && (Date.now() - parsed.timestamp) < CACHE_TTL && parsed.stocks && Array.isArray(parsed.stocks)) {
+            cachedStocks = parsed.stocks;
+          }
+        }
         
+        // Load cached sector mapping
+        const cachedSectorData = localStorage.getItem(SECTOR_MAPPING_CACHE_KEY);
+        if (cachedSectorData) {
+          const parsed = JSON.parse(cachedSectorData);
+          if (parsed.timestamp && (Date.now() - parsed.timestamp) < CACHE_TTL) {
+            cachedSectorMapping = {
+              sectors: parsed.sectors || [],
+              sectorMapping: parsed.sectorMapping || {},
+              timestamp: parsed.timestamp
+            };
+          }
+        }
+        
+        // If we have both cached data, use them immediately for instant display
+        if (cachedStocks && cachedSectorMapping) {
+          // Ensure IDX is in sectors list (IDX is special - not in sectorMapping)
+          if (!cachedSectorMapping.sectors.includes('IDX')) {
+            cachedSectorMapping.sectors.push('IDX');
+          }
+          
+          const allItems = processStocksAndSectors(
+            cachedStocks,
+            cachedSectorMapping.sectors
+          );
+          setAvailableStocks(allItems);
+          setSectorMapping(cachedSectorMapping.sectorMapping);
+          console.log(`[BrokerSummary] Loaded ${cachedStocks.length} stocks and ${cachedSectorMapping.sectors.length} sectors from cache (instant display)`);
+        }
+      } catch (e) {
+        // Ignore cache errors, will fetch from API
+        console.warn('[BrokerSummary] Cache read error, will fetch from API:', e);
+      }
+      
+      // Fetch from API in background (even if cache exists, to update cache)
+      try {
+        console.log('[BrokerSummary] Fetching stock list and sector mapping from API...');
+        
+        // Load both stock list and sector mapping in parallel
+        const [stockResult, sectorResult] = await Promise.all([
+          api.getStockList(),
+          cachedSectorMapping ? Promise.resolve({ success: true, data: cachedSectorMapping }) : api.getSectorMapping()
+        ]);
+        
+        let stocks: string[] = [];
+        let sectors: string[] = [];
+        let mapping: { [sector: string]: string[] } = {};
+        
+        if (stockResult.success && stockResult.data?.stocks && Array.isArray(stockResult.data.stocks)) {
+          stocks = stockResult.data.stocks;
+          
+          // Cache stock list
+          try {
+            localStorage.setItem(STOCK_LIST_CACHE_KEY, JSON.stringify({
+              stocks,
+              timestamp: Date.now()
+            }));
+          } catch (e) {
+            // Ignore cache write errors
+          }
+        }
+        
+        if (sectorResult.success && sectorResult.data) {
+          sectors = sectorResult.data.sectors || [];
+          mapping = sectorResult.data.sectorMapping || {};
+          
+          // Ensure IDX is in sectors list (IDX is a special sector that appears in menu)
+          // Note: IDX is NOT in sectorMapping because it's not a regular sector with multiple stocks
+          // IDX is a special ticker that exists as IDX.csv in broker_summary folders
+          if (!sectors.includes('IDX')) {
+            sectors.push('IDX');
+            console.log('[BrokerSummary] Added IDX to sectors list (IDX is special - not in sectorMapping)');
+          }
+          
+          setSectorMapping(mapping);
+          
+          // Cache sector mapping
+          try {
+            localStorage.setItem(SECTOR_MAPPING_CACHE_KEY, JSON.stringify({
+              sectors,
+              sectorMapping: mapping,
+              timestamp: Date.now()
+            }));
+          } catch (e) {
+            // Ignore cache write errors
+          }
+        }
+        
+        // Process and update available stocks (will update if cache was stale or missing)
+        const allItems = processStocksAndSectors(stocks, sectors);
         setAvailableStocks(allItems);
-        console.log(`[BrokerSummary] Loaded ${stocksWithoutIdx.length} stocks and ${sectors.length} sectors (IDX moved to sectors)`);
+        console.log(`[BrokerSummary] Loaded ${stocks.filter(s => s !== 'IDX').length} stocks and ${sectors.length} sectors from API`);
       } catch (err) {
         console.error('[BrokerSummary] Error loading stock list:', err);
-        // Even if API fails, ensure IDX is available as sector
-        setAvailableStocks(['[SECTOR] IDX']);
+        // Even if API fails, ensure IDX is available as sector (if cache also failed)
+        if (availableStocks.length === 0) {
+          setAvailableStocks(['[SECTOR] IDX']);
+        }
       }
     };
     
@@ -307,16 +486,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   // Reset is now handled directly in onChange handlers (startDate and endDate)
   // This ensures NO effect runs when user changes dates - completely silent
   
-  // Mark initial auto-fetch as no longer being triggered after fetchAll completes
-  // This allows onChange handlers to reset shouldFetchData on subsequent date changes
-  useEffect(() => {
-    if (initialAutoFetchTriggeredRef.current && !isLoading && isDataReady) {
-      // Initial fetch completed, allow onChange handlers to reset shouldFetchData on future changes
-      setTimeout(() => {
-        initialAutoFetchTriggeredRef.current = false;
-      }, 300); // Delay to ensure fetchAll is fully complete and state is stable
-    }
-  }, [isLoading, isDataReady]);
+  // REMOVED: Initial auto-fetch tracking - no longer needed since we don't auto-fetch on mount
 
   // REMOVED: Reminder toast effect
   // User wants NO side effects when changing dates - completely silent
@@ -326,22 +496,24 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   // This ensures no data is displayed automatically without user clicking Show
 
   // Load broker summary data from backend for each selected date and aggregate multiple tickers
-  // Only fetch when shouldFetchData is true (triggered by Show button or initial auto-fetch)
+  // Only fetch when shouldFetchData is true (triggered by Show button ONLY)
   // IMPORTANT: This effect only runs when shouldFetchData changes, NOT when selectedTickers/selectedDates change
-  // CRITICAL: This effect should NEVER run after initial load unless user clicks Show button
+  // CRITICAL: This effect should NEVER run on mount - only when user clicks Show button
   useEffect(() => {
-    // CRITICAL: Check ref FIRST (before anything else) - ref is always up-to-date
-    // This is the most reliable check to prevent unwanted fetches
-    if (!shouldFetchDataRef.current) {
-      return; // Early return if ref is false - this is the primary guard
-    }
-    
-    // CRITICAL: Also check state for consistency
+    // CRITICAL: Check state FIRST - if false, don't fetch
     if (!shouldFetchData) {
       // Reset ref to match state
       shouldFetchDataRef.current = false;
       return; // Early return if shouldFetchData is false
     }
+    
+    // CRITICAL: Also check ref for consistency
+    if (!shouldFetchDataRef.current) {
+      return; // Early return if ref is false - this is the secondary guard
+    }
+    
+    // CRITICAL: Sync ref with state before proceeding
+    shouldFetchDataRef.current = true;
     
     // CRITICAL: Cancel any ongoing fetch before starting new one
     if (abortControllerRef.current) {
@@ -376,12 +548,29 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
       }
       
       // Expand sectors to individual stocks for fetching
+      // Also check cache for sector aggregate data first (for faster loading)
       const expandedTickers: string[] = [];
+      const sectorCacheChecks: Array<{ sectorName: string; dates: string[] }> = [];
+      
       selectedTickers.forEach(ticker => {
         if (ticker.startsWith('[SECTOR] ')) {
           const sectorName = ticker.replace('[SECTOR] ', '');
-          const stocksInSector = sectorMapping[sectorName] || [];
-          expandedTickers.push(...stocksInSector);
+          
+          // Special handling for IDX: IDX is not a regular sector with multiple stocks
+          // IDX is a special ticker that exists as IDX.csv in broker_summary folders
+          // So IDX should be fetched directly as "IDX", not expanded from sector mapping
+          if (sectorName === 'IDX') {
+            expandedTickers.push('IDX');
+            console.log('[BrokerSummary] IDX selected - will fetch as IDX ticker directly');
+          } else {
+            // Regular sectors: expand to individual stocks from sector mapping
+            const stocksInSector = sectorMapping[sectorName] || [];
+            expandedTickers.push(...stocksInSector);
+            console.log(`[BrokerSummary] Sector ${sectorName} expanded to ${stocksInSector.length} stocks`);
+            
+            // Track sector for cache checking
+            sectorCacheChecks.push({ sectorName, dates: selectedDates });
+          }
         } else {
           expandedTickers.push(ticker);
         }
@@ -390,7 +579,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
       // Remove duplicates
       const uniqueTickers = Array.from(new Set(expandedTickers));
       
+      console.log(`[BrokerSummary] Expanded ${selectedTickers.length} selected tickers to ${uniqueTickers.length} unique tickers:`, uniqueTickers);
+      
       if (uniqueTickers.length === 0) {
+        console.warn('[BrokerSummary] No tickers to fetch after expansion. Sector mapping:', sectorMapping);
         setIsLoading(false);
         setIsDataReady(false);
         shouldFetchDataRef.current = false;
@@ -454,8 +646,19 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           const cached = cache.get(cacheKey);
 
           // Check cache first (skip cache on retry)
-          if (!skipCache && cached && (now - cached.timestamp) <= CACHE_EXPIRY_MS) {
-            return { ticker, date, data: cached.data };
+          // Cache is valid if it exists and hasn't expired
+          if (!skipCache && cached) {
+            const age = now - cached.timestamp;
+            if (age <= CACHE_EXPIRY_MS) {
+              console.log(`[BrokerSummary] Cache HIT: ${ticker} on ${date} (age: ${Math.round(age / 1000)}s)`);
+              return { ticker, date, data: cached.data };
+            } else {
+              // Cache expired, remove it
+              cache.delete(cacheKey);
+              console.log(`[BrokerSummary] Cache EXPIRED: ${ticker} on ${date} (age: ${Math.round(age / 1000)}s)`);
+            }
+          } else if (!skipCache) {
+            console.log(`[BrokerSummary] Cache MISS: ${ticker} on ${date}`);
           }
 
           // CRITICAL: Check again before API call
@@ -508,13 +711,17 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                 
           // Store in cache
           cache.set(cacheKey, { data: rows, timestamp: now });
+          
+          // Save to localStorage (debounced)
+          saveCacheToStorage();
                 
             return { ticker, date, data: rows };
         };
 
         // OPTIMIZED: Fetch all data in parallel with batching to avoid overwhelming browser
-        // Batch size: 10 concurrent requests at a time for better performance and stability
-        const BATCH_SIZE = 10;
+        // Batch size: Increased to 20 for faster sector loading (sectors have many stocks)
+        // For sectors with 20+ stocks, this reduces batch count significantly
+        const BATCH_SIZE = 20;
         
         // Create all fetch task descriptions (NOT promises yet - create promises only when needed)
         // Use expandedTickers (with sectors expanded to individual stocks)
@@ -551,7 +758,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
             await new Promise(resolve => setTimeout(resolve, 500));
           }
           
-          // Process in batches to avoid overwhelming browser with too many concurrent requests
+          // OPTIMIZED: Process in batches with progressive rendering for faster display
+          // For sectors with many stocks, show data as soon as first batch completes
+          let hasShownFirstData = false;
+          
           // Create promises only when needed (not all at once)
           for (let i = 0; i < allFetchTasks.length; i += BATCH_SIZE) {
             // CRITICAL: Check ref before each batch - user might have changed dates
@@ -579,6 +789,63 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
               }
               
               allDataResults.push(...batchResults);
+              
+              // PROGRESSIVE RENDERING: Show data after first batch completes (for faster display)
+              // This is especially useful for sectors with many stocks
+              if (!hasShownFirstData && allDataResults.length > 0) {
+                const firstBatchValidResults = allDataResults.filter(result => result.ticker && result.date && result.data.length > 0);
+                if (firstBatchValidResults.length > 0) {
+                  // Aggregate and show first batch data immediately
+                  const tempAggregatedMap = new Map<string, Map<string, BrokerSummaryData>>();
+                  selectedDates.forEach(date => {
+                    tempAggregatedMap.set(date, new Map<string, BrokerSummaryData>());
+                  });
+                  
+                  firstBatchValidResults.forEach(({ date, data }) => {
+                    const dateMap = tempAggregatedMap.get(date);
+                    if (!dateMap) return;
+                    
+                    data.forEach(row => {
+                      const broker = row.broker;
+                      if (!broker) return;
+                      
+                      const existing = dateMap.get(broker);
+                      if (existing) {
+                        existing.buyerVol += row.buyerVol;
+                        existing.buyerValue += row.buyerValue;
+                        existing.sellerVol += row.sellerVol;
+                        existing.sellerValue += row.sellerValue;
+                        existing.netBuyVol += row.netBuyVol;
+                        existing.netBuyValue += row.netBuyValue;
+                        existing.netSellVol += row.netSellVol;
+                        existing.netSellValue += row.netSellValue;
+                        existing.nblot += row.nblot;
+                        existing.nbval += row.nbval;
+                        existing.sl += row.sl;
+                        existing.nslot += row.nslot;
+                        existing.nsval += row.nsval;
+                        existing.bavg = existing.buyerVol > 0 ? existing.buyerValue / existing.buyerVol : 0;
+                        existing.savg = existing.sellerVol > 0 ? existing.sellerValue / existing.sellerVol : 0;
+                        existing.netBuyerAvg = existing.netBuyVol > 0 ? existing.netBuyValue / existing.netBuyVol : 0;
+                        existing.netSellerAvg = existing.netSellVol > 0 ? existing.netSellValue / existing.netSellVol : 0;
+                      } else {
+                        dateMap.set(broker, { ...row });
+                      }
+                    });
+                  });
+                  
+                  // Convert to final format (Map<string, BrokerSummaryData[]>) and show immediately
+                  const tempFinalMap = new Map<string, BrokerSummaryData[]>();
+                  tempAggregatedMap.forEach((brokerMap, date) => {
+                    tempFinalMap.set(date, Array.from(brokerMap.values()));
+                  });
+                  
+                  setRawSummaryByDate(tempFinalMap);
+                  setIsDataReady(true); // Show data immediately
+                  hasShownFirstData = true;
+                  console.log(`[BrokerSummary] Progressive rendering: Showing first batch data (${firstBatchValidResults.length} results)`);
+                }
+              }
             } catch (error: any) {
               // If aborted, silently abort
               if (error?.message === 'Fetch aborted' || !shouldFetchDataRef.current || abortController.signal.aborted) {
@@ -631,6 +898,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           setIsLoading(false);
           setIsDataReady(true); // Set to true so table can render "No Data Available"
           setError(null); // Clear error so table can render
+          // Reset shouldFetchData to allow Show button to be clicked again
+          shouldFetchDataRef.current = false;
+          setShouldFetchData(false);
           return;
         }
         
@@ -751,6 +1021,11 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         // Column width sync will happen after data is visible (non-blocking)
         setIsDataReady(true);
         
+        // CRITICAL: Reset shouldFetchData to false after successful fetch
+        // This allows the Show button to be clicked again and trigger a new fetch
+        shouldFetchDataRef.current = false;
+        setShouldFetchData(false);
+        
         // Clear abort controller after successful fetch
         abortControllerRef.current = null;
       } catch (e: any) {
@@ -760,6 +1035,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         if (wasAborted) {
           setIsLoading(false);
           setIsDataReady(false);
+          // Reset shouldFetchData to allow Show button to be clicked again
+          shouldFetchDataRef.current = false;
+          setShouldFetchData(false);
           abortControllerRef.current = null;
           return;
         }
@@ -767,6 +1045,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         setError(e?.message || 'Failed to load broker summary');
         setIsLoading(false);
         setIsDataReady(false);
+        // Reset shouldFetchData to allow Show button to be clicked again
+        shouldFetchDataRef.current = false;
+        setShouldFetchData(false);
         abortControllerRef.current = null;
       }
     };
@@ -1461,25 +1742,6 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   const renderHorizontalView = () => {
     if (selectedTickers.length === 0 || selectedDates.length === 0) return null;
 
-    // Show loading state if still loading or data not ready
-    // But we'll still render tables in DOM (hidden) to allow pre-calculation
-    const showLoading = isLoading || !isDataReady;
-
-    if (showLoading && summaryByDate.size === 0) {
-      // No data yet, show loading
-    return (
-        <div className="w-full flex items-center justify-center py-12">
-          <div className="flex flex-col items-center justify-center gap-3">
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
-            <div className="text-sm text-muted-foreground text-center">Loading broker summary...</div>
-          </div>
-        </div>
-      );
-    }
-
-    // If we have data but still processing, render tables hidden so calculations can complete
-    // This allows all frontend calculations to finish before showing tables
-
     // Show error state
     if (error) {
       return (
@@ -1497,19 +1759,8 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
 
     return (
       <div className="w-full relative">
-        {/* Loading overlay - shown when processing */}
-        {showLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-[#0a0f20]/80 z-50">
-            <div className="flex flex-col items-center justify-center gap-3">
-              <Loader2 className="w-8 h-8 animate-spin text-primary" />
-              <div className="text-sm text-muted-foreground text-center">Loading broker summary...</div>
-            </div>
-          </div>
-        )}
-
-        {/* Tables - rendered in DOM but hidden when processing */}
-        {/* Use opacity: 0 instead of visibility: hidden to allow layout calculations */}
-        <div className={`w-full transition-opacity duration-0 ${showLoading ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+        {/* Tables */}
+        <div className="w-full">
         {/* Combined Buy & Sell Side Table */}
         <div className="w-full max-w-full">
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border">
@@ -2525,11 +2776,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     
                     // Only update state if all validations passed
                     // CRITICAL: Reset shouldFetchData silently BEFORE updating dates to prevent auto-load
-                    // Update ref first (synchronous) then state - NO LOGS, NO OPERATIONS
-                    if (hasInitialAutoFetchRef.current) {
-                      shouldFetchDataRef.current = false; // CRITICAL: Update ref first (synchronous) - SILENT
-                      setShouldFetchData(false); // SILENT
-                    }
+                    // This ensures data only changes when Show button is clicked
+                    shouldFetchDataRef.current = false; // CRITICAL: Update ref first (synchronous) - SILENT
+                    setShouldFetchData(false); // SILENT
                     setStartDate(e.target.value);
                     // Auto update end date if not set or if start > end
                     if (!endDate || new Date(e.target.value) > new Date(endDate)) {
@@ -2687,11 +2936,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     
                     // Only update state if all validations passed
                     // CRITICAL: Reset shouldFetchData silently BEFORE updating dates to prevent auto-load
-                    // This must happen synchronously before any state updates - NO LOGS, NO OPERATIONS
-                    if (hasInitialAutoFetchRef.current) {
-                      shouldFetchDataRef.current = false; // CRITICAL: Update ref first (synchronous) - SILENT
-                      setShouldFetchData(false); // SILENT
-                    }
+                    // This ensures data only changes when Show button is clicked
+                    shouldFetchDataRef.current = false; // CRITICAL: Update ref first (synchronous) - SILENT
+                    setShouldFetchData(false); // SILENT
                     // Update dates - NO effect will run, completely silent
                     setEndDate(e.target.value);
                     setSelectedDates(tradingDays);
@@ -2827,14 +3074,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     setIsDataReady(false);
                     // Clear cache to force fresh fetch with current filters
                     dataCacheRef.current.clear();
-                    // Force re-trigger fetch by toggling shouldFetchData
-                    shouldFetchDataRef.current = false;
-                    setShouldFetchData(false);
-                    // Use setTimeout to ensure state update completes before triggering fetch
-                    setTimeout(() => {
-                      shouldFetchDataRef.current = true;
-                      setShouldFetchData(true);
-                    }, 0);
+                    // Trigger fetch by setting shouldFetchData (ref and state)
+                    // CRITICAL: Set ref first (synchronous), then state (async)
+                    shouldFetchDataRef.current = true;
+                    setShouldFetchData(true);
                   }
                 }}
                 disabled={isLoading || selectedTickers.length === 0 || selectedDates.length === 0}
@@ -2848,9 +3091,26 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
       {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
       <div className={isMenuTwoRows ? "h-0 lg:h-[60px]" : "h-0 lg:h-[38px]"}></div>
 
-      {/* Main Data Display */}
+      {/* Loading State - only show when actually loading (isLoading === true) */}
+      {isLoading && (
+        <div className="flex items-center justify-center py-16 pt-4">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <span className="text-sm text-muted-foreground">Loading broker summary...</span>
+          </div>
+        </div>
+      )}
+
+      {/* Error State */}
+      {error && !isLoading && (
+        <div className="flex items-center justify-center py-8 pt-4">
+          <div className="text-sm text-destructive">{error}</div>
+        </div>
+      )}
+
+      {/* Main Data Display - only show when not loading, no error, and data is ready */}
       <div className="bg-[#0a0f20] pt-2">
-        {renderHorizontalView()}
+        {!isLoading && !error && isDataReady && renderHorizontalView()}
       </div>
     </div>
   );
