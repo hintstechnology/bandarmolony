@@ -162,70 +162,86 @@ export class BrokerSummarySectorCalculator {
    */
   private aggregateBrokerData(allBrokerData: BrokerSummary[]): BrokerSummary[] {
     // Map to aggregate data per broker
+    // IMPORTANT: Only aggregate BuyerVol, BuyerValue, SellerVol, SellerValue
+    // NetBuy/NetSell will be recalculated from aggregated totals
     const brokerMap = new Map<string, {
       BuyerVol: number;
       BuyerValue: number;
       SellerVol: number;
       SellerValue: number;
-      NetBuyVol: number;
-      NetBuyValue: number;
-      NetSellVol: number;
-      NetSellValue: number;
     }>();
 
-    // Sum all data per broker
+    // Sum only BuyerVol, BuyerValue, SellerVol, SellerValue per broker
     allBrokerData.forEach(row => {
       const broker = row.BrokerCode;
       if (!broker) return;
 
       const existing = brokerMap.get(broker);
       if (existing) {
-        // Sum volumes and values
+        // Sum only the base volumes and values
         existing.BuyerVol += row.BuyerVol;
         existing.BuyerValue += row.BuyerValue;
         existing.SellerVol += row.SellerVol;
         existing.SellerValue += row.SellerValue;
-        existing.NetBuyVol += row.NetBuyVol;
-        existing.NetBuyValue += row.NetBuyValue;
-        existing.NetSellVol += row.NetSellVol;
-        existing.NetSellValue += row.NetSellValue;
       } else {
         brokerMap.set(broker, {
           BuyerVol: row.BuyerVol,
           BuyerValue: row.BuyerValue,
           SellerVol: row.SellerVol,
-          SellerValue: row.SellerValue,
-          NetBuyVol: row.NetBuyVol,
-          NetBuyValue: row.NetBuyValue,
-          NetSellVol: row.NetSellVol,
-          NetSellValue: row.NetSellValue
+          SellerValue: row.SellerValue
         });
       }
     });
 
-    // Convert aggregated data to BrokerSummary array and calculate averages
+    // Convert aggregated data to BrokerSummary array
+    // Recalculate NetBuy/NetSell and all averages from aggregated totals
     const aggregatedSummary: BrokerSummary[] = [];
     brokerMap.forEach((data, broker) => {
-      // Recalculate averages from aggregated totals
+      // Calculate NetBuy and NetSell from aggregated BuyerVol/SellerVol
+      // NetBuy = Buy - Sell, if negative then 0
+      // NetSell = Sell - Buy, if negative then 0
+      const rawNetBuyVol = data.BuyerVol - data.SellerVol;
+      const rawNetBuyValue = data.BuyerValue - data.SellerValue;
+      
+      let netBuyVol = 0;
+      let netBuyValue = 0;
+      let netSellVol = 0;
+      let netSellValue = 0;
+      
+      if (rawNetBuyVol < 0 || rawNetBuyValue < 0) {
+        // NetBuy is negative, so it becomes NetSell
+        netSellVol = Math.abs(rawNetBuyVol);
+        netSellValue = Math.abs(rawNetBuyValue);
+        netBuyVol = 0;
+        netBuyValue = 0;
+      } else {
+        // NetBuy is positive or zero, keep it and NetSell is 0
+        netBuyVol = rawNetBuyVol;
+        netBuyValue = rawNetBuyValue;
+        netSellVol = 0;
+        netSellValue = 0;
+      }
+      
+      // Recalculate all averages from aggregated totals
       const buyerAvg = data.BuyerVol > 0 ? data.BuyerValue / data.BuyerVol : 0;
       const sellerAvg = data.SellerVol > 0 ? data.SellerValue / data.SellerVol : 0;
-      const netBuyerAvg = data.NetBuyVol > 0 ? data.NetBuyValue / data.NetBuyVol : 0;
-      const netSellerAvg = data.NetSellVol > 0 ? data.NetSellValue / data.NetSellVol : 0;
+      const netBuyerAvg = netBuyVol > 0 ? netBuyValue / netBuyVol : 0;
+      const netSellerAvg = netSellVol > 0 ? netSellValue / netSellVol : 0;
 
       aggregatedSummary.push({
         BrokerCode: broker,
-        BuyerVol: data.BuyerVol,
-        BuyerValue: data.BuyerValue,
-        SellerVol: data.SellerVol,
-        SellerValue: data.SellerValue,
-        NetBuyVol: data.NetBuyVol,
-        NetBuyValue: data.NetBuyValue,
-        NetSellVol: data.NetSellVol,
-        NetSellValue: data.NetSellValue,
-        BuyerAvg: buyerAvg,
-        SellerAvg: sellerAvg,
-        NetBuyerAvg: netBuyerAvg,
-        NetSellerAvg: netSellerAvg
+        BuyerVol: data.BuyerVol,  // Aggregated from all stocks
+        BuyerValue: data.BuyerValue,  // Aggregated from all stocks
+        SellerVol: data.SellerVol,  // Aggregated from all stocks
+        SellerValue: data.SellerValue,  // Aggregated from all stocks
+        NetBuyVol: netBuyVol,  // Recalculated from aggregated totals
+        NetBuyValue: netBuyValue,  // Recalculated from aggregated totals
+        NetSellVol: netSellVol,  // Recalculated from aggregated totals
+        NetSellValue: netSellValue,  // Recalculated from aggregated totals
+        BuyerAvg: buyerAvg,  // Recalculated from aggregated totals
+        SellerAvg: sellerAvg,  // Recalculated from aggregated totals
+        NetBuyerAvg: netBuyerAvg,  // Recalculated from aggregated totals
+        NetSellerAvg: netSellerAvg  // Recalculated from aggregated totals
       });
     });
 
