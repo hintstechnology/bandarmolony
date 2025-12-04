@@ -394,13 +394,7 @@ export class BrokerInventoryCalculator {
         return;
       }
       
-      // Set active processing dates HANYA untuk tanggal yang benar-benar akan diproses
-      dates.forEach(date => {
-        datesToProcess.add(date);
-        brokerTransactionCache.addActiveProcessingDate(date);
-      });
-      console.log(`📅 Set ${datesToProcess.size} active processing dates in broker transaction cache: ${Array.from(datesToProcess).slice(0, 10).join(', ')}${datesToProcess.size > 10 ? '...' : ''}`);
-      
+      // CRITICAL: Don't add active dates before processing - add only when date needs processing
       // Load broker transaction data for all dates in batches
       console.log("\nLoading broker transaction data for all dates...");
       const allBrokerData = new Map<string, Map<string, BrokerTransactionData[]>>();
@@ -430,6 +424,12 @@ export class BrokerInventoryCalculator {
         const batchPromises = dateBatch.map(async (date) => {
             if (!date) {
               return { date: '', success: false };
+            }
+            
+            // CRITICAL: Add active date ONLY when processing starts
+            if (!datesToProcess.has(date)) {
+              datesToProcess.add(date);
+              brokerTransactionCache.addActiveProcessingDate(date);
             }
             
             console.log(`Loading data for date: ${date}`);
