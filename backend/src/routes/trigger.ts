@@ -1038,6 +1038,46 @@ router.delete('/logs/:id', async (req, res) => {
   }
 });
 
+// Delete multiple scheduler logs (bulk delete)
+router.delete('/logs', async (req, res) => {
+  try {
+    const { ids } = req.body;
+    
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Please provide an array of log IDs to delete' 
+      });
+    }
+
+    // Delete the logs
+    const result = await SchedulerLogService.deleteLogs(ids);
+    
+    if (!result.success) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to delete scheduler logs',
+        deleted: result.deleted,
+        failed: result.failed
+      });
+    }
+
+    return res.json({ 
+      success: true, 
+      message: `Successfully deleted ${result.deleted} log(s)`,
+      deleted: result.deleted,
+      failed: result.failed
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error deleting scheduler logs:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+});
+
 // Manual trigger for RRC calculation
 router.post('/rrc', async (req, res) => {
   try {

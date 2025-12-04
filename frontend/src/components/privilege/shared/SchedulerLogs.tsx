@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Badge } from "../../ui/badge";
@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Loader2, CheckCircle, AlertCircle, RefreshCw, Clock, User, Trash2 } from "lucide-react";
 import { useToast } from "../../../contexts/ToastContext";
 import { ConfirmationDialog } from "../../ui/confirmation-dialog";
+import { Checkbox } from "../../ui/checkbox";
 
 const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
 
@@ -79,6 +80,9 @@ export function SchedulerLogs() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [logToDelete, setLogToDelete] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [selectedLogIds, setSelectedLogIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
+  const [deletingBulk, setDeletingBulk] = useState(false);
 
   const loadSchedulerLogs = async (page: number = 1, limit: number = 10) => {
     setLoadingLogs(true);
@@ -104,6 +108,8 @@ export function SchedulerLogs() {
         setLogsTotal(total);
         setLogsTotalPages(totalPages);
         setLogsCurrentPage(page);
+        // Reset selected logs when data changes
+        setSelectedLogIds(new Set());
       } else {
         showToast({ type: 'error', title: 'Error', message: 'Failed to load scheduler logs' });
       }
@@ -157,6 +163,83 @@ export function SchedulerLogs() {
     }
   };
 
+  const handleBulkDeleteConfirm = async () => {
+    if (selectedLogIds.size === 0) return;
+    
+    setDeletingBulk(true);
+    try {
+      const idsArray = Array.from(selectedLogIds);
+      const response = await fetch(`${API_URL}/api/trigger/logs`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ids: idsArray }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        showToast({ 
+          type: 'success', 
+          title: 'Success', 
+          message: `Successfully deleted ${result.deleted || selectedLogIds.size} log(s)` 
+        });
+        setSelectedLogIds(new Set());
+        await loadSchedulerLogs(logsCurrentPage, 10);
+      } else {
+        showToast({ 
+          type: 'error', 
+          title: 'Error', 
+          message: result.message || 'Failed to delete logs' 
+        });
+      }
+    } catch (error) {
+      console.error('Error deleting logs:', error);
+      showToast({ type: 'error', title: 'Error', message: 'Error deleting logs' });
+    } finally {
+      setDeletingBulk(false);
+      setBulkDeleteDialogOpen(false);
+    }
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      const allIds = new Set(schedulerLogs.map(log => log.id));
+      setSelectedLogIds(allIds);
+    } else {
+      setSelectedLogIds(new Set());
+    }
+  };
+
+  const handleSelectLog = (logId: string, checked: boolean) => {
+    const newSelected = new Set(selectedLogIds);
+    if (checked) {
+      newSelected.add(logId);
+    } else {
+      newSelected.delete(logId);
+    }
+    setSelectedLogIds(newSelected);
+  };
+
+  const isAllSelected = schedulerLogs.length > 0 && selectedLogIds.size === schedulerLogs.length;
+  const isIndeterminate = selectedLogIds.size > 0 && selectedLogIds.size < schedulerLogs.length;
+  const selectAllCheckboxRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (selectAllCheckboxRef.current) {
+      // Set indeterminate state on the underlying input element
+      const input = selectAllCheckboxRef.current.querySelector('input[type="checkbox"]') as HTMLInputElement;
+      if (input) {
+        input.indeterminate = isIndeterminate;
+      }
+    }
+  }, [isIndeterminate, schedulerLogs.length]);
+
   return (
     <Card>
       <CardHeader>
@@ -167,23 +250,48 @@ export function SchedulerLogs() {
       </CardHeader>
       <CardContent>
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
-          <p className="text-xs sm:text-sm text-muted-foreground">
-            Recent scheduler execution logs ({logsTotal} total)
-          </p>
-          <Button
-            onClick={() => loadSchedulerLogs(logsCurrentPage, 10)}
-            disabled={loadingLogs}
-            variant="outline"
-            size="sm"
-            className="w-full sm:w-auto"
-          >
-            {loadingLogs ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <RefreshCw className="w-4 h-4 mr-2" />
+          <div className="flex items-center gap-3">
+            <p className="text-xs sm:text-sm text-muted-foreground">
+              Recent scheduler execution logs ({logsTotal} total)
+            </p>
+            {selectedLogIds.size > 0 && (
+              <Badge variant="secondary" className="text-xs">
+                {selectedLogIds.size} selected
+              </Badge>
             )}
-            Refresh
-          </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            {selectedLogIds.size > 0 && (
+              <Button
+                onClick={() => setBulkDeleteDialogOpen(true)}
+                disabled={deletingBulk}
+                variant="destructive"
+                size="sm"
+                className="w-full sm:w-auto"
+              >
+                {deletingBulk ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Trash2 className="w-4 h-4 mr-2" />
+                )}
+                Delete Selected ({selectedLogIds.size})
+              </Button>
+            )}
+            <Button
+              onClick={() => loadSchedulerLogs(logsCurrentPage, 10)}
+              disabled={loadingLogs}
+              variant="outline"
+              size="sm"
+              className="w-full sm:w-auto"
+            >
+              {loadingLogs ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4 mr-2" />
+              )}
+              Refresh
+            </Button>
+          </div>
         </div>
 
         {loadingLogs ? (
@@ -197,6 +305,13 @@ export function SchedulerLogs() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-12">
+                      <Checkbox
+                        ref={selectAllCheckboxRef}
+                        checked={isAllSelected}
+                        onCheckedChange={handleSelectAll}
+                      />
+                    </TableHead>
                     <TableHead>Feature</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead>Status</TableHead>
@@ -212,22 +327,19 @@ export function SchedulerLogs() {
                 <TableBody>
                   {schedulerLogs.length === 0 ? (
                     <TableRow>
-                      <TableCell className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
                         No logs found
                       </TableCell>
-                      <TableCell>{null}</TableCell>
-                      <TableCell>{null}</TableCell>
-                      <TableCell>{null}</TableCell>
-                      <TableCell>{null}</TableCell>
-                      <TableCell>{null}</TableCell>
-                      <TableCell>{null}</TableCell>
-                      <TableCell>{null}</TableCell>
-                      <TableCell>{null}</TableCell>
-                      <TableCell>{null}</TableCell>
                     </TableRow>
                   ) : (
                     schedulerLogs.map((log) => (
                       <TableRow key={log.id}>
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedLogIds.has(log.id)}
+                            onCheckedChange={(checked) => handleSelectLog(log.id, checked as boolean)}
+                          />
+                        </TableCell>
                         <TableCell>
                           <Badge variant="outline">{log.feature_name}</Badge>
                         </TableCell>
@@ -365,6 +477,17 @@ export function SchedulerLogs() {
         confirmText="Yes"
         cancelText="No"
         isLoading={deleting}
+      />
+
+      <ConfirmationDialog
+        open={bulkDeleteDialogOpen}
+        onOpenChange={setBulkDeleteDialogOpen}
+        title="Delete Selected Logs"
+        description={`Are you sure you want to delete ${selectedLogIds.size} selected log(s)? This action cannot be undone.`}
+        onConfirm={handleBulkDeleteConfirm}
+        confirmText="Yes, Delete"
+        cancelText="Cancel"
+        isLoading={deletingBulk}
       />
     </Card>
   );
