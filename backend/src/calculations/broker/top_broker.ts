@@ -484,10 +484,12 @@ export class TopBrokerCalculator {
    */
   public async generateTopBrokerData(_dateSuffix: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
     const startTime = Date.now();
+    let datesToProcess: Set<string> = new Set();
+    
     try {
       console.log(`Starting top broker analysis for all DT files...`);
       
-      // Find all DT files
+      // Find all DT files (sudah filter yang belum ada output)
       const dtFiles = await this.findAllDtFiles();
       
       if (dtFiles.length === 0) {
@@ -500,6 +502,20 @@ export class TopBrokerCalculator {
       }
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
+      
+      // Set active processing dates HANYA untuk tanggal yang benar-benar akan diproses
+      dtFiles.forEach(file => {
+        const dateMatch = file.match(/done-summary\/(\d{8})\//);
+        if (dateMatch && dateMatch[1]) {
+          datesToProcess.add(dateMatch[1]);
+        }
+      });
+      
+      // Set active dates di cache
+      datesToProcess.forEach(date => {
+        doneSummaryCache.addActiveProcessingDate(date);
+      });
+      console.log(`📅 Set ${datesToProcess.size} active processing dates in cache: ${Array.from(datesToProcess).slice(0, 10).join(', ')}${datesToProcess.size > 10 ? '...' : ''}`);
       
       // Pre-count total brokers for accurate progress tracking
       // Note: We count total brokers processed (may include duplicates across DT files)
@@ -665,6 +681,14 @@ export class TopBrokerCalculator {
         success: false,
         message: `Failed to generate top broker: ${error instanceof Error ? error.message : 'Unknown error'}`
       };
+    } finally {
+      // Cleanup: Remove active processing dates setelah selesai
+      if (datesToProcess && datesToProcess.size > 0) {
+        datesToProcess.forEach(date => {
+          doneSummaryCache.removeActiveProcessingDate(date);
+        });
+        console.log(`🧹 Cleaned up ${datesToProcess.size} active processing dates from cache`);
+      }
     }
   }
 }

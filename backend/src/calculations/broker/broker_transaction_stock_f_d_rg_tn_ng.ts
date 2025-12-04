@@ -750,6 +750,8 @@ export class BrokerTransactionStockFDRGTNNGCalculator {
    * OPTIMIZED: Batch processing with skip logic
    */
   public async generateBrokerTransactionData(_dateSuffix?: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
+    let datesToProcess: Set<string> = new Set();
+    
     try {
       console.log(`🔄 Starting Broker Transaction Stock RG/TN/NG x D/F calculation...`);
       const dtFiles = await this.findAllDtFiles();
@@ -760,6 +762,20 @@ export class BrokerTransactionStockFDRGTNNGCalculator {
       }
       
       console.log(`📊 Processing ${dtFiles.length} DT files in batches of ${BATCH_SIZE_PHASE_6}...`);
+      
+      // Set active processing dates HANYA untuk tanggal yang benar-benar akan diproses
+      dtFiles.forEach(file => {
+        const dateMatch = file.match(/done-summary\/(\d{8})\//);
+        if (dateMatch && dateMatch[1]) {
+          datesToProcess.add(dateMatch[1]);
+        }
+      });
+      
+      // Set active dates di cache
+      datesToProcess.forEach(date => {
+        doneSummaryCache.addActiveProcessingDate(date);
+      });
+      console.log(`📅 Set ${datesToProcess.size} active processing dates in cache: ${Array.from(datesToProcess).slice(0, 10).join(', ')}${datesToProcess.size > 10 ? '...' : ''}`);
       
       // Pre-count total stocks for accurate progress tracking
       const estimatedTotalStocks = await this.preCountTotalStocks(dtFiles);
@@ -881,6 +897,14 @@ export class BrokerTransactionStockFDRGTNNGCalculator {
       const error = e as Error;
       console.error(`❌ Error in generateBrokerTransactionData:`, error.message);
       return { success: false, message: error.message };
+    } finally {
+      // Cleanup: Remove active processing dates setelah selesai
+      if (datesToProcess && datesToProcess.size > 0) {
+        datesToProcess.forEach(date => {
+          doneSummaryCache.removeActiveProcessingDate(date);
+        });
+        console.log(`🧹 Cleaned up ${datesToProcess.size} active processing dates from cache`);
+      }
     }
   }
 }
