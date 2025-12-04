@@ -1,4 +1,4 @@
-import { uploadText, listPaths, downloadText } from '../../utils/azureBlob';
+import { uploadText, listPaths } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_5, MAX_CONCURRENT_REQUESTS_PHASE_5 } from '../../services/dataUpdateService';
 import { SchedulerLogService } from '../../services/schedulerLogService';
 import { doneSummaryCache } from '../../cache/doneSummaryCacheService';
@@ -706,21 +706,31 @@ export class BrokerTransactionFDCalculator {
     // Extract date before loading to check early
     const pathParts = blobName.split('/');
     const dateFolder = pathParts[1] || 'unknown';
+    const dateSuffix = dateFolder;
     
     // OPTIMIZATION: Double-check folders don't exist (race condition protection)
     const exists = await this.checkBrokerTransactionFDExists(dateFolder);
     if (exists) {
       console.log(`⏭️ Skipping ${blobName} - broker_transaction_d/f folders already exist for ${dateFolder} (race condition check)`);
-      return { success: false, dateSuffix: dateFolder, files: [] };
+      return { success: false, dateSuffix, files: [] };
+    }
+    
+    // CRITICAL: Pastikan active date sudah di-set SEBELUM load file
+    // Active date sudah di-set di generateBrokerTransactionFDData() SETELAH pre-check
+    // Tapi kita perlu memastikan date ini active sebelum load
+    if (!doneSummaryCache.isDateActive(dateSuffix)) {
+      // Jika belum active, add sekarang (seharusnya sudah di-set sebelumnya)
+      doneSummaryCache.addActiveProcessingDate(dateSuffix);
+      console.log(`📅 Added active processing date ${dateSuffix} before loading file`);
     }
     
     const result = await this.loadAndProcessSingleDtFile(blobName);
     
     if (!result) {
-      return { success: false, dateSuffix: dateFolder, files: [] };
+      return { success: false, dateSuffix, files: [] };
     }
     
-    const { data, dateSuffix } = result;
+    const { data } = result;
     
     if (data.length === 0) {
       console.log(`⚠️ No transaction data in ${blobName} - skipping`);
@@ -755,53 +765,6 @@ export class BrokerTransactionFDCalculator {
   /**
    * Main function to generate broker transaction data for all DT files (D/F split)
    */
-  /**
-   * Pre-count total unique brokers from all DT files that need processing
-   * CRITICAL: Loads files DIRECTLY from Azure WITHOUT cache to avoid caching files during pre-count
-   * This is used for accurate progress tracking (per broker per investor type)
-   */
-  private async preCountTotalBrokers(dtFiles: string[]): Promise<number> {
-    console.log(`🔍 Pre-counting total brokers from ${dtFiles.length} DT files (loading WITHOUT cache)...`);
-    const allBrokers = new Set<string>();
-    let processedFiles = 0;
-    
-    // Process files in small batches to avoid memory issues
-    const PRE_COUNT_BATCH_SIZE = 10;
-    for (let i = 0; i < dtFiles.length; i += PRE_COUNT_BATCH_SIZE) {
-      const batch = dtFiles.slice(i, i + PRE_COUNT_BATCH_SIZE);
-      const batchPromises = batch.map(async (blobName) => {
-        try {
-          // CRITICAL: Load file DIRECTLY from Azure WITHOUT cache for pre-count
-          const content = await downloadText(blobName);
-          if (!content || content.trim().length === 0) {
-            return;
-          }
-          
-          const data = this.parseTransactionData(content);
-          if (data.length > 0) {
-            data.forEach(t => {
-              if (t.BRK_COD1) allBrokers.add(t.BRK_COD1);
-              if (t.BRK_COD2) allBrokers.add(t.BRK_COD2);
-            });
-          }
-        } catch (error) {
-          // Skip files that can't be read during pre-count
-          console.warn(`⚠️ Could not pre-count brokers from ${blobName}:`, error instanceof Error ? error.message : error);
-        }
-      });
-      
-      await Promise.all(batchPromises);
-      processedFiles += batch.length;
-      
-      if ((i + PRE_COUNT_BATCH_SIZE) % 50 === 0 || i + PRE_COUNT_BATCH_SIZE >= dtFiles.length) {
-        console.log(`   Pre-counted ${processedFiles}/${dtFiles.length} files, found ${allBrokers.size} unique brokers so far...`);
-      }
-    }
-    
-    console.log(`✅ Pre-count complete: ${allBrokers.size} unique brokers found across ${dtFiles.length} DT files`);
-    // Estimate: brokers per investor type (D/F) = unique brokers * 2 types * 1.5x for overlap
-    return Math.round(allBrokers.size * 2 * 1.5);
-  }
 
   public async generateBrokerTransactionData(_dateSuffix: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
     const startTime = Date.now();
@@ -824,11 +787,8 @@ export class BrokerTransactionFDCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
-      // CRITICAL: Pre-count FIRST before setting active dates to avoid caching during pre-count
-      // Pre-count loads files WITHOUT cache
-      const estimatedTotalBrokers = await this.preCountTotalBrokers(dtFiles);
-      
-      // Set active processing dates HANYA setelah pre-count selesai
+      // CRITICAL: JANGAN PRE-COUNT - tidak boleh load input sebelum cek existing
+      // Set active processing dates untuk file yang sudah di-filter (yang benar-benar perlu diproses)
       dtFiles.forEach(file => {
         const dateMatch = file.match(/done-summary\/(\d{8})\//);
         if (dateMatch && dateMatch[1]) {
@@ -836,25 +796,22 @@ export class BrokerTransactionFDCalculator {
         }
       });
       
-      // Set active dates di cache SETELAH pre-count selesai
+      // Set active dates di cache untuk file yang akan diproses
       datesToProcess.forEach(date => {
         doneSummaryCache.addActiveProcessingDate(date);
       });
       console.log(`📅 Set ${datesToProcess.size} active processing dates in cache: ${Array.from(datesToProcess).slice(0, 10).join(', ')}${datesToProcess.size > 10 ? '...' : ''}`);
       
-      // Create progress tracker for thread-safe broker counting
+      // Create progress tracker based on files processed (not brokers)
       const progressTracker: ProgressTracker = {
-        totalBrokers: estimatedTotalBrokers,
+        totalBrokers: 0, // No pre-count
         processedBrokers: 0,
         logId: logId || null,
         updateProgress: async () => {
           if (progressTracker.logId) {
-            const percentage = estimatedTotalBrokers > 0 
-              ? Math.min(100, Math.round((progressTracker.processedBrokers / estimatedTotalBrokers) * 100))
-              : 0;
             await SchedulerLogService.updateLog(progressTracker.logId, {
-              progress_percentage: percentage,
-              current_processing: `Processing brokers: ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers processed`
+              progress_percentage: 0, // Will be updated based on files processed
+              current_processing: `Processing broker transaction (F/D) files...`
             });
           }
         }
@@ -875,10 +832,8 @@ export class BrokerTransactionFDCalculator {
         // Update progress before batch (showing DT file progress)
         if (logId) {
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: estimatedTotalBrokers > 0 
-              ? Math.min(100, Math.round((progressTracker.processedBrokers / estimatedTotalBrokers) * 100))
-              : Math.round((processed / dtFiles.length) * 100),
-            current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} dates, ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers)`
+            progress_percentage: Math.round((processed / dtFiles.length) * 100),
+            current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} dates)`
           });
         }
         
@@ -917,15 +872,13 @@ export class BrokerTransactionFDCalculator {
         });
         
         const batchBrokerCount = batchResults.reduce((sum, r: any) => sum + (r?.brokerCount || 0), 0);
-        console.log(`📊 Batch ${batchNumber} complete: ✅ ${successful}/${processed} successful, ${batchBrokerCount} brokers processed, ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} total brokers processed`);
+        console.log(`📊 Batch ${batchNumber} complete: ✅ ${successful}/${processed} successful, ${batchBrokerCount} brokers processed`);
         
-        // Update progress after batch (based on brokers processed)
+        // Update progress after batch (based on files processed)
         if (logId) {
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: estimatedTotalBrokers > 0 
-              ? Math.min(100, Math.round((progressTracker.processedBrokers / estimatedTotalBrokers) * 100))
-              : Math.round((processed / dtFiles.length) * 100),
-            current_processing: `Completed batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} dates, ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers processed)`
+            progress_percentage: Math.round((processed / dtFiles.length) * 100),
+            current_processing: `Completed batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} dates)`
           });
         }
         
