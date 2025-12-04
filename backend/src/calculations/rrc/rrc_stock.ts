@@ -340,6 +340,9 @@ async function main(): Promise<void> {
   
   console.log(`Ditemukan ${csvFiles.length} file CSV di ${stockDir}`);
   
+  // CRITICAL: Don't add active files before processing - add only when file needs processing
+  const activeFiles: string[] = [];
+  
   // Helper function to limit concurrency for Phase 2
   async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
     const results: T[] = [];
@@ -382,6 +385,13 @@ async function main(): Promise<void> {
     // Process batch in parallel with concurrency limit
     const batchPromises = batch.map(async (csvFile) => {
       try {
+        // CRITICAL: Add active file ONLY when processing starts
+        if (csvFile.startsWith('stock/') && !activeFiles.includes(csvFile)) {
+          const { stockCache } = await import('../../cache/stockCacheService');
+          stockCache.addActiveProcessingFile(csvFile);
+          activeFiles.push(csvFile);
+        }
+        
         const emitter = extractEmitterName(csvFile);
         console.log(`📈 Processing: ${path.basename(csvFile)} -> ${emitter}`);
         
@@ -429,6 +439,15 @@ async function main(): Promise<void> {
   }
   
   console.log(`\nSelesai! Diproses: ${processed}, Error: ${errors}`);
+  
+  // Cleanup: Remove active processing files setelah selesai
+  if (activeFiles.length > 0) {
+    const { stockCache } = await import('../../cache/stockCacheService');
+    for (const file of activeFiles) {
+      stockCache.removeActiveProcessingFile(file);
+    }
+    console.log(`🧹 Cleaned up ${activeFiles.length} active processing stock files from cache`);
+  }
   
   // Process index if specified
   if (index) {

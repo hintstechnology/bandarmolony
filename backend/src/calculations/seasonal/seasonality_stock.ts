@@ -112,6 +112,13 @@ async function loadStockData(sector: string, ticker: string): Promise<StockData[
   
   // Use shared cache for raw content (will cache automatically if not exists)
   const csvContent = await stockCache.getRawContent(stockPath) || '';
+  return parseStockDataFromCSV(csvContent);
+}
+
+/**
+ * Parse stock data from CSV content
+ */
+function parseStockDataFromCSV(csvContent: string): StockData[] {
   const lines = csvContent.trim().split('\n');
   const headers = parseCsvLine(lines[0] || '');
   
@@ -285,6 +292,7 @@ async function getAllStocks(): Promise<{ sector: string; ticker: string }[]> {
 export async function generateAllStocksSeasonality(): Promise<SeasonalityResults> {
   const allStocks = await getAllStocks();
   const stocksData: StockSeasonalityData[] = [];
+  const activeFiles: string[] = [];
   
   console.log(`📊 Processing ${allStocks.length} stocks...`);
   
@@ -301,9 +309,11 @@ export async function generateAllStocksSeasonality(): Promise<SeasonalityResults
   
   console.log(`📊 Unique stocks after deduplication: ${uniqueStocks.size} (from ${allStocks.length} total)`);
   
+  // CRITICAL: Don't add active files before processing - add only when file needs processing
+  const uniqueStocksArray = Array.from(uniqueStocks.values());
+  
   // Process stocks in batches for better performance
   const BATCH_SIZE = BATCH_SIZE_PHASE_2; // Phase 2: 500 stocks at a time
-  const uniqueStocksArray = Array.from(uniqueStocks.values());
   
   for (let i = 0; i < uniqueStocksArray.length; i += BATCH_SIZE) {
     const batch = uniqueStocksArray.slice(i, i + BATCH_SIZE);
@@ -324,6 +334,14 @@ export async function generateAllStocksSeasonality(): Promise<SeasonalityResults
     // Limit concurrency to 250 for Phase 2
     const batchPromises = batch.map(async (stock) => {
         try {
+          const stockPath = `stock/${stock.sector}/${stock.ticker}.csv`;
+          
+          // CRITICAL: Add active file ONLY when processing starts
+          if (!activeFiles.includes(stockPath)) {
+            stockCache.addActiveProcessingFile(stockPath);
+            activeFiles.push(stockPath);
+          }
+          
           console.log(`Processing ${uniqueStocksArray.indexOf(stock) + 1}/${uniqueStocksArray.length}: ${stock.ticker} (${stock.sector})`);
           return await generateStockSeasonalityData(stock.sector, stock.ticker);
         } catch (error) {
@@ -346,11 +364,6 @@ export async function generateAllStocksSeasonality(): Promise<SeasonalityResults
       const memAfter = process.memoryUsage();
       const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
       console.log(`📊 Batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
-    }
-    
-    // Small delay between batches
-    if (i + BATCH_SIZE < uniqueStocksArray.length) {
-      await new Promise(resolve => setTimeout(resolve, 100));
     }
     
     // Small delay between batches
@@ -452,5 +465,15 @@ export async function generateStockSeasonality(): Promise<SeasonalityResults> {
   } catch (error) {
     console.error('❌ Error in generateStockSeasonality:', error);
     throw error;
+  } finally {
+    // Cleanup: Remove active processing files setelah selesai
+    // Get from cache service
+    const activeStockFiles = stockCache.getActiveProcessingFiles();
+    for (const file of activeStockFiles) {
+      stockCache.removeActiveProcessingFile(file);
+    }
+    if (activeStockFiles.length > 0) {
+      console.log(`🧹 Cleaned up ${activeStockFiles.length} active processing stock files from cache`);
+    }
   }
 }

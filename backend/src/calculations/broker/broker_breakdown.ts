@@ -100,10 +100,11 @@ export class BrokerBreakdownCalculator {
     
     try {
       // Use shared cache for DT files list
-      const allDtFiles = await doneSummaryCache.getDtFilesList();
+      // Type assertion needed due to TypeScript type inference issue
+      const allDtFiles = await (doneSummaryCache as any).getDtFilesList();
       
       // Sort by date descending (newest first) - process from newest to oldest
-      const sortedFiles = allDtFiles.sort((a, b) => {
+      const sortedFiles = allDtFiles.sort((a: string, b: string) => {
         const dateA = a.split('/')[1] || '';
         const dateB = b.split('/')[1] || '';
         return dateB.localeCompare(dateA); // Descending order (newest first)
@@ -155,8 +156,8 @@ export class BrokerBreakdownCalculator {
     
     if (filesToProcess.length > 0) {
       console.log(`📋 Processing order (newest first):`);
-      const dates = filesToProcess.map(f => f.split('/')[1]).filter((v, i, arr) => arr.indexOf(v) === i);
-      dates.slice(0, 10).forEach((date, idx) => {
+      const dates = filesToProcess.map((f: string) => f.split('/')[1]).filter((v: string | undefined, i: number, arr: (string | undefined)[]) => v !== undefined && arr.indexOf(v) === i) as string[];
+      dates.slice(0, 10).forEach((date: string, idx: number) => {
         console.log(`   ${idx + 1}. ${date}`);
       });
       if (dates.length > 10) {
@@ -742,6 +743,15 @@ export class BrokerBreakdownCalculator {
     // Note: Pre-checking is done in filterExistingDates() before batch processing
     // This function only processes files that are confirmed to need processing
     
+    // CRITICAL: Pastikan active date sudah di-set SEBELUM load file
+    // Active date sudah di-set di generateBrokerBreakdownData() SETELAH pre-check
+    // Tapi kita perlu memastikan date ini active sebelum load
+    if (!doneSummaryCache.isDateActive(dateSuffix)) {
+      // Jika belum active, add sekarang (seharusnya sudah di-set sebelumnya)
+      doneSummaryCache.addActiveProcessingDate(dateSuffix);
+      console.log(`📅 Added active processing date ${dateSuffix} before loading file`);
+    }
+    
     // Load and enhance transactions once
     const result = await this.loadAndProcessSingleDtFile(blobName);
     if (!result) {
@@ -980,53 +990,14 @@ export class BrokerBreakdownCalculator {
     }
   }
 
-  /**
-   * Pre-count total unique stocks from all DT files that need processing
-   * This is used for accurate progress tracking
-   */
-  private async preCountTotalStocks(dtFiles: string[]): Promise<number> {
-    console.log(`🔍 Pre-counting total stocks from ${dtFiles.length} DT files...`);
-    const allStocks = new Set<string>();
-    let processedFiles = 0;
-    
-    // Process files in small batches to avoid memory issues
-    const PRE_COUNT_BATCH_SIZE = 10;
-    for (let i = 0; i < dtFiles.length; i += PRE_COUNT_BATCH_SIZE) {
-      const batch = dtFiles.slice(i, i + PRE_COUNT_BATCH_SIZE);
-      const batchPromises = batch.map(async (blobName) => {
-        try {
-          const result = await this.loadAndProcessSingleDtFile(blobName);
-          if (result && result.data.length > 0) {
-            const validTransactions = result.data.filter(t => 
-              t.STK_CODE && t.STK_CODE.length === 4 && 
-              t.BRK_COD1 && t.BRK_COD2 && 
-              t.STK_VOLM > 0 && t.STK_PRIC > 0
-            );
-            validTransactions.forEach(t => allStocks.add(t.STK_CODE));
-          }
-        } catch (error) {
-          // Skip files that can't be read during pre-count
-          console.warn(`⚠️ Could not pre-count stocks from ${blobName}:`, error instanceof Error ? error.message : error);
-        }
-      });
-      
-      await Promise.all(batchPromises);
-      processedFiles += batch.length;
-      
-      if ((i + PRE_COUNT_BATCH_SIZE) % 50 === 0 || i + PRE_COUNT_BATCH_SIZE >= dtFiles.length) {
-        console.log(`   Pre-counted ${processedFiles}/${dtFiles.length} files, found ${allStocks.size} unique stocks so far...`);
-      }
-    }
-    
-    console.log(`✅ Pre-count complete: ${allStocks.size} unique stocks found across ${dtFiles.length} DT files`);
-    return allStocks.size;
-  }
 
   /**
    * Main function to generate broker breakdown data for all DT files
    */
   public async generateBrokerBreakdownData(_dateSuffix: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
     const startTime = Date.now();
+    let datesToProcess: Set<string> = new Set();
+    
     try {
       console.log(`Starting broker breakdown analysis for all DT files...`);
       
@@ -1057,22 +1028,31 @@ export class BrokerBreakdownCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files (out of ${allDtFiles.length} total)...`);
       
-      // Pre-count total stocks for accurate progress tracking
-      const totalStocks = await this.preCountTotalStocks(dtFiles);
+      // CRITICAL: JANGAN PRE-COUNT - tidak boleh load input sebelum cek existing
+      // Set active processing dates untuk file yang sudah di-filter (yang benar-benar perlu diproses)
+      dtFiles.forEach(file => {
+        const dateMatch = file.match(/done-summary\/(\d{8})\//);
+        if (dateMatch && dateMatch[1]) {
+          datesToProcess.add(dateMatch[1]);
+        }
+      });
       
-      // Create progress tracker for thread-safe stock counting
+      // Set active dates di cache untuk file yang akan diproses
+      datesToProcess.forEach(date => {
+        doneSummaryCache.addActiveProcessingDate(date);
+      });
+      console.log(`📅 Set ${datesToProcess.size} active processing dates in cache: ${Array.from(datesToProcess).slice(0, 10).join(', ')}${datesToProcess.size > 10 ? '...' : ''}`);
+      
+      // Create progress tracker based on files processed (not stocks)
       const progressTracker: ProgressTracker = {
-        totalStocks,
+        totalStocks: 0, // No pre-count
         processedStocks: 0,
         logId: logId || null,
         updateProgress: async () => {
           if (progressTracker.logId) {
-            const percentage = totalStocks > 0 
-              ? Math.round((progressTracker.processedStocks / totalStocks) * 100)
-              : 0;
             await SchedulerLogService.updateLog(progressTracker.logId, {
-              progress_percentage: percentage,
-              current_processing: `Processing stocks: ${progressTracker.processedStocks.toLocaleString()}/${totalStocks.toLocaleString()} stocks processed`
+              progress_percentage: 0, // Will be updated based on files processed
+              current_processing: `Processing broker breakdown files...`
             });
           }
         }
@@ -1097,10 +1077,8 @@ export class BrokerBreakdownCalculator {
         // Update progress before batch (showing DT file progress)
         if (logId) {
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: totalStocks > 0 
-              ? Math.round((progressTracker.processedStocks / totalStocks) * 100)
-              : Math.round((processed / dtFiles.length) * 100),
-            current_processing: `Processing batch ${batchNumber}/${totalBatches} (${processed}/${dtFiles.length} dates, ${progressTracker.processedStocks.toLocaleString()}/${totalStocks.toLocaleString()} stocks)`
+            progress_percentage: Math.round((processed / dtFiles.length) * 100),
+            current_processing: `Processing batch ${batchNumber}/${totalBatches} (${processed}/${dtFiles.length} dates)`
           });
         }
         
@@ -1158,15 +1136,13 @@ export class BrokerBreakdownCalculator {
           .slice(processed - batchResults.length, processed)
           .reduce((sum, r) => sum + (r.files?.length || 0), 0);
         
-        console.log(`✅ Batch ${batchNumber}/${totalBatches} complete: ${successful}/${batch.length} dates processed, ${batchFilesCreated.toLocaleString()} files created, ${progressTracker.processedStocks.toLocaleString()}/${totalStocks.toLocaleString()} stocks processed`);
+        console.log(`✅ Batch ${batchNumber}/${totalBatches} complete: ${successful}/${batch.length} dates processed, ${batchFilesCreated.toLocaleString()} files created`);
         
-        // Update progress after batch (based on stocks processed)
+        // Update progress after batch (based on files processed)
         if (logId) {
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: totalStocks > 0 
-              ? Math.round((progressTracker.processedStocks / totalStocks) * 100)
-              : Math.round((processed / dtFiles.length) * 100),
-            current_processing: `Completed batch ${batchNumber}/${totalBatches} (${processed}/${dtFiles.length} dates, ${progressTracker.processedStocks.toLocaleString()}/${totalStocks.toLocaleString()} stocks processed)`
+            progress_percentage: Math.round((processed / dtFiles.length) * 100),
+            current_processing: `Completed batch ${batchNumber}/${totalBatches} (${processed}/${dtFiles.length} dates)`
           });
         }
         
@@ -1205,6 +1181,14 @@ export class BrokerBreakdownCalculator {
         success: false,
         message: `Failed to generate broker breakdown data: ${error instanceof Error ? error.message : 'Unknown error'}`
       };
+    } finally {
+      // Cleanup: Remove active processing dates setelah selesai
+      if (datesToProcess && datesToProcess.size > 0) {
+        datesToProcess.forEach(date => {
+          doneSummaryCache.removeActiveProcessingDate(date);
+        });
+        console.log(`🧹 Cleaned up ${datesToProcess.size} active processing dates from cache`);
+      }
     }
   }
 }

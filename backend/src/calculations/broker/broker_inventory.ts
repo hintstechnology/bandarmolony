@@ -384,6 +384,7 @@ export class BrokerInventoryCalculator {
    */
   public async generateBrokerInventoryData(_dateSuffix: string, logId?: string | null): Promise<void> {
     console.log("Starting broker inventory analysis for ALL available dates...");
+    let datesToProcess: Set<string> = new Set();
     
     try {
       // Discover all dates
@@ -393,6 +394,7 @@ export class BrokerInventoryCalculator {
         return;
       }
       
+      // CRITICAL: Don't add active dates before processing - add only when date needs processing
       // Load broker transaction data for all dates in batches
       console.log("\nLoading broker transaction data for all dates...");
       const allBrokerData = new Map<string, Map<string, BrokerTransactionData[]>>();
@@ -422,6 +424,12 @@ export class BrokerInventoryCalculator {
         const batchPromises = dateBatch.map(async (date) => {
             if (!date) {
               return { date: '', success: false };
+            }
+            
+            // CRITICAL: Add active date ONLY when processing starts
+            if (!datesToProcess.has(date)) {
+              datesToProcess.add(date);
+              brokerTransactionCache.addActiveProcessingDate(date);
             }
             
             console.log(`Loading data for date: ${date}`);
@@ -542,6 +550,14 @@ export class BrokerInventoryCalculator {
     } catch (error) {
       console.error(`Error during broker inventory analysis: ${error}`);
       throw error;
+    } finally {
+      // Cleanup: Remove active processing dates setelah selesai
+      if (datesToProcess && datesToProcess.size > 0) {
+        datesToProcess.forEach(date => {
+          brokerTransactionCache.removeActiveProcessingDate(date);
+        });
+        console.log(`🧹 Cleaned up ${datesToProcess.size} active processing dates from broker transaction cache`);
+      }
     }
   }
 }

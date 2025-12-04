@@ -81,43 +81,86 @@ export class BidAskCalculator {
     
     try {
       // Use shared cache for DT files list
-      const allDtFiles = await doneSummaryCache.getDtFilesList();
+      // Type assertion needed due to TypeScript type inference issue
+      const allDtFiles = await (doneSummaryCache as any).getDtFilesList();
       
       // Sort by date descending (newest first) - process from newest to oldest
-      const sortedFiles = allDtFiles.sort((a, b) => {
+      const sortedFiles = allDtFiles.sort((a: string, b: string) => {
         const dateA = a.split('/')[1] || '';
         const dateB = b.split('/')[1] || '';
         return dateB.localeCompare(dateA); // Descending order (newest first)
       });
       
-      // OPTIMIZATION: Pre-check which dates already have bid_ask output (sequential, newest to oldest)
-      console.log("🔍 Pre-checking existing bid_ask outputs (checking from newest to oldest)...");
+      // OPTIMIZATION: Pre-check which dates already have bid_ask output (BATCH CHECKING for speed)
+      console.log("🔍 Pre-checking existing bid_ask outputs (batch checking)...");
       const filesToProcess: string[] = [];
       let skippedCount = 0;
       
-      for (const file of sortedFiles) {
-        const dateFolder = file.split('/')[1] || '';
-        const dateSuffix = dateFolder;
+      // Process in batches for parallel checking (faster than sequential)
+      const CHECK_BATCH_SIZE = 20; // Check 20 files in parallel
+      const MAX_CONCURRENT_CHECKS = 10; // Max 10 concurrent checks
+      
+      for (let i = 0; i < sortedFiles.length; i += CHECK_BATCH_SIZE) {
+        const batch = sortedFiles.slice(i, i + CHECK_BATCH_SIZE);
+        const batchNumber = Math.floor(i / CHECK_BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(sortedFiles.length / CHECK_BATCH_SIZE);
         
-        // Check if bid_ask folder exists for this date
-        const outputPrefix = `bid_ask/bid_ask_${dateSuffix}/`;
-        
-        try {
-          const existingFiles = await listPaths({ prefix: outputPrefix, maxResults: 1 });
-          if (existingFiles.length > 0) {
-            skippedCount++;
-            console.log(`⏭️ Bid/Ask already exists for date ${dateSuffix} - skipping`);
-          } else {
-            filesToProcess.push(file);
-            console.log(`✅ Date ${dateSuffix} needs processing`);
+        // Process batch checks in parallel with concurrency limit
+        const checkPromises = batch.map(async (file: string) => {
+          const dateFolder = file.split('/')[1] || '';
+          const dateSuffix = dateFolder;
+          const outputPrefix = `bid_ask/bid_ask_${dateSuffix}/`;
+          
+          try {
+            const existingFiles = await listPaths({ prefix: outputPrefix, maxResults: 1 });
+            return { file, dateSuffix, exists: existingFiles.length > 0, error: null };
+          } catch (error) {
+            return { file, dateSuffix, exists: false, error: error instanceof Error ? error.message : String(error) };
           }
-        } catch (error) {
-          // If check fails, proceed with processing (safer to process than skip)
-          console.warn(`⚠️ Could not check existence for ${dateSuffix}, will process:`, error instanceof Error ? error.message : error);
-          filesToProcess.push(file);
+        });
+        
+        // Limit concurrency for checks
+        const checkResults: { file: string; dateSuffix: string; exists: boolean; error: string | null }[] = [];
+        for (let j = 0; j < checkPromises.length; j += MAX_CONCURRENT_CHECKS) {
+          const concurrentChecks = checkPromises.slice(j, j + MAX_CONCURRENT_CHECKS);
+          const results = await Promise.all(concurrentChecks);
+          checkResults.push(...results);
+        }
+        
+        // Process results
+        for (const result of checkResults) {
+          if (result.exists) {
+            skippedCount++;
+            // Only log first few and last few to avoid spam
+            if (skippedCount <= 5 || skippedCount > sortedFiles.length - 5) {
+              console.log(`⏭️ Bid/Ask already exists for date ${result.dateSuffix} - skipping`);
+            }
+          } else {
+            if (result.error) {
+              console.warn(`⚠️ Could not check existence for ${result.dateSuffix}, will process:`, result.error);
+            } else {
+              // Only log first few to avoid spam
+              if (filesToProcess.length < 5) {
+                console.log(`✅ Date ${result.dateSuffix} needs processing`);
+              }
+            }
+            filesToProcess.push(result.file);
+          }
+        }
+        
+        // Progress update for large batches
+        if (totalBatches > 1 && batchNumber % 5 === 0) {
+          console.log(`📊 Checked ${Math.min(i + CHECK_BATCH_SIZE, sortedFiles.length)}/${sortedFiles.length} files (${skippedCount} skipped, ${filesToProcess.length} to process)...`);
         }
       }
       
+      // Summary log
+      if (skippedCount > 5) {
+        console.log(`⏭️  ... and ${skippedCount - 5} more dates skipped`);
+      }
+      if (filesToProcess.length > 5) {
+        console.log(`✅ ... and ${filesToProcess.length - 5} more dates need processing`);
+      }
       console.log(`📊 Pre-check complete: ${filesToProcess.length} files to process, ${skippedCount} already exist`);
       
       if (filesToProcess.length > 0) {
@@ -419,13 +462,27 @@ export class BidAskCalculator {
    * Process a single DT file with all bid/ask analysis
    */
   private async processSingleDtFile(blobName: string, progressTracker?: ProgressTracker): Promise<{ success: boolean; dateSuffix: string; files: string[]; stockCount?: number }> {
+    // Extract date first
+    const pathParts = blobName.split('/');
+    const dateFolder = pathParts[1] || 'unknown';
+    const dateSuffix = dateFolder;
+    
+    // CRITICAL: Pastikan active date sudah di-set SEBELUM load file
+    // Active date sudah di-set di generateBidAskData() SETELAH pre-check
+    // Tapi kita perlu memastikan date ini active sebelum load
+    if (!doneSummaryCache.isDateActive(dateSuffix)) {
+      // Jika belum active, add sekarang (seharusnya sudah di-set sebelumnya)
+      doneSummaryCache.addActiveProcessingDate(dateSuffix);
+      console.log(`📅 Added active processing date ${dateSuffix} before loading file`);
+    }
+    
     const result = await this.loadAndProcessSingleDtFile(blobName);
     
     if (!result) {
-      return { success: false, dateSuffix: '', files: [] };
+      return { success: false, dateSuffix, files: [] };
     }
     
-    const { data, dateSuffix } = result;
+    const { data } = result;
     
     if (data.length === 0) {
       console.log(`⚠️ No transaction data in ${blobName} - skipping`);
@@ -489,55 +546,18 @@ export class BidAskCalculator {
     }
   }
 
-  /**
-   * Pre-count total unique stocks from all DT files that need processing
-   * This is used for accurate progress tracking
-   */
-  private async preCountTotalStocks(dtFiles: string[]): Promise<number> {
-    console.log(`🔍 Pre-counting total stocks from ${dtFiles.length} DT files...`);
-    const allStocks = new Set<string>();
-    let processedFiles = 0;
-    
-    // Process files in small batches to avoid memory issues
-    const PRE_COUNT_BATCH_SIZE = 10;
-    for (let i = 0; i < dtFiles.length; i += PRE_COUNT_BATCH_SIZE) {
-      const batch = dtFiles.slice(i, i + PRE_COUNT_BATCH_SIZE);
-      const batchPromises = batch.map(async (blobName) => {
-        try {
-          const result = await this.loadAndProcessSingleDtFile(blobName);
-          if (result && result.data.length > 0) {
-            const validTransactions = result.data.filter(t => 
-              t.STK_CODE && t.STK_CODE.length === 4
-            );
-            validTransactions.forEach(t => allStocks.add(t.STK_CODE));
-          }
-        } catch (error) {
-          // Skip files that can't be read during pre-count
-          console.warn(`⚠️ Could not pre-count stocks from ${blobName}:`, error instanceof Error ? error.message : error);
-        }
-      });
-      
-      await Promise.all(batchPromises);
-      processedFiles += batch.length;
-      
-      if ((i + PRE_COUNT_BATCH_SIZE) % 50 === 0 || i + PRE_COUNT_BATCH_SIZE >= dtFiles.length) {
-        console.log(`   Pre-counted ${processedFiles}/${dtFiles.length} files, found ${allStocks.size} unique stocks so far...`);
-      }
-    }
-    
-    console.log(`✅ Pre-count complete: ${allStocks.size} unique stocks found across ${dtFiles.length} DT files`);
-    return allStocks.size;
-  }
 
   /**
    * Main function to generate bid/ask footprint data for all DT files
    */
   public async generateBidAskData(_dateSuffix: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
     const startTime = Date.now();
+    let datesToProcess: Set<string> = new Set();
+    
     try {
       console.log(`Starting bid/ask footprint analysis for all DT files...`);
       
-      // Find all DT files
+      // Find all DT files (sudah filter yang belum ada output)
       const dtFiles = await this.findAllDtFiles();
       
       if (dtFiles.length === 0) {
@@ -551,22 +571,31 @@ export class BidAskCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
-      // Pre-count total stocks for accurate progress tracking
-      const totalStocks = await this.preCountTotalStocks(dtFiles);
+      // CRITICAL: JANGAN PRE-COUNT - tidak boleh load input sebelum cek existing
+      // Set active processing dates untuk file yang sudah di-filter (yang benar-benar perlu diproses)
+      dtFiles.forEach(file => {
+        const dateMatch = file.match(/done-summary\/(\d{8})\//);
+        if (dateMatch && dateMatch[1]) {
+          datesToProcess.add(dateMatch[1]);
+        }
+      });
       
-      // Create progress tracker for thread-safe stock counting
+      // Set active dates di cache untuk file yang akan diproses
+      datesToProcess.forEach(date => {
+        doneSummaryCache.addActiveProcessingDate(date);
+      });
+      console.log(`📅 Set ${datesToProcess.size} active processing dates in cache: ${Array.from(datesToProcess).slice(0, 10).join(', ')}${datesToProcess.size > 10 ? '...' : ''}`);
+      
+      // Create progress tracker based on files processed (not stocks)
       const progressTracker: ProgressTracker = {
-        totalStocks,
+        totalStocks: 0, // No pre-count
         processedStocks: 0,
         logId: logId || null,
         updateProgress: async () => {
           if (progressTracker.logId) {
-            const percentage = totalStocks > 0 
-              ? Math.round((progressTracker.processedStocks / totalStocks) * 100)
-              : 0;
             await SchedulerLogService.updateLog(progressTracker.logId, {
-              progress_percentage: percentage,
-              current_processing: `Processing stocks: ${progressTracker.processedStocks.toLocaleString()}/${totalStocks.toLocaleString()} stocks processed`
+              progress_percentage: 0, // Will be updated based on files processed
+              current_processing: `Processing bid/ask files...`
             });
           }
         }
@@ -598,10 +627,8 @@ export class BidAskCalculator {
         // Update progress before batch (showing DT file progress)
         if (logId) {
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: totalStocks > 0 
-              ? Math.round((progressTracker.processedStocks / totalStocks) * 100)
-              : Math.round((processed / dtFiles.length) * 100),
-            current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} dates, ${progressTracker.processedStocks.toLocaleString()}/${totalStocks.toLocaleString()} stocks)`
+            progress_percentage: Math.round((processed / dtFiles.length) * 100),
+            current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} dates)`
           });
         }
         
@@ -629,15 +656,13 @@ export class BidAskCalculator {
         });
         
         const batchStockCount = batchResults.reduce((sum, r: any) => sum + (r?.stockCount || 0), 0);
-        console.log(`📊 Batch ${batchNumber} complete: ✅ ${successful}/${processed} successful, ${batchStockCount} stocks processed, ${progressTracker.processedStocks.toLocaleString()}/${totalStocks.toLocaleString()} total stocks processed`);
+        console.log(`📊 Batch ${batchNumber} complete: ✅ ${successful}/${processed} successful, ${batchStockCount} stocks processed`);
         
-        // Update progress after batch (based on stocks processed)
+        // Update progress after batch (based on files processed)
         if (logId) {
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: totalStocks > 0 
-              ? Math.round((progressTracker.processedStocks / totalStocks) * 100)
-              : Math.round((processed / dtFiles.length) * 100),
-            current_processing: `Completed batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} dates, ${progressTracker.processedStocks.toLocaleString()}/${totalStocks.toLocaleString()} stocks processed)`
+            progress_percentage: Math.round((processed / dtFiles.length) * 100),
+            current_processing: `Completed batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} dates)`
           });
         }
         
@@ -676,6 +701,14 @@ export class BidAskCalculator {
         success: false,
         message: `Failed to generate bid/ask footprint data: ${error instanceof Error ? error.message : 'Unknown error'}`
       };
+    } finally {
+      // Cleanup: Remove active processing dates setelah selesai
+      if (datesToProcess && datesToProcess.size > 0) {
+        datesToProcess.forEach(date => {
+          doneSummaryCache.removeActiveProcessingDate(date);
+        });
+        console.log(`🧹 Cleaned up ${datesToProcess.size} active processing dates from cache`);
+      }
     }
   }
 }

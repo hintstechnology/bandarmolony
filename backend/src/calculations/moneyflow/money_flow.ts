@@ -59,7 +59,18 @@ export class MoneyFlowCalculator {
       if (!content) {
         return [];
       }
-    
+      
+      return this.parseOHLCData(content);
+    } catch (error) {
+      console.error(`Error loading OHLC data from Azure: ${filename}`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Parse OHLC data from CSV content
+   */
+  private parseOHLCData(content: string): OHLCData[] {
     const lines = content.trim().split('\n');
     const data: OHLCData[] = [];
     
@@ -93,12 +104,8 @@ export class MoneyFlowCalculator {
       const dateB = b.Date || '';
       return dateA.localeCompare(dateB);
     });
-    console.log(`Loaded ${data.length} OHLC records from ${filename}`);
+    
     return data;
-    } catch (error) {
-      console.error(`Error loading OHLC data from ${filename}:`, error);
-      return [];
-    }
   }
 
   /**
@@ -489,6 +496,9 @@ export class MoneyFlowCalculator {
     const allStockFiles = await this.findAllCsvFiles('stock/');
     console.log(`Found ${allStockFiles.length} stock files`);
     
+    // CRITICAL: Don't add active files before processing - add only when file needs processing
+    const activeFiles: string[] = [];
+    
     let processed = 0;
     for (let i = 0; i < allStockFiles.length; i += BATCH_SIZE) {
       const batch = allStockFiles.slice(i, i + BATCH_SIZE);
@@ -522,13 +532,47 @@ export class MoneyFlowCalculator {
           const existingDates = existingDatesByStock.get(key) || new Set<string>();
           
           try {
-            // Load OHLC data
+            // CRITICAL: JANGAN LOAD FILE SAMA SEKALI jika semua dates sudah exist
+            // Cek existing dates DULU sebelum load
+            if (existingDates.size > 0) {
+              // Get the latest existing date
+              const sortedExistingDates = Array.from(existingDates).sort((a, b) => b.localeCompare(a));
+              const latestExistingDate = sortedExistingDates[0];
+              
+              // If we have many existing dates and the latest is recent, assume file doesn't need processing
+              // This is a heuristic - we don't know dates in file without loading
+              // But if we have > 1000 existing dates and latest is within last 7 days, likely all dates exist
+              if (existingDates.size > 1000 && latestExistingDate) {
+                const latestDate = new Date(
+                  parseInt(latestExistingDate.substring(0, 4)),
+                  parseInt(latestExistingDate.substring(4, 6)) - 1,
+                  parseInt(latestExistingDate.substring(6, 8))
+                );
+                const daysSinceLatest = (Date.now() - latestDate.getTime()) / (1000 * 60 * 60 * 24);
+                
+                // If latest date is within last 7 days and we have many dates, likely file is up to date
+                if (daysSinceLatest < 7) {
+                  // Skip file without loading - assume all dates already exist
+                  return { code, mfiData: [], success: false, error: 'All dates likely already exist (skipped without load)', type: 'stock' as const, skipped: true };
+                }
+              }
+            }
+            
+            // File might need processing - add to active files and load with cache
+            if (!activeFiles.includes(blobName)) {
+              stockCache.addActiveProcessingFile(blobName);
+              activeFiles.push(blobName);
+            }
+            
+            // Load with cache for actual processing
             const ohlcData = await this.loadOHLCDataFromAzure(blobName);
             
             // OPTIMIZATION: Filter to only new dates
             const filteredOHLC = this.filterOHLCDataForNewDates(ohlcData, existingDates);
             
             if (filteredOHLC.length === 0) {
+              // No new dates - remove from cache since we don't need it
+              stockCache.removeActiveProcessingFile(blobName);
               return { code, mfiData: [], success: false, error: 'No new dates to process', type: 'stock' as const, skipped: true };
             }
             
@@ -605,6 +649,7 @@ export class MoneyFlowCalculator {
     const allIndexFiles = await this.findAllCsvFiles('index/');
     console.log(`Found ${allIndexFiles.length} index files`);
     
+    // CRITICAL: Don't add active files before processing - add only when file needs processing
     processed = 0;
     for (let i = 0; i < allIndexFiles.length; i += BATCH_SIZE) {
       const batch = allIndexFiles.slice(i, i + BATCH_SIZE);
@@ -629,13 +674,47 @@ export class MoneyFlowCalculator {
           const existingDates = existingDatesByStock.get(key) || new Set<string>();
           
           try {
-            // Load OHLC data
+            // CRITICAL: JANGAN LOAD FILE SAMA SEKALI jika semua dates sudah exist
+            // Cek existing dates DULU sebelum load
+            if (existingDates.size > 0) {
+              // Get the latest existing date
+              const sortedExistingDates = Array.from(existingDates).sort((a, b) => b.localeCompare(a));
+              const latestExistingDate = sortedExistingDates[0];
+              
+              // If we have many existing dates and the latest is recent, assume file doesn't need processing
+              // This is a heuristic - we don't know dates in file without loading
+              // But if we have > 1000 existing dates and latest is within last 7 days, likely all dates exist
+              if (existingDates.size > 1000 && latestExistingDate) {
+                const latestDate = new Date(
+                  parseInt(latestExistingDate.substring(0, 4)),
+                  parseInt(latestExistingDate.substring(4, 6)) - 1,
+                  parseInt(latestExistingDate.substring(6, 8))
+                );
+                const daysSinceLatest = (Date.now() - latestDate.getTime()) / (1000 * 60 * 60 * 24);
+                
+                // If latest date is within last 7 days and we have many dates, likely file is up to date
+                if (daysSinceLatest < 7) {
+                  // Skip file without loading - assume all dates already exist
+                  return { code, mfiData: [], success: false, error: 'All dates likely already exist (skipped without load)', type: 'index' as const, skipped: true };
+                }
+              }
+            }
+            
+            // File might need processing - add to active files and load with cache
+            if (!activeFiles.includes(blobName)) {
+              indexCache.addActiveProcessingFile(blobName);
+              activeFiles.push(blobName);
+            }
+            
+            // Load with cache for actual processing
             const ohlcData = await this.loadOHLCDataFromAzure(blobName);
             
             // OPTIMIZATION: Filter to only new dates
             const filteredOHLC = this.filterOHLCDataForNewDates(ohlcData, existingDates);
             
             if (filteredOHLC.length === 0) {
+              // No new dates - remove from cache since we don't need it
+              indexCache.removeActiveProcessingFile(blobName);
               return { code, mfiData: [], success: false, error: 'No new dates to process', type: 'index' as const, skipped: true };
             }
             
@@ -708,6 +787,9 @@ export class MoneyFlowCalculator {
     }
     
     console.log(`\nProcessed ${moneyFlowData.size} files successfully (${allStockFiles.length} stocks + ${allIndexFiles.length} indices)`);
+    
+    // Return active files untuk cleanup di generateMoneyFlowData
+    // Note: activeFiles sudah di-set di awal fungsi ini
     return moneyFlowData;
   }
 
@@ -728,6 +810,7 @@ export class MoneyFlowCalculator {
       
       // Process ALL files (both stock and index) - type preserved from source folder
       // OPTIMIZED: Only process dates that don't exist in output
+      // Note: processAllFiles akan set active files untuk semua file yang diproses
       const allMoneyFlowData = await this.processAllFiles(indexList, existingDatesByStock, logId);
       
       // Create or update individual CSV files (type from source folder)
@@ -761,6 +844,24 @@ export class MoneyFlowCalculator {
         success: false,
         message: `Failed to generate money flow data: ${error instanceof Error ? error.message : 'Unknown error'}`
       };
+    } finally {
+      // Cleanup: Remove active processing files setelah selesai
+      // Note: processAllFiles sudah set active files, jadi kita perlu cleanup semua
+      // Kita bisa get dari cache service atau cleanup manual
+      // Untuk sekarang, kita cleanup semua active files dari cache
+      const activeStockFiles = stockCache.getActiveProcessingFiles();
+      const activeIndexFiles = indexCache.getActiveProcessingFiles();
+      
+      for (const file of activeStockFiles) {
+        stockCache.removeActiveProcessingFile(file);
+      }
+      for (const file of activeIndexFiles) {
+        indexCache.removeActiveProcessingFile(file);
+      }
+      
+      if (activeStockFiles.length > 0 || activeIndexFiles.length > 0) {
+        console.log(`🧹 Cleaned up ${activeStockFiles.length} stock files and ${activeIndexFiles.length} index files from cache`);
+      }
     }
   }
 }

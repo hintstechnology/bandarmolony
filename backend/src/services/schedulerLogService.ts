@@ -444,4 +444,31 @@ export class SchedulerLogService {
       return false;
     }
   }
+
+  /**
+   * Delete multiple scheduler logs
+   */
+  static async deleteLogs(ids: string[]): Promise<{ success: boolean; deleted: number; failed: number }> {
+    try {
+      if (!ids || ids.length === 0) {
+        return { success: false, deleted: 0, failed: 0 };
+      }
+
+      const { error, count } = await supabaseAdmin
+        .from('scheduler_logs')
+        .delete()
+        .in('id', ids);
+
+      if (error) {
+        console.error('❌ Error deleting scheduler logs:', error);
+        return { success: false, deleted: 0, failed: ids.length };
+      }
+
+      const deletedCount = count || 0;
+      return { success: true, deleted: deletedCount, failed: ids.length - deletedCount };
+    } catch (error) {
+      console.error('❌ Error deleting scheduler logs:', error);
+      return { success: false, deleted: 0, failed: ids.length };
+    }
+  }
 }
