@@ -112,6 +112,13 @@ async function loadStockData(sector: string, ticker: string): Promise<StockData[
   
   // Use shared cache for raw content (will cache automatically if not exists)
   const csvContent = await stockCache.getRawContent(stockPath) || '';
+  return parseStockDataFromCSV(csvContent);
+}
+
+/**
+ * Parse stock data from CSV content
+ */
+function parseStockDataFromCSV(csvContent: string): StockData[] {
   const lines = csvContent.trim().split('\n');
   const headers = parseCsvLine(lines[0] || '');
   
@@ -302,14 +309,8 @@ export async function generateAllStocksSeasonality(): Promise<SeasonalityResults
   
   console.log(`📊 Unique stocks after deduplication: ${uniqueStocks.size} (from ${allStocks.length} total)`);
   
-  // Set active processing files HANYA untuk file yang benar-benar akan diproses
+  // CRITICAL: Don't add active files before processing - add only when file needs processing
   const uniqueStocksArray = Array.from(uniqueStocks.values());
-  for (const stock of uniqueStocksArray) {
-    const stockPath = `stock/${stock.sector}/${stock.ticker}.csv`;
-    stockCache.addActiveProcessingFile(stockPath);
-    activeFiles.push(stockPath);
-  }
-  console.log(`📅 Set ${activeFiles.length} active processing stock files in cache`);
   
   // Process stocks in batches for better performance
   const BATCH_SIZE = BATCH_SIZE_PHASE_2; // Phase 2: 500 stocks at a time
@@ -333,6 +334,14 @@ export async function generateAllStocksSeasonality(): Promise<SeasonalityResults
     // Limit concurrency to 250 for Phase 2
     const batchPromises = batch.map(async (stock) => {
         try {
+          const stockPath = `stock/${stock.sector}/${stock.ticker}.csv`;
+          
+          // CRITICAL: Add active file ONLY when processing starts
+          if (!activeFiles.includes(stockPath)) {
+            stockCache.addActiveProcessingFile(stockPath);
+            activeFiles.push(stockPath);
+          }
+          
           console.log(`Processing ${uniqueStocksArray.indexOf(stock) + 1}/${uniqueStocksArray.length}: ${stock.ticker} (${stock.sector})`);
           return await generateStockSeasonalityData(stock.sector, stock.ticker);
         } catch (error) {
@@ -355,11 +364,6 @@ export async function generateAllStocksSeasonality(): Promise<SeasonalityResults
       const memAfter = process.memoryUsage();
       const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
       console.log(`📊 Batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
-    }
-    
-    // Small delay between batches
-    if (i + BATCH_SIZE < uniqueStocksArray.length) {
-      await new Promise(resolve => setTimeout(resolve, 100));
     }
     
     // Small delay between batches

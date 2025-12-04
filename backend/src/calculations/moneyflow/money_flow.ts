@@ -39,6 +39,27 @@ export class MoneyFlowCalculator {
   }
 
   /**
+   * Load OHLC data from Azure Blob Storage WITHOUT cache (for pre-check)
+   */
+  private async loadOHLCDataFromAzureWithoutCache(filename: string): Promise<OHLCData[]> {
+    console.log(`Loading OHLC data from Azure (without cache): ${filename}`);
+    
+    try {
+      // Load directly from Azure without cache
+      const content = await downloadText(filename);
+      
+      if (!content) {
+        return [];
+      }
+      
+      return this.parseOHLCData(content);
+    } catch (error) {
+      console.error(`Error loading OHLC data from Azure: ${filename}`, error);
+      return [];
+    }
+  }
+
+  /**
    * Load OHLC data from Azure Blob Storage
    */
   private async loadOHLCDataFromAzure(filename: string): Promise<OHLCData[]> {
@@ -59,7 +80,18 @@ export class MoneyFlowCalculator {
       if (!content) {
         return [];
       }
-    
+      
+      return this.parseOHLCData(content);
+    } catch (error) {
+      console.error(`Error loading OHLC data from Azure: ${filename}`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Parse OHLC data from CSV content
+   */
+  private parseOHLCData(content: string): OHLCData[] {
     const lines = content.trim().split('\n');
     const data: OHLCData[] = [];
     
@@ -93,12 +125,8 @@ export class MoneyFlowCalculator {
       const dateB = b.Date || '';
       return dateA.localeCompare(dateB);
     });
-    console.log(`Loaded ${data.length} OHLC records from ${filename}`);
+    
     return data;
-    } catch (error) {
-      console.error(`Error loading OHLC data from ${filename}:`, error);
-      return [];
-    }
   }
 
   /**
@@ -489,13 +517,8 @@ export class MoneyFlowCalculator {
     const allStockFiles = await this.findAllCsvFiles('stock/');
     console.log(`Found ${allStockFiles.length} stock files`);
     
-    // Set active processing files HANYA untuk file yang benar-benar akan diproses
+    // CRITICAL: Don't add active files before processing - add only when file needs processing
     const activeFiles: string[] = [];
-    for (const file of allStockFiles) {
-      stockCache.addActiveProcessingFile(file);
-      activeFiles.push(file);
-    }
-    console.log(`📅 Set ${activeFiles.length} active processing stock files in cache`);
     
     let processed = 0;
     for (let i = 0; i < allStockFiles.length; i += BATCH_SIZE) {
@@ -530,20 +553,30 @@ export class MoneyFlowCalculator {
           const existingDates = existingDatesByStock.get(key) || new Set<string>();
           
           try {
-            // Load OHLC data
-            const ohlcData = await this.loadOHLCDataFromAzure(blobName);
+            // CRITICAL: Load file WITHOUT cache first to check if it needs processing
+            const ohlcData = await this.loadOHLCDataFromAzureWithoutCache(blobName);
             
             // OPTIMIZATION: Filter to only new dates
             const filteredOHLC = this.filterOHLCDataForNewDates(ohlcData, existingDates);
             
             if (filteredOHLC.length === 0) {
+              // No new dates - skip file entirely, don't add to cache
               return { code, mfiData: [], success: false, error: 'No new dates to process', type: 'stock' as const, skipped: true };
             }
+            
+            // File needs processing - add to active files and reload with cache
+            if (!activeFiles.includes(blobName)) {
+              stockCache.addActiveProcessingFile(blobName);
+              activeFiles.push(blobName);
+            }
+            
+            // Reload with cache for actual processing
+            const cachedOHLCData = await this.loadOHLCDataFromAzure(blobName);
             
             // Calculate MFI only for new dates (but need full OHLC for proper calculation)
             // We need to calculate from the beginning to get proper MFI values
             // So we'll filter AFTER calculation
-            const allMfiData = this.calculateMFI(ohlcData);
+            const allMfiData = this.calculateMFI(cachedOHLCData);
             
             // Filter MFI data to only include new dates
             const newMfiData = allMfiData.filter(item => !existingDates.has(item.Date));
@@ -613,13 +646,7 @@ export class MoneyFlowCalculator {
     const allIndexFiles = await this.findAllCsvFiles('index/');
     console.log(`Found ${allIndexFiles.length} index files`);
     
-    // Set active processing files HANYA untuk file yang benar-benar akan diproses
-    for (const file of allIndexFiles) {
-      indexCache.addActiveProcessingFile(file);
-      activeFiles.push(file);
-    }
-    console.log(`📅 Set ${allIndexFiles.length} active processing index files in cache (total: ${activeFiles.length})`);
-    
+    // CRITICAL: Don't add active files before processing - add only when file needs processing
     processed = 0;
     for (let i = 0; i < allIndexFiles.length; i += BATCH_SIZE) {
       const batch = allIndexFiles.slice(i, i + BATCH_SIZE);
@@ -644,20 +671,30 @@ export class MoneyFlowCalculator {
           const existingDates = existingDatesByStock.get(key) || new Set<string>();
           
           try {
-            // Load OHLC data
-            const ohlcData = await this.loadOHLCDataFromAzure(blobName);
+            // CRITICAL: Load file WITHOUT cache first to check if it needs processing
+            const ohlcData = await this.loadOHLCDataFromAzureWithoutCache(blobName);
             
             // OPTIMIZATION: Filter to only new dates
             const filteredOHLC = this.filterOHLCDataForNewDates(ohlcData, existingDates);
             
             if (filteredOHLC.length === 0) {
+              // No new dates - skip file entirely, don't add to cache
               return { code, mfiData: [], success: false, error: 'No new dates to process', type: 'index' as const, skipped: true };
             }
+            
+            // File needs processing - add to active files and reload with cache
+            if (!activeFiles.includes(blobName)) {
+              indexCache.addActiveProcessingFile(blobName);
+              activeFiles.push(blobName);
+            }
+            
+            // Reload with cache for actual processing
+            const cachedOHLCData = await this.loadOHLCDataFromAzure(blobName);
             
             // Calculate MFI only for new dates (but need full OHLC for proper calculation)
             // We need to calculate from the beginning to get proper MFI values
             // So we'll filter AFTER calculation
-            const allMfiData = this.calculateMFI(ohlcData);
+            const allMfiData = this.calculateMFI(cachedOHLCData);
             
             // Filter MFI data to only include new dates
             const newMfiData = allMfiData.filter(item => !existingDates.has(item.Date));
