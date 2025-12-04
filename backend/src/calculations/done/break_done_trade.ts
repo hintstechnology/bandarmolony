@@ -1,4 +1,4 @@
-import { uploadText, listPaths } from '../../utils/azureBlob';
+import { uploadText, listPaths, downloadText } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_3, MAX_CONCURRENT_REQUESTS_PHASE_3 } from '../../services/dataUpdateService';
 import { SchedulerLogService } from '../../services/schedulerLogService';
 import { doneSummaryCache } from '../../cache/doneSummaryCacheService';
@@ -421,10 +421,11 @@ export class BreakDoneTradeCalculator {
 
   /**
    * Pre-count total unique stocks from all DT files that need processing
+   * CRITICAL: Loads files DIRECTLY from Azure WITHOUT cache to avoid caching files during pre-count
    * This is used for accurate progress tracking
    */
   private async preCountTotalStocks(dtFiles: string[]): Promise<number> {
-    console.log(`🔍 Pre-counting total stocks from ${dtFiles.length} DT files...`);
+    console.log(`🔍 Pre-counting total stocks from ${dtFiles.length} DT files (loading WITHOUT cache)...`);
     const allStocks = new Set<string>();
     let processedFiles = 0;
     
@@ -434,12 +435,18 @@ export class BreakDoneTradeCalculator {
       const batch = dtFiles.slice(i, i + PRE_COUNT_BATCH_SIZE);
       const batchPromises = batch.map(async (blobName) => {
         try {
-          const result = await this.loadAndProcessSingleDtFile(blobName);
-          if (result && result.data.length > 0) {
-            const validTransactions = result.data.filter(t => 
+          // CRITICAL: Load file DIRECTLY from Azure WITHOUT cache for pre-count
+          const content = await downloadText(blobName);
+          if (!content || content.trim().length === 0) {
+            return;
+          }
+          
+          const data = this.parseDoneTradeData(content);
+          if (data.length > 0) {
+            const validTransactions = data.filter((t: DoneTradeData) => 
               t.STK_CODE && t.STK_CODE.length === 4
             );
-            validTransactions.forEach(t => allStocks.add(t.STK_CODE));
+            validTransactions.forEach((t: DoneTradeData) => allStocks.add(t.STK_CODE));
           }
         } catch (error) {
           // Skip files that can't be read during pre-count
@@ -484,7 +491,11 @@ export class BreakDoneTradeCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files (already filtered - only files without output)...`);
       
-      // Set active processing dates HANYA untuk tanggal yang benar-benar akan diproses
+      // CRITICAL: Pre-count FIRST before setting active dates to avoid caching during pre-count
+      // Pre-count loads files WITHOUT cache
+      const totalStocks = await this.preCountTotalStocks(dtFiles);
+      
+      // Set active processing dates HANYA setelah pre-count selesai
       dtFiles.forEach(file => {
         const dateMatch = file.match(/done-summary\/(\d{8})\//);
         if (dateMatch && dateMatch[1]) {
@@ -492,16 +503,12 @@ export class BreakDoneTradeCalculator {
         }
       });
       
-      // Set active dates di cache HANYA untuk tanggal yang benar-benar akan diproses
+      // Set active dates di cache SETELAH pre-count selesai
       datesToProcess.forEach(date => {
         doneSummaryCache.addActiveProcessingDate(date);
       });
       console.log(`📅 Set ${datesToProcess.size} active processing dates in cache: ${Array.from(datesToProcess).slice(0, 10).join(', ')}${datesToProcess.size > 10 ? '...' : ''}`);
       this.logMemoryUsage('Start processing');
-      
-      // Pre-count total stocks for accurate progress tracking
-      // OPTIMIZED: dtFiles sudah di-filter, jadi pre-count hanya untuk file yang benar-benar perlu diproses
-      const totalStocks = await this.preCountTotalStocks(dtFiles);
       
       // Create progress tracker for thread-safe stock counting
       const progressTracker: ProgressTracker = {

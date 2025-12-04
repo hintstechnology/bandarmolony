@@ -1,4 +1,4 @@
-import { uploadText, listPaths, exists } from '../../utils/azureBlob';
+import { uploadText, listPaths, exists, downloadText } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_4, MAX_CONCURRENT_REQUESTS_PHASE_4 } from '../../services/dataUpdateService';
 import { SchedulerLogService } from '../../services/schedulerLogService';
 import { doneSummaryCache } from '../../cache/doneSummaryCacheService';
@@ -359,10 +359,11 @@ export class BrokerDataRGTNNGCalculator {
 
   /**
    * Pre-count total unique brokers from all DT files that need processing
+   * CRITICAL: Loads files DIRECTLY from Azure WITHOUT cache to avoid caching files during pre-count
    * This is used for accurate progress tracking
    */
   private async preCountTotalBrokers(dtFiles: string[]): Promise<number> {
-    console.log(`🔍 Pre-counting total brokers from ${dtFiles.length} DT files...`);
+    console.log(`🔍 Pre-counting total brokers from ${dtFiles.length} DT files (loading WITHOUT cache)...`);
     const allBrokers = new Set<string>();
     let processedFiles = 0;
     
@@ -372,10 +373,16 @@ export class BrokerDataRGTNNGCalculator {
       const batch = dtFiles.slice(i, i + PRE_COUNT_BATCH_SIZE);
       const batchPromises = batch.map(async (blobName) => {
         try {
-          const result = await this.loadAndProcessSingleDtFile(blobName);
-          if (result && result.data.length > 0) {
+          // CRITICAL: Load file DIRECTLY from Azure WITHOUT cache for pre-count
+          const content = await downloadText(blobName);
+          if (!content || content.trim().length === 0) {
+            return;
+          }
+          
+          const data = this.parseTransactionData(content);
+          if (data.length > 0) {
             // Count brokers across all types (RG, TN, NG)
-            result.data.forEach(t => {
+            data.forEach(t => {
               if (t.BRK_COD1) allBrokers.add(t.BRK_COD1);
               if (t.BRK_COD2) allBrokers.add(t.BRK_COD2);
             });

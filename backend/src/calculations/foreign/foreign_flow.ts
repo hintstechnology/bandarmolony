@@ -89,25 +89,88 @@ export class ForeignFlowCalculator {
   }
 
   /**
+   * Pre-check file to see if it needs processing (loads file WITHOUT cache)
+   * Returns true if file needs processing, false if all dates already exist
+   */
+  private async preCheckFileNeedsProcessing(blobName: string, existingDatesByStock: Map<string, Set<string>>): Promise<boolean> {
+    try {
+      // Load file DIRECTLY from Azure WITHOUT using cache service
+      const content = await downloadText(blobName);
+      
+      if (!content || content.trim().length === 0) {
+        return false;
+      }
+      
+      const lines = content.trim().split('\n');
+      if (lines.length < 2) return false;
+      
+      // Parse header
+      const header = lines[0]?.split(';') || [];
+      const stkCodeIndex = header.findIndex(col => col.trim() === 'STK_CODE');
+      const trxDateIndex = header.findIndex(col => col.trim() === 'TRX_DATE');
+      
+      if (stkCodeIndex === -1 || trxDateIndex === -1) {
+        return true; // If we can't parse, assume needs processing
+      }
+      
+      // Check first 1000 lines to see if any stock+date combination needs processing
+      // This is a quick check without loading entire file
+      const checkLimit = Math.min(1000, lines.length - 1);
+      for (let i = 1; i <= checkLimit; i++) {
+        const line = lines[i];
+        if (!line || line.trim().length === 0) continue;
+        
+        const values = line.split(';');
+        if (values.length < header.length) continue;
+        
+        const stockCode = values[stkCodeIndex]?.trim() || '';
+        const trxDate = values[trxDateIndex]?.trim() || '';
+        
+        // Only check 4-character stocks
+        if (stockCode.length === 4 && trxDate) {
+          const existingDates = existingDatesByStock.get(stockCode);
+          if (!existingDates || !existingDates.has(trxDate)) {
+            // Found at least one transaction that needs processing
+            return true;
+          }
+        }
+      }
+      
+      // If we checked all lines in the sample and all exist, check if file is small
+      // If file is larger than sample, we need to process it to be safe
+      if (lines.length - 1 > checkLimit) {
+        // File is larger than sample, need to process to check all
+        return true;
+      }
+      
+      // All checked transactions already exist
+      return false;
+    } catch (error) {
+      // If error, assume needs processing
+      return true;
+    }
+  }
+
+  /**
    * Load and process a single DT file
    * OPTIMIZED: Uses shared cache to avoid repeated downloads
+   * CRITICAL: Only loads file if it needs processing (after pre-check)
    */
   private async loadAndProcessSingleDtFile(blobName: string): Promise<{ data: TransactionData[], dateSuffix: string } | null> {
     try {
-      console.log(`Loading DT file: ${blobName}`);
+      // Extract date from blob name (done-summary/20251021/DT251021.csv)
+      const pathParts = blobName.split('/');
+      const dateFolder = pathParts[1] || 'unknown'; // 20251021
+      const dateSuffix = dateFolder; // Use full date as suffix
       
       // Use shared cache for raw content (will cache automatically if not exists)
+      // CRITICAL: Only call this if file needs processing (after pre-check)
       const content = await doneSummaryCache.getRawContent(blobName);
       
       if (!content || content.trim().length === 0) {
         console.log(`⚠️ Empty file: ${blobName}`);
         return null;
       }
-      
-      // Extract date from blob name (done-summary/20251021/DT251021.csv)
-      const pathParts = blobName.split('/');
-      const dateFolder = pathParts[1] || 'unknown'; // 20251021
-      const dateSuffix = dateFolder; // Use full date as suffix
       
       const data = this.parseTransactionData(content);
       console.log(`✅ Loaded ${data.length} transactions from ${blobName}`);
@@ -465,9 +528,9 @@ export class ForeignFlowCalculator {
 
   /**
    * Process a single DT file with all foreign flow analysis
-   * OPTIMIZED: Only process dates that don't exist in output
-   * CRITICAL: Untuk foreign_flow, outputnya per-stock, jadi kita perlu load file untuk check
-   * Tapi kita tidak akan cache file yang tidak perlu diproses
+   * OPTIMIZED: Pre-check file before loading to skip files that don't need processing
+   * CRITICAL: Pre-check loads file WITHOUT cache to determine if processing is needed
+   * Only loads file with cache if it actually needs processing
    */
   private async processSingleDtFile(blobName: string, existingDatesByStock: Map<string, Set<string>>, progressTracker?: ProgressTracker): Promise<{ success: boolean; dateSuffix: string; files: string[] }> {
     // Extract date from blob name first
@@ -475,12 +538,17 @@ export class ForeignFlowCalculator {
     const dateFolder = pathParts[1] || 'unknown';
     const dateSuffix = dateFolder;
     
-    // CRITICAL: Untuk foreign_flow, outputnya per-stock, jadi kita tidak bisa skip loading
-    // tanpa tahu stock apa saja yang ada di file. Tapi kita bisa optimize dengan:
-    // 1. Load file (tidak bisa dihindari untuk foreign_flow)
-    // 2. Filter transactions untuk dates yang sudah exist
-    // 3. Jika tidak ada transactions yang perlu diproses, skip dan jangan cache
+    // CRITICAL: Pre-check file BEFORE loading to see if it needs processing
+    // This loads file WITHOUT cache to avoid caching files that don't need processing
+    const needsProcessing = await this.preCheckFileNeedsProcessing(blobName, existingDatesByStock);
     
+    if (!needsProcessing) {
+      console.log(`⏭️  Skipping ${blobName} - all dates already exist in output (pre-check passed, file NOT loaded)`);
+      return { success: false, dateSuffix, files: [] };
+    }
+    
+    // File needs processing, now load it WITH cache
+    console.log(`Loading DT file: ${blobName}`);
     const result = await this.loadAndProcessSingleDtFile(blobName);
     
     if (!result) {
@@ -501,9 +569,9 @@ export class ForeignFlowCalculator {
     });
     
     if (filteredData.length === 0) {
-      console.log(`⏭️  Skipping ${blobName} - all dates already exist in output (file was loaded for check but not cached)`);
-      // CRITICAL: Jangan set active processing date jika file tidak perlu diproses
-      // File sudah di-load untuk check, tapi tidak akan di-cache karena tidak perlu
+      console.log(`⏭️  Skipping ${blobName} - all dates already exist in output (after detailed check)`);
+      // Remove from cache since we don't need it
+      doneSummaryCache.clearDate(dateSuffix);
       return { success: false, dateSuffix, files: [] };
     }
     
@@ -523,6 +591,7 @@ export class ForeignFlowCalculator {
       
       if (foreignFlowData.size === 0) {
         console.log(`⏭️  Skipping ${blobName} - no new dates to process`);
+        doneSummaryCache.removeActiveProcessingDate(dateSuffix);
         return { success: false, dateSuffix, files: [] };
       }
       
@@ -534,6 +603,7 @@ export class ForeignFlowCalculator {
       
     } catch (error) {
       console.error(`Error processing ${blobName}:`, error);
+      doneSummaryCache.removeActiveProcessingDate(dateSuffix);
       return { success: false, dateSuffix, files: [] };
     }
   }
