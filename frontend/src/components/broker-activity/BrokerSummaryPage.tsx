@@ -668,31 +668,86 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
               return { ticker, date, data: [] };
                 }
                 
-            // Check if this is a sector or IDX (sectors and IDX need NetBuy/NetSell swap)
-            const isSector = selectedTickers.some(t => 
-              (t.startsWith('[SECTOR] ') && t.replace('[SECTOR] ', '') === ticker) || 
-              ticker === 'IDX'
-            );
+            // Check if this is a sector or IDX
+            const isSector = selectedTickers.some(t => t.startsWith('[SECTOR] ') && t.replace('[SECTOR] ', '') === ticker);
+            const isIDX = ticker === 'IDX';
             
             const rows: BrokerSummaryData[] = (res.data.brokerData ?? []).map((r: any) => {
             // Backend already calculates NetSellVol, NetSellValue, NetBuyerAvg, NetSellerAvg
             // Backend also handles the logic: if NetBuy is negative, it becomes NetSell and NetBuy = 0
-            // IMPORTANT: For sectors, NetBuy/NetSell need to be swapped because CSV has swap
-              const rawNetBuyVol = Number(r.NetBuyVol ?? 0);
-              const rawNetBuyValue = Number(r.NetBuyValue ?? 0);
-              const rawNetSellVol = Number(r.NetSellVol ?? 0);
-              const rawNetSellValue = Number(r.NetSellValue ?? 0);
-              const rawNetBuyerAvg = Number(r.NetBuyerAvg ?? 0);
-              const rawNetSellerAvg = Number(r.NetSellerAvg ?? 0);
+            // IMPORTANT: 
+            // - For IDX: Calculate NetBuy/NetSell directly from BuyerVol - SellerVol in frontend (more precise)
+            // - For sectors: NetBuy/NetSell need to be swapped because CSV has swap
+            // - For regular stocks: use as is from CSV
               
-              // For sectors: swap NetBuy and NetSell (because CSV has swap)
-              // For regular stocks: use as is
-              const netBuyVol = isSector ? rawNetSellVol : rawNetBuyVol;
-              const netBuyValue = isSector ? rawNetSellValue : rawNetBuyValue;
-              const netSellVol = isSector ? rawNetBuyVol : rawNetSellVol;
-              const netSellValue = isSector ? rawNetBuyValue : rawNetSellValue;
-              const netBuyerAvg = isSector ? rawNetSellerAvg : rawNetBuyerAvg;
-              const netSellerAvg = isSector ? rawNetBuyerAvg : rawNetSellerAvg;
+              // Get base values from CSV
+              const buyerVol = Number(r.BuyerVol ?? 0);
+              const buyerValue = Number(r.BuyerValue ?? 0);
+              const sellerVol = Number(r.SellerVol ?? 0);
+              const sellerValue = Number(r.SellerValue ?? 0);
+              
+              let netBuyVol = 0;
+              let netBuyValue = 0;
+              let netSellVol = 0;
+              let netSellValue = 0;
+              let netBuyerAvg = 0;
+              let netSellerAvg = 0;
+              
+              if (isIDX) {
+                // IDX: Calculate NetBuy/NetSell directly from BuyerVol - SellerVol (more precise)
+                // IMPORTANT: In CSV there's a SWAP:
+                // - BuyerVol (CSV) = data from BRK_COD1 (actual seller)
+                // - SellerVol (CSV) = data from BRK_COD2 (actual buyer)
+                // So to calculate NetBuy correctly, we need to swap back:
+                // NetBuy = actual buyer - actual seller = SellerVol (CSV) - BuyerVol (CSV)
+                const actualBuyerVol = sellerVol;  // SellerVol (CSV) = actual buyer (BRK_COD2)
+                const actualBuyerValue = sellerValue;
+                const actualSellerVol = buyerVol;   // BuyerVol (CSV) = actual seller (BRK_COD1)
+                const actualSellerValue = buyerValue;
+                
+                // NetBuy = actual buyer - actual seller
+                const rawNetBuyVol = actualBuyerVol - actualSellerVol;
+                const rawNetBuyValue = actualBuyerValue - actualSellerValue;
+                
+                if (rawNetBuyVol < 0 || rawNetBuyValue < 0) {
+                  // NetBuy is negative, so it becomes NetSell
+                  netSellVol = Math.abs(rawNetBuyVol);
+                  netSellValue = Math.abs(rawNetBuyValue);
+                  netBuyVol = 0;
+                  netBuyValue = 0;
+                } else {
+                  // NetBuy is positive or zero, keep it and NetSell is 0
+                  netBuyVol = rawNetBuyVol;
+                  netBuyValue = rawNetBuyValue;
+                  netSellVol = 0;
+                  netSellValue = 0;
+                }
+                
+                // Calculate averages in frontend for IDX
+                netBuyerAvg = netBuyVol > 0 ? netBuyValue / netBuyVol : 0;
+                netSellerAvg = netSellVol > 0 ? netSellValue / netSellVol : 0;
+              } else if (isSector) {
+                // For sectors: swap NetBuy and NetSell (because CSV has swap)
+                const rawNetBuyVol = Number(r.NetBuyVol ?? 0);
+                const rawNetBuyValue = Number(r.NetBuyValue ?? 0);
+                const rawNetSellVol = Number(r.NetSellVol ?? 0);
+                const rawNetSellValue = Number(r.NetSellValue ?? 0);
+                
+                netBuyVol = rawNetSellVol;
+                netBuyValue = rawNetSellValue;
+                netSellVol = rawNetBuyVol;
+                netSellValue = rawNetBuyValue;
+                netBuyerAvg = Number(r.NetSellerAvg ?? 0);
+                netSellerAvg = Number(r.NetBuyerAvg ?? 0);
+              } else {
+                // For regular stocks: use as is from CSV
+                netBuyVol = Number(r.NetBuyVol ?? 0);
+                netBuyValue = Number(r.NetBuyValue ?? 0);
+                netSellVol = Number(r.NetSellVol ?? 0);
+                netSellValue = Number(r.NetSellValue ?? 0);
+                netBuyerAvg = Number(r.NetBuyerAvg ?? 0);
+                netSellerAvg = Number(r.NetSellerAvg ?? 0);
+              }
               
               return {
                     broker: r.BrokerCode ?? r.broker ?? r.BROKER ?? r.code ?? '',
