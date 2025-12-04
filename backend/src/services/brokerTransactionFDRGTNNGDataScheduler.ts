@@ -17,8 +17,8 @@ export class BrokerTransactionFDRGTNNGDataScheduler {
     if (!finalLogId) {
       const logEntry = await SchedulerLogService.createLog({
         feature_name: 'broker_transaction_fd_rgtnng',
-        trigger_type: triggeredBy ? 'manual' : 'scheduled',
-        triggered_by: triggeredBy || 'system',
+        trigger_type: triggeredBy && !triggeredBy.startsWith('Phase') && !triggeredBy.startsWith('phase') ? 'manual' : 'scheduled',
+        triggered_by: triggeredBy || 'Phase 5 Broktrans Broker',
         status: 'running',
         environment: process.env['NODE_ENV'] || 'development'
       });
@@ -48,7 +48,7 @@ export class BrokerTransactionFDRGTNNGDataScheduler {
       const result = await this.calculator.generateBrokerTransactionData(targetDate, finalLogId);
       
       // Check if this is called from a Phase (don't mark completed/failed if so, Phase will handle it)
-      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      const isFromPhase = triggeredBy && (triggeredBy.startsWith('Phase') || triggeredBy.startsWith('phase'));
       
       if (result.success) {
         console.log('✅ Broker Transaction F/D RG/TN/NG calculation completed successfully');
@@ -71,7 +71,7 @@ export class BrokerTransactionFDRGTNNGDataScheduler {
       console.error('❌ Error during Broker Transaction F/D RG/TN/NG calculation:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       // Check if this is called from a Phase (don't mark failed if so, Phase will handle it)
-      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      const isFromPhase = triggeredBy && (triggeredBy.startsWith('Phase') || triggeredBy.startsWith('phase'));
       if (finalLogId && !isFromPhase) {
         await SchedulerLogService.markFailed(finalLogId, errorMessage, error);
       }

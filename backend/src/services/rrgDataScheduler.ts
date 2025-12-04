@@ -41,7 +41,7 @@ async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: numbe
 }
 
 // Main RRG auto-generation function
-export async function preGenerateAllRRG(forceOverride: boolean = false, triggerType: 'startup' | 'scheduled' | 'manual' | 'debug' = 'startup', logId?: string | null): Promise<void> {
+export async function preGenerateAllRRG(forceOverride: boolean = false, triggerType: 'startup' | 'scheduled' | 'manual' | 'debug' = 'startup', logId?: string | null, triggeredBy?: string): Promise<void> {
   if (isGenerating) {
     console.warn('⚠️ RRG generation already in progress, skipping');
     return;
@@ -55,8 +55,8 @@ export async function preGenerateAllRRG(forceOverride: boolean = false, triggerT
   if (!finalLogId) {
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'rrg',
-      trigger_type: triggerType,
-      triggered_by: triggerType === 'manual' ? 'user' : 'system',
+      trigger_type: triggeredBy && !triggeredBy.startsWith('Phase') && !triggeredBy.startsWith('phase') ? 'manual' : 'scheduled',
+      triggered_by: triggeredBy || (triggerType === 'manual' ? 'user' : 'Phase 2 Market Rotation'),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
