@@ -38,14 +38,49 @@ import { BrokerTransactionSectorDataScheduler } from '../services/brokerTransact
 import { BrokerTransactionStockSectorDataScheduler } from '../services/brokerTransactionStockSectorDataScheduler';
 import { BrokerDataRGTNNGCalculator } from '../calculations/broker/broker_data_rg_tn_ng';
 import { updateWatchlistSnapshot } from '../services/watchlistSnapshotService';
+import { supabaseAdmin } from '../supabaseClient';
 
 const router = express.Router();
 
-// Helper: get who triggered the manual action (prefer email, fallback to id/admin)
+// Middleware to optionally populate req.user if token exists (doesn't block if no token)
+async function optionalAuth(req: express.Request, _res: express.Response, next: express.NextFunction) {
+  const anyReq = req as any;
+  
+  // If req.user already exists (from requireSupabaseUser), skip
+  if (anyReq.user) {
+    return next();
+  }
+  
+  // Try to get user from token
+  const auth = req.headers.authorization || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+  
+  if (token) {
+    try {
+      const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+      if (!error && user) {
+        anyReq.user = {
+          id: user.id,
+          email: user.email,
+          role: user.role || 'user'
+        };
+      }
+    } catch (error) {
+      // Ignore error, continue without user
+    }
+  }
+  
+  next();
+}
+
+// Helper: get who triggered the manual action (prefer email, fallback to id)
 function getTriggeredBy(req: express.Request): string {
   const anyReq = req as any;
   return anyReq.user?.email || anyReq.user?.id || 'admin';
 }
+
+// Apply optional auth middleware to all routes
+router.use(optionalAuth);
 
 // Manual trigger for stock data update
 router.post('/stock', async (req, res) => {
@@ -53,10 +88,11 @@ router.post('/stock', async (req, res) => {
     console.log('🔄 Manual trigger: Stock data update');
     
     // Create log entry
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'stock',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -69,7 +105,7 @@ router.post('/stock', async (req, res) => {
     }
 
     // Run update in background
-    updateStockData(logEntry.id || null).catch(async (error) => {
+    updateStockData(logEntry.id || null, triggeredBy).catch(async (error) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
@@ -98,10 +134,11 @@ router.post('/index', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Index data update');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'index',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -113,7 +150,7 @@ router.post('/index', async (req, res) => {
       });
     }
 
-    updateIndexData(logEntry.id || null).catch(async (error) => {
+    updateIndexData(logEntry.id || null, triggeredBy).catch(async (error) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
@@ -142,10 +179,11 @@ router.post('/shareholders', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Shareholders data update');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'shareholders',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -157,7 +195,7 @@ router.post('/shareholders', async (req, res) => {
       });
     }
 
-    updateShareholdersData(logEntry.id || null).catch(async (error) => {
+    updateShareholdersData(logEntry.id || null, triggeredBy).catch(async (error) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
@@ -186,10 +224,11 @@ router.post('/holding', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Holding data update');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'holding',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -201,7 +240,7 @@ router.post('/holding', async (req, res) => {
       });
     }
 
-    updateHoldingData(logEntry.id || null).catch(async (error) => {
+    updateHoldingData(logEntry.id || null, triggeredBy).catch(async (error) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
@@ -230,10 +269,11 @@ router.post('/done-summary', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Done summary data update');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'done-summary',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -245,7 +285,7 @@ router.post('/done-summary', async (req, res) => {
       });
     }
 
-    updateDoneSummaryData(logEntry.id || null).catch(async (error) => {
+    updateDoneSummaryData(logEntry.id || null, triggeredBy).catch(async (error) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
@@ -277,11 +317,12 @@ router.post('/accumulation', async (req, res) => {
     const today = new Date();
     const dateSuffix = today.toISOString().slice(2, 10).replace(/-/g, '');
     
+    const triggeredBy = getTriggeredBy(req);
     // Create log entry
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'accumulation_distribution',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -295,7 +336,7 @@ router.post('/accumulation', async (req, res) => {
 
     // Run calculation in background
     const accumulationService = new AccumulationDataScheduler();
-    accumulationService.generateAccumulationData(dateSuffix, logEntry.id, getTriggeredBy(req)).then(async (result) => {
+    accumulationService.generateAccumulationData(dateSuffix, logEntry.id, triggeredBy).then(async (result) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: result.success ? 'completed' : 'failed',
@@ -334,11 +375,12 @@ router.post('/bidask', async (req, res) => {
     const today = new Date();
     const dateSuffix = today.toISOString().slice(2, 10).replace(/-/g, '');
     
+    const triggeredBy = getTriggeredBy(req);
     // Create log entry
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'bidask_footprint',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -352,7 +394,7 @@ router.post('/bidask', async (req, res) => {
 
     // Run calculation in background
     const bidAskService = new BidAskDataScheduler();
-    bidAskService.generateBidAskData(dateSuffix, logEntry.id, getTriggeredBy(req)).then(async (result) => {
+    bidAskService.generateBidAskData(dateSuffix, logEntry.id, triggeredBy).then(async (result) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: result.success ? 'completed' : 'failed',
@@ -388,10 +430,11 @@ router.post('/broker-breakdown', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Breakdown calculation');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_breakdown',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -407,7 +450,7 @@ router.post('/broker-breakdown', async (req, res) => {
     
     // Execute in background and return immediately
     // Pass logId to enable progress tracking
-    brokerBreakdownService.generateBrokerBreakdownData('all', logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
+    brokerBreakdownService.generateBrokerBreakdownData('all', logEntry.id || null, triggeredBy).then(async (result) => {
       console.log(`✅ Broker Breakdown calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -445,10 +488,11 @@ router.post('/broker-summary', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Summary calculation');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker-summary',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -462,7 +506,7 @@ router.post('/broker-summary', async (req, res) => {
 
     // Run calculation in background
     const brokerSummaryService = new BrokerSummaryDataScheduler();
-    brokerSummaryService.generateBrokerSummaryData('all', logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
+    brokerSummaryService.generateBrokerSummaryData('all', logEntry.id || null, triggeredBy).then(async (result) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: result.success ? 'completed' : 'failed',
@@ -498,10 +542,11 @@ router.post('/top-broker', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Top Broker calculation');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'top-broker',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -515,7 +560,7 @@ router.post('/top-broker', async (req, res) => {
 
     // Run calculation in background
     const topBrokerService = new TopBrokerDataScheduler();
-    topBrokerService.generateTopBrokerData('all', logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
+    topBrokerService.generateTopBrokerData('all', logEntry.id || null, triggeredBy).then(async (result) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: result.success ? 'completed' : 'failed',
@@ -554,11 +599,12 @@ router.post('/broker-inventory', async (req, res) => {
     const today = new Date();
     const dateSuffix = today.toISOString().slice(2, 10).replace(/-/g, '');
     
+    const triggeredBy = getTriggeredBy(req);
     // Create log entry
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_inventory',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -572,7 +618,7 @@ router.post('/broker-inventory', async (req, res) => {
 
     // Run calculation in background
     const brokerInventoryService = new BrokerInventoryDataScheduler();
-    brokerInventoryService.generateBrokerInventoryData(dateSuffix, logEntry.id, getTriggeredBy(req)).then(async (result) => {
+    brokerInventoryService.generateBrokerInventoryData(dateSuffix, logEntry.id, triggeredBy).then(async (result) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: result.success ? 'completed' : 'failed',
@@ -640,10 +686,11 @@ router.post('/broker-summary-type', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Summary by Type (RG/TN/NG) calculation');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_summary_type',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -658,7 +705,7 @@ router.post('/broker-summary-type', async (req, res) => {
     const brokerSummaryTypeService = new BrokerSummaryTypeDataScheduler();
     
     // Execute in background and return immediately
-    brokerSummaryTypeService.generateBrokerSummaryTypeData('all', logEntry.id, getTriggeredBy(req)).then(async (result) => {
+    brokerSummaryTypeService.generateBrokerSummaryTypeData('all', logEntry.id, triggeredBy).then(async (result) => {
       console.log(`✅ Broker Summary Type calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -698,11 +745,12 @@ router.post('/foreign-flow', async (req, res) => {
     const today = new Date();
     const dateSuffix = today.toISOString().slice(2, 10).replace(/-/g, '');
     
+    const triggeredBy = getTriggeredBy(req);
     // Create log entry
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'foreign_flow',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -716,7 +764,7 @@ router.post('/foreign-flow', async (req, res) => {
 
     // Run calculation in background
     const foreignFlowService = new ForeignFlowDataScheduler();
-    foreignFlowService.generateForeignFlowData(dateSuffix, logEntry.id, getTriggeredBy(req)).then(async (result) => {
+    foreignFlowService.generateForeignFlowData(dateSuffix, logEntry.id, triggeredBy).then(async (result) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: result.success ? 'completed' : 'failed',
@@ -755,11 +803,12 @@ router.post('/money-flow', async (req, res) => {
     const today = new Date();
     const dateSuffix = today.toISOString().slice(2, 10).replace(/-/g, '');
     
+    const triggeredBy = getTriggeredBy(req);
     // Create log entry
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'money_flow',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -773,7 +822,7 @@ router.post('/money-flow', async (req, res) => {
 
     // Run calculation in background
     const moneyFlowService = new MoneyFlowDataScheduler();
-    moneyFlowService.generateMoneyFlowData(dateSuffix, logEntry.id, getTriggeredBy(req)).then(async (result) => {
+    moneyFlowService.generateMoneyFlowData(dateSuffix, logEntry.id, triggeredBy).then(async (result) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: result.success ? 'completed' : 'failed',
@@ -994,10 +1043,11 @@ router.post('/rrc', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: RRC calculation');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'rrc',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1009,7 +1059,7 @@ router.post('/rrc', async (req, res) => {
       });
     }
 
-    preGenerateAllRRC(true, 'manual', logEntry.id || null, getTriggeredBy(req)).then(async () => {
+    preGenerateAllRRC(true, 'manual', logEntry.id || null, triggeredBy).then(async () => {
     }).catch(async (error) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1039,10 +1089,11 @@ router.post('/rrg', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: RRG calculation');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'rrg',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1054,7 +1105,7 @@ router.post('/rrg', async (req, res) => {
       });
     }
 
-    preGenerateAllRRG(true, 'manual', logEntry.id || null, getTriggeredBy(req)).then(async () => {
+    preGenerateAllRRG(true, 'manual', logEntry.id || null, triggeredBy).then(async () => {
     }).catch(async (error) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1084,10 +1135,11 @@ router.post('/seasonal', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Seasonal calculation');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'seasonality',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1099,7 +1151,7 @@ router.post('/seasonal', async (req, res) => {
       });
     }
 
-    generateSeasonalityData('manual', logEntry.id, getTriggeredBy(req)).then(async () => {
+    generateSeasonalityData('manual', logEntry.id, triggeredBy).then(async () => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'completed',
@@ -1241,10 +1293,11 @@ router.post('/broker-transaction-idx', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction IDX calculation');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_idx',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1259,7 +1312,7 @@ router.post('/broker-transaction-idx', async (req, res) => {
     const brokerTransactionIDXService = new BrokerTransactionIDXDataScheduler();
     
     // Execute in background and return immediately
-    brokerTransactionIDXService.generateBrokerTransactionIDXData('all', logEntry.id, getTriggeredBy(req)).then(async (result: { success: boolean; message?: string; data?: any }) => {
+    brokerTransactionIDXService.generateBrokerTransactionIDXData('all', logEntry.id, triggeredBy).then(async (result: { success: boolean; message?: string; data?: any }) => {
       console.log(`✅ Broker Transaction IDX calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1299,10 +1352,11 @@ router.post('/broker-transaction-stock-idx', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction Stock IDX calculation');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_stock_idx',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1317,7 +1371,7 @@ router.post('/broker-transaction-stock-idx', async (req, res) => {
     const brokerTransactionStockIDXService = new BrokerTransactionStockIDXDataScheduler();
     
     // Execute in background and return immediately
-    brokerTransactionStockIDXService.generateBrokerTransactionStockIDXData('all', logEntry.id, getTriggeredBy(req)).then(async (result: { success: boolean; message?: string }) => {
+    brokerTransactionStockIDXService.generateBrokerTransactionStockIDXData('all', logEntry.id, triggeredBy).then(async (result: { success: boolean; message?: string }) => {
       console.log(`✅ Broker Transaction Stock IDX calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1357,10 +1411,11 @@ router.post('/broker-summary-idx', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Summary IDX calculation');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_summary_idx',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1375,7 +1430,7 @@ router.post('/broker-summary-idx', async (req, res) => {
     const brokerSummaryIDXService = new BrokerSummaryIDXDataScheduler();
     
     // Execute in background and return immediately
-    brokerSummaryIDXService.generateBrokerSummaryIDXData('all', logEntry.id, getTriggeredBy(req)).then(async (result) => {
+    brokerSummaryIDXService.generateBrokerSummaryIDXData('all', logEntry.id, triggeredBy).then(async (result) => {
       console.log(`✅ Broker Summary IDX calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1415,10 +1470,11 @@ router.post('/broker-transaction', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction calculation');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1434,7 +1490,7 @@ router.post('/broker-transaction', async (req, res) => {
     
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
-    brokerTransactionService.generateBrokerTransactionData(undefined, logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
+    brokerTransactionService.generateBrokerTransactionData(undefined, logEntry.id || null, triggeredBy).then(async (result) => {
       console.log(`✅ Broker Transaction calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1472,10 +1528,11 @@ router.post('/broker-transaction-rgtnng', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction RG/TN/NG calculation');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_rgtnng',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1491,7 +1548,7 @@ router.post('/broker-transaction-rgtnng', async (req, res) => {
     
     // Execute in background and return immediately
     // Pass undefined to process all DT files (as per generateBrokerTransactionRGTNNGData implementation)
-    brokerTransactionRGTNNGService.generateBrokerTransactionRGTNNGData(undefined, logEntry.id, getTriggeredBy(req)).then(async (result) => {
+    brokerTransactionRGTNNGService.generateBrokerTransactionRGTNNGData(undefined, logEntry.id, triggeredBy).then(async (result) => {
       console.log(`✅ Broker Transaction RG/TN/NG calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1529,10 +1586,11 @@ router.post('/broker-transaction-fd', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction F/D calculation');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_fd',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1548,7 +1606,7 @@ router.post('/broker-transaction-fd', async (req, res) => {
     
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
-    brokerTransactionFDService.generateBrokerTransactionData(undefined, logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
+    brokerTransactionFDService.generateBrokerTransactionData(undefined, logEntry.id || null, triggeredBy).then(async (result) => {
       console.log(`✅ Broker Transaction F/D calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1586,10 +1644,11 @@ router.post('/broker-transaction-fd-rgtnng', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction F/D RG/TN/NG calculation');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_fd_rgtnng',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1605,7 +1664,7 @@ router.post('/broker-transaction-fd-rgtnng', async (req, res) => {
     
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
-    brokerTransactionFDRGTNNGService.generateBrokerTransactionData(undefined, logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
+    brokerTransactionFDRGTNNGService.generateBrokerTransactionData(undefined, logEntry.id || null, triggeredBy).then(async (result) => {
       console.log(`✅ Broker Transaction F/D RG/TN/NG calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1643,10 +1702,11 @@ router.post('/broker-transaction-stock', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction Stock calculation');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_stock',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1662,7 +1722,7 @@ router.post('/broker-transaction-stock', async (req, res) => {
     
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
-    brokerTransactionStockService.generateBrokerTransactionData(undefined, logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
+    brokerTransactionStockService.generateBrokerTransactionData(undefined, logEntry.id || null, triggeredBy).then(async (result) => {
       console.log(`✅ Broker Transaction Stock calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1700,10 +1760,11 @@ router.post('/broker-transaction-stock-fd', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction Stock F/D calculation');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_stock_fd',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1719,7 +1780,7 @@ router.post('/broker-transaction-stock-fd', async (req, res) => {
     
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
-    brokerTransactionStockFDService.generateBrokerTransactionData(undefined, logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
+    brokerTransactionStockFDService.generateBrokerTransactionData(undefined, logEntry.id || null, triggeredBy).then(async (result) => {
       console.log(`✅ Broker Transaction Stock F/D calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1757,10 +1818,11 @@ router.post('/broker-transaction-stock-rgtnng', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction Stock RG/TN/NG calculation');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_stock_rgtnng',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1776,7 +1838,7 @@ router.post('/broker-transaction-stock-rgtnng', async (req, res) => {
     
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
-    brokerTransactionStockRGTNNGService.generateBrokerTransactionData(undefined, logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
+    brokerTransactionStockRGTNNGService.generateBrokerTransactionData(undefined, logEntry.id || null, triggeredBy).then(async (result) => {
       console.log(`✅ Broker Transaction Stock RG/TN/NG calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1814,10 +1876,11 @@ router.post('/broker-transaction-stock-fd-rgtnng', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction Stock F/D RG/TN/NG calculation');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_stock_fd_rgtnng',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1833,7 +1896,7 @@ router.post('/broker-transaction-stock-fd-rgtnng', async (req, res) => {
     
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
-    brokerTransactionStockFDRGTNNGService.generateBrokerTransactionData(undefined, logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
+    brokerTransactionStockFDRGTNNGService.generateBrokerTransactionData(undefined, logEntry.id || null, triggeredBy).then(async (result) => {
       console.log(`✅ Broker Transaction Stock F/D RG/TN/NG calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1871,10 +1934,11 @@ router.post('/break-done-trade', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Break Done Trade calculation');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'break_done_trade',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1890,7 +1954,7 @@ router.post('/break-done-trade', async (req, res) => {
     
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
-    breakDoneTradeService.generateBreakDoneTradeData(undefined, logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
+    breakDoneTradeService.generateBreakDoneTradeData(undefined, logEntry.id || null, triggeredBy).then(async (result) => {
       console.log(`✅ Break Done Trade calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1928,10 +1992,11 @@ router.post('/broker-summary-sector', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Summary Sector calculation');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_summary_sector',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1946,7 +2011,7 @@ router.post('/broker-summary-sector', async (req, res) => {
     const brokerSummarySectorService = new BrokerSummarySectorDataScheduler();
     
     // Execute in background and return immediately
-    brokerSummarySectorService.generateBrokerSummarySectorData('all', logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
+    brokerSummarySectorService.generateBrokerSummarySectorData('all', logEntry.id || null, triggeredBy).then(async (result) => {
       console.log(`✅ Broker Summary Sector calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1986,10 +2051,11 @@ router.post('/broker-transaction-sector', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction Sector calculation');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_sector',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -2004,8 +2070,7 @@ router.post('/broker-transaction-sector', async (req, res) => {
     const brokerTransactionSectorService = new BrokerTransactionSectorDataScheduler();
     
     // Execute in background and return immediately
-    brokerTransactionSectorService.generateBrokerTransactionSectorData('all', logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
-      await AzureLogger.logInfo('broker_transaction_sector', `Manual broker transaction sector calculation completed: ${result.message || 'OK'}`);
+    brokerTransactionSectorService.generateBrokerTransactionSectorData('all', logEntry.id || null, triggeredBy).then(async (result) => {
       console.log(`✅ Broker Transaction Sector calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -2016,7 +2081,6 @@ router.post('/broker-transaction-sector', async (req, res) => {
       }
     }).catch(async (error: any) => {
       const errorMessage = error?.message || error?.toString() || 'Unknown error';
-      await AzureLogger.logSchedulerError('broker_transaction_sector', errorMessage);
       console.error(`❌ Broker Transaction Sector calculation error: ${errorMessage}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -2046,10 +2110,11 @@ router.post('/broker-transaction-stock-sector', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction Stock Sector calculation');
     
+    const triggeredBy = getTriggeredBy(req);
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_stock_sector',
       trigger_type: 'manual',
-      triggered_by: getTriggeredBy(req),
+      triggered_by: triggeredBy,
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -2064,8 +2129,7 @@ router.post('/broker-transaction-stock-sector', async (req, res) => {
     const brokerTransactionStockSectorService = new BrokerTransactionStockSectorDataScheduler();
     
     // Execute in background and return immediately
-    brokerTransactionStockSectorService.generateBrokerTransactionStockSectorData('all', logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
-      await AzureLogger.logInfo('broker_transaction_stock_sector', `Manual broker transaction stock sector calculation completed: ${result.message || 'OK'}`);
+    brokerTransactionStockSectorService.generateBrokerTransactionStockSectorData('all', logEntry.id || null, triggeredBy).then(async (result) => {
       console.log(`✅ Broker Transaction Stock Sector calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -2076,7 +2140,6 @@ router.post('/broker-transaction-stock-sector', async (req, res) => {
       }
     }).catch(async (error: any) => {
       const errorMessage = error?.message || error?.toString() || 'Unknown error';
-      await AzureLogger.logSchedulerError('broker_transaction_stock_sector', errorMessage);
       console.error(`❌ Broker Transaction Stock Sector calculation error: ${errorMessage}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
