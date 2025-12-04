@@ -85,6 +85,7 @@ const MANUAL_TRIGGERS_BY_PHASE: PhaseGroup[] = [
       { name: "Broker Transaction F/D", type: "broker-transaction-fd", description: "Calculate broker transaction data per broker filtered by Investor Type (F/D)" },
       { name: "Broker Transaction F/D RG/TN/NG", type: "broker-transaction-fd-rgtnng", description: "Calculate broker transaction data per broker filtered by Investor Type (F/D) and Board Type (RG, TN, NG)" },
       { name: "Broker Transaction IDX", type: "broker-transaction-idx", description: "Generate aggregated IDX.csv for broker transaction (all dates and combinations)" },
+      { name: "Broker Transaction Sector", type: "broker-transaction-sector", description: "Generate broker transaction aggregated by sector for all dates, investor types, and market types" },
     ]
   },
   {
@@ -95,6 +96,7 @@ const MANUAL_TRIGGERS_BY_PHASE: PhaseGroup[] = [
       { name: "Broker Transaction Stock RG/TN/NG", type: "broker-transaction-stock-rgtnng", description: "Calculate broker transaction data pivoted by stock, filtered by Board Type (RG, TN, NG)" },
       { name: "Broker Transaction Stock F/D RG/TN/NG", type: "broker-transaction-stock-fd-rgtnng", description: "Calculate broker transaction data pivoted by stock, filtered by Investor Type (F/D) and Board Type (RG, TN, NG)" },
       { name: "Broker Transaction Stock IDX", type: "broker-transaction-stock-idx", description: "Generate aggregated IDX.csv for broker transaction stock (all dates and combinations)" },
+      { name: "Broker Transaction Stock Sector", type: "broker-transaction-stock-sector", description: "Generate broker transaction stock aggregated by sector for all dates, investor types, and market types" },
     ]
   },
   {
@@ -340,6 +342,8 @@ export function ManualTriggerControl() {
       'broker_transaction_stock_fd_rgtnng': 'broker-transaction-stock-fd-rgtnng',
       'broker_transaction_idx': 'broker-transaction-idx',
       'broker_transaction_stock_idx': 'broker-transaction-stock-idx',
+      'broker_transaction_sector': 'broker-transaction-sector',
+      'broker_transaction_stock_sector': 'broker-transaction-stock-sector',
       'break_done_trade': 'break-done-trade',
     };
     
