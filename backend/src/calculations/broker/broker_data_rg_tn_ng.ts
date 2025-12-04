@@ -61,25 +61,65 @@ export class BrokerDataRGTNNGCalculator {
   /**
    * Find all DT files in done-summary folder
    * OPTIMIZED: Uses shared cache to avoid repeated listPaths calls
+   * CRITICAL: Filter file yang outputnya sudah ada (RG, TN, NG semua sudah ada)
    */
   private async findAllDtFiles(): Promise<string[]> {
     console.log('🔍 Scanning for DT files in done-summary folder...');
     try {
       // Use shared cache for DT files list
-      const allDtFiles = await doneSummaryCache.getDtFilesList();
+      // Type assertion needed due to TypeScript type inference issue
+      const allDtFiles = await (doneSummaryCache as any).getDtFilesList();
       console.log(`📁 Found ${allDtFiles.length} DT files from cache`);
       
       // Sort by date descending (newest first)
-      const sortedFiles = allDtFiles.sort((a, b) => {
+      const sortedFiles = allDtFiles.sort((a: string, b: string) => {
         const dateA = a.split('/')[1] || '';
         const dateB = b.split('/')[1] || '';
         return dateB.localeCompare(dateA); // Descending order
       });
       
-      if (sortedFiles.length > 0) {
+      // OPTIMIZATION: Pre-check which dates already have broker_data_rg_tn_ng output (sequential, newest to oldest)
+      console.log("🔍 Pre-checking existing broker_data_rg_tn_ng outputs (checking from newest to oldest)...");
+      const filesToProcess: string[] = [];
+      let skippedCount = 0;
+      
+      for (const file of sortedFiles) {
+        const dateFolder = file.split('/')[1] || '';
+        const dateSuffix = dateFolder;
+        
+        // Check if all types (RG, TN, NG) already have output
+        let allExist = true;
+        for (const type of ['RG', 'TN', 'NG'] as const) {
+          const paths = this.getSummaryPaths(type, dateSuffix);
+          try {
+            const summaryPrefix = `${paths.brokerSummary}/`;
+            const summaryFiles = await listPaths({ prefix: summaryPrefix, maxResults: 1 });
+            if (summaryFiles.length === 0) {
+              allExist = false;
+              break; // At least one type is missing, need to process
+            }
+          } catch (error) {
+            // If check fails, proceed with processing (safer to process than skip)
+            allExist = false;
+            break;
+          }
+        }
+        
+        if (allExist) {
+          skippedCount++;
+          console.log(`⏭️ Broker data (RG/TN/NG) already exists for date ${dateSuffix} - skipping`);
+        } else {
+          filesToProcess.push(file);
+          console.log(`✅ Date ${dateSuffix} needs processing`);
+        }
+      }
+      
+      console.log(`📊 Pre-check complete: ${filesToProcess.length} files to process, ${skippedCount} already exist`);
+      
+      if (filesToProcess.length > 0) {
         console.log(`📋 Processing order (newest first):`);
-        const dates = sortedFiles.map(f => f.split('/')[1]).filter((v, i, arr) => arr.indexOf(v) === i);
-        dates.slice(0, 10).forEach((date, idx) => {
+        const dates = filesToProcess.map((f: string) => f.split('/')[1]).filter((v: string | undefined, i: number, arr: (string | undefined)[]) => v !== undefined && arr.indexOf(v) === i) as string[];
+        dates.slice(0, 10).forEach((date: string, idx: number) => {
           console.log(`   ${idx + 1}. ${date}`);
         });
         if (dates.length > 10) {
@@ -87,7 +127,7 @@ export class BrokerDataRGTNNGCalculator {
         }
       }
       
-      return sortedFiles;
+      return filesToProcess;
     } catch (error: any) {
       console.error('❌ Error finding DT files:', error.message);
       return [];
@@ -360,27 +400,18 @@ export class BrokerDataRGTNNGCalculator {
   }
 
   public async generateBrokerData(_dateSuffix?: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
-    let datesToProcess: Set<string> = new Set();
+    let dtFiles: string[] = [];
     
     try {
-      const dtFiles = await this.findAllDtFiles();
+      dtFiles = await this.findAllDtFiles();
       if (dtFiles.length === 0) return { success: true, message: `No DT files found - skipped broker data generation` };
       
-      // Set active processing dates HANYA untuk tanggal yang benar-benar akan diproses
-      dtFiles.forEach(file => {
-        const dateMatch = file.match(/done-summary\/(\d{8})\//);
-        if (dateMatch && dateMatch[1]) {
-          datesToProcess.add(dateMatch[1]);
-        }
-      });
-      
-      // Set active dates di cache
-      datesToProcess.forEach(date => {
-        doneSummaryCache.addActiveProcessingDate(date);
-      });
-      console.log(`📅 Set ${datesToProcess.size} active processing dates in cache: ${Array.from(datesToProcess).slice(0, 10).join(', ')}${datesToProcess.size > 10 ? '...' : ''}`);
+      // CATATAN: Active dates TIDAK ditambahkan di sini karena filter dilakukan per file di processSingleDtFile()
+      // Active dates akan ditambahkan saat file benar-benar akan diproses (di processSingleDtFile setelah check)
       
       // Pre-count total brokers for accurate progress tracking
+      // NOTE: Pre-count akan memuat semua file, tapi ini diperlukan untuk progress tracking
+      // File yang sudah ada output akan di-skip di processSingleDtFile()
       const estimatedTotalBrokers = await this.preCountTotalBrokers(dtFiles);
       
       // Create progress tracker for thread-safe broker counting
@@ -435,6 +466,7 @@ export class BrokerDataRGTNNGCalculator {
         }
         
         // Process batch in parallel with concurrency limit, pass progress tracker
+        // CRITICAL: File sudah di-filter di findAllDtFiles(), jadi tidak perlu check lagi di sini
         const batchPromises = batch.map(async (blobName) => {
             try {
               // Extract date from blob name first (before loading input)
@@ -442,32 +474,8 @@ export class BrokerDataRGTNNGCalculator {
               const dateFolder = pathParts[1] || 'unknown'; // 20251021
               const dateSuffix = dateFolder;
               
-              // Check if output already exists for this date BEFORE loading input
-              // Check key output files for each type (RG, TN, NG)
-              let shouldSkip = true;
-              
-              for (const type of ['RG', 'TN', 'NG'] as const) {
-                const paths = this.getSummaryPaths(type, dateSuffix);
-                // Check if at least one output file exists for this type and date
-                try {
-                  // List files in broker_summary folder for this type and date
-                  const summaryPrefix = `${paths.brokerSummary}/`;
-                  const summaryFiles = await listPaths({ prefix: summaryPrefix, maxResults: 1 });
-                  if (summaryFiles.length === 0) {
-                    shouldSkip = false;
-                    break; // At least one type is missing, need to process
-                  }
-                } catch (error) {
-                  // If check fails, continue with processing
-                  shouldSkip = false;
-                  break;
-                }
-              }
-              
-              if (shouldSkip) {
-                console.log(`⏭️ Broker data (RG/TN/NG) already exists for date ${dateSuffix} - skipping`);
-                return { success: true, skipped: true, dateSuffix, brokerCount: 0 };
-              }
+              // Set active processing date HANYA saat file benar-benar akan diproses (setelah filter)
+              doneSummaryCache.addActiveProcessingDate(dateSuffix);
               
               // Only load input if output doesn't exist
               const result = await this.loadAndProcessSingleDtFile(blobName);
@@ -541,11 +549,16 @@ export class BrokerDataRGTNNGCalculator {
       return { success: false, message: error.message };
     } finally {
       // Cleanup: Remove active processing dates setelah selesai
-      if (datesToProcess && datesToProcess.size > 0) {
-        datesToProcess.forEach(date => {
-          doneSummaryCache.removeActiveProcessingDate(date);
+      // NOTE: Untuk broker_data_rg_tn_ng, active dates ditambahkan per file di processSingleDtFile()
+      // Jadi kita perlu cleanup semua tanggal yang mungkin sudah ditambahkan
+      if (dtFiles && dtFiles.length > 0) {
+        dtFiles.forEach(file => {
+          const dateMatch = file.match(/done-summary\/(\d{8})\//);
+          if (dateMatch && dateMatch[1]) {
+            doneSummaryCache.removeActiveProcessingDate(dateMatch[1]);
+          }
         });
-        console.log(`🧹 Cleaned up ${datesToProcess.size} active processing dates from cache`);
+        console.log(`🧹 Cleaned up active processing dates from cache`);
       }
     }
   }

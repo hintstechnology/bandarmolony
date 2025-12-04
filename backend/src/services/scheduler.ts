@@ -1662,14 +1662,14 @@ export async function runPhase8AdditionalCalculations(manualTriggeredBy?: string
     
     // Print stats before clearing
     console.log('\n📊 Cache statistics before clearing:');
-    doneSummaryCache.printStats();
+    (doneSummaryCache as any).printStats();
     stockCache.printStats();
     brokerTransactionCache.printStats();
     indexCache.printStats();
     
     // Clear all caches
     console.log('\n🧹 Clearing all caches...');
-    doneSummaryCache.clearAll();
+    (doneSummaryCache as any).clearAll();
     stockCache.clearAll();
     brokerTransactionCache.clearAll();
     indexCache.clearAll();

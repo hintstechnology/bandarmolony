@@ -26,7 +26,7 @@ interface ParsedCacheEntry<T> {
   size: number;
 }
 
-class DoneSummaryCacheService {
+export class DoneSummaryCacheService {
   // Cache untuk raw CSV content
   private rawContentCache: Map<string, CacheEntry> = new Map();
   
@@ -72,7 +72,7 @@ class DoneSummaryCacheService {
    * Cache akan hanya menyimpan tanggal yang ada di activeProcessingDates
    * @param date Date string in YYYYMMDD format (e.g., '20251021')
    */
-  addActiveProcessingDate(date: string): void {
+  public addActiveProcessingDate(date: string): void {
     if (!this.activeProcessingDates.has(date)) {
       this.activeProcessingDates.add(date);
       console.log(`📅 Done Summary Cache: Added active processing date ${date} (total: ${this.activeProcessingDates.size})`);
@@ -86,7 +86,7 @@ class DoneSummaryCacheService {
    * Auto-clear cache untuk tanggal ini
    * @param date Date string in YYYYMMDD format (e.g., '20251021')
    */
-  removeActiveProcessingDate(date: string): void {
+  public removeActiveProcessingDate(date: string): void {
     if (this.activeProcessingDates.has(date)) {
       this.activeProcessingDates.delete(date);
       this.dateLastAccess.delete(date);
@@ -124,14 +124,14 @@ class DoneSummaryCacheService {
   /**
    * Get active processing dates
    */
-  getActiveProcessingDates(): string[] {
+  public getActiveProcessingDates(): string[] {
     return Array.from(this.activeProcessingDates);
   }
   
   /**
    * Check if date is currently being processed
    */
-  isDateActive(date: string): boolean {
+  public isDateActive(date: string): boolean {
     return this.activeProcessingDates.has(date);
   }
   
@@ -158,7 +158,7 @@ class DoneSummaryCacheService {
    * @param blobName Full blob path (e.g., 'done-summary/20251021/DT251021.csv')
    * @returns CSV content as string
    */
-  async getRawContent(blobName: string): Promise<string | null> {
+  public async getRawContent(blobName: string): Promise<string | null> {
     // Extract date from blob name
     const fileDate = this.extractDateFromBlobName(blobName);
     
@@ -193,6 +193,7 @@ class DoneSummaryCacheService {
       this.stats.totalBytesLoaded += size;
       
       // Only cache if date is active (sedang diproses)
+      // CRITICAL: Jangan cache jika tanggal tidak active - ini mencegah cache semua tanggal
       if (fileDate && this.isDateActive(fileDate)) {
         // Check if we need to evict old entries to make room
         if (this.currentCacheSize + size > this.MAX_CACHE_SIZE) {
@@ -207,10 +208,9 @@ class DoneSummaryCacheService {
         });
         
         this.currentCacheSize += size;
-        
-        console.log(`✅ Loaded and cached: ${blobName} (${(size / 1024).toFixed(2)} KB)`);
+        console.log(`💾 Cached: ${blobName} (${(size / 1024).toFixed(2)} KB) - date ${fileDate} is active`);
       } else {
-        console.log(`✅ Loaded (not cached): ${blobName} (${(size / 1024).toFixed(2)} KB)`);
+        console.log(`⏭️  NOT cached: ${blobName} - date ${fileDate || 'unknown'} is NOT active`);
       }
       
       return content;
@@ -228,7 +228,7 @@ class DoneSummaryCacheService {
    * @param parser Function to parse CSV content to transaction data
    * @returns Parsed transaction data array
    */
-  async getParsedData<T>(
+  public async getParsedData<T>(
     blobName: string,
     parser: (content: string) => T[]
   ): Promise<T[] | null> {
@@ -286,7 +286,7 @@ class DoneSummaryCacheService {
    * Get list of all DT files (cached)
    * @returns Array of DT file paths
    */
-  async getDtFilesList(): Promise<string[]> {
+  public async getDtFilesList(): Promise<string[]> {
     // Check cache first
     if (this.dtFilesListCache && (Date.now() - this.dtFilesListCache.timestamp) < this.CACHE_TTL) {
       console.log(`📦 DT Files List Cache HIT: ${this.dtFilesListCache.files.length} files`);
@@ -398,7 +398,7 @@ class DoneSummaryCacheService {
   /**
    * Clear all caches
    */
-  clearAll(): void {
+  public clearAll(): void {
     console.log('🧹 Clearing all done-summary caches...');
     this.rawContentCache.clear();
     this.parsedDataCache.clear();
@@ -412,7 +412,7 @@ class DoneSummaryCacheService {
   /**
    * Clear cache for specific date
    */
-  clearDate(dateSuffix: string): void {
+  public clearDate(dateSuffix: string): void {
     const prefix = `done-summary/${dateSuffix}/`;
     let clearedCount = 0;
     let freedSize = 0;
@@ -442,7 +442,7 @@ class DoneSummaryCacheService {
   /**
    * Get cache statistics
    */
-  getStats() {
+  public getStats() {
     const hitRate = this.stats.cacheHits + this.stats.cacheMisses > 0
       ? (this.stats.cacheHits / (this.stats.cacheHits + this.stats.cacheMisses) * 100).toFixed(2)
       : '0.00';
@@ -461,7 +461,7 @@ class DoneSummaryCacheService {
   /**
    * Print cache statistics
    */
-  printStats(): void {
+  public printStats(): void {
     const stats = this.getStats();
     console.log('\n📊 ===== DONE SUMMARY CACHE STATISTICS =====');
     console.log(`Cache Hits: ${stats.cacheHits}`);
@@ -481,7 +481,7 @@ class DoneSummaryCacheService {
   /**
    * Reset statistics
    */
-  resetStats(): void {
+  public resetStats(): void {
     this.stats = {
       cacheHits: 0,
       cacheMisses: 0,
@@ -494,5 +494,5 @@ class DoneSummaryCacheService {
 }
 
 // Singleton instance
-export const doneSummaryCache = new DoneSummaryCacheService();
+export const doneSummaryCache: DoneSummaryCacheService = new DoneSummaryCacheService();
 

@@ -276,11 +276,12 @@ export class BrokerTransactionStockRGTNNGCalculator {
     console.log('🔍 Scanning for DT files in done-summary folder...');
     try {
       // Use shared cache for DT files list
-      const allDtFiles = await doneSummaryCache.getDtFilesList();
+      // Type assertion needed due to TypeScript type inference issue
+      const allDtFiles = await (doneSummaryCache as any).getDtFilesList();
       console.log(`📁 Found ${allDtFiles.length} DT files from cache`);
       
       // Sort by date descending (newest first)
-      const sortedFiles = allDtFiles.sort((a, b) => {
+      const sortedFiles = allDtFiles.sort((a: string, b: string) => {
         const dateA = a.split('/')[1] || '';
         const dateB = b.split('/')[1] || '';
         return dateB.localeCompare(dateA); // Descending order
@@ -307,8 +308,8 @@ export class BrokerTransactionStockRGTNNGCalculator {
       
       if (filesToProcess.length > 0) {
         console.log(`📋 Processing order (newest first):`);
-        const dates = filesToProcess.map(f => f.split('/')[1]).filter((v, i, arr) => arr.indexOf(v) === i);
-        dates.slice(0, 10).forEach((date, idx) => {
+        const dates = filesToProcess.map((f: string) => f.split('/')[1]).filter((v: string | undefined, i: number, arr: (string | undefined)[]) => v !== undefined && arr.indexOf(v) === i) as string[];
+        dates.slice(0, 10).forEach((date: string, idx: number) => {
           console.log(`   ${idx + 1}. ${date}`);
         });
         if (dates.length > 10) {

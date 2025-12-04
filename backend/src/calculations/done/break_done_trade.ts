@@ -106,10 +106,11 @@ export class BreakDoneTradeCalculator {
     
     try {
       // Use shared cache for DT files list
-      const allDtFiles = await doneSummaryCache.getDtFilesList();
+      // Type assertion needed due to TypeScript type inference issue
+      const allDtFiles = await (doneSummaryCache as any).getDtFilesList();
       
       // Sort by date descending (newest first) - process from newest to oldest
-      const sortedFiles = allDtFiles.sort((a, b) => {
+      const sortedFiles = allDtFiles.sort((a: string, b: string) => {
         const dateA = a.split('/')[1] || '';
         const dateB = b.split('/')[1] || '';
         return dateB.localeCompare(dateA); // Descending order (newest first)
@@ -481,7 +482,7 @@ export class BreakDoneTradeCalculator {
         };
       }
       
-      console.log(`📊 Processing ${dtFiles.length} DT files...`);
+      console.log(`📊 Processing ${dtFiles.length} DT files (already filtered - only files without output)...`);
       
       // Set active processing dates HANYA untuk tanggal yang benar-benar akan diproses
       dtFiles.forEach(file => {
@@ -491,7 +492,7 @@ export class BreakDoneTradeCalculator {
         }
       });
       
-      // Set active dates di cache
+      // Set active dates di cache HANYA untuk tanggal yang benar-benar akan diproses
       datesToProcess.forEach(date => {
         doneSummaryCache.addActiveProcessingDate(date);
       });
@@ -499,6 +500,7 @@ export class BreakDoneTradeCalculator {
       this.logMemoryUsage('Start processing');
       
       // Pre-count total stocks for accurate progress tracking
+      // OPTIMIZED: dtFiles sudah di-filter, jadi pre-count hanya untuk file yang benar-benar perlu diproses
       const totalStocks = await this.preCountTotalStocks(dtFiles);
       
       // Create progress tracker for thread-safe stock counting
