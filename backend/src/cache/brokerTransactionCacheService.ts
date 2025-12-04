@@ -22,6 +22,16 @@ class BrokerTransactionCacheService {
   // Cache untuk raw CSV content
   private rawContentCache: Map<string, CacheEntry> = new Map();
   
+  // Active processing dates - track tanggal yang sedang diproses oleh kalkulasi
+  // Bisa multiple dates jika ada multiple kalkulasi parallel
+  private activeProcessingDates: Set<string> = new Set();
+  
+  // Track last access time untuk setiap tanggal (untuk auto-cleanup)
+  private dateLastAccess: Map<string, number> = new Map();
+  
+  // Auto-cleanup threshold: remove tanggal yang tidak dipanggil lagi selama 1 jam
+  private readonly DATE_INACTIVE_THRESHOLD = 60 * 60 * 1000; // 1 hour in milliseconds
+  
   // Statistics
   private stats = {
     cacheHits: 0,
@@ -41,13 +51,114 @@ class BrokerTransactionCacheService {
   private currentCacheSize = 0;
   
   /**
+   * Add active processing date - tanggal yang sedang diproses oleh kalkulasi
+   * Cache akan hanya menyimpan tanggal yang ada di activeProcessingDates
+   * @param date Date string in YYYYMMDD or YYMMDD format (e.g., '20251021' or '251021')
+   */
+  addActiveProcessingDate(date: string): void {
+    const normalizedDate = this.normalizeDate(date);
+    if (!this.activeProcessingDates.has(normalizedDate)) {
+      this.activeProcessingDates.add(normalizedDate);
+      console.log(`📅 Broker Transaction Cache: Added active processing date ${normalizedDate} (total: ${this.activeProcessingDates.size})`);
+    }
+    // Update last access time
+    this.dateLastAccess.set(normalizedDate, Date.now());
+  }
+  
+  /**
+   * Remove active processing date - tanggal sudah selesai diproses
+   * Auto-clear cache untuk tanggal ini
+   * @param date Date string in YYYYMMDD or YYMMDD format (e.g., '20251021' or '251021')
+   */
+  removeActiveProcessingDate(date: string): void {
+    const normalizedDate = this.normalizeDate(date);
+    if (this.activeProcessingDates.has(normalizedDate)) {
+      this.activeProcessingDates.delete(normalizedDate);
+      this.dateLastAccess.delete(normalizedDate);
+      // Clear cache for this date (try both formats)
+      this.clearDate(normalizedDate);
+      if (normalizedDate.length === 8) {
+        const yyMMdd = `${normalizedDate.substring(2, 4)}${normalizedDate.substring(4, 6)}${normalizedDate.substring(6, 8)}`;
+        this.clearDate(yyMMdd);
+      }
+      console.log(`📅 Broker Transaction Cache: Removed active processing date ${normalizedDate} (total: ${this.activeProcessingDates.size})`);
+    }
+  }
+  
+  /**
+   * Auto-cleanup: Remove tanggal yang sudah lama tidak dipanggil
+   * Dipanggil secara periodik atau saat evict old entries
+   */
+  private autoCleanupInactiveDates(): void {
+    const now = Date.now();
+    const datesToRemove: string[] = [];
+    
+    for (const [date, lastAccess] of this.dateLastAccess.entries()) {
+      // Jika tanggal tidak dipanggil lagi selama 1 jam, remove
+      if (now - lastAccess > this.DATE_INACTIVE_THRESHOLD) {
+        datesToRemove.push(date);
+      }
+    }
+    
+    // Remove inactive dates
+    for (const date of datesToRemove) {
+      this.removeActiveProcessingDate(date);
+    }
+    
+    if (datesToRemove.length > 0) {
+      console.log(`🧹 Auto-cleaned ${datesToRemove.length} inactive dates: ${datesToRemove.join(', ')}`);
+    }
+  }
+  
+  /**
+   * Get active processing dates
+   */
+  getActiveProcessingDates(): string[] {
+    return Array.from(this.activeProcessingDates);
+  }
+  
+  /**
+   * Check if date is currently being processed
+   */
+  isDateActive(date: string): boolean {
+    const normalizedDate = this.normalizeDate(date);
+    return this.activeProcessingDates.has(normalizedDate);
+  }
+  
+  /**
+   * Normalize date to YYYYMMDD format
+   */
+  private normalizeDate(date: string): string {
+    if (date.length === 6) {
+      // Convert YYMMDD to YYYYMMDD
+      const year = 2000 + parseInt(date.substring(0, 2) || '0');
+      return `${year}${date.substring(2)}`;
+    }
+    return date; // Already YYYYMMDD
+  }
+  
+  /**
    * Get raw CSV content from cache or Azure
+   * OPTIMIZED: Hanya cache tanggal yang sedang diproses (currentProcessingDate)
    * Supports both YYYYMMDD and YYMMDD date formats
    * @param brokerCode Broker code (e.g., '001')
    * @param date Date string in YYYYMMDD or YYMMDD format
    * @returns CSV content as string
    */
   async getRawContent(brokerCode: string, date: string): Promise<string | null> {
+    // Normalize date to YYYYMMDD for comparison
+    const normalizedDate = this.normalizeDate(date);
+    
+    // Auto-add tanggal ke activeProcessingDates jika belum ada
+    // Ini memungkinkan kalkulasi tidak perlu set manual, cukup panggil getRawContent
+    if (!this.isDateActive(normalizedDate)) {
+      // Auto-add tanggal yang dipanggil ke active dates
+      this.addActiveProcessingDate(normalizedDate);
+    } else {
+      // Update last access time untuk tanggal yang sudah aktif
+      this.dateLastAccess.set(normalizedDate, Date.now());
+    }
+    
     // Try YYYYMMDD format first (normalized)
     let blobName = `broker_transaction/broker_transaction_${date}/${brokerCode}.csv`;
     let cached = this.rawContentCache.get(blobName);
@@ -62,7 +173,7 @@ class BrokerTransactionCacheService {
       }
     }
     
-    // Check cache first
+    // Check cache first (only for current processing date)
     if (cached && (Date.now() - cached.timestamp) < this.CACHE_TTL) {
       this.stats.cacheHits++;
       this.stats.totalBytesFromCache += cached.size;
@@ -105,21 +216,27 @@ class BrokerTransactionCacheService {
       this.stats.totalLoads++;
       this.stats.totalBytesLoaded += size;
       
-      // Check if we need to evict old entries to make room
-      if (this.currentCacheSize + size > this.MAX_CACHE_SIZE) {
-        await this.evictOldEntries(size);
+      // Only cache if date is active (sedang diproses)
+      if (this.isDateActive(normalizedDate)) {
+        // Check if we need to evict old entries to make room
+        if (this.currentCacheSize + size > this.MAX_CACHE_SIZE) {
+          await this.evictOldEntries(size);
+        }
+        
+        // Store in cache
+        this.rawContentCache.set(blobName, {
+          content,
+          timestamp: Date.now(),
+          size
+        });
+        
+        this.currentCacheSize += size;
+        
+        console.log(`✅ Broker Transaction loaded and cached: ${blobName} (${(size / 1024).toFixed(2)} KB)`);
+      } else {
+        console.log(`✅ Broker Transaction loaded (not cached): ${blobName} (${(size / 1024).toFixed(2)} KB)`);
       }
       
-      // Store in cache
-      this.rawContentCache.set(blobName, {
-        content,
-        timestamp: Date.now(),
-        size
-      });
-      
-      this.currentCacheSize += size;
-      
-      console.log(`✅ Broker Transaction loaded and cached: ${blobName} (${(size / 1024).toFixed(2)} KB)`);
       return content;
       
     } catch (error) {
@@ -134,10 +251,34 @@ class BrokerTransactionCacheService {
   private async evictOldEntries(requiredSize: number): Promise<void> {
     console.log(`🧹 Evicting old broker transaction cache entries to free ${(requiredSize / 1024 / 1024).toFixed(2)} MB...`);
     
+    // Auto-cleanup inactive dates sebelum evict
+    this.autoCleanupInactiveDates();
+    
+    // Extract date from blob name untuk check active status
+    const extractDateFromBlobName = (blobName: string): string | null => {
+      const match = blobName.match(/broker_transaction\/broker_transaction_(\d{6,8})\//);
+      if (match && match[1]) {
+        const date = match[1];
+        return date.length === 6 ? this.normalizeDate(date) : date;
+      }
+      return null;
+    };
+    
     // Sort entries by timestamp (oldest first)
+    // Prioritize entries from inactive dates (jika masih ada setelah cleanup)
     const entries = Array.from(this.rawContentCache.entries())
-      .map(([key, value]) => ({ key, ...value }))
-      .sort((a, b) => a.timestamp - b.timestamp);
+      .map(([key, value]) => {
+        const fileDate = extractDateFromBlobName(key);
+        const isActive = fileDate ? this.isDateActive(fileDate) : true;
+        return { key, ...value, isActive, fileDate };
+      })
+      .sort((a, b) => {
+        // First: inactive dates first, then by timestamp
+        if (a.isActive !== b.isActive) {
+          return a.isActive ? 1 : -1; // inactive first
+        }
+        return a.timestamp - b.timestamp; // oldest first
+      });
     
     let freedSize = 0;
     let evictedCount = 0;
@@ -163,6 +304,8 @@ class BrokerTransactionCacheService {
   clearAll(): void {
     console.log('🧹 Clearing all broker transaction caches...');
     this.rawContentCache.clear();
+    this.activeProcessingDates.clear();
+    this.dateLastAccess.clear();
     this.currentCacheSize = 0;
     console.log('✅ All broker transaction caches cleared');
   }

@@ -8,7 +8,6 @@ import { updateShareholdersData } from '../services/shareholdersDataScheduler';
 import { updateHoldingData } from '../services/holdingDataScheduler';
 import { updateDoneSummaryData } from '../services/doneSummaryDataScheduler';
 import { SchedulerLogService } from '../services/schedulerLogService';
-import { AzureLogger } from '../services/azureLoggingService';
 import AccumulationDataScheduler from '../services/accumulationDataScheduler';
 import BidAskDataScheduler from '../services/bidAskDataScheduler';
 import BrokerSummaryDataScheduler from '../services/brokerSummaryDataScheduler';
@@ -70,10 +69,7 @@ router.post('/stock', async (req, res) => {
     }
 
     // Run update in background
-    updateStockData(logEntry.id || null).then(async () => {
-      await AzureLogger.logInfo('stock', 'Manual stock data update completed');
-    }).catch(async (error) => {
-      await AzureLogger.logSchedulerError('stock', error.message);
+    updateStockData(logEntry.id || null).catch(async (error) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
@@ -117,10 +113,7 @@ router.post('/index', async (req, res) => {
       });
     }
 
-    updateIndexData(logEntry.id || null).then(async () => {
-      await AzureLogger.logInfo('index', 'Manual index data update completed');
-    }).catch(async (error) => {
-      await AzureLogger.logSchedulerError('index', error.message);
+    updateIndexData(logEntry.id || null).catch(async (error) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
@@ -164,10 +157,7 @@ router.post('/shareholders', async (req, res) => {
       });
     }
 
-    updateShareholdersData(logEntry.id || null).then(async () => {
-      await AzureLogger.logInfo('shareholders', 'Manual shareholders data update completed');
-    }).catch(async (error) => {
-      await AzureLogger.logSchedulerError('shareholders', error.message);
+    updateShareholdersData(logEntry.id || null).catch(async (error) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
@@ -211,10 +201,7 @@ router.post('/holding', async (req, res) => {
       });
     }
 
-    updateHoldingData(logEntry.id || null).then(async () => {
-      await AzureLogger.logInfo('holding', 'Manual holding data update completed');
-    }).catch(async (error) => {
-      await AzureLogger.logSchedulerError('holding', error.message);
+    updateHoldingData(logEntry.id || null).catch(async (error) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
@@ -258,10 +245,7 @@ router.post('/done-summary', async (req, res) => {
       });
     }
 
-    updateDoneSummaryData(logEntry.id || null).then(async () => {
-      await AzureLogger.logInfo('done-summary', 'Manual done summary data update completed');
-    }).catch(async (error) => {
-      await AzureLogger.logSchedulerError('done-summary', error.message);
+    updateDoneSummaryData(logEntry.id || null).catch(async (error) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
@@ -311,8 +295,7 @@ router.post('/accumulation', async (req, res) => {
 
     // Run calculation in background
     const accumulationService = new AccumulationDataScheduler();
-    accumulationService.generateAccumulationData(dateSuffix, logEntry.id).then(async (result) => {
-      await AzureLogger.logInfo('accumulation_distribution', `Manual accumulation calculation completed: ${result.message}`);
+    accumulationService.generateAccumulationData(dateSuffix, logEntry.id, getTriggeredBy(req)).then(async (result) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: result.success ? 'completed' : 'failed',
@@ -321,7 +304,6 @@ router.post('/accumulation', async (req, res) => {
         });
       }
     }).catch(async (error) => {
-      await AzureLogger.logSchedulerError('accumulation_distribution', error.message);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
@@ -370,8 +352,7 @@ router.post('/bidask', async (req, res) => {
 
     // Run calculation in background
     const bidAskService = new BidAskDataScheduler();
-    bidAskService.generateBidAskData(dateSuffix, logEntry.id).then(async (result) => {
-      await AzureLogger.logInfo('bidask_footprint', `Manual bid/ask calculation completed: ${result.message}`);
+    bidAskService.generateBidAskData(dateSuffix, logEntry.id, getTriggeredBy(req)).then(async (result) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: result.success ? 'completed' : 'failed',
@@ -380,7 +361,6 @@ router.post('/bidask', async (req, res) => {
         });
       }
     }).catch(async (error) => {
-      await AzureLogger.logSchedulerError('bidask_footprint', error.message);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
@@ -428,7 +408,6 @@ router.post('/broker-breakdown', async (req, res) => {
     // Execute in background and return immediately
     // Pass logId to enable progress tracking
     brokerBreakdownService.generateBrokerBreakdownData('all', logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
-      await AzureLogger.logInfo('broker_breakdown', `Manual broker breakdown calculation completed: ${result.message || 'OK'}`);
       console.log(`✅ Broker Breakdown calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -438,7 +417,6 @@ router.post('/broker-breakdown', async (req, res) => {
         });
       }
     }).catch(async (error: any) => {
-      await AzureLogger.logSchedulerError('broker_breakdown', error.message);
       console.error(`❌ Broker Breakdown calculation error: ${error.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -484,8 +462,7 @@ router.post('/broker-summary', async (req, res) => {
 
     // Run calculation in background
     const brokerSummaryService = new BrokerSummaryDataScheduler();
-    brokerSummaryService.generateBrokerSummaryData('all', logEntry.id || null).then(async (result) => {
-      await AzureLogger.logInfo('broker-summary', `Manual broker summary calculation completed: ${result.message}`);
+    brokerSummaryService.generateBrokerSummaryData('all', logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: result.success ? 'completed' : 'failed',
@@ -494,7 +471,6 @@ router.post('/broker-summary', async (req, res) => {
         });
       }
     }).catch(async (error) => {
-      await AzureLogger.logSchedulerError('broker-summary', error.message);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
@@ -539,8 +515,7 @@ router.post('/top-broker', async (req, res) => {
 
     // Run calculation in background
     const topBrokerService = new TopBrokerDataScheduler();
-    topBrokerService.generateTopBrokerData('all', logEntry.id || null).then(async (result) => {
-      await AzureLogger.logInfo('top-broker', `Manual top broker calculation completed: ${result.message}`);
+    topBrokerService.generateTopBrokerData('all', logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: result.success ? 'completed' : 'failed',
@@ -549,7 +524,6 @@ router.post('/top-broker', async (req, res) => {
         });
       }
     }).catch(async (error) => {
-      await AzureLogger.logSchedulerError('top-broker', error.message);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
@@ -598,8 +572,7 @@ router.post('/broker-inventory', async (req, res) => {
 
     // Run calculation in background
     const brokerInventoryService = new BrokerInventoryDataScheduler();
-    brokerInventoryService.generateBrokerInventoryData(dateSuffix, logEntry.id).then(async (result) => {
-      await AzureLogger.logInfo('broker_inventory', `Manual broker inventory calculation completed: ${result.message}`);
+    brokerInventoryService.generateBrokerInventoryData(dateSuffix, logEntry.id, getTriggeredBy(req)).then(async (result) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: result.success ? 'completed' : 'failed',
@@ -608,7 +581,6 @@ router.post('/broker-inventory', async (req, res) => {
         });
       }
     }).catch(async (error) => {
-      await AzureLogger.logSchedulerError('broker_inventory', error.message);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
@@ -644,10 +616,8 @@ router.post('/broker-summary-rg', async (_req, res) => {
       try {
         // Type assertion to fix TypeScript error (method exists but TypeScript doesn't recognize it)
         const result = await (calculator as any).generateBrokerDataForType('RG');
-        await AzureLogger.logInfo('broker_summary_rg', `Manual broker summary RG calculation completed: ${result.message || 'OK'}`);
         console.log(`✅ Broker Summary RG calculation completed: ${result.message}`);
       } catch (error: any) {
-        await AzureLogger.logSchedulerError('broker_summary_rg', error.message);
         console.error(`❌ Broker Summary RG calculation error: ${error.message}`);
       }
     })();
@@ -688,8 +658,7 @@ router.post('/broker-summary-type', async (req, res) => {
     const brokerSummaryTypeService = new BrokerSummaryTypeDataScheduler();
     
     // Execute in background and return immediately
-    brokerSummaryTypeService.generateBrokerSummaryTypeData('all').then(async (result) => {
-      await AzureLogger.logInfo('broker_summary_type', `Manual broker summary type calculation completed: ${result.message || 'OK'}`);
+    brokerSummaryTypeService.generateBrokerSummaryTypeData('all', logEntry.id, getTriggeredBy(req)).then(async (result) => {
       console.log(`✅ Broker Summary Type calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -698,7 +667,6 @@ router.post('/broker-summary-type', async (req, res) => {
         });
       }
     }).catch(async (error: any) => {
-      await AzureLogger.logSchedulerError('broker_summary_type', error.message);
       console.error(`❌ Broker Summary Type calculation error: ${error.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -748,8 +716,7 @@ router.post('/foreign-flow', async (req, res) => {
 
     // Run calculation in background
     const foreignFlowService = new ForeignFlowDataScheduler();
-    foreignFlowService.generateForeignFlowData(dateSuffix).then(async (result) => {
-      await AzureLogger.logInfo('foreign_flow', `Manual foreign flow calculation completed: ${result.message}`);
+    foreignFlowService.generateForeignFlowData(dateSuffix, logEntry.id, getTriggeredBy(req)).then(async (result) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: result.success ? 'completed' : 'failed',
@@ -758,7 +725,6 @@ router.post('/foreign-flow', async (req, res) => {
         });
       }
     }).catch(async (error) => {
-      await AzureLogger.logSchedulerError('foreign_flow', error.message);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
@@ -807,8 +773,7 @@ router.post('/money-flow', async (req, res) => {
 
     // Run calculation in background
     const moneyFlowService = new MoneyFlowDataScheduler();
-    moneyFlowService.generateMoneyFlowData(dateSuffix).then(async (result) => {
-      await AzureLogger.logInfo('money_flow', `Manual money flow calculation completed: ${result.message}`);
+    moneyFlowService.generateMoneyFlowData(dateSuffix, logEntry.id, getTriggeredBy(req)).then(async (result) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: result.success ? 'completed' : 'failed',
@@ -817,7 +782,6 @@ router.post('/money-flow', async (req, res) => {
         });
       }
     }).catch(async (error) => {
-      await AzureLogger.logSchedulerError('money_flow', error.message);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
@@ -1045,10 +1009,8 @@ router.post('/rrc', async (req, res) => {
       });
     }
 
-    preGenerateAllRRC(true, 'manual', logEntry.id || null).then(async () => {
-      await AzureLogger.logInfo('rrc', 'Manual RRC calculation completed');
+    preGenerateAllRRC(true, 'manual', logEntry.id || null, getTriggeredBy(req)).then(async () => {
     }).catch(async (error) => {
-      await AzureLogger.logSchedulerError('rrc', error.message);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
@@ -1092,10 +1054,8 @@ router.post('/rrg', async (req, res) => {
       });
     }
 
-    preGenerateAllRRG(true, 'manual', logEntry.id || null).then(async () => {
-      await AzureLogger.logInfo('rrg', 'Manual RRG calculation completed');
+    preGenerateAllRRG(true, 'manual', logEntry.id || null, getTriggeredBy(req)).then(async () => {
     }).catch(async (error) => {
-      await AzureLogger.logSchedulerError('rrg', error.message);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
@@ -1139,8 +1099,7 @@ router.post('/seasonal', async (req, res) => {
       });
     }
 
-    generateSeasonalityData('manual').then(async () => {
-      await AzureLogger.logInfo('seasonality', 'Manual seasonal calculation completed');
+    generateSeasonalityData('manual', logEntry.id, getTriggeredBy(req)).then(async () => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'completed',
@@ -1148,7 +1107,6 @@ router.post('/seasonal', async (req, res) => {
         });
       }
     }).catch(async (error: any) => {
-      await AzureLogger.logSchedulerError('seasonality', error.message);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
@@ -1193,8 +1151,7 @@ router.post('/trend-filter', async (req, res) => {
     }
 
     const trendFilterService = new TrendFilterDataScheduler();
-    trendFilterService.generateTrendFilterData().then(async (result: any) => {
-      await AzureLogger.logInfo('trend_filter', `Manual trend filter calculation completed: ${result.message}`);
+    trendFilterService.generateTrendFilterData(logEntry.id, getTriggeredBy(req)).then(async (result: any) => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: result.success ? 'completed' : 'failed',
@@ -1203,7 +1160,6 @@ router.post('/trend-filter', async (req, res) => {
         });
       }
     }).catch(async (error: any) => {
-      await AzureLogger.logSchedulerError('trend_filter', error.message);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
@@ -1248,8 +1204,7 @@ router.post('/watchlist-snapshot', async (req, res) => {
     }
 
     // Run watchlist snapshot generation in background
-    updateWatchlistSnapshot().then(async () => {
-      await AzureLogger.logInfo('watchlist_snapshot', 'Manual watchlist snapshot generation completed');
+    updateWatchlistSnapshot(logEntry.id, getTriggeredBy(req)).then(async () => {
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'completed',
@@ -1258,7 +1213,6 @@ router.post('/watchlist-snapshot', async (req, res) => {
         });
       }
     }).catch(async (error: any) => {
-      await AzureLogger.logSchedulerError('watchlist_snapshot', error.message);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
           status: 'failed',
@@ -1283,14 +1237,14 @@ router.post('/watchlist-snapshot', async (req, res) => {
 });
 
 // Manual trigger for Broker Transaction IDX calculation
-router.post('/broker-transaction-idx', async (_req, res) => {
+router.post('/broker-transaction-idx', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction IDX calculation');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_idx',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1305,8 +1259,7 @@ router.post('/broker-transaction-idx', async (_req, res) => {
     const brokerTransactionIDXService = new BrokerTransactionIDXDataScheduler();
     
     // Execute in background and return immediately
-    brokerTransactionIDXService.generateBrokerTransactionIDXData('all').then(async (result: { success: boolean; message?: string; data?: any }) => {
-      await AzureLogger.logInfo('broker_transaction_idx', `Manual broker transaction IDX calculation completed: ${result.message || 'OK'}`);
+    brokerTransactionIDXService.generateBrokerTransactionIDXData('all', logEntry.id, getTriggeredBy(req)).then(async (result: { success: boolean; message?: string; data?: any }) => {
       console.log(`✅ Broker Transaction IDX calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1317,7 +1270,6 @@ router.post('/broker-transaction-idx', async (_req, res) => {
       }
     }).catch(async (error: any) => {
       const errorMessage = error?.message || error?.toString() || 'Unknown error';
-      await AzureLogger.logSchedulerError('broker_transaction_idx', errorMessage);
       console.error(`❌ Broker Transaction IDX calculation error: ${errorMessage}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1343,14 +1295,14 @@ router.post('/broker-transaction-idx', async (_req, res) => {
 });
 
 // Manual trigger for Broker Transaction Stock IDX calculation
-router.post('/broker-transaction-stock-idx', async (_req, res) => {
+router.post('/broker-transaction-stock-idx', async (req, res) => {
   try {
     console.log('🔄 Manual trigger: Broker Transaction Stock IDX calculation');
     
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'broker_transaction_stock_idx',
       trigger_type: 'manual',
-      triggered_by: 'admin',
+      triggered_by: getTriggeredBy(req),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });
@@ -1365,8 +1317,7 @@ router.post('/broker-transaction-stock-idx', async (_req, res) => {
     const brokerTransactionStockIDXService = new BrokerTransactionStockIDXDataScheduler();
     
     // Execute in background and return immediately
-    brokerTransactionStockIDXService.generateBrokerTransactionStockIDXData('all').then(async (result: { success: boolean; message?: string }) => {
-      await AzureLogger.logInfo('broker_transaction_stock_idx', `Manual broker transaction stock IDX calculation completed: ${result.message || 'OK'}`);
+    brokerTransactionStockIDXService.generateBrokerTransactionStockIDXData('all', logEntry.id, getTriggeredBy(req)).then(async (result: { success: boolean; message?: string }) => {
       console.log(`✅ Broker Transaction Stock IDX calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1377,7 +1328,6 @@ router.post('/broker-transaction-stock-idx', async (_req, res) => {
       }
     }).catch(async (error: any) => {
       const errorMessage = error?.message || error?.toString() || 'Unknown error';
-      await AzureLogger.logSchedulerError('broker_transaction_stock_idx', errorMessage);
       console.error(`❌ Broker Transaction Stock IDX calculation error: ${errorMessage}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1425,8 +1375,7 @@ router.post('/broker-summary-idx', async (req, res) => {
     const brokerSummaryIDXService = new BrokerSummaryIDXDataScheduler();
     
     // Execute in background and return immediately
-    brokerSummaryIDXService.generateBrokerSummaryIDXData('all').then(async (result) => {
-      await AzureLogger.logInfo('broker_summary_idx', `Manual broker summary IDX calculation completed: ${result.message || 'OK'}`);
+    brokerSummaryIDXService.generateBrokerSummaryIDXData('all', logEntry.id, getTriggeredBy(req)).then(async (result) => {
       console.log(`✅ Broker Summary IDX calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1437,7 +1386,6 @@ router.post('/broker-summary-idx', async (req, res) => {
       }
     }).catch(async (error: any) => {
       const errorMessage = error?.message || error?.toString() || 'Unknown error';
-      await AzureLogger.logSchedulerError('broker_summary_idx', errorMessage);
       console.error(`❌ Broker Summary IDX calculation error: ${errorMessage}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1486,8 +1434,7 @@ router.post('/broker-transaction', async (req, res) => {
     
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
-    brokerTransactionService.generateBrokerTransactionData(undefined, logEntry.id || null).then(async (result) => {
-      await AzureLogger.logInfo('broker_transaction', `Manual broker transaction calculation completed: ${result.message || 'OK'}`);
+    brokerTransactionService.generateBrokerTransactionData(undefined, logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
       console.log(`✅ Broker Transaction calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1497,7 +1444,6 @@ router.post('/broker-transaction', async (req, res) => {
         });
       }
     }).catch(async (error: any) => {
-      await AzureLogger.logSchedulerError('broker_transaction', error.message);
       console.error(`❌ Broker Transaction calculation error: ${error.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1545,8 +1491,7 @@ router.post('/broker-transaction-rgtnng', async (req, res) => {
     
     // Execute in background and return immediately
     // Pass undefined to process all DT files (as per generateBrokerTransactionRGTNNGData implementation)
-    brokerTransactionRGTNNGService.generateBrokerTransactionRGTNNGData(undefined).then(async (result) => {
-      await AzureLogger.logInfo('broker_transaction_rgtnng', `Manual broker transaction RG/TN/NG calculation completed: ${result.message || 'OK'}`);
+    brokerTransactionRGTNNGService.generateBrokerTransactionRGTNNGData(undefined, logEntry.id, getTriggeredBy(req)).then(async (result) => {
       console.log(`✅ Broker Transaction RG/TN/NG calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1556,7 +1501,6 @@ router.post('/broker-transaction-rgtnng', async (req, res) => {
         });
       }
     }).catch(async (error: any) => {
-      await AzureLogger.logSchedulerError('broker_transaction_rgtnng', error.message);
       console.error(`❌ Broker Transaction RG/TN/NG calculation error: ${error.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1605,7 +1549,6 @@ router.post('/broker-transaction-fd', async (req, res) => {
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
     brokerTransactionFDService.generateBrokerTransactionData(undefined, logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
-      await AzureLogger.logInfo('broker_transaction_fd', `Manual broker transaction F/D calculation completed: ${result.message || 'OK'}`);
       console.log(`✅ Broker Transaction F/D calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1615,7 +1558,6 @@ router.post('/broker-transaction-fd', async (req, res) => {
         });
       }
     }).catch(async (error: any) => {
-      await AzureLogger.logSchedulerError('broker_transaction_fd', error.message);
       console.error(`❌ Broker Transaction F/D calculation error: ${error.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1664,7 +1606,6 @@ router.post('/broker-transaction-fd-rgtnng', async (req, res) => {
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
     brokerTransactionFDRGTNNGService.generateBrokerTransactionData(undefined, logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
-      await AzureLogger.logInfo('broker_transaction_fd_rgtnng', `Manual broker transaction F/D RG/TN/NG calculation completed: ${result.message || 'OK'}`);
       console.log(`✅ Broker Transaction F/D RG/TN/NG calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1674,7 +1615,6 @@ router.post('/broker-transaction-fd-rgtnng', async (req, res) => {
         });
       }
     }).catch(async (error: any) => {
-      await AzureLogger.logSchedulerError('broker_transaction_fd_rgtnng', error.message);
       console.error(`❌ Broker Transaction F/D RG/TN/NG calculation error: ${error.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1723,7 +1663,6 @@ router.post('/broker-transaction-stock', async (req, res) => {
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
     brokerTransactionStockService.generateBrokerTransactionData(undefined, logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
-      await AzureLogger.logInfo('broker_transaction_stock', `Manual broker transaction stock calculation completed: ${result.message || 'OK'}`);
       console.log(`✅ Broker Transaction Stock calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1733,7 +1672,6 @@ router.post('/broker-transaction-stock', async (req, res) => {
         });
       }
     }).catch(async (error: any) => {
-      await AzureLogger.logSchedulerError('broker_transaction_stock', error.message);
       console.error(`❌ Broker Transaction Stock calculation error: ${error.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1782,7 +1720,6 @@ router.post('/broker-transaction-stock-fd', async (req, res) => {
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
     brokerTransactionStockFDService.generateBrokerTransactionData(undefined, logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
-      await AzureLogger.logInfo('broker_transaction_stock_fd', `Manual broker transaction stock F/D calculation completed: ${result.message || 'OK'}`);
       console.log(`✅ Broker Transaction Stock F/D calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1792,7 +1729,6 @@ router.post('/broker-transaction-stock-fd', async (req, res) => {
         });
       }
     }).catch(async (error: any) => {
-      await AzureLogger.logSchedulerError('broker_transaction_stock_fd', error.message);
       console.error(`❌ Broker Transaction Stock F/D calculation error: ${error.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1841,7 +1777,6 @@ router.post('/broker-transaction-stock-rgtnng', async (req, res) => {
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
     brokerTransactionStockRGTNNGService.generateBrokerTransactionData(undefined, logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
-      await AzureLogger.logInfo('broker_transaction_stock_rgtnng', `Manual broker transaction stock RG/TN/NG calculation completed: ${result.message || 'OK'}`);
       console.log(`✅ Broker Transaction Stock RG/TN/NG calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1851,7 +1786,6 @@ router.post('/broker-transaction-stock-rgtnng', async (req, res) => {
         });
       }
     }).catch(async (error: any) => {
-      await AzureLogger.logSchedulerError('broker_transaction_stock_rgtnng', error.message);
       console.error(`❌ Broker Transaction Stock RG/TN/NG calculation error: ${error.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1900,7 +1834,6 @@ router.post('/broker-transaction-stock-fd-rgtnng', async (req, res) => {
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
     brokerTransactionStockFDRGTNNGService.generateBrokerTransactionData(undefined, logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
-      await AzureLogger.logInfo('broker_transaction_stock_fd_rgtnng', `Manual broker transaction stock F/D RG/TN/NG calculation completed: ${result.message || 'OK'}`);
       console.log(`✅ Broker Transaction Stock F/D RG/TN/NG calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1910,7 +1843,6 @@ router.post('/broker-transaction-stock-fd-rgtnng', async (req, res) => {
         });
       }
     }).catch(async (error: any) => {
-      await AzureLogger.logSchedulerError('broker_transaction_stock_fd_rgtnng', error.message);
       console.error(`❌ Broker Transaction Stock F/D RG/TN/NG calculation error: ${error.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1959,7 +1891,6 @@ router.post('/break-done-trade', async (req, res) => {
     // Execute in background and return immediately
     // Pass undefined to process all DT files, and logId to enable progress tracking
     breakDoneTradeService.generateBreakDoneTradeData(undefined, logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
-      await AzureLogger.logInfo('break_done_trade', `Manual break done trade calculation completed: ${result.message || 'OK'}`);
       console.log(`✅ Break Done Trade calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -1969,7 +1900,6 @@ router.post('/break-done-trade', async (req, res) => {
         });
       }
     }).catch(async (error: any) => {
-      await AzureLogger.logSchedulerError('break_done_trade', error.message);
       console.error(`❌ Break Done Trade calculation error: ${error.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -2017,7 +1947,6 @@ router.post('/broker-summary-sector', async (req, res) => {
     
     // Execute in background and return immediately
     brokerSummarySectorService.generateBrokerSummarySectorData('all', logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
-      await AzureLogger.logInfo('broker_summary_sector', `Manual broker summary sector calculation completed: ${result.message || 'OK'}`);
       console.log(`✅ Broker Summary Sector calculation completed: ${result.message}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {
@@ -2028,7 +1957,6 @@ router.post('/broker-summary-sector', async (req, res) => {
       }
     }).catch(async (error: any) => {
       const errorMessage = error?.message || error?.toString() || 'Unknown error';
-      await AzureLogger.logSchedulerError('broker_summary_sector', errorMessage);
       console.error(`❌ Broker Summary Sector calculation error: ${errorMessage}`);
       if (logEntry.id) {
         await SchedulerLogService.updateLog(logEntry.id, {

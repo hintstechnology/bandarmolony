@@ -39,8 +39,8 @@ export async function forceRegenerate(triggerType: 'startup' | 'scheduled' | 'ma
   if (!finalLogId) {
     const logEntry = await SchedulerLogService.createLog({
       feature_name: 'seasonality',
-      trigger_type: triggerType,
-      triggered_by: triggeredBy || (triggerType === 'manual' || triggerType === 'debug' ? 'user' : 'system'),
+      trigger_type: triggeredBy && !triggeredBy.startsWith('Phase') && !triggeredBy.startsWith('phase') ? 'manual' : 'scheduled',
+      triggered_by: triggeredBy || (triggerType === 'manual' || triggerType === 'debug' ? 'user' : 'Phase 2 Market Rotation'),
       status: 'running',
       environment: process.env['NODE_ENV'] || 'development'
     });

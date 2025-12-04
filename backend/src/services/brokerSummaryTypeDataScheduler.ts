@@ -16,8 +16,8 @@ class BrokerSummaryTypeDataScheduler {
     if (!finalLogId) {
       const logEntry = await SchedulerLogService.createLog({
         feature_name: 'broker_summary_type',
-        trigger_type: triggeredBy ? 'manual' : 'scheduled',
-        triggered_by: triggeredBy || 'system',
+        trigger_type: triggeredBy && !triggeredBy.startsWith('Phase') && !triggeredBy.startsWith('phase') ? 'manual' : 'scheduled',
+        triggered_by: triggeredBy || 'Phase 4 Broker Summary',
         status: 'running',
         environment: process.env['NODE_ENV'] || 'development'
       });
@@ -47,7 +47,7 @@ class BrokerSummaryTypeDataScheduler {
       const result = await (this.calculator as any).generateBrokerSummarySplitPerType(finalLogId);
       
       // Check if this is called from a Phase (don't mark completed/failed if so, Phase will handle it)
-      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      const isFromPhase = triggeredBy && (triggeredBy.startsWith('Phase') || triggeredBy.startsWith('phase'));
       
       if (result.success) {
         console.log(`✅ Broker Summary Type calculation completed: ${result.message || 'Success'}`);
@@ -70,7 +70,7 @@ class BrokerSummaryTypeDataScheduler {
       const errorMessage = error?.message || 'Unknown error';
       console.error('❌ Broker Summary by Type generation failed:', errorMessage);
       // Check if this is called from a Phase (don't mark failed if so, Phase will handle it)
-      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      const isFromPhase = triggeredBy && (triggeredBy.startsWith('Phase') || triggeredBy.startsWith('phase'));
       if (finalLogId && !isFromPhase) {
         await SchedulerLogService.markFailed(finalLogId, errorMessage, error);
       }

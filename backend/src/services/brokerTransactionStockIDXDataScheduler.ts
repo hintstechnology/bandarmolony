@@ -67,8 +67,8 @@ class BrokerTransactionStockIDXDataScheduler {
     if (!finalLogId) {
       const logEntry = await SchedulerLogService.createLog({
         feature_name: 'broker_transaction_stock_idx',
-        trigger_type: triggeredBy ? 'manual' : 'scheduled',
-        triggered_by: triggeredBy || 'system',
+        trigger_type: triggeredBy && !triggeredBy.startsWith('Phase') && !triggeredBy.startsWith('phase') ? 'manual' : 'scheduled',
+        triggered_by: triggeredBy || 'Phase 6 Broktrans Stock',
         status: 'running',
         environment: process.env['NODE_ENV'] || 'development'
       });
@@ -100,7 +100,7 @@ class BrokerTransactionStockIDXDataScheduler {
       if (dates.length === 0) {
         console.log('⚠️ No dates found with broker transaction stock data');
         // Check if this is called from a Phase (don't mark failed if so, Phase will handle it)
-        const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+        const isFromPhase = triggeredBy && (triggeredBy.startsWith('Phase') || triggeredBy.startsWith('phase'));
         if (finalLogId && !isFromPhase) {
           await SchedulerLogService.markFailed(finalLogId, 'No dates found with broker transaction stock data');
         }
@@ -222,7 +222,7 @@ class BrokerTransactionStockIDXDataScheduler {
       console.log(`❌ Total Failed: ${totalFailed}/${totalProcessed}`);
 
       // Check if this is called from a Phase (don't mark completed/failed if so, Phase will handle it)
-      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      const isFromPhase = triggeredBy && (triggeredBy.startsWith('Phase') || triggeredBy.startsWith('phase'));
       if (finalLogId && !isFromPhase) {
         if (totalSuccess > 0) {
           await SchedulerLogService.markCompleted(finalLogId, {
@@ -249,7 +249,7 @@ class BrokerTransactionStockIDXDataScheduler {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       console.error('❌ Error generating Broker Transaction Stock IDX data:', errorMessage);
       // Check if this is called from a Phase (don't mark failed if so, Phase will handle it)
-      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      const isFromPhase = triggeredBy && (triggeredBy.startsWith('Phase') || triggeredBy.startsWith('phase'));
       if (finalLogId && !isFromPhase) {
         await SchedulerLogService.markFailed(finalLogId, errorMessage, error);
       }
