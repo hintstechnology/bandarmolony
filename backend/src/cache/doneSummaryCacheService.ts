@@ -39,6 +39,16 @@ class DoneSummaryCacheService {
     timestamp: number;
   } | null = null;
   
+  // Active processing dates - track tanggal yang sedang diproses oleh kalkulasi
+  // Bisa multiple dates jika ada multiple kalkulasi parallel
+  private activeProcessingDates: Set<string> = new Set();
+  
+  // Track last access time untuk setiap tanggal (untuk auto-cleanup)
+  private dateLastAccess: Map<string, number> = new Map();
+  
+  // Auto-cleanup threshold: remove tanggal yang tidak dipanggil lagi selama 1 jam
+  private readonly DATE_INACTIVE_THRESHOLD = 60 * 60 * 1000; // 1 hour in milliseconds
+  
   // Statistics
   private stats = {
     cacheHits: 0,
@@ -58,12 +68,113 @@ class DoneSummaryCacheService {
   private currentCacheSize = 0;
   
   /**
+   * Add active processing date - tanggal yang sedang diproses oleh kalkulasi
+   * Cache akan hanya menyimpan tanggal yang ada di activeProcessingDates
+   * @param date Date string in YYYYMMDD format (e.g., '20251021')
+   */
+  addActiveProcessingDate(date: string): void {
+    if (!this.activeProcessingDates.has(date)) {
+      this.activeProcessingDates.add(date);
+      console.log(`📅 Done Summary Cache: Added active processing date ${date} (total: ${this.activeProcessingDates.size})`);
+    }
+    // Update last access time
+    this.dateLastAccess.set(date, Date.now());
+  }
+  
+  /**
+   * Remove active processing date - tanggal sudah selesai diproses
+   * Auto-clear cache untuk tanggal ini
+   * @param date Date string in YYYYMMDD format (e.g., '20251021')
+   */
+  removeActiveProcessingDate(date: string): void {
+    if (this.activeProcessingDates.has(date)) {
+      this.activeProcessingDates.delete(date);
+      this.dateLastAccess.delete(date);
+      // Clear cache for this date
+      this.clearDate(date);
+      console.log(`📅 Done Summary Cache: Removed active processing date ${date} (total: ${this.activeProcessingDates.size})`);
+    }
+  }
+  
+  /**
+   * Auto-cleanup: Remove tanggal yang sudah lama tidak dipanggil
+   * Dipanggil secara periodik atau saat evict old entries
+   */
+  private autoCleanupInactiveDates(): void {
+    const now = Date.now();
+    const datesToRemove: string[] = [];
+    
+    for (const [date, lastAccess] of this.dateLastAccess.entries()) {
+      // Jika tanggal tidak dipanggil lagi selama 1 jam, remove
+      if (now - lastAccess > this.DATE_INACTIVE_THRESHOLD) {
+        datesToRemove.push(date);
+      }
+    }
+    
+    // Remove inactive dates
+    for (const date of datesToRemove) {
+      this.removeActiveProcessingDate(date);
+    }
+    
+    if (datesToRemove.length > 0) {
+      console.log(`🧹 Auto-cleaned ${datesToRemove.length} inactive dates: ${datesToRemove.join(', ')}`);
+    }
+  }
+  
+  /**
+   * Get active processing dates
+   */
+  getActiveProcessingDates(): string[] {
+    return Array.from(this.activeProcessingDates);
+  }
+  
+  /**
+   * Check if date is currently being processed
+   */
+  isDateActive(date: string): boolean {
+    return this.activeProcessingDates.has(date);
+  }
+  
+  /**
+   * Extract date from blob name
+   * @param blobName Full blob path (e.g., 'done-summary/20251021/DT251021.csv')
+   * @returns Date string in YYYYMMDD format or null
+   */
+  private extractDateFromBlobName(blobName: string): string | null {
+    const pathParts = blobName.split('/');
+    if (pathParts.length >= 2 && pathParts[0] === 'done-summary') {
+      const dateFolder = pathParts[1];
+      // Check if it's a valid date format (YYYYMMDD)
+      if (dateFolder && /^\d{8}$/.test(dateFolder)) {
+        return dateFolder;
+      }
+    }
+    return null;
+  }
+  
+  /**
    * Get raw CSV content from cache or Azure
+   * OPTIMIZED: Auto-detect tanggal dari blobName dan hanya cache jika tanggal aktif
    * @param blobName Full blob path (e.g., 'done-summary/20251021/DT251021.csv')
    * @returns CSV content as string
    */
   async getRawContent(blobName: string): Promise<string | null> {
-    // Check cache first
+    // Extract date from blob name
+    const fileDate = this.extractDateFromBlobName(blobName);
+    
+    // Auto-add tanggal ke activeProcessingDates jika belum ada
+    // Ini memungkinkan kalkulasi tidak perlu set manual, cukup panggil getRawContent
+    if (fileDate) {
+      if (!this.isDateActive(fileDate)) {
+        // Auto-add tanggal yang dipanggil ke active dates
+        this.addActiveProcessingDate(fileDate);
+      } else {
+        // Update last access time untuk tanggal yang sudah aktif
+        this.dateLastAccess.set(fileDate, Date.now());
+      }
+    }
+    
+    // Check cache first (only for current processing date)
     const cached = this.rawContentCache.get(blobName);
     if (cached && (Date.now() - cached.timestamp) < this.CACHE_TTL) {
       this.stats.cacheHits++;
@@ -87,21 +198,27 @@ class DoneSummaryCacheService {
       this.stats.totalLoads++;
       this.stats.totalBytesLoaded += size;
       
-      // Check if we need to evict old entries to make room
-      if (this.currentCacheSize + size > this.MAX_CACHE_SIZE) {
-        await this.evictOldEntries(size);
+      // Only cache if date is active (sedang diproses)
+      if (fileDate && this.isDateActive(fileDate)) {
+        // Check if we need to evict old entries to make room
+        if (this.currentCacheSize + size > this.MAX_CACHE_SIZE) {
+          await this.evictOldEntries(size);
+        }
+        
+        // Store in cache
+        this.rawContentCache.set(blobName, {
+          content,
+          timestamp: Date.now(),
+          size
+        });
+        
+        this.currentCacheSize += size;
+        
+        console.log(`✅ Loaded and cached: ${blobName} (${(size / 1024).toFixed(2)} KB)`);
+      } else {
+        console.log(`✅ Loaded (not cached): ${blobName} (${(size / 1024).toFixed(2)} KB)`);
       }
       
-      // Store in cache
-      this.rawContentCache.set(blobName, {
-        content,
-        timestamp: Date.now(),
-        size
-      });
-      
-      this.currentCacheSize += size;
-      
-      console.log(`✅ Loaded and cached: ${blobName} (${(size / 1024).toFixed(2)} KB)`);
       return content;
       
     } catch (error) {
@@ -112,6 +229,7 @@ class DoneSummaryCacheService {
   
   /**
    * Get parsed transaction data from cache or parse from raw content
+   * OPTIMIZED: Hanya cache tanggal yang sedang diproses
    * @param blobName Full blob path
    * @param parser Function to parse CSV content to transaction data
    * @returns Parsed transaction data array
@@ -120,12 +238,18 @@ class DoneSummaryCacheService {
     blobName: string,
     parser: (content: string) => T[]
   ): Promise<T[] | null> {
-    // Check parsed cache first
-    const parsedCached = this.parsedDataCache.get(blobName);
-    if (parsedCached && (Date.now() - parsedCached.timestamp) < this.CACHE_TTL) {
-      this.stats.cacheHits++;
-      console.log(`📦 Parsed Cache HIT: ${blobName} (${parsedCached.data.length} records)`);
-      return parsedCached.data;
+    // Extract date from blob name
+    const fileDate = this.extractDateFromBlobName(blobName);
+    
+    // Only use parsed cache if date is active (sedang diproses)
+    if (fileDate && this.isDateActive(fileDate)) {
+      // Check parsed cache first
+      const parsedCached = this.parsedDataCache.get(blobName);
+      if (parsedCached && (Date.now() - parsedCached.timestamp) < this.CACHE_TTL) {
+        this.stats.cacheHits++;
+        console.log(`📦 Parsed Cache HIT: ${blobName} (${parsedCached.data.length} records)`);
+        return parsedCached.data;
+      }
     }
     
     // Get raw content (will use cache if available)
@@ -137,24 +261,30 @@ class DoneSummaryCacheService {
     // Parse content
     const data = parser(content);
     
-    // Estimate size (rough calculation)
-    const estimatedSize = data.length * 200; // ~200 bytes per record estimate
-    
-    // Check if we need to evict old parsed entries
-    if (this.currentCacheSize + estimatedSize > this.MAX_CACHE_SIZE) {
-      await this.evictOldParsedEntries(estimatedSize);
+    // Only cache parsed data if date is active (sedang diproses)
+    if (fileDate && this.isDateActive(fileDate)) {
+      // Estimate size (rough calculation)
+      const estimatedSize = data.length * 200; // ~200 bytes per record estimate
+      
+      // Check if we need to evict old parsed entries
+      if (this.currentCacheSize + estimatedSize > this.MAX_CACHE_SIZE) {
+        await this.evictOldParsedEntries(estimatedSize);
+      }
+      
+      // Store parsed data in cache
+      this.parsedDataCache.set(blobName, {
+        data,
+        timestamp: Date.now(),
+        size: estimatedSize
+      });
+      
+      this.currentCacheSize += estimatedSize;
+      
+      console.log(`✅ Parsed and cached: ${blobName} (${data.length} records)`);
+    } else {
+      console.log(`✅ Parsed (not cached): ${blobName} (${data.length} records)`);
     }
     
-    // Store parsed data in cache
-    this.parsedDataCache.set(blobName, {
-      data,
-      timestamp: Date.now(),
-      size: estimatedSize
-    });
-    
-    this.currentCacheSize += estimatedSize;
-    
-    console.log(`✅ Parsed and cached: ${blobName} (${data.length} records)`);
     return data;
   }
   
@@ -206,10 +336,24 @@ class DoneSummaryCacheService {
   private async evictOldEntries(requiredSize: number): Promise<void> {
     console.log(`🧹 Evicting old cache entries to free ${(requiredSize / 1024 / 1024).toFixed(2)} MB...`);
     
+    // Auto-cleanup inactive dates sebelum evict
+    this.autoCleanupInactiveDates();
+    
     // Sort entries by timestamp (oldest first)
+    // Prioritize entries from inactive dates (jika masih ada setelah cleanup)
     const entries = Array.from(this.rawContentCache.entries())
-      .map(([key, value]) => ({ key, ...value }))
-      .sort((a, b) => a.timestamp - b.timestamp);
+      .map(([key, value]) => {
+        const fileDate = this.extractDateFromBlobName(key);
+        const isActive = fileDate ? this.isDateActive(fileDate) : true;
+        return { key, ...value, isActive, fileDate };
+      })
+      .sort((a, b) => {
+        // First: inactive dates first, then by timestamp
+        if (a.isActive !== b.isActive) {
+          return a.isActive ? 1 : -1; // inactive first
+        }
+        return a.timestamp - b.timestamp; // oldest first
+      });
     
     let freedSize = 0;
     let evictedCount = 0;
@@ -265,6 +409,8 @@ class DoneSummaryCacheService {
     this.rawContentCache.clear();
     this.parsedDataCache.clear();
     this.dtFilesListCache = null;
+    this.activeProcessingDates.clear();
+    this.dateLastAccess.clear();
     this.currentCacheSize = 0;
     console.log('✅ All caches cleared');
   }
