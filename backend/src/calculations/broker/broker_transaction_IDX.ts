@@ -212,7 +212,8 @@ export class BrokerTransactionIDXCalculator {
       NSLotPerOrdNum: 0
     };
 
-    // Sum all volumes, values, and counts
+    // IMPORTANT: Only sum BuyerVol, BuyerValue, SellerVol, SellerValue, and frequency/order counts
+    // NetBuy/NetSell will be recalculated from aggregated totals
     allBrokerData.forEach(row => {
       aggregated.BuyerVol += row.BuyerVol || 0;
       aggregated.BuyerValue += row.BuyerValue || 0;
@@ -227,19 +228,41 @@ export class BrokerTransactionIDXCalculator {
       aggregated.OldSellerOrdNum += row.OldSellerOrdNum || 0;
       aggregated.SellerOrdNum += row.SellerOrdNum || 0;
       aggregated.SLot += row.SLot || 0;
-      
-      aggregated.NetBuyVol += row.NetBuyVol || 0;
-      aggregated.NetBuyValue += row.NetBuyValue || 0;
-      aggregated.NetBuyFreq += row.NetBuyFreq || 0;
-      aggregated.NetBuyOrdNum += row.NetBuyOrdNum || 0;
-      aggregated.NBLot += row.NBLot || 0;
-      
-      aggregated.NetSellVol += row.NetSellVol || 0;
-      aggregated.NetSellValue += row.NetSellValue || 0;
-      aggregated.NetSellFreq += row.NetSellFreq || 0;
-      aggregated.NetSellOrdNum += row.NetSellOrdNum || 0;
-      aggregated.NSLot += row.NSLot || 0;
     });
+
+    // Calculate NetBuy/NetSell from aggregated BuyerVol/SellerVol
+    // NetBuy = Buy - Sell, if negative then 0
+    // NetSell = Sell - Buy, if negative then 0
+    const rawNetBuyVol = aggregated.BuyerVol - aggregated.SellerVol;
+    const rawNetBuyValue = aggregated.BuyerValue - aggregated.SellerValue;
+    const rawNetBuyFreq = aggregated.BuyerFreq - aggregated.SellerFreq;
+    const rawNetBuyOrdNum = aggregated.BuyerOrdNum - aggregated.SellerOrdNum;
+    
+    if (rawNetBuyVol < 0 || rawNetBuyValue < 0) {
+      // NetBuy is negative, so it becomes NetSell
+      aggregated.NetSellVol = Math.abs(rawNetBuyVol);
+      aggregated.NetSellValue = Math.abs(rawNetBuyValue);
+      aggregated.NetSellFreq = Math.abs(rawNetBuyFreq);
+      aggregated.NetSellOrdNum = Math.abs(rawNetBuyOrdNum);
+      aggregated.NetBuyVol = 0;
+      aggregated.NetBuyValue = 0;
+      aggregated.NetBuyFreq = 0;
+      aggregated.NetBuyOrdNum = 0;
+    } else {
+      // NetBuy is positive or zero, keep it and NetSell is 0
+      aggregated.NetBuyVol = rawNetBuyVol;
+      aggregated.NetBuyValue = rawNetBuyValue;
+      aggregated.NetBuyFreq = rawNetBuyFreq;
+      aggregated.NetBuyOrdNum = rawNetBuyOrdNum;
+      aggregated.NetSellVol = 0;
+      aggregated.NetSellValue = 0;
+      aggregated.NetSellFreq = 0;
+      aggregated.NetSellOrdNum = 0;
+    }
+    
+    // Recalculate lots from volumes
+    aggregated.NBLot = aggregated.NetBuyVol / 100;
+    aggregated.NSLot = aggregated.NetSellVol / 100;
 
     // Recalculate averages from aggregated totals
     aggregated.BuyerAvg = aggregated.BuyerVol > 0 ? aggregated.BuyerValue / aggregated.BuyerVol : 0;

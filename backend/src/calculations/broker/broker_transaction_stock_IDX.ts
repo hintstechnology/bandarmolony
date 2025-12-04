@@ -173,6 +173,8 @@ export class BrokerTransactionStockIDXCalculator {
    */
   private aggregateBrokerData(allBrokerData: BrokerTransactionData[]): BrokerTransactionData[] {
     // Map to aggregate data per broker
+    // IMPORTANT: Only aggregate BuyerVol, BuyerValue, SellerVol, SellerValue, and frequency/order counts
+    // NetBuy/NetSell will be recalculated from aggregated totals
     const brokerMap = new Map<string, {
       BuyerVol: number;
       BuyerValue: number;
@@ -186,19 +188,9 @@ export class BrokerTransactionStockIDXCalculator {
       OldSellerOrdNum: number;
       SellerOrdNum: number;
       SLot: number;
-      NetBuyVol: number;
-      NetBuyValue: number;
-      NetBuyFreq: number;
-      NetBuyOrdNum: number;
-      NBLot: number;
-      NetSellVol: number;
-      NetSellValue: number;
-      NetSellFreq: number;
-      NetSellOrdNum: number;
-      NSLot: number;
     }>();
 
-    // Sum all data per broker
+    // Sum only BuyerVol, BuyerValue, SellerVol, SellerValue, and frequency/order counts per broker
     allBrokerData.forEach(row => {
       const broker = row.Broker;
       if (!broker) return;
@@ -217,16 +209,6 @@ export class BrokerTransactionStockIDXCalculator {
         existing.OldSellerOrdNum += row.OldSellerOrdNum || 0;
         existing.SellerOrdNum += row.SellerOrdNum || 0;
         existing.SLot += row.SLot || 0;
-        existing.NetBuyVol += row.NetBuyVol || 0;
-        existing.NetBuyValue += row.NetBuyValue || 0;
-        existing.NetBuyFreq += row.NetBuyFreq || 0;
-        existing.NetBuyOrdNum += row.NetBuyOrdNum || 0;
-        existing.NBLot += row.NBLot || 0;
-        existing.NetSellVol += row.NetSellVol || 0;
-        existing.NetSellValue += row.NetSellValue || 0;
-        existing.NetSellFreq += row.NetSellFreq || 0;
-        existing.NetSellOrdNum += row.NetSellOrdNum || 0;
-        existing.NSLot += row.NSLot || 0;
       } else {
         brokerMap.set(broker, {
           BuyerVol: row.BuyerVol || 0,
@@ -240,39 +222,73 @@ export class BrokerTransactionStockIDXCalculator {
           SellerFreq: row.SellerFreq || 0,
           OldSellerOrdNum: row.OldSellerOrdNum || 0,
           SellerOrdNum: row.SellerOrdNum || 0,
-          SLot: row.SLot || 0,
-          NetBuyVol: row.NetBuyVol || 0,
-          NetBuyValue: row.NetBuyValue || 0,
-          NetBuyFreq: row.NetBuyFreq || 0,
-          NetBuyOrdNum: row.NetBuyOrdNum || 0,
-          NBLot: row.NBLot || 0,
-          NetSellVol: row.NetSellVol || 0,
-          NetSellValue: row.NetSellValue || 0,
-          NetSellFreq: row.NetSellFreq || 0,
-          NetSellOrdNum: row.NetSellOrdNum || 0,
-          NSLot: row.NSLot || 0
+          SLot: row.SLot || 0
         });
       }
     });
 
-    // Convert aggregated data to BrokerTransactionData array and calculate averages
+    // Convert aggregated data to BrokerTransactionData array
+    // Recalculate NetBuy/NetSell and all averages from aggregated totals
     const aggregatedSummary: BrokerTransactionData[] = [];
     brokerMap.forEach((data, broker) => {
+      // Calculate NetBuy/NetSell from aggregated BuyerVol/SellerVol
+      // NetBuy = Buy - Sell, if negative then 0
+      // NetSell = Sell - Buy, if negative then 0
+      const rawNetBuyVol = data.BuyerVol - data.SellerVol;
+      const rawNetBuyValue = data.BuyerValue - data.SellerValue;
+      const rawNetBuyFreq = data.BuyerFreq - data.SellerFreq;
+      const rawNetBuyOrdNum = data.BuyerOrdNum - data.SellerOrdNum;
+      
+      let netBuyVol = 0;
+      let netBuyValue = 0;
+      let netBuyFreq = 0;
+      let netBuyOrdNum = 0;
+      let netSellVol = 0;
+      let netSellValue = 0;
+      let netSellFreq = 0;
+      let netSellOrdNum = 0;
+      
+      if (rawNetBuyVol < 0 || rawNetBuyValue < 0) {
+        // NetBuy is negative, so it becomes NetSell
+        netSellVol = Math.abs(rawNetBuyVol);
+        netSellValue = Math.abs(rawNetBuyValue);
+        netSellFreq = Math.abs(rawNetBuyFreq);
+        netSellOrdNum = Math.abs(rawNetBuyOrdNum);
+        netBuyVol = 0;
+        netBuyValue = 0;
+        netBuyFreq = 0;
+        netBuyOrdNum = 0;
+      } else {
+        // NetBuy is positive or zero, keep it and NetSell is 0
+        netBuyVol = rawNetBuyVol;
+        netBuyValue = rawNetBuyValue;
+        netBuyFreq = rawNetBuyFreq;
+        netBuyOrdNum = rawNetBuyOrdNum;
+        netSellVol = 0;
+        netSellValue = 0;
+        netSellFreq = 0;
+        netSellOrdNum = 0;
+      }
+      
+      // Recalculate lots from volumes
+      const nblot = netBuyVol / 100;
+      const nslot = netSellVol / 100;
+      
       // Recalculate averages from aggregated totals
       const buyerAvg = data.BuyerVol > 0 ? data.BuyerValue / data.BuyerVol : 0;
       const sellerAvg = data.SellerVol > 0 ? data.SellerValue / data.SellerVol : 0;
-      const netBuyAvg = data.NetBuyVol > 0 ? data.NetBuyValue / data.NetBuyVol : 0;
-      const netSellAvg = data.NetSellVol > 0 ? data.NetSellValue / data.NetSellVol : 0;
+      const netBuyAvg = netBuyVol > 0 ? netBuyValue / netBuyVol : 0;
+      const netSellAvg = netSellVol > 0 ? netSellValue / netSellVol : 0;
 
       // Recalculate lot per frequency and lot per order number
       const bLotPerFreq = data.BuyerFreq > 0 ? data.BLot / data.BuyerFreq : 0;
       const bLotPerOrdNum = data.BuyerOrdNum > 0 ? data.BLot / data.BuyerOrdNum : 0;
       const sLotPerFreq = data.SellerFreq > 0 ? data.SLot / data.SellerFreq : 0;
       const sLotPerOrdNum = data.SellerOrdNum > 0 ? data.SLot / data.SellerOrdNum : 0;
-      const nbLotPerFreq = Math.abs(data.NetBuyFreq) > 0 ? data.NBLot / Math.abs(data.NetBuyFreq) : 0;
-      const nbLotPerOrdNum = Math.abs(data.NetBuyOrdNum) > 0 ? data.NBLot / Math.abs(data.NetBuyOrdNum) : 0;
-      const nsLotPerFreq = Math.abs(data.NetSellFreq) > 0 ? data.NSLot / Math.abs(data.NetSellFreq) : 0;
-      const nsLotPerOrdNum = Math.abs(data.NetSellOrdNum) > 0 ? data.NSLot / Math.abs(data.NetSellOrdNum) : 0;
+      const nbLotPerFreq = Math.abs(netBuyFreq) > 0 ? nblot / Math.abs(netBuyFreq) : 0;
+      const nbLotPerOrdNum = Math.abs(netBuyOrdNum) > 0 ? nblot / Math.abs(netBuyOrdNum) : 0;
+      const nsLotPerFreq = Math.abs(netSellFreq) > 0 ? nslot / Math.abs(netSellFreq) : 0;
+      const nsLotPerOrdNum = Math.abs(netSellOrdNum) > 0 ? nslot / Math.abs(netSellOrdNum) : 0;
 
       aggregatedSummary.push({
         Broker: broker,
@@ -294,20 +310,20 @@ export class BrokerTransactionStockIDXCalculator {
         SLot: data.SLot,
         SLotPerFreq: sLotPerFreq,
         SLotPerOrdNum: sLotPerOrdNum,
-        NetBuyVol: data.NetBuyVol,
-        NetBuyValue: data.NetBuyValue,
-        NetBuyAvg: netBuyAvg,
-        NetBuyFreq: data.NetBuyFreq,
-        NetBuyOrdNum: data.NetBuyOrdNum,
-        NBLot: data.NBLot,
+        NetBuyVol: netBuyVol,  // Recalculated from aggregated totals
+        NetBuyValue: netBuyValue,  // Recalculated from aggregated totals
+        NetBuyAvg: netBuyAvg,  // Recalculated from aggregated totals
+        NetBuyFreq: netBuyFreq,  // Recalculated from aggregated totals
+        NetBuyOrdNum: netBuyOrdNum,  // Recalculated from aggregated totals
+        NBLot: nblot,  // Recalculated from netBuyVol
         NBLotPerFreq: nbLotPerFreq,
         NBLotPerOrdNum: nbLotPerOrdNum,
-        NetSellVol: data.NetSellVol,
-        NetSellValue: data.NetSellValue,
-        NetSellAvg: netSellAvg,
-        NetSellFreq: data.NetSellFreq,
-        NetSellOrdNum: data.NetSellOrdNum,
-        NSLot: data.NSLot,
+        NetSellVol: netSellVol,  // Recalculated from aggregated totals
+        NetSellValue: netSellValue,  // Recalculated from aggregated totals
+        NetSellAvg: netSellAvg,  // Recalculated from aggregated totals
+        NetSellFreq: netSellFreq,  // Recalculated from aggregated totals
+        NetSellOrdNum: netSellOrdNum,  // Recalculated from aggregated totals
+        NSLot: nslot,  // Recalculated from netSellVol
         NSLotPerFreq: nsLotPerFreq,
         NSLotPerOrdNum: nsLotPerOrdNum
       });
