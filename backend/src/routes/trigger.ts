@@ -35,6 +35,8 @@ import BrokerTransactionStockRGTNNGDataScheduler from '../services/brokerTransac
 import BrokerTransactionStockFDRGTNNGDataScheduler from '../services/brokerTransactionStockFDRGTNNGDataScheduler';
 import { BrokerTransactionIDXDataScheduler } from '../services/brokerTransactionIDXDataScheduler';
 import { BrokerTransactionStockIDXDataScheduler } from '../services/brokerTransactionStockIDXDataScheduler';
+import { BrokerTransactionSectorDataScheduler } from '../services/brokerTransactionSectorDataScheduler';
+import { BrokerTransactionStockSectorDataScheduler } from '../services/brokerTransactionStockSectorDataScheduler';
 import { BrokerDataRGTNNGCalculator } from '../calculations/broker/broker_data_rg_tn_ng';
 import { updateWatchlistSnapshot } from '../services/watchlistSnapshotService';
 
@@ -2047,6 +2049,126 @@ router.post('/broker-summary-sector', async (req, res) => {
     return res.status(500).json({
       success: false,
       message: `Failed to trigger broker-summary-sector update: ${errorMessage}`
+    });
+  }
+});
+
+// Manual trigger for Broker Transaction Sector calculation
+router.post('/broker-transaction-sector', async (req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Broker Transaction Sector calculation');
+    
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'broker_transaction_sector',
+      trigger_type: 'manual',
+      triggered_by: getTriggeredBy(req),
+      status: 'running',
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    const brokerTransactionSectorService = new BrokerTransactionSectorDataScheduler();
+    
+    // Execute in background and return immediately
+    brokerTransactionSectorService.generateBrokerTransactionSectorData('all', logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
+      await AzureLogger.logInfo('broker_transaction_sector', `Manual broker transaction sector calculation completed: ${result.message || 'OK'}`);
+      console.log(`✅ Broker Transaction Sector calculation completed: ${result.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: result.success ? 'completed' : 'failed',
+          progress_percentage: 100,
+          ...(result.success ? {} : { error_message: result.message })
+        });
+      }
+    }).catch(async (error: any) => {
+      const errorMessage = error?.message || error?.toString() || 'Unknown error';
+      await AzureLogger.logSchedulerError('broker_transaction_sector', errorMessage);
+      console.error(`❌ Broker Transaction Sector calculation error: ${errorMessage}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: errorMessage
+        });
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: 'Broker Transaction Sector calculation triggered successfully',
+      log_id: logEntry.id
+    });
+  } catch (error: any) {
+    console.error('❌ Error triggering broker transaction sector calculation:', error);
+    const errorMessage = error?.message || error?.toString() || 'Unknown error';
+    return res.status(500).json({
+      success: false,
+      message: `Failed to trigger broker-transaction-sector update: ${errorMessage}`
+    });
+  }
+});
+
+// Manual trigger for Broker Transaction Stock Sector calculation
+router.post('/broker-transaction-stock-sector', async (req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Broker Transaction Stock Sector calculation');
+    
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'broker_transaction_stock_sector',
+      trigger_type: 'manual',
+      triggered_by: getTriggeredBy(req),
+      status: 'running',
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    const brokerTransactionStockSectorService = new BrokerTransactionStockSectorDataScheduler();
+    
+    // Execute in background and return immediately
+    brokerTransactionStockSectorService.generateBrokerTransactionStockSectorData('all', logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
+      await AzureLogger.logInfo('broker_transaction_stock_sector', `Manual broker transaction stock sector calculation completed: ${result.message || 'OK'}`);
+      console.log(`✅ Broker Transaction Stock Sector calculation completed: ${result.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: result.success ? 'completed' : 'failed',
+          progress_percentage: 100,
+          ...(result.success ? {} : { error_message: result.message })
+        });
+      }
+    }).catch(async (error: any) => {
+      const errorMessage = error?.message || error?.toString() || 'Unknown error';
+      await AzureLogger.logSchedulerError('broker_transaction_stock_sector', errorMessage);
+      console.error(`❌ Broker Transaction Stock Sector calculation error: ${errorMessage}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: errorMessage
+        });
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: 'Broker Transaction Stock Sector calculation triggered successfully',
+      log_id: logEntry.id
+    });
+  } catch (error: any) {
+    console.error('❌ Error triggering broker transaction stock sector calculation:', error);
+    const errorMessage = error?.message || error?.toString() || 'Unknown error';
+    return res.status(500).json({
+      success: false,
+      message: `Failed to trigger broker-transaction-stock-sector update: ${errorMessage}`
     });
   }
 });
