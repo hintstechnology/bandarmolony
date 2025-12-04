@@ -7,6 +7,7 @@ import { Loader2, CheckCircle, AlertCircle, X, RefreshCw, Play } from "lucide-re
 import { useToast } from "../../../contexts/ToastContext";
 import { api } from "../../../services/api";
 import { ConfirmationDialog } from "../../ui/confirmation-dialog";
+import { supabase } from "../../../lib/supabase";
 
 const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
 
@@ -185,11 +186,19 @@ export function ManualTriggerControl() {
         setTriggering(prev => ({ ...prev, [type]: true }));
     
     try {
+      // Get session and add Authorization header
+      const { data: { session } } = await supabase.auth.getSession();
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+      
       const response = await fetch(`${API_URL}/api/trigger/${type}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
       });
       
       const result = await response.json();
