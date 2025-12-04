@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Badge } from "../../ui/badge";
@@ -8,6 +8,7 @@ import { useToast } from "../../../contexts/ToastContext";
 import { api } from "../../../services/api";
 import { ConfirmationDialog } from "../../ui/confirmation-dialog";
 import { supabase } from "../../../lib/supabase";
+import { Checkbox } from "../../ui/checkbox";
 
 const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
 
@@ -122,6 +123,9 @@ export function ManualTriggerControl() {
   const [loading, setLoading] = useState(false);
   const [triggering, setTriggering] = useState<{[key: string]: boolean}>({});
   const [activeLogs, setActiveLogs] = useState<{[key: string]: { logId: string; progress: number; status: string } | null}>({});
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  const [bulkCancelDialogOpen, setBulkCancelDialogOpen] = useState(false);
+  const [cancellingBulk, setCancellingBulk] = useState(false);
   const [confirmationDialog, setConfirmationDialog] = useState<{
     open: boolean;
     title: string;
@@ -162,6 +166,8 @@ export function ManualTriggerControl() {
             triggeredBy: log.triggered_by
           }));
         setRunningTasks(tasks);
+        // Reset selected tasks when data changes
+        setSelectedTaskIds(new Set());
       }
     } catch (error) {
       console.error('Error loading running tasks:', error);
@@ -279,6 +285,106 @@ export function ManualTriggerControl() {
       },
     });
   };
+
+  // Bulk cancel selected tasks
+  const handleBulkCancelConfirm = async () => {
+    if (selectedTaskIds.size === 0) return;
+    
+    setCancellingBulk(true);
+    try {
+      const idsArray = Array.from(selectedTaskIds);
+      let successCount = 0;
+      let failCount = 0;
+      
+      // Cancel each task one by one
+      for (const logId of idsArray) {
+        try {
+          const result = await api.cancelSchedulerLog(logId, 'Cancelled by user from Manual Trigger Control (bulk)');
+          
+          if (result.success) {
+            successCount++;
+            // Clear from activeLogs if exists
+            const type = Object.keys(activeLogs).find(key => activeLogs[key]?.logId === logId);
+            if (type) {
+              setActiveLogs(prev => {
+                const updated = { ...prev };
+                delete updated[type];
+                return updated;
+              });
+              setTriggering(prev => ({ ...prev, [type]: false }));
+            }
+          } else {
+            failCount++;
+          }
+        } catch (error) {
+          failCount++;
+          console.error(`Error cancelling task ${logId}:`, error);
+        }
+      }
+      
+      if (successCount > 0) {
+        showToast({
+          type: 'success',
+          title: 'Tasks Cancelled',
+          message: `Successfully cancelled ${successCount} task(s)${failCount > 0 ? `, ${failCount} failed` : ''}`
+        });
+        setSelectedTaskIds(new Set());
+        await loadRunningTasks();
+      } else {
+        showToast({
+          type: 'error',
+          title: 'Cancel Failed',
+          message: `Failed to cancel ${failCount} task(s)`
+        });
+      }
+    } catch (error: any) {
+      console.error('Error cancelling tasks:', error);
+      showToast({
+        type: 'error',
+        title: 'Cancel Error',
+        message: error.message || 'Failed to cancel tasks'
+      });
+    } finally {
+      setCancellingBulk(false);
+      setBulkCancelDialogOpen(false);
+    }
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      // Only select running tasks
+      const runningTaskIds = new Set(
+        runningTasks.filter(task => task.status === 'running').map(task => task.logId)
+      );
+      setSelectedTaskIds(runningTaskIds);
+    } else {
+      setSelectedTaskIds(new Set());
+    }
+  };
+
+  const handleSelectTask = (logId: string, checked: boolean) => {
+    const newSelected = new Set(selectedTaskIds);
+    if (checked) {
+      newSelected.add(logId);
+    } else {
+      newSelected.delete(logId);
+    }
+    setSelectedTaskIds(newSelected);
+  };
+
+  const runningTasksList = runningTasks.filter(task => task.status === 'running');
+  const isAllSelected = runningTasksList.length > 0 && selectedTaskIds.size === runningTasksList.length;
+  const isIndeterminate = selectedTaskIds.size > 0 && selectedTaskIds.size < runningTasksList.length;
+  const selectAllCheckboxRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (selectAllCheckboxRef.current) {
+      const input = selectAllCheckboxRef.current.querySelector('input[type="checkbox"]') as HTMLInputElement;
+      if (input) {
+        input.indeterminate = isIndeterminate;
+      }
+    }
+  }, [isIndeterminate, runningTasksList.length]);
 
   const formatTime = (dateString: string): string => {
     if (!dateString) return 'N/A';
@@ -483,20 +589,38 @@ export function ManualTriggerControl() {
               <RefreshCw className="w-5 h-5" />
               <span className="text-lg sm:text-xl">Manual Data Trigger Progress</span>
             </div>
-            <Button
-              onClick={loadRunningTasks}
-              disabled={loading}
-              variant="outline"
-              size="sm"
-              className="w-full sm:w-auto"
-            >
-              {loading ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="w-4 h-4 mr-2" />
+            <div className="flex items-center gap-2">
+              {selectedTaskIds.size > 0 && (
+                <Button
+                  onClick={() => setBulkCancelDialogOpen(true)}
+                  disabled={cancellingBulk}
+                  variant="destructive"
+                  size="sm"
+                  className="w-full sm:w-auto"
+                >
+                  {cancellingBulk ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <X className="w-4 h-4 mr-2" />
+                  )}
+                  Cancel Selected ({selectedTaskIds.size})
+                </Button>
               )}
-              Refresh
-            </Button>
+              <Button
+                onClick={loadRunningTasks}
+                disabled={loading}
+                variant="outline"
+                size="sm"
+                className="w-full sm:w-auto"
+              >
+                {loading ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                )}
+                Refresh
+              </Button>
+            </div>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -506,6 +630,19 @@ export function ManualTriggerControl() {
             </div>
           ) : (
             <div className="space-y-4">
+              {/* Select All Checkbox */}
+              {runningTasksList.length > 0 && (
+                <div className="flex items-center gap-2 pb-2 border-b">
+                  <Checkbox
+                    ref={selectAllCheckboxRef}
+                    checked={isAllSelected}
+                    onCheckedChange={handleSelectAll}
+                  />
+                  <span className="text-sm text-muted-foreground">
+                    Select all running tasks ({runningTasksList.length})
+                  </span>
+                </div>
+              )}
               {runningTasks.map((task) => (
                 <div
                   key={task.logId}
@@ -513,6 +650,13 @@ export function ManualTriggerControl() {
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
+                      {task.status === 'running' && (
+                        <Checkbox
+                          checked={selectedTaskIds.has(task.logId)}
+                          onCheckedChange={(checked) => handleSelectTask(task.logId, checked as boolean)}
+                          className="flex-shrink-0"
+                        />
+                      )}
                       {getStatusIcon(task.status)}
                       <div className="min-w-0 flex-1">
                         <h4 className="font-semibold truncate">{task.featureName}</h4>
@@ -566,6 +710,17 @@ export function ManualTriggerControl() {
         onConfirm={confirmationDialog.onConfirm}
         confirmText="Yes"
         cancelText="No"
+      />
+
+      <ConfirmationDialog
+        open={bulkCancelDialogOpen}
+        onOpenChange={setBulkCancelDialogOpen}
+        title="Cancel Selected Tasks"
+        description={`Are you sure you want to cancel ${selectedTaskIds.size} selected task(s)?`}
+        onConfirm={handleBulkCancelConfirm}
+        confirmText="Yes, Cancel"
+        cancelText="No"
+        isLoading={cancellingBulk}
       />
     </>
   );
