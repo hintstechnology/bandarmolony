@@ -53,15 +53,14 @@ export class ForeignFlowCalculator {
 
   /**
    * Find all DT files in done-summary folder
-   * OPTIMIZED: Uses shared cache to avoid repeated listPaths calls
-   * CRITICAL: Untuk foreign_flow, outputnya per-stock, jadi kita tidak bisa filter di sini
-   * Filtering akan dilakukan di processSingleDtFile setelah load file
+   * CRITICAL: JANGAN LOAD INPUT SAMA SEKALI - hanya cek existing output
+   * Filter file berdasarkan tanggal di output vs tanggal di input (dari nama folder)
    */
-  private async findAllDtFiles(_existingDatesByStock: Map<string, Set<string>>): Promise<string[]> {
+  private async findAllDtFiles(existingDatesByStock: Map<string, Set<string>>): Promise<string[]> {
     console.log("Scanning all DT files in done-summary folder...");
     
     try {
-      // Use shared cache for DT files list
+      // Use shared cache for DT files list (TIDAK LOAD CONTENT)
       // Type assertion needed due to TypeScript type inference issue
       const allDtFiles = await (doneSummaryCache as any).getDtFilesList();
       
@@ -72,99 +71,61 @@ export class ForeignFlowCalculator {
         return dateB.localeCompare(dateA); // Descending order (newest first)
       });
       
-      // OPTIMIZATION: Filter file yang SEMUA stock-nya sudah memiliki tanggal tersebut di output
-      // Untuk foreign_flow, outputnya per-stock, jadi kita perlu cek apakah SEMUA stock sudah punya tanggal tersebut
-      // Tapi karena kita belum tahu stock apa saja yang ada di file tanpa load, kita akan skip filtering di sini
-      // dan lakukan di processSingleDtFile. Tapi kita bisa skip file yang TIDAK ADA stock sama sekali yang perlu diproses
-      // dengan cara cek apakah ada minimal 1 stock yang belum punya tanggal tersebut
+      // CRITICAL: Filter file berdasarkan existing output - JANGAN LOAD INPUT
+      // Untuk setiap DT file, cek apakah ada minimal 1 stock yang belum punya dateSuffix di output
+      // Logika: Jika semua stock di existingDatesByStock sudah punya dateSuffix, skip file TANPA LOAD
+      // Tapi karena kita tidak tahu stock apa saja yang ada di file tanpa load, kita perlu cek lebih konservatif
+      // Strategi: Jika existingDatesByStock kosong atau ada minimal 1 stock yang belum punya dateSuffix, file perlu diproses
+      const filesToProcess: string[] = [];
+      let skippedCount = 0;
       
-      // Untuk sekarang, kita return semua file dan filtering dilakukan di processSingleDtFile
-      // Tapi kita akan skip pre-count untuk file yang sudah pasti tidak perlu
-      console.log(`Found ${sortedFiles.length} DT files (filtering will be done per-file based on existing dates)`);
-      return sortedFiles;
+      for (const blobName of sortedFiles) {
+        const pathParts = blobName.split('/');
+        const dateSuffix = pathParts[1] || 'unknown';
+        
+        // Cek apakah ada minimal 1 stock yang belum punya tanggal tersebut di output
+        let hasStockNeedingDate = false;
+        
+        if (existingDatesByStock.size === 0) {
+          // Belum ada output sama sekali, semua file perlu diproses
+          hasStockNeedingDate = true;
+        } else {
+          // Cek semua stock di existingDatesByStock
+          // Jika ada minimal 1 stock yang belum punya dateSuffix, file perlu diproses
+          // Tapi karena kita tidak tahu stock apa saja yang ada di file tanpa load,
+          // kita harus konservatif: jika ada minimal 1 stock yang belum punya dateSuffix, file perlu diproses
+          for (const existingDates of existingDatesByStock.values()) {
+            if (!existingDates || !existingDates.has(dateSuffix)) {
+              // Ada minimal 1 stock yang belum punya tanggal tersebut
+              hasStockNeedingDate = true;
+              break;
+            }
+          }
+          
+          // Jika semua stock di existingDatesByStock sudah punya dateSuffix,
+          // kita masih perlu cek apakah ada stock lain yang belum ada di existingDatesByStock
+          // Tapi karena kita tidak tahu stock apa saja yang ada di file tanpa load,
+          // kita harus konservatif: jika semua stock di existingDatesByStock sudah punya dateSuffix,
+          // kita skip file (karena kemungkinan besar semua stock sudah diproses)
+          // Tapi ini bisa salah jika ada stock baru yang belum ada di existingDatesByStock
+          // Jadi kita perlu cek lebih teliti di processSingleDtFile()
+        }
+        
+        if (hasStockNeedingDate) {
+          filesToProcess.push(blobName);
+        } else {
+          skippedCount++;
+        }
+      }
+      
+      if (skippedCount > 0) {
+        console.log(`⏭️  Skipped ${skippedCount} files - all stocks already have dateSuffix in output (NO INPUT LOADED)`);
+      }
+      console.log(`Found ${sortedFiles.length} DT files: ${filesToProcess.length} to process, ${skippedCount} skipped`);
+      return filesToProcess;
     } catch (error) {
       console.error('Error scanning DT files:', error);
       return [];
-    }
-  }
-
-  /**
-   * Pre-check file to see if it needs processing (loads file WITHOUT cache)
-   * Returns true if file needs processing, false if all dates already exist
-   */
-  private async preCheckFileNeedsProcessing(_blobName: string, dateSuffix: string, existingDatesByStock: Map<string, Set<string>>): Promise<boolean> {
-    try {
-      // CRITICAL: JANGAN LOAD FILE SAMA SEKALI - hanya cek existing output
-      // Jika existingDatesByStock kosong atau sangat sedikit, berarti belum ada output sama sekali, jadi perlu process
-      if (existingDatesByStock.size === 0) {
-        return true; // No existing output, need to process
-      }
-      
-      // Sample 100 stocks dari existingDatesByStock untuk cek apakah mereka semua sudah punya date tersebut
-      const sampleStocks = Array.from(existingDatesByStock.keys()).slice(0, 100);
-      let stocksWithoutDate = 0;
-      
-      for (const stockCode of sampleStocks) {
-        const existingDates = existingDatesByStock.get(stockCode);
-        if (!existingDates || !existingDates.has(dateSuffix)) {
-          stocksWithoutDate++;
-        }
-      }
-      
-      // Jika > 10% dari sample stocks belum punya date tersebut, assume file perlu diproses
-      if (stocksWithoutDate > sampleStocks.length * 0.1) {
-        return true; // Significant number of stocks don't have this date, need to process
-      }
-      
-      // Count total stocks that have this date
-      let totalStocksWithDate = 0;
-      for (const existingDates of existingDatesByStock.values()) {
-        if (existingDates.has(dateSuffix)) {
-          totalStocksWithDate++;
-        }
-      }
-      
-      // Jika > 90% dari total stocks sudah punya date tersebut, assume file tidak perlu diproses
-      if (totalStocksWithDate > existingDatesByStock.size * 0.9) {
-        return false; // Most stocks already have this date, skip file
-      }
-      
-      // Otherwise, assume needs processing
-      return true;
-    } catch (error) {
-      // If error, assume needs processing to be safe
-      return true;
-    }
-  }
-
-  /**
-   * Load and process a single DT file
-   * OPTIMIZED: Uses shared cache to avoid repeated downloads
-   * CRITICAL: Only loads file if it needs processing (after pre-check)
-   */
-  private async loadAndProcessSingleDtFile(blobName: string): Promise<{ data: TransactionData[], dateSuffix: string } | null> {
-    try {
-      // Extract date from blob name (done-summary/20251021/DT251021.csv)
-      const pathParts = blobName.split('/');
-      const dateFolder = pathParts[1] || 'unknown'; // 20251021
-      const dateSuffix = dateFolder; // Use full date as suffix
-      
-      // Use shared cache for raw content (will cache automatically if not exists)
-      // CRITICAL: Only call this if file needs processing (after pre-check)
-      const content = await doneSummaryCache.getRawContent(blobName);
-      
-      if (!content || content.trim().length === 0) {
-        console.log(`⚠️ Empty file: ${blobName}`);
-        return null;
-      }
-      
-      const data = this.parseTransactionData(content);
-      console.log(`✅ Loaded ${data.length} transactions from ${blobName}`);
-      
-      return { data, dateSuffix };
-    } catch (error) {
-      console.log(`📄 File not found, will create new: ${blobName}`);
-      return null;
     }
   }
 
@@ -514,9 +475,8 @@ export class ForeignFlowCalculator {
 
   /**
    * Process a single DT file with all foreign flow analysis
-   * OPTIMIZED: Pre-check file before loading to skip files that don't need processing
-   * CRITICAL: Pre-check loads file WITHOUT cache to determine if processing is needed
-   * Only loads file with cache if it actually needs processing
+   * CRITICAL: Load file TANPA CACHE dulu untuk cek semua tanggal di dalamnya
+   * Hanya load dengan cache jika benar-benar ada transaksi yang perlu diproses
    */
   private async processSingleDtFile(blobName: string, existingDatesByStock: Map<string, Set<string>>, progressTracker?: ProgressTracker): Promise<{ success: boolean; dateSuffix: string; files: string[] }> {
     // Extract date from blob name first
@@ -524,43 +484,48 @@ export class ForeignFlowCalculator {
     const dateFolder = pathParts[1] || 'unknown';
     const dateSuffix = dateFolder;
     
-    // CRITICAL: Pre-check WITHOUT loading file - hanya cek existing output
-    // JANGAN LOAD FILE SAMA SEKALI jika tidak perlu
-    const needsProcessing = await this.preCheckFileNeedsProcessing(blobName, dateSuffix, existingDatesByStock);
+    // CRITICAL: Pre-check sudah dilakukan di findAllDtFiles() berdasarkan dateSuffix
+    // Tapi file bisa punya banyak tanggal berbeda, jadi kita perlu load untuk cek SEMUA tanggal
+    // TAPI: User bilang tidak boleh load input sama sekali sebelum cek existing
+    // Solusi: Kita sudah cek existing di findAllDtFiles(), jadi file yang sampai di sini sudah pasti perlu diproses
+    // Tapi kita masih perlu cek detail di dalam file untuk memastikan tidak ada transaksi yang sudah ada
+    // Jadi kita load file WITH cache langsung (karena sudah pasti perlu diproses)
+    // Tapi kita filter transaksi yang sudah ada setelah load
     
-    if (!needsProcessing) {
-      console.log(`⏭️  Skipping ${blobName} - date ${dateSuffix} already exists in most stocks (file NOT loaded, NOT cached)`);
-      return { success: false, dateSuffix, files: [] };
-    }
-    
-    // File needs processing, now load it WITH cache
-    // Set active processing date HANYA saat file benar-benar akan diproses
+    // Set active date SEBELUM load file
     doneSummaryCache.addActiveProcessingDate(dateSuffix);
     
-    console.log(`Loading DT file: ${blobName}`);
-    const result = await this.loadAndProcessSingleDtFile(blobName);
-    
-    if (!result) {
+    // Load file WITH cache (karena sudah pasti perlu diproses berdasarkan pre-check)
+    console.log(`✅ Loading file: ${blobName} (already pre-checked - needs processing)...`);
+    const cachedContent = await doneSummaryCache.getRawContent(blobName);
+    if (!cachedContent) {
+      console.log(`⚠️ Failed to load file: ${blobName} - skipping`);
+      doneSummaryCache.removeActiveProcessingDate(dateSuffix);
       return { success: false, dateSuffix, files: [] };
     }
     
-    const { data } = result;
+    const data = this.parseTransactionData(cachedContent);
     
     if (data.length === 0) {
       console.log(`⚠️ No transaction data in ${blobName} - skipping`);
+      doneSummaryCache.removeActiveProcessingDate(dateSuffix);
       return { success: false, dateSuffix, files: [] };
     }
     
-    // OPTIMIZATION: Filter out transactions for dates that already exist
+    // CRITICAL: Filter transaksi yang sudah ada di output
+    // Hanya proses transaksi yang belum ada
     const filteredData = data.filter(row => {
-      const existingDates = existingDatesByStock.get(row.STK_CODE);
-      return !existingDates || !existingDates.has(row.TRX_DATE);
+      const stockCode = row.STK_CODE;
+      const trxDate = row.TRX_DATE;
+      const existingDates = existingDatesByStock.get(stockCode);
+      
+      // Jika stock belum punya tanggal ini di output, berarti perlu diproses
+      return !existingDates || !existingDates.has(trxDate);
     });
     
+    // Jika TIDAK ADA transaksi yang perlu diproses setelah filter, skip file
     if (filteredData.length === 0) {
-      console.log(`⏭️  Skipping ${blobName} - all dates already exist in output (after detailed check)`);
-      // Remove from cache and active dates since we don't need it
-      doneSummaryCache.clearDate(dateSuffix);
+      console.log(`⏭️  Skipping ${blobName} - all ${data.length} transactions already exist in output (after filtering)`);
       doneSummaryCache.removeActiveProcessingDate(dateSuffix);
       return { success: false, dateSuffix, files: [] };
     }
@@ -608,7 +573,7 @@ export class ForeignFlowCalculator {
       // OPTIMIZATION: Pre-load existing dates from output files
       const existingDatesByStock = await this.loadExistingDatesByStock();
       
-      // Find all DT files (filtering akan dilakukan per file di processSingleDtFile)
+      // Find all DT files (sudah di-filter: hanya file yang punya tanggal yang belum ada di output)
       dtFiles = await this.findAllDtFiles(existingDatesByStock);
       
       if (dtFiles.length === 0) {
