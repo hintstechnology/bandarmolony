@@ -78,42 +78,84 @@ export class BrokerDataRGTNNGCalculator {
         return dateB.localeCompare(dateA); // Descending order
       });
       
-      // OPTIMIZATION: Pre-check which dates already have broker_data_rg_tn_ng output (sequential, newest to oldest)
-      console.log("🔍 Pre-checking existing broker_data_rg_tn_ng outputs (checking from newest to oldest)...");
+      // OPTIMIZATION: Pre-check which dates already have broker_data_rg_tn_ng output (BATCH CHECKING for speed)
+      console.log("🔍 Pre-checking existing broker_data_rg_tn_ng outputs (batch checking)...");
       const filesToProcess: string[] = [];
       let skippedCount = 0;
       
-      for (const file of sortedFiles) {
-        const dateFolder = file.split('/')[1] || '';
-        const dateSuffix = dateFolder;
+      // Process in batches for parallel checking (faster than sequential)
+      const CHECK_BATCH_SIZE = 20; // Check 20 files in parallel
+      const MAX_CONCURRENT_CHECKS = 10; // Max 10 concurrent checks
+      
+      for (let i = 0; i < sortedFiles.length; i += CHECK_BATCH_SIZE) {
+        const batch = sortedFiles.slice(i, i + CHECK_BATCH_SIZE);
+        const batchNumber = Math.floor(i / CHECK_BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(sortedFiles.length / CHECK_BATCH_SIZE);
         
-        // Check if all types (RG, TN, NG) already have output
-        let allExist = true;
-        for (const type of ['RG', 'TN', 'NG'] as const) {
-          const paths = this.getSummaryPaths(type, dateSuffix);
-          try {
-            const summaryPrefix = `${paths.brokerSummary}/`;
-            const summaryFiles = await listPaths({ prefix: summaryPrefix, maxResults: 1 });
-            if (summaryFiles.length === 0) {
+        // Process batch checks in parallel with concurrency limit
+        const checkPromises = batch.map(async (file: string) => {
+          const dateFolder = file.split('/')[1] || '';
+          const dateSuffix = dateFolder;
+          
+          // Check if all types (RG, TN, NG) already have output
+          let allExist = true;
+          for (const type of ['RG', 'TN', 'NG'] as const) {
+            const paths = this.getSummaryPaths(type, dateSuffix);
+            try {
+              const summaryPrefix = `${paths.brokerSummary}/`;
+              const summaryFiles = await listPaths({ prefix: summaryPrefix, maxResults: 1 });
+              if (summaryFiles.length === 0) {
+                allExist = false;
+                break; // At least one type is missing, need to process
+              }
+            } catch (error) {
+              // If check fails, proceed with processing (safer to process than skip)
               allExist = false;
-              break; // At least one type is missing, need to process
+              break;
             }
-          } catch (error) {
-            // If check fails, proceed with processing (safer to process than skip)
-            allExist = false;
-            break;
+          }
+          
+          return { file, dateSuffix, exists: allExist };
+        });
+        
+        // Limit concurrency for checks
+        const checkResults: { file: string; dateSuffix: string; exists: boolean }[] = [];
+        for (let j = 0; j < checkPromises.length; j += MAX_CONCURRENT_CHECKS) {
+          const concurrentChecks = checkPromises.slice(j, j + MAX_CONCURRENT_CHECKS);
+          const results = await Promise.all(concurrentChecks);
+          checkResults.push(...results);
+        }
+        
+        // Process results
+        for (const result of checkResults) {
+          if (result.exists) {
+            skippedCount++;
+            // Only log first few and last few to avoid spam
+            if (skippedCount <= 5 || skippedCount > sortedFiles.length - 5) {
+              console.log(`⏭️ Broker data (RG/TN/NG) already exists for date ${result.dateSuffix} - skipping`);
+            }
+          } else {
+            // Only log first few to avoid spam
+            if (filesToProcess.length < 5) {
+              console.log(`✅ Date ${result.dateSuffix} needs processing`);
+            }
+            filesToProcess.push(result.file);
           }
         }
         
-        if (allExist) {
-          skippedCount++;
-          console.log(`⏭️ Broker data (RG/TN/NG) already exists for date ${dateSuffix} - skipping`);
-        } else {
-          filesToProcess.push(file);
-          console.log(`✅ Date ${dateSuffix} needs processing`);
+        // Progress update for large batches
+        if (totalBatches > 1 && batchNumber % 5 === 0) {
+          console.log(`📊 Checked ${Math.min(i + CHECK_BATCH_SIZE, sortedFiles.length)}/${sortedFiles.length} files (${skippedCount} skipped, ${filesToProcess.length} to process)...`);
         }
       }
       
+      // Summary log
+      if (skippedCount > 5) {
+        console.log(`⏭️  ... and ${skippedCount - 5} more dates skipped`);
+      }
+      if (filesToProcess.length > 5) {
+        console.log(`✅ ... and ${filesToProcess.length - 5} more dates need processing`);
+      }
       console.log(`📊 Pre-check complete: ${filesToProcess.length} files to process, ${skippedCount} already exist`);
       
       if (filesToProcess.length > 0) {

@@ -92,61 +92,47 @@ export class ForeignFlowCalculator {
    * Pre-check file to see if it needs processing (loads file WITHOUT cache)
    * Returns true if file needs processing, false if all dates already exist
    */
-  private async preCheckFileNeedsProcessing(blobName: string, existingDatesByStock: Map<string, Set<string>>): Promise<boolean> {
+  private async preCheckFileNeedsProcessing(_blobName: string, dateSuffix: string, existingDatesByStock: Map<string, Set<string>>): Promise<boolean> {
     try {
-      // Load file DIRECTLY from Azure WITHOUT using cache service
-      const content = await downloadText(blobName);
-      
-      if (!content || content.trim().length === 0) {
-        return false;
+      // CRITICAL: JANGAN LOAD FILE SAMA SEKALI - hanya cek existing output
+      // Jika existingDatesByStock kosong atau sangat sedikit, berarti belum ada output sama sekali, jadi perlu process
+      if (existingDatesByStock.size === 0) {
+        return true; // No existing output, need to process
       }
       
-      const lines = content.trim().split('\n');
-      if (lines.length < 2) return false;
+      // Sample 100 stocks dari existingDatesByStock untuk cek apakah mereka semua sudah punya date tersebut
+      const sampleStocks = Array.from(existingDatesByStock.keys()).slice(0, 100);
+      let stocksWithoutDate = 0;
       
-      // Parse header
-      const header = lines[0]?.split(';') || [];
-      const stkCodeIndex = header.findIndex(col => col.trim() === 'STK_CODE');
-      const trxDateIndex = header.findIndex(col => col.trim() === 'TRX_DATE');
-      
-      if (stkCodeIndex === -1 || trxDateIndex === -1) {
-        return true; // If we can't parse, assume needs processing
-      }
-      
-      // Check first 1000 lines to see if any stock+date combination needs processing
-      // This is a quick check without loading entire file
-      const checkLimit = Math.min(1000, lines.length - 1);
-      for (let i = 1; i <= checkLimit; i++) {
-        const line = lines[i];
-        if (!line || line.trim().length === 0) continue;
-        
-        const values = line.split(';');
-        if (values.length < header.length) continue;
-        
-        const stockCode = values[stkCodeIndex]?.trim() || '';
-        const trxDate = values[trxDateIndex]?.trim() || '';
-        
-        // Only check 4-character stocks
-        if (stockCode.length === 4 && trxDate) {
-          const existingDates = existingDatesByStock.get(stockCode);
-          if (!existingDates || !existingDates.has(trxDate)) {
-            // Found at least one transaction that needs processing
-            return true;
-          }
+      for (const stockCode of sampleStocks) {
+        const existingDates = existingDatesByStock.get(stockCode);
+        if (!existingDates || !existingDates.has(dateSuffix)) {
+          stocksWithoutDate++;
         }
       }
       
-      // If we checked all lines in the sample and all exist, check if file is small
-      // If file is larger than sample, we need to process it to be safe
-      if (lines.length - 1 > checkLimit) {
-        // File is larger than sample, need to process to check all
-        return true;
+      // Jika > 10% dari sample stocks belum punya date tersebut, assume file perlu diproses
+      if (stocksWithoutDate > sampleStocks.length * 0.1) {
+        return true; // Significant number of stocks don't have this date, need to process
       }
       
-      // All checked transactions already exist
-      return false;
+      // Count total stocks that have this date
+      let totalStocksWithDate = 0;
+      for (const existingDates of existingDatesByStock.values()) {
+        if (existingDates.has(dateSuffix)) {
+          totalStocksWithDate++;
+        }
+      }
+      
+      // Jika > 90% dari total stocks sudah punya date tersebut, assume file tidak perlu diproses
+      if (totalStocksWithDate > existingDatesByStock.size * 0.9) {
+        return false; // Most stocks already have this date, skip file
+      }
+      
+      // Otherwise, assume needs processing
+      return true;
     } catch (error) {
-      // If error, assume needs processing
+      // If error, assume needs processing to be safe
       return true;
     }
   }
@@ -538,16 +524,19 @@ export class ForeignFlowCalculator {
     const dateFolder = pathParts[1] || 'unknown';
     const dateSuffix = dateFolder;
     
-    // CRITICAL: Pre-check file BEFORE loading to see if it needs processing
-    // This loads file WITHOUT cache to avoid caching files that don't need processing
-    const needsProcessing = await this.preCheckFileNeedsProcessing(blobName, existingDatesByStock);
+    // CRITICAL: Pre-check WITHOUT loading file - hanya cek existing output
+    // JANGAN LOAD FILE SAMA SEKALI jika tidak perlu
+    const needsProcessing = await this.preCheckFileNeedsProcessing(blobName, dateSuffix, existingDatesByStock);
     
     if (!needsProcessing) {
-      console.log(`⏭️  Skipping ${blobName} - all dates already exist in output (pre-check passed, file NOT loaded)`);
+      console.log(`⏭️  Skipping ${blobName} - date ${dateSuffix} already exists in most stocks (file NOT loaded, NOT cached)`);
       return { success: false, dateSuffix, files: [] };
     }
     
     // File needs processing, now load it WITH cache
+    // Set active processing date HANYA saat file benar-benar akan diproses
+    doneSummaryCache.addActiveProcessingDate(dateSuffix);
+    
     console.log(`Loading DT file: ${blobName}`);
     const result = await this.loadAndProcessSingleDtFile(blobName);
     
@@ -570,13 +559,11 @@ export class ForeignFlowCalculator {
     
     if (filteredData.length === 0) {
       console.log(`⏭️  Skipping ${blobName} - all dates already exist in output (after detailed check)`);
-      // Remove from cache since we don't need it
+      // Remove from cache and active dates since we don't need it
       doneSummaryCache.clearDate(dateSuffix);
+      doneSummaryCache.removeActiveProcessingDate(dateSuffix);
       return { success: false, dateSuffix, files: [] };
     }
-    
-    // Set active processing date HANYA saat file benar-benar akan diproses (setelah filter)
-    doneSummaryCache.addActiveProcessingDate(dateSuffix);
     
     const skippedCount = data.length - filteredData.length;
     if (skippedCount > 0) {

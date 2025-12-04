@@ -358,9 +358,6 @@ export class BrokerTransactionSectorCalculator {
         };
       }
       
-      // Set active processing date HANYA untuk tanggal yang benar-benar akan diproses
-      brokerTransactionCache.addActiveProcessingDate(dateSuffix);
-
       // Validate investorType
       if (investorType && !['D', 'F', ''].includes(investorType)) {
         const errorMsg = `Invalid investorType: ${investorType}. Expected 'D', 'F', or ''`;
@@ -419,7 +416,7 @@ export class BrokerTransactionSectorCalculator {
         folderPrefix = `broker_transaction/broker_transaction_${dateSuffix}`;
       }
 
-      // Check if Sector.csv already exists - skip if exists
+      // CRITICAL: Check if Sector.csv already exists FIRST - skip if exists
       const sectorFilePath = `${folderPrefix}/${sectorName}.csv`;
       try {
         const sectorExists = await exists(sectorFilePath);
@@ -435,6 +432,9 @@ export class BrokerTransactionSectorCalculator {
         // If check fails, continue with generation
         console.log(`ℹ️ Could not check existence of ${sectorFilePath}, proceeding with generation`);
       }
+      
+      // Set active processing date HANYA setelah cek existing output
+      brokerTransactionCache.addActiveProcessingDate(dateSuffix);
 
       // List all broker CSV files in the folder
       console.log(`🔍 Scanning for broker CSV files in: ${folderPrefix}/`);

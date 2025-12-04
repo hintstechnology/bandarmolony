@@ -260,23 +260,58 @@ export class BrokerTransactionStockCalculator {
         return dateB.localeCompare(dateA); // Descending order (newest first)
       });
       
-      // OPTIMIZATION: Check which dates already have broker_transaction_stock output
-      console.log("🔍 Checking existing broker_transaction_stock folders to skip...");
+      // OPTIMIZATION: Check which dates already have broker_transaction_stock output (BATCH CHECKING for speed)
+      console.log("🔍 Checking existing broker_transaction_stock folders to skip (batch checking)...");
       const filesToProcess: string[] = [];
       let skippedCount = 0;
       
-      for (const file of sortedFiles) {
-        const dateFolder = file.split('/')[1] || '';
-        const exists = await this.checkBrokerTransactionStockExists(dateFolder);
+      // Process in batches for parallel checking (faster than sequential)
+      const CHECK_BATCH_SIZE = 20; // Check 20 files in parallel
+      const MAX_CONCURRENT_CHECKS = 10; // Max 10 concurrent checks
+      
+      for (let i = 0; i < sortedFiles.length; i += CHECK_BATCH_SIZE) {
+        const batch = sortedFiles.slice(i, i + CHECK_BATCH_SIZE);
+        const batchNumber = Math.floor(i / CHECK_BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(sortedFiles.length / CHECK_BATCH_SIZE);
         
-        if (exists) {
-          skippedCount++;
-          console.log(`⏭️ Skipping ${file} - broker_transaction_stock/broker_transaction_stock_${dateFolder}/ already exists`);
-        } else {
-          filesToProcess.push(file);
+        // Process batch checks in parallel with concurrency limit
+        const checkPromises = batch.map(async (file: string) => {
+          const dateFolder = file.split('/')[1] || '';
+          const exists = await this.checkBrokerTransactionStockExists(dateFolder);
+          return { file, dateFolder, exists };
+        });
+        
+        // Limit concurrency for checks
+        const checkResults: { file: string; dateFolder: string; exists: boolean }[] = [];
+        for (let j = 0; j < checkPromises.length; j += MAX_CONCURRENT_CHECKS) {
+          const concurrentChecks = checkPromises.slice(j, j + MAX_CONCURRENT_CHECKS);
+          const results = await Promise.all(concurrentChecks);
+          checkResults.push(...results);
+        }
+        
+        // Process results
+        for (const result of checkResults) {
+          if (result.exists) {
+            skippedCount++;
+            // Only log first few and last few to avoid spam
+            if (skippedCount <= 5 || skippedCount > sortedFiles.length - 5) {
+              console.log(`⏭️ Skipping ${result.file} - broker_transaction_stock/broker_transaction_stock_${result.dateFolder}/ already exists`);
+            }
+          } else {
+            filesToProcess.push(result.file);
+          }
+        }
+        
+        // Progress update for large batches
+        if (totalBatches > 1 && batchNumber % 5 === 0) {
+          console.log(`📊 Checked ${Math.min(i + CHECK_BATCH_SIZE, sortedFiles.length)}/${sortedFiles.length} files (${skippedCount} skipped, ${filesToProcess.length} to process)...`);
         }
       }
       
+      // Summary log
+      if (skippedCount > 5) {
+        console.log(`⏭️  ... and ${skippedCount - 5} more files skipped`);
+      }
       console.log(`📊 Found ${sortedFiles.length} DT files: ${filesToProcess.length} to process, ${skippedCount} skipped (already processed)`);
       return filesToProcess;
     } catch (error) {
