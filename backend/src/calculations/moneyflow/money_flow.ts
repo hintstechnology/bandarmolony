@@ -39,27 +39,6 @@ export class MoneyFlowCalculator {
   }
 
   /**
-   * Load OHLC data from Azure Blob Storage WITHOUT cache (for pre-check)
-   */
-  private async loadOHLCDataFromAzureWithoutCache(filename: string): Promise<OHLCData[]> {
-    console.log(`Loading OHLC data from Azure (without cache): ${filename}`);
-    
-    try {
-      // Load directly from Azure without cache
-      const content = await downloadText(filename);
-      
-      if (!content) {
-        return [];
-      }
-      
-      return this.parseOHLCData(content);
-    } catch (error) {
-      console.error(`Error loading OHLC data from Azure: ${filename}`, error);
-      return [];
-    }
-  }
-
-  /**
    * Load OHLC data from Azure Blob Storage
    */
   private async loadOHLCDataFromAzure(filename: string): Promise<OHLCData[]> {
@@ -553,30 +532,54 @@ export class MoneyFlowCalculator {
           const existingDates = existingDatesByStock.get(key) || new Set<string>();
           
           try {
-            // CRITICAL: Load file WITHOUT cache first to check if it needs processing
-            const ohlcData = await this.loadOHLCDataFromAzureWithoutCache(blobName);
-            
-            // OPTIMIZATION: Filter to only new dates
-            const filteredOHLC = this.filterOHLCDataForNewDates(ohlcData, existingDates);
-            
-            if (filteredOHLC.length === 0) {
-              // No new dates - skip file entirely, don't add to cache
-              return { code, mfiData: [], success: false, error: 'No new dates to process', type: 'stock' as const, skipped: true };
+            // CRITICAL: JANGAN LOAD FILE SAMA SEKALI jika semua dates sudah exist
+            // Cek existing dates DULU sebelum load
+            if (existingDates.size > 0) {
+              // Get the latest existing date
+              const sortedExistingDates = Array.from(existingDates).sort((a, b) => b.localeCompare(a));
+              const latestExistingDate = sortedExistingDates[0];
+              
+              // If we have many existing dates and the latest is recent, assume file doesn't need processing
+              // This is a heuristic - we don't know dates in file without loading
+              // But if we have > 1000 existing dates and latest is within last 7 days, likely all dates exist
+              if (existingDates.size > 1000 && latestExistingDate) {
+                const latestDate = new Date(
+                  parseInt(latestExistingDate.substring(0, 4)),
+                  parseInt(latestExistingDate.substring(4, 6)) - 1,
+                  parseInt(latestExistingDate.substring(6, 8))
+                );
+                const daysSinceLatest = (Date.now() - latestDate.getTime()) / (1000 * 60 * 60 * 24);
+                
+                // If latest date is within last 7 days and we have many dates, likely file is up to date
+                if (daysSinceLatest < 7) {
+                  // Skip file without loading - assume all dates already exist
+                  return { code, mfiData: [], success: false, error: 'All dates likely already exist (skipped without load)', type: 'stock' as const, skipped: true };
+                }
+              }
             }
             
-            // File needs processing - add to active files and reload with cache
+            // File might need processing - add to active files and load with cache
             if (!activeFiles.includes(blobName)) {
               stockCache.addActiveProcessingFile(blobName);
               activeFiles.push(blobName);
             }
             
-            // Reload with cache for actual processing
-            const cachedOHLCData = await this.loadOHLCDataFromAzure(blobName);
+            // Load with cache for actual processing
+            const ohlcData = await this.loadOHLCDataFromAzure(blobName);
+            
+            // OPTIMIZATION: Filter to only new dates
+            const filteredOHLC = this.filterOHLCDataForNewDates(ohlcData, existingDates);
+            
+            if (filteredOHLC.length === 0) {
+              // No new dates - remove from cache since we don't need it
+              stockCache.removeActiveProcessingFile(blobName);
+              return { code, mfiData: [], success: false, error: 'No new dates to process', type: 'stock' as const, skipped: true };
+            }
             
             // Calculate MFI only for new dates (but need full OHLC for proper calculation)
             // We need to calculate from the beginning to get proper MFI values
             // So we'll filter AFTER calculation
-            const allMfiData = this.calculateMFI(cachedOHLCData);
+            const allMfiData = this.calculateMFI(ohlcData);
             
             // Filter MFI data to only include new dates
             const newMfiData = allMfiData.filter(item => !existingDates.has(item.Date));
@@ -671,30 +674,54 @@ export class MoneyFlowCalculator {
           const existingDates = existingDatesByStock.get(key) || new Set<string>();
           
           try {
-            // CRITICAL: Load file WITHOUT cache first to check if it needs processing
-            const ohlcData = await this.loadOHLCDataFromAzureWithoutCache(blobName);
-            
-            // OPTIMIZATION: Filter to only new dates
-            const filteredOHLC = this.filterOHLCDataForNewDates(ohlcData, existingDates);
-            
-            if (filteredOHLC.length === 0) {
-              // No new dates - skip file entirely, don't add to cache
-              return { code, mfiData: [], success: false, error: 'No new dates to process', type: 'index' as const, skipped: true };
+            // CRITICAL: JANGAN LOAD FILE SAMA SEKALI jika semua dates sudah exist
+            // Cek existing dates DULU sebelum load
+            if (existingDates.size > 0) {
+              // Get the latest existing date
+              const sortedExistingDates = Array.from(existingDates).sort((a, b) => b.localeCompare(a));
+              const latestExistingDate = sortedExistingDates[0];
+              
+              // If we have many existing dates and the latest is recent, assume file doesn't need processing
+              // This is a heuristic - we don't know dates in file without loading
+              // But if we have > 1000 existing dates and latest is within last 7 days, likely all dates exist
+              if (existingDates.size > 1000 && latestExistingDate) {
+                const latestDate = new Date(
+                  parseInt(latestExistingDate.substring(0, 4)),
+                  parseInt(latestExistingDate.substring(4, 6)) - 1,
+                  parseInt(latestExistingDate.substring(6, 8))
+                );
+                const daysSinceLatest = (Date.now() - latestDate.getTime()) / (1000 * 60 * 60 * 24);
+                
+                // If latest date is within last 7 days and we have many dates, likely file is up to date
+                if (daysSinceLatest < 7) {
+                  // Skip file without loading - assume all dates already exist
+                  return { code, mfiData: [], success: false, error: 'All dates likely already exist (skipped without load)', type: 'index' as const, skipped: true };
+                }
+              }
             }
             
-            // File needs processing - add to active files and reload with cache
+            // File might need processing - add to active files and load with cache
             if (!activeFiles.includes(blobName)) {
               indexCache.addActiveProcessingFile(blobName);
               activeFiles.push(blobName);
             }
             
-            // Reload with cache for actual processing
-            const cachedOHLCData = await this.loadOHLCDataFromAzure(blobName);
+            // Load with cache for actual processing
+            const ohlcData = await this.loadOHLCDataFromAzure(blobName);
+            
+            // OPTIMIZATION: Filter to only new dates
+            const filteredOHLC = this.filterOHLCDataForNewDates(ohlcData, existingDates);
+            
+            if (filteredOHLC.length === 0) {
+              // No new dates - remove from cache since we don't need it
+              indexCache.removeActiveProcessingFile(blobName);
+              return { code, mfiData: [], success: false, error: 'No new dates to process', type: 'index' as const, skipped: true };
+            }
             
             // Calculate MFI only for new dates (but need full OHLC for proper calculation)
             // We need to calculate from the beginning to get proper MFI values
             // So we'll filter AFTER calculation
-            const allMfiData = this.calculateMFI(cachedOHLCData);
+            const allMfiData = this.calculateMFI(ohlcData);
             
             // Filter MFI data to only include new dates
             const newMfiData = allMfiData.filter(item => !existingDates.has(item.Date));
