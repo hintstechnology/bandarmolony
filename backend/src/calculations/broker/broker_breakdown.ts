@@ -1,4 +1,4 @@
-import { uploadText, listPaths } from '../../utils/azureBlob';
+import { uploadText, listPaths, downloadText } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_7, MAX_CONCURRENT_REQUESTS_PHASE_7 } from '../../services/dataUpdateService';
 import { SchedulerLogService } from '../../services/schedulerLogService';
 import { doneSummaryCache } from '../../cache/doneSummaryCacheService';
@@ -983,10 +983,11 @@ export class BrokerBreakdownCalculator {
 
   /**
    * Pre-count total unique stocks from all DT files that need processing
+   * CRITICAL: Loads files DIRECTLY from Azure WITHOUT cache to avoid caching files during pre-count
    * This is used for accurate progress tracking
    */
   private async preCountTotalStocks(dtFiles: string[]): Promise<number> {
-    console.log(`🔍 Pre-counting total stocks from ${dtFiles.length} DT files...`);
+    console.log(`🔍 Pre-counting total stocks from ${dtFiles.length} DT files (loading WITHOUT cache)...`);
     const allStocks = new Set<string>();
     let processedFiles = 0;
     
@@ -996,9 +997,15 @@ export class BrokerBreakdownCalculator {
       const batch = dtFiles.slice(i, i + PRE_COUNT_BATCH_SIZE);
       const batchPromises = batch.map(async (blobName) => {
         try {
-          const result = await this.loadAndProcessSingleDtFile(blobName);
-          if (result && result.data.length > 0) {
-            const validTransactions = result.data.filter(t => 
+          // CRITICAL: Load file DIRECTLY from Azure WITHOUT cache for pre-count
+          const content = await downloadText(blobName);
+          if (!content || content.trim().length === 0) {
+            return;
+          }
+          
+          const data = this.parseTransactionData(content);
+          if (data.length > 0) {
+            const validTransactions = data.filter(t => 
               t.STK_CODE && t.STK_CODE.length === 4 && 
               t.BRK_COD1 && t.BRK_COD2 && 
               t.STK_VOLM > 0 && t.STK_PRIC > 0
@@ -1060,7 +1067,11 @@ export class BrokerBreakdownCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files (out of ${allDtFiles.length} total)...`);
       
-      // Set active processing dates HANYA untuk tanggal yang benar-benar akan diproses
+      // CRITICAL: Pre-count FIRST before setting active dates to avoid caching during pre-count
+      // Pre-count loads files WITHOUT cache
+      const totalStocks = await this.preCountTotalStocks(dtFiles);
+      
+      // Set active processing dates HANYA setelah pre-count selesai
       dtFiles.forEach(file => {
         const dateMatch = file.match(/done-summary\/(\d{8})\//);
         if (dateMatch && dateMatch[1]) {
@@ -1068,14 +1079,11 @@ export class BrokerBreakdownCalculator {
         }
       });
       
-      // Set active dates di cache
+      // Set active dates di cache SETELAH pre-count selesai
       datesToProcess.forEach(date => {
         doneSummaryCache.addActiveProcessingDate(date);
       });
       console.log(`📅 Set ${datesToProcess.size} active processing dates in cache: ${Array.from(datesToProcess).slice(0, 10).join(', ')}${datesToProcess.size > 10 ? '...' : ''}`);
-      
-      // Pre-count total stocks for accurate progress tracking
-      const totalStocks = await this.preCountTotalStocks(dtFiles);
       
       // Create progress tracker for thread-safe stock counting
       const progressTracker: ProgressTracker = {

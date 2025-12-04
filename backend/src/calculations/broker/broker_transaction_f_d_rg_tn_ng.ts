@@ -1,4 +1,4 @@
-import { uploadText, listPaths } from '../../utils/azureBlob';
+import { uploadText, listPaths, downloadText } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_5, MAX_CONCURRENT_REQUESTS_PHASE_5 } from '../../services/dataUpdateService';
 import { SchedulerLogService } from '../../services/schedulerLogService';
 import { doneSummaryCache } from '../../cache/doneSummaryCacheService';
@@ -694,10 +694,11 @@ export class BrokerTransactionFDRGTNNGCalculator {
    */
   /**
    * Pre-count total unique brokers from all DT files that need processing
+   * CRITICAL: Loads files DIRECTLY from Azure WITHOUT cache to avoid caching files during pre-count
    * This is used for accurate progress tracking (per broker per type per investor type)
    */
   private async preCountTotalBrokers(dtFiles: string[]): Promise<number> {
-    console.log(`🔍 Pre-counting total brokers from ${dtFiles.length} DT files...`);
+    console.log(`🔍 Pre-counting total brokers from ${dtFiles.length} DT files (loading WITHOUT cache)...`);
     const allBrokers = new Set<string>();
     let processedFiles = 0;
     
@@ -707,15 +708,17 @@ export class BrokerTransactionFDRGTNNGCalculator {
       const batch = dtFiles.slice(i, i + PRE_COUNT_BATCH_SIZE);
       const batchPromises = batch.map(async (blobName) => {
         try {
-          // Use shared cache for raw content
-          const content = await doneSummaryCache.getRawContent(blobName);
-          if (content && content.trim().length > 0) {
-            const data = this.parseTransactionData(content);
-            data.forEach((t: TransactionData) => {
-              if (t.BRK_COD1) allBrokers.add(t.BRK_COD1);
-              if (t.BRK_COD2) allBrokers.add(t.BRK_COD2);
-            });
+          // CRITICAL: Load file DIRECTLY from Azure WITHOUT cache for pre-count
+          const content = await downloadText(blobName);
+          if (!content || content.trim().length === 0) {
+            return;
           }
+          
+          const data = this.parseTransactionData(content);
+          data.forEach((t: TransactionData) => {
+            if (t.BRK_COD1) allBrokers.add(t.BRK_COD1);
+            if (t.BRK_COD2) allBrokers.add(t.BRK_COD2);
+          });
         } catch (error) {
           // Skip files that can't be read during pre-count
           console.warn(`⚠️ Could not pre-count brokers from ${blobName}:`, error instanceof Error ? error.message : error);
@@ -749,7 +752,11 @@ export class BrokerTransactionFDRGTNNGCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files in batches of ${BATCH_SIZE_PHASE_5}...`);
       
-      // Set active processing dates HANYA untuk tanggal yang benar-benar akan diproses
+      // CRITICAL: Pre-count FIRST before setting active dates to avoid caching during pre-count
+      // Pre-count loads files WITHOUT cache
+      const estimatedTotalBrokers = await this.preCountTotalBrokers(dtFiles);
+      
+      // Set active processing dates HANYA setelah pre-count selesai
       dtFiles.forEach(file => {
         const dateMatch = file.match(/done-summary\/(\d{8})\//);
         if (dateMatch && dateMatch[1]) {
@@ -757,14 +764,11 @@ export class BrokerTransactionFDRGTNNGCalculator {
         }
       });
       
-      // Set active dates di cache
+      // Set active dates di cache SETELAH pre-count selesai
       datesToProcess.forEach(date => {
         doneSummaryCache.addActiveProcessingDate(date);
       });
       console.log(`📅 Set ${datesToProcess.size} active processing dates in cache: ${Array.from(datesToProcess).slice(0, 10).join(', ')}${datesToProcess.size > 10 ? '...' : ''}`);
-      
-      // Pre-count total brokers for accurate progress tracking
-      const estimatedTotalBrokers = await this.preCountTotalBrokers(dtFiles);
       
       // Create progress tracker for thread-safe broker counting
       const progressTracker: ProgressTracker = {
