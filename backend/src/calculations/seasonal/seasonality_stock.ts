@@ -285,6 +285,7 @@ async function getAllStocks(): Promise<{ sector: string; ticker: string }[]> {
 export async function generateAllStocksSeasonality(): Promise<SeasonalityResults> {
   const allStocks = await getAllStocks();
   const stocksData: StockSeasonalityData[] = [];
+  const activeFiles: string[] = [];
   
   console.log(`📊 Processing ${allStocks.length} stocks...`);
   
@@ -301,9 +302,17 @@ export async function generateAllStocksSeasonality(): Promise<SeasonalityResults
   
   console.log(`📊 Unique stocks after deduplication: ${uniqueStocks.size} (from ${allStocks.length} total)`);
   
+  // Set active processing files HANYA untuk file yang benar-benar akan diproses
+  const uniqueStocksArray = Array.from(uniqueStocks.values());
+  for (const stock of uniqueStocksArray) {
+    const stockPath = `stock/${stock.sector}/${stock.ticker}.csv`;
+    stockCache.addActiveProcessingFile(stockPath);
+    activeFiles.push(stockPath);
+  }
+  console.log(`📅 Set ${activeFiles.length} active processing stock files in cache`);
+  
   // Process stocks in batches for better performance
   const BATCH_SIZE = BATCH_SIZE_PHASE_2; // Phase 2: 500 stocks at a time
-  const uniqueStocksArray = Array.from(uniqueStocks.values());
   
   for (let i = 0; i < uniqueStocksArray.length; i += BATCH_SIZE) {
     const batch = uniqueStocksArray.slice(i, i + BATCH_SIZE);
@@ -438,10 +447,15 @@ export async function saveStockSeasonalityToCSV(results: SeasonalityResults): Pr
  * Main function to generate and save stock seasonality
  */
 export async function generateStockSeasonality(): Promise<SeasonalityResults> {
+  let activeFiles: string[] = [];
+  
   try {
     console.log('🔄 Starting stock seasonality analysis...');
     
     const results = await generateAllStocksSeasonality();
+    
+    // Get active files from generateAllStocksSeasonality (passed via closure)
+    // Note: activeFiles sudah di-set di generateAllStocksSeasonality
     
     console.log('💾 Saving to CSV...');
     await saveStockSeasonalityToCSV(results);
@@ -452,5 +466,15 @@ export async function generateStockSeasonality(): Promise<SeasonalityResults> {
   } catch (error) {
     console.error('❌ Error in generateStockSeasonality:', error);
     throw error;
+  } finally {
+    // Cleanup: Remove active processing files setelah selesai
+    // Get from cache service
+    const activeStockFiles = stockCache.getActiveProcessingFiles();
+    for (const file of activeStockFiles) {
+      stockCache.removeActiveProcessingFile(file);
+    }
+    if (activeStockFiles.length > 0) {
+      console.log(`🧹 Cleaned up ${activeStockFiles.length} active processing stock files from cache`);
+    }
   }
 }

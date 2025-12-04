@@ -384,6 +384,7 @@ export class BrokerInventoryCalculator {
    */
   public async generateBrokerInventoryData(_dateSuffix: string, logId?: string | null): Promise<void> {
     console.log("Starting broker inventory analysis for ALL available dates...");
+    let datesToProcess: Set<string> = new Set();
     
     try {
       // Discover all dates
@@ -392,6 +393,13 @@ export class BrokerInventoryCalculator {
         console.log("⚠️ No broker_transaction dates found in Azure - skipping broker inventory");
         return;
       }
+      
+      // Set active processing dates HANYA untuk tanggal yang benar-benar akan diproses
+      dates.forEach(date => {
+        datesToProcess.add(date);
+        brokerTransactionCache.addActiveProcessingDate(date);
+      });
+      console.log(`📅 Set ${datesToProcess.size} active processing dates in broker transaction cache: ${Array.from(datesToProcess).slice(0, 10).join(', ')}${datesToProcess.size > 10 ? '...' : ''}`);
       
       // Load broker transaction data for all dates in batches
       console.log("\nLoading broker transaction data for all dates...");
@@ -542,6 +550,14 @@ export class BrokerInventoryCalculator {
     } catch (error) {
       console.error(`Error during broker inventory analysis: ${error}`);
       throw error;
+    } finally {
+      // Cleanup: Remove active processing dates setelah selesai
+      if (datesToProcess && datesToProcess.size > 0) {
+        datesToProcess.forEach(date => {
+          brokerTransactionCache.removeActiveProcessingDate(date);
+        });
+        console.log(`🧹 Cleaned up ${datesToProcess.size} active processing dates from broker transaction cache`);
+      }
     }
   }
 }

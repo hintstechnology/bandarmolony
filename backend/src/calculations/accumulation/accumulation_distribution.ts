@@ -149,6 +149,12 @@ export class AccumulationDistributionCalculator {
       }
       
       console.log(`🔍 Found stock ${stockCode} at: ${stockFile}`);
+      
+      // Set active processing file HANYA untuk file yang benar-benar akan diproses
+      if (!stockCache.isFileActive(stockFile)) {
+        stockCache.addActiveProcessingFile(stockFile);
+      }
+      
       // Use shared cache for raw content (will cache automatically if not exists)
       const content = await stockCache.getRawContent(stockFile);
       if (!content) {
@@ -622,6 +628,9 @@ export class AccumulationDistributionCalculator {
       const stockFilesList = await listPaths({ prefix: 'stock/' });
       console.log(`📊 Found ${stockFilesList.length} stock files in Azure`);
       
+      // Note: Stock files akan diproses secara dinamis berdasarkan stock codes dari bid_ask data
+      // Jadi kita akan set active files saat memproses stock files di dalam loop (di loadStockDataFromAzure)
+      
       const createdFilesSummary: { date: string; file: string; count: number }[] = [];
       let processedCount = 0;
       let skippedCount = 0;
@@ -876,6 +885,15 @@ export class AccumulationDistributionCalculator {
         success: false,
         message: `Failed to generate accumulation distribution data: ${error instanceof Error ? error.message : 'Unknown error'}`
       };
+    } finally {
+      // Cleanup: Remove active processing files setelah selesai
+      const activeStockFiles = stockCache.getActiveProcessingFiles();
+      for (const file of activeStockFiles) {
+        stockCache.removeActiveProcessingFile(file);
+      }
+      if (activeStockFiles.length > 0) {
+        console.log(`🧹 Cleaned up ${activeStockFiles.length} active processing stock files from cache`);
+      }
     }
   }
 }

@@ -139,7 +139,8 @@ class BrokerTransactionCacheService {
   
   /**
    * Get raw CSV content from cache or Azure
-   * OPTIMIZED: Hanya cache tanggal yang sedang diproses (currentProcessingDate)
+   * OPTIMIZED: Hanya cache tanggal yang sedang diproses (activeProcessingDates)
+   * CRITICAL: Kalkulasi harus manual set active dates sebelum memanggil getRawContent
    * Supports both YYYYMMDD and YYMMDD date formats
    * @param brokerCode Broker code (e.g., '001')
    * @param date Date string in YYYYMMDD or YYMMDD format
@@ -149,13 +150,9 @@ class BrokerTransactionCacheService {
     // Normalize date to YYYYMMDD for comparison
     const normalizedDate = this.normalizeDate(date);
     
-    // Auto-add tanggal ke activeProcessingDates jika belum ada
-    // Ini memungkinkan kalkulasi tidak perlu set manual, cukup panggil getRawContent
-    if (!this.isDateActive(normalizedDate)) {
-      // Auto-add tanggal yang dipanggil ke active dates
-      this.addActiveProcessingDate(normalizedDate);
-    } else {
-      // Update last access time untuk tanggal yang sudah aktif
+    // Update last access time jika tanggal sudah aktif
+    // TAPI TIDAK auto-add - kalkulasi harus manual set active dates untuk tanggal yang benar-benar akan diproses
+    if (this.isDateActive(normalizedDate)) {
       this.dateLastAccess.set(normalizedDate, Date.now());
     }
     

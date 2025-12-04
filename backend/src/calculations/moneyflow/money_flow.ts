@@ -489,6 +489,14 @@ export class MoneyFlowCalculator {
     const allStockFiles = await this.findAllCsvFiles('stock/');
     console.log(`Found ${allStockFiles.length} stock files`);
     
+    // Set active processing files HANYA untuk file yang benar-benar akan diproses
+    const activeFiles: string[] = [];
+    for (const file of allStockFiles) {
+      stockCache.addActiveProcessingFile(file);
+      activeFiles.push(file);
+    }
+    console.log(`📅 Set ${activeFiles.length} active processing stock files in cache`);
+    
     let processed = 0;
     for (let i = 0; i < allStockFiles.length; i += BATCH_SIZE) {
       const batch = allStockFiles.slice(i, i + BATCH_SIZE);
@@ -605,6 +613,13 @@ export class MoneyFlowCalculator {
     const allIndexFiles = await this.findAllCsvFiles('index/');
     console.log(`Found ${allIndexFiles.length} index files`);
     
+    // Set active processing files HANYA untuk file yang benar-benar akan diproses
+    for (const file of allIndexFiles) {
+      indexCache.addActiveProcessingFile(file);
+      activeFiles.push(file);
+    }
+    console.log(`📅 Set ${allIndexFiles.length} active processing index files in cache (total: ${activeFiles.length})`);
+    
     processed = 0;
     for (let i = 0; i < allIndexFiles.length; i += BATCH_SIZE) {
       const batch = allIndexFiles.slice(i, i + BATCH_SIZE);
@@ -708,6 +723,9 @@ export class MoneyFlowCalculator {
     }
     
     console.log(`\nProcessed ${moneyFlowData.size} files successfully (${allStockFiles.length} stocks + ${allIndexFiles.length} indices)`);
+    
+    // Return active files untuk cleanup di generateMoneyFlowData
+    // Note: activeFiles sudah di-set di awal fungsi ini
     return moneyFlowData;
   }
 
@@ -728,6 +746,7 @@ export class MoneyFlowCalculator {
       
       // Process ALL files (both stock and index) - type preserved from source folder
       // OPTIMIZED: Only process dates that don't exist in output
+      // Note: processAllFiles akan set active files untuk semua file yang diproses
       const allMoneyFlowData = await this.processAllFiles(indexList, existingDatesByStock, logId);
       
       // Create or update individual CSV files (type from source folder)
@@ -761,6 +780,24 @@ export class MoneyFlowCalculator {
         success: false,
         message: `Failed to generate money flow data: ${error instanceof Error ? error.message : 'Unknown error'}`
       };
+    } finally {
+      // Cleanup: Remove active processing files setelah selesai
+      // Note: processAllFiles sudah set active files, jadi kita perlu cleanup semua
+      // Kita bisa get dari cache service atau cleanup manual
+      // Untuk sekarang, kita cleanup semua active files dari cache
+      const activeStockFiles = stockCache.getActiveProcessingFiles();
+      const activeIndexFiles = indexCache.getActiveProcessingFiles();
+      
+      for (const file of activeStockFiles) {
+        stockCache.removeActiveProcessingFile(file);
+      }
+      for (const file of activeIndexFiles) {
+        indexCache.removeActiveProcessingFile(file);
+      }
+      
+      if (activeStockFiles.length > 0 || activeIndexFiles.length > 0) {
+        console.log(`🧹 Cleaned up ${activeStockFiles.length} stock files and ${activeIndexFiles.length} index files from cache`);
+      }
     }
   }
 }

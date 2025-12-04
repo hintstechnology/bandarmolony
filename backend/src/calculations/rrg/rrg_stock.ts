@@ -298,6 +298,8 @@ async function listAvailableIndexes(indexDir: string): Promise<string[]> {
  * Generate RRG data for a single stock
  */
 async function generateRRGData(emitter: string, stockDir: string, indexDir: string, lookbackPoints: number = 10, indexName?: string): Promise<RRGResult | null> {
+  const activeFiles: string[] = [];
+  
   try {
     // Find stock CSV
     const stockPath = await findEmitterCsv(emitter, stockDir);
@@ -321,6 +323,16 @@ async function generateRRGData(emitter: string, stockDir: string, indexDir: stri
       if (!indexPath) {
         throw new Error(`CSV index tidak ditemukan di '${indexDir}'. Gunakan --index untuk memilih index yang tersedia.`);
       }
+    }
+    
+    // Set active processing files HANYA untuk file yang benar-benar akan diproses
+    if (stockPath.startsWith('stock/')) {
+      stockCache.addActiveProcessingFile(stockPath);
+      activeFiles.push(stockPath);
+    }
+    if (indexPath && indexPath.startsWith('index/')) {
+      indexCache.addActiveProcessingFile(indexPath);
+      activeFiles.push(indexPath);
     }
     
     // Read data
@@ -462,6 +474,18 @@ async function generateRRGData(emitter: string, stockDir: string, indexDir: stri
     
   } catch (error) {
     throw new Error(`Error processing ${emitter}: ${error}`);
+  } finally {
+    // Cleanup: Remove active processing files setelah selesai
+    for (const file of activeFiles) {
+      if (file.startsWith('stock/')) {
+        stockCache.removeActiveProcessingFile(file);
+      } else if (file.startsWith('index/')) {
+        indexCache.removeActiveProcessingFile(file);
+      }
+    }
+    if (activeFiles.length > 0) {
+      console.log(`🧹 Cleaned up ${activeFiles.length} active processing files from cache`);
+    }
   }
 }
 
