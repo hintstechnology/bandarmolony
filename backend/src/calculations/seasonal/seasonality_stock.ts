@@ -447,15 +447,10 @@ export async function saveStockSeasonalityToCSV(results: SeasonalityResults): Pr
  * Main function to generate and save stock seasonality
  */
 export async function generateStockSeasonality(): Promise<SeasonalityResults> {
-  let activeFiles: string[] = [];
-  
   try {
     console.log('🔄 Starting stock seasonality analysis...');
     
     const results = await generateAllStocksSeasonality();
-    
-    // Get active files from generateAllStocksSeasonality (passed via closure)
-    // Note: activeFiles sudah di-set di generateAllStocksSeasonality
     
     console.log('💾 Saving to CSV...');
     await saveStockSeasonalityToCSV(results);
