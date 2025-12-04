@@ -162,16 +162,10 @@ class DoneSummaryCacheService {
     // Extract date from blob name
     const fileDate = this.extractDateFromBlobName(blobName);
     
-    // Auto-add tanggal ke activeProcessingDates jika belum ada
-    // Ini memungkinkan kalkulasi tidak perlu set manual, cukup panggil getRawContent
-    if (fileDate) {
-      if (!this.isDateActive(fileDate)) {
-        // Auto-add tanggal yang dipanggil ke active dates
-        this.addActiveProcessingDate(fileDate);
-      } else {
-        // Update last access time untuk tanggal yang sudah aktif
-        this.dateLastAccess.set(fileDate, Date.now());
-      }
+    // Update last access time jika tanggal sudah aktif
+    // TAPI TIDAK auto-add - kalkulasi harus manual set active dates untuk tanggal yang benar-benar akan diproses
+    if (fileDate && this.isDateActive(fileDate)) {
+      this.dateLastAccess.set(fileDate, Date.now());
     }
     
     // Check cache first (only for current processing date)

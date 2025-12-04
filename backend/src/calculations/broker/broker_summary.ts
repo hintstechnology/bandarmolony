@@ -617,6 +617,8 @@ export class BrokerSummaryCalculator {
    */
   public async generateBrokerSummaryData(_dateSuffix: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
     const startTime = Date.now();
+    let datesToProcess: Set<string> = new Set();
+    
     try {
       console.log(`Starting broker summary analysis for all DT files...`);
       
@@ -633,6 +635,21 @@ export class BrokerSummaryCalculator {
       }
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
+      
+      // Set active processing dates HANYA untuk tanggal yang benar-benar akan diproses
+      // Extract unique dates from dtFiles
+      dtFiles.forEach(file => {
+        const dateMatch = file.match(/done-summary\/(\d{8})\//);
+        if (dateMatch && dateMatch[1]) {
+          datesToProcess.add(dateMatch[1]);
+        }
+      });
+      
+      // Set active dates di cache
+      datesToProcess.forEach(date => {
+        doneSummaryCache.addActiveProcessingDate(date);
+      });
+      console.log(`📅 Set ${datesToProcess.size} active processing dates in cache: ${Array.from(datesToProcess).slice(0, 10).join(', ')}${datesToProcess.size > 10 ? '...' : ''}`);
       
       // Pre-count total brokers for accurate progress tracking
       const totalUniqueBrokers = await this.preCountTotalBrokers(dtFiles);
@@ -782,6 +799,14 @@ export class BrokerSummaryCalculator {
         success: false,
         message: `Failed to generate broker summary: ${error instanceof Error ? error.message : 'Unknown error'}`
       };
+    } finally {
+      // Cleanup: Remove active processing dates setelah selesai
+      if (datesToProcess) {
+        datesToProcess.forEach(date => {
+          doneSummaryCache.removeActiveProcessingDate(date);
+        });
+        console.log(`🧹 Cleaned up ${datesToProcess.size} active processing dates from cache`);
+      }
     }
   }
 }

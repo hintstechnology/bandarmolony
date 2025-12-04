@@ -464,10 +464,12 @@ export class BreakDoneTradeCalculator {
    * This method processes ALL DT files regardless of date
    */
   public async generateBreakDoneTradeData(_dateSuffix?: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
+    let datesToProcess: Set<string> = new Set();
+    
     try {
       console.log(`Starting break done trade data extraction for all DT files...`);
       
-      // Find all DT files
+      // Find all DT files (sudah filter yang belum ada output)
       const dtFiles = await this.findAllDtFiles();
       
       if (dtFiles.length === 0) {
@@ -480,6 +482,20 @@ export class BreakDoneTradeCalculator {
       }
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
+      
+      // Set active processing dates HANYA untuk tanggal yang benar-benar akan diproses
+      dtFiles.forEach(file => {
+        const dateMatch = file.match(/done-summary\/(\d{8})\//);
+        if (dateMatch && dateMatch[1]) {
+          datesToProcess.add(dateMatch[1]);
+        }
+      });
+      
+      // Set active dates di cache
+      datesToProcess.forEach(date => {
+        doneSummaryCache.addActiveProcessingDate(date);
+      });
+      console.log(`📅 Set ${datesToProcess.size} active processing dates in cache: ${Array.from(datesToProcess).slice(0, 10).join(', ')}${datesToProcess.size > 10 ? '...' : ''}`);
       this.logMemoryUsage('Start processing');
       
       // Pre-count total stocks for accurate progress tracking
@@ -610,6 +626,14 @@ export class BreakDoneTradeCalculator {
         success: false,
         message: `Failed to generate break done trade data: ${error instanceof Error ? error.message : 'Unknown error'}`
       };
+    } finally {
+      // Cleanup: Remove active processing dates setelah selesai
+      if (datesToProcess && datesToProcess.size > 0) {
+        datesToProcess.forEach(date => {
+          doneSummaryCache.removeActiveProcessingDate(date);
+        });
+        console.log(`🧹 Cleaned up ${datesToProcess.size} active processing dates from cache`);
+      }
     }
   }
 }
