@@ -22,6 +22,16 @@ class StockCacheService {
   // Cache untuk raw CSV content
   private rawContentCache: Map<string, CacheEntry> = new Map();
   
+  // Active processing files - track file yang sedang diproses oleh kalkulasi
+  // Untuk stock, file-nya static (tidak per-date), jadi kita track per-file
+  private activeProcessingFiles: Set<string> = new Set();
+  
+  // Track last access time untuk setiap file (untuk auto-cleanup)
+  private fileLastAccess: Map<string, number> = new Map();
+  
+  // Auto-cleanup threshold: remove file yang tidak dipanggil lagi selama 1 jam
+  private readonly FILE_INACTIVE_THRESHOLD = 60 * 60 * 1000; // 1 hour in milliseconds
+  
   // Statistics
   private stats = {
     cacheHits: 0,
@@ -41,12 +51,91 @@ class StockCacheService {
   private currentCacheSize = 0;
   
   /**
+   * Add active processing file - file yang sedang diproses oleh kalkulasi
+   * Cache akan hanya menyimpan file yang ada di activeProcessingFiles
+   * @param blobName Full blob path (e.g., 'stock/BASIC MATERIALS/BBCA.csv')
+   */
+  addActiveProcessingFile(blobName: string): void {
+    if (!this.activeProcessingFiles.has(blobName)) {
+      this.activeProcessingFiles.add(blobName);
+      console.log(`📅 Stock Cache: Added active processing file ${blobName} (total: ${this.activeProcessingFiles.size})`);
+    }
+    // Update last access time
+    this.fileLastAccess.set(blobName, Date.now());
+  }
+  
+  /**
+   * Remove active processing file - file sudah selesai diproses
+   * Auto-clear cache untuk file ini
+   * @param blobName Full blob path (e.g., 'stock/BASIC MATERIALS/BBCA.csv')
+   */
+  removeActiveProcessingFile(blobName: string): void {
+    if (this.activeProcessingFiles.has(blobName)) {
+      this.activeProcessingFiles.delete(blobName);
+      this.fileLastAccess.delete(blobName);
+      // Clear cache for this file
+      const pathParts = blobName.replace('stock/', '').split('/');
+      if (pathParts.length === 2) {
+        this.clearStock(pathParts[0] || '', pathParts[1]?.replace('.csv', '') || '');
+      }
+      console.log(`📅 Stock Cache: Removed active processing file ${blobName} (total: ${this.activeProcessingFiles.size})`);
+    }
+  }
+  
+  /**
+   * Auto-cleanup: Remove file yang sudah lama tidak dipanggil
+   * Dipanggil secara periodik atau saat evict old entries
+   */
+  private autoCleanupInactiveFiles(): void {
+    const now = Date.now();
+    const filesToRemove: string[] = [];
+    
+    for (const [file, lastAccess] of this.fileLastAccess.entries()) {
+      // Jika file tidak dipanggil lagi selama 1 jam, remove
+      if (now - lastAccess > this.FILE_INACTIVE_THRESHOLD) {
+        filesToRemove.push(file);
+      }
+    }
+    
+    // Remove inactive files
+    for (const file of filesToRemove) {
+      this.removeActiveProcessingFile(file);
+    }
+    
+    if (filesToRemove.length > 0) {
+      console.log(`🧹 Auto-cleaned ${filesToRemove.length} inactive stock files: ${filesToRemove.slice(0, 10).join(', ')}${filesToRemove.length > 10 ? '...' : ''}`);
+    }
+  }
+  
+  /**
+   * Get active processing files
+   */
+  getActiveProcessingFiles(): string[] {
+    return Array.from(this.activeProcessingFiles);
+  }
+  
+  /**
+   * Check if file is currently being processed
+   */
+  isFileActive(blobName: string): boolean {
+    return this.activeProcessingFiles.has(blobName);
+  }
+  
+  /**
    * Get raw CSV content from cache or Azure
+   * OPTIMIZED: Hanya cache file yang sedang diproses (activeProcessingFiles)
+   * CRITICAL: Kalkulasi harus manual set active files sebelum memanggil getRawContent
    * @param blobName Full blob path (e.g., 'stock/BASIC MATERIALS/BBCA.csv')
    * @returns CSV content as string
    */
   async getRawContent(blobName: string): Promise<string | null> {
-    // Check cache first
+    // Update last access time jika file sudah aktif
+    // TAPI TIDAK auto-add - kalkulasi harus manual set active files untuk file yang benar-benar akan diproses
+    if (this.isFileActive(blobName)) {
+      this.fileLastAccess.set(blobName, Date.now());
+    }
+    
+    // Check cache first (only for current processing file)
     const cached = this.rawContentCache.get(blobName);
     if (cached && (Date.now() - cached.timestamp) < this.CACHE_TTL) {
       this.stats.cacheHits++;
@@ -70,21 +159,27 @@ class StockCacheService {
       this.stats.totalLoads++;
       this.stats.totalBytesLoaded += size;
       
-      // Check if we need to evict old entries to make room
-      if (this.currentCacheSize + size > this.MAX_CACHE_SIZE) {
-        await this.evictOldEntries(size);
+      // Only cache if file is active (sedang diproses)
+      // CRITICAL: Jangan cache jika file tidak active - ini mencegah cache semua file
+      if (this.isFileActive(blobName)) {
+        // Check if we need to evict old entries to make room
+        if (this.currentCacheSize + size > this.MAX_CACHE_SIZE) {
+          await this.evictOldEntries(size);
+        }
+        
+        // Store in cache
+        this.rawContentCache.set(blobName, {
+          content,
+          timestamp: Date.now(),
+          size
+        });
+        
+        this.currentCacheSize += size;
+        console.log(`💾 Cached: ${blobName} (${(size / 1024).toFixed(2)} KB) - file is active`);
+      } else {
+        console.log(`⏭️  NOT cached: ${blobName} - file is NOT active`);
       }
       
-      // Store in cache
-      this.rawContentCache.set(blobName, {
-        content,
-        timestamp: Date.now(),
-        size
-      });
-      
-      this.currentCacheSize += size;
-      
-      console.log(`✅ Stock loaded and cached: ${blobName} (${(size / 1024).toFixed(2)} KB)`);
       return content;
       
     } catch (error) {
@@ -99,10 +194,23 @@ class StockCacheService {
   private async evictOldEntries(requiredSize: number): Promise<void> {
     console.log(`🧹 Evicting old stock cache entries to free ${(requiredSize / 1024 / 1024).toFixed(2)} MB...`);
     
+    // Auto-cleanup inactive files sebelum evict
+    this.autoCleanupInactiveFiles();
+    
     // Sort entries by timestamp (oldest first)
+    // Prioritize entries from inactive files (jika masih ada setelah cleanup)
     const entries = Array.from(this.rawContentCache.entries())
-      .map(([key, value]) => ({ key, ...value }))
-      .sort((a, b) => a.timestamp - b.timestamp);
+      .map(([key, value]) => {
+        const isActive = this.isFileActive(key);
+        return { key, ...value, isActive };
+      })
+      .sort((a, b) => {
+        // First: inactive files first, then by timestamp
+        if (a.isActive !== b.isActive) {
+          return a.isActive ? 1 : -1; // inactive first
+        }
+        return a.timestamp - b.timestamp; // oldest first
+      });
     
     let freedSize = 0;
     let evictedCount = 0;
@@ -128,6 +236,8 @@ class StockCacheService {
   clearAll(): void {
     console.log('🧹 Clearing all stock caches...');
     this.rawContentCache.clear();
+    this.activeProcessingFiles.clear();
+    this.fileLastAccess.clear();
     this.currentCacheSize = 0;
     console.log('✅ All stock caches cleared');
   }

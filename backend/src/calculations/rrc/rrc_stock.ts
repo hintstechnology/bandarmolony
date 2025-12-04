@@ -340,6 +340,17 @@ async function main(): Promise<void> {
   
   console.log(`Ditemukan ${csvFiles.length} file CSV di ${stockDir}`);
   
+  // Set active processing files HANYA untuk file yang benar-benar akan diproses
+  const activeFiles: string[] = [];
+  for (const file of csvFiles) {
+    if (file.startsWith('stock/')) {
+      const { stockCache } = await import('../../cache/stockCacheService');
+      stockCache.addActiveProcessingFile(file);
+      activeFiles.push(file);
+    }
+  }
+  console.log(`📅 Set ${activeFiles.length} active processing stock files in cache`);
+  
   // Helper function to limit concurrency for Phase 2
   async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
     const results: T[] = [];
@@ -429,6 +440,15 @@ async function main(): Promise<void> {
   }
   
   console.log(`\nSelesai! Diproses: ${processed}, Error: ${errors}`);
+  
+  // Cleanup: Remove active processing files setelah selesai
+  if (activeFiles.length > 0) {
+    const { stockCache } = await import('../../cache/stockCacheService');
+    for (const file of activeFiles) {
+      stockCache.removeActiveProcessingFile(file);
+    }
+    console.log(`🧹 Cleaned up ${activeFiles.length} active processing stock files from cache`);
+  }
   
   // Process index if specified
   if (index) {

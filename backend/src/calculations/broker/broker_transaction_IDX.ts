@@ -306,6 +306,9 @@ export class BrokerTransactionIDXCalculator {
           message: errorMsg
         };
       }
+      
+      // Set active processing date HANYA untuk tanggal yang benar-benar akan diproses
+      brokerTransactionCache.addActiveProcessingDate(dateSuffix);
 
       // Validate investorType
       if (investorType && !['D', 'F', ''].includes(investorType)) {
@@ -491,6 +494,9 @@ export class BrokerTransactionIDXCalculator {
         success: false,
         message: `Failed to generate IDX.csv: ${error.message}`
       };
+    } finally {
+      // Cleanup: Remove active processing date setelah selesai
+      brokerTransactionCache.removeActiveProcessingDate(dateSuffix);
     }
   }
 
