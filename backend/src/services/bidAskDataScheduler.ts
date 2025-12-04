@@ -17,8 +17,8 @@ export class BidAskDataScheduler {
     if (!finalLogId) {
       const logEntry = await SchedulerLogService.createLog({
         feature_name: 'bidask_footprint',
-        trigger_type: triggeredBy ? 'manual' : 'scheduled',
-        triggered_by: triggeredBy || 'system',
+        trigger_type: triggeredBy && !triggeredBy.startsWith('Phase') && !triggeredBy.startsWith('phase') ? 'manual' : 'scheduled',
+        triggered_by: triggeredBy || 'Phase 7 Bid Breakdown',
         status: 'running',
         environment: process.env['NODE_ENV'] || 'development'
       });
@@ -48,7 +48,7 @@ export class BidAskDataScheduler {
       const result = await this.calculator.generateBidAskData(targetDate, finalLogId);
       
       // Check if this is called from a Phase (don't mark completed/failed if so, Phase will handle it)
-      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      const isFromPhase = triggeredBy && (triggeredBy.startsWith('Phase') || triggeredBy.startsWith('phase'));
       
       if (result.success) {
         console.log('✅ Bid/Ask Footprint calculation completed successfully');
@@ -71,7 +71,7 @@ export class BidAskDataScheduler {
       console.error('❌ Error during Bid/Ask Footprint calculation:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       // Check if this is called from a Phase (don't mark failed if so, Phase will handle it)
-      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      const isFromPhase = triggeredBy && (triggeredBy.startsWith('Phase') || triggeredBy.startsWith('phase'));
       if (finalLogId && !isFromPhase) {
         await SchedulerLogService.markFailed(finalLogId, errorMessage, error);
       }

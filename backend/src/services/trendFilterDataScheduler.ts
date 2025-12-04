@@ -23,8 +23,8 @@ export class TrendFilterDataScheduler {
     if (!finalLogId) {
       const logEntry = await SchedulerLogService.createLog({
         feature_name: 'trend_filter',
-        trigger_type: triggeredBy ? 'manual' : 'scheduled',
-        triggered_by: triggeredBy || 'system',
+        trigger_type: triggeredBy && !triggeredBy.startsWith('Phase') && !triggeredBy.startsWith('phase') ? 'manual' : 'scheduled',
+        triggered_by: triggeredBy || 'Phase 2 Market Rotation',
         status: 'running',
         environment: process.env['NODE_ENV'] || 'development'
       });
