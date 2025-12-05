@@ -557,7 +557,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
           // Fetch sector CSV directly from backend (backend already aggregated)
           tickersToFetch.push(sectorName);
           console.log(`[BrokerSummary] Sector ${sectorName} selected - will fetch sector CSV directly from backend`);
-        } else {
+          } else {
           // Regular stock - fetch directly
           tickersToFetch.push(ticker);
         }
@@ -671,7 +671,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
             // Check if this is a sector or IDX
             const isSector = selectedTickers.some(t => t.startsWith('[SECTOR] ') && t.replace('[SECTOR] ', '') === ticker);
             const isIDX = ticker === 'IDX';
-            
+                
             const rows: BrokerSummaryData[] = (res.data.brokerData ?? []).map((r: any) => {
             // Backend already calculates NetSellVol, NetSellValue, NetBuyerAvg, NetSellerAvg
             // Backend also handles the logic: if NetBuy is negative, it becomes NetSell and NetBuy = 0

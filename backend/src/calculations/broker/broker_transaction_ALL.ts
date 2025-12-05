@@ -1,10 +1,10 @@
-import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
-import { BATCH_SIZE_PHASE_6, MAX_CONCURRENT_REQUESTS_PHASE_6 } from '../../services/dataUpdateService';
+import { uploadText, listPaths, exists, downloadText as downloadTextUtil } from '../../utils/azureBlob';
+import { BATCH_SIZE_PHASE_5, MAX_CONCURRENT_REQUESTS_PHASE_5 } from '../../services/dataUpdateService';
 
-// Progress tracker interface for thread-safe stock counting
+// Progress tracker interface for thread-safe broker counting
 interface ProgressTracker {
-  totalStocks: number;
-  processedStocks: number;
+  totalBrokers: number;
+  processedBrokers: number;
   logId: string | null;
   updateProgress: () => Promise<void>;
 }
@@ -24,9 +24,57 @@ async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: numbe
   return results;
 }
 
-// Type definitions - same as broker_transaction_stock.ts
+// Sector mapping cache - loaded from csv_input/sector_mapping.csv
+let SECTOR_MAPPING: { [key: string]: string[] } = {};
+
+/**
+ * Build sector mapping from csv_input/sector_mapping.csv
+ */
+async function buildSectorMappingFromCsv(): Promise<void> {
+  try {
+    console.log('🔍 Building sector mapping from csv_input/sector_mapping.csv...');
+    
+    // Reset mapping
+    Object.keys(SECTOR_MAPPING).forEach(sector => {
+      SECTOR_MAPPING[sector] = [];
+    });
+    
+    // Load sector mapping from CSV file
+    const csvData = await downloadTextUtil('csv_input/sector_mapping.csv');
+    const lines = csvData.split('\n');
+    
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line || line.trim().length === 0) continue;
+      
+      const parts = line.split(',');
+      if (parts.length >= 2) {
+        const sector = parts[0]?.trim();
+        const emiten = parts[1]?.trim();
+        
+        if (sector && emiten && emiten.length === 4) {
+          if (!SECTOR_MAPPING[sector]) {
+            SECTOR_MAPPING[sector] = [];
+          }
+          if (!SECTOR_MAPPING[sector].includes(emiten)) {
+            SECTOR_MAPPING[sector].push(emiten);
+          }
+        }
+      }
+    }
+    
+    console.log('📊 Sector mapping built successfully from CSV');
+    console.log(`📊 Found ${Object.keys(SECTOR_MAPPING).length} sectors with total ${Object.values(SECTOR_MAPPING).flat().length} emitens`);
+  } catch (error) {
+    console.warn('⚠️ Could not build sector mapping from CSV:', error);
+    console.log('⚠️ Using empty sector mapping');
+    SECTOR_MAPPING = {};
+  }
+}
+
+// Type definitions - same as broker_transaction_IDX.ts
 interface BrokerTransactionData {
-  Broker: string; // Changed from Emiten - now we list brokers for each stock
+  Emiten: string;
   // Buy side (when broker is buyer - BRK_COD1)
   BuyerVol: number;
   BuyerValue: number;
@@ -67,11 +115,11 @@ interface BrokerTransactionData {
   NSLotPerOrdNum: number; // Net Sell Lot per Order Number (NSLot / |NetSellOrdNum|)
 }
 
-export class BrokerTransactionStockIDXCalculator {
+export class BrokerTransactionALLCalculator {
   constructor() {}
 
   /**
-   * Read CSV file and parse broker transaction data (stock pivot format)
+   * Read CSV file and parse broker transaction data
    */
   private parseCSV(csvContent: string): BrokerTransactionData[] {
     const lines = csvContent.trim().split('\n');
@@ -103,7 +151,7 @@ export class BrokerTransactionStockIDXCalculator {
       });
 
       brokerData.push({
-        Broker: row.Broker || '',
+        Emiten: row.Emiten || '',
         BuyerVol: row.BuyerVol || 0,
         BuyerValue: row.BuyerValue || 0,
         BuyerAvg: row.BuyerAvg || 0,
@@ -149,10 +197,10 @@ export class BrokerTransactionStockIDXCalculator {
    */
   private convertToCSV(data: BrokerTransactionData[]): string {
     if (data.length === 0) {
-      return 'Broker,BuyerVol,BuyerValue,BuyerAvg,BuyerFreq,OldBuyerOrdNum,BuyerOrdNum,BLot,BLotPerFreq,BLotPerOrdNum,SellerVol,SellerValue,SellerAvg,SellerFreq,OldSellerOrdNum,SellerOrdNum,SLot,SLotPerFreq,SLotPerOrdNum,NetBuyVol,NetBuyValue,NetBuyAvg,NetBuyFreq,NetBuyOrdNum,NBLot,NBLotPerFreq,NBLotPerOrdNum,NetSellVol,NetSellValue,NetSellAvg,NetSellFreq,NetSellOrdNum,NSLot,NSLotPerFreq,NSLotPerOrdNum\n';
+      return 'Emiten,BuyerVol,BuyerValue,BuyerAvg,BuyerFreq,OldBuyerOrdNum,BuyerOrdNum,BLot,BLotPerFreq,BLotPerOrdNum,SellerVol,SellerValue,SellerAvg,SellerFreq,OldSellerOrdNum,SellerOrdNum,SLot,SLotPerFreq,SLotPerOrdNum,NetBuyVol,NetBuyValue,NetBuyAvg,NetBuyFreq,NetBuyOrdNum,NBLot,NBLotPerFreq,NBLotPerOrdNum,NetSellVol,NetSellValue,NetSellAvg,NetSellFreq,NetSellOrdNum,NSLot,NSLotPerFreq,NSLotPerOrdNum\n';
     }
 
-    const headers = ['Broker', 'BuyerVol', 'BuyerValue', 'BuyerAvg', 'BuyerFreq', 'OldBuyerOrdNum', 'BuyerOrdNum', 'BLot', 'BLotPerFreq', 'BLotPerOrdNum',
+    const headers = ['Emiten', 'BuyerVol', 'BuyerValue', 'BuyerAvg', 'BuyerFreq', 'OldBuyerOrdNum', 'BuyerOrdNum', 'BLot', 'BLotPerFreq', 'BLotPerOrdNum',
                      'SellerVol', 'SellerValue', 'SellerAvg', 'SellerFreq', 'OldSellerOrdNum', 'SellerOrdNum', 'SLot', 'SLotPerFreq', 'SLotPerOrdNum',
                      'NetBuyVol', 'NetBuyValue', 'NetBuyAvg', 'NetBuyFreq', 'NetBuyOrdNum', 'NBLot', 'NBLotPerFreq', 'NBLotPerOrdNum',
                      'NetSellVol', 'NetSellValue', 'NetSellAvg', 'NetSellFreq', 'NetSellOrdNum', 'NSLot', 'NSLotPerFreq', 'NSLotPerOrdNum'];
@@ -168,14 +216,13 @@ export class BrokerTransactionStockIDXCalculator {
   }
 
   /**
-   * Aggregate broker transaction data across all stocks
-   * Aggregates all Broker rows from all stock files into a single IDX row per broker
+   * Aggregate broker transaction data across all emiten in a sector
+   * Aggregates all Emiten rows from all brokers into multiple rows (one per emiten)
+   * Unlike IDX which aggregates into single row, ALL keeps separate rows per emiten
    */
   private aggregateBrokerData(allBrokerData: BrokerTransactionData[]): BrokerTransactionData[] {
-    // Map to aggregate data per broker
-    // IMPORTANT: Only aggregate BuyerVol, BuyerValue, SellerVol, SellerValue, and frequency/order counts
-    // NetBuy/NetSell will be recalculated from aggregated totals
-    const brokerMap = new Map<string, {
+    // Map to aggregate data per emiten (not single row like IDX)
+    const emitenMap = new Map<string, {
       BuyerVol: number;
       BuyerValue: number;
       BuyerFreq: number;
@@ -190,12 +237,13 @@ export class BrokerTransactionStockIDXCalculator {
       SLot: number;
     }>();
 
-    // Sum only BuyerVol, BuyerValue, SellerVol, SellerValue, and frequency/order counts per broker
+    // IMPORTANT: Only sum BuyerVol, BuyerValue, SellerVol, SellerValue, and frequency/order counts per emiten
+    // NetBuy/NetSell will be recalculated from aggregated totals
     allBrokerData.forEach(row => {
-      const broker = row.Broker;
-      if (!broker) return;
+      const emiten = row.Emiten;
+      if (!emiten) return;
 
-      const existing = brokerMap.get(broker);
+      const existing = emitenMap.get(emiten);
       if (existing) {
         existing.BuyerVol += row.BuyerVol || 0;
         existing.BuyerValue += row.BuyerValue || 0;
@@ -203,6 +251,7 @@ export class BrokerTransactionStockIDXCalculator {
         existing.OldBuyerOrdNum += row.OldBuyerOrdNum || 0;
         existing.BuyerOrdNum += row.BuyerOrdNum || 0;
         existing.BLot += row.BLot || 0;
+        
         existing.SellerVol += row.SellerVol || 0;
         existing.SellerValue += row.SellerValue || 0;
         existing.SellerFreq += row.SellerFreq || 0;
@@ -210,7 +259,7 @@ export class BrokerTransactionStockIDXCalculator {
         existing.SellerOrdNum += row.SellerOrdNum || 0;
         existing.SLot += row.SLot || 0;
       } else {
-        brokerMap.set(broker, {
+        emitenMap.set(emiten, {
           BuyerVol: row.BuyerVol || 0,
           BuyerValue: row.BuyerValue || 0,
           BuyerFreq: row.BuyerFreq || 0,
@@ -228,9 +277,9 @@ export class BrokerTransactionStockIDXCalculator {
     });
 
     // Convert aggregated data to BrokerTransactionData array
-    // Recalculate NetBuy/NetSell and all averages from aggregated totals
-    const aggregatedSummary: BrokerTransactionData[] = [];
-    brokerMap.forEach((data, broker) => {
+    // Recalculate NetBuy/NetSell and all averages from aggregated totals per emiten
+    const aggregatedData: BrokerTransactionData[] = [];
+    emitenMap.forEach((data, emiten) => {
       // Calculate NetBuy/NetSell from aggregated BuyerVol/SellerVol
       // NetBuy = Buy - Sell, if negative then 0
       // NetSell = Sell - Buy, if negative then 0
@@ -273,7 +322,7 @@ export class BrokerTransactionStockIDXCalculator {
       // Recalculate lots from volumes
       const nblot = netBuyVol / 100;
       const nslot = netSellVol / 100;
-      
+
       // Recalculate averages from aggregated totals
       const buyerAvg = data.BuyerVol > 0 ? data.BuyerValue / data.BuyerVol : 0;
       const sellerAvg = data.SellerVol > 0 ? data.SellerValue / data.SellerVol : 0;
@@ -290,8 +339,8 @@ export class BrokerTransactionStockIDXCalculator {
       const nsLotPerFreq = Math.abs(netSellFreq) > 0 ? nslot / Math.abs(netSellFreq) : 0;
       const nsLotPerOrdNum = Math.abs(netSellOrdNum) > 0 ? nslot / Math.abs(netSellOrdNum) : 0;
 
-      aggregatedSummary.push({
-        Broker: broker,
+      aggregatedData.push({
+        Emiten: emiten,
         BuyerVol: data.BuyerVol,
         BuyerValue: data.BuyerValue,
         BuyerAvg: buyerAvg,
@@ -330,24 +379,26 @@ export class BrokerTransactionStockIDXCalculator {
     });
 
     // Sort by NetBuyValue descending
-    aggregatedSummary.sort((a, b) => b.NetBuyValue - a.NetBuyValue);
+    aggregatedData.sort((a, b) => b.NetBuyValue - a.NetBuyValue);
 
-    return aggregatedSummary;
+    return aggregatedData;
   }
 
   /**
-   * Generate IDX.csv for a specific date and optional parameters
-   * Aggregates all brokers from all stocks into one IDX.csv file per folder
+   * Generate ALL.csv for a specific date, sector, and optional parameters
+   * Aggregates all emiten from all brokers in the sector into ALL.csv file (one row per emiten)
    * @param dateSuffix Date string in format YYYYMMDD
+   * @param sectorName Sector name (e.g., 'BANK', 'MINING')
    * @param investorType Optional: 'D' (Domestik), 'F' (Foreign), or '' (all)
    * @param marketType Optional: 'RG', 'TN', 'NG', or '' (all)
    */
-  public async generateIDX(
-    dateSuffix: string, 
+  public async generateALL(
+    dateSuffix: string,
+    sectorName: string,
     investorType: 'D' | 'F' | '' = '',
     marketType: 'RG' | 'TN' | 'NG' | '' = '',
     progressTracker?: ProgressTracker
-  ): Promise<{ success: boolean; message: string; file?: string; stockCount?: number }> {
+  ): Promise<{ success: boolean; message: string; file?: string; brokerCount?: number }> {
     try {
       // Validate dateSuffix format (YYYYMMDD - 8 digits)
       if (!dateSuffix || !/^\d{8}$/.test(dateSuffix)) {
@@ -379,238 +430,192 @@ export class BrokerTransactionStockIDXCalculator {
         };
       }
 
-      // Determine folder path based on parameters
-      // Path structure follows: broker_transaction_stock_{market}_{inv}/broker_transaction_stock_{market}_{inv}_{date}/
-      // Or: broker_transaction_stock_{market}/broker_transaction_stock_{market}_{date}/ (if no inv)
-      // Or: broker_transaction_stock_{inv}/broker_transaction_stock_{inv}_{date}/ (if no market)
-      // Or: broker_transaction_stock/broker_transaction_stock_{date}/ (if no filters)
-      let folderPrefix: string;
-      if (investorType && marketType) {
-        // broker_transaction_stock_{market}_{inv}/broker_transaction_stock_{market}_{inv}_{date}/
-        const invPrefix = investorType === 'D' ? 'd' : 'f';
-        const marketLower = marketType.toLowerCase();
-        folderPrefix = `broker_transaction_stock_${marketLower}_${invPrefix}/broker_transaction_stock_${marketLower}_${invPrefix}_${dateSuffix}`;
-      } else if (investorType) {
-        // broker_transaction_stock_{inv}/broker_transaction_stock_{inv}_{date}/
-        const invPrefix = investorType === 'D' ? 'd' : 'f';
-        folderPrefix = `broker_transaction_stock_${invPrefix}/broker_transaction_stock_${invPrefix}_${dateSuffix}`;
-      } else if (marketType) {
-        // broker_transaction_stock_{market}/broker_transaction_stock_{market}_{date}/
-        const marketLower = marketType.toLowerCase();
-        folderPrefix = `broker_transaction_stock_${marketLower}/broker_transaction_stock_${marketLower}_${dateSuffix}`;
-      } else {
-        // broker_transaction_stock/broker_transaction_stock_{date}/
-        folderPrefix = `broker_transaction_stock/broker_transaction_stock_${dateSuffix}`;
+      // Build sector mapping if not already loaded
+      if (Object.keys(SECTOR_MAPPING).length === 0) {
+        await buildSectorMappingFromCsv();
       }
 
-      console.log(`🔍 Scanning for stock CSV files in: ${folderPrefix}/`);
+      // Get stocks in this sector
+      const stocksInSector = SECTOR_MAPPING[sectorName] || [];
+      
+      if (stocksInSector.length === 0) {
+        console.log(`⚠️ No stocks found for sector: ${sectorName}`);
+        return {
+          success: false,
+          message: `No stocks found for sector: ${sectorName}`
+        };
+      }
 
-      // Check if IDX.csv already exists - skip if exists
-      const idxFilePath = `${folderPrefix}/IDX.csv`;
+      console.log(`📊 Sector ${sectorName} has ${stocksInSector.length} stocks: ${stocksInSector.slice(0, 5).join(', ')}${stocksInSector.length > 5 ? '...' : ''}`);
+
+      // Determine folder path based on parameters
+      // Path structure follows: broker_transaction_{market}_{inv}/broker_transaction_{market}_{inv}_{date}/
+      // Or: broker_transaction_{market}/broker_transaction_{market}_{date}/ (if no inv)
+      // Or: broker_transaction_{inv}/broker_transaction_{inv}_{date}/ (if no market)
+      // Or: broker_transaction/broker_transaction_{date}/ (if no filters)
+      let folderPrefix: string;
+      if (investorType && marketType) {
+        // broker_transaction_{market}_{inv}/broker_transaction_{market}_{inv}_{date}/
+        const invPrefix = investorType === 'D' ? 'd' : 'f';
+        const marketLower = marketType.toLowerCase();
+        folderPrefix = `broker_transaction_${marketLower}_${invPrefix}/broker_transaction_${marketLower}_${invPrefix}_${dateSuffix}`;
+      } else if (investorType) {
+        // broker_transaction_{inv}/broker_transaction_{inv}_{date}/
+        const invPrefix = investorType === 'D' ? 'd' : 'f';
+        folderPrefix = `broker_transaction_${invPrefix}/broker_transaction_${invPrefix}_${dateSuffix}`;
+      } else if (marketType) {
+        // broker_transaction_{market}/broker_transaction_{market}_{date}/
+        const marketLower = marketType.toLowerCase();
+        folderPrefix = `broker_transaction_${marketLower}/broker_transaction_${marketLower}_${dateSuffix}`;
+      } else {
+        // broker_transaction/broker_transaction_{date}/
+        folderPrefix = `broker_transaction/broker_transaction_${dateSuffix}`;
+      }
+
+      // Check if ALL.csv already exists - skip if exists
+      const allFilePath = `${folderPrefix}/${sectorName}_ALL.csv`;
       try {
-        const idxExists = await exists(idxFilePath);
-        if (idxExists) {
-          console.log(`⏭️ Skipping ${idxFilePath} - IDX.csv already exists`);
+        const allExists = await exists(allFilePath);
+        if (allExists) {
+          console.log(`⏭️ Skipping ${allFilePath} - ${sectorName}_ALL.csv already exists`);
           return {
             success: true,
-            message: `IDX.csv already exists for ${dateSuffix} (${investorType || 'all'}, ${marketType || 'all'})`,
-            file: idxFilePath
+            message: `${sectorName}_ALL.csv already exists for ${dateSuffix} (${investorType || 'all'}, ${marketType || 'all'})`,
+            file: allFilePath
           };
         }
       } catch (error) {
         // If check fails, continue with generation
-        console.log(`ℹ️ Could not check existence of ${idxFilePath}, proceeding with generation`);
+        console.log(`ℹ️ Could not check existence of ${allFilePath}, proceeding with generation`);
       }
 
-      // List all stock CSV files in the folder
+      // List all broker CSV files in the folder
+      console.log(`🔍 Scanning for broker CSV files in: ${folderPrefix}/`);
       const allFiles = await listPaths({ prefix: `${folderPrefix}/` });
       
-      // Filter for CSV files with 4-letter stock codes (e.g., BBCA.csv, BBRI.csv)
-      // Exclude IDX.csv itself
-      const stockFiles = allFiles.filter(file => {
+      // Filter for CSV files with broker codes (2-3 uppercase letters)
+      // Exclude sector files, IDX.csv, and ALL.csv
+      const brokerFiles = allFiles.filter(file => {
         const fileName = file.split('/').pop() || '';
         if (!fileName.endsWith('.csv')) return false;
         if (fileName.toUpperCase() === 'IDX.CSV') return false;
+        if (fileName.toUpperCase() === `${sectorName.toUpperCase()}_ALL.CSV`) return false;
+        if (fileName.toUpperCase() === `${sectorName.toUpperCase()}.CSV`) return false;
         
-        const stockCode = fileName.replace('.csv', '');
-        // Only include files with exactly 4 uppercase letters
-        return stockCode.length === 4 && /^[A-Z]{4}$/.test(stockCode);
+        const brokerCode = fileName.replace('.csv', '');
+        // Only include valid broker codes (2-3 uppercase letters)
+        return brokerCode.length >= 2 && brokerCode.length <= 3 && /^[A-Z]+$/.test(brokerCode);
       });
 
-      if (stockFiles.length === 0) {
-        console.log(`⚠️ No stock CSV files found in ${folderPrefix}/`);
+      if (brokerFiles.length === 0) {
+        console.log(`⚠️ No broker CSV files found in ${folderPrefix}/`);
         return {
           success: false,
-          message: `No stock CSV files found in ${folderPrefix}/`
+          message: `No broker CSV files found in ${folderPrefix}/`
         };
       }
 
-      console.log(`📊 Found ${stockFiles.length} stock CSV files`);
+      console.log(`📊 Found ${brokerFiles.length} broker CSV files`);
 
       // Batch processing configuration
-      const BATCH_SIZE = BATCH_SIZE_PHASE_6; // Phase 6: 6 stock files at a time
-      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_6; // Phase 6: 3 concurrent
+      const BATCH_SIZE = BATCH_SIZE_PHASE_5; // Phase 5: 6 broker files at a time
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_5; // Phase 5: 3 concurrent
 
-      // Read and parse all stock CSV files in batches
+      // Read and parse all broker CSV files in batches
       const allBrokerData: BrokerTransactionData[] = [];
       
-      for (let i = 0; i < stockFiles.length; i += BATCH_SIZE) {
-        const batch = stockFiles.slice(i, i + BATCH_SIZE);
+      for (let i = 0; i < brokerFiles.length; i += BATCH_SIZE) {
+        const batch = brokerFiles.slice(i, i + BATCH_SIZE);
         const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-        const totalBatches = Math.ceil(stockFiles.length / BATCH_SIZE);
+        const totalBatches = Math.ceil(brokerFiles.length / BATCH_SIZE);
         
-        console.log(`📦 Processing stock batch ${batchNum}/${totalBatches} (${batch.length} files)...`);
+        console.log(`📦 Processing broker batch ${batchNum}/${totalBatches} (${batch.length} files)...`);
         
-        // Process batch in parallel with concurrency limit 25
+        // Process batch in parallel with concurrency limit
         const batchPromises = batch.map(async (file) => {
-          try {
-            const csvContent = await downloadText(file);
-            const brokerData = this.parseCSV(csvContent);
-            const stockCode = file.split('/').pop()?.replace('.csv', '') || 'unknown';
-            return { stockCode, brokerData, success: true };
-          } catch (error: any) {
-            const stockCode = file.split('/').pop()?.replace('.csv', '') || 'unknown';
-            console.warn(`  ⚠️ Failed to process ${stockCode}: ${error.message}`);
-            return { stockCode, brokerData: [], success: false };
-          }
-        });
+            try {
+              // Extract brokerCode from file path
+              const pathParts = file.split('/');
+              const brokerCode = pathParts[pathParts.length - 1]?.replace('.csv', '') || 'unknown';
+              
+              // Download directly from Azure using the file path (which already includes the correct folder structure)
+              const csvContent = await downloadTextUtil(file);
+              if (!csvContent) {
+                throw new Error(`Could not load broker transaction data from ${file}`);
+              }
+              
+              const brokerData = this.parseCSV(csvContent);
+              
+              // Filter to only include stocks in this sector
+              const sectorBrokerData = brokerData.filter(row => 
+                stocksInSector.includes(row.Emiten)
+              );
+              
+              return { brokerCode, brokerData: sectorBrokerData, success: true };
+            } catch (error: any) {
+              const brokerCode = file.split('/').pop()?.replace('.csv', '') || 'unknown';
+              console.warn(`  ⚠️ Failed to process ${brokerCode}: ${error.message}`);
+              return { brokerCode, brokerData: [], success: false };
+            }
+          });
         const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT);
         
-        // Collect results from batch (aggregate all brokers from all stocks)
+        // Collect results from batch (aggregate all emiten from all brokers in sector)
         batchResults.forEach((result: any) => {
           if (result && result.success) {
             allBrokerData.push(...result.brokerData);
-            console.log(`  ✓ Processed ${result.stockCode}: ${result.brokerData.length} brokers`);
+            console.log(`  ✓ Processed ${result.brokerCode}: ${result.brokerData.length} emiten in sector`);
           }
         });
         
         // Small delay between batches to prevent overwhelming the system
-        if (i + BATCH_SIZE < stockFiles.length) {
+        if (i + BATCH_SIZE < brokerFiles.length) {
           await new Promise(resolve => setTimeout(resolve, 50));
         }
       }
 
       if (allBrokerData.length === 0) {
-        console.log(`⚠️ No broker data found in any stock files`);
+        console.log(`⚠️ No broker data found for sector ${sectorName} on ${dateSuffix}`);
         return {
           success: false,
-          message: `No broker data found in stock files`
+          message: `No broker data found for sector ${sectorName} on ${dateSuffix}`
         };
       }
 
-      console.log(`📈 Total broker records across all stocks: ${allBrokerData.length}`);
+      console.log(`📈 Total emiten records for sector ${sectorName}: ${allBrokerData.length}`);
 
-      // Aggregate all broker data into IDX (one row per broker, aggregating across all stocks)
+      // Aggregate all emiten data into ALL (multiple rows, one per emiten, aggregating across all brokers)
       const aggregatedData = this.aggregateBrokerData(allBrokerData);
-      console.log(`📊 Aggregated to ${aggregatedData.length} unique brokers in IDX`);
+      console.log(`📊 Aggregated to ${aggregatedData.length} unique emitens for ${sectorName}_ALL (from ${allBrokerData.length} emiten records)`);
 
-      // Convert to CSV
-      const csvContent = this.convertToCSV(aggregatedData);
+      // Convert to CSV (multiple rows, one per emiten)
+      const csvContentOutput = this.convertToCSV(aggregatedData);
 
-      // Save IDX.csv to the same folder
-      await uploadText(idxFilePath, csvContent, 'text/csv');
+      // Save ALL.csv to the same folder
+      await uploadText(allFilePath, csvContentOutput, 'text/csv');
 
-      const stockCount = stockFiles.length;
-      console.log(`✅ Successfully created ${idxFilePath} with ${aggregatedData.length} brokers aggregated from ${stockCount} stocks`);
+      const brokerCount = brokerFiles.length;
+      console.log(`✅ Successfully created ${allFilePath} with aggregated ${sectorName}_ALL data from ${brokerCount} brokers`);
 
       // Update progress tracker
-      if (progressTracker && stockCount > 0) {
-        progressTracker.processedStocks += stockCount;
+      if (progressTracker && brokerCount > 0) {
+        progressTracker.processedBrokers += brokerCount;
         await progressTracker.updateProgress();
       }
 
       return {
         success: true,
-        message: `IDX.csv created successfully with ${aggregatedData.length} brokers aggregated from ${stockCount} stocks`,
-        file: idxFilePath,
-        stockCount
+        message: `${sectorName}_ALL.csv created successfully with ${aggregatedData.length} unique emitens aggregated from ${brokerCount} brokers`,
+        file: allFilePath,
+        brokerCount
       };
     } catch (error: any) {
-      console.error(`❌ Error generating IDX.csv:`, error);
+      console.error(`❌ Error generating ${sectorName}_ALL.csv:`, error);
       return {
         success: false,
-        message: `Failed to generate IDX.csv: ${error.message}`
+        message: `Failed to generate ${sectorName}_ALL.csv: ${error.message}`
       };
     }
-  }
-
-  /**
-   * Generate IDX.csv for multiple dates (batch processing)
-   * @param dateSuffixes Array of date strings in format YYYYMMDD
-   * @param investorType Optional: 'D' (Domestik), 'F' (Foreign), or '' (all)
-   * @param marketType Optional: 'RG', 'TN', 'NG', or '' (all)
-   */
-  public async generateIDXBatch(
-    dateSuffixes: string[],
-    investorType: 'D' | 'F' | '' = '',
-    marketType: 'RG' | 'TN' | 'NG' | '' = '',
-    progressTracker?: ProgressTracker
-  ): Promise<{ success: number; failed: number; skipped: number; results: Array<{ date: string; success: boolean; message: string; file?: string; skipped?: boolean; stockCount?: number }> }> {
-    const results: Array<{ date: string; success: boolean; message: string; file?: string; skipped?: boolean; stockCount?: number }> = [];
-    let successCount = 0;
-    let failedCount = 0;
-    let skippedCount = 0;
-
-    console.log(`📊 Processing ${dateSuffixes.length} dates for IDX files`);
-
-    for (let i = 0; i < dateSuffixes.length; i++) {
-      const dateSuffixRaw = dateSuffixes[i];
-      
-      // Skip if dateSuffix is undefined or empty
-      if (!dateSuffixRaw || typeof dateSuffixRaw !== 'string' || dateSuffixRaw.trim() === '') {
-        console.warn(`⚠️ Skipping invalid date at index ${i}: ${dateSuffixRaw}`);
-        continue;
-      }
-      
-      const dateSuffix: string = dateSuffixRaw;
-      const progress = `[${i + 1}/${dateSuffixes.length}]`;
-      
-      try {
-        console.log(`${progress} Processing date ${dateSuffix}...`);
-        const result = await this.generateIDX(dateSuffix, investorType, marketType, progressTracker);
-        
-        // Check if skipped (already exists)
-        const skipped = result.message.includes('already exists');
-        const stockCount = result.stockCount || 0;
-        
-        results.push({
-          date: dateSuffix,
-          ...result,
-          skipped,
-          stockCount
-        });
-
-        if (skipped) {
-          skippedCount++;
-          console.log(`${progress} ✅ ${dateSuffix}: Skipped (already exists)`);
-        } else if (result.success) {
-          successCount++;
-          console.log(`${progress} ✅ ${dateSuffix}: Success`);
-        } else {
-          failedCount++;
-          console.log(`${progress} ❌ ${dateSuffix}: Failed - ${result.message}`);
-        }
-      } catch (error: any) {
-        failedCount++;
-        const errorMsg = error?.message || 'Unknown error';
-        console.error(`${progress} ❌ ${dateSuffix}: Error - ${errorMsg}`);
-        results.push({
-          date: dateSuffix,
-          success: false,
-          message: `Error: ${errorMsg}`,
-          skipped: false
-        });
-      }
-    }
-
-    console.log(`📊 Batch completed: ${successCount} success, ${skippedCount} skipped, ${failedCount} failed`);
-
-    return {
-      success: successCount,
-      failed: failedCount,
-      skipped: skippedCount,
-      results
-    };
   }
 }
 

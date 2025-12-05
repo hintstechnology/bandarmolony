@@ -532,9 +532,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         return;
       }
       
-      // Validation: For Broker pivot, need brokers. For Stock pivot, need tickers.
+      // Validation: For Broker pivot, need brokers OR sectors. For Stock pivot, need tickers OR sectors.
       if (pivotFilter === 'Broker') {
-        if (selectedBrokers.length === 0 || selectedDates.length === 0) {
+        // For Broker pivot: if sector is selected, fetch {sector}_ALL.csv; otherwise need brokers
+        if ((selectedBrokers.length === 0 && selectedSectors.length === 0) || selectedDates.length === 0) {
           setTransactionData(new Map());
           setRawTransactionData(new Map()); // Clear raw data too
           setIsDataReady(false);
@@ -543,8 +544,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           return;
         }
       } else if (pivotFilter === 'Stock') {
-        // For Stock pivot, tickers are required (brokers are optional)
-        if (selectedTickers.length === 0 || selectedDates.length === 0) {
+        // For Stock pivot, either tickers or sectors must be selected
+        // Sectors (including IDX) can be used directly as codes
+        if ((selectedTickers.length === 0 && selectedSectors.length === 0) || selectedDates.length === 0) {
           setTransactionData(new Map());
           setRawTransactionData(new Map()); // Clear raw data too
           setIsDataReady(false);
@@ -579,15 +581,48 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         
         // OPTIMIZED: Fetch all data in parallel with smart batching
         // Separate cached and uncached requests for optimal performance
-        // For Broker pivot: use selectedBrokers as code
-        // For Stock pivot: use selectedTickers as code
+        // For Broker pivot: if sector selected, fetch {sector}_ALL.csv; otherwise use selectedBrokers
+        // For Stock pivot: use selectedTickers as code, or selectedSectors if tickers are empty
+        // For Stock pivot + sector + broker: fetch stock files for all stocks in sector, then filter by broker in frontend
         const allFetchTasks = pivotFilter === 'Stock'
-          ? selectedDates.flatMap(date =>
-              selectedTickers.map((ticker: string) => ({ code: ticker, date, type: 'stock' as const }))
-            )
-          : selectedDates.flatMap(date =>
-              selectedBrokers.map((broker: string) => ({ code: broker, date, type: 'broker' as const }))
-            );
+          ? selectedDates.flatMap(date => {
+              // If tickers are selected, use them
+              if (selectedTickers.length > 0) {
+                return selectedTickers.map((code: string) => ({ code, date, type: 'stock' as const }));
+              }
+              
+              // If sectors are selected, fetch stock files for all stocks in those sectors
+              // This allows filtering by broker in frontend
+              if (selectedSectors.length > 0) {
+                // Get all stocks in selected sectors
+                const stocksInSectors: string[] = [];
+                selectedSectors.forEach(sector => {
+                  const sectorStocks = stockToSectorMap ? 
+                    Object.keys(stockToSectorMap).filter(stock => stockToSectorMap[stock] === sector) : [];
+                  stocksInSectors.push(...sectorStocks);
+                });
+                
+                // Remove duplicates
+                const uniqueStocks = Array.from(new Set(stocksInSectors));
+                
+                // Fetch stock files for all stocks in sectors
+                return uniqueStocks.map((code: string) => ({ code, date, type: 'stock' as const }));
+              }
+              
+              // Fallback: use sectors as codes (for IDX or other special cases)
+              return selectedSectors.map((code: string) => ({ code, date, type: 'stock' as const }));
+            })
+          : selectedDates.flatMap(date => {
+              // For Broker pivot: if sector is selected, fetch {sector}_ALL.csv
+              // Otherwise fetch individual broker files
+              if (selectedSectors.length > 0) {
+                // Fetch {sector}_ALL.csv for each selected sector
+                return selectedSectors.map((sector: string) => ({ code: `${sector}_ALL`, date, type: 'broker' as const }));
+              } else {
+                // Fetch individual broker files
+                return selectedBrokers.map((broker: string) => ({ code: broker, date, type: 'broker' as const }));
+              }
+            });
         
         // Check cache first and separate cached vs uncached requests
         const cachedResults: Array<{ date: string; code: string; data: BrokerTransactionData[] }> = [];
@@ -774,10 +809,24 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               filteredRows = filteredRows;
             }
             
-            // Priority 3: Filter by sector (if selectedSectors is provided)
+            // Priority 3: Filter by sector (if selectedSectors is provided and no broker/ticker filter)
+            // For Stock pivot + sector + broker: sector filtering is already done at fetch time
+            // (we fetch stock files for all stocks in the sector)
+            // So we only need to filter by sector if broker/ticker filters are not applied
             if (selectedSectors.length > 0 && selectedBrokers.length === 0 && selectedTickers.length === 0) {
-              // For Stock pivot, broker codes don't have sectors, so this won't filter anything
-              filteredRows = filteredRows;
+              // Get all stocks in selected sectors
+              const stocksInSectors = new Set<string>();
+              selectedSectors.forEach(sector => {
+                const sectorStocks = stockToSectorMap ? 
+                  Object.keys(stockToSectorMap).filter(stock => stockToSectorMap[stock] === sector) : [];
+                sectorStocks.forEach(stock => stocksInSectors.add(stock.toUpperCase()));
+              });
+              
+              // For Stock pivot, we need to check if the stock code (from fetch) is in the sector
+              // Since we already fetched stocks from sector, this is mainly for validation
+              // But we can't filter here because we don't have the stock code in the row data
+              // The stock code is in the file name, not in the row data
+              // So sector filtering is already handled at fetch time
             }
             
             // Store data
@@ -4455,9 +4504,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             }}
             disabled={isLoading || 
               (pivotFilter === 'Broker' && selectedBrokers.length === 0) || 
-              (pivotFilter === 'Stock' && selectedTickers.length === 0) || 
+              (pivotFilter === 'Stock' && selectedTickers.length === 0 && selectedSectors.length === 0) || 
               !startDate || !endDate}
-            // NOTE: selectedTickers can be empty (show all tickers) - it's not required for Show button
+            // NOTE: For Stock pivot, either selectedTickers or selectedSectors must be selected
+            // selectedTickers can be empty if selectedSectors is selected (for sector/IDX data)
             className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full md:w-auto"
           >
             Show

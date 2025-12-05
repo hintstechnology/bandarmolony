@@ -107,7 +107,7 @@ export function StockTransactionDoneDetail() {
   const [endDate, setEndDate] = useState(defaultDate);
   const [selectedStock, setSelectedStock] = useState('PTRO');
   const [stockInput, setStockInput] = useState('PTRO');
-
+  
   // Real data state
   const [_availableStocks] = useState<string[]>(STOCK_LIST);
   const [doneDetailData, setDoneDetailData] = useState<Map<string, DoneDetailData[]>>(new Map());
@@ -117,12 +117,12 @@ export function StockTransactionDoneDetail() {
   const [isDataReady, setIsDataReady] = useState<boolean>(false);
   const [customPivotData, setCustomPivotData] = useState<any>(null);
   const [isProcessingPivot, setIsProcessingPivot] = useState(false);
-
+  
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
 
   // Filter states (removed - no longer used)
-
+  
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(100); // Limit to 100 items per page
@@ -187,8 +187,8 @@ export function StockTransactionDoneDetail() {
       }
 
       console.log('Fetching data from Azure API:', { selectedStock, selectedDates });
-      setIsLoading(true);
-      setError(null);
+        setIsLoading(true);
+        setError(null);
       setIsDataReady(false);
 
       try {
@@ -361,8 +361,8 @@ export function StockTransactionDoneDetail() {
   const generateCustomPivot = () => {
     if (pivotConfig.rows.length === 0 && pivotConfig.columns.length === 0 && pivotConfig.aggregations.length === 0) {
       setCustomPivotData(null);
-      return;
-    }
+        return;
+      }
 
     setIsProcessingPivot(true);
 
@@ -528,8 +528,8 @@ export function StockTransactionDoneDetail() {
                   break;
                 case 'MAX':
                   values[valueKey] = Math.max(...colItems.map(item => Number(item[field as keyof DoneDetailData]) || 0));
-                  break;
-              }
+        break;
+      }
             });
 
             if (!pivotResult[rowKey]) {
@@ -562,10 +562,10 @@ export function StockTransactionDoneDetail() {
             switch (aggregation) {
               case 'SUM':
                 values[valueKey] = rowItems.reduce((sum, item) => sum + (Number(item[field as keyof DoneDetailData]) || 0), 0);
-                break;
+        break;
               case 'COUNT':
                 values[valueKey] = rowItems.length;
-                break;
+        break;
               case 'AVG':
                 const sum = rowItems.reduce((sum, item) => sum + (Number(item[field as keyof DoneDetailData]) || 0), 0);
                 values[valueKey] = rowItems.length > 0 ? sum / rowItems.length : 0;
@@ -575,8 +575,8 @@ export function StockTransactionDoneDetail() {
                 break;
               case 'MAX':
                 values[valueKey] = Math.max(...rowItems.map(item => Number(item[field as keyof DoneDetailData]) || 0));
-                break;
-            }
+        break;
+    }
           });
 
           pivotResult[rowKey] = {
@@ -694,8 +694,8 @@ export function StockTransactionDoneDetail() {
     const endIndex = Math.min(startIndex + rowsPerPage, totalRows);
     const paginatedRows = rowKeys.slice(startIndex, endIndex);
     const paginatedParsedRows = parsedRows.slice(startIndex, endIndex);
-
-    return (
+        
+        return (
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -703,7 +703,7 @@ export function StockTransactionDoneDetail() {
               <Grid3X3 className="w-5 h-5" />
               Custom Pivot Table ({selectedStock})
             </CardTitle>
-          </div>
+              </div>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -880,15 +880,15 @@ export function StockTransactionDoneDetail() {
                 })}
               </tbody>
             </table>
-          </div>
+              </div>
 
           {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between mt-4">
               <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
+              <Button
+                variant="outline"
+                size="sm"
                   onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                   disabled={currentPage === 1}
                 >
@@ -904,8 +904,8 @@ export function StockTransactionDoneDetail() {
                   disabled={currentPage === totalPages}
                 >
                   Next
-                </Button>
-              </div>
+              </Button>
+            </div>
             </div>
           )}
         </CardContent>
@@ -955,7 +955,7 @@ export function StockTransactionDoneDetail() {
                 <tr className="border-b border-border bg-muted/50">
                   <th className="text-left py-2 px-2 font-medium border-r-2 border-border sticky left-0 bg-muted/50 z-10">
                     {rowLabel}
-                  </th>
+                    </th>
                   {selectedDates.map(date => (
                     <React.Fragment key={date}>
                       <th className="text-center py-2 px-2 font-medium bg-blue-50 dark:bg-blue-900/20 border-l border-border" colSpan={showAvgPrice ? 1 : 1}>
@@ -1007,45 +1007,45 @@ export function StockTransactionDoneDetail() {
                       </td>
                       {selectedDates.map(date => {
                         const data = rowData[date];
-                        return (
-                          <React.Fragment key={date}>
+                      return (
+                        <React.Fragment key={date}>
                             <td className="py-2 px-2 text-right border-l border-border">
                               <div className="font-medium">{data ? formatNumber(data.volume) : '-'}</div>
                               <div className="text-xs text-muted-foreground">
                                 {data ? `(${data.count})` : ''}
                               </div>
-                            </td>
+                          </td>
                             {showAvgPrice && (
                               <td className="py-2 px-2 text-right border-l border-border">
                                 {data?.avgPrice ? formatNumber(Math.round(data.avgPrice)) : '-'}
-                              </td>
+                          </td>
                             )}
                             {showOrdNum && (
                               <>
                                 <td className="py-2 px-2 text-right border-l border-border">
                                   {data?.hakaVolume ? formatNumber(data.hakaVolume) : '-'}
-                                </td>
+                          </td>
                                 <td className="py-2 px-2 text-right border-l border-border">
                                   {data?.hakaAvg ? formatNumber(Math.round(data.hakaAvg)) : '-'}
-                                </td>
+                          </td>
                                 <td className="py-2 px-2 text-right border-l border-border">
                                   {data?.hakiVolume ? formatNumber(data.hakiVolume) : '-'}
-                                </td>
+                          </td>
                                 <td className="py-2 px-2 text-right border-l border-border">
                                   {data?.hakiAvg ? formatNumber(Math.round(data.hakiAvg)) : '-'}
-                                </td>
+                          </td>
                                 <td className="py-2 px-2 text-right border-l border-border">
                                   {data?.buyerOrdNum !== undefined ? data.buyerOrdNum : data?.sellerOrdNum !== undefined ? data.sellerOrdNum : '-'}
-                                </td>
+                          </td>
                               </>
                             )}
-                          </React.Fragment>
-                        );
-                      })}
+                        </React.Fragment>
+                      );
+                    })}
                       <td className="py-2 px-2 text-right font-medium border-l-2 border-border bg-muted/30">
                         {formatNumber(rowTotal)}
                       </td>
-                    </tr>
+                  </tr>
                   );
                 })}
               </tbody>
@@ -1086,27 +1086,27 @@ export function StockTransactionDoneDetail() {
 
           {/* Pagination Controls */}
           <div className="mt-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              <div>
+             <div className="flex items-center gap-4 text-sm text-muted-foreground">
+               <div>
                 Showing {startIndex + 1} to {endIndex} of {totalRows} {rowLabel.toLowerCase()}
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-xs">Rows per page:</label>
-                <select
-                  value={itemsPerPage}
-                  onChange={(e) => {
-                    setItemsPerPage(Number(e.target.value));
-                    setCurrentPage(1);
-                  }}
-                  className="text-xs bg-background border border-border rounded px-2 py-1"
-                >
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                  <option value={200}>200</option>
-                  <option value={500}>500</option>
-                </select>
-              </div>
-            </div>
+               </div>
+               <div className="flex items-center gap-2">
+                 <label className="text-xs">Rows per page:</label>
+                 <select
+                   value={itemsPerPage}
+                   onChange={(e) => {
+                     setItemsPerPage(Number(e.target.value));
+                     setCurrentPage(1);
+                   }}
+                   className="text-xs bg-background border border-border rounded px-2 py-1"
+                 >
+                   <option value={50}>50</option>
+                   <option value={100}>100</option>
+                   <option value={200}>200</option>
+                   <option value={500}>500</option>
+                 </select>
+               </div>
+             </div>
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"
@@ -1182,7 +1182,7 @@ export function StockTransactionDoneDetail() {
     const totalTransactions = allRawTransactions.length;
     const totalVolume = allRawTransactions.reduce((sum, t) => sum + (parseInt(t.STK_VOLM.toString()) || 0), 0);
 
-    return (
+                return (
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1190,7 +1190,7 @@ export function StockTransactionDoneDetail() {
               <Grid3X3 className="w-5 h-5" />
               Pivot View - Buyer vs Seller Cross ({selectedStock})
             </CardTitle>
-          </div>
+                    </div>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -1247,8 +1247,8 @@ export function StockTransactionDoneDetail() {
                               '-'
                             )}
                           </td>
-                        );
-                      })}
+                );
+              })}
                       <td className="py-2 px-2 text-right font-medium border-l-2 border-border bg-muted/30">
                         {formatNumber(buyerTotal)}
                       </td>
@@ -1372,91 +1372,91 @@ export function StockTransactionDoneDetail() {
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
             <div className="relative flex-1 md:flex-none" ref={dropdownRef}>
-              <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
-              <input
-                type="text"
-                value={stockInput}
-                onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
-                onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
-                onKeyDown={(e) => {
+                <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+                <input
+                  type="text"
+                  value={stockInput}
+                  onChange={(e) => { handleStockInputChange(e.target.value); setHighlightedStockIndex(0); }}
+                  onFocus={() => { setShowStockSuggestions(true); setHighlightedStockIndex(0); }}
+                  onKeyDown={(e) => {
                   const suggestions = (stockInput === '' ? STOCK_LIST : filteredStocks).slice(0, 10);
-                  if (!suggestions.length) return;
-                  if (e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    setHighlightedStockIndex((prev) => (prev + 1) % suggestions.length);
-                  } else if (e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    setHighlightedStockIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
-                  } else if (e.key === 'Enter' && showStockSuggestions) {
-                    e.preventDefault();
-                    const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
-                    const choice = suggestions[idx];
-                    if (choice) handleStockSelect(choice);
-                  } else if (e.key === 'Escape') {
-                    setShowStockSuggestions(false);
-                    setHighlightedStockIndex(-1);
-                  }
-                }}
-                placeholder="Enter stock code..."
+                    if (!suggestions.length) return;
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      setHighlightedStockIndex((prev) => (prev + 1) % suggestions.length);
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      setHighlightedStockIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+                    } else if (e.key === 'Enter' && showStockSuggestions) {
+                      e.preventDefault();
+                      const idx = highlightedStockIndex >= 0 ? highlightedStockIndex : 0;
+                      const choice = suggestions[idx];
+                      if (choice) handleStockSelect(choice);
+                    } else if (e.key === 'Escape') {
+                      setShowStockSuggestions(false);
+                      setHighlightedStockIndex(-1);
+                    }
+                  }}
+                  placeholder="Enter stock code..."
                 className="w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground"
                 role="combobox"
                 aria-expanded={showStockSuggestions}
                 aria-controls="stock-suggestions"
                 aria-autocomplete="list"
-              />
-              {showStockSuggestions && (
+                />
+                {showStockSuggestions && (
                 <div id="stock-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
                   {stockInput === '' ? (
                     <>
                       <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
                         Available Stocks ({STOCK_LIST.length})
-                      </div>
-                      {STOCK_LIST.slice(0, 20).map(stock => (
-                        <div
-                          key={stock}
-                          onClick={() => handleStockSelect(stock)}
-                          className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
-                        >
-                          {stock}
                         </div>
-                      ))}
+                      {STOCK_LIST.slice(0, 20).map(stock => (
+                          <div
+                            key={stock}
+                            onClick={() => handleStockSelect(stock)}
+                          className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
+                          >
+                            {stock}
+                          </div>
+                        ))}
                       {STOCK_LIST.length > 20 && (
                         <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-t border-[#3a4252]">
                           ... and {STOCK_LIST.length - 20} more stocks
                         </div>
                       )}
-                    </>
-                  ) : filteredStocks.length > 0 ? (
-                    <>
+                      </>
+                    ) : filteredStocks.length > 0 ? (
+                      <>
                       <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
-                        {filteredStocks.length} stocks found
-                      </div>
-                      {filteredStocks.slice(0, 20).map(stock => (
-                        <div
-                          key={stock}
-                          onClick={() => handleStockSelect(stock)}
-                          className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
-                        >
-                          {stock}
+                          {filteredStocks.length} stocks found
                         </div>
-                      ))}
+                      {filteredStocks.slice(0, 20).map(stock => (
+                          <div
+                            key={stock}
+                            onClick={() => handleStockSelect(stock)}
+                          className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
+                          >
+                            {stock}
+                          </div>
+                        ))}
                       {filteredStocks.length > 20 && (
                         <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-t border-[#3a4252]">
                           ... and {filteredStocks.length - 20} more results
                         </div>
                       )}
-                    </>
-                  ) : (
+                      </>
+                    ) : (
                     <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
-                      No stocks found
-                    </div>
-                  )}
-                </div>
-              )}
+                        No stocks found
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
 
-          {/* Date Range */}
+            {/* Date Range */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
             <div className="flex items-center gap-2 w-full md:w-auto">
@@ -1464,9 +1464,9 @@ export function StockTransactionDoneDetail() {
                 className="relative h-9 flex-1 md:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
                 onClick={() => triggerDatePicker(startDateRef)}
               >
-                <input
+                  <input
                   ref={startDateRef}
-                  type="date"
+                    type="date"
                   value={formatDateForInput(startDate)}
                   onChange={(e) => {
                     const selectedDate = new Date(e.target.value);
@@ -1507,9 +1507,9 @@ export function StockTransactionDoneDetail() {
                 className="relative h-9 flex-1 md:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
                 onClick={() => triggerDatePicker(endDateRef)}
               >
-                <input
+                  <input
                   ref={endDateRef}
-                  type="date"
+                    type="date"
                   value={formatDateForInput(endDate)}
                   onChange={(e) => {
                     const selectedDate = new Date(e.target.value);
@@ -1596,8 +1596,8 @@ export function StockTransactionDoneDetail() {
           >
             Show
           </button>
-        </div>
-      </div>
+              </div>
+            </div>
 
       {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
       <div className="h-0 lg:h-[38px]"></div>
@@ -1683,7 +1683,7 @@ export function StockTransactionDoneDetail() {
                         <GripVertical className="w-3 h-3 text-muted-foreground" />
                         <span className="text-sm text-foreground flex-1">{field.label}</span>
                         {isPrice && (
-                          <select
+                <select 
                             value={pivotConfig.sort?.field === 'STK_PRIC' ? pivotConfig.sort.direction : 'desc'}
                             onChange={(e) => {
                               setPivotConfig(prev => ({
@@ -1696,7 +1696,7 @@ export function StockTransactionDoneDetail() {
                           >
                             <option value="desc">Descending</option>
                             <option value="asc">Ascending</option>
-                          </select>
+                </select>
                         )}
                         <button
                           onClick={() => {
@@ -1714,15 +1714,15 @@ export function StockTransactionDoneDetail() {
                         >
                           <X className="w-3 h-3" />
                         </button>
-                      </div>
+              </div>
                     </div>
                   ) : null;
                 })}
                 {pivotConfig.rows.length === 0 && (
                   <div className="text-xs text-muted-foreground italic py-4 text-center">Drop fields here</div>
                 )}
-              </div>
             </div>
+          </div>
 
             {/* Columns */}
             <div
@@ -1761,12 +1761,12 @@ export function StockTransactionDoneDetail() {
                     <div key={idx} className="flex items-center gap-2 p-2 bg-background rounded border border-[#3a4252]">
                       <GripVertical className="w-3 h-3 text-muted-foreground" />
                       <span className="text-sm text-foreground flex-1">{field.label}</span>
-                      <button
+                    <button
                         onClick={() => setPivotConfig(prev => ({ ...prev, columns: prev.columns.filter((_, i) => i !== idx) }))}
                         className="text-muted-foreground hover:text-foreground"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
                     </div>
                   ) : null;
                 })}
@@ -1824,9 +1824,9 @@ export function StockTransactionDoneDetail() {
                                   agg === 'MAX' ? 'Max' : agg}
                         </span>
                       </label>
-                    ))}
-                  </div>
-                </div>
+              ))}
+            </div>
+          </div>
               </div>
             </div>
 
@@ -2098,7 +2098,7 @@ export function StockTransactionDoneDetail() {
                           {filterConfig.values.slice(0, 5).map(value => (
                             <div key={value} className="flex items-center gap-1 px-1.5 py-0.5 bg-primary/20 text-primary rounded text-xs">
                               <span>{value}</span>
-                              <button
+          <button
                                 onClick={() => {
                                   const newFilters = [...pivotConfig.filters];
                                   if (newFilters[idx]) {
@@ -2109,7 +2109,7 @@ export function StockTransactionDoneDetail() {
                                 className="hover:bg-primary/30 rounded px-0.5"
                               >
                                 <X className="w-2.5 h-2.5" />
-                              </button>
+          </button>
                             </div>
                           ))}
                           {filterConfig.values.length > 5 && (
@@ -2126,8 +2126,8 @@ export function StockTransactionDoneDetail() {
                   <div className="text-xs text-muted-foreground italic py-4 text-center">Drop fields here</div>
                 )}
               </div>
-            </div>
-          </div>
+                      </div>
+                    </div>
 
           {/* Reset Button */}
           <div className="flex items-start">
@@ -2142,8 +2142,8 @@ export function StockTransactionDoneDetail() {
             >
               Reset
             </Button>
+      </div>
           </div>
-        </div>
       </div>
 
       {/* Loading State */}
@@ -2173,7 +2173,7 @@ export function StockTransactionDoneDetail() {
                 <CardContent className="flex items-center justify-center py-8">
                   <Loader2 className="w-6 h-6 animate-spin mr-2" />
                   <span>Processing pivot table...</span>
-                </CardContent>
+          </CardContent>
               </Card>
             )}
 
@@ -2190,7 +2190,7 @@ export function StockTransactionDoneDetail() {
                       ? 'Drag fields to Rows, Columns, or Values to create a pivot table'
                       : 'No data available'}
                   </CardContent>
-                </Card>
+      </Card>
               )
             ) : (
               pivotDataFromBackend ? (
