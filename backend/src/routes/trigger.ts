@@ -8,6 +8,7 @@ import { updateShareholdersData } from '../services/shareholdersDataScheduler';
 import { updateHoldingData } from '../services/holdingDataScheduler';
 import { updateDoneSummaryData } from '../services/doneSummaryDataScheduler';
 import { SchedulerLogService } from '../services/schedulerLogService';
+import { AzureLogger } from '../services/azureLoggingService';
 import AccumulationDataScheduler from '../services/accumulationDataScheduler';
 import BidAskDataScheduler from '../services/bidAskDataScheduler';
 import BrokerSummaryDataScheduler from '../services/brokerSummaryDataScheduler';
