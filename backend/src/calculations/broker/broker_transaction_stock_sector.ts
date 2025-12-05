@@ -1,6 +1,5 @@
-import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
+import { downloadText, uploadText, listPaths, exists, downloadText as downloadTextUtil } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_6, MAX_CONCURRENT_REQUESTS_PHASE_6 } from '../../services/dataUpdateService';
-import { downloadText as downloadTextUtil } from '../../utils/azureBlob';
 
 // Progress tracker interface for thread-safe stock counting
 interface ProgressTracker {
@@ -449,20 +448,24 @@ export class BrokerTransactionStockSectorCalculator {
       console.log(`📊 Sector ${sectorName} has ${stocksInSector.length} stocks: ${stocksInSector.slice(0, 5).join(', ')}${stocksInSector.length > 5 ? '...' : ''}`);
 
       // Determine folder path based on parameters
+      // Path structure follows: broker_transaction_stock_{market}_{inv}/broker_transaction_stock_{market}_{inv}_{date}/
+      // Or: broker_transaction_stock_{market}/broker_transaction_stock_{market}_{date}/ (if no inv)
+      // Or: broker_transaction_stock_{inv}/broker_transaction_stock_{inv}_{date}/ (if no market)
+      // Or: broker_transaction_stock/broker_transaction_stock_{date}/ (if no filters)
       let folderPrefix: string;
       if (investorType && marketType) {
-        // broker_transaction_stock/broker_transaction_stock_{inv}_{market}_{date}/
+        // broker_transaction_stock_{market}_{inv}/broker_transaction_stock_{market}_{inv}_{date}/
         const invPrefix = investorType === 'D' ? 'd' : 'f';
         const marketLower = marketType.toLowerCase();
-        folderPrefix = `broker_transaction_stock/broker_transaction_stock_${invPrefix}_${marketLower}_${dateSuffix}`;
+        folderPrefix = `broker_transaction_stock_${marketLower}_${invPrefix}/broker_transaction_stock_${marketLower}_${invPrefix}_${dateSuffix}`;
       } else if (investorType) {
-        // broker_transaction_stock/broker_transaction_stock_{inv}_{date}/
+        // broker_transaction_stock_{inv}/broker_transaction_stock_{inv}_{date}/
         const invPrefix = investorType === 'D' ? 'd' : 'f';
-        folderPrefix = `broker_transaction_stock/broker_transaction_stock_${invPrefix}_${dateSuffix}`;
+        folderPrefix = `broker_transaction_stock_${invPrefix}/broker_transaction_stock_${invPrefix}_${dateSuffix}`;
       } else if (marketType) {
-        // broker_transaction_stock/broker_transaction_stock_{market}_{date}/
+        // broker_transaction_stock_{market}/broker_transaction_stock_{market}_{date}/
         const marketLower = marketType.toLowerCase();
-        folderPrefix = `broker_transaction_stock/broker_transaction_stock_${marketLower}_${dateSuffix}`;
+        folderPrefix = `broker_transaction_stock_${marketLower}/broker_transaction_stock_${marketLower}_${dateSuffix}`;
       } else {
         // broker_transaction_stock/broker_transaction_stock_{date}/
         folderPrefix = `broker_transaction_stock/broker_transaction_stock_${dateSuffix}`;
