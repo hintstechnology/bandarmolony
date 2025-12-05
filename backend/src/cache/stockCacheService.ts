@@ -60,25 +60,22 @@ class StockCacheService {
       this.activeProcessingFiles.add(blobName);
       console.log(`📅 Stock Cache: Added active processing file ${blobName} (total: ${this.activeProcessingFiles.size})`);
     }
-    // Update last access time
+    // Selalu update last access time untuk file ini
     this.fileLastAccess.set(blobName, Date.now());
   }
   
   /**
-   * Remove active processing file - file sudah selesai diproses
-   * Auto-clear cache untuk file ini
+   * Tandai bahwa kalkulasi saat ini sudah tidak lagi aktif menggunakan file ini.
+   * Catatan: method ini TIDAK langsung menghapus data dari cache agar file yang
+   * sama masih bisa dipakai ulang oleh phase/kalkulasi lain. Pembersihan fisik
+   * akan dilakukan oleh autoCleanupInactiveFiles() atau clearAll().
    * @param blobName Full blob path (e.g., 'stock/BASIC MATERIALS/BBCA.csv')
    */
   removeActiveProcessingFile(blobName: string): void {
     if (this.activeProcessingFiles.has(blobName)) {
       this.activeProcessingFiles.delete(blobName);
-      this.fileLastAccess.delete(blobName);
-      // Clear cache for this file
-      const pathParts = blobName.replace('stock/', '').split('/');
-      if (pathParts.length === 2) {
-        this.clearStock(pathParts[0] || '', pathParts[1]?.replace('.csv', '') || '');
-      }
-      console.log(`📅 Stock Cache: Removed active processing file ${blobName} (total: ${this.activeProcessingFiles.size})`);
+      console.log(`📅 Stock Cache: Deactivated processing file ${blobName} (remaining active: ${this.activeProcessingFiles.size})`);
+      // Jangan hapus fileLastAccess atau cache di sini.
     }
   }
   
@@ -91,15 +88,20 @@ class StockCacheService {
     const filesToRemove: string[] = [];
     
     for (const [file, lastAccess] of this.fileLastAccess.entries()) {
-      // Jika file tidak dipanggil lagi selama 1 jam, remove
+      // Jika file tidak dipanggil lagi selama 1 jam, remove dari cache
       if (now - lastAccess > this.FILE_INACTIVE_THRESHOLD) {
         filesToRemove.push(file);
       }
     }
     
-    // Remove inactive files
+    // Remove inactive files (clear cache + tracking)
     for (const file of filesToRemove) {
-      this.removeActiveProcessingFile(file);
+      const pathParts = file.replace('stock/', '').split('/');
+      if (pathParts.length === 2) {
+        this.clearStock(pathParts[0] || '', pathParts[1]?.replace('.csv', '') || '');
+      }
+      this.activeProcessingFiles.delete(file);
+      this.fileLastAccess.delete(file);
     }
     
     if (filesToRemove.length > 0) {
@@ -129,11 +131,8 @@ class StockCacheService {
    * @returns CSV content as string
    */
   async getRawContent(blobName: string): Promise<string | null> {
-    // Update last access time jika file sudah aktif
-    // TAPI TIDAK auto-add - kalkulasi harus manual set active files untuk file yang benar-benar akan diproses
-    if (this.isFileActive(blobName)) {
-      this.fileLastAccess.set(blobName, Date.now());
-    }
+    // Selalu update last access time untuk file ini
+    this.fileLastAccess.set(blobName, Date.now());
     
     // Check cache first (only for current processing file)
     const cached = this.rawContentCache.get(blobName);

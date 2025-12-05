@@ -1,4 +1,4 @@
-import { uploadText, listPaths } from '../../utils/azureBlob';
+import { uploadText, listPaths, downloadText } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_8, MAX_CONCURRENT_REQUESTS_PHASE_8 } from '../../services/dataUpdateService';
 import { SchedulerLogService } from '../../services/schedulerLogService';
 import { brokerTransactionCache } from '../../cache/brokerTransactionCacheService';
@@ -121,6 +121,76 @@ export class BrokerInventoryCalculator {
     } catch (error) {
       console.error('Error listing broker transaction dates from Azure:', error);
       return [];
+    }
+  }
+
+  /**
+   * Detect already-processed broker inventory dates from a sample output file.
+   * We only scan ONE existing broker_inventory blob (to keep it lightweight),
+   * and extract all dates from its Date column. These dates are then
+   * normalized to YYYYMMDD format to match broker_transaction dates.
+   */
+  private async getProcessedBrokerInventoryDatesFromSample(): Promise<Set<string>> {
+    try {
+      // Find a sample broker_inventory CSV blob if any exist
+      const blobs = await listPaths({ prefix: 'broker_inventory/' });
+      const sampleBlob = blobs.find(name => name && name.endsWith('.csv'));
+
+      if (!sampleBlob) {
+        console.log('No existing broker_inventory files found - treating as first run.');
+        return new Set();
+      }
+
+      console.log(`Using sample broker_inventory blob for existing dates: ${sampleBlob}`);
+      const content = await downloadText(sampleBlob);
+      if (!content) {
+        return new Set();
+      }
+
+      const rawLines = content.split('\n');
+      const lines: string[] = [];
+      for (const rawLine of rawLines) {
+        const line = (rawLine || '').trim();
+        if (line.length > 0) {
+          lines.push(line);
+        }
+      }
+
+      // Expect at least header + one data line
+      if (lines.length < 2) {
+        return new Set();
+      }
+
+      const processedDates = new Set<string>();
+
+      // First line is header, following lines contain data
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line) continue;
+        const [dateRaw] = line.split(',');
+        const dateStr = (dateRaw || '').trim();
+        if (!dateStr) continue;
+
+        // Accept both YYMMDD and YYYYMMDD formats
+        if (!/^\d{6}$/.test(dateStr) && !/^\d{8}$/.test(dateStr)) {
+          continue;
+        }
+
+        // Normalize to YYYYMMDD (to align with listAllBrokerTransactionDates output)
+        let normalizedDate = dateStr;
+        if (dateStr.length === 6) {
+          const year = 2000 + parseInt(dateStr.substring(0, 2) || '0');
+          normalizedDate = `${year}${dateStr.substring(2)}`;
+        }
+
+        processedDates.add(normalizedDate);
+      }
+
+      console.log(`Found ${processedDates.size} processed broker inventory dates from sample output.`);
+      return processedDates;
+    } catch (error) {
+      console.error('Error detecting processed broker inventory dates from sample output:', error);
+      return new Set();
     }
   }
 
@@ -392,6 +462,28 @@ export class BrokerInventoryCalculator {
       if (dates.length === 0) {
         console.log("⚠️ No broker_transaction dates found in Azure - skipping broker inventory");
         return;
+      }
+
+      // Detect if all broker_transaction dates are already present in broker_inventory output.
+      // We only read ONE sample broker_inventory blob for this check to avoid heavy I/O.
+      const processedDatesFromOutput = await this.getProcessedBrokerInventoryDatesFromSample();
+      if (processedDatesFromOutput.size > 0) {
+        const newDates = dates.filter(date => !processedDatesFromOutput.has(date));
+
+        if (newDates.length === 0) {
+          console.log("✅ All broker_transaction dates are already present in broker_inventory output - skipping recalculation");
+          if (logId) {
+            await SchedulerLogService.updateLog(logId, {
+              progress_percentage: 100,
+              current_processing: 'No new broker inventory dates to process - skipping recalculation'
+            });
+          }
+          return;
+        }
+
+        console.log(`📅 Detected ${newDates.length} new broker_transaction dates to process (from ${dates.length} total dates).`);
+        // IMPORTANT: We still process the full date range to keep cumulative calculations consistent.
+        // The optimization here is purely to skip the entire job when there are no new dates at all.
       }
       
       // CRITICAL: Don't add active dates before processing - add only when date needs processing

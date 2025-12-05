@@ -474,9 +474,15 @@ export class ForeignFlowCalculator {
   }
 
   /**
-   * Process a single DT file with all foreign flow analysis
-   * CRITICAL: Load file TANPA CACHE dulu untuk cek semua tanggal di dalamnya
-   * Hanya load dengan cache jika benar-benar ada transaksi yang perlu diproses
+   * Process a single DT file with all foreign flow analysis.
+   * Catatan penting:
+   * - File DT bisa sangat besar (ratusan MB), dan untuk foreign_flow tidak di-share
+   *   ke kalkulasi lain.
+   * - Karena itu, kita TIDAK perlu menyimpannya di doneSummaryCache. Kita cukup
+   *   load langsung dari Azure, filter transaksi yang benar-benar baru, lalu buang
+   *   string mentahnya dari memory.
+   * - Ini menghindari kasus "💾 Cached ... ⏭️ Skipping ... ✅ Cleared ..." untuk
+   *   file yang sebenarnya tidak menghasilkan output baru.
    */
   private async processSingleDtFile(blobName: string, existingDatesByStock: Map<string, Set<string>>, progressTracker?: ProgressTracker): Promise<{ success: boolean; dateSuffix: string; files: string[] }> {
     // Extract date from blob name first
@@ -484,31 +490,19 @@ export class ForeignFlowCalculator {
     const dateFolder = pathParts[1] || 'unknown';
     const dateSuffix = dateFolder;
     
-    // CRITICAL: Pre-check sudah dilakukan di findAllDtFiles() berdasarkan dateSuffix
-    // Tapi file bisa punya banyak tanggal berbeda, jadi kita perlu load untuk cek SEMUA tanggal
-    // TAPI: User bilang tidak boleh load input sama sekali sebelum cek existing
-    // Solusi: Kita sudah cek existing di findAllDtFiles(), jadi file yang sampai di sini sudah pasti perlu diproses
-    // Tapi kita masih perlu cek detail di dalam file untuk memastikan tidak ada transaksi yang sudah ada
-    // Jadi kita load file WITH cache langsung (karena sudah pasti perlu diproses)
-    // Tapi kita filter transaksi yang sudah ada setelah load
-    
-    // Set active date SEBELUM load file
-    doneSummaryCache.addActiveProcessingDate(dateSuffix);
-    
-    // Load file WITH cache (karena sudah pasti perlu diproses berdasarkan pre-check)
-    console.log(`✅ Loading file: ${blobName} (already pre-checked - needs processing)...`);
-    const cachedContent = await doneSummaryCache.getRawContent(blobName);
-    if (!cachedContent) {
+    // File DT ini besar dan hanya dipakai oleh foreign_flow.
+    // Untuk menghindari cache yang tidak terpakai, kita load LANGSUNG dari Azure tanpa doneSummaryCache.
+    console.log(`✅ Loading file (no cache): ${blobName} (already pre-checked - needs processing)...`);
+    const rawContent = await downloadText(blobName);
+    if (!rawContent) {
       console.log(`⚠️ Failed to load file: ${blobName} - skipping`);
-      doneSummaryCache.removeActiveProcessingDate(dateSuffix);
       return { success: false, dateSuffix, files: [] };
     }
     
-    const data = this.parseTransactionData(cachedContent);
+    const data = this.parseTransactionData(rawContent);
     
     if (data.length === 0) {
       console.log(`⚠️ No transaction data in ${blobName} - skipping`);
-      doneSummaryCache.removeActiveProcessingDate(dateSuffix);
       return { success: false, dateSuffix, files: [] };
     }
     
@@ -526,7 +520,6 @@ export class ForeignFlowCalculator {
     // Jika TIDAK ADA transaksi yang perlu diproses setelah filter, skip file
     if (filteredData.length === 0) {
       console.log(`⏭️  Skipping ${blobName} - all ${data.length} transactions already exist in output (after filtering)`);
-      doneSummaryCache.removeActiveProcessingDate(dateSuffix);
       return { success: false, dateSuffix, files: [] };
     }
     
@@ -543,7 +536,6 @@ export class ForeignFlowCalculator {
       
       if (foreignFlowData.size === 0) {
         console.log(`⏭️  Skipping ${blobName} - no new dates to process`);
-        doneSummaryCache.removeActiveProcessingDate(dateSuffix);
         return { success: false, dateSuffix, files: [] };
       }
       
@@ -555,7 +547,6 @@ export class ForeignFlowCalculator {
       
     } catch (error) {
       console.error(`Error processing ${blobName}:`, error);
-      doneSummaryCache.removeActiveProcessingDate(dateSuffix);
       return { success: false, dateSuffix, files: [] };
     }
   }
@@ -705,19 +696,9 @@ export class ForeignFlowCalculator {
         message: `Failed to generate foreign flow data: ${error instanceof Error ? error.message : 'Unknown error'}`
       };
     } finally {
-      // Cleanup: Remove active processing dates setelah selesai
-      // NOTE: Untuk foreign_flow, active dates ditambahkan per file di processSingleDtFile()
-      // Jadi kita perlu cleanup semua tanggal yang mungkin sudah ditambahkan
-      // Kita bisa cleanup berdasarkan dtFiles yang diproses
-      if (dtFiles && dtFiles.length > 0) {
-        dtFiles.forEach(file => {
-          const dateMatch = file.match(/done-summary\/(\d{8})\//);
-          if (dateMatch && dateMatch[1]) {
-            doneSummaryCache.removeActiveProcessingDate(dateMatch[1]);
-          }
-        });
-        console.log(`🧹 Cleaned up active processing dates from cache`);
-      }
+      // Tidak ada lagi manipulasi active dates di doneSummaryCache di sini.
+      // foreign_flow sekarang tidak menambah / menghapus active dates karena
+      // tidak menggunakan cache untuk DT files.
     }
   }
 }

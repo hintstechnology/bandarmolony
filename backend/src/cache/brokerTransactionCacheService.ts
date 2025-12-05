@@ -61,48 +61,51 @@ class BrokerTransactionCacheService {
       this.activeProcessingDates.add(normalizedDate);
       console.log(`📅 Broker Transaction Cache: Added active processing date ${normalizedDate} (total: ${this.activeProcessingDates.size})`);
     }
-    // Update last access time
+    // Selalu update waktu akses terakhir untuk tanggal ini
     this.dateLastAccess.set(normalizedDate, Date.now());
   }
   
   /**
-   * Remove active processing date - tanggal sudah selesai diproses
-   * Auto-clear cache untuk tanggal ini
+   * Tandai bahwa kalkulasi saat ini sudah tidak lagi aktif menggunakan tanggal ini.
+   * Catatan: method ini TIDAK langsung menghapus data dari cache agar tanggal yang sama
+   * masih bisa dipakai ulang oleh phase/kalkulasi lain. Pembersihan fisik akan
+   * dilakukan oleh autoCleanupInactiveDates() atau clearAll().
    * @param date Date string in YYYYMMDD or YYMMDD format (e.g., '20251021' or '251021')
    */
   removeActiveProcessingDate(date: string): void {
     const normalizedDate = this.normalizeDate(date);
     if (this.activeProcessingDates.has(normalizedDate)) {
       this.activeProcessingDates.delete(normalizedDate);
-      this.dateLastAccess.delete(normalizedDate);
-      // Clear cache for this date (try both formats)
-      this.clearDate(normalizedDate);
-      if (normalizedDate.length === 8) {
-        const yyMMdd = `${normalizedDate.substring(2, 4)}${normalizedDate.substring(4, 6)}${normalizedDate.substring(6, 8)}`;
-        this.clearDate(yyMMdd);
-      }
-      console.log(`📅 Broker Transaction Cache: Removed active processing date ${normalizedDate} (total: ${this.activeProcessingDates.size})`);
+      console.log(`📅 Broker Transaction Cache: Deactivated processing date ${normalizedDate} (remaining active: ${this.activeProcessingDates.size})`);
+      // Jangan hapus entry di dateLastAccess atau cache di sini.
     }
   }
   
   /**
-   * Auto-cleanup: Remove tanggal yang sudah lama tidak dipanggil
-   * Dipanggil secara periodik atau saat evict old entries
+   * Auto-cleanup: hapus data cache untuk tanggal yang sudah lama tidak dipanggil.
+   * Dipanggil secara periodik atau saat evict old entries.
    */
   private autoCleanupInactiveDates(): void {
     const now = Date.now();
     const datesToRemove: string[] = [];
     
     for (const [date, lastAccess] of this.dateLastAccess.entries()) {
-      // Jika tanggal tidak dipanggil lagi selama 1 jam, remove
+      // Jika tanggal tidak dipanggil lagi selama 1 jam, hapus semua cache terkait
       if (now - lastAccess > this.DATE_INACTIVE_THRESHOLD) {
         datesToRemove.push(date);
       }
     }
     
-    // Remove inactive dates
     for (const date of datesToRemove) {
-      this.removeActiveProcessingDate(date);
+      const normalizedDate = this.normalizeDate(date);
+      // Hapus konten cache untuk kedua format tanggal (YYYYMMDD dan YYMMDD)
+      this.clearDate(normalizedDate);
+      if (normalizedDate.length === 8) {
+        const yyMMdd = `${normalizedDate.substring(2, 4)}${normalizedDate.substring(4, 6)}${normalizedDate.substring(6, 8)}`;
+        this.clearDate(yyMMdd);
+      }
+      this.activeProcessingDates.delete(normalizedDate);
+      this.dateLastAccess.delete(normalizedDate);
     }
     
     if (datesToRemove.length > 0) {
@@ -150,11 +153,8 @@ class BrokerTransactionCacheService {
     // Normalize date to YYYYMMDD for comparison
     const normalizedDate = this.normalizeDate(date);
     
-    // Update last access time jika tanggal sudah aktif
-    // TAPI TIDAK auto-add - kalkulasi harus manual set active dates untuk tanggal yang benar-benar akan diproses
-    if (this.isDateActive(normalizedDate)) {
-      this.dateLastAccess.set(normalizedDate, Date.now());
-    }
+    // Selalu update waktu akses terakhir untuk tanggal ini
+    this.dateLastAccess.set(normalizedDate, Date.now());
     
     // Try YYYYMMDD format first (normalized)
     let blobName = `broker_transaction/broker_transaction_${date}/${brokerCode}.csv`;
