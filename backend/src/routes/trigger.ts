@@ -36,6 +36,7 @@ import { BrokerTransactionIDXDataScheduler } from '../services/brokerTransaction
 import { BrokerTransactionStockIDXDataScheduler } from '../services/brokerTransactionStockIDXDataScheduler';
 import { BrokerTransactionSectorDataScheduler } from '../services/brokerTransactionSectorDataScheduler';
 import { BrokerTransactionStockSectorDataScheduler } from '../services/brokerTransactionStockSectorDataScheduler';
+import { BrokerTransactionALLDataScheduler } from '../services/brokerTransactionALLDataScheduler';
 import { BrokerDataRGTNNGCalculator } from '../calculations/broker/broker_data_rg_tn_ng';
 import { updateWatchlistSnapshot } from '../services/watchlistSnapshotService';
 import { supabaseAdmin } from '../supabaseClient';
@@ -2200,6 +2201,66 @@ router.post('/broker-transaction-stock-sector', async (req, res) => {
     return res.status(500).json({
       success: false,
       message: `Failed to trigger broker-transaction-stock-sector update: ${errorMessage}`
+    });
+  }
+});
+
+// Manual trigger for Broker Transaction ALL calculation
+router.post('/broker-transaction-all', async (req, res) => {
+  try {
+    console.log('🔄 Manual trigger: Broker Transaction ALL calculation');
+    
+    const logEntry = await SchedulerLogService.createLog({
+      feature_name: 'broker_transaction_all',
+      trigger_type: 'manual',
+      triggered_by: getTriggeredBy(req),
+      status: 'running',
+      environment: process.env['NODE_ENV'] || 'development'
+    });
+
+    if (!logEntry) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create scheduler log entry' 
+      });
+    }
+
+    const brokerTransactionALLService = new BrokerTransactionALLDataScheduler();
+    
+    // Execute in background and return immediately
+    brokerTransactionALLService.generateBrokerTransactionALLData('all', logEntry.id || null, getTriggeredBy(req)).then(async (result) => {
+      await AzureLogger.logInfo('broker_transaction_all', `Manual broker transaction ALL calculation completed: ${result.message || 'OK'}`);
+      console.log(`✅ Broker Transaction ALL calculation completed: ${result.message}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: result.success ? 'completed' : 'failed',
+          progress_percentage: 100,
+          ...(result.success ? {} : { error_message: result.message })
+        });
+      }
+    }).catch(async (error: any) => {
+      const errorMessage = error?.message || error?.toString() || 'Unknown error';
+      await AzureLogger.logSchedulerError('broker_transaction_all', errorMessage);
+      console.error(`❌ Broker Transaction ALL calculation error: ${errorMessage}`);
+      if (logEntry.id) {
+        await SchedulerLogService.updateLog(logEntry.id, {
+          status: 'failed',
+          error_message: errorMessage
+        });
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: 'Broker Transaction ALL calculation triggered successfully',
+      log_id: logEntry.id
+    });
+  } catch (error: any) {
+    console.error('❌ Error triggering broker transaction ALL calculation:', error);
+    const errorMessage = error?.message || error?.toString() || 'Unknown error';
+    return res.status(500).json({
+      success: false,
+      message: `Failed to trigger broker-transaction-all update: ${errorMessage}`
     });
   }
 });
