@@ -68,52 +68,53 @@ export class DoneSummaryCacheService {
   private currentCacheSize = 0;
   
   /**
-   * Add active processing date - tanggal yang sedang diproses oleh kalkulasi
-   * Cache akan hanya menyimpan tanggal yang ada di activeProcessingDates
-   * @param date Date string in YYYYMMDD format (e.g., '20251021')
+   * Add active processing date - tanggal yang sedang diproses oleh kalkulasi.
+   * Menandai bahwa tanggal ini sedang dipakai sehingga konten yang di-load
+   * boleh disimpan di cache dan last-access akan diperbarui.
    */
   public addActiveProcessingDate(date: string): void {
     if (!this.activeProcessingDates.has(date)) {
       this.activeProcessingDates.add(date);
       console.log(`📅 Done Summary Cache: Added active processing date ${date} (total: ${this.activeProcessingDates.size})`);
     }
-    // Update last access time
+    // Selalu update last access untuk tanggal ini
     this.dateLastAccess.set(date, Date.now());
   }
   
   /**
-   * Remove active processing date - tanggal sudah selesai diproses
-   * Auto-clear cache untuk tanggal ini
-   * @param date Date string in YYYYMMDD format (e.g., '20251021')
+   * Tandai bahwa kalkulasi saat ini sudah tidak lagi aktif menggunakan tanggal ini.
+   * Catatan: method ini TIDAK langsung menghapus data dari cache agar tanggal yang
+   * sama masih bisa dipakai ulang oleh phase/kalkulasi lain. Pembersihan fisik
+   * akan dilakukan oleh autoCleanupInactiveDates() atau clearAll().
    */
   public removeActiveProcessingDate(date: string): void {
     if (this.activeProcessingDates.has(date)) {
       this.activeProcessingDates.delete(date);
-      this.dateLastAccess.delete(date);
-      // Clear cache for this date
-      this.clearDate(date);
-      console.log(`📅 Done Summary Cache: Removed active processing date ${date} (total: ${this.activeProcessingDates.size})`);
+      console.log(`📅 Done Summary Cache: Deactivated processing date ${date} (remaining active: ${this.activeProcessingDates.size})`);
+      // Jangan hapus entry di dateLastAccess atau cache di sini.
     }
   }
   
   /**
-   * Auto-cleanup: Remove tanggal yang sudah lama tidak dipanggil
-   * Dipanggil secara periodik atau saat evict old entries
+   * Auto-cleanup: Remove tanggal yang sudah lama tidak dipanggil dari cache.
+   * Dipanggil secara periodik atau saat evict old entries, berdasarkan
+   * DATE_INACTIVE_THRESHOLD dan last access time.
    */
   private autoCleanupInactiveDates(): void {
     const now = Date.now();
     const datesToRemove: string[] = [];
     
     for (const [date, lastAccess] of this.dateLastAccess.entries()) {
-      // Jika tanggal tidak dipanggil lagi selama 1 jam, remove
+      // Jika tanggal tidak dipanggil lagi selama 1 jam, hapus semua cache terkait
       if (now - lastAccess > this.DATE_INACTIVE_THRESHOLD) {
         datesToRemove.push(date);
       }
     }
     
-    // Remove inactive dates
     for (const date of datesToRemove) {
-      this.removeActiveProcessingDate(date);
+      this.clearDate(date);
+      this.activeProcessingDates.delete(date);
+      this.dateLastAccess.delete(date);
     }
     
     if (datesToRemove.length > 0) {
