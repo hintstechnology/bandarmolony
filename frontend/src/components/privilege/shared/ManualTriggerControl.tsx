@@ -86,7 +86,6 @@ const MANUAL_TRIGGERS_BY_PHASE: PhaseGroup[] = [
       { name: "Broker Transaction RG/TN/NG", type: "broker-transaction-rgtnng", description: "Calculate broker transaction data per broker split by transaction type (RG, TN, NG)" },
       { name: "Broker Transaction F/D", type: "broker-transaction-fd", description: "Calculate broker transaction data per broker filtered by Investor Type (F/D)" },
       { name: "Broker Transaction F/D RG/TN/NG", type: "broker-transaction-fd-rgtnng", description: "Calculate broker transaction data per broker filtered by Investor Type (F/D) and Board Type (RG, TN, NG)" },
-      { name: "Broker Transaction IDX", type: "broker-transaction-idx", description: "Generate aggregated IDX.csv for broker transaction (all dates and combinations)" },
       { name: "Broker Transaction Sector", type: "broker-transaction-sector", description: "Generate broker transaction aggregated by sector for all dates, investor types, and market types" },
       { name: "Broker Transaction ALL", type: "broker-transaction-all", description: "Generate broker transaction ALL.csv aggregated by sector (all emitens) for all dates, investor types, and market types" },
     ]
@@ -456,7 +455,6 @@ export function ManualTriggerControl() {
       'broker_transaction_stock_fd': 'broker-transaction-stock-fd',
       'broker_transaction_stock_rgtnng': 'broker-transaction-stock-rgtnng',
       'broker_transaction_stock_fd_rgtnng': 'broker-transaction-stock-fd-rgtnng',
-      'broker_transaction_idx': 'broker-transaction-idx',
       'broker_transaction_stock_idx': 'broker-transaction-stock-idx',
       'broker_transaction_sector': 'broker-transaction-sector',
       'broker_transaction_stock_sector': 'broker-transaction-stock-sector',
