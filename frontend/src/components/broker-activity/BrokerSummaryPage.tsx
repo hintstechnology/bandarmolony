@@ -2600,7 +2600,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       className="w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground"
                     />
                     {showStockSuggestions && (
-                      <div className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col min-w-[400px]">
+                      <div className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col w-full sm:w-auto min-w-[280px] sm:min-w-[400px]">
                         {availableStocks.length === 0 ? (
                           <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
                             <Loader2 className="w-4 h-4 animate-spin mr-2" />
