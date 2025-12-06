@@ -228,8 +228,16 @@ const getAzurePath = (code: string, dateStr: string, pivot: 'Broker' | 'Stock' =
   console.log(`[getAzurePath] Normalized: invFilter="${normalizedInvFilter}", boardFilter="${normalizedBoardFilter}"`);
   console.log(`[getAzurePath] hasBoardFilter=${hasBoardFilter}, hasInvFilter=${hasInvFilter}`);
   
+  // Path structure mengikuti inkonsistensi di Azure (sama seperti broker_transaction_ALL.ts):
+  // - Jika ada boardFilter (RG/TN/NG): TIDAK ada broker_transaction/ di depan
+  //   Contoh: broker_transaction_rg/broker_transaction_rg_20251204/
+  //   Contoh: broker_transaction_rg_d/broker_transaction_rg_d_20251205/
+  // - Jika TIDAK ada boardFilter: ADA broker_transaction/ di depan
+  //   Contoh: broker_transaction/broker_transaction_20251205/
+  //   Contoh: broker_transaction/broker_transaction_d_20251204/
+  //   Contoh: broker_transaction/broker_transaction_f_20251204/
   if (hasBoardFilter) {
-    // When board filter exists, use standard pattern: broker_transaction_{board}[_{inv}]
+    // When board filter exists, use pattern: broker_transaction_{board}[_{inv}]
     const board = normalizedBoardFilter.toUpperCase();
     const folderMap: { [key: string]: string } = {
       'RG': 'rg',
@@ -255,6 +263,8 @@ const getAzurePath = (code: string, dateStr: string, pivot: 'Broker' | 'Stock' =
     console.log(`[getAzurePath] All Trade + Inv filter path: ${folderPrefix}/${filePrefix}_${dateStr}/${code}.csv`);
   } else {
     // No filters, use default
+    folderPrefix = 'broker_transaction';
+    filePrefix = 'broker_transaction';
     console.log(`[getAzurePath] No filters path: ${folderPrefix}/${filePrefix}_${dateStr}/${code}.csv`);
   }
   
