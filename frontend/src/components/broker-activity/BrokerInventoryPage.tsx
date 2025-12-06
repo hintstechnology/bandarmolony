@@ -2999,19 +2999,19 @@ const visibleBrokers = useMemo(
       }))
       .sort((a, b) => b.nsval - a.nsval);
 
-    // Top 5 Buy: Top 5 from sortedTotalNetSell (BY column in NET table - BLot and BY)
-    // IMPORTANT: In NET table, BY column displays NetSell data (data is swapped for display)
-    // Top 5 Buy = top 5 NetSell brokers sorted by NetSellValue (same as BrokerSummaryPage NET table BY column)
-    const topBuyers = sortedTotalNetSell
+    // Top 5 Buy: Top 5 from sortedTotalNetBuy (brokers with highest NetBuy)
+    // IMPORTANT: Data has already been swapped for sectors in the mapping step (line 1920-1926)
+    // So NetBuyVol/NetSellVol are already correct - no need for additional swap
+    const topBuyers = sortedTotalNetBuy
       .slice(0, 5)
-      .map(({ broker, nsval, nslot }) => ({ broker, buy: nsval, lot: nslot }));
+      .map(({ broker, nbval, nblot }) => ({ broker, buy: nbval, lot: nblot }));
 
-    // Top 5 Sell: Top 5 from sortedTotalNetBuy (SL column in NET table - SLot and SL)
-    // IMPORTANT: In NET table, SL column displays NetBuy data (data is swapped for display)
-    // Top 5 Sell = top 5 NetBuy brokers sorted by NetBuyValue (same as BrokerSummaryPage NET table SL column)
-    const topSellers = sortedTotalNetBuy
+    // Top 5 Sell: Top 5 from sortedTotalNetSell (brokers with highest NetSell)
+    // IMPORTANT: Data has already been swapped for sectors in the mapping step (line 1920-1926)
+    // So NetBuyVol/NetSellVol are already correct - no need for additional swap
+    const topSellers = sortedTotalNetSell
       .slice(0, 5)
-      .map(({ broker, nbval, nblot }) => ({ broker, sell: nbval, lot: nblot }));
+      .map(({ broker, nsval, nslot }) => ({ broker, sell: nsval, lot: nslot }));
 
     return {
       netByBroker,
