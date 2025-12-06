@@ -164,17 +164,22 @@ class BrokerTransactionStockIDXDataScheduler {
           
           // Check if this combination exists by checking first date
           // If no stocks found, skip this combination
+          // Path structure mengikuti inkonsistensi di Azure (sama seperti calculation):
+          // - Jika ada marketType (RG/TN/NG): TIDAK ada broker_transaction_stock/ di depan
+          //   Contoh: broker_transaction_stock_rg_f/broker_transaction_stock_rg_f_20251205/
+          // - Jika TIDAK ada marketType: ADA broker_transaction_stock/ di depan
+          //   Contoh: broker_transaction_stock/broker_transaction_stock_f_20251205/
           let folderPrefix: string;
           if (investorType && marketType) {
             const invPrefix = investorType === 'D' ? 'd' : 'f';
             const marketLower = marketType.toLowerCase();
-            folderPrefix = `broker_transaction_stock/broker_transaction_stock_${invPrefix}_${marketLower}_${dates[0]}`;
+            folderPrefix = `broker_transaction_stock_${marketLower}_${invPrefix}/broker_transaction_stock_${marketLower}_${invPrefix}_${dates[0]}`;
           } else if (investorType) {
             const invPrefix = investorType === 'D' ? 'd' : 'f';
             folderPrefix = `broker_transaction_stock/broker_transaction_stock_${invPrefix}_${dates[0]}`;
           } else if (marketType) {
             const marketLower = marketType.toLowerCase();
-            folderPrefix = `broker_transaction_stock/broker_transaction_stock_${marketLower}_${dates[0]}`;
+            folderPrefix = `broker_transaction_stock_${marketLower}/broker_transaction_stock_${marketLower}_${dates[0]}`;
           } else {
             folderPrefix = `broker_transaction_stock/broker_transaction_stock_${dates[0]}`;
           }
