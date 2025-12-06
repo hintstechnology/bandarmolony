@@ -74,7 +74,7 @@ async function buildSectorMappingFromCsv(): Promise<void> {
   }
 }
 
-// Type definitions - same as broker_transaction_IDX.ts
+// Type definitions for broker transaction data
 interface BrokerTransactionData {
   Emiten: string;
   // Buy side (when broker is buyer - BRK_COD1)
