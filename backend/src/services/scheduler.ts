@@ -13,6 +13,7 @@ import TopBrokerDataScheduler from './topBrokerDataScheduler';
 import BrokerInventoryDataScheduler from './brokerInventoryDataScheduler';
 import BrokerSummaryTypeDataScheduler from './brokerSummaryTypeDataScheduler';
 import BrokerSummaryIDXDataScheduler from './brokerSummaryIDXDataScheduler';
+import BrokerSummarySectorDataScheduler from './brokerSummarySectorDataScheduler';
 import BrokerBreakdownDataScheduler from './brokerBreakdownDataScheduler';
 import ForeignFlowDataScheduler from './foreignFlowDataScheduler';
 import MoneyFlowDataScheduler from './moneyFlowDataScheduler';
@@ -34,6 +35,10 @@ import { updateIndexData } from './indexDataScheduler';
 import { updateShareholdersData } from './shareholdersDataScheduler';
 import { updateHoldingData } from './holdingDataScheduler';
 import { updateWatchlistSnapshot } from './watchlistSnapshotService';
+import { doneSummaryCache } from '../cache/doneSummaryCacheService';
+import { stockCache } from '../cache/stockCacheService';
+import { brokerTransactionCache } from '../cache/brokerTransactionCacheService';
+import { indexCache } from '../cache/indexCacheService';
 
 // ======================
 // SCHEDULER CONFIGURATION
@@ -51,7 +56,7 @@ let SCHEDULER_CONFIG = {
   // Phase 1b: Input Monthly (Shareholders & Holding)
   // Phase 2: Market Rotation (RRC, RRG, Seasonal, Trend Filter, Watchlist Snapshot)
   // Phase 3: Flow Trade (Money Flow, Foreign Flow, Break Done Trade)
-  // Phase 4: Broker Summary (Top Broker, Broker Summary, Broker Summary IDX, Broker Summary by Type)
+  // Phase 4: Broker Summary (Top Broker, Broker Summary, Broker Summary IDX, Broker Summary by Type, Broker Summary Sector)
   // Phase 5: Broktrans Broker (Broker Transaction, Broker Transaction RG/TN/NG, Broker Transaction F/D, Broker Transaction F/D RG/TN/NG)
   // Phase 6: Broktrans Stock (Broker Transaction Stock, Broker Transaction Stock F/D, Broker Transaction Stock RG/TN/NG, Broker Transaction Stock F/D RG/TN/NG)
   // Phase 7: Bid Breakdown (Bid/Ask Footprint, Broker Breakdown)
@@ -278,6 +283,7 @@ const brokerInventoryService = new BrokerInventoryDataScheduler();
 const brokerBreakdownService = new BrokerBreakdownDataScheduler();
 const brokerSummaryTypeService = new BrokerSummaryTypeDataScheduler();
 const brokerSummaryIDXService = new BrokerSummaryIDXDataScheduler();
+const brokerSummarySectorService = new BrokerSummarySectorDataScheduler();
 const foreignFlowService = new ForeignFlowDataScheduler();
 const moneyFlowService = new MoneyFlowDataScheduler();
 const breakDoneTradeService = new BreakDoneTradeDataScheduler();
@@ -496,7 +502,7 @@ export async function runPhase2MarketRotationCalculations(manualTriggeredBy?: st
     const logData: Partial<SchedulerLog> = {
       feature_name: 'phase2_market_rotation',
       trigger_type: fromManual ? 'manual' : 'scheduled',
-      triggered_by: fromManual ? manualTriggeredBy : 'phase1',
+      triggered_by: fromManual ? manualTriggeredBy : 'Phase 2 Market Rotation',
       status: 'running',
       phase_id: 'phase2_market_rotation',
       started_at: new Date().toISOString(),
@@ -522,7 +528,7 @@ export async function runPhase2MarketRotationCalculations(manualTriggeredBy?: st
       { name: 'Watchlist Snapshot', service: updateWatchlistSnapshot, method: null }
     ];
     
-    const triggeredBy = fromManual ? manualTriggeredBy : 'phase2_market_rotation';
+    const triggeredBy = fromManual ? manualTriggeredBy : 'Phase 2 Market Rotation';
     const marketRotationPromises = marketRotationTasks.map(async (task, index) => {
       const startTime = Date.now();
       
@@ -551,8 +557,14 @@ export async function runPhase2MarketRotationCalculations(manualTriggeredBy?: st
             await (task.service as any)('scheduled', null, triggeredBy);
           } else if (task.name === 'Watchlist Snapshot') {
             await (task.service as any)(null, triggeredBy);
+          } else if (task.name === 'RRC Calculation') {
+            // RRC uses (forceOverride, triggerType, logId, triggeredBy)
+            await (task.service as any)(false, fromManual ? 'manual' : 'scheduled', null, triggeredBy);
+          } else if (task.name === 'RRG Calculation') {
+            // RRG uses (forceOverride, triggerType, logId, triggeredBy)
+            await (task.service as any)(false, fromManual ? 'manual' : 'scheduled', null, triggeredBy);
           } else {
-            // RRC and RRG already handle log creation internally
+            // Fallback for other services
             await (task.service as any)();
           }
         }
@@ -687,7 +699,7 @@ export async function runPhase3FlowTradeCalculations(manualTriggeredBy?: string)
       const logData: Partial<SchedulerLog> = {
       feature_name: 'phase3_flow_trade',
         trigger_type: fromManual ? 'manual' : 'scheduled',
-      triggered_by: fromManual ? manualTriggeredBy : 'phase2',
+      triggered_by: fromManual ? manualTriggeredBy : 'Phase 3 Flow Trade',
         status: 'running',
         phase_id: 'phase3_flow_trade',
         started_at: new Date().toISOString(),
@@ -710,7 +722,7 @@ export async function runPhase3FlowTradeCalculations(manualTriggeredBy?: string)
     
     const lightCalculationPromises = lightCalculations.map(async (task, index) => {
       const startTime = Date.now();
-      const triggeredBy = fromManual ? manualTriggeredBy : 'phase3_flow_trade';
+      const triggeredBy = fromManual ? manualTriggeredBy : 'Phase 3 Flow Trade';
 
       try {
         console.log(`🔄 Starting ${task.name} (${index + 1}/3)...`);
@@ -723,8 +735,8 @@ export async function runPhase3FlowTradeCalculations(manualTriggeredBy?: string)
           });
         }
         
-        // Run calculation - pass logId to enable progress tracking
-        await (task.service as any)[task.method]('all', logEntry?.id || null, triggeredBy);
+        // Run calculation - pass logId to enable progress tracking, but don't pass logId so each calculation creates its own log entry
+        await (task.service as any)[task.method]('all', null, triggeredBy);
         
         const duration = Date.now() - startTime;
         
@@ -824,7 +836,7 @@ export async function runPhase4BrokerSummaryCalculations(manualTriggeredBy?: str
   const phaseStartTime = Date.now();
   console.log(`\n🚀 ===== PHASE 4 BROKER SUMMARY STARTED =====`);
   console.log(`🕐 Start Time: ${new Date(phaseStartTime).toISOString()}`);
-  console.log(`📋 Phase: Broker Summary (Top Broker, Broker Summary, Broker Summary IDX, Broker Summary by Type)`);
+  console.log(`📋 Phase: Broker Summary (Top Broker, Broker Summary, Broker Summary IDX, Broker Summary by Type, Broker Summary Sector)`);
   
   // Start memory monitoring for this phase
   startMemoryMonitoring();
@@ -848,7 +860,7 @@ export async function runPhase4BrokerSummaryCalculations(manualTriggeredBy?: str
     const logData: Partial<SchedulerLog> = {
       feature_name: 'phase4_broker_summary',
       trigger_type: fromManual ? 'manual' : 'scheduled',
-      triggered_by: fromManual ? manualTriggeredBy! : 'phase3',
+      triggered_by: fromManual ? manualTriggeredBy! : 'Phase 4 Broker Summary',
       status: 'running',
       phase_id: 'phase4_broker_summary',
       started_at: new Date().toISOString(),
@@ -865,13 +877,16 @@ export async function runPhase4BrokerSummaryCalculations(manualTriggeredBy?: str
       { name: 'Broker Summary',   featureName: 'broker_summary' },
       { name: 'Broker Summary IDX', featureName: 'broker_summary_idx' },
       { name: 'Broker Summary Type', featureName: 'broker_summary_type' },
+      { name: 'Broker Summary Sector', featureName: 'broker_summary_sector' },
     ] as const;
 
     // Top Broker
     console.log('🔄 Starting Top Broker calculation...');
     const topBrokerStartTime = Date.now();
-    // Pass logId to enable progress tracking
-    const resultTopBroker = await topBrokerService.generateTopBrokerData('all', logEntry?.id || null, 'phase4_broker_summary');
+    // Pass null as logId so each calculation creates its own log entry with progress tracking
+    // Pass phase name for triggered_by instead of phase_id
+    const triggeredByForChild = fromManual ? manualTriggeredBy : 'Phase 4 Broker Summary';
+    const resultTopBroker = await topBrokerService.generateTopBrokerData('all', null, triggeredByForChild);
     const topBrokerDuration = Math.round((Date.now() - topBrokerStartTime) / 1000);
     console.log(`📊 Top Broker completed in ${topBrokerDuration}s`);
     if (logEntry) {
@@ -884,8 +899,8 @@ export async function runPhase4BrokerSummaryCalculations(manualTriggeredBy?: str
     // Broker Summary
     console.log('🔄 Starting Broker Summary calculation...');
     const brokerSummaryStartTime = Date.now();
-    // Pass logId to enable progress tracking
-    const resultSummary = await brokerSummaryService.generateBrokerSummaryData('all', logEntry?.id || null, 'phase4_broker_summary');
+    // Pass null as logId so each calculation creates its own log entry with progress tracking
+    const resultSummary = await brokerSummaryService.generateBrokerSummaryData('all', null, triggeredByForChild);
     const brokerSummaryDuration = Math.round((Date.now() - brokerSummaryStartTime) / 1000);
     console.log(`📊 Broker Summary completed in ${brokerSummaryDuration}s`);
     if (logEntry) {
@@ -898,8 +913,8 @@ export async function runPhase4BrokerSummaryCalculations(manualTriggeredBy?: str
     // Broker Summary IDX
     console.log('🔄 Starting Broker Summary IDX calculation...');
     const idxStartTime = Date.now();
-    // Pass logId to enable progress tracking
-    const resultIDX = await brokerSummaryIDXService.generateBrokerSummaryIDXData('all', logEntry?.id || null, 'phase4_broker_summary');
+    // Pass null as logId so each calculation creates its own log entry with progress tracking
+    const resultIDX = await brokerSummaryIDXService.generateBrokerSummaryIDXData('all', null, triggeredByForChild);
     const idxDuration = Math.round((Date.now() - idxStartTime) / 1000);
     console.log(`📊 Broker Summary IDX completed in ${idxDuration}s`);
     if (logEntry) {
@@ -912,10 +927,24 @@ export async function runPhase4BrokerSummaryCalculations(manualTriggeredBy?: str
     // Broker Summary by Type
     console.log('🔄 Starting Broker Summary by Type (RG/TN/NG) calculation...');
     const brokerSummaryTypeStartTime = Date.now();
-    // Pass logId to enable progress tracking
-    const resultType = await brokerSummaryTypeService.generateBrokerSummaryTypeData('all', logEntry?.id || null, 'phase4_broker_summary');
+    // Pass null as logId so each calculation creates its own log entry with progress tracking
+    const resultType = await brokerSummaryTypeService.generateBrokerSummaryTypeData('all', null, triggeredByForChild);
     const brokerSummaryTypeDuration = Math.round((Date.now() - brokerSummaryTypeStartTime) / 1000);
     console.log(`📊 Broker Summary Type completed in ${brokerSummaryTypeDuration}s`);
+    if (logEntry) {
+      await SchedulerLogService.updateLog(logEntry.id!, {
+        progress_percentage: Math.round((4 / phaseTasks.length) * 100),
+        current_processing: 'Broker Summary Type completed'
+      });
+    }
+
+    // Broker Summary Sector
+    console.log('🔄 Starting Broker Summary Sector calculation...');
+    const brokerSummarySectorStartTime = Date.now();
+    // Pass null as logId so each calculation creates its own log entry with progress tracking
+    const resultSector = await brokerSummarySectorService.generateBrokerSummarySectorData('all', null, triggeredByForChild);
+    const brokerSummarySectorDuration = Math.round((Date.now() - brokerSummarySectorStartTime) / 1000);
+    console.log(`📊 Broker Summary Sector completed in ${brokerSummarySectorDuration}s`);
     if (logEntry) {
       await SchedulerLogService.updateLog(logEntry.id!, {
         progress_percentage: 100,
@@ -926,8 +955,8 @@ export async function runPhase4BrokerSummaryCalculations(manualTriggeredBy?: str
     const phaseEndTime = new Date();
     const totalDuration = Math.round((phaseEndTime.getTime() - phaseStartTime) / 1000);
     
-    const successCount = (resultTopBroker.success ? 1 : 0) + (resultSummary.success ? 1 : 0) + (resultIDX.success ? 1 : 0) + (resultType.success ? 1 : 0);
-    const totalCalculations = 4;
+    const successCount = (resultTopBroker.success ? 1 : 0) + (resultSummary.success ? 1 : 0) + (resultIDX.success ? 1 : 0) + (resultType.success ? 1 : 0) + (resultSector.success ? 1 : 0);
+    const totalCalculations = 5;
     
     console.log(`\n📊 ===== PHASE 4 BROKER SUMMARY COMPLETED =====`);
     console.log(`✅ Success: ${successCount}/${totalCalculations} calculations`);
@@ -935,12 +964,13 @@ export async function runPhase4BrokerSummaryCalculations(manualTriggeredBy?: str
     console.log(`📊 Broker Summary: ${resultSummary.success ? 'SUCCESS' : 'FAILED'} (${brokerSummaryDuration}s)`);
     console.log(`📊 Broker Summary IDX: ${resultIDX.success ? 'SUCCESS' : 'FAILED'} (${idxDuration}s)`);
     console.log(`📊 Broker Summary Type: ${resultType.success ? 'SUCCESS' : 'FAILED'} (${brokerSummaryTypeDuration}s)`);
+    console.log(`📊 Broker Summary Sector: ${resultSector.success ? 'SUCCESS' : 'FAILED'} (${brokerSummarySectorDuration}s)`);
     console.log(`🕐 End Time: ${phaseEndTime.toISOString()}`);
     console.log(`⏱️ Total Duration: ${totalDuration}s`);
     
     // Update database log
     if (logEntry) {
-      if (successCount >= 3) {
+      if (successCount >= 4) {
         await SchedulerLogService.markCompleted(logEntry.id!, {
           total_files_processed: totalCalculations,
           files_created: successCount,
@@ -959,7 +989,7 @@ export async function runPhase4BrokerSummaryCalculations(manualTriggeredBy?: str
     
     // Trigger Phase 5 automatically if Phase 4 succeeded and Phase 5 is enabled
       // Pass manualTriggeredBy if this was manually triggered
-    if (successCount >= 3 && phaseEnabled['phase5_broktrans_broker']) {
+    if (successCount >= 4 && phaseEnabled['phase5_broktrans_broker']) {
       console.log('🔄 Triggering Phase 5 Broktrans Broker calculations...');
       await runPhase5BroktransBrokerCalculations(fromManual ? manualTriggeredBy : undefined);
     } else {
@@ -1022,7 +1052,7 @@ export async function runPhase5BroktransBrokerCalculations(manualTriggeredBy?: s
       const logData: Partial<SchedulerLog> = {
       feature_name: 'phase5_broktrans_broker',
         trigger_type: fromManual ? 'manual' : 'scheduled',
-      triggered_by: fromManual ? manualTriggeredBy! : 'phase4',
+      triggered_by: fromManual ? manualTriggeredBy! : 'Phase 5 Broktrans Broker',
         status: 'running',
         phase_id: 'phase5_broktrans_broker',
         started_at: new Date().toISOString(),
@@ -1034,12 +1064,12 @@ export async function runPhase5BroktransBrokerCalculations(manualTriggeredBy?: s
       console.log('📊 Phase 5 Broktrans Broker database log created:', logEntry.id);
     }
     
-    const triggeredBy = fromManual ? manualTriggeredBy! : 'phase5_broktrans_broker';
+    const triggeredBy = fromManual ? manualTriggeredBy! : 'Phase 5 Broktrans Broker';
 
     console.log('🔄 Starting Broker Transaction calculation...');
     const brokerTransactionStartTime = Date.now();
-    // Pass logId to enable progress tracking
-    const resultTransaction = await brokerTransactionService.generateBrokerTransactionData('all', logEntry?.id || null, triggeredBy);
+    // Pass null as logId so each calculation creates its own log entry with progress tracking
+    const resultTransaction = await brokerTransactionService.generateBrokerTransactionData('all', null, triggeredBy);
     const brokerTransactionDuration = Math.round((Date.now() - brokerTransactionStartTime) / 1000);
     console.log(`📊 Broker Transaction completed in ${brokerTransactionDuration}s`);
     if (logEntry) {
@@ -1051,8 +1081,8 @@ export async function runPhase5BroktransBrokerCalculations(manualTriggeredBy?: s
 
     console.log('🔄 Starting Broker Transaction RG/TN/NG calculation...');
     const brokerTransactionRGTNNGStartTime = Date.now();
-    // Pass logId to enable progress tracking
-    const resultTransactionRGTNNG = await brokerTransactionRGTNNGService.generateBrokerTransactionRGTNNGData('all', logEntry?.id || null, triggeredBy);
+    // Pass null as logId so each calculation creates its own log entry with progress tracking
+    const resultTransactionRGTNNG = await brokerTransactionRGTNNGService.generateBrokerTransactionRGTNNGData('all', null, triggeredBy);
     const brokerTransactionRGTNNGDuration = Math.round((Date.now() - brokerTransactionRGTNNGStartTime) / 1000);
     console.log(`📊 Broker Transaction RG/TN/NG completed in ${brokerTransactionRGTNNGDuration}s`);
     if (logEntry) {
@@ -1064,8 +1094,8 @@ export async function runPhase5BroktransBrokerCalculations(manualTriggeredBy?: s
 
     console.log('🔄 Starting Broker Transaction F/D calculation...');
     const brokerTransactionFDStartTime = Date.now();
-    // Pass logId to enable progress tracking
-    const resultTransactionFD = await brokerTransactionFDService.generateBrokerTransactionData('all', logEntry?.id || null, triggeredBy);
+    // Pass null as logId so each calculation creates its own log entry with progress tracking
+    const resultTransactionFD = await brokerTransactionFDService.generateBrokerTransactionData('all', null, triggeredBy);
     const brokerTransactionFDDuration = Math.round((Date.now() - brokerTransactionFDStartTime) / 1000);
     console.log(`📊 Broker Transaction F/D completed in ${brokerTransactionFDDuration}s`);
     if (logEntry) {
@@ -1077,8 +1107,8 @@ export async function runPhase5BroktransBrokerCalculations(manualTriggeredBy?: s
 
     console.log('🔄 Starting Broker Transaction F/D RG/TN/NG calculation...');
     const brokerTransactionFDRGTNNGStartTime = Date.now();
-    // Pass logId to enable progress tracking
-    const resultTransactionFDRGTNNG = await brokerTransactionFDRGTNNGService.generateBrokerTransactionData('all', logEntry?.id || null, triggeredBy);
+    // Pass null as logId so each calculation creates its own log entry with progress tracking
+    const resultTransactionFDRGTNNG = await brokerTransactionFDRGTNNGService.generateBrokerTransactionData('all', null, triggeredBy);
     const brokerTransactionFDRGTNNGDuration = Math.round((Date.now() - brokerTransactionFDRGTNNGStartTime) / 1000);
     console.log(`📊 Broker Transaction F/D RG/TN/NG completed in ${brokerTransactionFDRGTNNGDuration}s`);
     if (logEntry) {
@@ -1090,8 +1120,8 @@ export async function runPhase5BroktransBrokerCalculations(manualTriggeredBy?: s
 
     console.log('🔄 Starting Broker Transaction IDX calculation...');
     const brokerTransactionIDXStartTime = Date.now();
-    // Pass logId to enable progress tracking
-    const resultTransactionIDX = await brokerTransactionIDXService.generateBrokerTransactionIDXData('all', logEntry?.id || null, triggeredBy);
+    // Pass null as logId so each calculation creates its own log entry with progress tracking
+    const resultTransactionIDX = await brokerTransactionIDXService.generateBrokerTransactionIDXData('all', null, triggeredBy);
     const brokerTransactionIDXDuration = Math.round((Date.now() - brokerTransactionIDXStartTime) / 1000);
     console.log(`📊 Broker Transaction IDX completed in ${brokerTransactionIDXDuration}s`);
     if (logEntry) {
@@ -1201,7 +1231,7 @@ export async function runPhase6BroktransStockCalculations(manualTriggeredBy?: st
     const logData: Partial<SchedulerLog> = {
       feature_name: 'phase6_broktrans_stock',
       trigger_type: fromManual ? 'manual' : 'scheduled',
-      triggered_by: fromManual ? manualTriggeredBy! : 'phase5',
+      triggered_by: fromManual ? manualTriggeredBy! : 'Phase 6 Broktrans Stock',
       status: 'running',
       phase_id: 'phase6_broktrans_stock',
       started_at: new Date().toISOString(),
@@ -1213,12 +1243,12 @@ export async function runPhase6BroktransStockCalculations(manualTriggeredBy?: st
       console.log('📊 Phase 6 Broktrans Stock database log created:', logEntry.id);
     }
     
-    const triggeredBy = fromManual ? manualTriggeredBy! : 'phase6_broktrans_stock';
+    const triggeredBy = fromManual ? manualTriggeredBy! : 'Phase 6 Broktrans Stock';
 
     console.log('🔄 Starting Broker Transaction Stock calculation...');
     const brokerTransactionStockStartTime = Date.now();
-    // Pass logId to enable progress tracking
-    const resultTransactionStock = await brokerTransactionStockService.generateBrokerTransactionData('all', logEntry?.id || null, triggeredBy);
+    // Pass null as logId so each calculation creates its own log entry with progress tracking
+    const resultTransactionStock = await brokerTransactionStockService.generateBrokerTransactionData('all', null, triggeredBy);
     const brokerTransactionStockDuration = Math.round((Date.now() - brokerTransactionStockStartTime) / 1000);
     console.log(`📊 Broker Transaction Stock completed in ${brokerTransactionStockDuration}s`);
     if (logEntry) {
@@ -1230,8 +1260,8 @@ export async function runPhase6BroktransStockCalculations(manualTriggeredBy?: st
 
     console.log('🔄 Starting Broker Transaction Stock F/D calculation...');
     const brokerTransactionStockFDStartTime = Date.now();
-    // Pass logId to enable progress tracking
-    const resultTransactionStockFD = await brokerTransactionStockFDService.generateBrokerTransactionData('all', logEntry?.id || null, triggeredBy);
+    // Pass null as logId so each calculation creates its own log entry with progress tracking
+    const resultTransactionStockFD = await brokerTransactionStockFDService.generateBrokerTransactionData('all', null, triggeredBy);
     const brokerTransactionStockFDDuration = Math.round((Date.now() - brokerTransactionStockFDStartTime) / 1000);
     console.log(`📊 Broker Transaction Stock F/D completed in ${brokerTransactionStockFDDuration}s`);
     if (logEntry) {
@@ -1243,8 +1273,8 @@ export async function runPhase6BroktransStockCalculations(manualTriggeredBy?: st
 
     console.log('🔄 Starting Broker Transaction Stock RG/TN/NG calculation...');
     const brokerTransactionStockRGTNNGStartTime = Date.now();
-    // Pass logId to enable progress tracking
-    const resultTransactionStockRGTNNG = await brokerTransactionStockRGTNNGService.generateBrokerTransactionData('all', logEntry?.id || null, triggeredBy);
+    // Pass null as logId so each calculation creates its own log entry with progress tracking
+    const resultTransactionStockRGTNNG = await brokerTransactionStockRGTNNGService.generateBrokerTransactionData('all', null, triggeredBy);
     const brokerTransactionStockRGTNNGDuration = Math.round((Date.now() - brokerTransactionStockRGTNNGStartTime) / 1000);
     console.log(`📊 Broker Transaction Stock RG/TN/NG completed in ${brokerTransactionStockRGTNNGDuration}s`);
     if (logEntry) {
@@ -1256,8 +1286,8 @@ export async function runPhase6BroktransStockCalculations(manualTriggeredBy?: st
 
     console.log('🔄 Starting Broker Transaction Stock F/D RG/TN/NG calculation...');
     const brokerTransactionStockFDRGTNNGStartTime = Date.now();
-    // Pass logId to enable progress tracking
-    const resultTransactionStockFDRGTNNG = await brokerTransactionStockFDRGTNNGService.generateBrokerTransactionData('all', logEntry?.id || null, triggeredBy);
+    // Pass null as logId so each calculation creates its own log entry with progress tracking
+    const resultTransactionStockFDRGTNNG = await brokerTransactionStockFDRGTNNGService.generateBrokerTransactionData('all', null, triggeredBy);
     const brokerTransactionStockFDRGTNNGDuration = Math.round((Date.now() - brokerTransactionStockFDRGTNNGStartTime) / 1000);
     console.log(`📊 Broker Transaction Stock F/D RG/TN/NG completed in ${brokerTransactionStockFDRGTNNGDuration}s`);
     if (logEntry) {
@@ -1269,8 +1299,8 @@ export async function runPhase6BroktransStockCalculations(manualTriggeredBy?: st
 
     console.log('🔄 Starting Broker Transaction Stock IDX calculation...');
     const brokerTransactionStockIDXStartTime = Date.now();
-    // Pass logId to enable progress tracking
-    const resultTransactionStockIDX = await brokerTransactionStockIDXService.generateBrokerTransactionStockIDXData('all', logEntry?.id || null, triggeredBy);
+    // Pass null as logId so each calculation creates its own log entry with progress tracking
+    const resultTransactionStockIDX = await brokerTransactionStockIDXService.generateBrokerTransactionStockIDXData('all', null, triggeredBy);
     const brokerTransactionStockIDXDuration = Math.round((Date.now() - brokerTransactionStockIDXStartTime) / 1000);
     console.log(`📊 Broker Transaction Stock IDX completed in ${brokerTransactionStockIDXDuration}s`);
     if (logEntry) {
@@ -1381,7 +1411,7 @@ export async function runPhase7BidBreakdownCalculations(manualTriggeredBy?: stri
     const logData: Partial<SchedulerLog> = {
       feature_name: 'phase7_bid_breakdown',
       trigger_type: fromManual ? 'manual' : 'scheduled',
-      triggered_by: fromManual ? manualTriggeredBy! : 'phase6',
+      triggered_by: fromManual ? manualTriggeredBy! : 'Phase 7 Bid Breakdown',
       status: 'running',
       phase_id: 'phase7_bid_breakdown',
       started_at: new Date().toISOString(),
@@ -1393,12 +1423,12 @@ export async function runPhase7BidBreakdownCalculations(manualTriggeredBy?: stri
       console.log('📊 Phase 7 Bid Breakdown database log created:', logEntry.id);
     }
     
-    const triggeredBy = fromManual ? manualTriggeredBy! : 'phase7_bid_breakdown';
+    const triggeredBy = fromManual ? manualTriggeredBy! : 'Phase 7 Bid Breakdown';
 
     console.log('🔄 Starting Bid/Ask Footprint calculation...');
     const bidAskStartTime = Date.now();
-    // Pass logId to enable progress tracking
-    const bidAskResult = await bidAskService.generateBidAskData('all', logEntry?.id || null, triggeredBy);
+    // Pass null as logId so each calculation creates its own log entry with progress tracking
+    const bidAskResult = await bidAskService.generateBidAskData('all', null, triggeredBy);
     const bidAskDuration = Math.round((Date.now() - bidAskStartTime) / 1000);
     
     console.log(`📊 Bid/Ask Footprint completed in ${bidAskDuration}s`);
@@ -1411,8 +1441,8 @@ export async function runPhase7BidBreakdownCalculations(manualTriggeredBy?: stri
 
     console.log('🔄 Starting Broker Breakdown calculation...');
     const brokerBreakdownStartTime = Date.now();
-    // Pass logId to enable progress tracking
-    const brokerBreakdownResult = await brokerBreakdownService.generateBrokerBreakdownData('all', logEntry?.id || null, triggeredBy);
+    // Pass null as logId so each calculation creates its own log entry with progress tracking
+    const brokerBreakdownResult = await brokerBreakdownService.generateBrokerBreakdownData('all', null, triggeredBy);
     const brokerBreakdownDuration = Math.round((Date.now() - brokerBreakdownStartTime) / 1000);
     
     console.log(`📊 Broker Breakdown completed in ${brokerBreakdownDuration}s`);
@@ -1521,7 +1551,7 @@ export async function runPhase8AdditionalCalculations(manualTriggeredBy?: string
     const logData: Partial<SchedulerLog> = {
       feature_name: 'phase8_additional',
       trigger_type: fromManual ? 'manual' : 'scheduled',
-      triggered_by: fromManual ? manualTriggeredBy! : 'phase7',
+      triggered_by: fromManual ? manualTriggeredBy! : 'Phase 8 Additional',
       status: 'running',
       phase_id: 'phase8_additional',
       started_at: new Date().toISOString(),
@@ -1534,7 +1564,7 @@ export async function runPhase8AdditionalCalculations(manualTriggeredBy?: string
     }
     
     console.log('🔄 Starting Additional calculations (SEQUENTIAL)...');
-    const triggeredBy = fromManual ? manualTriggeredBy! : 'phase8_additional';
+    const triggeredBy = fromManual ? manualTriggeredBy! : 'Phase 8 Additional';
     const additionalCalculations = [
       { name: 'Broker Inventory', featureName: 'broker_inventory', service: brokerInventoryService, method: 'generateBrokerInventoryData' },
       { name: 'Accumulation Distribution', featureName: 'accumulation_distribution', service: accumulationService, method: 'generateAccumulationData' }
@@ -1555,8 +1585,8 @@ export async function runPhase8AdditionalCalculations(manualTriggeredBy?: string
       
       const calcStartTime = Date.now();
       try {
-        // Pass logId to enable progress tracking
-        const result = await (calc.service as any)[calc.method]('all', logEntry?.id || null, triggeredBy);
+        // Pass null as logId so each calculation creates its own log entry with progress tracking
+        const result = await (calc.service as any)[calc.method]('all', null, triggeredBy);
         const calcDuration = Math.round((Date.now() - calcStartTime) / 1000);
       
       if (result.success) {
@@ -1621,6 +1651,30 @@ export async function runPhase8AdditionalCalculations(manualTriggeredBy?: string
     
     console.log(`\n🎉 ===== ALL PHASES COMPLETED =====`);
     console.log(`📊 Total time from Phase 1a start: Check individual phase logs`);
+    
+    // Clear all caches after all phases complete to free memory
+    console.log('\n🧹 Clearing all caches after all phases completed...');
+    console.log('📊 Cache usage summary:');
+    console.log(`   - done-summary: Used by 15 calculations (Phase 3, 4, 5, 6, 7)`);
+    console.log(`   - stock: Used by multiple calculations (Phase 2, 3, 8)`);
+    console.log(`   - broker_transaction: Used by 2 calculations (Phase 5, 8)`);
+    console.log(`   - index: Used by 2 calculations (Phase 2, 3)`);
+    
+    // Print stats before clearing
+    console.log('\n📊 Cache statistics before clearing:');
+    (doneSummaryCache as any).printStats();
+    stockCache.printStats();
+    brokerTransactionCache.printStats();
+    indexCache.printStats();
+    
+    // Clear all caches
+    console.log('\n🧹 Clearing all caches...');
+    (doneSummaryCache as any).clearAll();
+    stockCache.clearAll();
+    brokerTransactionCache.clearAll();
+    indexCache.clearAll();
+    
+    console.log('✅ All caches cleared successfully');
     
     // Cleanup memory after all calculations are complete
     await aggressiveMemoryCleanup();
@@ -1697,7 +1751,7 @@ export async function runPhase1DataCollection(manualTriggeredBy?: string): Promi
       const logData: Partial<SchedulerLog> = {
         feature_name: 'phase1a_input_daily',
         trigger_type: fromManual ? 'manual' : 'scheduled',
-        triggered_by: fromManual ? manualTriggeredBy! : 'scheduler',
+        triggered_by: fromManual ? manualTriggeredBy! : 'Phase 1a Input Daily',
         status: 'running',
         phase_id: 'phase1a_input_daily',
         started_at: new Date().toISOString(),
@@ -1724,7 +1778,7 @@ export async function runPhase1DataCollection(manualTriggeredBy?: string): Promi
       // Pass logId and triggeredBy to services
       // If manual, use email user; if scheduled, use 'phase1a_input_daily' for consistency
       // Note: Services will use logId if provided, so triggeredBy is mainly for reference
-      const triggeredBy = fromManual ? manualTriggeredBy! : 'phase1a_input_daily';
+      const triggeredBy = fromManual ? manualTriggeredBy! : 'Phase 1a Input Daily';
       
       const dataCollectionPromises = dataCollectionTasks.map(async (task, index) => {
         const startTime = Date.now();
@@ -1747,8 +1801,8 @@ export async function runPhase1DataCollection(manualTriggeredBy?: string): Promi
             });
           }
           
-          // Run calculation - pass logId and triggeredBy to services
-          await (task.service as any)(logEntry?.id || null, triggeredBy);
+          // Run calculation - pass null as logId so each calculation creates its own log entry with progress tracking, and triggeredBy
+          await (task.service as any)(null, triggeredBy);
           
           // Check again after task completes
           if (!phaseEnabled['phase1a_input_daily']) {
@@ -1960,7 +2014,7 @@ export function getAllPhasesStatus() {
         return {
           id: 'phase4_broker_summary',
           name: 'Phase 4 Broker Summary',
-          description: 'Top Broker, Broker Summary, Broker Summary IDX, Broker Summary by Type',
+          description: 'Top Broker, Broker Summary, Broker Summary IDX, Broker Summary by Type, Broker Summary Sector',
           status: phaseStatus['phase4_broker_summary'],
           enabled: phaseEnabled['phase4_broker_summary'],
           trigger: {
@@ -1969,7 +2023,7 @@ export function getAllPhasesStatus() {
             triggerAfterPhase: config5.triggerAfterPhase,
             condition: formatTriggerCondition(config5)
           },
-          tasks: ['Top Broker', 'Broker Summary', 'Broker Summary IDX', 'Broker Summary by Type'],
+          tasks: ['Top Broker', 'Broker Summary', 'Broker Summary IDX', 'Broker Summary by Type', 'Broker Summary Sector'],
           mode: 'SEQUENTIAL' as const
         };
       })(),
@@ -2316,7 +2370,7 @@ export function startScheduler(): void {
       const logData: Partial<SchedulerLog> = {
         feature_name: 'phase1a_input_daily',
         trigger_type: 'scheduled',
-        triggered_by: 'scheduler',
+        triggered_by: 'Phase 1a Input Daily',
         status: 'running',
         phase_id: 'phase1a_input_daily',
         started_at: new Date().toISOString(),
@@ -2364,8 +2418,8 @@ export function startScheduler(): void {
             });
           }
           
-          // Run calculation - pass logId and triggeredBy to services
-          await (task.service as any)(logEntry?.id || null, triggeredBy);
+          // Run calculation - pass null as logId so each calculation creates its own log entry with progress tracking, and triggeredBy
+          await (task.service as any)(null, triggeredBy);
           
           // Check again after task completes
           if (!phaseEnabled['phase1a_input_daily']) {
@@ -2506,7 +2560,7 @@ export function startScheduler(): void {
         const logData: Partial<SchedulerLog> = {
           feature_name: 'phase1b_input_monthly',
           trigger_type: 'scheduled',
-          triggered_by: 'scheduler',
+          triggered_by: 'Phase 1b Input Monthly',
           status: 'running',
           phase_id: 'phase1b_input_monthly',
           started_at: new Date().toISOString(),
@@ -2525,7 +2579,7 @@ export function startScheduler(): void {
           { name: 'Shareholders Data', service: updateShareholdersData, method: null },
           { name: 'Holding Data', service: updateHoldingData, method: null }
         ];
-        const triggeredBy = 'phase1b_input_monthly';
+        const triggeredBy = 'Phase 1b Input Monthly';
         
         const shareholdersHoldingPromises = shareholdersHoldingTasks.map(async (task, index) => {
           const startTime = Date.now();
@@ -2541,8 +2595,8 @@ export function startScheduler(): void {
               });
             }
             
-            // Run calculation - pass logId and triggeredBy to services
-            await (task.service as any)(logEntry?.id || null, triggeredBy);
+            // Run calculation - pass null as logId so each calculation creates its own log entry, and triggeredBy
+            await (task.service as any)(null, triggeredBy);
             
             const duration = Date.now() - startTime;
             

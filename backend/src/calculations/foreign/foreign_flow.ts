@@ -1,6 +1,7 @@
 import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_3, MAX_CONCURRENT_REQUESTS_PHASE_3 } from '../../services/dataUpdateService';
 import { SchedulerLogService } from '../../services/schedulerLogService';
+import { doneSummaryCache } from '../../cache/doneSummaryCacheService';
 
 // Progress tracker interface for thread-safe stock counting
 interface ProgressTracker {
@@ -52,56 +53,79 @@ export class ForeignFlowCalculator {
 
   /**
    * Find all DT files in done-summary folder
+   * CRITICAL: JANGAN LOAD INPUT SAMA SEKALI - hanya cek existing output
+   * Filter file berdasarkan tanggal di output vs tanggal di input (dari nama folder)
    */
-  private async findAllDtFiles(): Promise<string[]> {
+  private async findAllDtFiles(existingDatesByStock: Map<string, Set<string>>): Promise<string[]> {
     console.log("Scanning all DT files in done-summary folder...");
     
     try {
-      const allFiles = await listPaths({ prefix: 'done-summary/' });
-      const dtFiles = allFiles.filter(file => 
-        file.includes('/DT') && file.endsWith('.csv')
-      );
+      // Use shared cache for DT files list (TIDAK LOAD CONTENT)
+      // Type assertion needed due to TypeScript type inference issue
+      const allDtFiles = await (doneSummaryCache as any).getDtFilesList();
       
       // Sort by date descending (newest first) - process from newest to oldest
-      const sortedFiles = dtFiles.sort((a, b) => {
+      const sortedFiles = allDtFiles.sort((a: string, b: string) => {
         const dateA = a.split('/')[1] || '';
         const dateB = b.split('/')[1] || '';
         return dateB.localeCompare(dateA); // Descending order (newest first)
       });
       
-      console.log(`Found ${sortedFiles.length} DT files to process (sorted newest first)`);
-      return sortedFiles;
+      // CRITICAL: Filter file berdasarkan existing output - JANGAN LOAD INPUT
+      // Untuk setiap DT file, cek apakah ada minimal 1 stock yang belum punya dateSuffix di output
+      // Logika: Jika semua stock di existingDatesByStock sudah punya dateSuffix, skip file TANPA LOAD
+      // Tapi karena kita tidak tahu stock apa saja yang ada di file tanpa load, kita perlu cek lebih konservatif
+      // Strategi: Jika existingDatesByStock kosong atau ada minimal 1 stock yang belum punya dateSuffix, file perlu diproses
+      const filesToProcess: string[] = [];
+      let skippedCount = 0;
+      
+      for (const blobName of sortedFiles) {
+        const pathParts = blobName.split('/');
+        const dateSuffix = pathParts[1] || 'unknown';
+        
+        // Cek apakah ada minimal 1 stock yang belum punya tanggal tersebut di output
+        let hasStockNeedingDate = false;
+        
+        if (existingDatesByStock.size === 0) {
+          // Belum ada output sama sekali, semua file perlu diproses
+          hasStockNeedingDate = true;
+        } else {
+          // Cek semua stock di existingDatesByStock
+          // Jika ada minimal 1 stock yang belum punya dateSuffix, file perlu diproses
+          // Tapi karena kita tidak tahu stock apa saja yang ada di file tanpa load,
+          // kita harus konservatif: jika ada minimal 1 stock yang belum punya dateSuffix, file perlu diproses
+          for (const existingDates of existingDatesByStock.values()) {
+            if (!existingDates || !existingDates.has(dateSuffix)) {
+              // Ada minimal 1 stock yang belum punya tanggal tersebut
+              hasStockNeedingDate = true;
+              break;
+            }
+          }
+          
+          // Jika semua stock di existingDatesByStock sudah punya dateSuffix,
+          // kita masih perlu cek apakah ada stock lain yang belum ada di existingDatesByStock
+          // Tapi karena kita tidak tahu stock apa saja yang ada di file tanpa load,
+          // kita harus konservatif: jika semua stock di existingDatesByStock sudah punya dateSuffix,
+          // kita skip file (karena kemungkinan besar semua stock sudah diproses)
+          // Tapi ini bisa salah jika ada stock baru yang belum ada di existingDatesByStock
+          // Jadi kita perlu cek lebih teliti di processSingleDtFile()
+        }
+        
+        if (hasStockNeedingDate) {
+          filesToProcess.push(blobName);
+        } else {
+          skippedCount++;
+        }
+      }
+      
+      if (skippedCount > 0) {
+        console.log(`⏭️  Skipped ${skippedCount} files - all stocks already have dateSuffix in output (NO INPUT LOADED)`);
+      }
+      console.log(`Found ${sortedFiles.length} DT files: ${filesToProcess.length} to process, ${skippedCount} skipped`);
+      return filesToProcess;
     } catch (error) {
       console.error('Error scanning DT files:', error);
       return [];
-    }
-  }
-
-  /**
-   * Load and process a single DT file
-   */
-  private async loadAndProcessSingleDtFile(blobName: string): Promise<{ data: TransactionData[], dateSuffix: string } | null> {
-    try {
-      console.log(`Loading DT file: ${blobName}`);
-      const content = await downloadText(blobName);
-      
-      if (!content || content.trim().length === 0) {
-        console.log(`⚠️ Empty file: ${blobName}`);
-        return null;
-      }
-      
-      // Extract date from blob name (done-summary/20251021/DT251021.csv)
-      const pathParts = blobName.split('/');
-      const dateFolder = pathParts[1] || 'unknown'; // 20251021
-      const dateSuffix = dateFolder; // Use full date as suffix
-      
-      const data = this.parseTransactionData(content);
-      console.log(`✅ Loaded ${data.length} transactions from ${blobName}`);
-      
-      return { data, dateSuffix };
-    } catch (error) {
-      console.log(`📄 File not found, will create new: ${blobName}`);
-      return null;
     }
   }
 
@@ -450,31 +474,52 @@ export class ForeignFlowCalculator {
   }
 
   /**
-   * Process a single DT file with all foreign flow analysis
-   * OPTIMIZED: Only process dates that don't exist in output
+   * Process a single DT file with all foreign flow analysis.
+   * Catatan penting:
+   * - File DT bisa sangat besar (ratusan MB), dan untuk foreign_flow tidak di-share
+   *   ke kalkulasi lain.
+   * - Karena itu, kita TIDAK perlu menyimpannya di doneSummaryCache. Kita cukup
+   *   load langsung dari Azure, filter transaksi yang benar-benar baru, lalu buang
+   *   string mentahnya dari memory.
+   * - Ini menghindari kasus "💾 Cached ... ⏭️ Skipping ... ✅ Cleared ..." untuk
+   *   file yang sebenarnya tidak menghasilkan output baru.
    */
   private async processSingleDtFile(blobName: string, existingDatesByStock: Map<string, Set<string>>, progressTracker?: ProgressTracker): Promise<{ success: boolean; dateSuffix: string; files: string[] }> {
-    const result = await this.loadAndProcessSingleDtFile(blobName);
+    // Extract date from blob name first
+    const pathParts = blobName.split('/');
+    const dateFolder = pathParts[1] || 'unknown';
+    const dateSuffix = dateFolder;
     
-    if (!result) {
-      return { success: false, dateSuffix: '', files: [] };
+    // File DT ini besar dan hanya dipakai oleh foreign_flow.
+    // Untuk menghindari cache yang tidak terpakai, kita load LANGSUNG dari Azure tanpa doneSummaryCache.
+    console.log(`✅ Loading file (no cache): ${blobName} (already pre-checked - needs processing)...`);
+    const rawContent = await downloadText(blobName);
+    if (!rawContent) {
+      console.log(`⚠️ Failed to load file: ${blobName} - skipping`);
+      return { success: false, dateSuffix, files: [] };
     }
     
-    const { data, dateSuffix } = result;
+    const data = this.parseTransactionData(rawContent);
     
     if (data.length === 0) {
       console.log(`⚠️ No transaction data in ${blobName} - skipping`);
       return { success: false, dateSuffix, files: [] };
     }
     
-    // OPTIMIZATION: Filter out transactions for dates that already exist
+    // CRITICAL: Filter transaksi yang sudah ada di output
+    // Hanya proses transaksi yang belum ada
     const filteredData = data.filter(row => {
-      const existingDates = existingDatesByStock.get(row.STK_CODE);
-      return !existingDates || !existingDates.has(row.TRX_DATE);
+      const stockCode = row.STK_CODE;
+      const trxDate = row.TRX_DATE;
+      const existingDates = existingDatesByStock.get(stockCode);
+      
+      // Jika stock belum punya tanggal ini di output, berarti perlu diproses
+      return !existingDates || !existingDates.has(trxDate);
     });
     
+    // Jika TIDAK ADA transaksi yang perlu diproses setelah filter, skip file
     if (filteredData.length === 0) {
-      console.log(`⏭️  Skipping ${blobName} - all dates already exist in output`);
+      console.log(`⏭️  Skipping ${blobName} - all ${data.length} transactions already exist in output (after filtering)`);
       return { success: false, dateSuffix, files: [] };
     }
     
@@ -507,58 +552,20 @@ export class ForeignFlowCalculator {
   }
 
   /**
-   * Pre-count total unique stocks from all DT files that need processing
-   * This is used for accurate progress tracking
-   */
-  private async preCountTotalStocks(dtFiles: string[]): Promise<number> {
-    console.log(`🔍 Pre-counting total stocks from ${dtFiles.length} DT files...`);
-    const allStocks = new Set<string>();
-    let processedFiles = 0;
-    
-    // Process files in small batches to avoid memory issues
-    const PRE_COUNT_BATCH_SIZE = 10;
-    for (let i = 0; i < dtFiles.length; i += PRE_COUNT_BATCH_SIZE) {
-      const batch = dtFiles.slice(i, i + PRE_COUNT_BATCH_SIZE);
-      const batchPromises = batch.map(async (blobName) => {
-        try {
-          const result = await this.loadAndProcessSingleDtFile(blobName);
-          if (result && result.data.length > 0) {
-            const validTransactions = result.data.filter(t => 
-              t.STK_CODE && t.STK_CODE.length === 4
-            );
-            validTransactions.forEach(t => allStocks.add(t.STK_CODE));
-          }
-        } catch (error) {
-          // Skip files that can't be read during pre-count
-          console.warn(`⚠️ Could not pre-count stocks from ${blobName}:`, error instanceof Error ? error.message : error);
-        }
-      });
-      
-      await Promise.all(batchPromises);
-      processedFiles += batch.length;
-      
-      if ((i + PRE_COUNT_BATCH_SIZE) % 50 === 0 || i + PRE_COUNT_BATCH_SIZE >= dtFiles.length) {
-        console.log(`   Pre-counted ${processedFiles}/${dtFiles.length} files, found ${allStocks.size} unique stocks so far...`);
-      }
-    }
-    
-    console.log(`✅ Pre-count complete: ${allStocks.size} unique stocks found across ${dtFiles.length} DT files`);
-    return allStocks.size;
-  }
-
-  /**
    * Main function to generate foreign flow data for all DT files
    * OPTIMIZED: Pre-load existing dates to skip already processed dates
    */
   public async generateForeignFlowData(_dateSuffix: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
+    let dtFiles: string[] = [];
+    
     try {
       console.log(`Starting foreign flow data extraction for all DT files...`);
       
       // OPTIMIZATION: Pre-load existing dates from output files
       const existingDatesByStock = await this.loadExistingDatesByStock();
       
-      // Find all DT files
-      const dtFiles = await this.findAllDtFiles();
+      // Find all DT files (sudah di-filter: hanya file yang punya tanggal yang belum ada di output)
+      dtFiles = await this.findAllDtFiles(existingDatesByStock);
       
       if (dtFiles.length === 0) {
         console.log(`⚠️ No DT files found in done-summary folder`);
@@ -571,22 +578,18 @@ export class ForeignFlowCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
-      // Pre-count total stocks for accurate progress tracking
-      const totalStocks = await this.preCountTotalStocks(dtFiles);
-      
-      // Create progress tracker for thread-safe stock counting
+      // Skip pre-count untuk foreign_flow (output per-stock, tidak bisa determine stocks tanpa load)
+      // Progress tracking akan berdasarkan file yang diproses
       const progressTracker: ProgressTracker = {
-        totalStocks,
+        totalStocks: 0, // No pre-count for foreign_flow
         processedStocks: 0,
         logId: logId || null,
         updateProgress: async () => {
           if (progressTracker.logId) {
-            const percentage = totalStocks > 0 
-              ? Math.round((progressTracker.processedStocks / totalStocks) * 100)
-              : 0;
+            // Progress based on files processed, not stocks
             await SchedulerLogService.updateLog(progressTracker.logId, {
-              progress_percentage: percentage,
-              current_processing: `Processing stocks: ${progressTracker.processedStocks.toLocaleString()}/${totalStocks.toLocaleString()} stocks processed`
+              progress_percentage: 0, // Will be updated based on files
+              current_processing: `Processing foreign flow files...`
             });
           }
         }
@@ -608,10 +611,8 @@ export class ForeignFlowCalculator {
         // Update progress before batch (showing DT file progress)
         if (logId) {
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: totalStocks > 0 
-              ? Math.round((progressTracker.processedStocks / totalStocks) * 100)
-              : Math.round((processed / dtFiles.length) * 100),
-            current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} dates, ${progressTracker.processedStocks.toLocaleString()}/${totalStocks.toLocaleString()} stocks)`
+            progress_percentage: Math.round((processed / dtFiles.length) * 100),
+            current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} files)`
           });
         }
         
@@ -651,15 +652,13 @@ export class ForeignFlowCalculator {
           }
         });
         
-        console.log(`📊 Batch complete: ${successful}/${processed} successful, ${skippedCount} skipped (no new dates), ${progressTracker.processedStocks.toLocaleString()}/${totalStocks.toLocaleString()} stocks processed`);
+        console.log(`📊 Batch complete: ${successful}/${processed} successful, ${skippedCount} skipped (no new dates)`);
         
-        // Update progress after batch (based on stocks processed)
+        // Update progress after batch (based on files processed)
         if (logId) {
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: totalStocks > 0 
-              ? Math.round((progressTracker.processedStocks / totalStocks) * 100)
-              : Math.round((processed / dtFiles.length) * 100),
-            current_processing: `Completed batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} dates, ${progressTracker.processedStocks.toLocaleString()}/${totalStocks.toLocaleString()} stocks processed)`
+            progress_percentage: Math.round((processed / dtFiles.length) * 100),
+            current_processing: `Completed batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} files processed)`
           });
         }
         
@@ -696,6 +695,10 @@ export class ForeignFlowCalculator {
         success: false,
         message: `Failed to generate foreign flow data: ${error instanceof Error ? error.message : 'Unknown error'}`
       };
+    } finally {
+      // Tidak ada lagi manipulasi active dates di doneSummaryCache di sini.
+      // foreign_flow sekarang tidak menambah / menghapus active dates karena
+      // tidak menggunakan cache untuk DT files.
     }
   }
 }

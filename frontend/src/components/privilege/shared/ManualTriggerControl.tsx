@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Badge } from "../../ui/badge";
@@ -7,6 +7,8 @@ import { Loader2, CheckCircle, AlertCircle, X, RefreshCw, Play } from "lucide-re
 import { useToast } from "../../../contexts/ToastContext";
 import { api } from "../../../services/api";
 import { ConfirmationDialog } from "../../ui/confirmation-dialog";
+import { supabase } from "../../../lib/supabase";
+import { Checkbox } from "../../ui/checkbox";
 
 const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001';
 
@@ -74,6 +76,7 @@ const MANUAL_TRIGGERS_BY_PHASE: PhaseGroup[] = [
       { name: "Broker Summary", type: "broker-summary", description: "Calculate broker summary per emiten and ALLSUM" },
       { name: "Broker Summary IDX", type: "broker-summary-idx", description: "Generate aggregated IDX.csv for all dates and market types" },
       { name: "Broker Summary by Type", type: "broker-summary-type", description: "Generate broker summary split by RK / TN / NG" },
+      { name: "Broker Summary Sector", type: "broker-summary-sector", description: "Generate broker summary aggregated by sector for all dates and market types" },
     ]
   },
   {
@@ -84,6 +87,8 @@ const MANUAL_TRIGGERS_BY_PHASE: PhaseGroup[] = [
       { name: "Broker Transaction F/D", type: "broker-transaction-fd", description: "Calculate broker transaction data per broker filtered by Investor Type (F/D)" },
       { name: "Broker Transaction F/D RG/TN/NG", type: "broker-transaction-fd-rgtnng", description: "Calculate broker transaction data per broker filtered by Investor Type (F/D) and Board Type (RG, TN, NG)" },
       { name: "Broker Transaction IDX", type: "broker-transaction-idx", description: "Generate aggregated IDX.csv for broker transaction (all dates and combinations)" },
+      { name: "Broker Transaction Sector", type: "broker-transaction-sector", description: "Generate broker transaction aggregated by sector for all dates, investor types, and market types" },
+      { name: "Broker Transaction ALL", type: "broker-transaction-all", description: "Generate broker transaction ALL.csv aggregated by sector (all emitens) for all dates, investor types, and market types" },
     ]
   },
   {
@@ -94,6 +99,7 @@ const MANUAL_TRIGGERS_BY_PHASE: PhaseGroup[] = [
       { name: "Broker Transaction Stock RG/TN/NG", type: "broker-transaction-stock-rgtnng", description: "Calculate broker transaction data pivoted by stock, filtered by Board Type (RG, TN, NG)" },
       { name: "Broker Transaction Stock F/D RG/TN/NG", type: "broker-transaction-stock-fd-rgtnng", description: "Calculate broker transaction data pivoted by stock, filtered by Investor Type (F/D) and Board Type (RG, TN, NG)" },
       { name: "Broker Transaction Stock IDX", type: "broker-transaction-stock-idx", description: "Generate aggregated IDX.csv for broker transaction stock (all dates and combinations)" },
+      { name: "Broker Transaction Stock Sector", type: "broker-transaction-stock-sector", description: "Generate broker transaction stock aggregated by sector for all dates, investor types, and market types" },
     ]
   },
   {
@@ -118,6 +124,9 @@ export function ManualTriggerControl() {
   const [loading, setLoading] = useState(false);
   const [triggering, setTriggering] = useState<{[key: string]: boolean}>({});
   const [activeLogs, setActiveLogs] = useState<{[key: string]: { logId: string; progress: number; status: string } | null}>({});
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  const [bulkCancelDialogOpen, setBulkCancelDialogOpen] = useState(false);
+  const [cancellingBulk, setCancellingBulk] = useState(false);
   const [confirmationDialog, setConfirmationDialog] = useState<{
     open: boolean;
     title: string;
@@ -158,6 +167,8 @@ export function ManualTriggerControl() {
             triggeredBy: log.triggered_by
           }));
         setRunningTasks(tasks);
+        // Reset selected tasks when data changes
+        setSelectedTaskIds(new Set());
       }
     } catch (error) {
       console.error('Error loading running tasks:', error);
@@ -182,11 +193,19 @@ export function ManualTriggerControl() {
         setTriggering(prev => ({ ...prev, [type]: true }));
     
     try {
+      // Get session and add Authorization header
+      const { data: { session } } = await supabase.auth.getSession();
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+      
       const response = await fetch(`${API_URL}/api/trigger/${type}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
       });
       
       const result = await response.json();
@@ -268,6 +287,106 @@ export function ManualTriggerControl() {
     });
   };
 
+  // Bulk cancel selected tasks
+  const handleBulkCancelConfirm = async () => {
+    if (selectedTaskIds.size === 0) return;
+    
+    setCancellingBulk(true);
+    try {
+      const idsArray = Array.from(selectedTaskIds);
+      let successCount = 0;
+      let failCount = 0;
+      
+      // Cancel each task one by one
+      for (const logId of idsArray) {
+        try {
+          const result = await api.cancelSchedulerLog(logId, 'Cancelled by user from Manual Trigger Control (bulk)');
+          
+          if (result.success) {
+            successCount++;
+            // Clear from activeLogs if exists
+            const type = Object.keys(activeLogs).find(key => activeLogs[key]?.logId === logId);
+            if (type) {
+              setActiveLogs(prev => {
+                const updated = { ...prev };
+                delete updated[type];
+                return updated;
+              });
+              setTriggering(prev => ({ ...prev, [type]: false }));
+            }
+          } else {
+            failCount++;
+          }
+        } catch (error) {
+          failCount++;
+          console.error(`Error cancelling task ${logId}:`, error);
+        }
+      }
+      
+      if (successCount > 0) {
+        showToast({
+          type: 'success',
+          title: 'Tasks Cancelled',
+          message: `Successfully cancelled ${successCount} task(s)${failCount > 0 ? `, ${failCount} failed` : ''}`
+        });
+        setSelectedTaskIds(new Set());
+        await loadRunningTasks();
+      } else {
+        showToast({
+          type: 'error',
+          title: 'Cancel Failed',
+          message: `Failed to cancel ${failCount} task(s)`
+        });
+      }
+    } catch (error: any) {
+      console.error('Error cancelling tasks:', error);
+      showToast({
+        type: 'error',
+        title: 'Cancel Error',
+        message: error.message || 'Failed to cancel tasks'
+      });
+    } finally {
+      setCancellingBulk(false);
+      setBulkCancelDialogOpen(false);
+    }
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      // Only select running tasks
+      const runningTaskIds = new Set(
+        runningTasks.filter(task => task.status === 'running').map(task => task.logId)
+      );
+      setSelectedTaskIds(runningTaskIds);
+    } else {
+      setSelectedTaskIds(new Set());
+    }
+  };
+
+  const handleSelectTask = (logId: string, checked: boolean) => {
+    const newSelected = new Set(selectedTaskIds);
+    if (checked) {
+      newSelected.add(logId);
+    } else {
+      newSelected.delete(logId);
+    }
+    setSelectedTaskIds(newSelected);
+  };
+
+  const runningTasksList = runningTasks.filter(task => task.status === 'running');
+  const isAllSelected = runningTasksList.length > 0 && selectedTaskIds.size === runningTasksList.length;
+  const isIndeterminate = selectedTaskIds.size > 0 && selectedTaskIds.size < runningTasksList.length;
+  const selectAllCheckboxRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (selectAllCheckboxRef.current) {
+      const input = selectAllCheckboxRef.current.querySelector('input[type="checkbox"]') as HTMLInputElement;
+      if (input) {
+        input.indeterminate = isIndeterminate;
+      }
+    }
+  }, [isIndeterminate, runningTasksList.length]);
+
   const formatTime = (dateString: string): string => {
     if (!dateString) return 'N/A';
     const date = new Date(dateString);
@@ -323,6 +442,7 @@ export function ManualTriggerControl() {
       'broker_inventory': 'broker-inventory',
       'broker_summary_type': 'broker-summary-type',
       'broker_summary_idx': 'broker-summary-idx',
+      'broker_summary_sector': 'broker-summary-sector',
       'foreign_flow': 'foreign-flow',
       'money_flow': 'money-flow',
       'seasonality': 'seasonal',
@@ -338,6 +458,9 @@ export function ManualTriggerControl() {
       'broker_transaction_stock_fd_rgtnng': 'broker-transaction-stock-fd-rgtnng',
       'broker_transaction_idx': 'broker-transaction-idx',
       'broker_transaction_stock_idx': 'broker-transaction-stock-idx',
+      'broker_transaction_sector': 'broker-transaction-sector',
+      'broker_transaction_stock_sector': 'broker-transaction-stock-sector',
+      'broker_transaction_all': 'broker-transaction-all',
       'break_done_trade': 'break-done-trade',
     };
     
@@ -468,20 +591,38 @@ export function ManualTriggerControl() {
               <RefreshCw className="w-5 h-5" />
               <span className="text-lg sm:text-xl">Manual Data Trigger Progress</span>
             </div>
-            <Button
-              onClick={loadRunningTasks}
-              disabled={loading}
-              variant="outline"
-              size="sm"
-              className="w-full sm:w-auto"
-            >
-              {loading ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="w-4 h-4 mr-2" />
+            <div className="flex items-center gap-2">
+              {selectedTaskIds.size > 0 && (
+                <Button
+                  onClick={() => setBulkCancelDialogOpen(true)}
+                  disabled={cancellingBulk}
+                  variant="destructive"
+                  size="sm"
+                  className="w-full sm:w-auto"
+                >
+                  {cancellingBulk ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <X className="w-4 h-4 mr-2" />
+                  )}
+                  Cancel Selected ({selectedTaskIds.size})
+                </Button>
               )}
-              Refresh
-            </Button>
+              <Button
+                onClick={loadRunningTasks}
+                disabled={loading}
+                variant="outline"
+                size="sm"
+                className="w-full sm:w-auto"
+              >
+                {loading ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                )}
+                Refresh
+              </Button>
+            </div>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -491,6 +632,19 @@ export function ManualTriggerControl() {
             </div>
           ) : (
             <div className="space-y-4">
+              {/* Select All Checkbox */}
+              {runningTasksList.length > 0 && (
+                <div className="flex items-center gap-2 pb-2 border-b">
+                  <Checkbox
+                    ref={selectAllCheckboxRef}
+                    checked={isAllSelected}
+                    onCheckedChange={handleSelectAll}
+                  />
+                  <span className="text-sm text-muted-foreground">
+                    Select all running tasks ({runningTasksList.length})
+                  </span>
+                </div>
+              )}
               {runningTasks.map((task) => (
                 <div
                   key={task.logId}
@@ -498,6 +652,13 @@ export function ManualTriggerControl() {
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
+                      {task.status === 'running' && (
+                        <Checkbox
+                          checked={selectedTaskIds.has(task.logId)}
+                          onCheckedChange={(checked) => handleSelectTask(task.logId, checked as boolean)}
+                          className="flex-shrink-0"
+                        />
+                      )}
                       {getStatusIcon(task.status)}
                       <div className="min-w-0 flex-1">
                         <h4 className="font-semibold truncate">{task.featureName}</h4>
@@ -551,6 +712,17 @@ export function ManualTriggerControl() {
         onConfirm={confirmationDialog.onConfirm}
         confirmText="Yes"
         cancelText="No"
+      />
+
+      <ConfirmationDialog
+        open={bulkCancelDialogOpen}
+        onOpenChange={setBulkCancelDialogOpen}
+        title="Cancel Selected Tasks"
+        description={`Are you sure you want to cancel ${selectedTaskIds.size} selected task(s)?`}
+        onConfirm={handleBulkCancelConfirm}
+        confirmText="Yes, Cancel"
+        cancelText="No"
+        isLoading={cancellingBulk}
       />
     </>
   );

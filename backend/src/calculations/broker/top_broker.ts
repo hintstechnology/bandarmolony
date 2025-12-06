@@ -1,6 +1,7 @@
-import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
+import { uploadText, exists } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_4, MAX_CONCURRENT_REQUESTS_PHASE_4 } from '../../services/dataUpdateService';
 import { SchedulerLogService } from '../../services/schedulerLogService';
+import { doneSummaryCache } from '../../cache/doneSummaryCacheService';
 
 // Progress tracker interface for thread-safe broker counting
 interface ProgressTracker {
@@ -67,57 +68,99 @@ export class TopBrokerCalculator {
 
   /**
    * Find all DT files in done-summary folder
+   * OPTIMIZED: Uses shared cache to avoid repeated listPaths calls
    */
   private async findAllDtFiles(): Promise<string[]> {
     console.log("Scanning all DT files in done-summary folder...");
     
     try {
-      const allFiles = await listPaths({ prefix: 'done-summary/' });
-      const dtFiles = allFiles.filter(file => 
-        file.includes('/DT') && file.endsWith('.csv')
-      );
+      // Use shared cache for DT files list
+      // Type assertion needed due to TypeScript type inference issue
+      const allDtFiles = await (doneSummaryCache as any).getDtFilesList();
       
       // Sort by date descending (newest first) - process from newest to oldest
-      const sortedFiles = dtFiles.sort((a, b) => {
+      const sortedFiles = allDtFiles.sort((a: string, b: string) => {
         const dateA = a.split('/')[1] || '';
         const dateB = b.split('/')[1] || '';
         return dateB.localeCompare(dateA); // Descending order (newest first)
       });
       
-      // OPTIMIZATION: Pre-check which dates already have top_broker output (sequential, newest to oldest)
-      console.log("🔍 Pre-checking existing top_broker outputs (checking from newest to oldest)...");
+      // OPTIMIZATION: Pre-check which dates already have top_broker output (BATCH CHECKING for speed)
+      console.log("🔍 Pre-checking existing top_broker outputs (batch checking)...");
       const filesToProcess: string[] = [];
       let skippedCount = 0;
       
-      for (const file of sortedFiles) {
-        const dateFolder = file.split('/')[1] || '';
-        const dateSuffix = dateFolder;
+      // Process in batches for parallel checking (faster than sequential)
+      const CHECK_BATCH_SIZE = 20; // Check 20 files in parallel
+      const MAX_CONCURRENT_CHECKS = 10; // Max 10 concurrent checks
+      
+      for (let i = 0; i < sortedFiles.length; i += CHECK_BATCH_SIZE) {
+        const batch = sortedFiles.slice(i, i + CHECK_BATCH_SIZE);
+        const batchNumber = Math.floor(i / CHECK_BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(sortedFiles.length / CHECK_BATCH_SIZE);
         
-        // Check key output file: top_broker.csv
-        const keyOutputFile = `top_broker/top_broker_${dateSuffix}/top_broker.csv`;
-        
-        try {
-          const outputExists = await exists(keyOutputFile);
-          if (outputExists) {
-            skippedCount++;
-            console.log(`⏭️ Top broker already exists for date ${dateSuffix} - skipping`);
-          } else {
-            filesToProcess.push(file);
-            console.log(`✅ Date ${dateSuffix} needs processing`);
+        // Process batch checks in parallel with concurrency limit
+        const checkPromises = batch.map(async (file: string) => {
+          const dateFolder = file.split('/')[1] || '';
+          const dateSuffix = dateFolder;
+          const keyOutputFile = `top_broker/top_broker_${dateSuffix}/top_broker.csv`;
+          
+          try {
+            const outputExists = await exists(keyOutputFile);
+            return { file, dateSuffix, exists: outputExists, error: null };
+          } catch (error) {
+            return { file, dateSuffix, exists: false, error: error instanceof Error ? error.message : String(error) };
           }
-        } catch (error) {
-          // If check fails, proceed with processing (safer to process than skip)
-          console.warn(`⚠️ Could not check existence for ${dateSuffix}, will process:`, error instanceof Error ? error.message : error);
-          filesToProcess.push(file);
+        });
+        
+        // Limit concurrency for checks
+        const checkResults: { file: string; dateSuffix: string; exists: boolean; error: string | null }[] = [];
+        for (let j = 0; j < checkPromises.length; j += MAX_CONCURRENT_CHECKS) {
+          const concurrentChecks = checkPromises.slice(j, j + MAX_CONCURRENT_CHECKS);
+          const results = await Promise.all(concurrentChecks);
+          checkResults.push(...results);
+        }
+        
+        // Process results
+        for (const result of checkResults) {
+          if (result.exists) {
+            skippedCount++;
+            // Only log first few and last few to avoid spam
+            if (skippedCount <= 5 || skippedCount > sortedFiles.length - 5) {
+              console.log(`⏭️ Top broker already exists for date ${result.dateSuffix} - skipping`);
+            }
+          } else {
+            if (result.error) {
+              console.warn(`⚠️ Could not check existence for ${result.dateSuffix}, will process:`, result.error);
+            } else {
+              // Only log first few to avoid spam
+              if (filesToProcess.length < 5) {
+                console.log(`✅ Date ${result.dateSuffix} needs processing`);
+              }
+            }
+            filesToProcess.push(result.file);
+          }
+        }
+        
+        // Progress update for large batches
+        if (totalBatches > 1 && batchNumber % 5 === 0) {
+          console.log(`📊 Checked ${Math.min(i + CHECK_BATCH_SIZE, sortedFiles.length)}/${sortedFiles.length} files (${skippedCount} skipped, ${filesToProcess.length} to process)...`);
         }
       }
       
+      // Summary log
+      if (skippedCount > 5) {
+        console.log(`⏭️  ... and ${skippedCount - 5} more dates skipped`);
+      }
+      if (filesToProcess.length > 5) {
+        console.log(`✅ ... and ${filesToProcess.length - 5} more dates need processing`);
+      }
       console.log(`📊 Pre-check complete: ${filesToProcess.length} files to process, ${skippedCount} already exist`);
       
       if (filesToProcess.length > 0) {
         console.log(`📋 Processing order (newest first):`);
-        const dates = filesToProcess.map(f => f.split('/')[1]).filter((v, i, arr) => arr.indexOf(v) === i);
-        dates.slice(0, 10).forEach((date, idx) => {
+        const dates = filesToProcess.map((f: string) => f.split('/')[1]).filter((v: string | undefined, i: number, arr: (string | undefined)[]) => v !== undefined && arr.indexOf(v) === i) as string[];
+        dates.slice(0, 10).forEach((date: string, idx: number) => {
           console.log(`   ${idx + 1}. ${date}`);
         });
         if (dates.length > 10) {
@@ -134,11 +177,14 @@ export class TopBrokerCalculator {
 
   /**
    * Load and process a single DT file
+   * OPTIMIZED: Uses shared cache to avoid repeated downloads
    */
   private async loadAndProcessSingleDtFile(blobName: string): Promise<{ data: TransactionData[], dateSuffix: string } | null> {
     try {
       console.log(`Loading DT file: ${blobName}`);
-      const content = await downloadText(blobName);
+      
+      // Use shared cache for raw content (will cache automatically if not exists)
+      const content = await doneSummaryCache.getRawContent(blobName);
       
       if (!content || content.trim().length === 0) {
         console.log(`⚠️ Empty file: ${blobName}`);
@@ -369,6 +415,15 @@ export class TopBrokerCalculator {
     // Note: Pre-checking is done in findAllDtFiles() before batch processing
     // This function only processes files that are confirmed to need processing
     
+    // CRITICAL: Pastikan active date sudah di-set SEBELUM load file
+    // Active date sudah di-set di generateTopBrokerData() SETELAH pre-check
+    // Tapi kita perlu memastikan date ini active sebelum load
+    if (!doneSummaryCache.isDateActive(dateSuffix)) {
+      // Jika belum active, add sekarang (seharusnya sudah di-set sebelumnya)
+      doneSummaryCache.addActiveProcessingDate(dateSuffix);
+      console.log(`📅 Added active processing date ${dateSuffix} before loading file`);
+    }
+    
     // Load input and process
     const result = await this.loadAndProcessSingleDtFile(blobName);
     
@@ -436,55 +491,18 @@ export class TopBrokerCalculator {
     }
   }
 
-  /**
-   * Pre-count total unique brokers from all DT files that need processing
-   * This is used for accurate progress tracking
-   */
-  private async preCountTotalBrokers(dtFiles: string[]): Promise<number> {
-    console.log(`🔍 Pre-counting total brokers from ${dtFiles.length} DT files...`);
-    const allBrokers = new Set<string>();
-    let processedFiles = 0;
-    
-    // Process files in small batches to avoid memory issues
-    const PRE_COUNT_BATCH_SIZE = 10;
-    for (let i = 0; i < dtFiles.length; i += PRE_COUNT_BATCH_SIZE) {
-      const batch = dtFiles.slice(i, i + PRE_COUNT_BATCH_SIZE);
-      const batchPromises = batch.map(async (blobName) => {
-        try {
-          const result = await this.loadAndProcessSingleDtFile(blobName);
-          if (result && result.data.length > 0) {
-            result.data.forEach(t => {
-              if (t.BRK_COD1) allBrokers.add(t.BRK_COD1);
-              if (t.BRK_COD2) allBrokers.add(t.BRK_COD2);
-            });
-          }
-        } catch (error) {
-          // Skip files that can't be read during pre-count
-          console.warn(`⚠️ Could not pre-count brokers from ${blobName}:`, error instanceof Error ? error.message : error);
-        }
-      });
-      
-      await Promise.all(batchPromises);
-      processedFiles += batch.length;
-      
-      if ((i + PRE_COUNT_BATCH_SIZE) % 50 === 0 || i + PRE_COUNT_BATCH_SIZE >= dtFiles.length) {
-        console.log(`   Pre-counted ${processedFiles}/${dtFiles.length} files, found ${allBrokers.size} unique brokers so far...`);
-      }
-    }
-    
-    console.log(`✅ Pre-count complete: ${allBrokers.size} unique brokers found across ${dtFiles.length} DT files`);
-    return allBrokers.size;
-  }
 
   /**
    * Main function to generate top broker data for all DT files
    */
   public async generateTopBrokerData(_dateSuffix: string, logId?: string | null): Promise<{ success: boolean; message: string; data?: any }> {
     const startTime = Date.now();
+    let datesToProcess: Set<string> = new Set();
+    
     try {
       console.log(`Starting top broker analysis for all DT files...`);
       
-      // Find all DT files
+      // Find all DT files (sudah filter yang belum ada output)
       const dtFiles = await this.findAllDtFiles();
       
       if (dtFiles.length === 0) {
@@ -498,26 +516,31 @@ export class TopBrokerCalculator {
       
       console.log(`📊 Processing ${dtFiles.length} DT files...`);
       
-      // Pre-count total brokers for accurate progress tracking
-      // Note: We count total brokers processed (may include duplicates across DT files)
-      // For more accurate tracking, we estimate based on average brokers per file
-      const totalUniqueBrokers = await this.preCountTotalBrokers(dtFiles);
-      // Estimate total brokers processed = unique brokers * average files per broker (roughly 1.5x for overlap)
-      const estimatedTotalBrokers = Math.round(totalUniqueBrokers * 1.5);
+      // CRITICAL: JANGAN PRE-COUNT - tidak boleh load input sebelum cek existing
+      // Set active processing dates untuk file yang sudah di-filter (yang benar-benar perlu diproses)
+      dtFiles.forEach(file => {
+        const dateMatch = file.match(/done-summary\/(\d{8})\//);
+        if (dateMatch && dateMatch[1]) {
+          datesToProcess.add(dateMatch[1]);
+        }
+      });
       
-      // Create progress tracker for thread-safe broker counting
+      // Set active dates di cache untuk file yang akan diproses
+      datesToProcess.forEach(date => {
+        doneSummaryCache.addActiveProcessingDate(date);
+      });
+      console.log(`📅 Set ${datesToProcess.size} active processing dates in cache: ${Array.from(datesToProcess).slice(0, 10).join(', ')}${datesToProcess.size > 10 ? '...' : ''}`);
+      
+      // Create progress tracker based on files processed (not brokers)
       const progressTracker: ProgressTracker = {
-        totalBrokers: estimatedTotalBrokers,
+        totalBrokers: 0, // No pre-count
         processedBrokers: 0,
         logId: logId || null,
         updateProgress: async () => {
           if (progressTracker.logId) {
-            const percentage = estimatedTotalBrokers > 0 
-              ? Math.min(100, Math.round((progressTracker.processedBrokers / estimatedTotalBrokers) * 100))
-              : 0;
             await SchedulerLogService.updateLog(progressTracker.logId, {
-              progress_percentage: percentage,
-              current_processing: `Processing brokers: ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers processed`
+              progress_percentage: 0, // Will be updated based on files processed
+              current_processing: `Processing top broker files...`
             });
           }
         }
@@ -549,10 +572,8 @@ export class TopBrokerCalculator {
         // Update progress before batch (showing DT file progress)
         if (logId) {
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: estimatedTotalBrokers > 0 
-              ? Math.min(100, Math.round((progressTracker.processedBrokers / estimatedTotalBrokers) * 100))
-              : Math.round((processed / dtFiles.length) * 100),
-            current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} dates, ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers)`
+            progress_percentage: Math.round((processed / dtFiles.length) * 100),
+            current_processing: `Processing batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} dates)`
           });
         }
         
@@ -580,15 +601,13 @@ export class TopBrokerCalculator {
         });
         
         const batchBrokerCount = batchResults.reduce((sum, r) => sum + (r?.brokerCount || 0), 0);
-        console.log(`📊 Batch complete: ${successful}/${processed} successful, ${batchBrokerCount} brokers processed, ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} total brokers processed`);
+        console.log(`📊 Batch complete: ${successful}/${processed} successful, ${batchBrokerCount} brokers processed`);
         
-        // Update progress after batch (based on brokers processed)
+        // Update progress after batch (based on files processed)
         if (logId) {
           await SchedulerLogService.updateLog(logId, {
-            progress_percentage: estimatedTotalBrokers > 0 
-              ? Math.min(100, Math.round((progressTracker.processedBrokers / estimatedTotalBrokers) * 100))
-              : Math.round((processed / dtFiles.length) * 100),
-            current_processing: `Completed batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} dates, ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers processed)`
+            progress_percentage: Math.round((processed / dtFiles.length) * 100),
+            current_processing: `Completed batch ${batchNumber}/${Math.ceil(dtFiles.length / BATCH_SIZE)} (${processed}/${dtFiles.length} dates)`
           });
         }
         
@@ -662,6 +681,14 @@ export class TopBrokerCalculator {
         success: false,
         message: `Failed to generate top broker: ${error instanceof Error ? error.message : 'Unknown error'}`
       };
+    } finally {
+      // Cleanup: Remove active processing dates setelah selesai
+      if (datesToProcess && datesToProcess.size > 0) {
+        datesToProcess.forEach(date => {
+          doneSummaryCache.removeActiveProcessingDate(date);
+        });
+        console.log(`🧹 Cleaned up ${datesToProcess.size} active processing dates from cache`);
+      }
     }
   }
 }

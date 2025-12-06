@@ -2690,10 +2690,9 @@ export const api = {
 
   async triggerBrokerBreakdownData(): Promise<{ success: boolean; message?: string; error?: string }> {
     try {
-      const response = await fetch(`${API_URL}/api/trigger/broker-breakdown`, {
+      const response = await authenticatedFetch(`${API_URL}/api/trigger/broker-breakdown`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
+      }, '/api/trigger/broker-breakdown');
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to trigger broker breakdown');
       return { success: true, message: data.message };

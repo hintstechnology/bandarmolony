@@ -7,6 +7,7 @@
 
 import * as path from "path";
 import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
+import { stockCache } from '../../cache/stockCacheService';
 import { BATCH_SIZE_PHASE_2, MAX_CONCURRENT_REQUESTS_PHASE_2 } from '../../services/dataUpdateService';
 
 type NumericArray = number[];
@@ -185,7 +186,10 @@ function parseCsvLine(line: string): string[] {
 }
 
 async function readCsvCloseValues(filePath: string, closeColumnName: string = "close"): Promise<{values: NumericArray, dates: string[]}> {
-  const raw = await downloadText(filePath);
+  // Use stock cache if file is from stock/ folder
+  const raw = filePath.startsWith('stock/') 
+    ? await stockCache.getRawContent(filePath) || ''
+    : await downloadText(filePath);
   const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
   if (lines.length === 0) {
     throw new Error(`CSV kosong: ${filePath}`);

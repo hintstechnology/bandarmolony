@@ -17,8 +17,8 @@ export class AccumulationDataScheduler {
     if (!finalLogId) {
       const logEntry = await SchedulerLogService.createLog({
         feature_name: 'accumulation_distribution',
-        trigger_type: triggeredBy ? 'manual' : 'scheduled',
-        triggered_by: triggeredBy || 'system',
+        trigger_type: triggeredBy && !triggeredBy.startsWith('Phase') && !triggeredBy.startsWith('phase') ? 'manual' : 'scheduled',
+        triggered_by: triggeredBy || 'Phase 8 Additional',
         status: 'running',
         environment: process.env['NODE_ENV'] || 'development'
       });
@@ -49,7 +49,7 @@ export class AccumulationDataScheduler {
       const result = await this.calculator.generateAccumulationDistributionData(targetDate, finalLogId);
       
       // Check if this is called from a Phase (don't mark completed/failed if so, Phase will handle it)
-      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      const isFromPhase = triggeredBy && (triggeredBy.startsWith('Phase') || triggeredBy.startsWith('phase'));
       
       if (result.success) {
         console.log('✅ Accumulation Distribution calculation completed successfully');
@@ -72,7 +72,7 @@ export class AccumulationDataScheduler {
       console.error('❌ Error during Accumulation Distribution calculation:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       // Check if this is called from a Phase (don't mark failed if so, Phase will handle it)
-      const isFromPhase = triggeredBy && triggeredBy.startsWith('phase');
+      const isFromPhase = triggeredBy && (triggeredBy.startsWith('Phase') || triggeredBy.startsWith('phase'));
       if (finalLogId && !isFromPhase) {
         await SchedulerLogService.markFailed(finalLogId, errorMessage, error);
       }

@@ -1,5 +1,5 @@
 import express from 'express';
-import { downloadText, listPaths } from '../utils/azureBlob';
+import { downloadText } from '../utils/azureBlob';
 
 // Sector mapping (same as stockDataUpdateService.ts)
 const SECTOR_MAPPING: { [key: string]: string[] } = {
@@ -16,28 +16,57 @@ const SECTOR_MAPPING: { [key: string]: string[] } = {
   'Transportation & Logistic': []
 };
 
-// Build sector mapping from Azure Storage
-async function buildSectorMappingFromAzure(): Promise<void> {
+// Build sector mapping from csv_input/sector_mapping.csv
+async function buildSectorMappingFromCsv(): Promise<void> {
   try {
-    const stockBlobs = await listPaths({ prefix: 'stock/' });
+    console.log('🔍 Building sector mapping from csv_input/sector_mapping.csv...');
     
+    // Load sector mapping from CSV file
+    const csvData = await downloadText('csv_input/sector_mapping.csv');
+    const lines = csvData.split('\n')
+      .map(line => line.trim())
+      .filter(line => line && line.length > 0);
+    
+    // Clear existing mapping
     Object.keys(SECTOR_MAPPING).forEach(sector => {
       SECTOR_MAPPING[sector] = [];
     });
     
-    for (const blobName of stockBlobs) {
-      const pathParts = blobName.replace('stock/', '').split('/');
-      if (pathParts.length === 2 && pathParts[0] && pathParts[1]) {
-        const sector = pathParts[0];
-        const emiten = pathParts[1].replace('.csv', '');
+    // Parse CSV data (skip header row: "sector,emiten")
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line) continue;
+      
+      // Simple CSV parsing: split by comma
+      const values = line.split(',').map(v => v.trim());
+      
+      if (values.length >= 2) {
+        const sector = values[0] || '';
+        const emiten = values[1] || '';
         
-        if (SECTOR_MAPPING[sector]) {
-          SECTOR_MAPPING[sector].push(emiten);
+        if (sector && emiten) {
+          if (!SECTOR_MAPPING[sector]) {
+            SECTOR_MAPPING[sector] = [];
+          }
+          // Avoid duplicates
+          if (!SECTOR_MAPPING[sector].includes(emiten)) {
+            SECTOR_MAPPING[sector].push(emiten);
+          }
         }
       }
     }
+    
+    console.log('📊 Sector mapping built successfully from CSV');
+    console.log(`📊 Found ${Object.keys(SECTOR_MAPPING).length} sectors with total ${Object.values(SECTOR_MAPPING).flat().length} emitens`);
+    
   } catch (error) {
-    console.warn('⚠️ Could not build sector mapping from Azure, using default');
+    console.warn('⚠️ Could not build sector mapping from CSV:', error);
+    console.log('⚠️ Using default sector mapping');
+    
+    // Initialize with default sectors if CSV fails
+    Object.keys(SECTOR_MAPPING).forEach(sector => {
+      SECTOR_MAPPING[sector] = [];
+    });
   }
 }
 
@@ -72,7 +101,7 @@ const router = express.Router();
 router.get('/list', async (_req, res) => {
   try {
     // Build sector mapping first
-    await buildSectorMappingFromAzure();
+    await buildSectorMappingFromCsv();
     
     // Get all stocks from sector mapping
     const allStocks: string[] = [];
@@ -118,7 +147,7 @@ router.get('/data/:stockCode', async (req, res) => {
     
     
     // Build sector mapping first
-    await buildSectorMappingFromAzure();
+    await buildSectorMappingFromCsv();
     
     // Get sector for this stock
     const sector = getSectorForEmiten(stockCode.toUpperCase());
@@ -218,7 +247,7 @@ router.get('/data', async (req, res) => {
     const stockCodes = Array.isArray(stocks) ? stocks as string[] : [stocks as string];
     
     // Build sector mapping first
-    await buildSectorMappingFromAzure();
+    await buildSectorMappingFromCsv();
     
     const results: any[] = [];
     
@@ -444,7 +473,7 @@ router.get('/latest-date/:stockCode', async (req, res) => {
     
     
     // Build sector mapping first
-    await buildSectorMappingFromAzure();
+    await buildSectorMappingFromCsv();
     
     // Get sector for this stock
     const sector = getSectorForEmiten(stockCode.toUpperCase());
@@ -536,7 +565,7 @@ router.get('/sector-mapping', async (_req, res) => {
   try {
     
     // Build sector mapping first
-    await buildSectorMappingFromAzure();
+    await buildSectorMappingFromCsv();
     
     // Build reverse mapping: stock -> sector
     const stockToSector: { [stock: string]: string } = {};

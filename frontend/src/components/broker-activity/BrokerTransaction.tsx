@@ -362,7 +362,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   // Request cancellation ref
   const abortControllerRef = useRef<AbortController | null>(null);
   const shouldFetchDataRef = useRef<boolean>(false); // Ref to track shouldFetchData for async functions (always up-to-date)
-  const hasInitialAutoFetchRef = useRef<boolean>(false); // Track if initial auto-fetch has been triggered (only once on mount)
   
   // Cache for API responses to avoid redundant calls
   // Key format: `${broker}-${date}-${market}`
@@ -378,10 +377,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   // Visible rows will reset automatically when new data is loaded (via transactionData change)
 
   // Load available brokers, tickers, and initial dates on component mount
-  // IMPORTANT: This effect runs ONLY ONCE on mount - auto-load default data (1x only)
+  // IMPORTANT: This effect runs ONLY ONCE on mount - load metadata only, NO auto-fetch data
   useEffect(() => {
     const loadInitialData = async () => {
-      setIsLoading(true);
       try {
         // OPTIMIZED: Try to load sector mapping from localStorage first for instant colors
         const SECTOR_MAPPING_CACHE_KEY = 'broker_transaction_sector_mapping';
@@ -474,47 +472,20 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           // Fallback: ensure IDX is available even if API fails
           setAvailableSectors(['IDX']);
         }
+        
         // Sort by date (oldest first) for display
         const sortedDates = [...initialDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
         
         // Set default to last 3 trading days (skip weekends)
-        // CRITICAL: Set hasInitialAutoFetchRef BEFORE setting dates to prevent useEffect from triggering
-        // This ensures useEffect update selectedDates knows that initial load is in progress
-        hasInitialAutoFetchRef.current = false; // Mark as not yet completed
-        
+        // NO auto-fetch - user must click Show button to fetch data
         setSelectedDates(sortedDates);
         if (sortedDates.length > 0) {
           setStartDate(sortedDates[0]);
           setEndDate(sortedDates[sortedDates.length - 1]);
         }
         
-        // Capture current values for initial auto-fetch (default menu)
-        const currentBrokers = ['AK']; // Default broker
-        const datesToUse = [...sortedDates];
-        
-        // Trigger initial auto-fetch AFTER all states are set (only once on mount)
-        // CRITICAL: Use setTimeout to ensure all state updates are batched and applied
-        setTimeout(() => {
-          // Only trigger if initial fetch hasn't happened AND we have dates and brokers
-          // Note: tickers and sectors can be empty (show all) - so we don't require them
-          if (!hasInitialAutoFetchRef.current && 
-              datesToUse.length > 0 && 
-              currentBrokers.length > 0) {
-            // Mark as triggered IMMEDIATELY (synchronously) before any async operations
-            hasInitialAutoFetchRef.current = true;
-            // Set ref first (synchronous), then state (async)
-            shouldFetchDataRef.current = true;
-            setShouldFetchData(true);
-          } else {
-            setIsLoading(false);
-          }
-        }, 0);
-        
-        // Loading akan di-reset oleh loadTransactionData jika fetch dilakukan
-        
       } catch (error) {
         console.error('Error loading initial data:', error);
-        setIsLoading(false);
         setIsLoadingStocks(false);
         
         // Fallback to hardcoded broker list and local date calculation
@@ -524,7 +495,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         // Default to last 3 trading days (skip weekends)
         const fallbackDates = getTradingDays(3);
         // Sort by date (oldest first) for display
-          const sortedDates = [...fallbackDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+        const sortedDates = [...fallbackDates].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
         setSelectedDates(sortedDates);
         
         if (sortedDates.length > 0) {
@@ -561,9 +532,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         return;
       }
       
-      // Validation: For Broker pivot, need brokers. For Stock pivot, need tickers.
+      // Validation: For Broker pivot, need brokers OR sectors. For Stock pivot, need tickers OR sectors.
       if (pivotFilter === 'Broker') {
-        if (selectedBrokers.length === 0 || selectedDates.length === 0) {
+        // For Broker pivot: if sector is selected, fetch {sector}_ALL.csv; otherwise need brokers
+        if ((selectedBrokers.length === 0 && selectedSectors.length === 0) || selectedDates.length === 0) {
           setTransactionData(new Map());
           setRawTransactionData(new Map()); // Clear raw data too
           setIsDataReady(false);
@@ -572,8 +544,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           return;
         }
       } else if (pivotFilter === 'Stock') {
-        // For Stock pivot, tickers are required (brokers are optional)
-        if (selectedTickers.length === 0 || selectedDates.length === 0) {
+        // For Stock pivot, either tickers or sectors must be selected
+        // Sectors (including IDX) can be used directly as codes
+        if ((selectedTickers.length === 0 && selectedSectors.length === 0) || selectedDates.length === 0) {
           setTransactionData(new Map());
           setRawTransactionData(new Map()); // Clear raw data too
           setIsDataReady(false);
@@ -608,15 +581,48 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         
         // OPTIMIZED: Fetch all data in parallel with smart batching
         // Separate cached and uncached requests for optimal performance
-        // For Broker pivot: use selectedBrokers as code
-        // For Stock pivot: use selectedTickers as code
+        // For Broker pivot: if sector selected, fetch {sector}_ALL.csv; otherwise use selectedBrokers
+        // For Stock pivot: use selectedTickers as code, or selectedSectors if tickers are empty
+        // For Stock pivot + sector + broker: fetch stock files for all stocks in sector, then filter by broker in frontend
         const allFetchTasks = pivotFilter === 'Stock'
-          ? selectedDates.flatMap(date =>
-              selectedTickers.map((ticker: string) => ({ code: ticker, date, type: 'stock' as const }))
-            )
-          : selectedDates.flatMap(date =>
-              selectedBrokers.map((broker: string) => ({ code: broker, date, type: 'broker' as const }))
-            );
+          ? selectedDates.flatMap(date => {
+              // If tickers are selected, use them
+              if (selectedTickers.length > 0) {
+                return selectedTickers.map((code: string) => ({ code, date, type: 'stock' as const }));
+              }
+              
+              // If sectors are selected, fetch stock files for all stocks in those sectors
+              // This allows filtering by broker in frontend
+              if (selectedSectors.length > 0) {
+                // Get all stocks in selected sectors
+                const stocksInSectors: string[] = [];
+                selectedSectors.forEach(sector => {
+                  const sectorStocks = stockToSectorMap ? 
+                    Object.keys(stockToSectorMap).filter(stock => stockToSectorMap[stock] === sector) : [];
+                  stocksInSectors.push(...sectorStocks);
+                });
+                
+                // Remove duplicates
+                const uniqueStocks = Array.from(new Set(stocksInSectors));
+                
+                // Fetch stock files for all stocks in sectors
+                return uniqueStocks.map((code: string) => ({ code, date, type: 'stock' as const }));
+              }
+              
+              // Fallback: use sectors as codes (for IDX or other special cases)
+              return selectedSectors.map((code: string) => ({ code, date, type: 'stock' as const }));
+            })
+          : selectedDates.flatMap(date => {
+              // For Broker pivot: if sector is selected, fetch {sector}_ALL.csv
+              // Otherwise fetch individual broker files
+              if (selectedSectors.length > 0) {
+                // Fetch {sector}_ALL.csv for each selected sector
+                return selectedSectors.map((sector: string) => ({ code: `${sector}_ALL`, date, type: 'broker' as const }));
+              } else {
+                // Fetch individual broker files
+                return selectedBrokers.map((broker: string) => ({ code: broker, date, type: 'broker' as const }));
+              }
+            });
         
         // Check cache first and separate cached vs uncached requests
         const cachedResults: Array<{ date: string; code: string; data: BrokerTransactionData[] }> = [];
@@ -803,10 +809,24 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               filteredRows = filteredRows;
             }
             
-            // Priority 3: Filter by sector (if selectedSectors is provided)
+            // Priority 3: Filter by sector (if selectedSectors is provided and no broker/ticker filter)
+            // For Stock pivot + sector + broker: sector filtering is already done at fetch time
+            // (we fetch stock files for all stocks in the sector)
+            // So we only need to filter by sector if broker/ticker filters are not applied
             if (selectedSectors.length > 0 && selectedBrokers.length === 0 && selectedTickers.length === 0) {
-              // For Stock pivot, broker codes don't have sectors, so this won't filter anything
-              filteredRows = filteredRows;
+              // Get all stocks in selected sectors
+              const stocksInSectors = new Set<string>();
+              selectedSectors.forEach(sector => {
+                const sectorStocks = stockToSectorMap ? 
+                  Object.keys(stockToSectorMap).filter(stock => stockToSectorMap[stock] === sector) : [];
+                sectorStocks.forEach(stock => stocksInSectors.add(stock.toUpperCase()));
+              });
+              
+              // For Stock pivot, we need to check if the stock code (from fetch) is in the sector
+              // Since we already fetched stocks from sector, this is mainly for validation
+              // But we can't filter here because we don't have the stock code in the row data
+              // The stock code is in the file name, not in the row data
+              // So sector filtering is already handled at fetch time
             }
             
             // Store data
@@ -4174,10 +4194,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   
                   // CRITICAL: Reset shouldFetchData silently BEFORE updating dates to prevent auto-load
                   // This ensures data only changes when Show button is clicked
-                  if (hasInitialAutoFetchRef.current) {
-                    shouldFetchDataRef.current = false; // CRITICAL: Update ref first (synchronous) - SILENT
-                    setShouldFetchData(false); // SILENT
-                  }
+                  shouldFetchDataRef.current = false; // CRITICAL: Update ref first (synchronous) - SILENT
+                  setShouldFetchData(false); // SILENT
                   
                   setStartDate(e.target.value);
                   if (!endDate || new Date(e.target.value) > new Date(endDate)) {
@@ -4225,10 +4243,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   
                   // CRITICAL: Reset shouldFetchData silently BEFORE updating dates to prevent auto-load
                   // This ensures data only changes when Show button is clicked
-                  if (hasInitialAutoFetchRef.current) {
-                    shouldFetchDataRef.current = false; // CRITICAL: Update ref first (synchronous) - SILENT
-                    setShouldFetchData(false); // SILENT
-                  }
+                  shouldFetchDataRef.current = false; // CRITICAL: Update ref first (synchronous) - SILENT
+                  setShouldFetchData(false); // SILENT
                   
                   const newEndDate = e.target.value;
                   setEndDate(newEndDate);
@@ -4488,9 +4504,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             }}
             disabled={isLoading || 
               (pivotFilter === 'Broker' && selectedBrokers.length === 0) || 
-              (pivotFilter === 'Stock' && selectedTickers.length === 0) || 
+              (pivotFilter === 'Stock' && selectedTickers.length === 0 && selectedSectors.length === 0) || 
               !startDate || !endDate}
-            // NOTE: selectedTickers can be empty (show all tickers) - it's not required for Show button
+            // NOTE: For Stock pivot, either selectedTickers or selectedSectors must be selected
+            // selectedTickers can be empty if selectedSectors is selected (for sector/IDX data)
             className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full md:w-auto"
           >
             Show
