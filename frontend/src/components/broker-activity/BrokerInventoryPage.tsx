@@ -1884,7 +1884,12 @@ const visibleBrokers = useMemo(
           return;
         }
         
-        console.log(`🔄 Loading broker summary data for ${actualTicker} from ${startDate} to ${endDate}`);
+        // For sectors, use sector name directly (not first stock) - same as BrokerSummaryPage
+        const tickerToFetch = selectedTicker.startsWith('[SECTOR] ') 
+          ? selectedTicker.replace('[SECTOR] ', '') 
+          : actualTicker;
+        
+        console.log(`🔄 Loading broker summary data for ${tickerToFetch} from ${startDate} to ${endDate}`);
         console.log(`📊 Using ${tradingDays.length} trading days from date range (calculated from input field)`);
         
         // Load broker summary data for each date using getBrokerSummaryData API (same as BrokerSummaryPage)
@@ -1892,41 +1897,61 @@ const visibleBrokers = useMemo(
         const allBrokerData: any[] = [];
         let successfulDates = 0;
         
+        // Check if this is a sector (same logic as BrokerSummaryPage)
+        const isSector = selectedTicker.startsWith('[SECTOR] ');
+        
         for (const dateStr of tradingDays) {
           
           try {
-            // Check cache first (5 minutes TTL)
-            const cacheKey = `broker-summary-${actualTicker}-${dateStr}`;
+            // Check cache first (5 minutes TTL) - use tickerToFetch for cache key
+            const cacheKey = `broker-summary-${tickerToFetch}-${dateStr}`;
             let brokerData: any[] | null = cache.get(cacheKey, cache.topBrokers, 5 * 60 * 1000);
             
             if (!brokerData) {
               // Use getBrokerSummaryData API (same as BrokerSummaryPage) to get buyerValue and sellerValue
-              const response = await api.getBrokerSummaryData(actualTicker, dateStr, '');
+              // For sectors, fetch sector data directly (not first stock)
+              const response = await api.getBrokerSummaryData(tickerToFetch, dateStr, '');
               
               if (response.success && response.data?.brokerData) {
                 const brokers = response.data.brokerData;
                 
                 // Map broker summary format to our format (same structure as BrokerSummaryPage)
-                brokerData = brokers.map((broker: any) => ({
-                  broker: broker.BrokerCode ?? broker.broker ?? broker.BROKER ?? broker.code ?? '',
-                  BrokerCode: broker.BrokerCode ?? broker.broker ?? broker.BROKER ?? broker.code ?? '',
-                  // Net fields (same as BrokerSummaryPage NET table)
-                  NetBuyVol: Number(broker.NetBuyVol ?? 0),
-                  NetSellVol: Number(broker.NetSellVol ?? 0),
-                  NetBuyValue: Number(broker.NetBuyValue ?? 0),
-                  NetSellValue: Number(broker.NetSellValue ?? 0),
-                  // Volume fields (for backward compatibility)
-                  TotalVol: Number(broker.BuyerVol ?? 0) + Number(broker.SellerVol ?? 0),
-                  SellVol: Number(broker.SellerVol ?? 0),
-                  BuyVol: Number(broker.BuyerVol ?? 0),
-                  // Value fields (for top buyer/seller calculation - same as BrokerSummaryPage)
-                  BuyerValue: Number(broker.BuyerValue ?? 0),
-                  SellerValue: Number(broker.SellerValue ?? 0),
-                  buyerValue: Number(broker.BuyerValue ?? 0),
-                  sellerValue: Number(broker.SellerValue ?? 0),
-                  date: dateStr,
-                  time: dateStr
-                }));
+                brokerData = brokers.map((broker: any) => {
+                  // For sectors: swap NetBuy and NetSell (because CSV has swap) - same as BrokerSummaryPage
+                  let netBuyVol = Number(broker.NetBuyVol ?? 0);
+                  let netSellVol = Number(broker.NetSellVol ?? 0);
+                  let netBuyValue = Number(broker.NetBuyValue ?? 0);
+                  let netSellValue = Number(broker.NetSellValue ?? 0);
+                  
+                  if (isSector) {
+                    // Swap NetBuy and NetSell for sectors (same as BrokerSummaryPage)
+                    netBuyVol = Number(broker.NetSellVol ?? 0);
+                    netBuyValue = Number(broker.NetSellValue ?? 0);
+                    netSellVol = Number(broker.NetBuyVol ?? 0);
+                    netSellValue = Number(broker.NetBuyValue ?? 0);
+                  }
+                  
+                  return {
+                    broker: broker.BrokerCode ?? broker.broker ?? broker.BROKER ?? broker.code ?? '',
+                    BrokerCode: broker.BrokerCode ?? broker.broker ?? broker.BROKER ?? broker.code ?? '',
+                    // Net fields (swapped for sectors, same as BrokerSummaryPage NET table)
+                    NetBuyVol: netBuyVol,
+                    NetSellVol: netSellVol,
+                    NetBuyValue: netBuyValue,
+                    NetSellValue: netSellValue,
+                    // Volume fields (for backward compatibility)
+                    TotalVol: Number(broker.BuyerVol ?? 0) + Number(broker.SellerVol ?? 0),
+                    SellVol: Number(broker.SellerVol ?? 0),
+                    BuyVol: Number(broker.BuyerVol ?? 0),
+                    // Value fields (for top buyer/seller calculation - same as BrokerSummaryPage)
+                    BuyerValue: Number(broker.BuyerValue ?? 0),
+                    SellerValue: Number(broker.SellerValue ?? 0),
+                    buyerValue: Number(broker.BuyerValue ?? 0),
+                    sellerValue: Number(broker.SellerValue ?? 0),
+                    date: dateStr,
+                    time: dateStr
+                  };
+                });
                 
                 // Cache the data
                 cache.set(cacheKey, brokerData, cache.topBrokers);
