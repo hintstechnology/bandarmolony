@@ -449,26 +449,34 @@ export class BrokerTransactionALLCalculator {
       console.log(`📊 Sector ${sectorName} has ${stocksInSector.length} stocks: ${stocksInSector.slice(0, 5).join(', ')}${stocksInSector.length > 5 ? '...' : ''}`);
 
       // Determine folder path based on parameters
-      // Path structure follows: broker_transaction_{market}_{inv}/broker_transaction_{market}_{inv}_{date}/
-      // Or: broker_transaction_{market}/broker_transaction_{market}_{date}/ (if no inv)
-      // Or: broker_transaction_{inv}/broker_transaction_{inv}_{date}/ (if no market)
-      // Or: broker_transaction/broker_transaction_{date}/ (if no filters)
+      // Path structure mengikuti inkonsistensi di Azure (sama seperti broker_transaction_stock_IDX.ts, tapi tanpa "stock"):
+      // - Jika ada marketType (RG/TN/NG): TIDAK ada broker_transaction/ di depan
+      //   Contoh: broker_transaction_rg/broker_transaction_rg_20251204/
+      //   Contoh: broker_transaction_rg_d/broker_transaction_rg_d_20251205/
+      // - Jika TIDAK ada marketType: ADA broker_transaction/ di depan
+      //   Contoh: broker_transaction/broker_transaction_20251205/
+      //   Contoh: broker_transaction/broker_transaction_d_20251204/
+      //   Contoh: broker_transaction/broker_transaction_f_20251204/
       let folderPrefix: string;
       if (investorType && marketType) {
         // broker_transaction_{market}_{inv}/broker_transaction_{market}_{inv}_{date}/
+        // Contoh: broker_transaction_rg_d/broker_transaction_rg_d_20251205/
         const invPrefix = investorType === 'D' ? 'd' : 'f';
         const marketLower = marketType.toLowerCase();
         folderPrefix = `broker_transaction_${marketLower}_${invPrefix}/broker_transaction_${marketLower}_${invPrefix}_${dateSuffix}`;
       } else if (investorType) {
-        // broker_transaction_{inv}/broker_transaction_{inv}_{date}/
+        // broker_transaction/broker_transaction_{inv}_{date}/
+        // Contoh: broker_transaction/broker_transaction_d_20251204/
         const invPrefix = investorType === 'D' ? 'd' : 'f';
-        folderPrefix = `broker_transaction_${invPrefix}/broker_transaction_${invPrefix}_${dateSuffix}`;
+        folderPrefix = `broker_transaction/broker_transaction_${invPrefix}_${dateSuffix}`;
       } else if (marketType) {
         // broker_transaction_{market}/broker_transaction_{market}_{date}/
+        // Contoh: broker_transaction_rg/broker_transaction_rg_20251204/
         const marketLower = marketType.toLowerCase();
         folderPrefix = `broker_transaction_${marketLower}/broker_transaction_${marketLower}_${dateSuffix}`;
       } else {
         // broker_transaction/broker_transaction_{date}/
+        // Contoh: broker_transaction/broker_transaction_20251205/
         folderPrefix = `broker_transaction/broker_transaction_${dateSuffix}`;
       }
 

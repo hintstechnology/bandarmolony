@@ -535,7 +535,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       // Validation: For Broker pivot, need brokers OR sectors. For Stock pivot, need tickers OR sectors.
       if (pivotFilter === 'Broker') {
         // For Broker pivot: if sector is selected, fetch {sector}_ALL.csv; otherwise need brokers
-        if ((selectedBrokers.length === 0 && selectedSectors.length === 0) || selectedDates.length === 0) {
+        // Allow empty brokers if "ALL" is selected (will fetch all brokers)
+        const hasBrokersOrAll = selectedBrokers.length > 0 || selectedBrokers.includes('ALL');
+        if ((pivotFilter === 'Broker' && !hasBrokersOrAll && selectedSectors.length === 0) || selectedDates.length === 0) {
           setTransactionData(new Map());
           setRawTransactionData(new Map()); // Clear raw data too
           setIsDataReady(false);
@@ -602,14 +604,29 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               return [];
             })
           : selectedDates.flatMap(date => {
-              // For Broker pivot: if sector is selected, fetch {sector}_ALL.csv
-              // Otherwise fetch individual broker files
+              // For Broker pivot: 
+              // - If sector is selected: fetch {sector}_ALL.csv (already aggregated in backend)
+              // - If broker "ALL" is selected (with or without sector): fetch {sector}_ALL.csv if sector exists, otherwise fetch all broker files
+              // - Otherwise: fetch individual broker files
               if (selectedSectors.length > 0) {
-                // Fetch {sector}_ALL.csv for each selected sector
+                // Fetch {sector}_ALL.csv for each selected sector (already aggregated in backend)
+                // This is much faster than fetching all individual broker files
                 return selectedSectors.map((sector: string) => ({ code: `${sector}_ALL`, date, type: 'broker' as const }));
+              } else if (selectedBrokers.includes('ALL')) {
+                // Broker "ALL" selected but no sector: fetch all available broker files
+                // Note: This is less efficient, but needed when no sector is selected
+                const brokersToFetch = availableBrokers.length > 0 ? availableBrokers : [];
+                if (brokersToFetch.length === 0) {
+                  return [];
+                }
+                return brokersToFetch.map((broker: string) => ({ code: broker, date, type: 'broker' as const }));
               } else {
-                // Fetch individual broker files
-                return selectedBrokers.map((broker: string) => ({ code: broker, date, type: 'broker' as const }));
+                // Fetch individual broker files (specific brokers selected)
+                const brokersToFetch = selectedBrokers.filter(b => b !== 'ALL');
+                if (brokersToFetch.length === 0) {
+                  return [];
+                }
+                return brokersToFetch.map((broker: string) => ({ code: broker, date, type: 'broker' as const }));
               }
             });
         
@@ -1191,7 +1208,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
 
   // Handle broker selection
   const handleBrokerSelect = (broker: string) => {
-    if (!selectedBrokers.includes(broker)) {
+    if (broker === 'ALL') {
+      // Select all available brokers
+      setSelectedBrokers([...availableBrokers]);
+    } else if (!selectedBrokers.includes(broker)) {
       setSelectedBrokers([...selectedBrokers, broker]);
       // CRITICAL: Keep existing data visible - no auto-fetch, no hide tables
       // User must click Show button to fetch new data
@@ -3821,7 +3841,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               {selectedBrokers.map(broker => (
                 <div
                   key={broker}
-                  className="flex items-center gap-1 px-2 h-9 bg-primary/20 text-primary rounded-md text-sm"
+                  className={`flex items-center gap-1 px-2 h-9 rounded-md text-sm ${
+                    broker === 'ALL' 
+                      ? 'bg-primary text-primary-foreground font-semibold' 
+                      : 'bg-primary/20 text-primary'
+                  }`}
                 >
                   <span>{broker}</span>
                   <button
@@ -3890,6 +3914,15 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
                           Available Brokers ({availableBrokers.filter(b => !selectedBrokers.includes(b)).length})
                         </div>
+                        {/* ALL option */}
+                        {!selectedBrokers.includes('ALL') && (
+                          <div
+                            onClick={() => handleBrokerSelect('ALL')}
+                            className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm font-semibold text-primary"
+                          >
+                            ALL
+                          </div>
+                        )}
                         {availableBrokers.filter(b => !selectedBrokers.includes(b)).map(broker => (
                           <div
                             key={broker}
@@ -3901,15 +3934,25 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         ))}
                       </>
                     ) : (() => {
+                      const searchLower = brokerInput.toLowerCase();
+                      const isAllMatch = 'all'.includes(searchLower) && !selectedBrokers.includes('ALL');
                       const filteredBrokers = availableBrokers.filter(b => 
-                        b.toLowerCase().includes(brokerInput.toLowerCase()) && 
+                        b.toLowerCase().includes(searchLower) && 
                         !selectedBrokers.includes(b)
                       );
                       return (
                             <>
                           <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
-                            {filteredBrokers.length} broker(s) found
+                            {filteredBrokers.length + (isAllMatch ? 1 : 0)} broker(s) found
                           </div>
+                          {isAllMatch && (
+                            <div
+                              onClick={() => handleBrokerSelect('ALL')}
+                              className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm font-semibold text-primary"
+                            >
+                              ALL
+                            </div>
+                          )}
                           {filteredBrokers.length > 0 ? (
                             filteredBrokers.map((broker, idx) => (
                               <div
