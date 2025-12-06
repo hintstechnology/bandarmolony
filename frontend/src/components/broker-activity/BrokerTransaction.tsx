@@ -582,8 +582,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         // OPTIMIZED: Fetch all data in parallel with smart batching
         // Separate cached and uncached requests for optimal performance
         // For Broker pivot: if sector selected, fetch {sector}_ALL.csv; otherwise use selectedBrokers
-        // For Stock pivot: use selectedTickers as code, or selectedSectors if tickers are empty
-        // For Stock pivot + sector + broker: fetch stock files for all stocks in sector, then filter by broker in frontend
+        // For Stock pivot: if sector selected, fetch {sector}.csv directly (already aggregated in backend); otherwise use selectedTickers
+        // For Stock pivot + sector + broker: fetch sector CSV, then filter by broker in frontend
         const allFetchTasks = pivotFilter === 'Stock'
           ? selectedDates.flatMap(date => {
               // If tickers are selected, use them
@@ -591,41 +591,15 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 return selectedTickers.map((code: string) => ({ code, date, type: 'stock' as const }));
               }
               
-              // If sectors are selected, fetch stock files for all stocks in those sectors
-              // This allows filtering by broker in frontend
+              // If sectors are selected, fetch sector CSV directly (already aggregated in backend)
+              // This is much faster than fetching all individual stock files
               if (selectedSectors.length > 0) {
-                // Separate special sectors (like IDX) from regular sectors
-                const specialSectors: string[] = [];
-                const regularSectors: string[] = [];
-                
-                selectedSectors.forEach(sector => {
-                  // IDX and other special sectors don't have stocks in stockToSectorMap
-                  // They should be used directly as codes
-                  if (sector === 'IDX' || !stockToSectorMap || Object.values(stockToSectorMap).indexOf(sector) === -1) {
-                    specialSectors.push(sector);
-                  } else {
-                    regularSectors.push(sector);
-                  }
-                });
-                
-                // Get all stocks in regular sectors
-                const stocksInSectors: string[] = [];
-                regularSectors.forEach(sector => {
-                  const sectorStocks = stockToSectorMap ? 
-                    Object.keys(stockToSectorMap).filter(stock => stockToSectorMap[stock] === sector) : [];
-                  stocksInSectors.push(...sectorStocks);
-                });
-                
-                // Combine: stocks from regular sectors + special sectors (like IDX) used directly as codes
-                const allCodes = [...stocksInSectors, ...specialSectors];
-                const uniqueCodes = Array.from(new Set(allCodes));
-                
-                // Fetch stock files for all codes (stocks + special sectors)
-                return uniqueCodes.map((code: string) => ({ code, date, type: 'stock' as const }));
+                // Fetch sector CSV directly for each selected sector
+                // Backend already aggregated all stocks in sector into one CSV file
+                return selectedSectors.map((sector: string) => ({ code: sector, date, type: 'stock' as const }));
               }
               
-              // Fallback: use sectors as codes (for IDX or other special cases)
-              return selectedSectors.map((code: string) => ({ code, date, type: 'stock' as const }));
+              return [];
             })
           : selectedDates.flatMap(date => {
               // For Broker pivot: if sector is selected, fetch {sector}_ALL.csv
