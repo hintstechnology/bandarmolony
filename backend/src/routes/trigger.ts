@@ -33,7 +33,6 @@ import BrokerTransactionStockDataScheduler from '../services/brokerTransactionSt
 import BrokerTransactionStockFDDataScheduler from '../services/brokerTransactionStockFDDataScheduler';
 import BrokerTransactionStockRGTNNGDataScheduler from '../services/brokerTransactionStockRGTNNGDataScheduler';
 import BrokerTransactionStockFDRGTNNGDataScheduler from '../services/brokerTransactionStockFDRGTNNGDataScheduler';
-import { BrokerTransactionIDXDataScheduler } from '../services/brokerTransactionIDXDataScheduler';
 import { BrokerTransactionStockIDXDataScheduler } from '../services/brokerTransactionStockIDXDataScheduler';
 import { BrokerTransactionSectorDataScheduler } from '../services/brokerTransactionSectorDataScheduler';
 import { BrokerTransactionStockSectorDataScheduler } from '../services/brokerTransactionStockSectorDataScheduler';
@@ -1326,65 +1325,6 @@ router.post('/watchlist-snapshot', async (req, res) => {
     return res.status(500).json({ 
       success: false, 
       message: error.message || 'Unknown error' 
-    });
-  }
-});
-
-// Manual trigger for Broker Transaction IDX calculation
-router.post('/broker-transaction-idx', async (req, res) => {
-  try {
-    console.log('🔄 Manual trigger: Broker Transaction IDX calculation');
-    
-    const triggeredBy = getTriggeredBy(req);
-    const logEntry = await SchedulerLogService.createLog({
-      feature_name: 'broker_transaction_idx',
-      trigger_type: 'manual',
-      triggered_by: triggeredBy,
-      status: 'running',
-      environment: process.env['NODE_ENV'] || 'development'
-    });
-
-    if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
-      });
-    }
-
-    const brokerTransactionIDXService = new BrokerTransactionIDXDataScheduler();
-    
-    // Execute in background and return immediately
-    brokerTransactionIDXService.generateBrokerTransactionIDXData('all', logEntry.id, triggeredBy).then(async (result: { success: boolean; message?: string; data?: any }) => {
-      console.log(`✅ Broker Transaction IDX calculation completed: ${result.message}`);
-      if (logEntry.id) {
-        await SchedulerLogService.updateLog(logEntry.id, {
-          status: result.success ? 'completed' : 'failed',
-          progress_percentage: 100,
-          ...(result.success ? {} : { error_message: result.message })
-        });
-      }
-    }).catch(async (error: any) => {
-      const errorMessage = error?.message || error?.toString() || 'Unknown error';
-      console.error(`❌ Broker Transaction IDX calculation error: ${errorMessage}`);
-      if (logEntry.id) {
-        await SchedulerLogService.updateLog(logEntry.id, {
-          status: 'failed',
-          error_message: errorMessage
-        });
-      }
-    });
-
-    return res.json({
-      success: true,
-      message: 'Broker Transaction IDX calculation triggered successfully',
-      log_id: logEntry.id
-    });
-  } catch (error: any) {
-    console.error('❌ Error triggering broker transaction IDX calculation:', error);
-    const errorMessage = error?.message || error?.toString() || 'Unknown error';
-    return res.status(500).json({
-      success: false,
-      message: `Failed to trigger broker-transaction-idx update: ${errorMessage}`
     });
   }
 });

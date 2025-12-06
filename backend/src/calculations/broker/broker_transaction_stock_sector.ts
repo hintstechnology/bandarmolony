@@ -448,26 +448,34 @@ export class BrokerTransactionStockSectorCalculator {
       console.log(`📊 Sector ${sectorName} has ${stocksInSector.length} stocks: ${stocksInSector.slice(0, 5).join(', ')}${stocksInSector.length > 5 ? '...' : ''}`);
 
       // Determine folder path based on parameters
-      // Path structure follows: broker_transaction_stock_{market}_{inv}/broker_transaction_stock_{market}_{inv}_{date}/
-      // Or: broker_transaction_stock_{market}/broker_transaction_stock_{market}_{date}/ (if no inv)
-      // Or: broker_transaction_stock_{inv}/broker_transaction_stock_{inv}_{date}/ (if no market)
-      // Or: broker_transaction_stock/broker_transaction_stock_{date}/ (if no filters)
+      // Path structure mengikuti inkonsistensi di Azure:
+      // - Jika ada marketType (RG/TN/NG): TIDAK ada broker_transaction_stock/ di depan
+      //   Contoh: broker_transaction_stock_rg/broker_transaction_stock_rg_20251204/
+      //   Contoh: broker_transaction_stock_rg_d/broker_transaction_stock_rg_d_20251205/
+      // - Jika TIDAK ada marketType: ADA broker_transaction_stock/ di depan
+      //   Contoh: broker_transaction_stock/broker_transaction_stock_20251205/
+      //   Contoh: broker_transaction_stock/broker_transaction_stock_d_20251204/
+      //   Contoh: broker_transaction_stock/broker_transaction_stock_f_20251204/
       let folderPrefix: string;
       if (investorType && marketType) {
         // broker_transaction_stock_{market}_{inv}/broker_transaction_stock_{market}_{inv}_{date}/
+        // Contoh: broker_transaction_stock_rg_d/broker_transaction_stock_rg_d_20251205/
         const invPrefix = investorType === 'D' ? 'd' : 'f';
         const marketLower = marketType.toLowerCase();
         folderPrefix = `broker_transaction_stock_${marketLower}_${invPrefix}/broker_transaction_stock_${marketLower}_${invPrefix}_${dateSuffix}`;
       } else if (investorType) {
-        // broker_transaction_stock_{inv}/broker_transaction_stock_{inv}_{date}/
+        // broker_transaction_stock/broker_transaction_stock_{inv}_{date}/
+        // Contoh: broker_transaction_stock/broker_transaction_stock_d_20251204/
         const invPrefix = investorType === 'D' ? 'd' : 'f';
-        folderPrefix = `broker_transaction_stock_${invPrefix}/broker_transaction_stock_${invPrefix}_${dateSuffix}`;
+        folderPrefix = `broker_transaction_stock/broker_transaction_stock_${invPrefix}_${dateSuffix}`;
       } else if (marketType) {
         // broker_transaction_stock_{market}/broker_transaction_stock_{market}_{date}/
+        // Contoh: broker_transaction_stock_rg/broker_transaction_stock_rg_20251204/
         const marketLower = marketType.toLowerCase();
         folderPrefix = `broker_transaction_stock_${marketLower}/broker_transaction_stock_${marketLower}_${dateSuffix}`;
       } else {
         // broker_transaction_stock/broker_transaction_stock_{date}/
+        // Contoh: broker_transaction_stock/broker_transaction_stock_20251205/
         folderPrefix = `broker_transaction_stock/broker_transaction_stock_${dateSuffix}`;
       }
 
