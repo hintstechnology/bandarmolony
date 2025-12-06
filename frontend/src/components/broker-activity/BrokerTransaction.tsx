@@ -594,19 +594,34 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               // If sectors are selected, fetch stock files for all stocks in those sectors
               // This allows filtering by broker in frontend
               if (selectedSectors.length > 0) {
-                // Get all stocks in selected sectors
-                const stocksInSectors: string[] = [];
+                // Separate special sectors (like IDX) from regular sectors
+                const specialSectors: string[] = [];
+                const regularSectors: string[] = [];
+                
                 selectedSectors.forEach(sector => {
+                  // IDX and other special sectors don't have stocks in stockToSectorMap
+                  // They should be used directly as codes
+                  if (sector === 'IDX' || !stockToSectorMap || Object.values(stockToSectorMap).indexOf(sector) === -1) {
+                    specialSectors.push(sector);
+                  } else {
+                    regularSectors.push(sector);
+                  }
+                });
+                
+                // Get all stocks in regular sectors
+                const stocksInSectors: string[] = [];
+                regularSectors.forEach(sector => {
                   const sectorStocks = stockToSectorMap ? 
                     Object.keys(stockToSectorMap).filter(stock => stockToSectorMap[stock] === sector) : [];
                   stocksInSectors.push(...sectorStocks);
                 });
                 
-                // Remove duplicates
-                const uniqueStocks = Array.from(new Set(stocksInSectors));
+                // Combine: stocks from regular sectors + special sectors (like IDX) used directly as codes
+                const allCodes = [...stocksInSectors, ...specialSectors];
+                const uniqueCodes = Array.from(new Set(allCodes));
                 
-                // Fetch stock files for all stocks in sectors
-                return uniqueStocks.map((code: string) => ({ code, date, type: 'stock' as const }));
+                // Fetch stock files for all codes (stocks + special sectors)
+                return uniqueCodes.map((code: string) => ({ code, date, type: 'stock' as const }));
               }
               
               // Fallback: use sectors as codes (for IDX or other special cases)

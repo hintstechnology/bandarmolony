@@ -2034,12 +2034,10 @@ export const api = {
       if (pivot) {
         params.append('pivot', pivot);
       }
-      if (inv) {
-        params.append('inv', inv);
-      }
-      if (board) {
-        params.append('board', board);
-      }
+      // Always append inv and board parameters, even if empty, to ensure backend receives correct values
+      // Empty string means "All" for inv and "All Trade" for board
+      params.append('inv', inv || '');
+      params.append('board', board || '');
       const res = await fetch(`${API_URL}/api/broker/transaction/${code}?${params.toString()}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
