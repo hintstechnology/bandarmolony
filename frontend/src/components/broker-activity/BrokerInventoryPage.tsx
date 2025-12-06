@@ -178,14 +178,16 @@ const TradingViewChart = ({
   selectedBrokers,
   displayBrokers,
   title: _title,
-  volumeData
+  volumeData,
+  ticker
 }: {
   candlestickData: any[],
   inventoryData: InventoryTimeSeries[],
   selectedBrokers: string[],
   displayBrokers?: string[],
   title: string,
-  volumeData?: any[]
+  volumeData?: any[],
+  ticker?: string
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -497,6 +499,7 @@ const TradingViewChart = ({
         
         tooltip.innerHTML = `
           <div style="padding: 8px; background: rgba(26, 30, 45, 0.95); border: 1px solid #3a4252; border-radius: 4px; font-size: 12px; color: #d1d5db; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3); min-width: 200px;">
+            ${ticker ? `<div style="margin-bottom: 4px; font-weight: bold; color: #f9fafb; font-size: 16px;">${ticker}</div>` : ''}
             <div style="margin-bottom: 6px; font-weight: 700; color: #f9fafb; font-size: 13px; border-bottom: 1px solid #3a4252; padding-bottom: 4px;">${displayDate}</div>
             <div style="margin-bottom: 4px; font-weight: 600; color: #f9fafb;">Price:</div>
             <div style="margin-bottom: 8px; color: #9ca3af;">${priceInfo}</div>
@@ -1243,7 +1246,14 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
   const { showToast } = useToast();
   
   // State management
-  const [selectedTicker, setSelectedTicker] = useState<string>(propSelectedStock || 'BBCA');
+  // Always default to BBCA if no propSelectedStock or if it's empty
+  const [selectedTicker, setSelectedTicker] = useState<string>(() => {
+    return propSelectedStock && propSelectedStock.trim() !== '' ? propSelectedStock : 'BBCA';
+  });
+  // Displayed ticker - only changes when new data is successfully loaded (after Show button clicked)
+  const [displayedTicker, setDisplayedTicker] = useState<string>(() => {
+    return propSelectedStock && propSelectedStock.trim() !== '' ? propSelectedStock : 'BBCA';
+  });
   const [selectedBrokers, setSelectedBrokers] = useState<string[]>([]);
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
@@ -1303,32 +1313,35 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
   // Track previous selectedTicker to detect changes
   const prevSelectedTickerRef = useRef<string>('');
   
-  // Reset broker data when active ticker changes (but don't reset on initial load)
+  // Track ticker changes but don't reset chart data until Show is clicked
   useEffect(() => {
     const currentTicker: string = selectedTicker || '';
     console.log(`[BrokerInventory] selectedTicker effect:`, { currentTicker, prev: prevSelectedTickerRef.current });
     
-    // Only reset if ticker actually changed (not on initial mount)
+    // Only reset broker selection and UI states if ticker actually changed (not on initial mount)
     if (currentTicker && currentTicker !== prevSelectedTickerRef.current) {
       // On initial mount, prevSelectedTickerRef.current will be empty, so we just update the ref
       if (prevSelectedTickerRef.current !== '') {
-        console.log(`📊 Active ticker changed from ${prevSelectedTickerRef.current} to ${currentTicker} - resetting data`);
-        // Reset all related states when active ticker changes
+        console.log(`📊 Active ticker changed from ${prevSelectedTickerRef.current} to ${currentTicker} - resetting broker selection only`);
+        // Only reset broker selection and UI states - keep chart data until Show is clicked
         setBrokerSearch('');
         setShowBrokerSuggestions(false);
         setHighlightedBrokerIndex(-1);
         setAvailableBrokersForStock([]);
         setIsLoadingBrokersForStock(false);
         setSelectedBrokers([]);
-        setBrokerSummaryData([]);
         setBrokerDataError(null);
-        setOhlcData([]);
-        setVolumeData([]);
-        setDataError(null);
         setHasUserSelectedBrokers(false);
         setDefaultBrokers([]);
+        // Don't reset chart data (ohlcData, volumeData, brokerSummaryData) - keep showing old data
+        // Don't reset isDataReady to prevent flicker - keep showing old data until new data is ready
+        // Reset shouldFetchData to prevent auto-fetch
+        setShouldFetchData(false);
+        // Update prevTickerForAutoFetchRef when ticker changes (for tracking purposes only)
+        prevTickerForAutoFetchRef.current = currentTicker;
       } else {
         console.log(`[BrokerInventory] Initial ticker set: ${currentTicker}`);
+        // On initial mount, don't update prevTickerForAutoFetchRef - let auto-fetch useEffect handle it
       }
     }
     // Always update the ref to track current ticker
@@ -1431,20 +1444,28 @@ const visibleBrokers = useMemo(
     }));
   };
 
+  // Ensure selectedTicker is never empty - default to BBCA if it becomes empty
+  useEffect(() => {
+    if (!selectedTicker || selectedTicker.trim() === '') {
+      console.log(`📊 SelectedTicker is empty, defaulting to BBCA`);
+      setSelectedTicker('BBCA');
+    }
+  }, [selectedTicker]);
+
+  // Track previous ticker to detect changes
+  const prevTickerForAutoFetchRef = useRef<string>('');
+  
   // Update selectedTicker when propSelectedStock changes
   useEffect(() => {
-    if (propSelectedStock && propSelectedStock !== selectedTicker) {
+    // Only update if propSelectedStock is provided and valid, and different from current
+    if (propSelectedStock && propSelectedStock.trim() !== '' && propSelectedStock !== selectedTicker) {
       console.log(`📊 Dashboard stock changed to ${propSelectedStock}`);
       setSelectedTicker(propSelectedStock);
       setTickerInput('');
       
-      // Reset all related states when stock changes
+      // Only reset broker selection and UI states - keep chart data until Show is clicked
       setSelectedBrokers([]);
-      setBrokerSummaryData([]);
       setBrokerDataError(null);
-      setOhlcData([]);
-      setVolumeData([]);
-      setDataError(null);
       setAvailableBrokersForStock([]);
       setIsLoadingBrokersForStock(false);
       setBrokerSearch('');
@@ -1452,6 +1473,13 @@ const visibleBrokers = useMemo(
       setHighlightedBrokerIndex(-1);
       setHasUserSelectedBrokers(false);
       setDefaultBrokers([]);
+      // Don't reset chart data (ohlcData, volumeData, brokerSummaryData) - keep showing old data
+      // Don't reset isDataReady to prevent flicker - keep showing old data until new data is ready
+      // Reset shouldFetchData to prevent auto-fetch
+      setShouldFetchData(false);
+      // Update prevTickerForAutoFetchRef when ticker changes (for tracking purposes only)
+      prevTickerForAutoFetchRef.current = propSelectedStock;
+      // No auto-fetch - user must click Show button to fetch new data when ticker changes
     }
   }, [propSelectedStock, selectedTicker]);
 
@@ -1640,8 +1668,8 @@ const visibleBrokers = useMemo(
     
     const loadStockData = async () => {
       const actualTicker = getActualTicker;
-      if (!actualTicker || !startDate || !endDate || isInitializing) {
-        console.log(`[BrokerInventory] Skipping loadStockData:`, { actualTicker, startDate, endDate, isInitializing });
+      if (!actualTicker || !startDate || !endDate) {
+        console.log(`[BrokerInventory] Skipping loadStockData:`, { actualTicker, startDate, endDate });
         setShouldFetchData(false);
         setIsDataReady(false);
         return;
@@ -1777,6 +1805,7 @@ const visibleBrokers = useMemo(
           setOhlcData(finalCandlestick);
           setVolumeData(finalVolume);
           
+          // Don't set isDataReady here - wait for broker inventory data to be loaded
           // Don't reset shouldFetchData here - let loadBrokerInventory handle it
           
         } else {
@@ -1787,7 +1816,11 @@ const visibleBrokers = useMemo(
         console.error('Error loading stock data:', error);
         setDataError(error instanceof Error ? error.message : 'Failed to load stock data');
         setShouldFetchData(false);
-        setIsDataReady(false);
+        // Don't set isDataReady to false on error - keep showing old data if available
+        // Only set to false if there's no data at all
+        if (ohlcData.length === 0 && volumeData.length === 0) {
+          setIsDataReady(false);
+        }
         showToast({
           type: 'error',
           title: 'Error Memuat Data',
@@ -1795,58 +1828,67 @@ const visibleBrokers = useMemo(
         });
       } finally {
         setIsLoadingData(false);
-        setShouldFetchData(false);
+        // Don't reset shouldFetchData here - let loadBrokerInventory handle it
       }
     };
     
     loadStockData();
-  }, [shouldFetchData, getActualTicker, startDate, endDate, isInitializing, showToast]);
+  }, [shouldFetchData, getActualTicker, startDate, endDate, showToast]);
   
-  // Reset data when ticker or date range changes (before Show button is clicked)
-  // This ensures user doesn't see stale data when changing filters
+  // Track previous ticker/date for comparison (but don't clear data immediately)
+  // Data will be replaced only when new data is successfully loaded
   const prevTickerRef = useRef<string>('');
   const prevStartDateRef = useRef<string>('');
   const prevEndDateRef = useRef<string>('');
+  const prevShouldFetchRef = useRef<boolean>(false);
   
   useEffect(() => {
-    // Only reset if shouldFetchData is false (user hasn't clicked Show yet)
-    // If shouldFetchData is true, data is being loaded, so don't clear it
-    if (!shouldFetchData) {
-      const tickerChanged = prevTickerRef.current !== getActualTicker;
-      const dateChanged = prevStartDateRef.current !== startDate || prevEndDateRef.current !== endDate;
-      
-      // Only clear data if ticker or date actually changed (not on initial mount)
-      if ((tickerChanged || dateChanged) && (prevTickerRef.current !== '' || prevStartDateRef.current !== '')) {
-        const hasData = ohlcData.length > 0 || brokerSummaryData.length > 0;
-        if (hasData) {
-          console.log(`[BrokerInventory] Clearing data because ${tickerChanged ? 'ticker' : 'date'} changed before Show button clicked`);
-          setOhlcData([]);
-          setVolumeData([]);
-          setBrokerSummaryData([]);
-          setIsDataReady(false);
-          setDataError(null);
-          setBrokerDataError(null);
-        }
-      }
-      
-      // Update refs
-      prevTickerRef.current = getActualTicker || '';
-      prevStartDateRef.current = startDate || '';
-      prevEndDateRef.current = endDate || '';
+    // Track when user clicks Show button
+    if (shouldFetchData && !prevShouldFetchRef.current) {
+      // User just clicked Show button, new data will be loaded
+      // Don't clear old data yet - keep showing it until new data is ready
+      console.log(`[BrokerInventory] Show button clicked, loading new data...`);
     }
-  }, [getActualTicker, startDate, endDate, shouldFetchData, ohlcData.length, brokerSummaryData.length]);
+    
+    // Update refs
+    prevTickerRef.current = getActualTicker || '';
+    prevStartDateRef.current = startDate || '';
+    prevEndDateRef.current = endDate || '';
+    prevShouldFetchRef.current = shouldFetchData;
+  }, [getActualTicker, startDate, endDate, shouldFetchData]);
 
-  // Load top brokers data for table only when Show button is clicked
+  // REMOVED: Auto-fetch on initial load - user MUST click Show button to fetch data
+  // This ensures no data is displayed automatically without user clicking Show
+  // Tampilan awal akan kosong, sama seperti BrokerSummaryPage
+  
+  // Track ticker changes for logging purposes only (no auto-fetch)
+  useEffect(() => {
+    const currentTicker = getActualTicker || '';
+    
+    // Just update ticker ref for tracking, but never auto-fetch
+    if (currentTicker && prevTickerForAutoFetchRef.current !== currentTicker) {
+      const oldTicker = prevTickerForAutoFetchRef.current;
+      prevTickerForAutoFetchRef.current = currentTicker;
+      if (oldTicker !== '') {
+        console.log(`[BrokerInventory] Ticker changed from ${oldTicker} to ${currentTicker} - NOT auto-fetching (waiting for Show button)`);
+      }
+    } else if (currentTicker && prevTickerForAutoFetchRef.current === '') {
+      // Initial mount - just set the ticker ref
+      prevTickerForAutoFetchRef.current = currentTicker;
+    }
+  }, [getActualTicker]);
+
+  // Load top brokers data for table using broker-summary API when Show button is clicked
   useEffect(() => {
     if (!shouldFetchData) {
       return; // Don't load data until Show button is clicked
     }
-    
-    const loadTopBrokersData = async () => {
+
+      const loadTopBrokersData = async () => {
       // Load top brokers data for table (not for chart)
       // Use startDate and endDate from input field (not dependent on ohlcData)
       const actualTicker = getActualTicker;
-      if (!actualTicker || !startDate || !endDate || isInitializing) {
+      if (!actualTicker || !startDate || !endDate) {
         setBrokerSummaryData([]);
         setShouldFetchData(false);
         setIsDataReady(false);
@@ -2021,7 +2063,11 @@ const visibleBrokers = useMemo(
         console.error('Error loading broker summary data:', error);
         setBrokerDataError(error instanceof Error ? error.message : 'Failed to load broker summary data');
         setShouldFetchData(false);
-        setIsDataReady(false);
+        // Don't set isDataReady to false on error - keep showing old data if available
+        // Only set to false if there's no data at all
+        if (brokerSummaryData.length === 0) {
+          setIsDataReady(false);
+        }
         showToast({
           type: 'error',
           title: 'Error Memuat Data Broker Summary',
@@ -2029,14 +2075,14 @@ const visibleBrokers = useMemo(
         });
       } finally {
         setIsLoadingBrokerData(false);
-        setShouldFetchData(false);
+        // Don't reset shouldFetchData here - reset it only after ALL data is loaded
       }
     };
     
     loadTopBrokersData();
     // Depend on shouldFetchData - only load when Show button is clicked
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shouldFetchData, getActualTicker, startDate, endDate, isInitializing, showToast]);
+  }, [shouldFetchData, getActualTicker, startDate, endDate, showToast]);
 
   // Load available brokers for selected stock code from broker_inventory folder
   useEffect(() => {
@@ -2122,6 +2168,8 @@ const visibleBrokers = useMemo(
       setHasUserSelectedBrokers(true);
       // Enable custom mode when user manually selects a broker
       setBrokerSelectionMode(prev => ({ ...prev, custom: true }));
+      // Reset shouldFetchData to prevent auto-reload until Show is clicked
+      setShouldFetchData(false);
       console.log(`📊 Added broker ${broker} to selection. Total selected: ${newSelectedBrokers.length}`, {
         selectedBrokers: newSelectedBrokers,
         willAppearInLegend: true
@@ -2140,6 +2188,8 @@ const visibleBrokers = useMemo(
       const newSelectedBrokers = selectedBrokers.filter(b => b !== broker);
       setSelectedBrokers(newSelectedBrokers);
       setHasUserSelectedBrokers(true);
+      // Reset shouldFetchData to prevent auto-reload until Show is clicked
+      setShouldFetchData(false);
       console.log(`✅ Broker removed. New selectedBrokers:`, newSelectedBrokers);
       
       // Check if we need to disable modes
@@ -2188,6 +2238,8 @@ const visibleBrokers = useMemo(
       setSelectedBrokers(newSelectedBrokers);
       setHasUserSelectedBrokers(true);
       setBrokerSelectionMode(prev => ({ ...prev, top5buy: false }));
+      // Reset shouldFetchData to prevent auto-reload until Show is clicked
+      setShouldFetchData(false);
       
       setBrokerVisibility((prev) => {
         const updated = { ...prev };
@@ -2207,6 +2259,8 @@ const visibleBrokers = useMemo(
       setSelectedBrokers(newSelectedBrokers);
       setHasUserSelectedBrokers(true);
       setBrokerSelectionMode(prev => ({ ...prev, top5sell: false }));
+      // Reset shouldFetchData to prevent auto-reload until Show is clicked
+      setShouldFetchData(false);
       
       setBrokerVisibility((prev) => {
         const updated = { ...prev };
@@ -2227,6 +2281,8 @@ const visibleBrokers = useMemo(
       setSelectedBrokers(newSelectedBrokers);
       setHasUserSelectedBrokers(true);
       setBrokerSelectionMode(prev => ({ ...prev, custom: false }));
+      // Reset shouldFetchData to prevent auto-reload until Show is clicked
+      setShouldFetchData(false);
       
       setBrokerVisibility((prev) => {
         const updated = { ...prev };
@@ -2282,6 +2338,8 @@ const visibleBrokers = useMemo(
               }
               setHasUserSelectedBrokers(false);
               setBrokerSearch('');
+              // Reset shouldFetchData to prevent auto-reload until Show is clicked
+              setShouldFetchData(false);
               return;
             } else if (highlightedBrokerIndex === 1) {
               // Top 5 Sell
@@ -2299,6 +2357,8 @@ const visibleBrokers = useMemo(
               }
               setHasUserSelectedBrokers(false);
               setBrokerSearch('');
+              // Reset shouldFetchData to prevent auto-reload until Show is clicked
+              setShouldFetchData(false);
               console.log(`✅ Top 5 Sell selected via keyboard:`, {
                 top5Sell,
                 count: top5Sell.length,
@@ -2433,25 +2493,38 @@ const visibleBrokers = useMemo(
 
   // Ticker selection handler (single-select)
   const handleStockSelect = (stock: string) => {
+    // Ensure stock is valid, default to BBCA if empty
+    const validStock = stock && stock.trim() !== '' ? stock : 'BBCA';
+    
+    // Don't update if same ticker
+    if (validStock === selectedTicker) {
+      setTickerInput('');
+      setShowStockSuggestions(false);
+      return;
+    }
+    
     // Single select: just set the selected ticker
-    setSelectedTicker(stock);
+    setSelectedTicker(validStock);
     setTickerInput('');
     setShowStockSuggestions(false);
     
-    // Reset broker data when ticker changes
+    // Reset broker selection and UI states - keep chart data until Show is clicked
     setBrokerSearch('');
     setShowBrokerSuggestions(false);
     setHighlightedBrokerIndex(-1);
     setAvailableBrokersForStock([]);
     setIsLoadingBrokersForStock(false);
     setSelectedBrokers([]);
-    setBrokerSummaryData([]);
     setBrokerDataError(null);
-    setOhlcData([]);
-    setVolumeData([]);
-    setDataError(null);
     setHasUserSelectedBrokers(false);
     setDefaultBrokers([]);
+    // Don't reset chart data (ohlcData, volumeData, brokerSummaryData) - keep showing old data
+    // Don't reset isDataReady to prevent flicker - keep showing old data until new data is ready
+    // Reset shouldFetchData to prevent auto-fetch
+    setShouldFetchData(false);
+    // Update prevTickerForAutoFetchRef when ticker changes (for tracking purposes only)
+    prevTickerForAutoFetchRef.current = validStock;
+    // No auto-fetch - user must click Show button to fetch new data when ticker changes
   };
 
   const handleStockInputChange = (value: string) => {
@@ -2600,7 +2673,7 @@ const visibleBrokers = useMemo(
     }
 
     const actualTicker = getActualTicker;
-    if (!actualTicker || selectedBrokers.length === 0 || !startDate || !endDate || isInitializing) {
+    if (!actualTicker || selectedBrokers.length === 0 || !startDate || !endDate) {
       setShouldFetchData(false);
       setIsDataReady(false);
       return;
@@ -2751,7 +2824,7 @@ const visibleBrokers = useMemo(
         }
         
         setBrokerInventoryData(inventoryDataMap);
-        setIsDataReady(true);
+        
         console.log(`📊 Broker inventory data loaded for ${Object.keys(inventoryDataMap).length} brokers (filtered by date range ${startDate} to ${endDate})`);
         console.log(`📊 Inventory data summary:`, {
           brokers: Object.keys(inventoryDataMap),
@@ -2763,15 +2836,38 @@ const visibleBrokers = useMemo(
         });
       } catch (error) {
         console.error('Error loading broker inventory:', error);
-        setIsDataReady(false);
       } finally {
         setIsLoadingInventoryData(false);
-        setShouldFetchData(false);
+        // Don't reset shouldFetchData here - reset it only after ALL data is loaded
       }
     };
 
     loadBrokerInventory();
-  }, [shouldFetchData, getActualTicker, selectedBrokers, startDate, endDate, isInitializing]);
+  }, [shouldFetchData, getActualTicker, selectedBrokers, startDate, endDate]);
+
+  // Check if all data is loaded and set isDataReady accordingly
+  useEffect(() => {
+    // Only set isDataReady to true after ALL data is loaded:
+    // 1. OHLC data (isLoadingData = false and ohlcData.length > 0)
+    // 2. Broker summary data (isLoadingBrokerData = false and brokerSummaryData.length > 0)
+    // 3. Inventory data (isLoadingInventoryData = false and inventoryData will be computed from brokerSummaryData)
+    const allDataLoaded = !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData &&
+      ohlcData.length > 0 && brokerSummaryData.length > 0 && selectedBrokers.length > 0;
+    
+    if (allDataLoaded && !isDataReady) {
+      setIsDataReady(true);
+      // Update displayed ticker only when all data is successfully loaded
+      const currentTicker = getActualTicker || '';
+      if (currentTicker && currentTicker !== displayedTicker) {
+        setDisplayedTicker(currentTicker);
+        console.log(`📊 Displayed ticker updated to ${currentTicker} after data loaded`);
+      }
+      console.log(`📊 All data loaded and ready to display`);
+      // Reset shouldFetchData only after ALL data is successfully loaded
+      setShouldFetchData(false);
+    }
+    // Don't set isDataReady to false during loading to prevent flicker - keep showing old data until new data is ready
+  }, [isLoadingData, isLoadingBrokerData, isLoadingInventoryData, ohlcData.length, brokerSummaryData.length, selectedBrokers.length, isDataReady, getActualTicker, displayedTicker]);
 
   // Convert broker summary data to time series format for chart (same as BrokerSummaryPage NET table)
   // Uses NetBuyVol and NetSellVol from brokerSummaryData (same data source as NET table)
@@ -3366,7 +3462,7 @@ const visibleBrokers = useMemo(
               {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
               <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
                 <div ref={controlMenuRef} className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
-                  {/* Ticker Selection */}
+                {/* Ticker Selection */}
                 <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
                   <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
                   <div className="relative flex-1 md:flex-none" ref={dropdownRef}>
@@ -3400,10 +3496,10 @@ const visibleBrokers = useMemo(
                           }
                         }}
                         placeholder={selectedTicker ? formatStockDisplayName(selectedTicker) : "Select ticker"}
-                        className="w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground"
+                        className="w-full sm:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground"
                       />
                       {showStockSuggestions && (
-                        <div className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col min-w-[400px]">
+                        <div className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col w-full sm:w-auto min-w-[280px] sm:min-w-[400px]">
                           {availableStocks.length === 0 ? (
                             <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
                               <Loader2 className="w-4 h-4 animate-spin mr-2" />
@@ -3501,9 +3597,9 @@ const visibleBrokers = useMemo(
                   </div>
 
                   {/* Broker Selection - Multi-select with chips */}
-                  <div className="flex flex-row items-center gap-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
                     <label className="text-sm font-medium whitespace-nowrap">Broker:</label>
-                    <div className="relative">
+                    <div className="relative flex-1 sm:flex-none w-full sm:w-auto">
                       <input
                         type="text"
                         placeholder={isLoadingBrokersForStock ? "Loading..." : getActualTicker ? `Broker for ${getActualTicker}...` : "Select ticker first..."}
@@ -3512,14 +3608,14 @@ const visibleBrokers = useMemo(
                         onChange={(e) => { handleBrokerSearchChange(e); }}
                         onFocus={handleBrokerFocus}
                         onKeyDown={handleBrokerKeyDown}
-                        className="w-32 h-9 px-3 text-sm border border-input rounded-md bg-background text-foreground"
+                        className="w-full sm:w-32 h-9 px-3 text-sm border border-input rounded-md bg-background text-foreground"
                         role="combobox"
                         aria-expanded={showBrokerSuggestions}
                         aria-controls="broker-suggestions"
                         aria-autocomplete="list"
                         />
                         {showBrokerSuggestions && getActualTicker && !isLoadingBrokersForStock && (
-                          <div id="broker-suggestions" role="listbox" className="broker-dropdown-container absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-[100] max-h-96 overflow-hidden flex flex-col min-w-[400px]" onMouseDown={(e) => e.stopPropagation()}>
+                          <div id="broker-suggestions" role="listbox" className="broker-dropdown-container absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-[100] max-h-96 overflow-hidden flex flex-col w-full sm:w-auto min-w-[280px] sm:min-w-[400px]" onMouseDown={(e) => e.stopPropagation()}>
                           {availableBrokersForStock.length === 0 ? (
                             <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
                               {isLoadingBrokersForStock ? (
@@ -3537,16 +3633,16 @@ const visibleBrokers = useMemo(
                               <div className="flex-1 border-r border-[#3a4252] overflow-y-auto">
                                 {filteredBrokers.length === 0 ? (
                                   <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
-                                    {brokerSearch !== '' ? `No brokers found matching "${brokerSearch}"` : `No brokers available for ${selectedTicker}`}
+                                    {brokerSearch !== '' ? `No brokers found matching "${brokerSearch}"` : `No brokers available for ${getActualTicker || 'selected ticker'}`}
                                   </div>
                                 ) : (
-                            <>
-                              {recommendedBrokers.length > 0 && (
-                                <>
-                                  <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                    Recommended ({recommendedBrokers.length})
-                                  </div>
-                                  {recommendedBrokers.map((broker, index) => {
+                                  <>
+                                    {recommendedBrokers.length > 0 && (
+                                      <>
+                                        <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                          Recommended ({recommendedBrokers.length})
+                                        </div>
+                                        {recommendedBrokers.map((broker, index) => {
                                     const hasQuickSelect = brokerNetStats.topBuyers.length > 0 && brokerSearch === '';
                                     const quickSelectCount = hasQuickSelect ? 2 : 0;
                                     const globalIndex = quickSelectCount + index;
@@ -3691,50 +3787,29 @@ const visibleBrokers = useMemo(
                                   </>
                                 )}
                               </div>
-                            {/* Right column: Quick Select */}
-                            <div className="flex-1 overflow-y-auto">
-                              {brokerNetStats.topBuyers.length > 0 && brokerSearch === '' ? (
-                                <>
-                                  <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                    Quick Select
-                                  </div>
-                                  <div
-                                    onClick={() => {
-                                      // Toggle top5buy mode and add/remove top 5 buyers
-                                      const top5Buy = brokerNetStats.topBuyers.slice(0, 5).map(item => item.broker);
-                                      const isCurrentlyActive = brokerSelectionMode.top5buy;
-                                      
-                                      if (isCurrentlyActive) {
-                                        // Remove top 5 buyers from selection
-                                        setSelectedBrokers(prev => prev.filter(b => !top5Buy.includes(b)));
-                                        setBrokerSelectionMode(prev => ({ ...prev, top5buy: false }));
-                                      } else {
-                                        // Add top 5 buyers to selection (merge with existing)
-                                        setSelectedBrokers(prev => {
-                                          const newSet = new Set([...prev, ...top5Buy]);
-                                          return Array.from(newSet);
-                                        });
-                                        setBrokerSelectionMode(prev => ({ ...prev, top5buy: true }));
-                                      }
-                                      setHasUserSelectedBrokers(false);
-                                      setBrokerSearch('');
-                                      console.log(`✅ Top 5 Buy ${isCurrentlyActive ? 'deselected' : 'selected'}:`, {
-                                        top5Buy,
-                                        count: top5Buy.length,
-                                        willAppearInLegend: !isCurrentlyActive
-                                      });
-                                    }}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter' || e.key === ' ') {
-                                        e.preventDefault();
-                                        e.stopPropagation();
+                              {/* Right column: Quick Select - Always visible */}
+                              <div className="flex-1 overflow-y-auto">
+                                <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                  Quick Select
+                                </div>
+                                {brokerSearch === '' && (
+                                  <>
+                                    <div
+                                      onClick={() => {
+                                        // Only allow action if data is loaded
+                                        if (brokerNetStats.topBuyers.length === 0) {
+                                          return;
+                                        }
+                                        // Toggle top5buy mode and add/remove top 5 buyers
                                         const top5Buy = brokerNetStats.topBuyers.slice(0, 5).map(item => item.broker);
                                         const isCurrentlyActive = brokerSelectionMode.top5buy;
                                         
                                         if (isCurrentlyActive) {
+                                          // Remove top 5 buyers from selection
                                           setSelectedBrokers(prev => prev.filter(b => !top5Buy.includes(b)));
                                           setBrokerSelectionMode(prev => ({ ...prev, top5buy: false }));
                                         } else {
+                                          // Add top 5 buyers to selection (merge with existing)
                                           setSelectedBrokers(prev => {
                                             const newSet = new Set([...prev, ...top5Buy]);
                                             return Array.from(newSet);
@@ -3743,52 +3818,64 @@ const visibleBrokers = useMemo(
                                         }
                                         setHasUserSelectedBrokers(false);
                                         setBrokerSearch('');
-                                      }
-                                    }}
-                                    tabIndex={0}
-                                    role="option"
-                                    aria-selected={brokerSelectionMode.top5buy}
-                                    className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm font-medium ${highlightedBrokerIndex === 0 ? 'bg-accent' : ''} ${brokerSelectionMode.top5buy ? 'bg-primary/20' : ''}`}
-                                  >
-                                    📈 Top 5 Buy {brokerSelectionMode.top5buy ? '✓' : ''}
-                                  </div>
-                                  <div
-                                    onClick={() => {
-                                      // Toggle top5sell mode and add/remove top 5 sellers
-                                      const top5Sell = brokerNetStats.topSellers.slice(0, 5).map(item => item.broker);
-                                      const isCurrentlyActive = brokerSelectionMode.top5sell;
-                                      
-                                      if (isCurrentlyActive) {
-                                        // Remove top 5 sellers from selection
-                                        setSelectedBrokers(prev => prev.filter(b => !top5Sell.includes(b)));
-                                        setBrokerSelectionMode(prev => ({ ...prev, top5sell: false }));
-                                      } else {
-                                        // Add top 5 sellers to selection (merge with existing)
-                                        setSelectedBrokers(prev => {
-                                          const newSet = new Set([...prev, ...top5Sell]);
-                                          return Array.from(newSet);
+                                        // Reset shouldFetchData to prevent auto-reload until Show is clicked
+                                        setShouldFetchData(false);
+                                        console.log(`✅ Top 5 Buy ${isCurrentlyActive ? 'deselected' : 'selected'}:`, {
+                                          top5Buy,
+                                          count: top5Buy.length,
+                                          willAppearInLegend: !isCurrentlyActive
                                         });
-                                        setBrokerSelectionMode(prev => ({ ...prev, top5sell: true }));
-                                      }
-                                      setHasUserSelectedBrokers(false);
-                                      setBrokerSearch('');
-                                      console.log(`✅ Top 5 Sell ${isCurrentlyActive ? 'deselected' : 'selected'}:`, {
-                                        top5Sell,
-                                        count: top5Sell.length,
-                                        willAppearInLegend: !isCurrentlyActive
-                                      });
-                                    }}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter' || e.key === ' ') {
-                                        e.preventDefault();
-                                        e.stopPropagation();
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          if (brokerNetStats.topBuyers.length === 0) {
+                                            return;
+                                          }
+                                          const top5Buy = brokerNetStats.topBuyers.slice(0, 5).map(item => item.broker);
+                                          const isCurrentlyActive = brokerSelectionMode.top5buy;
+                                          
+                                          if (isCurrentlyActive) {
+                                            setSelectedBrokers(prev => prev.filter(b => !top5Buy.includes(b)));
+                                            setBrokerSelectionMode(prev => ({ ...prev, top5buy: false }));
+                                          } else {
+                                            setSelectedBrokers(prev => {
+                                              const newSet = new Set([...prev, ...top5Buy]);
+                                              return Array.from(newSet);
+                                            });
+                                            setBrokerSelectionMode(prev => ({ ...prev, top5buy: true }));
+                                          }
+                                          setHasUserSelectedBrokers(false);
+                                          setBrokerSearch('');
+                                          // Reset shouldFetchData to prevent auto-reload until Show is clicked
+                                          setShouldFetchData(false);
+                                        }
+                                      }}
+                                      tabIndex={brokerNetStats.topBuyers.length > 0 ? 0 : -1}
+                                      role="option"
+                                      aria-selected={brokerSelectionMode.top5buy}
+                                      aria-disabled={brokerNetStats.topBuyers.length === 0}
+                                      className={`px-3 py-[2.06px] text-sm font-medium ${brokerNetStats.topBuyers.length === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-muted cursor-pointer'} ${highlightedBrokerIndex === 0 ? 'bg-accent' : ''} ${brokerSelectionMode.top5buy ? 'bg-primary/20' : ''}`}
+                                    >
+                                      📈 Top 5 Buy {brokerSelectionMode.top5buy ? '✓' : ''} {brokerNetStats.topBuyers.length === 0 && !isLoadingBrokerData && !isDataReady && '(Click Show to load)'}
+                                    </div>
+                                    <div
+                                      onClick={() => {
+                                        // Only allow action if data is loaded
+                                        if (brokerNetStats.topSellers.length === 0) {
+                                          return;
+                                        }
+                                        // Toggle top5sell mode and add/remove top 5 sellers
                                         const top5Sell = brokerNetStats.topSellers.slice(0, 5).map(item => item.broker);
                                         const isCurrentlyActive = brokerSelectionMode.top5sell;
                                         
                                         if (isCurrentlyActive) {
+                                          // Remove top 5 sellers from selection
                                           setSelectedBrokers(prev => prev.filter(b => !top5Sell.includes(b)));
                                           setBrokerSelectionMode(prev => ({ ...prev, top5sell: false }));
                                         } else {
+                                          // Add top 5 sellers to selection (merge with existing)
                                           setSelectedBrokers(prev => {
                                             const newSet = new Set([...prev, ...top5Sell]);
                                             return Array.from(newSet);
@@ -3797,21 +3884,55 @@ const visibleBrokers = useMemo(
                                         }
                                         setHasUserSelectedBrokers(false);
                                         setBrokerSearch('');
-                                      }
-                                    }}
-                                    tabIndex={0}
-                                    role="option"
-                                    aria-selected={brokerSelectionMode.top5sell}
-                                    className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm font-medium ${highlightedBrokerIndex === 1 ? 'bg-accent' : ''} ${brokerSelectionMode.top5sell ? 'bg-primary/20' : ''}`}
-                                  >
-                                    📉 Top 5 Sell {brokerSelectionMode.top5sell ? '✓' : ''}
+                                        // Reset shouldFetchData to prevent auto-reload until Show is clicked
+                                        setShouldFetchData(false);
+                                        console.log(`✅ Top 5 Sell ${isCurrentlyActive ? 'deselected' : 'selected'}:`, {
+                                          top5Sell,
+                                          count: top5Sell.length,
+                                          willAppearInLegend: !isCurrentlyActive
+                                        });
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          if (brokerNetStats.topSellers.length === 0) {
+                                            return;
+                                          }
+                                          const top5Sell = brokerNetStats.topSellers.slice(0, 5).map(item => item.broker);
+                                          const isCurrentlyActive = brokerSelectionMode.top5sell;
+                                          
+                                          if (isCurrentlyActive) {
+                                            setSelectedBrokers(prev => prev.filter(b => !top5Sell.includes(b)));
+                                            setBrokerSelectionMode(prev => ({ ...prev, top5sell: false }));
+                                          } else {
+                                            setSelectedBrokers(prev => {
+                                              const newSet = new Set([...prev, ...top5Sell]);
+                                              return Array.from(newSet);
+                                            });
+                                            setBrokerSelectionMode(prev => ({ ...prev, top5sell: true }));
+                                          }
+                                          setHasUserSelectedBrokers(false);
+                                          setBrokerSearch('');
+                                          // Reset shouldFetchData to prevent auto-reload until Show is clicked
+                                          setShouldFetchData(false);
+                                        }
+                                      }}
+                                      tabIndex={brokerNetStats.topSellers.length > 0 ? 0 : -1}
+                                      role="option"
+                                      aria-selected={brokerSelectionMode.top5sell}
+                                      aria-disabled={brokerNetStats.topSellers.length === 0}
+                                      className={`px-3 py-[2.06px] text-sm font-medium ${brokerNetStats.topSellers.length === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-muted cursor-pointer'} ${highlightedBrokerIndex === 1 ? 'bg-accent' : ''} ${brokerSelectionMode.top5sell ? 'bg-primary/20' : ''}`}
+                                    >
+                                      📉 Top 5 Sell {brokerSelectionMode.top5sell ? '✓' : ''} {brokerNetStats.topSellers.length === 0 && !isLoadingBrokerData && !isDataReady && '(Click Show to load)'}
+                                    </div>
+                                  </>
+                                )}
+                                {brokerSearch !== '' && (
+                                  <div className="px-3 py-[2.06px] text-xs text-muted-foreground">
+                                    Quick Select unavailable while searching
                                   </div>
-                                </>
-                              ) : (
-                                <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                  Quick Select
-                                </div>
-                              )}
+                                )}
                               </div>
                             </div>
                           )}
@@ -3821,11 +3942,11 @@ const visibleBrokers = useMemo(
                   </div>
 
                   {/* Date Range */}
-                  <div className="flex flex-row items-center gap-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
                     <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
                     <div 
-                      className="relative h-9 w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                      className="relative h-9 flex-1 sm:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
                       onClick={() => triggerDatePicker(startDateRef)}
                     >
                       <input
@@ -3884,9 +4005,9 @@ const visibleBrokers = useMemo(
                         <Calendar className="w-4 h-4 text-muted-foreground" />
                       </div>
                     </div>
-                    <span className="text-sm text-muted-foreground whitespace-nowrap">to</span>
+                    <span className="text-sm text-muted-foreground whitespace-nowrap hidden sm:inline">to</span>
                     <div 
-                      className="relative h-9 w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                      className="relative h-9 flex-1 sm:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
                       onClick={() => triggerDatePicker(endDateRef)}
                     >
                       <input
@@ -3943,18 +4064,22 @@ const visibleBrokers = useMemo(
                   </div>
                 </div>
 
-                  {/* Show Button */}
-                  <button
-                    onClick={() => {
-                      // Set shouldFetchData to true to trigger data fetch
-                      setShouldFetchData(true);
-                      setIsDataReady(false);
-                    }}
-                    disabled={isLoadingData || isLoadingBrokerData || selectedBrokers.length === 0 || !startDate || !endDate || !getActualTicker}
-                    className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center"
-                  >
-                    Show
-                  </button>
+                {/* Show Button */}
+                <button
+                  onClick={() => {
+                    // Set shouldFetchData to true to trigger data fetch
+                    setShouldFetchData(true);
+                    setIsDataReady(false);
+                    // Set loading states immediately to show loading spinner right away
+                    setIsLoadingData(true);
+                    setIsLoadingBrokerData(true);
+                    setIsLoadingInventoryData(true);
+                  }}
+                  disabled={isLoadingData || isLoadingBrokerData || selectedBrokers.length === 0 || !startDate || !endDate || !getActualTicker}
+                  className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full sm:w-auto"
+                >
+                  Show
+                </button>
                 </div>
               </div>
               {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
@@ -3963,10 +4088,21 @@ const visibleBrokers = useMemo(
           )}
 
 
-          {/* Conditional Chart Rendering - Only show when data is ready */}
-          {isDataReady && (
-            <>
-              {onlyShowInventoryChart ? (
+          {/* Loading State - Show when data is loading but not ready yet */}
+          {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
+            <div className="flex items-center justify-center py-16">
+              <div className="flex flex-col items-center gap-3">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                <div className="text-sm text-muted-foreground">
+                  Loading ticker and broker data...
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Chart Rendering - Only show when data is ready */}
+          {isDataReady ? (
+            onlyShowInventoryChart ? (
             // Only show Broker Inventory Chart
             <Card>
               <CardHeader>
@@ -3979,34 +4115,28 @@ const visibleBrokers = useMemo(
                   </div>
                 </div>
               </CardHeader>
-              <CardContent>
+                <CardContent className="relative">
+                  {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
+                    <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
+                      <div className="flex flex-col items-center gap-2">
+                        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                        <div className="text-xs text-muted-foreground">
+                          Loading ticker and broker data...
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 <div className="flex flex-col lg:flex-row gap-4">
                   <div className="flex-1 relative">
-                  {(isLoadingData || isLoadingInventoryData) && (
-                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-                      <div className="flex flex-col items-center gap-2">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
-                        <div className="text-xs text-muted-foreground">Loading broker inventory...</div>
-                      </div>
-                    </div>
-                  )}
-                  {!isLoadingData && !isLoadingInventoryData && isDataReady && inventoryData.length === 0 && selectedBrokers.length > 0 && (
+                  {selectedBrokers.length === 0 && !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && (
                     <div className="flex items-center justify-center h-80 text-muted-foreground">
                       <div className="text-center">
-                        <p>No inventory data available for selected brokers</p>
-                        <p className="text-xs mt-2">Data may not be available for the selected date range</p>
+                        <p>No brokers selected</p>
+                        <p className="text-xs mt-2">Select brokers above to view cumulative net flow</p>
                       </div>
                     </div>
                   )}
-                  {!isLoadingData && !isLoadingInventoryData && isDataReady && inventoryData.length > 0 && selectedBrokers.length > 0 && visibleBrokers.length === 0 && (
-                    <div className="flex items-center justify-center h-80 text-muted-foreground">
-                      <div className="text-center">
-                        <p>No visible brokers</p>
-                        <p className="text-xs mt-2">Enable broker visibility in the legend to view chart</p>
-                      </div>
-                    </div>
-                  )}
-                  {!isLoadingData && !isLoadingInventoryData && isDataReady && inventoryData.length > 0 && selectedBrokers.length > 0 && visibleBrokers.length > 0 && (
+                  {isDataReady && selectedBrokers.length > 0 && inventoryData.length > 0 && visibleBrokers.length > 0 && (
                     <InventoryChart
                       key={`inventory-${visibleBrokers.join('-')}`}
                       inventoryData={inventoryData}
@@ -4014,19 +4144,27 @@ const visibleBrokers = useMemo(
                       displayBrokers={visibleBrokers}
                     />
                   )}
-                  {!isDataReady && !isLoadingData && !isLoadingInventoryData && (
+                  {selectedBrokers.length > 0 && !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && inventoryData.length > 0 && visibleBrokers.length === 0 && (
+                    <div className="flex items-center justify-center h-80 text-muted-foreground">
+                      <div className="text-center">
+                        <p>No visible brokers</p>
+                        <p className="text-xs mt-2">Enable broker visibility in the legend to view chart</p>
+                      </div>
+                    </div>
+                  )}
+                  {selectedBrokers.length > 0 && !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && inventoryData.length === 0 && isDataReady && (
+                    <div className="flex items-center justify-center h-80 text-muted-foreground">
+                      <div className="text-center">
+                        <p>No inventory data available for selected brokers</p>
+                        <p className="text-xs mt-2">Data may not be available for the selected date range</p>
+                      </div>
+                    </div>
+                  )}
+                  {selectedBrokers.length > 0 && !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && !isDataReady && (
                     <div className="flex items-center justify-center h-80 text-muted-foreground">
                       <div className="text-center">
                         <p>No data loaded</p>
                         <p className="text-xs mt-2">Click Show button to load data</p>
-                      </div>
-                    </div>
-                  )}
-                  {selectedBrokers.length === 0 && !isLoadingData && !isLoadingInventoryData && (
-                    <div className="flex items-center justify-center h-80 text-muted-foreground">
-                      <div className="text-center">
-                        <p>No brokers selected</p>
-                        <p className="text-xs mt-2">Select brokers above to view cumulative net flow</p>
                       </div>
                     </div>
                   )}
@@ -4069,7 +4207,7 @@ const visibleBrokers = useMemo(
                 </div>
               </CardContent>
             </Card>
-          ) : splitVisualization ? (
+            ) : splitVisualization ? (
             // Split View - Separate Charts
             <>
               {/* Price Chart */}
@@ -4077,7 +4215,7 @@ const visibleBrokers = useMemo(
                 <CardHeader>
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="flex-1 min-w-[200px]">
-                      <CardTitle>{selectedTicker} Price Action</CardTitle>
+                      <CardTitle>{displayedTicker} Price Action</CardTitle>
                       <p className="text-sm text-muted-foreground">
                         Candlestick chart showing price movements
                       </p>
@@ -4106,16 +4244,26 @@ const visibleBrokers = useMemo(
                   </div>
                 </CardHeader>
                 <CardContent className="relative">
-                  {(isLoadingData || isLoadingBrokerData) && (
-                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+                  {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
+                    <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
                       <div className="flex flex-col items-center gap-2">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
-                        <div className="text-xs text-muted-foreground">Loading stock...</div>
+                        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                        <div className="text-xs text-muted-foreground">
+                          Loading ticker and broker data...
+                        </div>
                       </div>
                     </div>
                   )}
-                  {!isLoadingData && candlestickData.length > 0 && (
+                  {isDataReady && candlestickData.length > 0 && (
                     <PriceChart candlestickData={candlestickData} />
+                  )}
+                  {!isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && candlestickData.length === 0 && (
+                    <div className="flex items-center justify-center h-80 text-muted-foreground">
+                      <div className="text-center">
+                        <p>No price data available</p>
+                        <p className="text-xs mt-2">Click Show button to load data</p>
+                      </div>
+                    </div>
                   )}
                 </CardContent>
               </Card>
@@ -4130,26 +4278,28 @@ const visibleBrokers = useMemo(
                     </p>
                   </div>
                 </CardHeader>
-              <CardContent>
+              <CardContent className="relative">
+                {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
+                  <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
+                    <div className="flex flex-col items-center gap-2">
+                      <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                      <div className="text-xs text-muted-foreground">
+                        Loading ticker and broker data...
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div className="flex flex-col lg:flex-row gap-4">
                   <div className="flex-1 relative">
-                    {(isLoadingData || isLoadingInventoryData) && (
-                      <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-                        <div className="flex flex-col items-center gap-2">
-                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
-                          <div className="text-xs text-muted-foreground">Loading broker inventory...</div>
-                        </div>
-                      </div>
+                    {isDataReady && selectedBrokers.length > 0 && inventoryData.length > 0 && visibleBrokers.length > 0 && (
+                      <InventoryChart
+                        key={`inventory-split-${visibleBrokers.join('-')}`}
+                        inventoryData={inventoryData}
+                        selectedBrokers={selectedBrokers}
+                        displayBrokers={visibleBrokers}
+                      />
                     )}
-                    {!isLoadingData && !isLoadingInventoryData && inventoryData.length === 0 && selectedBrokers.length > 0 && (
-                      <div className="flex items-center justify-center h-80 text-muted-foreground">
-                        <div className="text-center">
-                          <p>No inventory data available for selected brokers</p>
-                          <p className="text-xs mt-2">Data may not be available for the selected date range</p>
-                        </div>
-                      </div>
-                    )}
-                    {!isLoadingData && !isLoadingInventoryData && inventoryData.length > 0 && selectedBrokers.length > 0 && visibleBrokers.length === 0 && (
+                    {selectedBrokers.length > 0 && !isLoadingData && !isLoadingInventoryData && inventoryData.length > 0 && visibleBrokers.length === 0 && (
                       <div className="flex items-center justify-center h-80 text-muted-foreground">
                         <div className="text-center">
                           <p>No visible brokers</p>
@@ -4157,13 +4307,13 @@ const visibleBrokers = useMemo(
                         </div>
                       </div>
                     )}
-                    {!isLoadingData && !isLoadingInventoryData && inventoryData.length > 0 && selectedBrokers.length > 0 && visibleBrokers.length > 0 && (
-                      <InventoryChart
-                        key={`inventory-split-${visibleBrokers.join('-')}`}
-                        inventoryData={inventoryData}
-                        selectedBrokers={selectedBrokers}
-                        displayBrokers={visibleBrokers}
-                      />
+                    {selectedBrokers.length > 0 && !isLoadingData && !isLoadingInventoryData && inventoryData.length === 0 && isDataReady && (
+                      <div className="flex items-center justify-center h-80 text-muted-foreground">
+                        <div className="text-center">
+                          <p>No inventory data available for selected brokers</p>
+                          <p className="text-xs mt-2">Data may not be available for the selected date range</p>
+                        </div>
+                      </div>
                     )}
                     {selectedBrokers.length === 0 && (
                       <div className="flex items-center justify-center h-80 text-muted-foreground">
@@ -4218,33 +4368,43 @@ const visibleBrokers = useMemo(
                 <CardHeader>
                   <CardTitle>Volume</CardTitle>
                   <p className="text-sm text-muted-foreground">
-                    Trading volume for {selectedTicker}
+                    Trading volume for {displayedTicker}
                   </p>
                 </CardHeader>
                 <CardContent className="relative">
-                  {(isLoadingData || isLoadingBrokerData) && (
-                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+                  {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
+                    <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
                       <div className="flex flex-col items-center gap-2">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
-                        <div className="text-xs text-muted-foreground">Loading volume...</div>
+                        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                        <div className="text-xs text-muted-foreground">
+                          Loading ticker and broker data...
+                        </div>
                       </div>
                     </div>
                   )}
-                  {!isLoadingData && volumeDataForCharts.length > 0 && (
+                  {isDataReady && volumeDataForCharts.length > 0 && (
                     <VolumeChart volumeData={volumeDataForCharts} candlestickData={candlestickData} showLabel={true} />
+                  )}
+                  {!isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData && volumeDataForCharts.length === 0 && (
+                    <div className="flex items-center justify-center h-80 text-muted-foreground">
+                      <div className="text-center">
+                        <p>No volume data available</p>
+                        <p className="text-xs mt-2">Click Show button to load data</p>
+                      </div>
+                    </div>
                   )}
                 </CardContent>
               </Card>
             </>
           ) : (
-            // Combined View - Original Layout
+            // Combined View - Original Layout (only render when isDataReady is true)
             <>
               {/* Main TradingView Chart */}
               <Card>
                 <CardHeader>
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="flex-1 min-w-[200px]">
-                  <CardTitle>{selectedTicker} Inventory Analysis</CardTitle>
+                  <CardTitle>Inventory Analysis</CardTitle>
                   <p className="text-sm text-muted-foreground">
                     Price action (right Y-axis) with broker cumulative net flow (left Y-axis, starting from 0)
                   </p>
@@ -4272,22 +4432,22 @@ const visibleBrokers = useMemo(
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent>
-                  <div className="flex flex-col lg:flex-row gap-4">
-                    <div className="flex-1 relative">
-                    {(isLoadingData || isLoadingInventoryData) && (
-                      <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-                        <div className="flex flex-col items-center gap-3">
-                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                          <div className="text-sm text-muted-foreground">
-                            {isLoadingData ? 'Loading stock data...' : 'Loading broker data...'}
-                          </div>
+                <CardContent className="relative">
+                  {!isDataReady && (isLoadingData || isLoadingBrokerData || isLoadingInventoryData) && (
+                    <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
+                      <div className="flex flex-col items-center gap-3">
+                        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                        <div className="text-sm text-muted-foreground">
+                          Loading ticker and broker data...
                         </div>
                       </div>
-                    )}
+                    </div>
+                  )}
+                  <div className="flex flex-col lg:flex-row gap-4">
+                    <div className="flex-1 relative">
                     
                     {(dataError || brokerDataError) && !isLoadingData && !isLoadingBrokerData && (
-                      <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+                      <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg">
                         <div className="flex flex-col items-center gap-3 text-center p-6 max-w-md">
                           <div className="text-4xl">⚠️</div>
                           <div className="text-sm text-muted-foreground">
@@ -4307,7 +4467,7 @@ const visibleBrokers = useMemo(
                       </div>
                     )}
                     
-                    {selectedBrokers.length === 0 && !isLoadingData && !isLoadingInventoryData && (
+                    {isDataReady && selectedBrokers.length === 0 && !isLoadingData && !isLoadingInventoryData && (
                       <div className="flex items-center justify-center h-[600px] text-muted-foreground">
                         <div className="text-center">
                           <p>No brokers selected</p>
@@ -4316,7 +4476,7 @@ const visibleBrokers = useMemo(
                       </div>
                     )}
                     
-                    {selectedBrokers.length > 0 && visibleBrokers.length === 0 && !isLoadingData && !isLoadingInventoryData && (
+                    {isDataReady && selectedBrokers.length > 0 && visibleBrokers.length === 0 && !isLoadingData && !isLoadingInventoryData && (
                       <div className="flex items-center justify-center h-[600px] text-muted-foreground">
                         <div className="text-center">
                           <p>No visible brokers</p>
@@ -4325,15 +4485,16 @@ const visibleBrokers = useMemo(
                       </div>
                     )}
                     
-                    {selectedBrokers.length > 0 && visibleBrokers.length > 0 && (
+                    {isDataReady && selectedBrokers.length > 0 && visibleBrokers.length > 0 && (
                     <TradingViewChart
                         key={`brokers-${visibleBrokers.join('-')}`}
                       candlestickData={candlestickData}
                       inventoryData={inventoryData}
                       selectedBrokers={selectedBrokers}
                       displayBrokers={visibleBrokers}
-                      title={`${selectedTicker} Inventory Analysis`}
+                      title="Inventory Analysis"
                       volumeData={volumeDataForCharts}
+                      ticker={displayedTicker}
                     />
                     )}
                     </div>
@@ -4372,8 +4533,6 @@ const visibleBrokers = useMemo(
                   </div>
                 </CardContent>
               </Card>
-            </>
-          )}
 
               {/* Top Brokers Table - Only show when data is ready */}
               <Card>
@@ -4405,7 +4564,7 @@ const visibleBrokers = useMemo(
               {isLoadingBrokerData ? (
                 <div className="text-center py-8">
                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto mb-2"></div>
-                  <p className="text-sm text-muted-foreground">Loading broker data...</p>
+                  <p className="text-sm text-muted-foreground">Loading ticker and broker data...</p>
                 </div>
               ) : brokerDataError ? (
                 <div className="text-center py-8">
@@ -4474,7 +4633,8 @@ const visibleBrokers = useMemo(
             </CardContent>
           </Card>
             </>
-          )}
+            )
+          ) : null}
 
         </div>
       </div>
