@@ -385,6 +385,202 @@ export class BrokerTransactionALLCalculator {
   }
 
   /**
+   * Generate ALL.csv (without sector filter) for a specific date and optional parameters
+   * Aggregates all emiten from all brokers (no sector filter) into ALL.csv file (one row per emiten)
+   * This is used when broker "ALL" is selected without sector filter
+   * @param dateSuffix Date string in format YYYYMMDD
+   * @param investorType Optional: 'D' (Domestik), 'F' (Foreign), or '' (all)
+   * @param marketType Optional: 'RG', 'TN', 'NG', or '' (all)
+   */
+  public async generateALLWithoutSector(
+    dateSuffix: string,
+    investorType: 'D' | 'F' | '' = '',
+    marketType: 'RG' | 'TN' | 'NG' | '' = '',
+    progressTracker?: ProgressTracker
+  ): Promise<{ success: boolean; message: string; file?: string; brokerCount?: number }> {
+    try {
+      // Validate dateSuffix format (YYYYMMDD - 8 digits)
+      if (!dateSuffix || !/^\d{8}$/.test(dateSuffix)) {
+        const errorMsg = `Invalid dateSuffix format: ${dateSuffix}. Expected YYYYMMDD (8 digits)`;
+        console.error(`❌ ${errorMsg}`);
+        return {
+          success: false,
+          message: errorMsg
+        };
+      }
+
+      // Validate investorType
+      if (investorType && !['D', 'F', ''].includes(investorType)) {
+        const errorMsg = `Invalid investorType: ${investorType}. Expected 'D', 'F', or ''`;
+        console.error(`❌ ${errorMsg}`);
+        return {
+          success: false,
+          message: errorMsg
+        };
+      }
+
+      // Validate marketType
+      if (marketType && !['RG', 'TN', 'NG', ''].includes(marketType)) {
+        const errorMsg = `Invalid marketType: ${marketType}. Expected 'RG', 'TN', 'NG', or ''`;
+        console.error(`❌ ${errorMsg}`);
+        return {
+          success: false,
+          message: errorMsg
+        };
+      }
+
+      // Determine folder path based on parameters (same logic as generateALL)
+      let folderPrefix: string;
+      if (investorType && marketType) {
+        const invPrefix = investorType === 'D' ? 'd' : 'f';
+        const marketLower = marketType.toLowerCase();
+        folderPrefix = `broker_transaction_${marketLower}_${invPrefix}/broker_transaction_${marketLower}_${invPrefix}_${dateSuffix}`;
+      } else if (investorType) {
+        const invPrefix = investorType === 'D' ? 'd' : 'f';
+        folderPrefix = `broker_transaction/broker_transaction_${invPrefix}_${dateSuffix}`;
+      } else if (marketType) {
+        const marketLower = marketType.toLowerCase();
+        folderPrefix = `broker_transaction_${marketLower}/broker_transaction_${marketLower}_${dateSuffix}`;
+      } else {
+        folderPrefix = `broker_transaction/broker_transaction_${dateSuffix}`;
+      }
+
+      // Check if ALL.csv already exists - skip if exists
+      const allFilePath = `${folderPrefix}/ALL.csv`;
+      try {
+        const allExists = await exists(allFilePath);
+        if (allExists) {
+          console.log(`⏭️ Skipping ${allFilePath} - ALL.csv already exists`);
+          return {
+            success: true,
+            message: `ALL.csv already exists for ${dateSuffix} (${investorType || 'all'}, ${marketType || 'all'})`,
+            file: allFilePath
+          };
+        }
+      } catch (error) {
+        console.log(`ℹ️ Could not check existence of ${allFilePath}, proceeding with generation`);
+      }
+
+      // List all broker CSV files in the folder
+      console.log(`🔍 Scanning for broker CSV files in: ${folderPrefix}/`);
+      const allFiles = await listPaths({ prefix: `${folderPrefix}/` });
+      
+      // Filter for CSV files with broker codes (2-3 uppercase letters)
+      // Exclude sector files, IDX.csv, and ALL.csv
+      const brokerFiles = allFiles.filter(file => {
+        const fileName = file.split('/').pop() || '';
+        if (!fileName.endsWith('.csv')) return false;
+        if (fileName.toUpperCase() === 'IDX.CSV') return false;
+        if (fileName.toUpperCase() === 'ALL.CSV') return false;
+        // Exclude sector_ALL.csv files
+        if (fileName.toUpperCase().endsWith('_ALL.CSV')) return false;
+        // Exclude sector.csv files (if any)
+        const brokerCode = fileName.replace('.csv', '');
+        // Only include valid broker codes (2-3 uppercase letters)
+        return brokerCode.length >= 2 && brokerCode.length <= 3 && /^[A-Z]+$/.test(brokerCode);
+      });
+
+      if (brokerFiles.length === 0) {
+        console.log(`⚠️ No broker CSV files found in ${folderPrefix}/`);
+        return {
+          success: false,
+          message: `No broker CSV files found in ${folderPrefix}/`
+        };
+      }
+
+      console.log(`📊 Found ${brokerFiles.length} broker CSV files`);
+
+      // Batch processing configuration
+      const BATCH_SIZE = BATCH_SIZE_PHASE_5;
+      const MAX_CONCURRENT = MAX_CONCURRENT_REQUESTS_PHASE_5;
+
+      // Read and parse all broker CSV files in batches (NO sector filter - aggregate all emitens)
+      const allBrokerData: BrokerTransactionData[] = [];
+      
+      for (let i = 0; i < brokerFiles.length; i += BATCH_SIZE) {
+        const batch = brokerFiles.slice(i, i + BATCH_SIZE);
+        const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(brokerFiles.length / BATCH_SIZE);
+        
+        console.log(`📦 Processing broker batch ${batchNum}/${totalBatches} (${batch.length} files)...`);
+        
+        const batchPromises = batch.map(async (file) => {
+          try {
+            const pathParts = file.split('/');
+            const brokerCode = pathParts[pathParts.length - 1]?.replace('.csv', '') || 'unknown';
+            
+            const csvContent = await downloadTextUtil(file);
+            if (!csvContent) {
+              throw new Error(`Could not load broker transaction data from ${file}`);
+            }
+            
+            const brokerData = this.parseCSV(csvContent);
+            // NO sector filter - include all emitens
+            return { brokerCode, brokerData, success: true };
+          } catch (error: any) {
+            const brokerCode = file.split('/').pop()?.replace('.csv', '') || 'unknown';
+            console.warn(`  ⚠️ Failed to process ${brokerCode}: ${error.message}`);
+            return { brokerCode, brokerData: [], success: false };
+          }
+        });
+        const batchResults = await limitConcurrency(batchPromises, MAX_CONCURRENT);
+        
+        batchResults.forEach((result: any) => {
+          if (result && result.success) {
+            allBrokerData.push(...result.brokerData);
+            console.log(`  ✓ Processed ${result.brokerCode}: ${result.brokerData.length} emitens`);
+          }
+        });
+        
+        if (i + BATCH_SIZE < brokerFiles.length) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+      }
+
+      if (allBrokerData.length === 0) {
+        console.log(`⚠️ No broker data found for ${dateSuffix}`);
+        return {
+          success: false,
+          message: `No broker data found for ${dateSuffix}`
+        };
+      }
+
+      console.log(`📈 Total emiten records: ${allBrokerData.length}`);
+
+      // Aggregate all emiten data into ALL (multiple rows, one per emiten, aggregating across all brokers)
+      const aggregatedData = this.aggregateBrokerData(allBrokerData);
+      console.log(`📊 Aggregated to ${aggregatedData.length} unique emitens for ALL.csv (from ${allBrokerData.length} emiten records)`);
+
+      // Convert to CSV
+      const csvContentOutput = this.convertToCSV(aggregatedData);
+
+      // Save ALL.csv to the same folder
+      await uploadText(allFilePath, csvContentOutput, 'text/csv');
+
+      const brokerCount = brokerFiles.length;
+      console.log(`✅ Successfully created ${allFilePath} with aggregated ALL data from ${brokerCount} brokers`);
+
+      if (progressTracker && brokerCount > 0) {
+        progressTracker.processedBrokers += brokerCount;
+        await progressTracker.updateProgress();
+      }
+
+      return {
+        success: true,
+        message: `ALL.csv created successfully with ${aggregatedData.length} unique emitens aggregated from ${brokerCount} brokers`,
+        file: allFilePath,
+        brokerCount
+      };
+    } catch (error: any) {
+      console.error(`❌ Error generating ALL.csv:`, error);
+      return {
+        success: false,
+        message: `Failed to generate ALL.csv: ${error.message}`
+      };
+    }
+  }
+
+  /**
    * Generate ALL.csv for a specific date, sector, and optional parameters
    * Aggregates all emiten from all brokers in the sector into ALL.csv file (one row per emiten)
    * @param dateSuffix Date string in format YYYYMMDD
