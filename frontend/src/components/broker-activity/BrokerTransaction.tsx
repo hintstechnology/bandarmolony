@@ -535,8 +535,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       // Validation: For Broker pivot, need brokers OR sectors. For Stock pivot, need tickers OR sectors.
       if (pivotFilter === 'Broker') {
         // For Broker pivot: if sector is selected, fetch {sector}_ALL.csv; otherwise need brokers
-        // Allow empty brokers if "ALL" is selected (will fetch all brokers)
-        const hasBrokersOrAll = selectedBrokers.length > 0 || selectedBrokers.includes('ALL');
+        // "ALL" broker is only valid if sector is also selected (will fetch {sector}_ALL.csv)
+        const hasIndividualBrokers = selectedBrokers.length > 0 && !selectedBrokers.includes('ALL');
+        const hasAllWithSector = selectedBrokers.includes('ALL') && selectedSectors.length > 0;
+        const hasBrokersOrAll = hasIndividualBrokers || hasAllWithSector;
         if ((pivotFilter === 'Broker' && !hasBrokersOrAll && selectedSectors.length === 0) || selectedDates.length === 0) {
           setTransactionData(new Map());
           setRawTransactionData(new Map()); // Clear raw data too
@@ -605,21 +607,20 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             })
           : selectedDates.flatMap(date => {
               // For Broker pivot: 
-              // - If sector is selected: fetch {sector}_ALL.csv (already aggregated in backend)
-              // - If broker "ALL" is selected (with or without sector): fetch {sector}_ALL.csv if sector exists, otherwise fetch all broker files
+              // - If broker "ALL" is selected: only fetch {sector}_ALL.csv if sector exists, otherwise return empty (no fetch)
+              // - If sector is selected (without ALL): fetch {sector}_ALL.csv (already aggregated in backend)
               // - Otherwise: fetch individual broker files
-              if (selectedSectors.length > 0) {
-                // Fetch {sector}_ALL.csv for each selected sector (already aggregated in backend)
-                // This is much faster than fetching all individual broker files
-                return selectedSectors.map((sector: string) => ({ code: `${sector}_ALL`, date, type: 'broker' as const }));
-              } else if (selectedBrokers.includes('ALL')) {
-                // Broker "ALL" selected but no sector: fetch all available broker files
-                // Note: This is less efficient, but needed when no sector is selected
-                const brokersToFetch = availableBrokers.length > 0 ? availableBrokers : [];
-                if (brokersToFetch.length === 0) {
+              if (selectedBrokers.includes('ALL')) {
+                // Broker "ALL" selected: only fetch {sector}_ALL.csv if sector exists
+                if (selectedSectors.length > 0) {
+                  return selectedSectors.map((sector: string) => ({ code: `${sector}_ALL`, date, type: 'broker' as const }));
+                } else {
+                  // No sector selected with ALL: return empty (don't fetch all individual brokers)
                   return [];
                 }
-                return brokersToFetch.map((broker: string) => ({ code: broker, date, type: 'broker' as const }));
+              } else if (selectedSectors.length > 0) {
+                // Sector selected but no ALL: fetch {sector}_ALL.csv for each selected sector
+                return selectedSectors.map((sector: string) => ({ code: `${sector}_ALL`, date, type: 'broker' as const }));
               } else {
                 // Fetch individual broker files (specific brokers selected)
                 const brokersToFetch = selectedBrokers.filter(b => b !== 'ALL');
@@ -786,7 +787,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             let filteredRows = allRows;
             
             // Priority 1: Filter by broker (if selectedBrokers is provided)
-            if (selectedBrokers.length > 0) {
+            // Skip filtering if "ALL" is selected, as data already contains all brokers
+            if (selectedBrokers.length > 0 && !selectedBrokers.includes('ALL')) {
               // Normalize selected brokers to uppercase for case-insensitive comparison
               const normalizedSelectedBrokers = selectedBrokers.map(b => b.toUpperCase());
               
@@ -1209,8 +1211,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   // Handle broker selection
   const handleBrokerSelect = (broker: string) => {
     if (broker === 'ALL') {
-      // Select all available brokers
-      setSelectedBrokers([...availableBrokers]);
+      // Set only 'ALL', not all individual brokers
+      setSelectedBrokers(['ALL']);
     } else if (!selectedBrokers.includes(broker)) {
       setSelectedBrokers([...selectedBrokers, broker]);
       // CRITICAL: Keep existing data visible - no auto-fetch, no hide tables
