@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
-import { Calendar, Grid3X3, Search, Loader2, GripVertical, X } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
+import { Calendar, Grid3X3, Search, Loader2, GripVertical, X, Settings, Info } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 import { api } from '../../services/api';
 import { STOCK_LIST, searchStocks } from '../../data/stockList';
@@ -139,6 +140,16 @@ export function StockTransactionDoneDetail() {
 
   // Drag and Drop Pivot Configuration
   const [draggedField, setDraggedField] = useState<string | null>(null);
+  const [draggedFromSource, setDraggedFromSource] = useState<'available' | 'rows' | 'columns' | 'filters' | null>(null);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null); // For reordering within same area
+  const [touchDragState, setTouchDragState] = useState<{
+    isDragging: boolean;
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+  } | null>(null);
+  const [dropZoneHighlight, setDropZoneHighlight] = useState<'rows' | 'columns' | 'filters' | 'available' | null>(null);
   const [pivotConfig, setPivotConfig] = useState<{
     rows: string[];
     columns: string[];
@@ -162,6 +173,21 @@ export function StockTransactionDoneDetail() {
   // Filter search states
   const [filterSearchTerms, setFilterSearchTerms] = useState<{ [key: string]: string }>({});
   const [openFilterDropdowns, setOpenFilterDropdowns] = useState<{ [key: string]: boolean }>({});
+
+  // Modal state for pivot builder
+  const [isPivotBuilderOpen, setIsPivotBuilderOpen] = useState(false);
+  const [tempPivotConfig, setTempPivotConfig] = useState(pivotConfig);
+  const [tempFilterSearchTerms, setTempFilterSearchTerms] = useState<{ [key: string]: string }>({});
+  const [tempOpenFilterDropdowns, setTempOpenFilterDropdowns] = useState<{ [key: string]: boolean }>({});
+
+  // Sync tempPivotConfig when pivotConfig changes (but not when modal opens)
+  useEffect(() => {
+    if (!isPivotBuilderOpen) {
+      setTempPivotConfig(pivotConfig);
+      setTempFilterSearchTerms(filterSearchTerms);
+      setTempOpenFilterDropdowns(openFilterDropdowns);
+    }
+  }, [pivotConfig, filterSearchTerms, openFilterDropdowns, isPivotBuilderOpen]);
 
   // Available fields for pivot
   const availableFields = [
@@ -604,6 +630,245 @@ export function StockTransactionDoneDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pivotConfig, pivotMode, isDataReady, selectedDates]);
 
+  // Helper function to get element at touch point
+  const getElementAtPoint = (x: number, y: number): Element | null => {
+    if (typeof document !== 'undefined') {
+      return document.elementFromPoint(x, y);
+    }
+    return null;
+  };
+
+  // Helper function to find drop zone from element
+  const findDropZone = (element: Element | null): 'rows' | 'columns' | 'filters' | 'available' | null => {
+    if (!element) return null;
+    
+    let current: Element | null = element;
+    while (current) {
+      if (current.hasAttribute && current.hasAttribute('data-drop-zone')) {
+        const zone = current.getAttribute('data-drop-zone');
+        if (zone === 'rows' || zone === 'columns' || zone === 'filters' || zone === 'available') {
+          return zone;
+        }
+      }
+      current = current.parentElement;
+    }
+    return null;
+  };
+
+  // Handle drop logic (shared for mouse and touch) - uses regular pivotConfig
+  const handleDrop = (
+    fieldId: string,
+    source: 'available' | 'rows' | 'columns' | 'filters',
+    sourceIndex: number | null,
+    targetZone: 'rows' | 'columns' | 'filters' | null
+  ) => {
+    if (!fieldId || !targetZone) {
+      return;
+    }
+
+    // Don't do anything if dropping in the same zone (unless moving position within same zone - not implemented yet)
+    if (source === targetZone && source !== 'available') {
+      return;
+    }
+
+    setPivotConfig(prev => {
+      const newConfig = { ...prev };
+
+      // Remove from source (only if not from available)
+      if (source === 'rows' && sourceIndex !== null) {
+        newConfig.rows = prev.rows.filter((_, i) => i !== sourceIndex);
+        if (prev.sort?.field === fieldId) {
+          delete newConfig.sort;
+        }
+      } else if (source === 'columns' && sourceIndex !== null) {
+        newConfig.columns = prev.columns.filter((_, i) => i !== sourceIndex);
+      } else if (source === 'filters' && sourceIndex !== null) {
+        newConfig.filters = prev.filters.filter((_, i) => i !== sourceIndex);
+      }
+
+      // Add to target
+      if (targetZone === 'rows') {
+        const isInRows = newConfig.rows.includes(fieldId);
+        if (!isInRows) {
+          newConfig.rows = [...newConfig.rows, fieldId];
+        }
+      } else if (targetZone === 'columns') {
+        const isInColumns = newConfig.columns.includes(fieldId);
+        if (!isInColumns) {
+          newConfig.columns = [...newConfig.columns, fieldId];
+        }
+      } else if (targetZone === 'filters') {
+        const isInFilters = newConfig.filters.some(f => f.field === fieldId);
+        if (!isInFilters) {
+          const filterType = fieldId === 'TRX_TIME' ? 'timeRange' : 'list';
+          let initialValues: string[] = [];
+          
+          if (filterType === 'list') {
+            const allData = selectedDates.flatMap(date => doneDetailData.get(date) || []);
+            const uniqueValuesSet = new Set<string>();
+            allData.forEach(item => {
+              const value = item[fieldId as keyof DoneDetailData];
+              if (fieldId === 'HAKA_HAKI') {
+                uniqueValuesSet.add(value === 1 ? 'HAKA' : 'HAKI');
+              } else {
+                uniqueValuesSet.add(String(value || ''));
+              }
+            });
+            initialValues = Array.from(uniqueValuesSet);
+          }
+
+          const newFilter: any = {
+            field: fieldId,
+            values: initialValues,
+            filterType
+          };
+          if (filterType === 'timeRange') {
+            newFilter.timeRange = { start: '08:00', end: '16:00' };
+          }
+
+          newConfig.filters = [...newConfig.filters, newFilter];
+        }
+      }
+
+      setPivotMode('custom');
+      return newConfig;
+    });
+  };
+
+  // Handle drop logic for temp state (used in Dialog)
+  const handleDropTemp = (
+    fieldId: string,
+    source: 'available' | 'rows' | 'columns' | 'filters',
+    sourceIndex: number | null,
+    targetZone: 'rows' | 'columns' | 'filters' | 'available' | null
+  ) => {
+    if (!fieldId || !targetZone) {
+      return;
+    }
+
+    if (source === targetZone && source !== 'available') {
+      return;
+    }
+
+    setTempPivotConfig(prev => {
+      const newConfig = { ...prev };
+
+      // Remove from source
+      if (source === 'rows' && sourceIndex !== null) {
+        newConfig.rows = prev.rows.filter((_, i) => i !== sourceIndex);
+        if (prev.sort?.field === fieldId) {
+          delete newConfig.sort;
+        }
+      } else if (source === 'columns' && sourceIndex !== null) {
+        newConfig.columns = prev.columns.filter((_, i) => i !== sourceIndex);
+      } else if (source === 'filters' && sourceIndex !== null) {
+        newConfig.filters = prev.filters.filter((_, i) => i !== sourceIndex);
+      }
+
+      // If dropping to available fields, just remove (don't add anything)
+      if (targetZone === 'available') {
+        return newConfig;
+      }
+
+      if (targetZone === 'rows') {
+        const isInRows = newConfig.rows.includes(fieldId);
+        if (!isInRows) {
+          newConfig.rows = [...newConfig.rows, fieldId];
+        }
+      } else if (targetZone === 'columns') {
+        const isInColumns = newConfig.columns.includes(fieldId);
+        if (!isInColumns) {
+          newConfig.columns = [...newConfig.columns, fieldId];
+        }
+      } else if (targetZone === 'filters') {
+        const isInFilters = newConfig.filters.some(f => f.field === fieldId);
+        if (!isInFilters) {
+          const filterType = fieldId === 'TRX_TIME' ? 'timeRange' : 'list';
+          let initialValues: string[] = [];
+          
+          if (filterType === 'list') {
+            const allData = selectedDates.flatMap(date => doneDetailData.get(date) || []);
+            const uniqueValuesSet = new Set<string>();
+            allData.forEach(item => {
+              const value = item[fieldId as keyof DoneDetailData];
+              if (fieldId === 'HAKA_HAKI') {
+                uniqueValuesSet.add(value === 1 ? 'HAKA' : 'HAKI');
+              } else {
+                uniqueValuesSet.add(String(value || ''));
+              }
+            });
+            initialValues = Array.from(uniqueValuesSet);
+          }
+
+          const newFilter: any = {
+            field: fieldId,
+            values: initialValues,
+            filterType
+          };
+          if (filterType === 'timeRange') {
+            newFilter.timeRange = { start: '08:00', end: '16:00' };
+          }
+
+          newConfig.filters = [...newConfig.filters, newFilter];
+        }
+      }
+
+      return newConfig;
+    });
+  };
+
+  // Touch event handlers for mobile drag and drop
+  useEffect(() => {
+    if (!touchDragState?.isDragging) return;
+
+    const handleTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+      if (touchDragState.isDragging && e.touches.length > 0) {
+        const touch = e.touches[0];
+        setTouchDragState(prev => prev ? {
+          ...prev,
+          currentX: touch.clientX,
+          currentY: touch.clientY
+        } : null);
+
+        // Check which drop zone we're over
+        const element = getElementAtPoint(touch.clientX, touch.clientY);
+        const dropZone = findDropZone(element);
+        setDropZoneHighlight(dropZone);
+      }
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (touchDragState?.isDragging) {
+        if (e.changedTouches.length > 0) {
+          const touch = e.changedTouches[0];
+          const element = getElementAtPoint(touch.clientX, touch.clientY);
+          const dropZone = findDropZone(element);
+
+          if (dropZone && draggedField) {
+            handleDrop(draggedField, draggedFromSource || 'available', draggedIndex, dropZone);
+          }
+        }
+
+        setTouchDragState(null);
+        setDropZoneHighlight(null);
+        setDraggedField(null);
+        setDraggedFromSource(null);
+        setDraggedIndex(null);
+      }
+    };
+
+    document.addEventListener('touchmove', handleTouchMove, { passive: false });
+    document.addEventListener('touchend', handleTouchEnd);
+    document.addEventListener('touchcancel', handleTouchEnd);
+
+    return () => {
+      document.removeEventListener('touchmove', handleTouchMove);
+      document.removeEventListener('touchend', handleTouchEnd);
+      document.removeEventListener('touchcancel', handleTouchEnd);
+    };
+  }, [touchDragState, draggedField, draggedFromSource, draggedIndex, pivotConfig, selectedDates, doneDetailData]);
+
   // Get unique values for filter options
   // const getUniqueValues = (field: keyof DoneDetailData): string[] => {
   //   const allData = selectedDates.flatMap(date => doneDetailData.get(date) || []);
@@ -701,7 +966,7 @@ export function StockTransactionDoneDetail() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="flex flex-col gap-1 w-full sm:w-auto sm:flex-row sm:items-center">
               <Grid3X3 className="w-5 h-5" />
-              Custom Pivot Table ({selectedStock})
+              Pivot Table ({selectedStock})
             </CardTitle>
               </div>
         </CardHeader>
@@ -1398,7 +1663,8 @@ export function StockTransactionDoneDetail() {
                     }
                   }}
                   placeholder="Enter stock code..."
-                className="w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground"
+                className="w-full md:w-32 h-9 min-h-[36px] max-h-[36px] pl-10 pr-4 text-sm border border-input rounded-md bg-background text-foreground box-border flex items-center leading-none"
+                style={{ height: '36px', lineHeight: '36px' }}
                 role="combobox"
                 aria-expanded={showStockSuggestions}
                 aria-controls="stock-suggestions"
@@ -1461,7 +1727,8 @@ export function StockTransactionDoneDetail() {
             <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
             <div className="flex items-center gap-2 w-full md:w-auto">
               <div
-                className="relative h-9 flex-1 md:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                className="relative h-9 min-h-[36px] max-h-[36px] flex-1 md:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors box-border leading-none"
+                style={{ height: '36px' }}
                 onClick={() => triggerDatePicker(startDateRef)}
               >
                   <input
@@ -1491,8 +1758,8 @@ export function StockTransactionDoneDetail() {
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   style={{ caretColor: 'transparent' }}
                 />
-                <div className="flex items-center justify-between h-full px-3">
-                  <span className="text-sm text-foreground">
+                <div className="flex items-center justify-between h-full px-4">
+                  <span className="text-sm text-foreground leading-none">
                     {startDate ? new Date(startDate).toLocaleDateString('en-GB', {
                       day: '2-digit',
                       month: '2-digit',
@@ -1504,7 +1771,8 @@ export function StockTransactionDoneDetail() {
               </div>
               <span className="text-sm text-muted-foreground whitespace-nowrap hidden md:inline">to</span>
               <div
-                className="relative h-9 flex-1 md:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                className="relative h-9 min-h-[36px] max-h-[36px] flex-1 md:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors box-border leading-none"
+                style={{ height: '36px' }}
                 onClick={() => triggerDatePicker(endDateRef)}
               >
                   <input
@@ -1535,8 +1803,8 @@ export function StockTransactionDoneDetail() {
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   style={{ caretColor: 'transparent' }}
                 />
-                <div className="flex items-center justify-between h-full px-3">
-                  <span className="text-sm text-foreground">
+                <div className="flex items-center justify-between h-full px-4">
+                  <span className="text-sm text-foreground leading-none">
                     {endDate ? new Date(endDate).toLocaleDateString('en-GB', {
                       day: '2-digit',
                       month: '2-digit',
@@ -1548,6 +1816,21 @@ export function StockTransactionDoneDetail() {
               </div>
             </div>
           </div>
+
+          {/* Customize Field Button */}
+          <button
+            onClick={() => {
+              setTempPivotConfig(pivotConfig);
+              setTempFilterSearchTerms(filterSearchTerms);
+              setTempOpenFilterDropdowns(openFilterDropdowns);
+              setIsPivotBuilderOpen(true);
+            }}
+            className="h-9 min-h-[36px] max-h-[36px] px-4 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/90 transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center gap-2 w-full md:w-auto box-border leading-none"
+            style={{ height: '36px' }}
+          >
+            <Settings className="w-4 h-4" />
+            Customize Field
+          </button>
 
           {/* Show Button - Generate date array and fetch from Azure */}
           <button
@@ -1592,7 +1875,8 @@ export function StockTransactionDoneDetail() {
               // Data will be fetched automatically via useEffect when selectedDates changes
             }}
             disabled={isLoading || !selectedStock || !startDate || !endDate}
-            className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full md:w-auto"
+            className="h-9 min-h-[36px] max-h-[36px] px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full md:w-auto box-border leading-none"
+            style={{ height: '36px' }}
           >
             Show
           </button>
@@ -1602,38 +1886,78 @@ export function StockTransactionDoneDetail() {
       {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
       <div className="h-0 lg:h-[38px]"></div>
 
+      {/* Pivot Builder Dialog */}
+      <Dialog open={isPivotBuilderOpen} onOpenChange={setIsPivotBuilderOpen}>
+        <DialogContent className="max-w-[90vw] sm:max-w-[80vw] md:max-w-[70vw] lg:max-w-[60vw] max-h-[90vh] flex flex-col p-0">
+          <DialogHeader className="sticky top-0 z-10 bg-background border-b px-4 py-3">
+            <DialogTitle className="text-base">Customize Pivot Table Fields</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto">
+          <div className="py-3">
       {/* Drag and Drop Pivot Builder Section */}
-      <div className="px-4 py-4 border-b border-[#3a4252] bg-[#0a0f20]">
-        {/* Help/Example Section */}
-        <div className="mb-4 p-3 bg-blue-900/20 border border-blue-700/30 rounded-lg">
-          <div className="text-sm font-semibold text-blue-300 mb-2">💡 Contoh Penggunaan:</div>
-          <div className="text-xs text-blue-200 space-y-1">
-            <div><strong>Rows:</strong> Price → Setiap baris = harga yang berbeda</div>
-            <div><strong>Values:</strong> Volume (SUM) → Jumlah total volume per harga</div>
-            <div><strong>Filters:</strong> Buyer Broker = "YP" → Hanya hitung transaksi dari buyer broker YP</div>
-            <div className="mt-2 text-blue-300">Hasil: Tabel dengan kolom Price dan Sum Volume, hanya untuk buyer broker YP</div>
-          </div>
-        </div>
+      <div className="px-3 py-3 border-b border-[#3a4252] bg-[#0a0f20]">
 
-        <div className="flex flex-col lg:flex-row gap-4">
+        <div className="flex flex-col lg:flex-row gap-3">
           {/* Field List (Left Sidebar) */}
-          <div className="w-full lg:w-64 border border-[#3a4252] rounded-lg p-3 bg-[#1a1f30]">
-            <div className="text-sm font-semibold text-foreground mb-3">Available Fields</div>
-            <div className="space-y-1 max-h-96 overflow-y-auto">
+          <div 
+            data-drop-zone="available"
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (draggedField && draggedFromSource && draggedFromSource !== 'available') {
+                handleDropTemp(draggedField, draggedFromSource, draggedIndex, 'available');
+              }
+              setDraggedField(null);
+              setDraggedFromSource(null);
+              setDraggedIndex(null);
+            }}
+            className={`w-full lg:w-1/3 border border-[#3a4252] rounded-lg p-2 bg-[#1a1f30] transition-colors ${
+              dropZoneHighlight === 'available' 
+                ? 'border-primary bg-primary/10' 
+                : ''
+            }`}
+          >
+            <div className="text-xs font-semibold text-foreground mb-2">Available Fields</div>
+            <div className="space-y-1 max-h-80 overflow-y-auto">
               {availableFields.map(field => (
                 <div
                   key={field.id}
                   draggable
                   onDragStart={(e) => {
                     setDraggedField(field.id);
+                    setDraggedFromSource('available');
+                    setDraggedIndex(null);
                     e.dataTransfer.effectAllowed = 'move';
                   }}
-                  onDragEnd={() => setDraggedField(null)}
-                  className="flex items-center gap-2 p-2 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors"
+                  onDragEnd={() => {
+                    setDraggedField(null);
+                    setDraggedFromSource(null);
+                    setDraggedIndex(null);
+                  }}
+                  onTouchStart={(e) => {
+                    const touch = e.touches[0];
+                    setDraggedField(field.id);
+                    setDraggedFromSource('available');
+                    setDraggedIndex(null);
+                    setTouchDragState({
+                      isDragging: true,
+                      startX: touch.clientX,
+                      startY: touch.clientY,
+                      currentX: touch.clientX,
+                      currentY: touch.clientY
+                    });
+                  }}
+                  className="flex items-center gap-1.5 p-1.5 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 active:bg-accent transition-colors touch-none"
+                  style={{
+                    opacity: touchDragState?.isDragging && draggedField === field.id ? 0.5 : 1
+                  }}
                 >
-                  <GripVertical className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-sm text-foreground flex-1">{field.label}</span>
-                  <span className="text-xs text-muted-foreground px-1.5 py-0.5 rounded bg-muted">
+                  <GripVertical className="w-3 h-3 text-muted-foreground" />
+                  <span className="text-xs text-foreground flex-1">{field.label}</span>
+                  <span className="text-xs text-muted-foreground px-1 py-0.5 rounded bg-muted">
                     {field.type === 'measure' ? 'M' : 'D'}
                   </span>
                 </div>
@@ -1642,65 +1966,101 @@ export function StockTransactionDoneDetail() {
           </div>
 
           {/* Pivot Configuration Areas */}
-          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="w-full lg:w-2/3 grid grid-cols-1 md:grid-cols-2 gap-3">
             {/* Rows */}
             <div
+              data-drop-zone="rows"
               onDragOver={(e) => {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'move';
               }}
               onDrop={(e) => {
                 e.preventDefault();
-                const isInRows = pivotConfig.rows.includes(draggedField || '');
-                const isInColumns = pivotConfig.columns.includes(draggedField || '');
-                const isInFilters = pivotConfig.filters.some(f => f.field === draggedField);
-
-                if (draggedField && !isInRows && !isInColumns && !isInFilters) {
-                  setPivotConfig(prev => ({
-                    ...prev,
-                    rows: [...prev.rows, draggedField]
-                  }));
-                  setPivotMode('custom');
+                if (draggedField && draggedFromSource) {
+                  handleDropTemp(draggedField, draggedFromSource, draggedIndex, 'rows');
                 }
                 setDraggedField(null);
+                setDraggedFromSource(null);
+                setDraggedIndex(null);
               }}
-              className="border-2 border-dashed border-[#3a4252] rounded-lg p-3 bg-[#1a1f30] min-h-[120px]"
+              className={`border rounded-lg p-2 bg-[#1a1f30] min-h-[100px] transition-colors ${
+                dropZoneHighlight === 'rows' 
+                  ? 'border-primary bg-primary/10' 
+                  : 'border-[#3a4252]'
+              }`}
             >
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center gap-2 mb-1.5">
                 <div className="text-xs font-semibold text-muted-foreground uppercase">Rows</div>
-                <div className="text-xs text-muted-foreground">(Baris - akan menjadi kolom pertama)</div>
+                <div className="relative group">
+                  <Info className="w-3 h-3 text-muted-foreground cursor-help" />
+                  <div className="absolute left-0 top-full mt-2 w-56 p-2 bg-popover border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[9999] pointer-events-none text-xs">
+                    <div className="text-xs text-popover-foreground mb-1"><strong>Baris - akan menjadi kolom pertama</strong></div>
+                    <div className="text-xs text-muted-foreground">Contoh: Price → setiap baris menampilkan harga yang berbeda</div>
               </div>
-              <div className="text-xs text-muted-foreground mb-2 italic">
-                Contoh: Price → setiap baris menampilkan harga yang berbeda
+                </div>
               </div>
               <div className="space-y-1">
-                {pivotConfig.rows.map((fieldId, idx) => {
+                {tempPivotConfig.rows.map((fieldId, idx) => {
                   const field = availableFields.find(f => f.id === fieldId);
                   const isPrice = fieldId === 'STK_PRIC';
+                  const isDragging = draggedField === fieldId && draggedFromSource === 'rows';
                   return field ? (
-                    <div key={idx} className="p-2 bg-background rounded border border-[#3a4252]">
-                      <div className="flex items-center gap-2">
+                    <div 
+                      key={idx} 
+                      draggable
+                      onDragStart={(e) => {
+                        setDraggedField(fieldId);
+                        setDraggedFromSource('rows');
+                        setDraggedIndex(idx);
+                        e.dataTransfer.effectAllowed = 'move';
+                      }}
+                      onDragEnd={() => {
+                        setDraggedField(null);
+                        setDraggedFromSource(null);
+                        setDraggedIndex(null);
+                      }}
+                      onTouchStart={(e) => {
+                        e.stopPropagation();
+                        const touch = e.touches[0];
+                        setDraggedField(fieldId);
+                        setDraggedFromSource('rows');
+                        setDraggedIndex(idx);
+                        setTouchDragState({
+                          isDragging: true,
+                          startX: touch.clientX,
+                          startY: touch.clientY,
+                          currentX: touch.clientX,
+                          currentY: touch.clientY
+                        });
+                      }}
+                       className={`p-1.5 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${
+                         isDragging ? 'opacity-50' : ''
+                       }`}
+                     >
+                       <div className="flex items-center gap-1.5">
                         <GripVertical className="w-3 h-3 text-muted-foreground" />
-                        <span className="text-sm text-foreground flex-1">{field.label}</span>
+                         <span className="text-xs text-foreground flex-1">{field.label}</span>
                         {isPrice && (
                 <select 
-                            value={pivotConfig.sort?.field === 'STK_PRIC' ? pivotConfig.sort.direction : 'desc'}
+                            value={tempPivotConfig.sort?.field === 'STK_PRIC' ? tempPivotConfig.sort.direction : 'desc'}
                             onChange={(e) => {
-                              setPivotConfig(prev => ({
+                              setTempPivotConfig(prev => ({
                                 ...prev,
                                 sort: { field: 'STK_PRIC', direction: e.target.value as 'asc' | 'desc' }
                               }));
                             }}
-                            className="text-xs bg-background border border-[#3a4252] rounded px-2 py-1"
+                            className="text-[10px] bg-background border border-[#3a4252] rounded px-1 py-0.5 h-5 leading-none"
                             onClick={(e) => e.stopPropagation()}
+                            onTouchStart={(e) => e.stopPropagation()}
                           >
-                            <option value="desc">Descending</option>
-                            <option value="asc">Ascending</option>
+                            <option value="desc">Desc</option>
+                            <option value="asc">Asc</option>
                 </select>
                         )}
                         <button
-                          onClick={() => {
-                            setPivotConfig(prev => {
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setTempPivotConfig(prev => {
                               const newRows = prev.rows.filter((_, i) => i !== idx);
                               // Remove sort if the sorted field is removed
                               if (prev.sort?.field === fieldId) {
@@ -1710,6 +2070,7 @@ export function StockTransactionDoneDetail() {
                               return { ...prev, rows: newRows };
                             });
                           }}
+                          onTouchStart={(e) => e.stopPropagation()}
                           className="text-muted-foreground hover:text-foreground"
                         >
                           <X className="w-3 h-3" />
@@ -1718,7 +2079,7 @@ export function StockTransactionDoneDetail() {
                     </div>
                   ) : null;
                 })}
-                {pivotConfig.rows.length === 0 && (
+                {tempPivotConfig.rows.length === 0 && (
                   <div className="text-xs text-muted-foreground italic py-4 text-center">Drop fields here</div>
                 )}
             </div>
@@ -1726,43 +2087,81 @@ export function StockTransactionDoneDetail() {
 
             {/* Columns */}
             <div
+              data-drop-zone="columns"
               onDragOver={(e) => {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'move';
               }}
               onDrop={(e) => {
                 e.preventDefault();
-                const isInRows = pivotConfig.rows.includes(draggedField || '');
-                const isInColumns = pivotConfig.columns.includes(draggedField || '');
-                const isInFilters = pivotConfig.filters.some(f => f.field === draggedField);
-
-                if (draggedField && !isInRows && !isInColumns && !isInFilters) {
-                  setPivotConfig(prev => ({
-                    ...prev,
-                    columns: [...prev.columns, draggedField]
-                  }));
-                  setPivotMode('custom');
+                if (draggedField && draggedFromSource) {
+                  handleDropTemp(draggedField, draggedFromSource, draggedIndex, 'columns');
                 }
                 setDraggedField(null);
+                setDraggedFromSource(null);
+                setDraggedIndex(null);
               }}
-              className="border-2 border-dashed border-[#3a4252] rounded-lg p-3 bg-[#1a1f30] min-h-[120px]"
+              className={`border rounded-lg p-2 bg-[#1a1f30] min-h-[100px] transition-colors ${
+                dropZoneHighlight === 'columns' 
+                  ? 'border-primary bg-primary/10' 
+                  : 'border-[#3a4252]'
+              }`}
             >
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center gap-2 mb-1.5">
                 <div className="text-xs font-semibold text-muted-foreground uppercase">Columns</div>
-                <div className="text-xs text-muted-foreground">(Kolom - akan menjadi header horizontal)</div>
+                <div className="relative group">
+                  <Info className="w-3 h-3 text-muted-foreground cursor-help" />
+                  <div className="absolute right-0 top-full mt-2 w-56 p-2 bg-popover border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[9999] pointer-events-none text-xs">
+                    <div className="text-xs text-popover-foreground mb-1"><strong>Kolom - akan menjadi header horizontal</strong></div>
+                    <div className="text-xs text-muted-foreground">Contoh: Broker → setiap kolom menampilkan broker yang berbeda</div>
               </div>
-              <div className="text-xs text-muted-foreground mb-2 italic">
-                Contoh: Broker → setiap kolom menampilkan broker yang berbeda
+                </div>
               </div>
               <div className="space-y-1">
-                {pivotConfig.columns.map((fieldId, idx) => {
+                {tempPivotConfig.columns.map((fieldId, idx) => {
                   const field = availableFields.find(f => f.id === fieldId);
+                  const isDragging = draggedField === fieldId && draggedFromSource === 'columns';
                   return field ? (
-                    <div key={idx} className="flex items-center gap-2 p-2 bg-background rounded border border-[#3a4252]">
+                    <div 
+                      key={idx} 
+                      draggable
+                      onDragStart={(e) => {
+                        setDraggedField(fieldId);
+                        setDraggedFromSource('columns');
+                        setDraggedIndex(idx);
+                        e.dataTransfer.effectAllowed = 'move';
+                      }}
+                      onDragEnd={() => {
+                        setDraggedField(null);
+                        setDraggedFromSource(null);
+                        setDraggedIndex(null);
+                      }}
+                      onTouchStart={(e) => {
+                        e.stopPropagation();
+                        const touch = e.touches[0];
+                        setDraggedField(fieldId);
+                        setDraggedFromSource('columns');
+                        setDraggedIndex(idx);
+                        setTouchDragState({
+                          isDragging: true,
+                          startX: touch.clientX,
+                          startY: touch.clientY,
+                          currentX: touch.clientX,
+                          currentY: touch.clientY
+                        });
+                      }}
+                      className={`flex items-center gap-1.5 p-1.5 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${
+                        isDragging ? 'opacity-50' : ''
+                      }`}
+                    >
                       <GripVertical className="w-3 h-3 text-muted-foreground" />
-                      <span className="text-sm text-foreground flex-1">{field.label}</span>
+                      <span className="text-xs text-foreground flex-1">{field.label}</span>
                     <button
-                        onClick={() => setPivotConfig(prev => ({ ...prev, columns: prev.columns.filter((_, i) => i !== idx) }))}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setTempPivotConfig(prev => ({ ...prev, columns: prev.columns.filter((_, i) => i !== idx) }));
+                        }}
+                        onTouchStart={(e) => e.stopPropagation()}
                         className="text-muted-foreground hover:text-foreground"
                     >
                       <X className="w-3 h-3" />
@@ -1770,32 +2169,35 @@ export function StockTransactionDoneDetail() {
                     </div>
                   ) : null;
                 })}
-                {pivotConfig.columns.length === 0 && (
+                {tempPivotConfig.columns.length === 0 && (
                   <div className="text-xs text-muted-foreground italic py-4 text-center">Drop fields here</div>
                 )}
               </div>
             </div>
 
             {/* Values */}
-            <div className="border-2 border-dashed border-[#3a4252] rounded-lg p-3 bg-[#1a1f30] min-h-[120px]">
-              <div className="flex items-center gap-2 mb-2">
+            <div className="border border-[#3a4252] rounded-lg p-2 bg-[#1a1f30] min-h-[100px]">
+              <div className="flex items-center gap-2 mb-1.5">
                 <div className="text-xs font-semibold text-muted-foreground uppercase">Values</div>
-                <div className="text-xs text-muted-foreground">(Pilih aggregation untuk Volume)</div>
+                <div className="relative group">
+                  <Info className="w-3 h-3 text-muted-foreground cursor-help" />
+                  <div className="absolute left-0 top-full mt-2 w-56 p-2 bg-popover border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[9999] pointer-events-none text-xs">
+                    <div className="text-xs text-popover-foreground mb-1"><strong>Pilih aggregation untuk Volume</strong></div>
+                    <div className="text-xs text-muted-foreground">Volume secara default sudah ada. Centang aggregation yang ingin ditampilkan.</div>
               </div>
-              <div className="text-xs text-muted-foreground mb-2 italic">
-                Volume secara default sudah ada. Centang aggregation yang ingin ditampilkan.
               </div>
-              <div className="space-y-2">
-                <div className="p-2 bg-background rounded border border-[#3a4252]">
-                  <div className="text-sm text-foreground font-medium mb-2">Volume</div>
-                  <div className="space-y-2">
+              </div>
+              <div className="space-y-1.5">
+                <div className="p-1.5 bg-background rounded border border-[#3a4252]">
+                  <div className="text-xs text-foreground font-medium mb-1.5">Volume</div>
+                  <div className="space-y-1.5">
                     {(['COUNT', 'SUM', 'AVG', 'MIN', 'MAX'] as const).map((agg) => (
-                      <label key={agg} className="flex items-center gap-2 cursor-pointer">
+                      <label key={agg} className="flex items-center gap-1.5 cursor-pointer">
                         <input
                           type="checkbox"
-                          checked={pivotConfig.aggregations.includes(agg)}
+                          checked={tempPivotConfig.aggregations.includes(agg)}
                           onChange={(e) => {
-                            setPivotConfig(prev => {
+                            setTempPivotConfig(prev => {
                               if (e.target.checked) {
                                 // Add aggregation if checked
                                 return {
@@ -1812,11 +2214,10 @@ export function StockTransactionDoneDetail() {
                                 return { ...prev, aggregations: newAggregations };
                               }
                             });
-                            setPivotMode('custom');
                           }}
-                          className="w-4 h-4"
+                          className="w-3 h-3"
                         />
-                        <span className="text-sm text-foreground">
+                        <span className="text-xs text-foreground leading-none">
                           {agg === 'COUNT' ? 'Count' :
                             agg === 'SUM' ? 'Sum' :
                               agg === 'AVG' ? 'Avg' :
@@ -1832,78 +2233,86 @@ export function StockTransactionDoneDetail() {
 
             {/* Filters */}
             <div
+              data-drop-zone="filters"
               onDragOver={(e) => {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'move';
               }}
               onDrop={(e) => {
                 e.preventDefault();
-                // Allow same field in filter even if it's already in rows or columns
-                // Only prevent if it's already in filters
-                const isInFilters = pivotConfig.filters.some(f => f.field === draggedField);
-
-                if (draggedField && !isInFilters) {
-                  // Check if it's time field - use time range filter
-                  // Price can also be a filter (list of price levels)
-                  const filterType = draggedField === 'TRX_TIME' ? 'timeRange' : 'list';
-
-                  // For list filters, get all unique values and set them as default (All selected)
-                  let initialValues: string[] = [];
-                  if (filterType === 'list') {
-                    const allData = selectedDates.flatMap(date => doneDetailData.get(date) || []);
-                    const uniqueValuesSet = new Set<string>();
-                    allData.forEach(item => {
-                      const value = item[draggedField as keyof DoneDetailData];
-                      // For HAKA_HAKI, convert 1 to "HAKA" and 0 to "HAKI" for display
-                      if (draggedField === 'HAKA_HAKI') {
-                        uniqueValuesSet.add(value === 1 ? 'HAKA' : 'HAKI');
-                      } else {
-                        uniqueValuesSet.add(String(value || ''));
-                      }
-                    });
-                    initialValues = Array.from(uniqueValuesSet); // All values selected by default
-                  }
-
-                  const newFilter: any = {
-                    field: draggedField,
-                    values: initialValues, // Default: all values selected
-                    filterType
-                  };
-                  if (filterType === 'timeRange') {
-                    newFilter.timeRange = { start: '08:00', end: '16:00' };
-                  }
-
-                  setPivotConfig(prev => ({
-                    ...prev,
-                    filters: [...prev.filters, newFilter]
-                  }));
-                  setPivotMode('custom');
+                if (draggedField && draggedFromSource) {
+                  handleDropTemp(draggedField, draggedFromSource, draggedIndex, 'filters');
                 }
                 setDraggedField(null);
+                setDraggedFromSource(null);
+                setDraggedIndex(null);
               }}
-              className="border-2 border-dashed border-[#3a4252] rounded-lg p-3 bg-[#1a1f30] min-h-[120px]"
+              className={`border rounded-lg p-2 bg-[#1a1f30] min-h-[100px] transition-colors ${
+                dropZoneHighlight === 'filters' 
+                  ? 'border-primary bg-primary/10' 
+                  : 'border-[#3a4252]'
+              }`}
             >
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center gap-2 mb-1.5">
                 <div className="text-xs font-semibold text-muted-foreground uppercase">Filters</div>
-                <div className="text-xs text-muted-foreground">(Filter data sebelum dihitung)</div>
+                <div className="relative group">
+                  <Info className="w-3 h-3 text-muted-foreground cursor-help" />
+                  <div className="absolute right-0 top-full mt-2 w-56 p-2 bg-popover border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[9999] pointer-events-none text-xs">
+                    <div className="text-xs text-popover-foreground mb-1"><strong>Filter data sebelum dihitung</strong></div>
+                    <div className="text-xs text-muted-foreground">Contoh: Buyer Broker → pilih broker tertentu, Transaction Time → pilih range waktu</div>
               </div>
-              <div className="text-xs text-muted-foreground mb-2 italic">
-                Contoh: Buyer Broker → pilih broker tertentu, Transaction Time → pilih range waktu
+                </div>
               </div>
               <div className="space-y-2">
-                {pivotConfig.filters.map((filterConfig, idx) => {
+                {tempPivotConfig.filters.map((filterConfig, idx) => {
                   const field = availableFields.find(f => f.id === filterConfig.field);
                   if (!field) return null;
 
                   // Time range filter
                   if (filterConfig.filterType === 'timeRange') {
+                    const isDragging = draggedField === filterConfig.field && draggedFromSource === 'filters';
                     return (
-                      <div key={idx} className="p-2 bg-background rounded border border-[#3a4252]">
-                        <div className="flex items-center gap-2 mb-2">
+                      <div 
+                        key={idx} 
+                        draggable
+                        onDragStart={(e) => {
+                          setDraggedField(filterConfig.field);
+                          setDraggedFromSource('filters');
+                          setDraggedIndex(idx);
+                          e.dataTransfer.effectAllowed = 'move';
+                        }}
+                        onDragEnd={() => {
+                          setDraggedField(null);
+                          setDraggedFromSource(null);
+                          setDraggedIndex(null);
+                        }}
+                        onTouchStart={(e) => {
+                          e.stopPropagation();
+                          const touch = e.touches[0];
+                          setDraggedField(filterConfig.field);
+                          setDraggedFromSource('filters');
+                          setDraggedIndex(idx);
+                          setTouchDragState({
+                            isDragging: true,
+                            startX: touch.clientX,
+                            startY: touch.clientY,
+                            currentX: touch.clientX,
+                            currentY: touch.clientY
+                          });
+                        }}
+                        className={`p-1.5 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${
+                          isDragging ? 'opacity-50' : ''
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 mb-1.5">
                           <GripVertical className="w-3 h-3 text-muted-foreground" />
-                          <span className="text-sm text-foreground flex-1 font-medium">{field.label}</span>
+                          <span className="text-xs text-foreground flex-1 font-medium">{field.label}</span>
                           <button
-                            onClick={() => setPivotConfig(prev => ({ ...prev, filters: prev.filters.filter((_, i) => i !== idx) }))}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPivotConfig(prev => ({ ...prev, filters: prev.filters.filter((_, i) => i !== idx) }));
+                            }}
+                            onTouchStart={(e) => e.stopPropagation()}
                             className="text-muted-foreground hover:text-foreground"
                           >
                             <X className="w-3 h-3" />
@@ -1914,13 +2323,13 @@ export function StockTransactionDoneDetail() {
                             type="time"
                             value={filterConfig.timeRange?.start || '08:00'}
                             onChange={(e) => {
-                              const newFilters = [...pivotConfig.filters];
+                              const newFilters = [...tempPivotConfig.filters];
                               if (newFilters[idx]) {
                                 newFilters[idx].timeRange = {
                                   ...(newFilters[idx].timeRange || { start: '08:00', end: '16:00' }),
                                   start: e.target.value
                                 };
-                                setPivotConfig(prev => ({ ...prev, filters: newFilters }));
+                                setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
                               }
                             }}
                             className="text-xs bg-background border border-[#3a4252] rounded px-2 py-1"
@@ -1930,13 +2339,13 @@ export function StockTransactionDoneDetail() {
                             type="time"
                             value={filterConfig.timeRange?.end || '16:00'}
                             onChange={(e) => {
-                              const newFilters = [...pivotConfig.filters];
+                              const newFilters = [...tempPivotConfig.filters];
                               if (newFilters[idx]) {
                                 newFilters[idx].timeRange = {
                                   ...(newFilters[idx].timeRange || { start: '08:00', end: '16:00' }),
                                   end: e.target.value
                                 };
-                                setPivotConfig(prev => ({ ...prev, filters: newFilters }));
+                                setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
                               }
                             }}
                             className="text-xs bg-background border border-[#3a4252] rounded px-2 py-1"
@@ -1972,14 +2381,46 @@ export function StockTransactionDoneDetail() {
                     // Otherwise alphabetical sort
                     return a.localeCompare(b);
                   });
-                  const searchTerm = filterSearchTerms[filterConfig.field] || '';
-                  const isDropdownOpen = openFilterDropdowns[filterConfig.field] || false;
+                  const searchTerm = tempFilterSearchTerms[filterConfig.field] || '';
+                  const isDropdownOpen = tempOpenFilterDropdowns[filterConfig.field] || false;
                   const filteredValues = uniqueValues.filter(v =>
                     v.toLowerCase().includes(searchTerm.toLowerCase())
                   );
 
+                  const isDragging = draggedField === filterConfig.field && draggedFromSource === 'filters';
                   return (
-                    <div key={idx} className="p-2 bg-background rounded border border-[#3a4252]">
+                    <div 
+                      key={idx} 
+                      draggable
+                      onDragStart={(e) => {
+                        setDraggedField(filterConfig.field);
+                        setDraggedFromSource('filters');
+                        setDraggedIndex(idx);
+                        e.dataTransfer.effectAllowed = 'move';
+                      }}
+                      onDragEnd={() => {
+                        setDraggedField(null);
+                        setDraggedFromSource(null);
+                        setDraggedIndex(null);
+                      }}
+                      onTouchStart={(e) => {
+                        e.stopPropagation();
+                        const touch = e.touches[0];
+                        setDraggedField(filterConfig.field);
+                        setDraggedFromSource('filters');
+                        setDraggedIndex(idx);
+                        setTouchDragState({
+                          isDragging: true,
+                          startX: touch.clientX,
+                          startY: touch.clientY,
+                          currentX: touch.clientX,
+                          currentY: touch.clientY
+                        });
+                      }}
+                      className={`p-2 bg-background rounded border border-[#3a4252] cursor-move hover:bg-accent/50 transition-colors touch-none ${
+                        isDragging ? 'opacity-50' : ''
+                      }`}
+                    >
                       <div className="flex items-center gap-2 mb-2">
                         <GripVertical className="w-3 h-3 text-muted-foreground" />
                         <span className="text-sm text-foreground flex-1 font-medium">{field.label}</span>
@@ -1989,15 +2430,17 @@ export function StockTransactionDoneDetail() {
                           </span>
                         )}
                         <button
-                          onClick={() => {
-                            setPivotConfig(prev => ({ ...prev, filters: prev.filters.filter((_, i) => i !== idx) }));
-                            const newSearchTerms = { ...filterSearchTerms };
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setTempPivotConfig(prev => ({ ...prev, filters: prev.filters.filter((_, i) => i !== idx) }));
+                            const newSearchTerms = { ...tempFilterSearchTerms };
                             delete newSearchTerms[filterConfig.field];
-                            setFilterSearchTerms(newSearchTerms);
-                            const newDropdowns = { ...openFilterDropdowns };
+                            setTempFilterSearchTerms(newSearchTerms);
+                            const newDropdowns = { ...tempOpenFilterDropdowns };
                             delete newDropdowns[filterConfig.field];
-                            setOpenFilterDropdowns(newDropdowns);
+                            setTempOpenFilterDropdowns(newDropdowns);
                           }}
+                          onTouchStart={(e) => e.stopPropagation()}
                           className="text-muted-foreground hover:text-foreground"
                         >
                           <X className="w-3 h-3" />
@@ -2008,7 +2451,7 @@ export function StockTransactionDoneDetail() {
                       <div className="relative" data-filter-dropdown>
                         <div
                           className="relative cursor-pointer"
-                          onClick={() => setOpenFilterDropdowns(prev => ({ ...prev, [filterConfig.field]: !prev[filterConfig.field] }))}
+                          onClick={() => setTempOpenFilterDropdowns(prev => ({ ...prev, [filterConfig.field]: !prev[filterConfig.field] }))}
                         >
                           <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
                           <input
@@ -2016,11 +2459,11 @@ export function StockTransactionDoneDetail() {
                             placeholder={filterConfig.values.length > 0 ? `${filterConfig.values.length} selected - Click to search` : "Click to search and select..."}
                             value={searchTerm}
                             onChange={(e) => {
-                              setFilterSearchTerms(prev => ({ ...prev, [filterConfig.field]: e.target.value }));
-                              setOpenFilterDropdowns(prev => ({ ...prev, [filterConfig.field]: true }));
+                              setTempFilterSearchTerms(prev => ({ ...prev, [filterConfig.field]: e.target.value }));
+                              setTempOpenFilterDropdowns(prev => ({ ...prev, [filterConfig.field]: true }));
                             }}
                             onFocus={() => {
-                              setOpenFilterDropdowns(prev => ({ ...prev, [filterConfig.field]: true }));
+                              setTempOpenFilterDropdowns(prev => ({ ...prev, [filterConfig.field]: true }));
                             }}
                             className="w-full pl-7 pr-2 py-1.5 text-xs bg-background border border-[#3a4252] rounded cursor-text"
                             readOnly={!isDropdownOpen}
@@ -2040,7 +2483,7 @@ export function StockTransactionDoneDetail() {
                                     type="checkbox"
                                     checked={filterConfig.values.length === uniqueValues.length && uniqueValues.length > 0}
                                     onChange={(e) => {
-                                      const newFilters = [...pivotConfig.filters];
+                                      const newFilters = [...tempPivotConfig.filters];
                                       const currentFilter = newFilters[idx];
                                       if (currentFilter) {
                                         if (e.target.checked) {
@@ -2050,7 +2493,7 @@ export function StockTransactionDoneDetail() {
                                           // Deselect all
                                           currentFilter.values = [];
                                         }
-                                        setPivotConfig(prev => ({ ...prev, filters: newFilters }));
+                                        setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
                                       }
                                     }}
                                     className="w-3 h-3"
@@ -2068,14 +2511,14 @@ export function StockTransactionDoneDetail() {
                                       type="checkbox"
                                       checked={filterConfig.values.includes(value)}
                                       onChange={(e) => {
-                                        const newFilters = [...pivotConfig.filters];
+                                        const newFilters = [...tempPivotConfig.filters];
                                         if (newFilters[idx]) {
                                           if (e.target.checked) {
                                             newFilters[idx].values = [...newFilters[idx].values, value];
                                           } else {
                                             newFilters[idx].values = newFilters[idx].values.filter(v => v !== value);
                                           }
-                                          setPivotConfig(prev => ({ ...prev, filters: newFilters }));
+                                          setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
                                         }
                                       }}
                                       className="w-3 h-3"
@@ -2100,10 +2543,10 @@ export function StockTransactionDoneDetail() {
                               <span>{value}</span>
           <button
                                 onClick={() => {
-                                  const newFilters = [...pivotConfig.filters];
+                                  const newFilters = [...tempPivotConfig.filters];
                                   if (newFilters[idx]) {
                                     newFilters[idx].values = newFilters[idx].values.filter(v => v !== value);
-                                    setPivotConfig(prev => ({ ...prev, filters: newFilters }));
+                                    setTempPivotConfig(prev => ({ ...prev, filters: newFilters }));
                                   }
                                 }}
                                 className="hover:bg-primary/30 rounded px-0.5"
@@ -2122,29 +2565,67 @@ export function StockTransactionDoneDetail() {
                     </div>
                   );
                 })}
-                {pivotConfig.filters.length === 0 && (
+                {tempPivotConfig.filters.length === 0 && (
                   <div className="text-xs text-muted-foreground italic py-4 text-center">Drop fields here</div>
                 )}
               </div>
                       </div>
                     </div>
 
-          {/* Reset Button */}
-          <div className="flex items-start">
+          </div>
+      </div>
+          </div>
+          
+          {/* Help/Example Section - Moved to bottom */}
+          <div className="px-3 py-3 border-t border-[#3a4252] bg-[#0a0f20]">
+            <div className="p-2 bg-blue-900/20 border border-blue-700/30 rounded-lg">
+              <div className="text-xs font-semibold text-blue-300 mb-1.5">💡 Contoh Penggunaan:</div>
+              <div className="text-xs text-blue-200 space-y-1">
+                <div><strong>Rows:</strong> Price → Setiap baris = harga yang berbeda</div>
+                <div><strong>Values:</strong> Volume (SUM) → Jumlah total volume per harga</div>
+                <div><strong>Filters:</strong> Buyer Broker = "YP" → Hanya hitung transaksi dari buyer broker YP</div>
+                <div className="mt-2 text-blue-300">Hasil: Tabel dengan kolom Price dan Sum Volume, hanya untuk buyer broker YP</div>
+              </div>
+            </div>
+          </div>
+          </div>
+          <DialogFooter className="sticky bottom-0 z-10 bg-background border-t px-4 py-3 flex items-center justify-between sm:justify-between">
             <Button
               variant="outline"
               size="sm"
               onClick={() => {
-                setPivotConfig({ rows: [], columns: [], valueField: 'STK_VOLM', aggregations: ['COUNT'], filters: [] });
-                // Removed - detail view no longer used
+                setTempPivotConfig({ rows: [], columns: [], valueField: 'STK_VOLM', aggregations: ['COUNT'], filters: [] });
+                setTempFilterSearchTerms({});
+                setTempOpenFilterDropdowns({});
               }}
-              className="text-xs h-8"
             >
               Reset
             </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setIsPivotBuilderOpen(false);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setPivotConfig(tempPivotConfig);
+                  setFilterSearchTerms(tempFilterSearchTerms);
+                  setOpenFilterDropdowns(tempOpenFilterDropdowns);
+                  setIsPivotBuilderOpen(false);
+                }}
+              >
+                Save
+            </Button>
       </div>
-          </div>
-      </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Loading State */}
       {isLoading && (
