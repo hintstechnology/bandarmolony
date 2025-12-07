@@ -534,12 +534,16 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       
       // Validation: For Broker pivot, need brokers OR sectors. For Stock pivot, need tickers OR sectors.
       if (pivotFilter === 'Broker') {
-        // For Broker pivot: if sector is selected, fetch {sector}_ALL.csv; otherwise need brokers
-        // "ALL" broker is only valid if sector is also selected (will fetch {sector}_ALL.csv)
-        const hasIndividualBrokers = selectedBrokers.length > 0 && !selectedBrokers.includes('ALL');
-        const hasAllWithSector = selectedBrokers.includes('ALL') && selectedSectors.length > 0;
-        const hasBrokersOrAll = hasIndividualBrokers || hasAllWithSector;
-        if ((pivotFilter === 'Broker' && !hasBrokersOrAll && selectedSectors.length === 0) || selectedDates.length === 0) {
+        // For Broker pivot:
+        // - If sector is selected: valid (will fetch {sector}_ALL.csv or individual broker files)
+        // - If specific brokers are selected: valid (will fetch individual broker files)
+        // - If "ALL" broker is selected with sector: valid (will fetch {sector}_ALL.csv)
+        // - If "ALL" broker is selected without sector: valid (will fetch ALL.csv - aggregate all emitens)
+        const hasSpecificBrokers = selectedBrokers.length > 0 && !selectedBrokers.includes('ALL');
+        const hasAllBroker = selectedBrokers.includes('ALL');
+        const hasSectorOnly = selectedSectors.length > 0 && selectedBrokers.length === 0;
+        const isValid = hasSpecificBrokers || hasAllBroker || hasSectorOnly;
+        if ((pivotFilter === 'Broker' && !isValid) || selectedDates.length === 0) {
           setTransactionData(new Map());
           setRawTransactionData(new Map()); // Clear raw data too
           setIsDataReady(false);
@@ -607,27 +611,41 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             })
           : selectedDates.flatMap(date => {
               // For Broker pivot: 
-              // - If broker "ALL" is selected: only fetch {sector}_ALL.csv if sector exists, otherwise return empty (no fetch)
-              // - If sector is selected (without ALL): fetch {sector}_ALL.csv (already aggregated in backend)
-              // - Otherwise: fetch individual broker files
-              if (selectedBrokers.includes('ALL')) {
-                // Broker "ALL" selected: only fetch {sector}_ALL.csv if sector exists
-                if (selectedSectors.length > 0) {
-                  return selectedSectors.map((sector: string) => ({ code: `${sector}_ALL`, date, type: 'broker' as const }));
-                } else {
-                  // No sector selected with ALL: return empty (don't fetch all individual brokers)
-                  return [];
-                }
-              } else if (selectedSectors.length > 0) {
-                // Sector selected but no ALL: fetch {sector}_ALL.csv for each selected sector
+              // - If broker "ALL" is selected with sector: fetch {sector}_ALL.csv (already aggregated in backend)
+              // - If broker "ALL" is selected without sector: skip (don't fetch all broker files - too many)
+              // - If specific broker(s) selected with sector: fetch individual broker files, then filter by sector in frontend
+              // - If specific broker(s) selected without sector: fetch individual broker files
+              // - If sector selected but no broker selected: fetch {sector}_ALL.csv
+              const hasSpecificBrokers = selectedBrokers.length > 0 && !selectedBrokers.includes('ALL');
+              const hasAllBroker = selectedBrokers.includes('ALL');
+              
+              if (selectedSectors.length > 0 && hasAllBroker) {
+                // Sector + "ALL" broker: fetch {sector}_ALL.csv (already aggregated in backend)
                 return selectedSectors.map((sector: string) => ({ code: `${sector}_ALL`, date, type: 'broker' as const }));
-              } else {
-                // Fetch individual broker files (specific brokers selected)
+              } else if (selectedSectors.length > 0 && hasSpecificBrokers) {
+                // Sector + specific broker(s): fetch individual broker files, then filter by sector in frontend
                 const brokersToFetch = selectedBrokers.filter(b => b !== 'ALL');
                 if (brokersToFetch.length === 0) {
                   return [];
                 }
                 return brokersToFetch.map((broker: string) => ({ code: broker, date, type: 'broker' as const }));
+              } else if (selectedSectors.length > 0) {
+                // Sector selected but no broker selected: fetch {sector}_ALL.csv
+                return selectedSectors.map((sector: string) => ({ code: `${sector}_ALL`, date, type: 'broker' as const }));
+              } else if (hasAllBroker) {
+                // Broker "ALL" selected but no sector: fetch ALL.csv (aggregate all emitens from all brokers)
+                // This file is generated by broker_transaction_ALL.ts generateALLWithoutSector()
+                return [{ code: 'ALL', date, type: 'broker' as const }];
+              } else if (hasSpecificBrokers) {
+                // Fetch individual broker files (specific brokers selected, no sector)
+                const brokersToFetch = selectedBrokers.filter(b => b !== 'ALL');
+                if (brokersToFetch.length === 0) {
+                  return [];
+                }
+                return brokersToFetch.map((broker: string) => ({ code: broker, date, type: 'broker' as const }));
+              } else {
+                // No broker and no sector selected
+                return [];
               }
             });
         
@@ -787,8 +805,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             let filteredRows = allRows;
             
             // Priority 1: Filter by broker (if selectedBrokers is provided)
-            // Skip filtering if "ALL" is selected, as data already contains all brokers
-            if (selectedBrokers.length > 0 && !selectedBrokers.includes('ALL')) {
+            if (selectedBrokers.length > 0) {
               // Normalize selected brokers to uppercase for case-insensitive comparison
               const normalizedSelectedBrokers = selectedBrokers.map(b => b.toUpperCase());
               
@@ -1071,11 +1088,21 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             // Priority 2: Filter by sector (only if no ticker selected)
             allRows = allRows.filter(row => {
               // Check if any stock code in row belongs to selected sectors
+              // For Broker pivot: Emiten is the stock code
+              // For Stock pivot: BCode, SCode, NBCode, NSCode are broker codes (not stock codes)
+              const emiten = row.Emiten || '';
               const bCode = row.BCode || '';
               const sCode = row.SCode || '';
               const nbCode = row.NBCode || '';
               const nsCode = row.NSCode || '';
               
+              // Check Emiten first (for Broker pivot)
+              const emitenSector = emiten ? stockToSectorMap[emiten.toUpperCase()] : null;
+              if (emitenSector && selectedSectors.includes(emitenSector)) {
+                return true;
+              }
+              
+              // Check other codes (for Stock pivot or additional filtering)
               const bCodeSector = bCode ? stockToSectorMap[bCode.toUpperCase()] : null;
               const sCodeSector = sCode ? stockToSectorMap[sCode.toUpperCase()] : null;
               const nbCodeSector = nbCode ? stockToSectorMap[nbCode.toUpperCase()] : null;
@@ -1211,10 +1238,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   // Handle broker selection
   const handleBrokerSelect = (broker: string) => {
     if (broker === 'ALL') {
-      // Set only 'ALL', not all individual brokers
-      setSelectedBrokers(['ALL']);
+      // Select "ALL" only (don't add all individual brokers to avoid cluttering the list)
+      if (!selectedBrokers.includes('ALL')) {
+        setSelectedBrokers(['ALL']);
+      }
     } else if (!selectedBrokers.includes(broker)) {
-      setSelectedBrokers([...selectedBrokers, broker]);
+      // If "ALL" is already selected, replace it with the specific broker
+      // Otherwise, add the broker to the list
+      if (selectedBrokers.includes('ALL')) {
+        setSelectedBrokers([broker]);
+      } else {
+        setSelectedBrokers([...selectedBrokers, broker]);
+      }
       // CRITICAL: Keep existing data visible - no auto-fetch, no hide tables
       // User must click Show button to fetch new data
     }
@@ -4537,7 +4572,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               setShouldFetchData(true);
             }}
             disabled={isLoading || 
-              (pivotFilter === 'Broker' && selectedBrokers.length === 0) || 
+              (pivotFilter === 'Broker' && selectedBrokers.length === 0 && selectedSectors.length === 0) || 
               (pivotFilter === 'Stock' && selectedTickers.length === 0 && selectedSectors.length === 0) || 
               !startDate || !endDate}
             // NOTE: For Stock pivot, either selectedTickers or selectedSectors must be selected

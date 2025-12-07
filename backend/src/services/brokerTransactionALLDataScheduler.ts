@@ -323,7 +323,58 @@ export class BrokerTransactionALLDataScheduler {
                   }
                 }
                 
-                console.log(`  ✅ ${investorType || 'All'} investor, ${marketType || 'All Trade'}: Completed all sectors for date ${dateSuffix}`);
+                // Generate ALL.csv (without sector filter) for this date + investor type + market type
+                // This is used when broker "ALL" is selected without sector filter
+                console.log(`\n  🔄 Generating ALL.csv (no sector filter) for ${investorType || 'All'} investor, ${marketType || 'All Trade'} market...`);
+                try {
+                  const allResult = await this.calculator.generateALLWithoutSector(
+                    dateSuffix,
+                    investorType as '' | 'D' | 'F',
+                    marketType as '' | 'RG' | 'TN' | 'NG',
+                    progressTracker
+                  );
+                  
+                  // Store result
+                  const dateInvMarketResults = results[dateSuffix][invKey][marketKey];
+                  if (dateInvMarketResults) {
+                    dateInvMarketResults['ALL'] = allResult;
+                  }
+                  
+                  // Update counters
+                  if (allResult.success) {
+                    if (allResult.message?.includes('already exists')) {
+                      totalSkipped++;
+                    } else {
+                      totalSuccess++;
+                    }
+                  } else {
+                    totalFailed++;
+                  }
+                  
+                  // Update broker count if available
+                  if (allResult.brokerCount && progressTracker) {
+                    progressTracker.processedBrokers += allResult.brokerCount;
+                    await progressTracker.updateProgress();
+                  }
+                  
+                  const allStatus = allResult.message?.includes('already exists') ? 'skipped' : (allResult.success ? 'success' : 'failed');
+                  console.log(`  ${allStatus === 'success' ? '✅' : allStatus === 'skipped' ? '⏭️' : '❌'} ALL.csv: ${allStatus}${allResult.brokerCount ? ` (${allResult.brokerCount} brokers)` : ''}`);
+                } catch (error: any) {
+                  totalFailed++;
+                  const errorMsg = error?.message || 'Unknown error';
+                  console.error(`  ❌ ALL.csv: Error - ${errorMsg}`);
+                  
+                  // Store error result
+                  const dateInvMarketResults = results[dateSuffix][invKey][marketKey];
+                  if (dateInvMarketResults) {
+                    dateInvMarketResults['ALL'] = {
+                      success: false,
+                      message: errorMsg
+                    };
+                  }
+                }
+                
+                console.log(`  ✅ ${investorType || 'All'} investor, ${marketType || 'All Trade'}: Completed all sectors and ALL.csv for date ${dateSuffix}`);
               }
             }
           }
