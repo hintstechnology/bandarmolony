@@ -308,14 +308,17 @@ const getAzurePath = (code: string, dateStr: string, pivot: 'Broker' | 'Stock' =
     }
   }
   
-  // Handle special case: {sector}_ALL format (e.g., "BANK_ALL")
-  // This is used for sector aggregation files
-  const isSectorALL = code.endsWith('_ALL');
+  // Handle special cases:
+  // 1. {sector}_ALL format (e.g., "BANK_ALL") - sector aggregation files
+  // 2. "ALL" format (no sector) - all emitens aggregation file
+  const isSectorALL = code.endsWith('_ALL') && code !== 'ALL';
+  const isALL = code === 'ALL';
   
   // Return path: {folderPrefix}/{filePrefix}_YYYYMMDD/{code}.csv
   // For {sector}_ALL, the code already includes "_ALL" suffix
+  // For ALL (no sector), use "ALL.csv"
   const finalPath = `${folderPrefix}/${filePrefix}_${dateStr}/${code}.csv`;
-  console.log(`[getAzurePath] Final path: ${finalPath}${isSectorALL ? ' (Sector ALL file)' : ''}`);
+  console.log(`[getAzurePath] Final path: ${finalPath}${isSectorALL ? ' (Sector ALL file)' : isALL ? ' (ALL.csv - no sector filter)' : ''}`);
   return finalPath;
 };
 
