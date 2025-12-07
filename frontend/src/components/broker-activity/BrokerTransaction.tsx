@@ -2246,53 +2246,159 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     });
     
     // SECTION 3: Net Buy (NBCode) - Filter and sort independently
+    // CRITICAL: For Output: stock with multiple brokers, calculate net per date from Buy - Sell per stock (Emiten)
     // Each row represents a separate entry in Net Buy section using NBCode (column 17)
     const netBuyStocksByDate = new Map<string, Array<{ stock: string; data: BrokerTransactionData }>>();
-    datesToProcess.forEach(date => {
-      const dateData = transactionData.get(date) || [];
-      const netBuyData = dateData
-        .filter(d => {
-          // Filter out rows where NBCode is empty
-          const nbCode = d.NBCode || '';
-          if (!nbCode) return false;
-          
-          // FIXED: Don't filter by selectedTickers or sector here - will be filtered at render time
-          
-          return true;
-        })
-        .filter(d => {
-          // Filter out rows where NBLot is 0
-          const nbLot = d.NBLot || 0;
-          return Math.abs(nbLot) > 0;
-        })
-        .sort((a, b) => (b.NBVal || 0) - (a.NBVal || 0))
-        .map(d => ({ stock: d.NBCode || '', data: d })); // Use NBCode as stock identifier for this section
-      netBuyStocksByDate.set(date, netBuyData);
-    });
     
     // SECTION 4: Net Sell (NSCode) - Filter and sort independently
+    // CRITICAL: For Output: stock with multiple brokers, calculate net per date from Buy - Sell per stock (Emiten)
     // Each row represents a separate entry in Net Sell section using NSCode (column 25)
     const netSellStocksByDate = new Map<string, Array<{ stock: string; data: BrokerTransactionData }>>();
+    
     datesToProcess.forEach(date => {
       const dateData = transactionData.get(date) || [];
-      const netSellData = dateData
-        .filter(d => {
-          // Filter out rows where NSCode is empty
-          const nsCode = d.NSCode || '';
-          if (!nsCode) return false;
+      
+      // CRITICAL: For Output: stock, calculate net per date from Buy - Sell per stock (Emiten)
+      // Aggregate Buy and Sell per Emiten (stock) for this date
+      const buyByStock = new Map<string, { buyerLot: number; buyerValue: number; buyerFreq: number; buyerOrdNum: number }>();
+      const sellByStock = new Map<string, { sellerLot: number; sellerValue: number; sellerFreq: number; sellerOrdNum: number }>();
+      
+      dateData.forEach(d => {
+        const emiten = d.Emiten || '';
+        if (!emiten) return;
+        
+        // Aggregate Buy data per Emiten (stock)
+        const buyerLot = d.BLot !== undefined ? d.BLot : ((d.BuyerVol || 0) / 100);
+        const buyerValue = d.BuyerValue || 0;
+        const buyerFreq = d.BFreq || 0;
+        const buyerOrdNum = d.BOrdNum || 0;
+        
+        if (!buyByStock.has(emiten)) {
+          buyByStock.set(emiten, { buyerLot: 0, buyerValue: 0, buyerFreq: 0, buyerOrdNum: 0 });
+        }
+        const buyData = buyByStock.get(emiten)!;
+        buyData.buyerLot += buyerLot;
+        buyData.buyerValue += buyerValue;
+        buyData.buyerFreq += buyerFreq;
+        buyData.buyerOrdNum += buyerOrdNum;
+        
+        // Aggregate Sell data per Emiten (stock)
+        const sellerLot = d.SLot !== undefined ? d.SLot : ((d.SellerVol || 0) / 100);
+        const sellerValue = d.SellerValue || 0;
+        const sellerFreq = d.SFreq || 0;
+        const sellerOrdNum = d.SOrdNum || 0;
+        
+        if (!sellByStock.has(emiten)) {
+          sellByStock.set(emiten, { sellerLot: 0, sellerValue: 0, sellerFreq: 0, sellerOrdNum: 0 });
+        }
+        const sellData = sellByStock.get(emiten)!;
+        sellData.sellerLot += sellerLot;
+        sellData.sellerValue += sellerValue;
+        sellData.sellerFreq += sellerFreq;
+        sellData.sellerOrdNum += sellerOrdNum;
+      });
+      
+      // Calculate Net Buy and Net Sell per stock from Buy - Sell
+      const netBuyDataArray: Array<{ stock: string; data: BrokerTransactionData }> = [];
+      const netSellDataArray: Array<{ stock: string; data: BrokerTransactionData }> = [];
+      
+      const allStocks = new Set([...buyByStock.keys(), ...sellByStock.keys()]);
+      
+      allStocks.forEach(stock => {
+        const buyData = buyByStock.get(stock) || { buyerLot: 0, buyerValue: 0, buyerFreq: 0, buyerOrdNum: 0 };
+        const sellData = sellByStock.get(stock) || { sellerLot: 0, sellerValue: 0, sellerFreq: 0, sellerOrdNum: 0 };
+        
+        // Calculate Net Buy = Buy - Sell (only if positive)
+        const netBuyLot = buyData.buyerLot - sellData.sellerLot;
+        const netBuyValue = buyData.buyerValue - sellData.sellerValue;
+        const netBuyFreq = buyData.buyerFreq - sellData.sellerFreq;
+        const netBuyOrdNum = buyData.buyerOrdNum - sellData.sellerOrdNum;
+        
+        if (netBuyLot > 0) {
+          const netBuyLotVolume = netBuyLot * 100;
+          const netBuyAvg = netBuyLotVolume > 0 ? netBuyValue / netBuyLotVolume : 0;
+          const netBuyLotPerFreq = Math.abs(netBuyFreq) > 0 ? netBuyLot / Math.abs(netBuyFreq) : 0;
+          const netBuyLotPerOrdNum = Math.abs(netBuyOrdNum) > 0 ? netBuyLot / Math.abs(netBuyOrdNum) : 0;
           
-          // FIXED: Don't filter by selectedTickers or sector here - will be filtered at render time
+          // Create Net Buy data object
+          const netBuyData: BrokerTransactionData = {
+            Emiten: stock,
+            NBCode: stock,
+            NBLot: netBuyLot,
+            NBVal: netBuyValue,
+            NBAvg: netBuyAvg,
+            NBFreq: netBuyFreq,
+            NBOrdNum: netBuyOrdNum,
+            NBLotPerFreq: netBuyLotPerFreq,
+            NBLotPerOrdNum: netBuyLotPerOrdNum,
+            NetBuyVol: netBuyLotVolume,
+            NetBuyValue: netBuyValue,
+            BuyerVol: 0,
+            BuyerValue: 0,
+            SellerVol: 0,
+            SellerValue: 0,
+            NetSellVol: 0,
+            NetSellValue: 0,
+            BuyerAvg: 0,
+            SellerAvg: 0,
+            TotalVolume: 0,
+            AvgPrice: 0,
+            TransactionCount: 0,
+            TotalValue: 0
+          };
           
-          return true;
-        })
-        .filter(d => {
-          // Filter out rows where NSLot is 0
-          const nsLot = d.NSLot || 0;
-          return Math.abs(nsLot) > 0;
-        })
-        .sort((a, b) => (b.NSVal || 0) - (a.NSVal || 0))
-        .map(d => ({ stock: d.NSCode || '', data: d })); // Use NSCode as stock identifier for this section
-      netSellStocksByDate.set(date, netSellData);
+          netBuyDataArray.push({ stock, data: netBuyData });
+        }
+        
+        // Calculate Net Sell = Sell - Buy (only if positive)
+        const netSellLot = sellData.sellerLot - buyData.buyerLot;
+        const netSellValue = sellData.sellerValue - buyData.buyerValue;
+        const netSellFreq = sellData.sellerFreq - buyData.buyerFreq;
+        const netSellOrdNum = sellData.sellerOrdNum - buyData.buyerOrdNum;
+        
+        if (netSellLot > 0) {
+          const netSellLotVolume = netSellLot * 100;
+          const netSellAvg = netSellLotVolume > 0 ? netSellValue / netSellLotVolume : 0;
+          const netSellLotPerFreq = Math.abs(netSellFreq) > 0 ? netSellLot / Math.abs(netSellFreq) : 0;
+          const netSellLotPerOrdNum = Math.abs(netSellOrdNum) > 0 ? netSellLot / Math.abs(netSellOrdNum) : 0;
+          
+          // Create Net Sell data object
+          const netSellData: BrokerTransactionData = {
+            Emiten: stock,
+            NSCode: stock,
+            NSLot: netSellLot,
+            NSVal: netSellValue,
+            NSAvg: netSellAvg,
+            NSFreq: netSellFreq,
+            NSOrdNum: netSellOrdNum,
+            NSLotPerFreq: netSellLotPerFreq,
+            NSLotPerOrdNum: netSellLotPerOrdNum,
+            NetSellVol: netSellLotVolume,
+            NetSellValue: netSellValue,
+            BuyerVol: 0,
+            BuyerValue: 0,
+            SellerVol: 0,
+            SellerValue: 0,
+            NetBuyVol: 0,
+            NetBuyValue: 0,
+            BuyerAvg: 0,
+            SellerAvg: 0,
+            TotalVolume: 0,
+            AvgPrice: 0,
+            TransactionCount: 0,
+            TotalValue: 0
+          };
+          
+          netSellDataArray.push({ stock, data: netSellData });
+        }
+      });
+      
+      // Sort by value (highest to lowest)
+      netBuyDataArray.sort((a, b) => (b.data.NBVal || 0) - (a.data.NBVal || 0));
+      netSellDataArray.sort((a, b) => (b.data.NSVal || 0) - (a.data.NSVal || 0));
+      
+      netBuyStocksByDate.set(date, netBuyDataArray);
+      netSellStocksByDate.set(date, netSellDataArray);
     });
     
     // Get all unique stocks for each section separately (for Total column)
