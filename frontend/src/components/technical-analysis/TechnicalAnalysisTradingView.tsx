@@ -116,7 +116,10 @@ type Indicator = {
   enabled: boolean;
   separateScale?: boolean; // For indicators that need separate scale like RSI
   maMode?: 'simple' | 'exponential'; // for Moving Average (MA) indicator
-  dayLimit?: number; // For Daily Shio and Daily Element - number of days to display
+  dayLimit?: number; // For Daily Shio and Daily Element - number of emoji/shape markers to display
+  displayMode?: 'emoji' | 'shape'; // For Daily Shio and Daily Element - display mode
+  shape?: 'circle' | 'square' | 'arrowUp' | 'arrowDown'; // For Daily Shio and Daily Element - marker shape
+  shapeColors?: Record<string, string>; // For Daily Shio and Daily Element - custom colors per shio/element (overrides default colors)
 };
 
 
@@ -1586,9 +1589,17 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
             });
             
             // Now create markers only once per unique day using the first row's timestamp
+            // Convert to array and sort by time to get the most recent days first
+            const sortedDays = Array.from(dayToFirstRow.entries())
+              .sort((a, b) => b[1].time - a[1].time); // Sort descending (newest first)
+            
+            // Limit to dayLimit number of markers (most recent)
+            const dayLimit = indicator.dayLimit || 30;
+            const limitedDays = sortedDays.slice(0, dayLimit);
+            
             let collectedCount = 0;
             
-            for (const [dayKey, { row, time }] of dayToFirstRow.entries()) {
+            for (const [dayKey, { row, time }] of limitedDays) {
               const date = new Date(time * 1000);
               
               // Calculate for this day using BaZi method from BaZiCycleAnalysis
@@ -1599,16 +1610,45 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                 info = getDailyElementInfo(date);
               }
               
+              // Determine display mode: emoji (default) or shape
+              const displayMode = indicator.displayMode || 'emoji';
+              
               // Create marker for this day using the first row's timestamp
-              allMarkers.push({
-                time: time,
-                position: indicator.type === 'daily_shio' ? 'belowBar' : 'aboveBar',
-                color: info.color,
-                shape: indicator.type === 'daily_shio' ? undefined : 'square',
-                text: info.emoji,
-                size: 2,
-                id: `${indicator.type}_${dayKey}`,
-              } as SeriesMarker);
+              if (displayMode === 'shape') {
+                // Use shape marker
+                // Get color from shapeColors mapping or fallback to default color
+                const itemName = indicator.type === 'daily_shio' ? info.shio : info.element;
+                const markerColor = indicator.shapeColors?.[itemName] || info.color;
+                const markerShape = indicator.shape || 'circle';
+                
+                // Map shape names to TradingView marker shapes
+                let tvShape: 'circle' | 'square' | 'arrowUp' | 'arrowDown' | undefined;
+                if (markerShape === 'circle') tvShape = 'circle';
+                else if (markerShape === 'square') tvShape = 'square';
+                else if (markerShape === 'arrowUp') tvShape = 'arrowUp';
+                else if (markerShape === 'arrowDown') tvShape = 'arrowDown';
+                else tvShape = 'circle'; // default fallback
+                
+                allMarkers.push({
+                  time: time,
+                  position: indicator.type === 'daily_shio' ? 'belowBar' : 'aboveBar',
+                  color: markerColor,
+                  shape: tvShape,
+                  size: 2,
+                  id: `${indicator.type}_${dayKey}`,
+                } as SeriesMarker);
+              } else {
+                // Use emoji marker (default)
+                allMarkers.push({
+                  time: time,
+                  position: indicator.type === 'daily_shio' ? 'belowBar' : 'aboveBar',
+                  color: info.color,
+                  shape: undefined, // No shape for emoji mode - emoji only
+                  text: info.emoji,
+                  size: 2,
+                  id: `${indicator.type}_${dayKey}`,
+                } as SeriesMarker);
+              }
               collectedCount++;
             }
             
@@ -2851,25 +2891,34 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                         borderColor: `${ind.color}40`
                       }}
                     >
-                      <span className="text-xs font-medium" style={{ color: ind.color }}>
+                      <span className="text-xs font-medium flex-1" style={{ color: ind.color }}>
                       {ind.name}
                       </span>
-                      <button
-                        onClick={() => {
-                          const indIndex = indicators.findIndex(i => i.id === ind.id);
-                          if (indIndex !== -1) {
-                            const newIndicators = [...indicators];
-                            newIndicators[indIndex] = { ...newIndicators[indIndex], enabled: false };
-                            setIndicators(newIndicators);
-                          }
-                        }}
-                        className="text-muted-foreground hover:text-destructive transition-colors"
-                        title="Close"
-                      >
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => editIndicator(ind)}
+                          className="text-muted-foreground hover:text-foreground transition-colors"
+                          title="Settings"
+                        >
+                          <SettingsIcon className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            const indIndex = indicators.findIndex(i => i.id === ind.id);
+                            if (indIndex !== -1) {
+                              const newIndicators = [...indicators];
+                              newIndicators[indIndex] = { ...newIndicators[indIndex], enabled: false };
+                              setIndicators(newIndicators);
+                            }
+                          }}
+                          className="text-muted-foreground hover:text-destructive transition-colors"
+                          title="Close"
+                        >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
