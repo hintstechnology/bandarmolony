@@ -13,8 +13,8 @@ const RETRY_DELAY = 1000;
 
 // Memory Management - Batch sizes & concurrency per phase 1 service
 // STOCK
-const BATCH_SIZE_PHASE_1_STOCK = 500;              // Phase 1 Stock: items per batch
-const MAX_CONCURRENT_REQUESTS_PHASE_1_STOCK = 250; // Phase 1 Stock: concurrent requests
+const BATCH_SIZE_PHASE_1_STOCK = 200;              // Phase 1 Stock: items per batch
+const MAX_CONCURRENT_REQUESTS_PHASE_1_STOCK = 100; // Phase 1 Stock: concurrent requests
 
 // INDEX
 const BATCH_SIZE_PHASE_1_INDEX = 44;               // Phase 1 Index: items per batch
