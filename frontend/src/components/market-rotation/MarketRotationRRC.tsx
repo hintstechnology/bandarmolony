@@ -117,24 +117,28 @@ export default function MarketRotationRRC() {
   const [indexOptions, setIndexOptions] = useState<{name: string, color: string}[]>([]);
   const [sectorOptions, setSectorOptions] = useState<{name: string, color: string}[]>([]);
   const [stockOptions, setStockOptions] = useState<{name: string, color: string}[]>([]);
-  const [isLoading, setIsLoading] = useState(true); // Start with loading state
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState<any>(null);
+  const [isDataReady, setIsDataReady] = useState<boolean>(false); // Control when to show chart
+  const [shouldFetchData, setShouldFetchData] = useState<boolean>(false); // Control when to fetch data (only when Show button clicked)
   const searchRef = useRef<HTMLDivElement>(null);
   const indexSearchRef = useRef<HTMLDivElement>(null);
   const startDateRef = useRef<HTMLInputElement>(null);
   const endDateRef = useRef<HTMLInputElement>(null);
-  const isInitialMount = useRef(true);
   const isLoadingRef = useRef(false);
   const menuContainerRef = useRef<HTMLDivElement>(null);
   const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
 
-  // Load available inputs on mount and set defaults
-  useEffect(() => {
-    isInitialMount.current = true; // Reset on viewMode change
+  // Load available inputs only when Show button is clicked (first time)
+  const loadInputsIfNeeded = async (): Promise<boolean> => {
+    // Only load if options are not yet loaded
+    if (indexOptions.length > 0 && (sectorOptions.length > 0 || stockOptions.length > 0)) {
+      return true; // Already loaded
+    }
     
-    const loadInputs = async () => {
+    try {
       console.log('🔄 Frontend: Loading RRC inputs for viewMode:', viewMode);
       const result = await api.listRRCInputs();
       
@@ -164,62 +168,70 @@ export default function MarketRotationRRC() {
         setSectorOptions(generateSectorStockColors(result.data.stockSectors || []));
         setStockOptions(generateSectorStockColors(result.data.stocks || []));
         
-        // Set default selections immediately
+        // Set default selections if not already set
         const defaultIndex = result.data.index?.[0] || 'COMPOSITE';
         if (!selectedIndex) {
           setSelectedIndex(defaultIndex);
         }
         
-        // ALWAYS set default items when viewMode changes
-        let itemsToSelect: string[] = [];
-        
-        if (viewMode === 'sector' && result.data.stockSectors && result.data.stockSectors.length > 0) {
-          const defaultSectors = ['Technology', 'Healthcare', 'Financials'];
-          const availableSectors = result.data.stockSectors || [];
-          const validSectors = defaultSectors.filter(sector => availableSectors.includes(sector));
-          itemsToSelect = validSectors.length > 0 ? validSectors : [result.data.stockSectors[0]];
-        } else if (viewMode === 'stock' && result.data.stocks && result.data.stocks.length > 0) {
-          // Default stocks: BBCA, BBRI, BMRI
-          const defaultStocks = ['BBCA', 'BBRI', 'BMRI'];
-          const availableStocks = result.data.stocks || [];
-          const validStocks = defaultStocks.filter(stock => availableStocks.includes(stock));
-          itemsToSelect = validStocks.length > 0 ? validStocks : [result.data.stocks[0]];
-        }
-        
-        if (itemsToSelect.length > 0) {
-          setSelectedItems(itemsToSelect);
-          // Immediately load chart data with current selections (no setTimeout)
-          const indexToUse = selectedIndex || defaultIndex;
-          if (indexToUse && itemsToSelect.length > 0) {
-            loadChartDataWithParams(indexToUse, itemsToSelect, viewMode);
+        // Set default items if not already set
+        if (selectedItems.length === 0) {
+          let itemsToSelect: string[] = [];
+          
+          if (viewMode === 'sector' && result.data.stockSectors && result.data.stockSectors.length > 0) {
+            const defaultSectors = ['Technology', 'Healthcare', 'Financials'];
+            const availableSectors = result.data.stockSectors || [];
+            const validSectors = defaultSectors.filter(sector => availableSectors.includes(sector));
+            itemsToSelect = validSectors.length > 0 ? validSectors : [result.data.stockSectors[0]];
+          } else if (viewMode === 'stock' && result.data.stocks && result.data.stocks.length > 0) {
+            // Default stocks: BBCA, BBRI, BMRI
+            const defaultStocks = ['BBCA', 'BBRI', 'BMRI'];
+            const availableStocks = result.data.stocks || [];
+            const validStocks = defaultStocks.filter(stock => availableStocks.includes(stock));
+            itemsToSelect = validStocks.length > 0 ? validStocks : [result.data.stocks[0]];
           }
-        } else {
-          setIsLoading(false);
+          
+          if (itemsToSelect.length > 0) {
+            setSelectedItems(itemsToSelect);
+          }
         }
+        
+        return true;
       } else {
         console.error('❌ Frontend: Failed to load RRC inputs:', result.error);
-        setError('Failed to load available options');
-        setIsLoading(false);
+        const errorMessage = result.error || 'Failed to load inputs';
+        showToast({
+          type: 'error',
+          title: 'Failed to Load Options',
+          message: errorMessage
+        });
+        return false;
       }
-    };
+    } catch (error: any) {
+      console.error('❌ Frontend: Error loading inputs:', error);
+      const errorMessage = error?.message || error?.toString() || 'Network error occurred';
+      showToast({
+        type: 'error',
+        title: 'Connection Error',
+        message: `Failed to load options: ${errorMessage}. Please check your connection and try again.`
+      });
+      return false;
+    }
+  };
 
-    loadInputs();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode]);
-
-  // Load chart data when selections change
+  // Load chart data only when shouldFetchData is true (triggered by Show button)
   useEffect(() => {
-    if (isInitialMount.current) {
-      // Skip first run, will be triggered by loadInputs setting the items
-      isInitialMount.current = false;
+    if (!shouldFetchData) {
       return;
     }
     
-    if (selectedIndex && selectedItems.length > 0 && !isLoading) {
+    if (selectedIndex && selectedItems.length > 0) {
       loadChartData();
+    } else {
+      setShouldFetchData(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIndex, selectedItems, viewMode]);
+  }, [shouldFetchData]);
 
   // Auto-refresh when generation completes
   useEffect(() => {
@@ -228,13 +240,10 @@ export default function MarketRotationRRC() {
         try {
           const statusResult = await api.getRRCStatus();
           if (statusResult.success && !statusResult.data?.isGenerating) {
-            console.log('✅ Frontend: Generation completed, auto-refreshing...');
+            console.log('✅ Frontend: Generation completed');
             setIsGenerating(false);
             setGenerationProgress(null);
-            // Reload chart data
-            if (selectedIndex && selectedItems.length > 0) {
-              await loadChartData();
-            }
+            // Don't auto-refresh - user must click Show button
           }
         } catch (error) {
           console.error('❌ Frontend: Error checking generation status:', error);
@@ -352,17 +361,21 @@ export default function MarketRotationRRC() {
         console.log('✅ Frontend: Chart data length:', parsedData.length);
         setChartData(parsedData);
         setError(null);
+        setIsDataReady(true);
       } else {
         console.log('⚠️ Frontend: No RRC data received');
         setChartData([]);
         setError('No data available. Please check if data is being generated.');
+        setIsDataReady(true); // Still set to true so error message can be shown
       }
     } catch (error) {
       console.error('❌ Frontend: Error loading RRC data:', error);
       setError('Failed to load chart data');
+      setIsDataReady(true); // Still set to true so error message can be shown
     } finally {
       setIsLoading(false);
       isLoadingRef.current = false;
+      setShouldFetchData(false); // Reset fetch trigger
     }
   };
 
@@ -533,6 +546,7 @@ export default function MarketRotationRRC() {
     setShowSearchDropdown(false);
     setShowIndexSearchDropdown(false);
     setChartData([]); // Clear chart data when switching modes
+    setIsDataReady(false); // Hide chart when view mode changes
     
     // Set default selections based on available options
     if (mode === 'sector' && sectorOptions.length > 0) {
@@ -547,16 +561,30 @@ export default function MarketRotationRRC() {
     }
   };
 
-  const handleGenerateData = () => {
-    if (selectedIndex && selectedItems.length > 0) {
-      loadChartData();
+  const handleGenerateData = async () => {
+    // Load inputs first if not yet loaded
+    const inputsLoaded = await loadInputsIfNeeded();
+    if (!inputsLoaded) {
+      // Error already shown in loadInputsIfNeeded
+      return;
     }
+    
+    if (!selectedIndex || selectedItems.length === 0) {
+      showToast({
+        type: 'warning',
+        title: 'Selection Required',
+        message: 'Please select at least one index and one item before clicking Show.',
+      });
+      return;
+    }
+    
+    setIsDataReady(false); // Hide chart before loading new data
+    setChartData([]); // Clear previous data
+    setError(null); // Clear previous errors
+    setShouldFetchData(true); // Trigger fetch
   };
 
 
-  const hasValidSelection = () => {
-    return selectedIndex && selectedItems.length > 0;
-  };
 
   const triggerDatePicker = (inputRef: React.RefObject<HTMLInputElement>) => {
     if (inputRef.current) {
@@ -727,14 +755,7 @@ export default function MarketRotationRRC() {
     console.log('📅 End date changed to:', dateString);
   };
 
-  // Reload chart when date range changes
-  useEffect(() => {
-    if (selectedIndex && selectedItems.length > 0 && !isLoading && !isInitialMount.current) {
-      console.log('📅 Date range changed, reloading chart data...');
-      loadChartData();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startDate, endDate]);
+  // Don't auto-reload when date range changes - user must click Show button
 
   // Monitor menu height to detect if it wraps to 2 rows
   useEffect(() => {
@@ -854,7 +875,7 @@ export default function MarketRotationRRC() {
           {/* Show Button */}
           <button
             onClick={handleGenerateData}
-            disabled={isGenerating || !hasValidSelection()}
+            disabled={isGenerating}
             className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full md:w-auto"
           >
             {isGenerating ? (
@@ -873,7 +894,7 @@ export default function MarketRotationRRC() {
       <div className={isMenuTwoRows ? "h-0 lg:h-[60px]" : "h-0 lg:h-[38px]"}></div>
 
       <div className="space-y-6">
-
+      {!shouldFetchData && !isDataReady ? null : (
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 sm:gap-6 overflow-x-auto">
         {/* RRC Chart */}
         <div className="lg:col-span-3">
@@ -925,7 +946,7 @@ export default function MarketRotationRRC() {
                     <Button 
                       variant="outline" 
                       size="sm" 
-                      onClick={() => loadChartData()}
+                      onClick={handleGenerateData}
                     >
                       Retry
                     </Button>
@@ -939,7 +960,7 @@ export default function MarketRotationRRC() {
                     <Button 
                       variant="outline" 
                       size="sm" 
-                      onClick={() => loadChartData()}
+                      onClick={handleGenerateData}
                     >
                       Reload Data
                     </Button>
@@ -1345,6 +1366,7 @@ export default function MarketRotationRRC() {
           </Card>
         </div>
       </div>
+      )}
       </div>
     </div>
   );

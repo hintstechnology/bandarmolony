@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -84,11 +84,13 @@ export default function MarketRotationRRG() {
   const [screenerSectors, setScreenerSectors] = useState<any[]>([]);
   const [loadedStockData, setLoadedStockData] = useState<any[]>([]);
   const [loadedSectorData, setLoadedSectorData] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true); // Start with loading state
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isLoadingScanner, setIsLoadingScanner] = useState(false);
   const [generationProgress, setGenerationProgress] = useState<any>(null);
+  const [isDataReady, setIsDataReady] = useState<boolean>(false); // Control when to show chart
+  const [shouldFetchData, setShouldFetchData] = useState<boolean>(false); // Control when to fetch data (only when Show button clicked)
   
   // Separate search states for stock and sector scanners
   const [stockScreenerSearchQuery, setStockScreenerSearchQuery] = useState('');
@@ -111,57 +113,61 @@ export default function MarketRotationRRG() {
   const sectorScreenerSearchRef = useRef<HTMLDivElement>(null);
   const startDateRef = useRef<HTMLInputElement>(null);
   const endDateRef = useRef<HTMLInputElement>(null);
-  const isInitialMount = useRef(true);
   const isLoadingRef = useRef(false);
   const menuContainerRef = useRef<HTMLDivElement>(null);
   const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
 
-  // Load available inputs on mount and set defaults
-  useEffect(() => {
-    isInitialMount.current = true; // Reset on viewMode change
+  // Load available inputs only when Show button is clicked (first time)
+  const loadInputsIfNeeded = async (): Promise<boolean> => {
+    // Only load if options are not yet loaded
+    if (indexOptions.length > 0 && (sectorOptions.length > 0 || stockOptions.length > 0)) {
+      return true; // Already loaded
+    }
     
-    const loadInputs = async () => {
-      try {
-        console.log('🔄 Frontend: Loading RRG inputs for viewMode:', viewMode);
-        const result = await api.listRRGInputs();
+    try {
+      console.log('🔄 Frontend: Loading RRG inputs for viewMode:', viewMode);
+      const result = await api.listRRGInputs();
+      
+      if (result.success && result.data) {
+        console.log('✅ Frontend: RRG inputs loaded:', result.data);
         
-        if (result.success && result.data) {
-          console.log('✅ Frontend: RRG inputs loaded:', result.data);
-          
-          // Generate colors for options - different color schemes for different types
-          const generateIndexColors = (items: string[]) => {
-            // Index colors - darker, more prominent colors
-            const indexColors = ['#DC2626', '#B91C1C', '#991B1B', '#7F1D1D', '#EF4444', '#F87171', '#FCA5A5'];
-            return items.map((item, index) => ({
-              name: item,
-              color: indexColors[index % indexColors.length] || '#DC2626'
-            }));
-          };
-          
-          const generateSectorStockColors = (items: string[]) => {
-            // Sector/Stock colors - vibrant, distinct colors
-            const sectorStockColors = ['#3B82F6', '#10B981', '#EF4444', '#F59E0B', '#8B5CF6', '#06B6D4', '#84CC16', '#EC4899', '#F97316', '#14B8A6', '#A855F7', '#F43F5E', '#0EA5E9', '#22C55E', '#EAB308'];
-            return items.map((item, index) => ({
-              name: item,
-              color: sectorStockColors[index % sectorStockColors.length] || '#6B7280'
-            }));
-          };
-          
-          console.log('📊 RRG Inputs received:', {
-            indexes: result.data.index?.length || 0,
-            sectors: result.data.sectors?.length || 0,
-            stocks: result.data.stocks?.length || 0
-          });
-          
-          setIndexOptions(generateIndexColors(result.data.index || []));
-          setSectorOptions(generateSectorStockColors(result.data.sectors || []));
-          setStockOptions(generateSectorStockColors(result.data.stocks || []));
-          
-          const defaultIndex = result.data.index?.[0] || 'COMPOSITE';
-          if (!selectedIndex) {
-            setSelectedIndex(defaultIndex);
-          }
-          
+        // Generate colors for options - different color schemes for different types
+        const generateIndexColors = (items: string[]) => {
+          // Index colors - darker, more prominent colors
+          const indexColors = ['#DC2626', '#B91C1C', '#991B1B', '#7F1D1D', '#EF4444', '#F87171', '#FCA5A5'];
+          return items.map((item, index) => ({
+            name: item,
+            color: indexColors[index % indexColors.length] || '#DC2626'
+          }));
+        };
+        
+        const generateSectorStockColors = (items: string[]) => {
+          // Sector/Stock colors - vibrant, distinct colors
+          const sectorStockColors = ['#3B82F6', '#10B981', '#EF4444', '#F59E0B', '#8B5CF6', '#06B6D4', '#84CC16', '#EC4899', '#F97316', '#14B8A6', '#A855F7', '#F43F5E', '#0EA5E9', '#22C55E', '#EAB308'];
+          return items.map((item, index) => ({
+            name: item,
+            color: sectorStockColors[index % sectorStockColors.length] || '#6B7280'
+          }));
+        };
+        
+        console.log('📊 RRG Inputs received:', {
+          indexes: result.data.index?.length || 0,
+          sectors: result.data.sectors?.length || 0,
+          stocks: result.data.stocks?.length || 0
+        });
+        
+        setIndexOptions(generateIndexColors(result.data.index || []));
+        setSectorOptions(generateSectorStockColors(result.data.sectors || []));
+        setStockOptions(generateSectorStockColors(result.data.stocks || []));
+        
+        // Set default selections if not already set
+        const defaultIndex = result.data.index?.[0] || 'COMPOSITE';
+        if (!selectedIndex) {
+          setSelectedIndex(defaultIndex);
+        }
+        
+        // Set default items if not already set
+        if (selectedItems.length === 0) {
           let itemsToSelect: string[] = [];
           if (viewMode === 'sector' && result.data.sectors && result.data.sectors.length > 0) {
             const defaultSectors = ['Technology', 'Healthcare', 'Financials'];
@@ -178,26 +184,31 @@ export default function MarketRotationRRG() {
           
           if (itemsToSelect.length > 0) {
             setSelectedItems(itemsToSelect);
-            const indexToUse = selectedIndex || defaultIndex;
-            if (indexToUse && itemsToSelect.length > 0) {
-              loadChartDataWithParams(indexToUse, itemsToSelect, viewMode);
-            }
           }
-          
-          setIsLoading(false);
-        } else {
-          setError(result.error || 'Failed to load inputs');
-          setIsLoading(false);
         }
-      } catch (error) {
-        console.error('❌ Frontend: Error loading inputs:', error);
-        setError('Failed to load available options');
-        setIsLoading(false);
+        
+        return true;
+      } else {
+        console.error('❌ Frontend: Failed to load RRG inputs:', result.error);
+        const errorMessage = result.error || 'Failed to load inputs';
+        showToast({
+          type: 'error',
+          title: 'Failed to Load Options',
+          message: errorMessage
+        });
+        return false;
       }
-    };
-    
-    loadInputs();
-  }, [viewMode]);
+    } catch (error: any) {
+      console.error('❌ Frontend: Error loading inputs:', error);
+      const errorMessage = error?.message || error?.toString() || 'Network error occurred';
+      showToast({
+        type: 'error',
+        title: 'Connection Error',
+        message: `Failed to load options: ${errorMessage}. Please check your connection and try again.`
+      });
+      return false;
+    }
+  };
 
   // Load scanner data
   const loadScannerData = useCallback(async () => {
@@ -311,10 +322,12 @@ export default function MarketRotationRRG() {
     }
   }, []);
 
-  // Load scanner data on component mount
+  // Load scanner data only after Show button is clicked (when layout is visible)
   useEffect(() => {
-    loadScannerData();
-  }, [loadScannerData]);
+    if (shouldFetchData || isDataReady) {
+      loadScannerData();
+    }
+  }, [shouldFetchData, isDataReady, loadScannerData]);
 
   // Click outside handlers
   useEffect(() => {
@@ -357,17 +370,19 @@ export default function MarketRotationRRG() {
     }
   }, [sectorScreenerSearchQuery]);
 
+  // Load chart data only when shouldFetchData is true (triggered by Show button)
   useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
+    if (!shouldFetchData) {
       return;
     }
     
-    if (selectedIndex && selectedItems.length > 0 && !isLoading) {
+    if (selectedIndex && selectedItems.length > 0) {
       loadChartData();
+    } else {
+      setShouldFetchData(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIndex, selectedItems, viewMode]);
+  }, [shouldFetchData]);
 
   useEffect(() => {
     if (isGenerating) {
@@ -376,11 +391,11 @@ export default function MarketRotationRRG() {
           const statusResult = await api.getRRGStatus();
           if (statusResult.success && statusResult.data) {
             if (!statusResult.data.isGenerating) {
-              console.log('✅ Frontend: RRG generation completed, refreshing chart data');
+              console.log('✅ Frontend: RRG generation completed');
               setIsGenerating(false);
               setGenerationProgress(null);
               clearInterval(interval);
-              loadChartData();
+              // Don't auto-refresh - user must click Show button
             } else {
               setGenerationProgress(statusResult.data.progress);
             }
@@ -453,8 +468,10 @@ export default function MarketRotationRRG() {
         console.error('❌ Frontend: No results - empty array!');
         setError('No data available for selected items. Data mungkin belum di-generate atau file tidak ditemukan di Azure.');
         setTrajectoryData([]);
+        setIsDataReady(true); // Still set to true so error message can be shown
         setIsLoading(false);
         isLoadingRef.current = false;
+        setShouldFetchData(false); // Reset fetch trigger
         return;
       }
       
@@ -463,13 +480,17 @@ export default function MarketRotationRRG() {
       
       setTrajectoryData(trajectories);
       setError(null);
+      setIsDataReady(true);
       setIsLoading(false);
       isLoadingRef.current = false;
+      setShouldFetchData(false); // Reset fetch trigger
     } catch (error) {
       console.error('❌ Frontend: Error loading chart data:', error);
       setError('Failed to load chart data');
+      setIsDataReady(true); // Still set to true so error message can be shown
       setIsLoading(false);
       isLoadingRef.current = false;
+      setShouldFetchData(false); // Reset fetch trigger
     }
   };
 
@@ -572,10 +593,10 @@ export default function MarketRotationRRG() {
     setShowSearchDropdown(false);
     setShowIndexSearchDropdown(false);
     setTrajectoryData([]);
+    setIsDataReady(false); // Hide chart when view mode changes
     
     if (mode === 'sector' && sectorOptions.length > 0) {
       setSelectedItems([sectorOptions[0]?.name || 'Technology']);
-      loadChartDataWithParams(selectedIndex, [sectorOptions[0]?.name || 'Technology'], mode);
     } else if (mode === 'stock' && stockOptions.length > 0) {
       // Default stocks: BBCA, BBRI, BMRI
       const defaultStocks = ['BBCA', 'BBRI', 'BMRI'];
@@ -584,7 +605,6 @@ export default function MarketRotationRRG() {
       );
       const itemsToSelect = availableDefaults.length > 0 ? availableDefaults : [stockOptions[0]?.name || 'BBCA'];
       setSelectedItems(itemsToSelect);
-      loadChartDataWithParams(selectedIndex, itemsToSelect, mode);
     }
   };
 
@@ -754,10 +774,27 @@ export default function MarketRotationRRG() {
 
 
 
-  const handleGo = () => {
-    if (selectedIndex && selectedItems.length > 0) {
-      loadChartDataWithParams(selectedIndex, selectedItems, viewMode);
+  const handleGo = async () => {
+    // Load inputs first if not yet loaded
+    const inputsLoaded = await loadInputsIfNeeded();
+    if (!inputsLoaded) {
+      // Error already shown in loadInputsIfNeeded
+      return;
     }
+    
+    if (!selectedIndex || selectedItems.length === 0) {
+      showToast({
+        type: 'warning',
+        title: 'Selection Required',
+        message: 'Please select at least one index and one item before clicking Show.',
+      });
+      return;
+    }
+    
+    setIsDataReady(false); // Hide chart before loading new data
+    setTrajectoryData([]); // Clear previous data
+    setError(null); // Clear previous errors
+    setShouldFetchData(true); // Trigger fetch
   };
 
   const triggerDatePicker = (inputRef: React.RefObject<HTMLInputElement>) => {
@@ -820,9 +857,6 @@ export default function MarketRotationRRG() {
     setEndDate(newDate);
   };
 
-  const hasValidSelection = () => {
-    return selectedIndex && selectedItems.length > 0;
-  };
 
   const addToScreener = useCallback((stockName: string) => {
     const stockOption = stockOptions.find(opt => opt.name === stockName);
@@ -1119,13 +1153,13 @@ export default function MarketRotationRRG() {
           {/* Show Button */}
           <button
             onClick={handleGo}
-            disabled={isLoading || !hasValidSelection()}
+            disabled={isGenerating}
             className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full md:w-auto"
           >
-            {isLoading ? (
+            {isGenerating ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                Loading...
+                Generating...
               </>
             ) : (
               'Show'
@@ -1138,7 +1172,8 @@ export default function MarketRotationRRG() {
       <div className={isMenuTwoRows ? "h-0 lg:h-[60px]" : "h-0 lg:h-[38px]"}></div>
 
       <div className="space-y-6">
-
+      {!shouldFetchData && !isDataReady ? null : (
+      <React.Fragment>
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 sm:gap-6 overflow-x-auto">
         {/* RRG Chart */}
         <div className="lg:col-span-3">
@@ -1176,7 +1211,7 @@ export default function MarketRotationRRG() {
                 <div className="flex items-center justify-center h-96">
                   <div className="text-center">
                     <p className="text-sm text-destructive mb-2">{error}</p>
-                    <Button variant="outline" size="sm" onClick={() => loadChartData()}>Retry</Button>
+                    <Button variant="outline" size="sm" onClick={handleGo}>Retry</Button>
                   </div>
                 </div>
               ) : filteredTrajectoryData.length === 0 && !isLoading && !isGenerating ? (
@@ -1184,7 +1219,7 @@ export default function MarketRotationRRG() {
                   <div className="text-center">
                     <p className="text-sm text-muted-foreground mb-2">No data available</p>
                     <p className="text-xs text-muted-foreground mb-3">Data mungkin sedang diproses atau belum tersedia</p>
-                    <Button variant="outline" size="sm" onClick={() => loadChartData()}>Reload Data</Button>
+                    <Button variant="outline" size="sm" onClick={handleGo}>Reload Data</Button>
                   </div>
                 </div>
               ) : filteredTrajectoryData.length > 0 ? (
@@ -2099,6 +2134,8 @@ export default function MarketRotationRRG() {
           </div>
         </CardContent>
       </Card>
+      </React.Fragment>
+      )}
       </div>
     </div>
   );
