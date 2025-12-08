@@ -132,24 +132,64 @@ const BrokerLegend = ({
   onRemoveBroker: (broker: string) => void;
   onRemoveAll?: () => void;
 }) => {
+  // Check if all brokers are visible
+  const allVisible = brokers.length > 0 && brokers.every(broker => brokerVisibility[broker] !== false);
+  const someVisible = brokers.some(broker => brokerVisibility[broker] !== false);
+  
+  // Toggle all visibility
+  const handleToggleAll = () => {
+    brokers.forEach(broker => {
+      const isVisible = brokerVisibility[broker] !== false;
+      if (allVisible) {
+        // If all visible, hide all
+        if (isVisible) {
+          onToggleVisibility(broker);
+        }
+      } else {
+        // If not all visible, show all
+        if (!isVisible) {
+          onToggleVisibility(broker);
+        }
+      }
+    });
+  };
+
   return (
     <div className="rounded-lg border border-[#3a4252] bg-background/70 px-3 py-2">
       <div className="flex items-center justify-between mb-2">
         <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {title}
         </div>
-        {onRemoveAll && brokers.length > 0 && (
-          <button
-            type="button"
-            onClick={onRemoveAll}
-            className="text-muted-foreground hover:text-destructive transition-colors"
-            aria-label={`Remove all ${title}`}
-            title={`Remove all ${title}`}
-          >
-            <X className="w-4 h-4" />
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {onRemoveAll && brokers.length > 0 && (
+            <button
+              type="button"
+              onClick={onRemoveAll}
+              className="text-muted-foreground hover:text-destructive transition-colors"
+              aria-label={`Remove all ${title}`}
+              title={`Remove all ${title}`}
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       </div>
+      {brokers.length > 0 && (
+        <div className="mb-2 pb-2 border-b border-[#3a4252]">
+          <label className="flex items-center gap-2 text-xs font-medium cursor-pointer select-none text-muted-foreground hover:text-foreground transition-colors">
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary"
+              checked={allVisible}
+              ref={(input) => {
+                if (input) input.indeterminate = someVisible && !allVisible;
+              }}
+              onChange={handleToggleAll}
+            />
+            <span>{allVisible ? 'Unselect All' : 'Select All'}</span>
+          </label>
+        </div>
+      )}
       <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
         {brokers.length === 0 ? (
           <p className="text-xs text-muted-foreground">No brokers in this group.</p>
@@ -4648,6 +4688,7 @@ const visibleBrokers = useMemo(
                         brokerVisibility={brokerVisibility}
                         onToggleVisibility={handleToggleBrokerVisibility}
                         onRemoveBroker={removeBroker}
+                        onRemoveAll={removeAllTop5Buy}
                       />
                       )}
                       {brokerSelectionMode.top5sell && top5SellBrokers.length > 0 && (
@@ -4658,6 +4699,7 @@ const visibleBrokers = useMemo(
                         brokerVisibility={brokerVisibility}
                         onToggleVisibility={handleToggleBrokerVisibility}
                         onRemoveBroker={removeBroker}
+                        onRemoveAll={removeAllTop5Sell}
                       />
                       )}
                       {brokerSelectionMode.custom && customBrokers.length > 0 && (
@@ -4668,6 +4710,7 @@ const visibleBrokers = useMemo(
                           brokerVisibility={brokerVisibility}
                           onToggleVisibility={handleToggleBrokerVisibility}
                           onRemoveBroker={removeBroker}
+                          onRemoveAll={removeAllCustom}
                         />
                       )}
                     </div>
