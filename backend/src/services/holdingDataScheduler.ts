@@ -10,8 +10,8 @@ import {
   removeDuplicates,
   convertToCsv,
   parseCsvString,
-  BATCH_SIZE_PHASE_1_STOCK,
-  MAX_CONCURRENT_REQUESTS
+  BATCH_SIZE_PHASE_1_HOLDING,
+  MAX_CONCURRENT_REQUESTS_PHASE_1_HOLDING
 } from './dataUpdateService';
 import { SchedulerLogService } from './schedulerLogService';
 
@@ -218,7 +218,7 @@ async function processHoldingEmiten(
     } else {
       return { success: true, skipped: true };
     }
-
+    
     // Flatten holding composition structure (foreign/local) to scalar columns
     const flattenedData = normalizeHoldingCompositionData(normalizedData);
 
@@ -306,22 +306,22 @@ export async function updateHoldingData(logId?: string | null, triggeredBy?: str
 
     // Process emitens in parallel batches
     const results = await ParallelProcessor.processInBatches(
-      emitenList,
-      async (emiten: string, index: number) => {
-        return processHoldingEmiten(
-          emiten,
-          index,
-          emitenList.length,
-          httpClient,
-          azureStorage,
-          todayDate,
-          cache,
-          finalLogId
-        );
-      },
-      BATCH_SIZE_PHASE_1_STOCK,
-      MAX_CONCURRENT_REQUESTS
-    );
+    emitenList,
+    async (emiten: string, index: number) => {
+      return processHoldingEmiten(
+        emiten,
+        index,
+        emitenList.length,
+        httpClient,
+        azureStorage,
+        todayDate,
+        cache,
+        finalLogId
+      );
+    },
+    BATCH_SIZE_PHASE_1_HOLDING,
+    MAX_CONCURRENT_REQUESTS_PHASE_1_HOLDING
+  );
 
     const endTime = Date.now();
     const processingTime = (endTime - startTime) / 1000;
