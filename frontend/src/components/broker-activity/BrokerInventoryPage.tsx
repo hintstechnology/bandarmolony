@@ -1259,6 +1259,7 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
   const [endDate, setEndDate] = useState<string>('');
   const [isInitializing, setIsInitializing] = useState(true);
   const [brokerSearch, setBrokerSearch] = useState('');
+  const [debouncedBrokerSearch, setDebouncedBrokerSearch] = useState('');
   const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false);
   const [highlightedBrokerIndex, setHighlightedBrokerIndex] = useState(-1);
   const [brokerSelectionMode, setBrokerSelectionMode] = useState<{
@@ -1267,12 +1268,18 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
     custom: boolean;
   }>({ top5buy: false, top5sell: false, custom: false });
   const [tickerInput, setTickerInput] = useState<string>('');
+  const [debouncedTickerInput, setDebouncedTickerInput] = useState<string>('');
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [splitVisualization, setSplitVisualization] = useState(defaultSplitView);
   const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
   const [availableStocks, setAvailableStocks] = useState<string[]>([]);
   const [sectorMapping, setSectorMapping] = useState<{ [sector: string]: string[] }>({});
   const [stockSearchTimeout, setStockSearchTimeout] = useState<NodeJS.Timeout | null>(null);
+  // Windowing state for virtual scrolling
+  const [stockScrollOffset, setStockScrollOffset] = useState(0);
+  const [sectorScrollOffset, setSectorScrollOffset] = useState(0);
+  const [brokerScrollOffset, setBrokerScrollOffset] = useState(0);
+  const ITEMS_PER_PAGE = 50; // Render 50 items at a time
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isDataReady, setIsDataReady] = useState<boolean>(false); // Control when to show charts/tables
@@ -2600,29 +2607,101 @@ const visibleBrokers = useMemo(
     }
   };
 
-  // Separate stocks and sectors for display
-  const filteredStocksList = (availableStocks || []).filter(stock => {
-    const searchTerm = tickerInput.toLowerCase();
-    // Only include stocks (not sectors)
-    if (stock.startsWith('[SECTOR] ')) {
-      return false;
-    }
-    // For regular stocks, search normally and exclude if already selected
-    return stock.toLowerCase().includes(searchTerm) && selectedTicker !== stock;
-  });
+  // Debounce ticker input for better performance
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setDebouncedTickerInput(tickerInput);
+      // Reset scroll offsets when search changes
+      setStockScrollOffset(0);
+      setSectorScrollOffset(0);
+    }, 150);
+    return () => clearTimeout(timeout);
+  }, [tickerInput]);
 
-  const filteredSectorsList = (availableStocks || []).filter(stock => {
-    const searchTerm = tickerInput.toLowerCase();
-    // Only include sectors
-    if (stock.startsWith('[SECTOR] ')) {
-      const sectorName = stock.replace('[SECTOR] ', '').toLowerCase();
-      return sectorName.includes(searchTerm) && selectedTicker !== stock;
-    }
-    return false;
-  });
-  
-  // For backward compatibility (used in exact match check)
-  const filteredStocks = [...filteredStocksList, ...filteredSectorsList];
+  // Debounce broker search for better performance
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setDebouncedBrokerSearch(brokerSearch);
+      // Reset scroll offset when search changes
+      setBrokerScrollOffset(0);
+    }, 150);
+    return () => clearTimeout(timeout);
+  }, [brokerSearch]);
+
+  // Memoized filtered stocks list for better performance
+  const filteredStocksList = useMemo(() => {
+    const searchTerm = debouncedTickerInput.toLowerCase();
+    return (availableStocks || []).filter(stock => {
+      // Only include stocks (not sectors)
+      if (stock.startsWith('[SECTOR] ')) {
+        return false;
+      }
+      // For regular stocks, search normally and exclude if already selected
+      return stock.toLowerCase().includes(searchTerm) && selectedTicker !== stock;
+    });
+  }, [availableStocks, debouncedTickerInput, selectedTicker]);
+
+  // Memoized filtered sectors list for better performance
+  const filteredSectorsList = useMemo(() => {
+    const searchTerm = debouncedTickerInput.toLowerCase();
+    return (availableStocks || []).filter(stock => {
+      // Only include sectors
+      if (stock.startsWith('[SECTOR] ')) {
+        const sectorName = stock.replace('[SECTOR] ', '').toLowerCase();
+        return sectorName.includes(searchTerm) && selectedTicker !== stock;
+      }
+      return false;
+    });
+  }, [availableStocks, debouncedTickerInput, selectedTicker]);
+
+  // Memoized all stocks list (for backward compatibility)
+  const filteredStocks = useMemo(() => {
+    return [...filteredStocksList, ...filteredSectorsList];
+  }, [filteredStocksList, filteredSectorsList]);
+
+  // Windowed stocks list (only show visible items)
+  const visibleStocksList = useMemo(() => {
+    const start = stockScrollOffset;
+    const end = start + ITEMS_PER_PAGE;
+    return filteredStocksList.slice(start, end);
+  }, [filteredStocksList, stockScrollOffset]);
+
+  // Windowed sectors list (only show visible items)
+  const visibleSectorsList = useMemo(() => {
+    const start = sectorScrollOffset;
+    const end = start + ITEMS_PER_PAGE;
+    return filteredSectorsList.slice(start, end);
+  }, [filteredSectorsList, sectorScrollOffset]);
+
+  // All stocks without filter (for initial display)
+  const allStocksList = useMemo(() => {
+    return (availableStocks || []).filter(s => {
+      if (s.startsWith('[SECTOR] ')) return false;
+      return selectedTicker !== s;
+    });
+  }, [availableStocks, selectedTicker]);
+
+  // All sectors without filter (for initial display)
+  const allSectorsList = useMemo(() => {
+    return (availableStocks || []).filter(s => {
+      if (!s.startsWith('[SECTOR] ')) return false;
+      return selectedTicker !== s;
+    });
+  }, [availableStocks, selectedTicker]);
+
+  // Windowed all stocks list (for initial display)
+  const visibleAllStocksList = useMemo(() => {
+    const start = stockScrollOffset;
+    const end = start + ITEMS_PER_PAGE;
+    return allStocksList.slice(start, end);
+  }, [allStocksList, stockScrollOffset]);
+
+  // Windowed all sectors list (for initial display)
+  const visibleAllSectorsList = useMemo(() => {
+    const start = sectorScrollOffset;
+    const end = start + ITEMS_PER_PAGE;
+    return allSectorsList.slice(start, end);
+  }, [allSectorsList, sectorScrollOffset]);
 
   // Helper function to format display name (remove [SECTOR] prefix for display)
   const formatStockDisplayName = (stock: string): string => {
@@ -3365,7 +3444,7 @@ const visibleBrokers = useMemo(
     filteredBrokers,
     totalOtherBrokersCount,
   } = useMemo(() => {
-    const searchTerm = brokerSearch.toLowerCase();
+    const searchTerm = debouncedBrokerSearch.toLowerCase();
     
     // Get top 5 buy and top 5 sell brokers
     const top5BuyBrokers = brokerNetStats.topBuyers.slice(0, 5).map(item => item.broker);
@@ -3449,7 +3528,20 @@ const visibleBrokers = useMemo(
       filteredBrokers: [...sortedRecommended, ...sortedOthers],
       totalOtherBrokersCount: sortedOthers.length,
     };
-  }, [availableBrokersForStock, defaultBrokers, brokerSearch, selectedBrokers, brokerNetStats, topBrokersData]);
+  }, [availableBrokersForStock, defaultBrokers, debouncedBrokerSearch, selectedBrokers, brokerNetStats, topBrokersData]);
+
+  // Windowed recommended brokers list
+  const visibleRecommendedBrokers = useMemo(() => {
+    // Recommended brokers are always shown (no windowing needed as they're usually < 10)
+    return recommendedBrokers;
+  }, [recommendedBrokers]);
+
+  // Windowed other brokers list
+  const visibleOtherBrokers = useMemo(() => {
+    const start = brokerScrollOffset;
+    const end = start + ITEMS_PER_PAGE;
+    return otherBrokers.slice(start, end);
+  }, [otherBrokers, brokerScrollOffset]);
 
   return (
     <div className="min-h-screen overflow-x-hidden">
@@ -3507,19 +3599,22 @@ const visibleBrokers = useMemo(
                           ) : (
                             <div className="flex flex-row h-full max-h-96 overflow-hidden">
                               {/* Left column: Stocks */}
-                              <div className="flex-1 border-r border-[#3a4252] overflow-y-auto">
+                              <div 
+                                className="flex-1 border-r border-[#3a4252] overflow-y-auto"
+                                onScroll={(e) => {
+                                  const target = e.target as HTMLElement;
+                                  const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+                                  if (scrollBottom < 100 && stockScrollOffset + ITEMS_PER_PAGE < (tickerInput === '' ? allStocksList.length : filteredStocksList.length)) {
+                                    setStockScrollOffset(prev => prev + ITEMS_PER_PAGE);
+                                  }
+                                }}
+                              >
                                 {tickerInput === '' ? (
                                   <>
                                     <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                      Stocks ({availableStocks.filter(s => {
-                                        if (s.startsWith('[SECTOR] ')) return false;
-                                        return selectedTicker !== s;
-                                      }).length})
+                                      Stocks ({allStocksList.length})
                                     </div>
-                                    {availableStocks.filter(s => {
-                                      if (s.startsWith('[SECTOR] ')) return false;
-                                      return selectedTicker !== s;
-                                    }).map(stock => (
+                                    {visibleAllStocksList.map(stock => (
                                       <div
                                         key={stock}
                                         onClick={() => handleStockSelect(stock)}
@@ -3528,13 +3623,18 @@ const visibleBrokers = useMemo(
                                         {stock}
                                       </div>
                                     ))}
+                                    {stockScrollOffset + ITEMS_PER_PAGE < allStocksList.length && (
+                                      <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                        Loading more... ({Math.min(stockScrollOffset + ITEMS_PER_PAGE, allStocksList.length)} / {allStocksList.length})
+                                      </div>
+                                    )}
                                   </>
                                 ) : filteredStocksList.length > 0 ? (
                                   <>
                                     <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
                                       Stocks ({filteredStocksList.length})
                                     </div>
-                                    {filteredStocksList.map(stock => (
+                                    {visibleStocksList.map(stock => (
                                       <div
                                         key={stock}
                                         onClick={() => handleStockSelect(stock)}
@@ -3543,6 +3643,11 @@ const visibleBrokers = useMemo(
                                         {stock}
                                       </div>
                                     ))}
+                                    {stockScrollOffset + ITEMS_PER_PAGE < filteredStocksList.length && (
+                                      <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                        Loading more... ({Math.min(stockScrollOffset + ITEMS_PER_PAGE, filteredStocksList.length)} / {filteredStocksList.length})
+                                      </div>
+                                    )}
                                   </>
                                 ) : (
                                   <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
@@ -3551,13 +3656,22 @@ const visibleBrokers = useMemo(
                                 )}
                               </div>
                               {/* Right column: Sectors */}
-                              <div className="flex-1 overflow-y-auto">
+                              <div 
+                                className="flex-1 overflow-y-auto"
+                                onScroll={(e) => {
+                                  const target = e.target as HTMLElement;
+                                  const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+                                  if (scrollBottom < 100 && sectorScrollOffset + ITEMS_PER_PAGE < (tickerInput === '' ? allSectorsList.length : filteredSectorsList.length)) {
+                                    setSectorScrollOffset(prev => prev + ITEMS_PER_PAGE);
+                                  }
+                                }}
+                              >
                                 {tickerInput === '' ? (
                                   <>
                                     <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                      Sectors ({availableStocks.filter(s => s.startsWith('[SECTOR] ') && selectedTicker !== s).length})
+                                      Sectors ({allSectorsList.length})
                                     </div>
-                                    {availableStocks.filter(s => s.startsWith('[SECTOR] ') && selectedTicker !== s).map(stock => (
+                                    {visibleAllSectorsList.map(stock => (
                                       <div
                                         key={stock}
                                         onClick={() => handleStockSelect(stock)}
@@ -3566,13 +3680,18 @@ const visibleBrokers = useMemo(
                                         {formatStockDisplayName(stock)}
                                       </div>
                                     ))}
+                                    {sectorScrollOffset + ITEMS_PER_PAGE < allSectorsList.length && (
+                                      <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                        Loading more... ({Math.min(sectorScrollOffset + ITEMS_PER_PAGE, allSectorsList.length)} / {allSectorsList.length})
+                                      </div>
+                                    )}
                                   </>
                                 ) : filteredSectorsList.length > 0 ? (
                                   <>
                                     <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
                                       Sectors ({filteredSectorsList.length})
                                     </div>
-                                    {filteredSectorsList.map(stock => (
+                                    {visibleSectorsList.map(stock => (
                                       <div
                                         key={stock}
                                         onClick={() => handleStockSelect(stock)}
@@ -3581,6 +3700,11 @@ const visibleBrokers = useMemo(
                                         {formatStockDisplayName(stock)}
                                       </div>
                                     ))}
+                                    {sectorScrollOffset + ITEMS_PER_PAGE < filteredSectorsList.length && (
+                                      <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                        Loading more... ({Math.min(sectorScrollOffset + ITEMS_PER_PAGE, filteredSectorsList.length)} / {filteredSectorsList.length})
+                                      </div>
+                                    )}
                                   </>
                                 ) : (
                                   <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
@@ -3629,19 +3753,28 @@ const visibleBrokers = useMemo(
                           ) : (
                             <div className="flex flex-row h-full max-h-96 overflow-hidden">
                               {/* Left column: Brokers */}
-                              <div className="flex-1 border-r border-[#3a4252] overflow-y-auto">
-                          {filteredBrokers.length === 0 ? (
-                            <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
-                              {brokerSearch !== '' ? `No brokers found matching "${brokerSearch}"` : `No brokers available for ${selectedTicker}`}
-                            </div>
-                          ) : (
-                            <>
-                              {recommendedBrokers.length > 0 && (
-                                <>
+                              <div 
+                                className="flex-1 border-r border-[#3a4252] overflow-y-auto"
+                                onScroll={(e) => {
+                                  const target = e.target as HTMLElement;
+                                  const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+                                  if (scrollBottom < 100 && brokerScrollOffset + ITEMS_PER_PAGE < otherBrokers.length) {
+                                    setBrokerScrollOffset(prev => prev + ITEMS_PER_PAGE);
+                                  }
+                                }}
+                              >
+                                {filteredBrokers.length === 0 ? (
+                                  <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
+                                    {debouncedBrokerSearch !== '' ? `No brokers found matching "${debouncedBrokerSearch}"` : `No brokers available for ${getActualTicker || 'selected ticker'}`}
+                                  </div>
+                                ) : (
+                                  <>
+                                    {visibleRecommendedBrokers.length > 0 && (
+                                      <>
                                         <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
                                           Recommended ({recommendedBrokers.length})
-                                  </div>
-                                  {recommendedBrokers.map((broker, index) => {
+                                        </div>
+                                        {visibleRecommendedBrokers.map((broker, index) => {
                                     const hasQuickSelect = brokerNetStats.topBuyers.length > 0 && brokerSearch === '';
                                     const quickSelectCount = hasQuickSelect ? 2 : 0;
                                     const globalIndex = quickSelectCount + index;
@@ -3702,134 +3835,118 @@ const visibleBrokers = useMemo(
                                       </div>
                                     );
                                   })}
-                                </>
-                              )}
-                              {otherBrokers.length > 0 && (
-                                <>
-                                  <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
-                                    {recommendedBrokers.length > 0 ? 'All Brokers' : `Brokers (${totalOtherBrokersCount})`}
-                                  </div>
-                                  {otherBrokers.map((broker, index) => {
-                                    const hasQuickSelect = brokerNetStats.topBuyers.length > 0 && brokerSearch === '';
-                                    const quickSelectCount = hasQuickSelect ? 2 : 0;
-                                    const globalIndex = quickSelectCount + recommendedBrokers.length + index;
-                                    return (
-                                      <div
-                                        key={`option-${broker}`}
-                                        onClick={(e) => {
-                                          e.preventDefault();
-                                          e.stopPropagation();
-                                          // Only handle click if not clicking directly on checkbox
-                                          const target = e.target as HTMLElement;
-                                          if (target.tagName !== 'INPUT' && !target.closest('input')) {
-                                            // Allow selecting individual brokers even after quick select
-                                            if (selectedBrokers.includes(broker)) {
-                                              // If already selected, remove it
-                                              removeBroker(broker);
-                                            } else {
-                                              // If not selected, add it
-                                            handleBrokerSelect(broker);
-                                            }
-                                            // Keep suggestions open to allow multiple selections
-                                          }
-                                        }}
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter' || e.key === ' ') {
-                                            e.preventDefault();
-                                            e.stopPropagation();
-                                            if (selectedBrokers.includes(broker)) {
-                                              removeBroker(broker);
-                                            } else {
-                                              handleBrokerSelect(broker);
-                                            }
-                                          }
-                                        }}
-                                        onMouseDown={(e) => {
-                                          // Prevent mousedown from closing dropdown
-                                          e.stopPropagation();
-                                        }}
-                                        tabIndex={0}
-                                        role="option"
-                                        aria-selected={selectedBrokers.includes(broker)}
-                                        className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${globalIndex === highlightedBrokerIndex ? 'bg-accent' : ''} ${selectedBrokers.includes(broker) ? 'bg-accent/50' : ''}`}
-                                        onMouseEnter={() => handleBrokerMouseEnter(globalIndex)}
-                                      >
-                                        <div className="flex items-center gap-2">
-                                          <input
-                                            type="checkbox"
-                                            checked={selectedBrokers.includes(broker)}
-                                            onChange={(e) => {
-                                              e.stopPropagation();
-                                              if (e.target.checked) {
-                                                if (!selectedBrokers.includes(broker)) {
-                                                  handleBrokerSelect(broker);
-                                                }
-                                              } else {
-                                                removeBroker(broker);
-                                              }
-                                            }}
-                                            onClick={(e) => e.stopPropagation()}
-                                            onMouseDown={(e) => e.stopPropagation()}
-                                            className="h-4 w-4 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary cursor-pointer"
-                                          />
-                                          <div
-                                            className="w-2 h-2 rounded-full"
-                                            style={{ backgroundColor: generateBrokerColor(broker, selectedBrokers) }}
-                                          />
-                                          {broker}
+                                      </>
+                                    )}
+                                    {otherBrokers.length > 0 && (
+                                      <>
+                                        <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
+                                          {recommendedBrokers.length > 0 ? 'All Brokers' : `Brokers (${totalOtherBrokersCount})`}
                                         </div>
-                                      </div>
-                                    );
-                                  })}
-                                </>
-                              )}
-                            </>
-                          )}
-                            </div>
-                            {/* Right column: Quick Select */}
-                            <div className="flex-1 overflow-y-auto">
-                              {brokerNetStats.topBuyers.length > 0 && brokerSearch === '' ? (
-                                <>
-                                  <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                    Quick Select
-                                  </div>
-                                  <div
-                                    onClick={() => {
-                                      // Toggle top5buy mode and add/remove top 5 buyers
-                                      const top5Buy = brokerNetStats.topBuyers.slice(0, 5).map(item => item.broker);
-                                      const isCurrentlyActive = brokerSelectionMode.top5buy;
-                                      
-                                      if (isCurrentlyActive) {
-                                        // Remove top 5 buyers from selection
-                                        setSelectedBrokers(prev => prev.filter(b => !top5Buy.includes(b)));
-                                        setBrokerSelectionMode(prev => ({ ...prev, top5buy: false }));
-                                      } else {
-                                        // Add top 5 buyers to selection (merge with existing)
-                                        setSelectedBrokers(prev => {
-                                          const newSet = new Set([...prev, ...top5Buy]);
-                                          return Array.from(newSet);
-                                        });
-                                        setBrokerSelectionMode(prev => ({ ...prev, top5buy: true }));
-                                      }
-                                      setHasUserSelectedBrokers(false);
-                                      setBrokerSearch('');
-                                      console.log(`✅ Top 5 Buy ${isCurrentlyActive ? 'deselected' : 'selected'}:`, {
-                                        top5Buy,
-                                        count: top5Buy.length,
-                                        willAppearInLegend: !isCurrentlyActive
-                                      });
-                                    }}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter' || e.key === ' ') {
-                                        e.preventDefault();
-                                        e.stopPropagation();
+                                        {visibleOtherBrokers.map((broker, index) => {
+                                          const hasQuickSelect = brokerNetStats.topBuyers.length > 0 && debouncedBrokerSearch === '';
+                                          const quickSelectCount = hasQuickSelect ? 2 : 0;
+                                          const globalIndex = quickSelectCount + recommendedBrokers.length + index;
+                                          return (
+                                            <div
+                                              key={`option-${broker}`}
+                                              onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                // Only handle click if not clicking directly on checkbox
+                                                const target = e.target as HTMLElement;
+                                                if (target.tagName !== 'INPUT' && !target.closest('input')) {
+                                                  // Allow selecting individual brokers even after quick select
+                                                  if (selectedBrokers.includes(broker)) {
+                                                    // If already selected, remove it
+                                                    removeBroker(broker);
+                                                  } else {
+                                                    // If not selected, add it
+                                                    handleBrokerSelect(broker);
+                                                  }
+                                                  // Keep suggestions open to allow multiple selections
+                                                }
+                                              }}
+                                              onKeyDown={(e) => {
+                                                if (e.key === 'Enter' || e.key === ' ') {
+                                                  e.preventDefault();
+                                                  e.stopPropagation();
+                                                  if (selectedBrokers.includes(broker)) {
+                                                    removeBroker(broker);
+                                                  } else {
+                                                    handleBrokerSelect(broker);
+                                                  }
+                                                }
+                                              }}
+                                              onMouseDown={(e) => {
+                                                // Prevent mousedown from closing dropdown
+                                                e.stopPropagation();
+                                              }}
+                                              tabIndex={0}
+                                              role="option"
+                                              aria-selected={selectedBrokers.includes(broker)}
+                                              className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${globalIndex === highlightedBrokerIndex ? 'bg-accent' : ''} ${selectedBrokers.includes(broker) ? 'bg-accent/50' : ''}`}
+                                              onMouseEnter={() => handleBrokerMouseEnter(globalIndex)}
+                                            >
+                                              <div className="flex items-center gap-2">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={selectedBrokers.includes(broker)}
+                                                  onChange={(e) => {
+                                                    e.stopPropagation();
+                                                    if (e.target.checked) {
+                                                      if (!selectedBrokers.includes(broker)) {
+                                                        handleBrokerSelect(broker);
+                                                      }
+                                                    } else {
+                                                      removeBroker(broker);
+                                                    }
+                                                  }}
+                                                  onClick={(e) => e.stopPropagation()}
+                                                  onMouseDown={(e) => e.stopPropagation()}
+                                                  className="h-4 w-4 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary cursor-pointer"
+                                                />
+                                                <div
+                                                  className="w-2 h-2 rounded-full"
+                                                  style={{ backgroundColor: generateBrokerColor(broker, selectedBrokers) }}
+                                                />
+                                                {broker}
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                        {brokerScrollOffset + ITEMS_PER_PAGE < otherBrokers.length && (
+                                          <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                            Loading more... ({Math.min(brokerScrollOffset + ITEMS_PER_PAGE, otherBrokers.length)} / {otherBrokers.length})
+                                          </div>
+                                        )}
+                                      </>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                              {/* Right column: Quick Select - Always visible */}
+                              <div className="flex-1 overflow-y-auto">
+                                <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                  Quick Select
+                                </div>
+                                {brokerSearch === '' && (
+                                  <>
+                                    <div
+                                      onClick={() => {
+                                        // Only allow action if data is loaded
+                                        if (brokerNetStats.topBuyers.length === 0) {
+                                          return;
+                                        }
+                                        // Toggle top5buy mode and add/remove top 5 buyers
                                         const top5Buy = brokerNetStats.topBuyers.slice(0, 5).map(item => item.broker);
                                         const isCurrentlyActive = brokerSelectionMode.top5buy;
                                         
                                         if (isCurrentlyActive) {
+                                          // Remove top 5 buyers from selection
                                           setSelectedBrokers(prev => prev.filter(b => !top5Buy.includes(b)));
                                           setBrokerSelectionMode(prev => ({ ...prev, top5buy: false }));
                                         } else {
+                                          // Add top 5 buyers to selection (merge with existing)
                                           setSelectedBrokers(prev => {
                                             const newSet = new Set([...prev, ...top5Buy]);
                                             return Array.from(newSet);
@@ -3838,52 +3955,64 @@ const visibleBrokers = useMemo(
                                         }
                                         setHasUserSelectedBrokers(false);
                                         setBrokerSearch('');
-                                      }
-                                    }}
-                                    tabIndex={0}
-                                    role="option"
-                                    aria-selected={brokerSelectionMode.top5buy}
-                                    className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm font-medium ${highlightedBrokerIndex === 0 ? 'bg-accent' : ''} ${brokerSelectionMode.top5buy ? 'bg-primary/20' : ''}`}
-                                  >
-                                    📈 Top 5 Buy {brokerSelectionMode.top5buy ? '✓' : ''}
-                                  </div>
-                                  <div
-                                    onClick={() => {
-                                      // Toggle top5sell mode and add/remove top 5 sellers
-                                      const top5Sell = brokerNetStats.topSellers.slice(0, 5).map(item => item.broker);
-                                      const isCurrentlyActive = brokerSelectionMode.top5sell;
-                                      
-                                      if (isCurrentlyActive) {
-                                        // Remove top 5 sellers from selection
-                                        setSelectedBrokers(prev => prev.filter(b => !top5Sell.includes(b)));
-                                        setBrokerSelectionMode(prev => ({ ...prev, top5sell: false }));
-                                      } else {
-                                        // Add top 5 sellers to selection (merge with existing)
-                                        setSelectedBrokers(prev => {
-                                          const newSet = new Set([...prev, ...top5Sell]);
-                                          return Array.from(newSet);
+                                        // Reset shouldFetchData to prevent auto-reload until Show is clicked
+                                        setShouldFetchData(false);
+                                        console.log(`✅ Top 5 Buy ${isCurrentlyActive ? 'deselected' : 'selected'}:`, {
+                                          top5Buy,
+                                          count: top5Buy.length,
+                                          willAppearInLegend: !isCurrentlyActive
                                         });
-                                        setBrokerSelectionMode(prev => ({ ...prev, top5sell: true }));
-                                      }
-                                      setHasUserSelectedBrokers(false);
-                                      setBrokerSearch('');
-                                      console.log(`✅ Top 5 Sell ${isCurrentlyActive ? 'deselected' : 'selected'}:`, {
-                                        top5Sell,
-                                        count: top5Sell.length,
-                                        willAppearInLegend: !isCurrentlyActive
-                                      });
-                                    }}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter' || e.key === ' ') {
-                                        e.preventDefault();
-                                        e.stopPropagation();
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          if (brokerNetStats.topBuyers.length === 0) {
+                                            return;
+                                          }
+                                          const top5Buy = brokerNetStats.topBuyers.slice(0, 5).map(item => item.broker);
+                                          const isCurrentlyActive = brokerSelectionMode.top5buy;
+                                          
+                                          if (isCurrentlyActive) {
+                                            setSelectedBrokers(prev => prev.filter(b => !top5Buy.includes(b)));
+                                            setBrokerSelectionMode(prev => ({ ...prev, top5buy: false }));
+                                          } else {
+                                            setSelectedBrokers(prev => {
+                                              const newSet = new Set([...prev, ...top5Buy]);
+                                              return Array.from(newSet);
+                                            });
+                                            setBrokerSelectionMode(prev => ({ ...prev, top5buy: true }));
+                                          }
+                                          setHasUserSelectedBrokers(false);
+                                          setBrokerSearch('');
+                                          // Reset shouldFetchData to prevent auto-reload until Show is clicked
+                                          setShouldFetchData(false);
+                                        }
+                                      }}
+                                      tabIndex={brokerNetStats.topBuyers.length > 0 ? 0 : -1}
+                                      role="option"
+                                      aria-selected={brokerSelectionMode.top5buy}
+                                      aria-disabled={brokerNetStats.topBuyers.length === 0}
+                                      className={`px-3 py-[2.06px] text-sm font-medium ${brokerNetStats.topBuyers.length === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-muted cursor-pointer'} ${highlightedBrokerIndex === 0 ? 'bg-accent' : ''} ${brokerSelectionMode.top5buy ? 'bg-primary/20' : ''}`}
+                                    >
+                                      📈 Top 5 Buy {brokerSelectionMode.top5buy ? '✓' : ''} {brokerNetStats.topBuyers.length === 0 && !isLoadingBrokerData && !isDataReady && '(Click Show to load)'}
+                                    </div>
+                                    <div
+                                      onClick={() => {
+                                        // Only allow action if data is loaded
+                                        if (brokerNetStats.topSellers.length === 0) {
+                                          return;
+                                        }
+                                        // Toggle top5sell mode and add/remove top 5 sellers
                                         const top5Sell = brokerNetStats.topSellers.slice(0, 5).map(item => item.broker);
                                         const isCurrentlyActive = brokerSelectionMode.top5sell;
                                         
                                         if (isCurrentlyActive) {
+                                          // Remove top 5 sellers from selection
                                           setSelectedBrokers(prev => prev.filter(b => !top5Sell.includes(b)));
                                           setBrokerSelectionMode(prev => ({ ...prev, top5sell: false }));
                                         } else {
+                                          // Add top 5 sellers to selection (merge with existing)
                                           setSelectedBrokers(prev => {
                                             const newSet = new Set([...prev, ...top5Sell]);
                                             return Array.from(newSet);
@@ -3892,30 +4021,62 @@ const visibleBrokers = useMemo(
                                         }
                                         setHasUserSelectedBrokers(false);
                                         setBrokerSearch('');
-                                      }
-                                    }}
-                                    tabIndex={0}
-                                    role="option"
-                                    aria-selected={brokerSelectionMode.top5sell}
-                                    className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm font-medium ${highlightedBrokerIndex === 1 ? 'bg-accent' : ''} ${brokerSelectionMode.top5sell ? 'bg-primary/20' : ''}`}
-                                  >
-                                    📉 Top 5 Sell {brokerSelectionMode.top5sell ? '✓' : ''}
+                                        // Reset shouldFetchData to prevent auto-reload until Show is clicked
+                                        setShouldFetchData(false);
+                                        console.log(`✅ Top 5 Sell ${isCurrentlyActive ? 'deselected' : 'selected'}:`, {
+                                          top5Sell,
+                                          count: top5Sell.length,
+                                          willAppearInLegend: !isCurrentlyActive
+                                        });
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          if (brokerNetStats.topSellers.length === 0) {
+                                            return;
+                                          }
+                                          const top5Sell = brokerNetStats.topSellers.slice(0, 5).map(item => item.broker);
+                                          const isCurrentlyActive = brokerSelectionMode.top5sell;
+                                          
+                                          if (isCurrentlyActive) {
+                                            setSelectedBrokers(prev => prev.filter(b => !top5Sell.includes(b)));
+                                            setBrokerSelectionMode(prev => ({ ...prev, top5sell: false }));
+                                          } else {
+                                            setSelectedBrokers(prev => {
+                                              const newSet = new Set([...prev, ...top5Sell]);
+                                              return Array.from(newSet);
+                                            });
+                                            setBrokerSelectionMode(prev => ({ ...prev, top5sell: true }));
+                                          }
+                                          setHasUserSelectedBrokers(false);
+                                          setBrokerSearch('');
+                                          // Reset shouldFetchData to prevent auto-reload until Show is clicked
+                                          setShouldFetchData(false);
+                                        }
+                                      }}
+                                      tabIndex={brokerNetStats.topSellers.length > 0 ? 0 : -1}
+                                      role="option"
+                                      aria-selected={brokerSelectionMode.top5sell}
+                                      aria-disabled={brokerNetStats.topSellers.length === 0}
+                                      className={`px-3 py-[2.06px] text-sm font-medium ${brokerNetStats.topSellers.length === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-muted cursor-pointer'} ${highlightedBrokerIndex === 1 ? 'bg-accent' : ''} ${brokerSelectionMode.top5sell ? 'bg-primary/20' : ''}`}
+                                    >
+                                      📉 Top 5 Sell {brokerSelectionMode.top5sell ? '✓' : ''} {brokerNetStats.topSellers.length === 0 && !isLoadingBrokerData && !isDataReady && '(Click Show to load)'}
+                                    </div>
+                                  </>
+                                )}
+                                {brokerSearch !== '' && (
+                                  <div className="px-3 py-[2.06px] text-xs text-muted-foreground">
+                                    Quick Select unavailable while searching
                                   </div>
-                                </>
-                              ) : (
-                                <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                  Quick Select
+                                )}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
-                    </div>
-                        )}
-                      </div>
-                    )}
                   </div>
-                    </div>
-                  </div>
-                </div>
 
                   {/* Date Range */}
                   <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
