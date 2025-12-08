@@ -34,7 +34,27 @@ interface InventoryTimeSeries {
 // Import broker color utilities
 // Note: BROKER_COLORS is available but not used in this component - using dynamic color generation instead
 
-// Dynamic color generator based on loaded brokers
+// Foreign brokers (red text)
+const FOREIGN_BROKERS = [
+  "AG", "AH", "AI", "AK", "BK", "BQ", "CG", "CS", "DP", "DR", "DU", "FS", "GW", "HD", "KK", 
+  "KZ", "LH", "LG", "LS", "MS", "RB", "RX", "TX", "YP", "YU", "ZP"
+];
+
+// Government brokers (green text)
+const GOVERNMENT_BROKERS = ['CC', 'NI', 'OD', 'DX'];
+
+// Helper function to get broker color class based on type (for text color)
+const getBrokerColorClass = (brokerCode: string): { color: string; className: string } => {
+  if (GOVERNMENT_BROKERS.includes(brokerCode)) {
+    return { color: '#10B981', className: 'font-semibold' }; // Green-600
+  }
+  if (FOREIGN_BROKERS.includes(brokerCode)) {
+    return { color: '#EF4444', className: 'font-semibold' }; // Red-600
+  }
+  return { color: '#FFFFFF', className: 'font-semibold' }; // White
+};
+
+// Dynamic color generator based on loaded brokers (for chart colors, not text)
 const generateBrokerColor = (broker: string | undefined | null, allBrokers: string[] = []): string => {
   // Handle undefined/null broker
   if (!broker || typeof broker !== 'string') {
@@ -1257,7 +1277,6 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
   const [selectedBrokers, setSelectedBrokers] = useState<string[]>([]);
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
-  const [isInitializing, setIsInitializing] = useState(true);
   const [brokerSearch, setBrokerSearch] = useState('');
   const [debouncedBrokerSearch, setDebouncedBrokerSearch] = useState('');
   const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false);
@@ -1574,13 +1593,11 @@ const visibleBrokers = useMemo(
       const actualTicker = getActualTicker;
       if (!actualTicker) {
         console.log(`[BrokerInventory] No actual ticker, skipping loadLatestDateForStock`);
-        setIsInitializing(false); // Make sure to set isInitializing to false if no ticker
         return;
       }
       
       console.log(`[BrokerInventory] Loading latest date for ticker: ${actualTicker}`);
       try {
-        setIsInitializing(true);
         
         // Check if we have cached latest date for this stock
         const cachedDate = cache.latestDate.date;
@@ -1651,8 +1668,7 @@ const visibleBrokers = useMemo(
         if (todayStr) setEndDate(todayStr);
         if (oneMonthAgoStr) setStartDate(oneMonthAgoStr);
       } finally {
-        console.log(`[BrokerInventory] Setting isInitializing to false for ticker: ${actualTicker}`);
-        setIsInitializing(false);
+        console.log(`[BrokerInventory] Finished loading latest date for ticker: ${actualTicker}`);
       }
     };
     
@@ -3824,11 +3840,7 @@ const visibleBrokers = useMemo(
                                             onMouseDown={(e) => e.stopPropagation()}
                                             className="h-4 w-4 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary cursor-pointer"
                                           />
-                                          <div
-                                            className="w-2 h-2 rounded-full"
-                                            style={{ backgroundColor: generateBrokerColor(broker, selectedBrokers) }}
-                                          />
-                                          <span>{broker}</span>
+                                          <span className={getBrokerColorClass(broker).className} style={{ color: getBrokerColorClass(broker).color }}>{broker}</span>
                                           <span className="text-[10px] uppercase tracking-wide text-muted-foreground border border-border rounded px-1 py-0.5">
                                             Default
                                           </span>
@@ -3906,11 +3918,7 @@ const visibleBrokers = useMemo(
                                                   onMouseDown={(e) => e.stopPropagation()}
                                                   className="h-4 w-4 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary cursor-pointer"
                                                 />
-                                                <div
-                                                  className="w-2 h-2 rounded-full"
-                                                  style={{ backgroundColor: generateBrokerColor(broker, selectedBrokers) }}
-                                                />
-                                                {broker}
+                                                <span className={getBrokerColorClass(broker).className} style={{ color: getBrokerColorClass(broker).color }}>{broker}</span>
                                               </div>
                                             </div>
                                           );
