@@ -62,7 +62,7 @@ const CACHE_EXPIRY_MS = 30 * 60 * 1000;
 // Foreign brokers (red background)
 const FOREIGN_BROKERS = [
   "AG", "AH", "AI", "AK", "BK", "BQ", "CG", "CS", "DP", "DR", "DU", "FS", "GW", "HD", "KK", 
-  "KZ", "LH", "LG", "LS", "MS", "NI", "RB", "RX", "TX", "YP", "YU", "ZP"
+  "KZ", "LH", "LG", "LS", "MS", "RB", "RX", "TX", "YP", "YU", "ZP"
 ];
 
 // Government brokers (green background)
