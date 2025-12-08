@@ -3273,11 +3273,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     // For Stock pivot: BCode is a broker code, use getBrokerColorClass
                                     // For Broker pivot: BCode is a stock code, use getStockColorClass
                                     const bCodeColor = pivotFilter === 'Stock' 
-                                      ? { className: getBrokerColorClass(bCode), color: '' }
+                                      ? getBrokerColorClass(bCode)
                                       : getStockColorClass(bCode);
                                     return (
                                       <>
-                            <td className={`text-center py-[1px] px-[3px] font-bold ${bCodeColor.className} ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ ...(dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }), ...(pivotFilter === 'Stock' ? {} : { color: bCodeColor.color }) }}>
+                            <td className={`text-center py-[1px] px-[3px] font-bold ${bCodeColor.className} ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ ...(dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }), color: bCodeColor.color }}>
                                           {bCode}
                             </td>
                                         <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatValue(buyerVal)}</td>
@@ -3333,11 +3333,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     // For Stock pivot: SCode is a broker code, use getBrokerColorClass
                                     // For Broker pivot: SCode is a stock code, use getStockColorClass
                                     const sCodeColor = pivotFilter === 'Stock' 
-                                      ? { className: getBrokerColorClass(sCode), color: '' }
+                                      ? getBrokerColorClass(sCode)
                                       : getStockColorClass(sCode);
                                     return (
                                       <>
-                                        <td className={`text-center py-[1px] px-[3px] font-bold ${sCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', ...(pivotFilter === 'Stock' ? {} : { color: sCodeColor.color }) }}>{sCode}</td>
+                                        <td className={`text-center py-[1px] px-[3px] font-bold ${sCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', color: sCodeColor.color }}>{sCode}</td>
                                         <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatValue(sellerVal)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(sellerLot)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(sellerAvg ?? 0)}</td>
@@ -3426,12 +3426,12 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         // For Broker pivot: BCode/SCode are stock codes, use getStockColorClass
                         const buyBCodeColor = totalBuyBCode !== '-' 
                           ? (pivotFilter === 'Stock' 
-                              ? { className: getBrokerColorClass(totalBuyBCode), color: '' }
+                              ? getBrokerColorClass(totalBuyBCode)
                               : getStockColorClass(totalBuyBCode))
                           : { color: '#FFFFFF', className: 'font-semibold' };
                         const sellSCodeColor = totalSellSCode !== '-' 
                           ? (pivotFilter === 'Stock' 
-                              ? { className: getBrokerColorClass(totalSellSCode), color: '' }
+                              ? getBrokerColorClass(totalSellSCode)
                               : getStockColorClass(totalSellSCode))
                           : { color: '#FFFFFF', className: 'font-semibold' };
                         
@@ -3440,7 +3440,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                               {/* Buyer Total Columns */}
                               {totalBuyBCode !== '-' && Math.abs(totalBuyLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[3px] font-bold ${buyBCodeColor.className} ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box', ...(pivotFilter === 'Stock' ? {} : { color: buyBCodeColor.color }) }}>
+                            <td className={`text-center py-[1px] px-[3px] font-bold ${buyBCodeColor.className} ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box', color: buyBCodeColor.color }}>
                                     {totalBuyBCode}
                             </td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatValue(totalBuyValue)}</td>
@@ -3468,7 +3468,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                               {/* Seller Total Columns */}
                               {totalSellSCode !== '-' && Math.abs(totalSellLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[3px] font-bold ${sellSCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box', ...(pivotFilter === 'Stock' ? {} : { color: sellSCodeColor.color }) }}>
+                            <td className={`text-center py-[1px] px-[3px] font-bold ${sellSCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box', color: sellSCodeColor.color }}>
                                     {totalSellSCode}
                             </td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-red-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatValue(totalSellValue)}</td>
@@ -3790,7 +3790,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     // For Stock pivot: NBCode is a broker code, use getBrokerColorClass
                                     // For Broker pivot: NBCode is a stock code, use getStockColorClass
                                     const nbCodeColor = pivotFilter === 'Stock' 
-                                      ? { className: getBrokerColorClass(nbCode), color: '' }
+                                      ? getBrokerColorClass(nbCode)
                                       : getStockColorClass(nbCode);
                                     const nbLot = dayData.NBLot || 0;
                                     const nbVal = dayData.NBVal || 0;
@@ -3804,7 +3804,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     
                                     return (
                                       <>
-                                        <td className={`text-center py-[1px] px-[3px] font-bold ${nbCodeColor.className} ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ ...(dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }), ...(pivotFilter === 'Stock' ? {} : { color: nbCodeColor.color }) }}>
+                                        <td className={`text-center py-[1px] px-[3px] font-bold ${nbCodeColor.className} ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ ...(dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }), color: nbCodeColor.color }}>
                                           {nbCode}
                             </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
@@ -3856,7 +3856,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     // For Stock pivot: NSCode is a broker code, use getBrokerColorClass
                                     // For Broker pivot: NSCode is a stock code, use getStockColorClass
                                     const nsCodeColor = pivotFilter === 'Stock' 
-                                      ? { className: getBrokerColorClass(nsCode), color: '' }
+                                      ? getBrokerColorClass(nsCode)
                                       : getStockColorClass(nsCode);
                                     const nsLot = dayData.NSLot || 0;
                                     const nsVal = dayData.NSVal || 0;
@@ -3870,7 +3870,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     
                                     return (
                                       <>
-                                        <td className={`text-center py-[1px] px-[3px] font-bold ${nsCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', ...(pivotFilter === 'Stock' ? {} : { color: nsCodeColor.color }) }}>
+                                        <td className={`text-center py-[1px] px-[3px] font-bold ${nsCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', color: nsCodeColor.color }}>
                                           {nsCode}
                             </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
@@ -3970,12 +3970,12 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           // For Broker pivot: NBCode/NSCode are stock codes, use getStockColorClass
                           const netBuyNBCodeColor = totalNetBuyNBCode !== '-' 
                             ? (pivotFilter === 'Stock' 
-                                ? { className: getBrokerColorClass(totalNetBuyNBCode), color: '' }
+                                ? getBrokerColorClass(totalNetBuyNBCode)
                                 : getStockColorClass(totalNetBuyNBCode))
                             : { color: '#FFFFFF', className: 'font-semibold' };
                           const netSellNSCodeColor = totalNetSellNSCode !== '-' 
                             ? (pivotFilter === 'Stock' 
-                                ? { className: getBrokerColorClass(totalNetSellNSCode), color: '' }
+                                ? getBrokerColorClass(totalNetSellNSCode)
                                 : getStockColorClass(totalNetSellNSCode))
                             : { color: '#FFFFFF', className: 'font-semibold' };
                           
@@ -3988,7 +3988,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                               {/* Net Buy Total Columns */}
                               {netBuyData && Math.abs(totalNetBuyLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[3px] font-bold ${netBuyNBCodeColor.className} ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box', ...(pivotFilter === 'Stock' ? {} : { color: netBuyNBCodeColor.color }) }}>
+                            <td className={`text-center py-[1px] px-[3px] font-bold ${netBuyNBCodeColor.className} ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box', color: netBuyNBCodeColor.color }}>
                                     {totalNetBuyNBCode}
                             </td>
                             <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
@@ -4030,7 +4030,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                               {/* Net Sell Total Columns */}
                               {netSellData && Math.abs(totalNetSellLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[3px] font-bold ${netSellNSCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box', ...(pivotFilter === 'Stock' ? {} : { color: netSellNSCodeColor.color }) }}>
+                            <td className={`text-center py-[1px] px-[3px] font-bold ${netSellNSCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box', color: netSellNSCodeColor.color }}>
                                     {totalNetSellNSCode}
                             </td>
                             <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
@@ -4098,14 +4098,14 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     }, [filteredStocks, uniqueStocks, sortedStocksByDate, sortedNetStocksByDate, totalDataByStock, totalNetDataByStock, sortedTotalStocks, sortedTotalNetStocks, transactionData, visibleRowIndices, buyStocksByDate, sellStocksByDate, netBuyStocksByDate, netSellStocksByDate, totalNetBuyDataByStock, totalNetSellDataByStock, isDataReady, selectedDates, activeSectorFilter, selectedSectors, stockToSectorMap, pivotFilter, selectedTickers, selectedBrokers]); // CRITICAL: Added selectedDates, activeSectorFilter, selectedSectors, stockToSectorMap, pivotFilter, selectedTickers, and selectedBrokers to dependencies to react to showOnlyTotal, sector filter changes, pivot type changes, and header text updates
 
   // Helper function to get broker color class based on type
-  const getBrokerColorClass = (brokerCode: string): string => {
+  const getBrokerColorClass = (brokerCode: string): { color: string; className: string } => {
     if (GOVERNMENT_BROKERS.includes(brokerCode)) {
-      return 'text-green-600 font-semibold';
+      return { color: '#10B981', className: 'font-semibold' }; // Green-600
     }
     if (FOREIGN_BROKERS.includes(brokerCode)) {
-      return 'text-red-600 font-semibold';
+      return { color: '#EF4444', className: 'font-semibold' }; // Red-600
     }
-    return 'text-white font-semibold';
+    return { color: '#FFFFFF', className: 'font-semibold' }; // White
   };
 
   return (
@@ -4119,7 +4119,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             <label className="text-sm font-medium whitespace-nowrap">Broker:</label>
             <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
               {/* Selected Broker Chips */}
-              {selectedBrokers.map(broker => (
+              {selectedBrokers.map(broker => {
+                const brokerColor = broker !== 'ALL' ? getBrokerColorClass(broker) : null;
+                return (
                 <div
                   key={broker}
                   className={`flex items-center gap-1 px-2 h-9 rounded-md text-sm ${
@@ -4128,7 +4130,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       : 'bg-primary/20'
                   }`}
                 >
-                  <span className={broker !== 'ALL' ? getBrokerColorClass(broker) : ''}>{broker}</span>
+                  <span className={brokerColor?.className || ''} style={brokerColor ? { color: brokerColor.color } : {}}>{broker}</span>
                   <button
                     type="button"
                     onClick={() => handleRemoveBroker(broker)}
@@ -4138,7 +4140,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     ×
                   </button>
                 </div>
-              ))}
+                );
+              })}
               {/* Broker Input */}
               <div className="relative flex-1 md:flex-none" ref={dropdownBrokerRef}>
                   <input
