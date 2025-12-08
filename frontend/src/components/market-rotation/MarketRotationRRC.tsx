@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { X, Search, Plus, Loader2, Play, RotateCcw, Calendar } from 'lucide-react';
+import { X, Search, Plus, Loader2, Calendar } from 'lucide-react';
 import { api } from '@/services/api';
 import { useToast } from '../../contexts/ToastContext';
 
@@ -127,6 +127,8 @@ export default function MarketRotationRRC() {
   const endDateRef = useRef<HTMLInputElement>(null);
   const isInitialMount = useRef(true);
   const isLoadingRef = useRef(false);
+  const menuContainerRef = useRef<HTMLDivElement>(null);
+  const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
 
   // Load available inputs on mount and set defaults
   useEffect(() => {
@@ -551,49 +553,6 @@ export default function MarketRotationRRC() {
     }
   };
 
-  const handleReset = () => {
-    // Reset to default dates (10 days back)
-    const today = new Date();
-    const tenDaysAgo = new Date(today);
-    tenDaysAgo.setDate(today.getDate() - 10);
-    
-    setStartDate(tenDaysAgo);
-    setEndDate(today);
-    
-    // Reset selections to default based on view mode
-    if (viewMode === 'sector' && sectorOptions.length > 0) {
-      // Default sectors: Technology, Healthcare, Financials
-      const defaultSectors = ['Technology', 'Healthcare', 'Financials'];
-      const availableDefaults = defaultSectors.filter(sector => 
-        sectorOptions.some(opt => opt.name === sector)
-      );
-      setSelectedItems(availableDefaults.length > 0 ? availableDefaults : [sectorOptions[0]?.name || 'Technology']);
-    } else if (viewMode === 'stock' && stockOptions.length > 0) {
-      // Default stocks: BBCA, BBRI, BMRI
-      const defaultStocks = ['BBCA', 'BBRI', 'BMRI'];
-      const availableDefaults = defaultStocks.filter(stock => 
-        stockOptions.some(opt => opt.name === stock)
-      );
-      setSelectedItems(availableDefaults.length > 0 ? availableDefaults : [stockOptions[0]?.name || 'BBCA']);
-    } else {
-      setSelectedItems([]);
-    }
-    
-    // Reset search states
-    setSearchQuery('');
-    setIndexSearchQuery('');
-    setShowSearchDropdown(false);
-    setShowIndexSearchDropdown(false);
-    
-    // Clear chart data
-    setChartData([]);
-    
-    console.log('🔄 Reset to defaults:', {
-      startDate: tenDaysAgo,
-      endDate: today,
-      selectedItems: viewMode === 'sector' ? [sectorOptions[0]?.name || 'Technology'] : ['BBCA', 'BBRI', 'BMRI']
-    });
-  };
 
   const hasValidSelection = () => {
     return selectedIndex && selectedItems.length > 0;
@@ -777,136 +736,143 @@ export default function MarketRotationRRC() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startDate, endDate]);
 
+  // Monitor menu height to detect if it wraps to 2 rows
+  useEffect(() => {
+    const checkMenuHeight = () => {
+      if (menuContainerRef.current) {
+        const menuHeight = menuContainerRef.current.offsetHeight;
+        // If menu height is more than ~50px, it's likely 2 rows (single row is usually ~40-45px)
+        setIsMenuTwoRows(menuHeight > 50);
+      }
+    };
+
+    // Check initially
+    checkMenuHeight();
+
+    // Check on window resize
+    window.addEventListener('resize', checkMenuHeight);
+    
+    // Use ResizeObserver for more accurate detection
+    let resizeObserver: ResizeObserver | null = null;
+    if (menuContainerRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        checkMenuHeight();
+      });
+      resizeObserver.observe(menuContainerRef.current);
+    }
+
+    return () => {
+      window.removeEventListener('resize', checkMenuHeight);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+    };
+  }, [viewMode, startDate, endDate]);
+
   return (
-    <div className="space-y-6">
-      {/* Control Panel */}
-      <div className="mb-6">
-        <Card>
-          <CardContent className="p-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {/* View Mode Toggle */}
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-foreground">View Mode</label>
-                <div className="flex items-center gap-1 border border-border rounded-lg p-1 h-10">
-                  <Button
-                    variant={viewMode === 'sector' ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => handleViewModeChange('sector')}
-                    className="h-full px-3 flex-1 text-xs sm:text-sm"
-                  >
-                    Sector
-                  </Button>
-                  <Button
-                    variant={viewMode === 'stock' ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => handleViewModeChange('stock')}
-                    className="h-full px-3 flex-1 text-xs sm:text-sm"
-                  >
-                    Stock
-                  </Button>
-                </div>
-              </div>
+    <div className="w-full">
+      {/* Top Controls - Compact without Card */}
+      {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
+      <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
+        <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-1 md:gap-x-7 md:gap-y-0.5">
+          {/* Stock/Sector Dropdown */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+            <label className="text-sm font-medium whitespace-nowrap">Stock/Sector:</label>
+            <select
+              value={viewMode}
+              onChange={(e) => handleViewModeChange(e.target.value as 'sector' | 'stock')}
+              className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
+            >
+              <option value="sector">Sector</option>
+              <option value="stock">Stock</option>
+            </select>
+          </div>
 
-              {/* Start Date */}
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Start Date</label>
-                <div 
-                  className="relative h-10 w-full rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
-                  onClick={() => triggerDatePicker(startDateRef)}
-                >
-                  <input
-                    ref={startDateRef}
-                    type="date"
-                    value={formatDateForInput(startDate)}
-                    onChange={(e) => handleStartDateChange(e.target.value)}
-                    onKeyDown={(e) => e.preventDefault()}
-                    onPaste={(e) => e.preventDefault()}
-                    onInput={(e) => e.preventDefault()}
-                    max={formatDateForInput(endDate)}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    style={{ caretColor: 'transparent' }}
-                  />
-                  <div className="flex items-center justify-between h-full px-3 py-2">
-                    <span className="text-sm text-foreground">
-                      {startDate.toLocaleDateString('en-GB', { 
-                        day: '2-digit', 
-                        month: '2-digit', 
-                        year: 'numeric' 
-                      })}
-                    </span>
-                    <Calendar className="w-4 h-4 text-muted-foreground" />
-                  </div>
+          {/* Date Range */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+            <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
+            <div className="flex items-center gap-2 w-full md:w-auto">
+              <div 
+                className="relative h-9 flex-1 md:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                onClick={() => triggerDatePicker(startDateRef)}
+              >
+                <input
+                  ref={startDateRef}
+                  type="date"
+                  value={formatDateForInput(startDate)}
+                  onChange={(e) => handleStartDateChange(e.target.value)}
+                  onKeyDown={(e) => e.preventDefault()}
+                  onPaste={(e) => e.preventDefault()}
+                  onInput={(e) => e.preventDefault()}
+                  max={formatDateForInput(endDate)}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  style={{ caretColor: 'transparent' }}
+                />
+                <div className="flex items-center justify-between h-full px-3">
+                  <span className="text-sm text-foreground">
+                    {startDate.toLocaleDateString('en-GB', { 
+                      day: '2-digit', 
+                      month: '2-digit', 
+                      year: 'numeric' 
+                    })}
+                  </span>
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
                 </div>
               </div>
+              <span className="text-sm text-muted-foreground whitespace-nowrap hidden md:inline">to</span>
+              <div 
+                className="relative h-9 flex-1 md:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                onClick={() => triggerDatePicker(endDateRef)}
+              >
+                <input
+                  ref={endDateRef}
+                  type="date"
+                  value={formatDateForInput(endDate)}
+                  onChange={(e) => handleEndDateChange(e.target.value)}
+                  onKeyDown={(e) => e.preventDefault()}
+                  onPaste={(e) => e.preventDefault()}
+                  onInput={(e) => e.preventDefault()}
+                  min={formatDateForInput(startDate)}
+                  max={formatDateForInput(new Date())}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  style={{ caretColor: 'transparent' }}
+                />
+                <div className="flex items-center justify-between h-full px-3">
+                  <span className="text-sm text-foreground">
+                    {endDate.toLocaleDateString('en-GB', { 
+                      day: '2-digit', 
+                      month: '2-digit', 
+                      year: 'numeric' 
+                    })}
+                  </span>
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
+                </div>
+              </div>
+            </div>
+          </div>
 
-              {/* End Date */}
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">End Date</label>
-                <div 
-                  className="relative h-10 w-full rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
-                  onClick={() => triggerDatePicker(endDateRef)}
-                >
-                  <input
-                    ref={endDateRef}
-                    type="date"
-                    value={formatDateForInput(endDate)}
-                    onChange={(e) => handleEndDateChange(e.target.value)}
-                    onKeyDown={(e) => e.preventDefault()}
-                    onPaste={(e) => e.preventDefault()}
-                    onInput={(e) => e.preventDefault()}
-                    min={formatDateForInput(startDate)}
-                    max={formatDateForInput(new Date())}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    style={{ caretColor: 'transparent' }}
-                  />
-                  <div className="flex items-center justify-between h-full px-3 py-2">
-                    <span className="text-sm text-foreground">
-                      {endDate.toLocaleDateString('en-GB', { 
-                        day: '2-digit', 
-                        month: '2-digit', 
-                        year: 'numeric' 
-                      })}
-                    </span>
-                    <Calendar className="w-4 h-4 text-muted-foreground" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Action</label>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleGenerateData}
-                    disabled={isGenerating || !hasValidSelection()}
-                    className="flex-1 h-10 px-3 py-2 text-sm font-medium rounded-md border border-input bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {isGenerating ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-4 h-4" />
-                        Go
-                      </>
-                    )}
-                  </button>
-                  <button
-                    onClick={handleReset}
-                    disabled={isGenerating}
-                    className="flex-1 h-10 px-3 py-2 text-sm font-medium rounded-md border border-input bg-background text-foreground hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    <RotateCcw className="w-4 h-4" />
-                    Reset
-                  </button>
-                </div>
-              </div>
+          {/* Show Button */}
+          <button
+            onClick={handleGenerateData}
+            disabled={isGenerating || !hasValidSelection()}
+            className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full md:w-auto"
+          >
+            {isGenerating ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                Generating...
+              </>
+            ) : (
+              'Show'
+            )}
+          </button>
         </div>
-          </CardContent>
-        </Card>
       </div>
+
+      {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
+      <div className={isMenuTwoRows ? "h-0 lg:h-[60px]" : "h-0 lg:h-[38px]"}></div>
+
+      <div className="space-y-6">
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 sm:gap-6 overflow-x-auto">
         {/* RRC Chart */}
@@ -1378,6 +1344,7 @@ export default function MarketRotationRRC() {
             </CardContent>
           </Card>
         </div>
+      </div>
       </div>
     </div>
   );
