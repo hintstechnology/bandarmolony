@@ -1994,19 +1994,13 @@ const visibleBrokers = useMemo(
           ? selectedTicker.replace('[SECTOR] ', '') 
           : actualTicker;
         
-        console.log(`🔄 Loading broker summary data for ${tickerToFetch} from ${startDate} to ${endDate}`);
-        console.log(`📊 Using ${tradingDays.length} trading days from date range (calculated from input field)`);
-        
         // Load broker summary data for each date using getBrokerSummaryData API (same as BrokerSummaryPage)
         // This provides NetBuyValue and NetSellValue needed for top buyer/seller calculation (NET table)
-        const allBrokerData: any[] = [];
-        let successfulDates = 0;
-        
-        // Check if this is a sector (same logic as BrokerSummaryPage)
+        // OPTIMIZED: Use Promise.all for parallel loading instead of sequential for loop
         const isSector = selectedTicker.startsWith('[SECTOR] ');
         
-        for (const dateStr of tradingDays) {
-          
+        // Load all dates in parallel for much faster performance
+        const datePromises = tradingDays.map(async (dateStr) => {
           try {
             // Check cache first (5 minutes TTL) - use tickerToFetch for cache key
             const cacheKey = `broker-summary-${tickerToFetch}-${dateStr}`;
@@ -2068,25 +2062,22 @@ const visibleBrokers = useMemo(
               brokerData = brokerData.map((b: any) => ({ ...b, date: dateStr, time: dateStr }));
             }
             
-            if (brokerData && brokerData.length > 0) {
-              allBrokerData.push(...brokerData);
-              successfulDates++;
-            }
+            return brokerData || [];
           } catch (error) {
-            console.warn(`⚠️ Error loading broker summary for ${dateStr}:`, error);
+            // Silently return empty array on error - don't log to improve performance
+            return [];
           }
-        }
+        });
+        
+        // Wait for all promises to resolve in parallel
+        const allDateResults = await Promise.all(datePromises);
+        const allBrokerData = allDateResults.flat();
         
         // Filter final data by date range (additional safety check)
         const filteredBrokerData = allBrokerData.filter((record: any) => {
           const recordDate = record.date || record.time;
           return recordDate >= startDate && recordDate <= endDate;
         });
-        
-        console.log(`📊 ===== BROKER SUMMARY DATA LOADING COMPLETE =====`);
-        console.log(`📊 Total dates processed: ${tradingDays.length}`);
-        console.log(`📊 Successful dates: ${successfulDates}`);
-        console.log(`📊 Total broker records (after filtering): ${filteredBrokerData.length}`);
         
         if (filteredBrokerData.length === 0) {
           setBrokerDataError(`No broker summary data found for ${actualTicker} in date range ${startDate} to ${endDate}.`);
@@ -2900,75 +2891,23 @@ const visibleBrokers = useMemo(
                 // Cache the full data
                 cache.set(cacheKey, formattedData, cache.inventory);
               } else {
-                console.warn(`⚠️ No inventory data for broker ${broker}`);
                 formattedData = [];
               }
             }
             
             // Filter data by date range
-            console.log(`🔍 Filtering data for broker ${broker} by date range: ${startDate} to ${endDate}`);
-            console.log(`📊 Total records before filter: ${formattedData.length}`);
-            if (formattedData.length > 0) {
-              console.log(`📊 Sample dates before filter:`, formattedData.slice(0, 5).map((r: any) => ({
-                original: r.Date || r.time || r.date,
-                formatted: r.Date,
-                cumulative: r.CumulativeNetBuyVol
-              })));
-            }
-            
             const filteredData = formattedData.filter((row: any) => {
               const rowDate = row.Date || row.time || row.date;
-              const inRange = rowDate >= startDate && rowDate <= endDate;
-              if (!inRange && formattedData.length <= 10) {
-                // Log first few out-of-range dates for debugging
-                console.log(`⚠️ Date ${rowDate} is out of range (${startDate} to ${endDate})`);
-              }
-              return inRange;
+              return rowDate >= startDate && rowDate <= endDate;
             });
-            
-            console.log(`📊 Records after filter: ${filteredData.length}`);
-            if (filteredData.length > 0) {
-              console.log(`📊 Sample dates after filter:`, filteredData.slice(0, 5).map((r: any) => ({
-                date: r.Date,
-                cumulative: r.CumulativeNetBuyVol
-              })));
-            } else if (formattedData.length > 0) {
-              console.warn(`⚠️ All ${formattedData.length} records filtered out! Date range: ${startDate} to ${endDate}`);
-              console.warn(`📊 Available date range in data:`, {
-                earliest: formattedData[formattedData.length - 1]?.Date,
-                latest: formattedData[0]?.Date,
-                allDates: formattedData.map((r: any) => r.Date).slice(0, 10)
-              });
-            }
             
             inventoryDataMap[broker] = filteredData;
-            console.log(`✅ Loaded ${filteredData.length} records for broker ${broker} (filtered from ${formattedData.length} total)`, {
-              sampleRecord: filteredData[0],
-              hasCumulativeNetBuyVol: filteredData[0]?.CumulativeNetBuyVol !== undefined,
-              cumulativeValue: filteredData[0]?.CumulativeNetBuyVol,
-              dateRange: filteredData.length > 0 ? {
-                first: filteredData[filteredData.length - 1]?.Date,
-                last: filteredData[0]?.Date
-              } : null,
-              allDates: filteredData.map((r: any) => r.Date).slice(0, 5)
-            });
           } catch (error) {
-            console.error(`❌ Error loading inventory for broker ${broker}:`, error);
             inventoryDataMap[broker] = [];
           }
         }
         
         setBrokerInventoryData(inventoryDataMap);
-        
-        console.log(`📊 Broker inventory data loaded for ${Object.keys(inventoryDataMap).length} brokers (filtered by date range ${startDate} to ${endDate})`);
-        console.log(`📊 Inventory data summary:`, {
-          brokers: Object.keys(inventoryDataMap),
-          recordCounts: Object.entries(inventoryDataMap).map(([broker, data]) => ({
-            broker,
-            count: (data as any[]).length,
-            hasData: (data as any[]).length > 0
-          }))
-        });
       } catch (error) {
         console.error('Error loading broker inventory:', error);
       } finally {
@@ -2980,49 +2919,49 @@ const visibleBrokers = useMemo(
     loadBrokerInventory();
   }, [shouldFetchData, getActualTicker, selectedBrokers, startDate, endDate]);
 
-  // Check if all data is loaded and set isDataReady accordingly
+  // OPTIMIZED: Progressive rendering - set isDataReady as soon as minimal data is available
+  // This allows charts to render immediately instead of waiting for all data
   useEffect(() => {
-    // Only set isDataReady to true after ALL data is loaded:
-    // 1. OHLC data (isLoadingData = false and ohlcData.length > 0)
-    // 2. Broker summary data (isLoadingBrokerData = false and brokerSummaryData.length > 0)
-    // 3. Inventory data (isLoadingInventoryData = false and inventoryData will be computed from brokerSummaryData)
-    const allDataLoaded = !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData &&
+    // Set isDataReady to true as soon as we have:
+    // 1. OHLC data (for price chart)
+    // 2. Broker summary data (for inventory chart and top brokers table)
+    // Don't wait for inventory data loading since it's computed from brokerSummaryData
+    const minimalDataReady = !isLoadingData && !isLoadingBrokerData &&
       ohlcData.length > 0 && brokerSummaryData.length > 0 && selectedBrokers.length > 0;
     
-    if (allDataLoaded && !isDataReady) {
+    if (minimalDataReady && !isDataReady) {
       setIsDataReady(true);
-      // Update displayed ticker only when all data is successfully loaded
+      // Update displayed ticker only when data is ready
       const currentTicker = getActualTicker || '';
       if (currentTicker && currentTicker !== displayedTicker) {
         setDisplayedTicker(currentTicker);
-        console.log(`📊 Displayed ticker updated to ${currentTicker} after data loaded`);
       }
-      console.log(`📊 All data loaded and ready to display`);
-      // Reset shouldFetchData only after ALL data is successfully loaded
+      // Reset shouldFetchData only after data is ready
       setShouldFetchData(false);
     }
     // Don't set isDataReady to false during loading to prevent flicker - keep showing old data until new data is ready
-  }, [isLoadingData, isLoadingBrokerData, isLoadingInventoryData, ohlcData.length, brokerSummaryData.length, selectedBrokers.length, isDataReady, getActualTicker, displayedTicker]);
+  }, [isLoadingData, isLoadingBrokerData, ohlcData.length, brokerSummaryData.length, selectedBrokers.length, isDataReady, getActualTicker, displayedTicker]);
 
   // Convert broker summary data to time series format for chart (same as BrokerSummaryPage NET table)
   // Uses NetBuyVol and NetSellVol from brokerSummaryData (same data source as NET table)
+  // OPTIMIZED: Use Map-based lookup instead of nested loops for O(1) performance
   const inventoryData = useMemo(() => {
     if (selectedBrokers.length === 0 || !brokerSummaryData || brokerSummaryData.length === 0) {
-      console.log(`📊 Inventory data empty: selectedBrokers=${selectedBrokers.length}, brokerSummaryData length=${brokerSummaryData?.length || 0}`);
       return [];
     }
-
-    console.log(`📊 Converting broker summary data to time series format (NetBuyVol/NetSellVol - same as NET table)`, {
-      selectedBrokers,
-      brokerSummaryDataLength: brokerSummaryData.length,
-      sampleData: brokerSummaryData.slice(0, 3)
-    });
     
-    // Collect all unique dates from brokerSummaryData
+    // OPTIMIZED: Create a Map for O(1) lookup: key = `${date}-${broker}`, value = row data
+    const dataMap = new Map<string, any>();
     const allDates = new Set<string>();
+    
     brokerSummaryData.forEach((row: any) => {
       const date = row.date || row.time || row.Date;
-        if (date) allDates.add(date);
+      const broker = row.broker || row.BrokerCode;
+      if (date && broker) {
+        allDates.add(date);
+        const key = `${date}-${broker}`;
+        dataMap.set(key, row);
+      }
     });
 
     const sortedDates = Array.from(allDates).sort();
@@ -3031,19 +2970,12 @@ const visibleBrokers = useMemo(
     sortedDates.forEach(date => {
       const dayData: InventoryTimeSeries = { time: date };
       
-      // For each selected broker, get NetBuyVol and NetSellVol for this date (same as NET table logic)
+      // OPTIMIZED: Use Map lookup instead of filter for O(1) instead of O(n)
       selectedBrokers.forEach(broker => {
-        // Find broker data for this date
-        const brokerDataForDate = brokerSummaryData.filter((row: any) => {
-          const rowDate = row.date || row.time || row.Date;
-          const rowBroker = row.broker || row.BrokerCode;
-          return rowDate === date && rowBroker === broker;
-        });
+        const key = `${date}-${broker}`;
+        const row = dataMap.get(key);
         
-        if (brokerDataForDate.length > 0) {
-          // Use the first match (should be only one per broker per date)
-          const row = brokerDataForDate[0];
-          
+        if (row) {
           // Get NetBuyVol and NetSellVol (same as NET table)
           const netBuyVol = typeof row.NetBuyVol === 'number' ? row.NetBuyVol : parseFloat(String(row.NetBuyVol || 0)) || 0;
           const netSellVol = typeof row.NetSellVol === 'number' ? row.NetSellVol : parseFloat(String(row.NetSellVol || 0)) || 0;
@@ -3051,34 +2983,20 @@ const visibleBrokers = useMemo(
           const netSellValue = typeof row.NetSellValue === 'number' ? row.NetSellValue : parseFloat(String(row.NetSellValue || 0)) || 0;
           
           // Determine if broker is NetBuy or NetSell (same logic as NET table per-date)
-          // NetBuy: netBuyValue >= netSellValue (prioritize NetBuy if both > 0)
-          // NetSell: netSellValue > netBuyValue (prioritize NetSell if both > 0)
           let netVolume = 0;
           if (netBuyValue >= netSellValue && (netBuyVol > 0 || netBuyValue > 0)) {
-            // NetBuy: use NetBuyVol (positive value)
             netVolume = netBuyVol;
           } else if (netSellValue > netBuyValue && (netSellVol > 0 || netSellValue > 0)) {
-            // NetSell: use -NetSellVol (negative value to show it's NetSell)
             netVolume = -netSellVol;
-          } else {
-            // Both zero or equal: default to 0
-            netVolume = 0;
           }
           
           dayData[broker] = netVolume;
         } else {
-          // No data for this broker on this date
           dayData[broker] = 0;
         }
       });
       
       inventorySeries.push(dayData);
-    });
-
-    console.log(`📊 Generated ${inventorySeries.length} time series points for ${selectedBrokers.length} brokers (NetBuyVol/NetSellVol - same as NET table)`, {
-      sampleSeries: inventorySeries.slice(0, 3),
-      hasData: inventorySeries.length > 0,
-      firstPointBrokers: inventorySeries[0] ? Object.keys(inventorySeries[0]).filter(k => k !== 'time') : []
     });
     
     return inventorySeries;
@@ -3449,41 +3367,50 @@ const visibleBrokers = useMemo(
   };
 
   // Generate Top Brokers data by date from brokerSummaryData (from top_broker API)
+  // OPTIMIZED: Use Map for grouping and pre-compute broker colors
   const topBrokersData = useMemo(() => {
     if (!brokerSummaryData || brokerSummaryData.length === 0) return [];
     
-    // Get all unique brokers from the data
-    // Filter out undefined/null/empty brokers
+    // OPTIMIZED: Get all unique brokers once and pre-compute colors
     const allBrokers = [...new Set(brokerSummaryData.map(r => r.broker).filter((b): b is string => Boolean(b) && typeof b === 'string'))];
+    const brokerColorCache = new Map<string, string>();
+    const getBrokerColor = (broker: string) => {
+      if (!brokerColorCache.has(broker)) {
+        brokerColorCache.set(broker, generateUniqueBrokerColor(broker, allBrokers));
+      }
+      return brokerColorCache.get(broker)!;
+    };
     
-    // Group data by date
-    const dataByDate: { [date: string]: any[] } = {};
+    // OPTIMIZED: Use Map for O(1) grouping instead of object with repeated checks
+    const dataByDate = new Map<string, any[]>();
     brokerSummaryData.forEach(record => {
       const date = record.date || record.time;
-      if (!dataByDate[date]) {
-        dataByDate[date] = [];
+      if (date) {
+        if (!dataByDate.has(date)) {
+          dataByDate.set(date, []);
+        }
+        dataByDate.get(date)!.push(record);
       }
-      dataByDate[date].push(record);
     });
     
     // Get unique dates and sort them
-    const dates = Object.keys(dataByDate).sort();
+    const dates = Array.from(dataByDate.keys()).sort();
     
-    // For each date, get top brokers (already sorted from top_broker API)
+    // OPTIMIZED: Pre-filter and sort brokers once per date
     return dates.map(date => {
-      const brokersForDate = dataByDate[date] || [];
+      const brokersForDate = dataByDate.get(date) || [];
+      const limit = topBrokersCount === 'all' ? brokersForDate.length : topBrokersCount;
       
-      // Data from top_broker API already has NetBuyVol and TotalVol
-      // Sort by NetBuyVol descending and slice based on topBrokersCount
+      // Sort by NetBuyVol descending and slice
       const sortedBrokers = brokersForDate
         .filter(record => record.broker && typeof record.broker === 'string')
         .sort((a, b) => (b.NetBuyVol || 0) - (a.NetBuyVol || 0))
-        .slice(0, topBrokersCount === 'all' ? brokersForDate.length : topBrokersCount)
+        .slice(0, limit)
         .map((record) => ({
           broker: record.broker || record.BrokerCode || '',
           volume: record.TotalVol || 0,
           netFlow: record.NetBuyVol || 0,
-          color: generateUniqueBrokerColor(record.broker || record.BrokerCode || '', allBrokers)
+          color: getBrokerColor(record.broker || record.BrokerCode || '')
         }));
       
       return {
