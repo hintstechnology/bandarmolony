@@ -34,7 +34,27 @@ interface InventoryTimeSeries {
 // Import broker color utilities
 // Note: BROKER_COLORS is available but not used in this component - using dynamic color generation instead
 
-// Dynamic color generator based on loaded brokers
+// Foreign brokers (red text)
+const FOREIGN_BROKERS = [
+  "AG", "AH", "AI", "AK", "BK", "BQ", "CG", "CS", "DP", "DR", "DU", "FS", "GW", "HD", "KK", 
+  "KZ", "LH", "LG", "LS", "MS", "RB", "RX", "TX", "YP", "YU", "ZP"
+];
+
+// Government brokers (green text)
+const GOVERNMENT_BROKERS = ['CC', 'NI', 'OD', 'DX'];
+
+// Helper function to get broker color class based on type (for text color)
+const getBrokerColorClass = (brokerCode: string): { color: string; className: string } => {
+  if (GOVERNMENT_BROKERS.includes(brokerCode)) {
+    return { color: '#10B981', className: 'font-semibold' }; // Green-600
+  }
+  if (FOREIGN_BROKERS.includes(brokerCode)) {
+    return { color: '#EF4444', className: 'font-semibold' }; // Red-600
+  }
+  return { color: '#FFFFFF', className: 'font-semibold' }; // White
+};
+
+// Dynamic color generator based on loaded brokers (for chart colors, not text)
 const generateBrokerColor = (broker: string | undefined | null, allBrokers: string[] = []): string => {
   // Handle undefined/null broker
   if (!broker || typeof broker !== 'string') {
@@ -112,24 +132,64 @@ const BrokerLegend = ({
   onRemoveBroker: (broker: string) => void;
   onRemoveAll?: () => void;
 }) => {
+  // Check if all brokers are visible
+  const allVisible = brokers.length > 0 && brokers.every(broker => brokerVisibility[broker] !== false);
+  const someVisible = brokers.some(broker => brokerVisibility[broker] !== false);
+  
+  // Toggle all visibility
+  const handleToggleAll = () => {
+    brokers.forEach(broker => {
+      const isVisible = brokerVisibility[broker] !== false;
+      if (allVisible) {
+        // If all visible, hide all
+        if (isVisible) {
+          onToggleVisibility(broker);
+        }
+      } else {
+        // If not all visible, show all
+        if (!isVisible) {
+          onToggleVisibility(broker);
+        }
+      }
+    });
+  };
+
   return (
     <div className="rounded-lg border border-[#3a4252] bg-background/70 px-3 py-2">
       <div className="flex items-center justify-between mb-2">
         <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {title}
         </div>
-        {onRemoveAll && brokers.length > 0 && (
-          <button
-            type="button"
-            onClick={onRemoveAll}
-            className="text-muted-foreground hover:text-destructive transition-colors"
-            aria-label={`Remove all ${title}`}
-            title={`Remove all ${title}`}
-          >
-            <X className="w-4 h-4" />
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {onRemoveAll && brokers.length > 0 && (
+            <button
+              type="button"
+              onClick={onRemoveAll}
+              className="text-muted-foreground hover:text-destructive transition-colors"
+              aria-label={`Remove all ${title}`}
+              title={`Remove all ${title}`}
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       </div>
+      {brokers.length > 0 && (
+        <div className="mb-2 pb-2 border-b border-[#3a4252]">
+          <label className="flex items-center gap-2 text-xs font-medium cursor-pointer select-none text-muted-foreground hover:text-foreground transition-colors">
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary"
+              checked={allVisible}
+              ref={(input) => {
+                if (input) input.indeterminate = someVisible && !allVisible;
+              }}
+              onChange={handleToggleAll}
+            />
+            <span>{allVisible ? 'Unselect All' : 'Select All'}</span>
+          </label>
+        </div>
+      )}
       <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
         {brokers.length === 0 ? (
           <p className="text-xs text-muted-foreground">No brokers in this group.</p>
@@ -1257,8 +1317,8 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
   const [selectedBrokers, setSelectedBrokers] = useState<string[]>([]);
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
-  const [isInitializing, setIsInitializing] = useState(true);
   const [brokerSearch, setBrokerSearch] = useState('');
+  const [debouncedBrokerSearch, setDebouncedBrokerSearch] = useState('');
   const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false);
   const [highlightedBrokerIndex, setHighlightedBrokerIndex] = useState(-1);
   const [brokerSelectionMode, setBrokerSelectionMode] = useState<{
@@ -1267,12 +1327,18 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
     custom: boolean;
   }>({ top5buy: false, top5sell: false, custom: false });
   const [tickerInput, setTickerInput] = useState<string>('');
+  const [debouncedTickerInput, setDebouncedTickerInput] = useState<string>('');
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [splitVisualization, setSplitVisualization] = useState(defaultSplitView);
   const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
   const [availableStocks, setAvailableStocks] = useState<string[]>([]);
   const [sectorMapping, setSectorMapping] = useState<{ [sector: string]: string[] }>({});
   const [stockSearchTimeout, setStockSearchTimeout] = useState<NodeJS.Timeout | null>(null);
+  // Windowing state for virtual scrolling
+  const [stockScrollOffset, setStockScrollOffset] = useState(0);
+  const [sectorScrollOffset, setSectorScrollOffset] = useState(0);
+  const [brokerScrollOffset, setBrokerScrollOffset] = useState(0);
+  const ITEMS_PER_PAGE = 50; // Render 50 items at a time
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isDataReady, setIsDataReady] = useState<boolean>(false); // Control when to show charts/tables
@@ -1567,13 +1633,11 @@ const visibleBrokers = useMemo(
       const actualTicker = getActualTicker;
       if (!actualTicker) {
         console.log(`[BrokerInventory] No actual ticker, skipping loadLatestDateForStock`);
-        setIsInitializing(false); // Make sure to set isInitializing to false if no ticker
         return;
       }
       
       console.log(`[BrokerInventory] Loading latest date for ticker: ${actualTicker}`);
       try {
-        setIsInitializing(true);
         
         // Check if we have cached latest date for this stock
         const cachedDate = cache.latestDate.date;
@@ -1644,8 +1708,7 @@ const visibleBrokers = useMemo(
         if (todayStr) setEndDate(todayStr);
         if (oneMonthAgoStr) setStartDate(oneMonthAgoStr);
       } finally {
-        console.log(`[BrokerInventory] Setting isInitializing to false for ticker: ${actualTicker}`);
-        setIsInitializing(false);
+        console.log(`[BrokerInventory] Finished loading latest date for ticker: ${actualTicker}`);
       }
     };
     
@@ -1931,19 +1994,13 @@ const visibleBrokers = useMemo(
           ? selectedTicker.replace('[SECTOR] ', '') 
           : actualTicker;
         
-        console.log(`🔄 Loading broker summary data for ${tickerToFetch} from ${startDate} to ${endDate}`);
-        console.log(`📊 Using ${tradingDays.length} trading days from date range (calculated from input field)`);
-        
         // Load broker summary data for each date using getBrokerSummaryData API (same as BrokerSummaryPage)
         // This provides NetBuyValue and NetSellValue needed for top buyer/seller calculation (NET table)
-        const allBrokerData: any[] = [];
-        let successfulDates = 0;
-        
-        // Check if this is a sector (same logic as BrokerSummaryPage)
+        // OPTIMIZED: Use Promise.all for parallel loading instead of sequential for loop
         const isSector = selectedTicker.startsWith('[SECTOR] ');
         
-        for (const dateStr of tradingDays) {
-          
+        // Load all dates in parallel for much faster performance
+        const datePromises = tradingDays.map(async (dateStr) => {
           try {
             // Check cache first (5 minutes TTL) - use tickerToFetch for cache key
             const cacheKey = `broker-summary-${tickerToFetch}-${dateStr}`;
@@ -2005,25 +2062,22 @@ const visibleBrokers = useMemo(
               brokerData = brokerData.map((b: any) => ({ ...b, date: dateStr, time: dateStr }));
             }
             
-            if (brokerData && brokerData.length > 0) {
-              allBrokerData.push(...brokerData);
-              successfulDates++;
-            }
+            return brokerData || [];
           } catch (error) {
-            console.warn(`⚠️ Error loading broker summary for ${dateStr}:`, error);
+            // Silently return empty array on error - don't log to improve performance
+            return [];
           }
-        }
+        });
+        
+        // Wait for all promises to resolve in parallel
+        const allDateResults = await Promise.all(datePromises);
+        const allBrokerData = allDateResults.flat();
         
         // Filter final data by date range (additional safety check)
         const filteredBrokerData = allBrokerData.filter((record: any) => {
           const recordDate = record.date || record.time;
           return recordDate >= startDate && recordDate <= endDate;
         });
-        
-        console.log(`📊 ===== BROKER SUMMARY DATA LOADING COMPLETE =====`);
-        console.log(`📊 Total dates processed: ${tradingDays.length}`);
-        console.log(`📊 Successful dates: ${successfulDates}`);
-        console.log(`📊 Total broker records (after filtering): ${filteredBrokerData.length}`);
         
         if (filteredBrokerData.length === 0) {
           setBrokerDataError(`No broker summary data found for ${actualTicker} in date range ${startDate} to ${endDate}.`);
@@ -2600,29 +2654,101 @@ const visibleBrokers = useMemo(
     }
   };
 
-  // Separate stocks and sectors for display
-  const filteredStocksList = (availableStocks || []).filter(stock => {
-    const searchTerm = tickerInput.toLowerCase();
-    // Only include stocks (not sectors)
-    if (stock.startsWith('[SECTOR] ')) {
-      return false;
-    }
-    // For regular stocks, search normally and exclude if already selected
-    return stock.toLowerCase().includes(searchTerm) && selectedTicker !== stock;
-  });
+  // Debounce ticker input for better performance
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setDebouncedTickerInput(tickerInput);
+      // Reset scroll offsets when search changes
+      setStockScrollOffset(0);
+      setSectorScrollOffset(0);
+    }, 150);
+    return () => clearTimeout(timeout);
+  }, [tickerInput]);
 
-  const filteredSectorsList = (availableStocks || []).filter(stock => {
-    const searchTerm = tickerInput.toLowerCase();
-    // Only include sectors
-    if (stock.startsWith('[SECTOR] ')) {
-      const sectorName = stock.replace('[SECTOR] ', '').toLowerCase();
-      return sectorName.includes(searchTerm) && selectedTicker !== stock;
-    }
-    return false;
-  });
-  
-  // For backward compatibility (used in exact match check)
-  const filteredStocks = [...filteredStocksList, ...filteredSectorsList];
+  // Debounce broker search for better performance
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setDebouncedBrokerSearch(brokerSearch);
+      // Reset scroll offset when search changes
+      setBrokerScrollOffset(0);
+    }, 150);
+    return () => clearTimeout(timeout);
+  }, [brokerSearch]);
+
+  // Memoized filtered stocks list for better performance
+  const filteredStocksList = useMemo(() => {
+    const searchTerm = debouncedTickerInput.toLowerCase();
+    return (availableStocks || []).filter(stock => {
+      // Only include stocks (not sectors)
+      if (stock.startsWith('[SECTOR] ')) {
+        return false;
+      }
+      // For regular stocks, search normally and exclude if already selected
+      return stock.toLowerCase().includes(searchTerm) && selectedTicker !== stock;
+    });
+  }, [availableStocks, debouncedTickerInput, selectedTicker]);
+
+  // Memoized filtered sectors list for better performance
+  const filteredSectorsList = useMemo(() => {
+    const searchTerm = debouncedTickerInput.toLowerCase();
+    return (availableStocks || []).filter(stock => {
+      // Only include sectors
+      if (stock.startsWith('[SECTOR] ')) {
+        const sectorName = stock.replace('[SECTOR] ', '').toLowerCase();
+        return sectorName.includes(searchTerm) && selectedTicker !== stock;
+      }
+      return false;
+    });
+  }, [availableStocks, debouncedTickerInput, selectedTicker]);
+
+  // Memoized all stocks list (for backward compatibility)
+  const filteredStocks = useMemo(() => {
+    return [...filteredStocksList, ...filteredSectorsList];
+  }, [filteredStocksList, filteredSectorsList]);
+
+  // Windowed stocks list (only show visible items)
+  const visibleStocksList = useMemo(() => {
+    const start = stockScrollOffset;
+    const end = start + ITEMS_PER_PAGE;
+    return filteredStocksList.slice(start, end);
+  }, [filteredStocksList, stockScrollOffset]);
+
+  // Windowed sectors list (only show visible items)
+  const visibleSectorsList = useMemo(() => {
+    const start = sectorScrollOffset;
+    const end = start + ITEMS_PER_PAGE;
+    return filteredSectorsList.slice(start, end);
+  }, [filteredSectorsList, sectorScrollOffset]);
+
+  // All stocks without filter (for initial display)
+  const allStocksList = useMemo(() => {
+    return (availableStocks || []).filter(s => {
+      if (s.startsWith('[SECTOR] ')) return false;
+      return selectedTicker !== s;
+    });
+  }, [availableStocks, selectedTicker]);
+
+  // All sectors without filter (for initial display)
+  const allSectorsList = useMemo(() => {
+    return (availableStocks || []).filter(s => {
+      if (!s.startsWith('[SECTOR] ')) return false;
+      return selectedTicker !== s;
+    });
+  }, [availableStocks, selectedTicker]);
+
+  // Windowed all stocks list (for initial display)
+  const visibleAllStocksList = useMemo(() => {
+    const start = stockScrollOffset;
+    const end = start + ITEMS_PER_PAGE;
+    return allStocksList.slice(start, end);
+  }, [allStocksList, stockScrollOffset]);
+
+  // Windowed all sectors list (for initial display)
+  const visibleAllSectorsList = useMemo(() => {
+    const start = sectorScrollOffset;
+    const end = start + ITEMS_PER_PAGE;
+    return allSectorsList.slice(start, end);
+  }, [allSectorsList, sectorScrollOffset]);
 
   // Helper function to format display name (remove [SECTOR] prefix for display)
   const formatStockDisplayName = (stock: string): string => {
@@ -2765,75 +2891,23 @@ const visibleBrokers = useMemo(
                 // Cache the full data
                 cache.set(cacheKey, formattedData, cache.inventory);
               } else {
-                console.warn(`⚠️ No inventory data for broker ${broker}`);
                 formattedData = [];
               }
             }
             
             // Filter data by date range
-            console.log(`🔍 Filtering data for broker ${broker} by date range: ${startDate} to ${endDate}`);
-            console.log(`📊 Total records before filter: ${formattedData.length}`);
-            if (formattedData.length > 0) {
-              console.log(`📊 Sample dates before filter:`, formattedData.slice(0, 5).map((r: any) => ({
-                original: r.Date || r.time || r.date,
-                formatted: r.Date,
-                cumulative: r.CumulativeNetBuyVol
-              })));
-            }
-            
             const filteredData = formattedData.filter((row: any) => {
               const rowDate = row.Date || row.time || row.date;
-              const inRange = rowDate >= startDate && rowDate <= endDate;
-              if (!inRange && formattedData.length <= 10) {
-                // Log first few out-of-range dates for debugging
-                console.log(`⚠️ Date ${rowDate} is out of range (${startDate} to ${endDate})`);
-              }
-              return inRange;
+              return rowDate >= startDate && rowDate <= endDate;
             });
-            
-            console.log(`📊 Records after filter: ${filteredData.length}`);
-            if (filteredData.length > 0) {
-              console.log(`📊 Sample dates after filter:`, filteredData.slice(0, 5).map((r: any) => ({
-                date: r.Date,
-                cumulative: r.CumulativeNetBuyVol
-              })));
-            } else if (formattedData.length > 0) {
-              console.warn(`⚠️ All ${formattedData.length} records filtered out! Date range: ${startDate} to ${endDate}`);
-              console.warn(`📊 Available date range in data:`, {
-                earliest: formattedData[formattedData.length - 1]?.Date,
-                latest: formattedData[0]?.Date,
-                allDates: formattedData.map((r: any) => r.Date).slice(0, 10)
-              });
-            }
             
             inventoryDataMap[broker] = filteredData;
-            console.log(`✅ Loaded ${filteredData.length} records for broker ${broker} (filtered from ${formattedData.length} total)`, {
-              sampleRecord: filteredData[0],
-              hasCumulativeNetBuyVol: filteredData[0]?.CumulativeNetBuyVol !== undefined,
-              cumulativeValue: filteredData[0]?.CumulativeNetBuyVol,
-              dateRange: filteredData.length > 0 ? {
-                first: filteredData[filteredData.length - 1]?.Date,
-                last: filteredData[0]?.Date
-              } : null,
-              allDates: filteredData.map((r: any) => r.Date).slice(0, 5)
-            });
           } catch (error) {
-            console.error(`❌ Error loading inventory for broker ${broker}:`, error);
             inventoryDataMap[broker] = [];
           }
         }
         
         setBrokerInventoryData(inventoryDataMap);
-        
-        console.log(`📊 Broker inventory data loaded for ${Object.keys(inventoryDataMap).length} brokers (filtered by date range ${startDate} to ${endDate})`);
-        console.log(`📊 Inventory data summary:`, {
-          brokers: Object.keys(inventoryDataMap),
-          recordCounts: Object.entries(inventoryDataMap).map(([broker, data]) => ({
-            broker,
-            count: (data as any[]).length,
-            hasData: (data as any[]).length > 0
-          }))
-        });
       } catch (error) {
         console.error('Error loading broker inventory:', error);
       } finally {
@@ -2845,49 +2919,49 @@ const visibleBrokers = useMemo(
     loadBrokerInventory();
   }, [shouldFetchData, getActualTicker, selectedBrokers, startDate, endDate]);
 
-  // Check if all data is loaded and set isDataReady accordingly
+  // OPTIMIZED: Progressive rendering - set isDataReady as soon as minimal data is available
+  // This allows charts to render immediately instead of waiting for all data
   useEffect(() => {
-    // Only set isDataReady to true after ALL data is loaded:
-    // 1. OHLC data (isLoadingData = false and ohlcData.length > 0)
-    // 2. Broker summary data (isLoadingBrokerData = false and brokerSummaryData.length > 0)
-    // 3. Inventory data (isLoadingInventoryData = false and inventoryData will be computed from brokerSummaryData)
-    const allDataLoaded = !isLoadingData && !isLoadingBrokerData && !isLoadingInventoryData &&
+    // Set isDataReady to true as soon as we have:
+    // 1. OHLC data (for price chart)
+    // 2. Broker summary data (for inventory chart and top brokers table)
+    // Don't wait for inventory data loading since it's computed from brokerSummaryData
+    const minimalDataReady = !isLoadingData && !isLoadingBrokerData &&
       ohlcData.length > 0 && brokerSummaryData.length > 0 && selectedBrokers.length > 0;
     
-    if (allDataLoaded && !isDataReady) {
+    if (minimalDataReady && !isDataReady) {
       setIsDataReady(true);
-      // Update displayed ticker only when all data is successfully loaded
+      // Update displayed ticker only when data is ready
       const currentTicker = getActualTicker || '';
       if (currentTicker && currentTicker !== displayedTicker) {
         setDisplayedTicker(currentTicker);
-        console.log(`📊 Displayed ticker updated to ${currentTicker} after data loaded`);
       }
-      console.log(`📊 All data loaded and ready to display`);
-      // Reset shouldFetchData only after ALL data is successfully loaded
+      // Reset shouldFetchData only after data is ready
       setShouldFetchData(false);
     }
     // Don't set isDataReady to false during loading to prevent flicker - keep showing old data until new data is ready
-  }, [isLoadingData, isLoadingBrokerData, isLoadingInventoryData, ohlcData.length, brokerSummaryData.length, selectedBrokers.length, isDataReady, getActualTicker, displayedTicker]);
+  }, [isLoadingData, isLoadingBrokerData, ohlcData.length, brokerSummaryData.length, selectedBrokers.length, isDataReady, getActualTicker, displayedTicker]);
 
   // Convert broker summary data to time series format for chart (same as BrokerSummaryPage NET table)
   // Uses NetBuyVol and NetSellVol from brokerSummaryData (same data source as NET table)
+  // OPTIMIZED: Use Map-based lookup instead of nested loops for O(1) performance
   const inventoryData = useMemo(() => {
     if (selectedBrokers.length === 0 || !brokerSummaryData || brokerSummaryData.length === 0) {
-      console.log(`📊 Inventory data empty: selectedBrokers=${selectedBrokers.length}, brokerSummaryData length=${brokerSummaryData?.length || 0}`);
       return [];
     }
-
-    console.log(`📊 Converting broker summary data to time series format (NetBuyVol/NetSellVol - same as NET table)`, {
-      selectedBrokers,
-      brokerSummaryDataLength: brokerSummaryData.length,
-      sampleData: brokerSummaryData.slice(0, 3)
-    });
     
-    // Collect all unique dates from brokerSummaryData
+    // OPTIMIZED: Create a Map for O(1) lookup: key = `${date}-${broker}`, value = row data
+    const dataMap = new Map<string, any>();
     const allDates = new Set<string>();
+    
     brokerSummaryData.forEach((row: any) => {
       const date = row.date || row.time || row.Date;
-        if (date) allDates.add(date);
+      const broker = row.broker || row.BrokerCode;
+      if (date && broker) {
+        allDates.add(date);
+        const key = `${date}-${broker}`;
+        dataMap.set(key, row);
+      }
     });
 
     const sortedDates = Array.from(allDates).sort();
@@ -2896,19 +2970,12 @@ const visibleBrokers = useMemo(
     sortedDates.forEach(date => {
       const dayData: InventoryTimeSeries = { time: date };
       
-      // For each selected broker, get NetBuyVol and NetSellVol for this date (same as NET table logic)
+      // OPTIMIZED: Use Map lookup instead of filter for O(1) instead of O(n)
       selectedBrokers.forEach(broker => {
-        // Find broker data for this date
-        const brokerDataForDate = brokerSummaryData.filter((row: any) => {
-          const rowDate = row.date || row.time || row.Date;
-          const rowBroker = row.broker || row.BrokerCode;
-          return rowDate === date && rowBroker === broker;
-        });
+        const key = `${date}-${broker}`;
+        const row = dataMap.get(key);
         
-        if (brokerDataForDate.length > 0) {
-          // Use the first match (should be only one per broker per date)
-          const row = brokerDataForDate[0];
-          
+        if (row) {
           // Get NetBuyVol and NetSellVol (same as NET table)
           const netBuyVol = typeof row.NetBuyVol === 'number' ? row.NetBuyVol : parseFloat(String(row.NetBuyVol || 0)) || 0;
           const netSellVol = typeof row.NetSellVol === 'number' ? row.NetSellVol : parseFloat(String(row.NetSellVol || 0)) || 0;
@@ -2916,34 +2983,20 @@ const visibleBrokers = useMemo(
           const netSellValue = typeof row.NetSellValue === 'number' ? row.NetSellValue : parseFloat(String(row.NetSellValue || 0)) || 0;
           
           // Determine if broker is NetBuy or NetSell (same logic as NET table per-date)
-          // NetBuy: netBuyValue >= netSellValue (prioritize NetBuy if both > 0)
-          // NetSell: netSellValue > netBuyValue (prioritize NetSell if both > 0)
           let netVolume = 0;
           if (netBuyValue >= netSellValue && (netBuyVol > 0 || netBuyValue > 0)) {
-            // NetBuy: use NetBuyVol (positive value)
             netVolume = netBuyVol;
           } else if (netSellValue > netBuyValue && (netSellVol > 0 || netSellValue > 0)) {
-            // NetSell: use -NetSellVol (negative value to show it's NetSell)
             netVolume = -netSellVol;
-          } else {
-            // Both zero or equal: default to 0
-            netVolume = 0;
           }
           
           dayData[broker] = netVolume;
         } else {
-          // No data for this broker on this date
           dayData[broker] = 0;
         }
       });
       
       inventorySeries.push(dayData);
-    });
-
-    console.log(`📊 Generated ${inventorySeries.length} time series points for ${selectedBrokers.length} brokers (NetBuyVol/NetSellVol - same as NET table)`, {
-      sampleSeries: inventorySeries.slice(0, 3),
-      hasData: inventorySeries.length > 0,
-      firstPointBrokers: inventorySeries[0] ? Object.keys(inventorySeries[0]).filter(k => k !== 'time') : []
     });
     
     return inventorySeries;
@@ -3314,41 +3367,50 @@ const visibleBrokers = useMemo(
   };
 
   // Generate Top Brokers data by date from brokerSummaryData (from top_broker API)
+  // OPTIMIZED: Use Map for grouping and pre-compute broker colors
   const topBrokersData = useMemo(() => {
     if (!brokerSummaryData || brokerSummaryData.length === 0) return [];
     
-    // Get all unique brokers from the data
-    // Filter out undefined/null/empty brokers
+    // OPTIMIZED: Get all unique brokers once and pre-compute colors
     const allBrokers = [...new Set(brokerSummaryData.map(r => r.broker).filter((b): b is string => Boolean(b) && typeof b === 'string'))];
+    const brokerColorCache = new Map<string, string>();
+    const getBrokerColor = (broker: string) => {
+      if (!brokerColorCache.has(broker)) {
+        brokerColorCache.set(broker, generateUniqueBrokerColor(broker, allBrokers));
+      }
+      return brokerColorCache.get(broker)!;
+    };
     
-    // Group data by date
-    const dataByDate: { [date: string]: any[] } = {};
+    // OPTIMIZED: Use Map for O(1) grouping instead of object with repeated checks
+    const dataByDate = new Map<string, any[]>();
     brokerSummaryData.forEach(record => {
       const date = record.date || record.time;
-      if (!dataByDate[date]) {
-        dataByDate[date] = [];
+      if (date) {
+        if (!dataByDate.has(date)) {
+          dataByDate.set(date, []);
+        }
+        dataByDate.get(date)!.push(record);
       }
-      dataByDate[date].push(record);
     });
     
     // Get unique dates and sort them
-    const dates = Object.keys(dataByDate).sort();
+    const dates = Array.from(dataByDate.keys()).sort();
     
-    // For each date, get top brokers (already sorted from top_broker API)
+    // OPTIMIZED: Pre-filter and sort brokers once per date
     return dates.map(date => {
-      const brokersForDate = dataByDate[date] || [];
+      const brokersForDate = dataByDate.get(date) || [];
+      const limit = topBrokersCount === 'all' ? brokersForDate.length : topBrokersCount;
       
-      // Data from top_broker API already has NetBuyVol and TotalVol
-      // Sort by NetBuyVol descending and slice based on topBrokersCount
+      // Sort by NetBuyVol descending and slice
       const sortedBrokers = brokersForDate
         .filter(record => record.broker && typeof record.broker === 'string')
         .sort((a, b) => (b.NetBuyVol || 0) - (a.NetBuyVol || 0))
-        .slice(0, topBrokersCount === 'all' ? brokersForDate.length : topBrokersCount)
+        .slice(0, limit)
         .map((record) => ({
           broker: record.broker || record.BrokerCode || '',
           volume: record.TotalVol || 0,
           netFlow: record.NetBuyVol || 0,
-          color: generateUniqueBrokerColor(record.broker || record.BrokerCode || '', allBrokers)
+          color: getBrokerColor(record.broker || record.BrokerCode || '')
         }));
       
       return {
@@ -3365,7 +3427,7 @@ const visibleBrokers = useMemo(
     filteredBrokers,
     totalOtherBrokersCount,
   } = useMemo(() => {
-    const searchTerm = brokerSearch.toLowerCase();
+    const searchTerm = debouncedBrokerSearch.toLowerCase();
     
     // Get top 5 buy and top 5 sell brokers
     const top5BuyBrokers = brokerNetStats.topBuyers.slice(0, 5).map(item => item.broker);
@@ -3449,7 +3511,20 @@ const visibleBrokers = useMemo(
       filteredBrokers: [...sortedRecommended, ...sortedOthers],
       totalOtherBrokersCount: sortedOthers.length,
     };
-  }, [availableBrokersForStock, defaultBrokers, brokerSearch, selectedBrokers, brokerNetStats, topBrokersData]);
+  }, [availableBrokersForStock, defaultBrokers, debouncedBrokerSearch, selectedBrokers, brokerNetStats, topBrokersData]);
+
+  // Windowed recommended brokers list
+  const visibleRecommendedBrokers = useMemo(() => {
+    // Recommended brokers are always shown (no windowing needed as they're usually < 10)
+    return recommendedBrokers;
+  }, [recommendedBrokers]);
+
+  // Windowed other brokers list
+  const visibleOtherBrokers = useMemo(() => {
+    const start = brokerScrollOffset;
+    const end = start + ITEMS_PER_PAGE;
+    return otherBrokers.slice(start, end);
+  }, [otherBrokers, brokerScrollOffset]);
 
   return (
     <div className="min-h-screen overflow-x-hidden">
@@ -3508,19 +3583,22 @@ const visibleBrokers = useMemo(
                           ) : (
                             <div className="flex flex-row h-full max-h-96 overflow-hidden">
                               {/* Left column: Stocks */}
-                              <div className="flex-1 border-r border-[#3a4252] overflow-y-auto">
+                              <div 
+                                className="flex-1 border-r border-[#3a4252] overflow-y-auto"
+                                onScroll={(e) => {
+                                  const target = e.target as HTMLElement;
+                                  const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+                                  if (scrollBottom < 100 && stockScrollOffset + ITEMS_PER_PAGE < (tickerInput === '' ? allStocksList.length : filteredStocksList.length)) {
+                                    setStockScrollOffset(prev => prev + ITEMS_PER_PAGE);
+                                  }
+                                }}
+                              >
                                 {tickerInput === '' ? (
                                   <>
                                     <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                      Stocks ({availableStocks.filter(s => {
-                                        if (s.startsWith('[SECTOR] ')) return false;
-                                        return selectedTicker !== s;
-                                      }).length})
+                                      Stocks ({allStocksList.length})
                                     </div>
-                                    {availableStocks.filter(s => {
-                                      if (s.startsWith('[SECTOR] ')) return false;
-                                      return selectedTicker !== s;
-                                    }).map(stock => (
+                                    {visibleAllStocksList.map(stock => (
                                       <div
                                         key={stock}
                                         onClick={() => handleStockSelect(stock)}
@@ -3529,13 +3607,18 @@ const visibleBrokers = useMemo(
                                         {stock}
                                       </div>
                                     ))}
+                                    {stockScrollOffset + ITEMS_PER_PAGE < allStocksList.length && (
+                                      <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                        Loading more... ({Math.min(stockScrollOffset + ITEMS_PER_PAGE, allStocksList.length)} / {allStocksList.length})
+                                      </div>
+                                    )}
                                   </>
                                 ) : filteredStocksList.length > 0 ? (
                                   <>
                                     <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
                                       Stocks ({filteredStocksList.length})
                                     </div>
-                                    {filteredStocksList.map(stock => (
+                                    {visibleStocksList.map(stock => (
                                       <div
                                         key={stock}
                                         onClick={() => handleStockSelect(stock)}
@@ -3544,6 +3627,11 @@ const visibleBrokers = useMemo(
                                         {stock}
                                       </div>
                                     ))}
+                                    {stockScrollOffset + ITEMS_PER_PAGE < filteredStocksList.length && (
+                                      <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                        Loading more... ({Math.min(stockScrollOffset + ITEMS_PER_PAGE, filteredStocksList.length)} / {filteredStocksList.length})
+                                      </div>
+                                    )}
                                   </>
                                 ) : (
                                   <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
@@ -3552,13 +3640,22 @@ const visibleBrokers = useMemo(
                                 )}
                               </div>
                               {/* Right column: Sectors */}
-                              <div className="flex-1 overflow-y-auto">
+                              <div 
+                                className="flex-1 overflow-y-auto"
+                                onScroll={(e) => {
+                                  const target = e.target as HTMLElement;
+                                  const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+                                  if (scrollBottom < 100 && sectorScrollOffset + ITEMS_PER_PAGE < (tickerInput === '' ? allSectorsList.length : filteredSectorsList.length)) {
+                                    setSectorScrollOffset(prev => prev + ITEMS_PER_PAGE);
+                                  }
+                                }}
+                              >
                                 {tickerInput === '' ? (
                                   <>
                                     <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                      Sectors ({availableStocks.filter(s => s.startsWith('[SECTOR] ') && selectedTicker !== s).length})
+                                      Sectors ({allSectorsList.length})
                                     </div>
-                                    {availableStocks.filter(s => s.startsWith('[SECTOR] ') && selectedTicker !== s).map(stock => (
+                                    {visibleAllSectorsList.map(stock => (
                                       <div
                                         key={stock}
                                         onClick={() => handleStockSelect(stock)}
@@ -3567,13 +3664,18 @@ const visibleBrokers = useMemo(
                                         {formatStockDisplayName(stock)}
                                       </div>
                                     ))}
+                                    {sectorScrollOffset + ITEMS_PER_PAGE < allSectorsList.length && (
+                                      <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                        Loading more... ({Math.min(sectorScrollOffset + ITEMS_PER_PAGE, allSectorsList.length)} / {allSectorsList.length})
+                                      </div>
+                                    )}
                                   </>
                                 ) : filteredSectorsList.length > 0 ? (
                                   <>
                                     <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
                                       Sectors ({filteredSectorsList.length})
                                     </div>
-                                    {filteredSectorsList.map(stock => (
+                                    {visibleSectorsList.map(stock => (
                                       <div
                                         key={stock}
                                         onClick={() => handleStockSelect(stock)}
@@ -3582,6 +3684,11 @@ const visibleBrokers = useMemo(
                                         {formatStockDisplayName(stock)}
                                       </div>
                                     ))}
+                                    {sectorScrollOffset + ITEMS_PER_PAGE < filteredSectorsList.length && (
+                                      <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                        Loading more... ({Math.min(sectorScrollOffset + ITEMS_PER_PAGE, filteredSectorsList.length)} / {filteredSectorsList.length})
+                                      </div>
+                                    )}
                                   </>
                                 ) : (
                                   <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
@@ -3630,19 +3737,28 @@ const visibleBrokers = useMemo(
                           ) : (
                             <div className="flex flex-row h-full max-h-96 overflow-hidden">
                               {/* Left column: Brokers */}
-                              <div className="flex-1 border-r border-[#3a4252] overflow-y-auto">
+                              <div 
+                                className="flex-1 border-r border-[#3a4252] overflow-y-auto"
+                                onScroll={(e) => {
+                                  const target = e.target as HTMLElement;
+                                  const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+                                  if (scrollBottom < 100 && brokerScrollOffset + ITEMS_PER_PAGE < otherBrokers.length) {
+                                    setBrokerScrollOffset(prev => prev + ITEMS_PER_PAGE);
+                                  }
+                                }}
+                              >
                                 {filteredBrokers.length === 0 ? (
                                   <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
-                                    {brokerSearch !== '' ? `No brokers found matching "${brokerSearch}"` : `No brokers available for ${getActualTicker || 'selected ticker'}`}
+                                    {debouncedBrokerSearch !== '' ? `No brokers found matching "${debouncedBrokerSearch}"` : `No brokers available for ${getActualTicker || 'selected ticker'}`}
                                   </div>
                                 ) : (
                                   <>
-                                    {recommendedBrokers.length > 0 && (
+                                    {visibleRecommendedBrokers.length > 0 && (
                                       <>
                                         <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
                                           Recommended ({recommendedBrokers.length})
                                         </div>
-                                        {recommendedBrokers.map((broker, index) => {
+                                        {visibleRecommendedBrokers.map((broker, index) => {
                                     const hasQuickSelect = brokerNetStats.topBuyers.length > 0 && brokerSearch === '';
                                     const quickSelectCount = hasQuickSelect ? 2 : 0;
                                     const globalIndex = quickSelectCount + index;
@@ -3691,11 +3807,7 @@ const visibleBrokers = useMemo(
                                             onMouseDown={(e) => e.stopPropagation()}
                                             className="h-4 w-4 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary cursor-pointer"
                                           />
-                                          <div
-                                            className="w-2 h-2 rounded-full"
-                                            style={{ backgroundColor: generateBrokerColor(broker, selectedBrokers) }}
-                                          />
-                                          <span>{broker}</span>
+                                          <span className={getBrokerColorClass(broker).className} style={{ color: getBrokerColorClass(broker).color }}>{broker}</span>
                                           <span className="text-[10px] uppercase tracking-wide text-muted-foreground border border-border rounded px-1 py-0.5">
                                             Default
                                           </span>
@@ -3710,8 +3822,8 @@ const visibleBrokers = useMemo(
                                         <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
                                           {recommendedBrokers.length > 0 ? 'All Brokers' : `Brokers (${totalOtherBrokersCount})`}
                                         </div>
-                                        {otherBrokers.map((broker, index) => {
-                                          const hasQuickSelect = brokerNetStats.topBuyers.length > 0 && brokerSearch === '';
+                                        {visibleOtherBrokers.map((broker, index) => {
+                                          const hasQuickSelect = brokerNetStats.topBuyers.length > 0 && debouncedBrokerSearch === '';
                                           const quickSelectCount = hasQuickSelect ? 2 : 0;
                                           const globalIndex = quickSelectCount + recommendedBrokers.length + index;
                                           return (
@@ -3773,15 +3885,16 @@ const visibleBrokers = useMemo(
                                                   onMouseDown={(e) => e.stopPropagation()}
                                                   className="h-4 w-4 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary cursor-pointer"
                                                 />
-                                                <div
-                                                  className="w-2 h-2 rounded-full"
-                                                  style={{ backgroundColor: generateBrokerColor(broker, selectedBrokers) }}
-                                                />
-                                                {broker}
+                                                <span className={getBrokerColorClass(broker).className} style={{ color: getBrokerColorClass(broker).color }}>{broker}</span>
                                               </div>
                                             </div>
                                           );
                                         })}
+                                        {brokerScrollOffset + ITEMS_PER_PAGE < otherBrokers.length && (
+                                          <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                            Loading more... ({Math.min(brokerScrollOffset + ITEMS_PER_PAGE, otherBrokers.length)} / {otherBrokers.length})
+                                          </div>
+                                        )}
                                       </>
                                     )}
                                   </>
@@ -4507,6 +4620,7 @@ const visibleBrokers = useMemo(
                         brokerVisibility={brokerVisibility}
                         onToggleVisibility={handleToggleBrokerVisibility}
                         onRemoveBroker={removeBroker}
+                        onRemoveAll={removeAllTop5Buy}
                       />
                       )}
                       {brokerSelectionMode.top5sell && top5SellBrokers.length > 0 && (
@@ -4517,6 +4631,7 @@ const visibleBrokers = useMemo(
                         brokerVisibility={brokerVisibility}
                         onToggleVisibility={handleToggleBrokerVisibility}
                         onRemoveBroker={removeBroker}
+                        onRemoveAll={removeAllTop5Sell}
                       />
                       )}
                       {brokerSelectionMode.custom && customBrokers.length > 0 && (
@@ -4527,6 +4642,7 @@ const visibleBrokers = useMemo(
                           brokerVisibility={brokerVisibility}
                           onToggleVisibility={handleToggleBrokerVisibility}
                           onRemoveBroker={removeBroker}
+                          onRemoveAll={removeAllCustom}
                         />
                       )}
                     </div>
