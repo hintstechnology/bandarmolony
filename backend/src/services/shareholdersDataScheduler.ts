@@ -10,8 +10,8 @@ import {
   removeDuplicates,
   convertToCsv,
   parseCsvString,
-  BATCH_SIZE_PHASE_1_STOCK,
-  MAX_CONCURRENT_REQUESTS
+  BATCH_SIZE_PHASE_1_SHAREHOLDERS,
+  MAX_CONCURRENT_REQUESTS_PHASE_1_SHAREHOLDERS
 } from './dataUpdateService';
 import { SchedulerLogService } from './schedulerLogService';
 
@@ -90,7 +90,6 @@ async function processShareholdersEmiten(
   httpClient: OptimizedHttpClient,
   azureStorage: OptimizedAzureStorageService,
   todayDate: string,
-  baseUrl: string,
   cache: CacheService,
   logId: string | null
 ): Promise<{ success: boolean; skipped: boolean; error?: string }> {
@@ -139,47 +138,67 @@ async function processShareholdersEmiten(
 
     let response;
     try {
-      response = await httpClient.get(baseUrl, params);
+      // Gunakan baseURL yang sudah diset di OptimizedHttpClient.
+      // Di sini cukup kirim path kosong, supaya URL final:
+      //   <TICMI_API_BASE_URL>/ki/sh/?secCode=BBCA
+      response = await httpClient.get('', params);
     } catch (apiError: any) {
-      // Handle 400 Bad Request - emiten may not exist or be invalid in TICMI API
-      if (apiError.response && apiError.response.status === 400) {
-        console.warn(`⚠️ Emiten ${emiten} returned 400 Bad Request - may not be available in TICMI API`);
-        
-        // Save placeholder data to indicate emiten is not available
-        const placeholderData = [{
-          EmitenCode: emiten,
-          DataDate: todayDate,
-          JumlahPemegangSaham: '',
-          LastUpdate: todayDate,
-          PemegangSaham_Pengendali: '',
-          PemegangSaham_Nama: '',
-          PemegangSaham_Kategori: 'NOT_AVAILABLE',
-          PemegangSaham_Persentase: '',
-          PemegangSaham_JmlSaham: ''
-        }];
-        
-        const combinedData = [...placeholderData, ...existingData];
-        // Sort descending: newest first (consistent with main data processing)
-        combinedData.sort((a, b) => {
-          const dateA = a.DataDate || a.date || a.Date || '';
-          const dateB = b.DataDate || b.date || b.Date || '';
-          const timeA = new Date(dateA).getTime();
-          const timeB = new Date(dateB).getTime();
-          return timeB - timeA; // Descending: newest first
-        });
-        
-        const deduplicatedData = removeDuplicates(combinedData);
-        const csvData = convertToCsv(deduplicatedData);
-        
-        await azureStorage.uploadCsvData(azureBlobName, csvData);
-        
-        // Cache the result
-        cache.set(cacheKey, { processed: true });
-        
-        return { success: true, skipped: true };
+      if (apiError.response) {
+        const status = apiError.response.status;
+        const bodySnippet = (() => {
+          try {
+            return JSON.stringify(apiError.response.data).substring(0, 500);
+          } catch {
+            return String(apiError.response.data || '');
+          }
+        })();
+
+        // Detail logging khusus 401 (auth / quota / policy)
+        if (status === 401) {
+          console.error(`❌ Shareholders 401 ERROR - ${emiten} - body: ${bodySnippet}`);
+          return { success: false, skipped: false, error: `401 Unauthorized from TICMI` };
+        }
+
+        // Handle 400 Bad Request - emiten may not exist or be invalid in TICMI API
+        if (status === 400) {
+          console.warn(`⚠️ Emiten ${emiten} returned 400 Bad Request - may not be available in TICMI API. Body: ${bodySnippet}`);
+          
+          // Save placeholder data to indicate emiten is not available
+          const placeholderData = [{
+            EmitenCode: emiten,
+            DataDate: todayDate,
+            JumlahPemegangSaham: '',
+            LastUpdate: todayDate,
+            PemegangSaham_Pengendali: '',
+            PemegangSaham_Nama: '',
+            PemegangSaham_Kategori: 'NOT_AVAILABLE',
+            PemegangSaham_Persentase: '',
+            PemegangSaham_JmlSaham: ''
+          }];
+          
+          const combinedData = [...placeholderData, ...existingData];
+          // Sort descending: newest first (consistent with main data processing)
+          combinedData.sort((a, b) => {
+            const dateA = a.DataDate || a.date || a.Date || '';
+            const dateB = b.DataDate || b.date || b.Date || '';
+            const timeA = new Date(dateA).getTime();
+            const timeB = new Date(dateB).getTime();
+            return timeB - timeA; // Descending: newest first
+          });
+          
+          const deduplicatedData = removeDuplicates(combinedData);
+          const csvData = convertToCsv(deduplicatedData);
+          
+          await azureStorage.uploadCsvData(azureBlobName, csvData);
+          
+          // Cache the result
+          cache.set(cacheKey, { processed: true });
+          
+          return { success: true, skipped: true };
+        }
       }
       
-      // Re-throw other errors
+      // Re-throw other errors (akan ditangkap di catch luar)
       throw apiError;
     }
     
@@ -307,13 +326,12 @@ export async function updateShareholdersData(logId?: string | null, triggeredBy?
           httpClient,
           azureStorage,
           todayDate,
-          baseUrl,
           cache,
           finalLogId
         );
       },
-      BATCH_SIZE_PHASE_1_STOCK,
-      MAX_CONCURRENT_REQUESTS
+      BATCH_SIZE_PHASE_1_SHAREHOLDERS,
+      MAX_CONCURRENT_REQUESTS_PHASE_1_SHAREHOLDERS
     );
 
     const endTime = Date.now();

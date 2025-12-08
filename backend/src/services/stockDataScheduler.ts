@@ -9,7 +9,7 @@ import {
   getTodayDate,
   parseCsvString,
   BATCH_SIZE_PHASE_1_STOCK,
-  MAX_CONCURRENT_REQUESTS
+  MAX_CONCURRENT_REQUESTS_PHASE_1_STOCK
 } from './dataUpdateService';
 import { SchedulerLogService } from './schedulerLogService';
 
@@ -397,7 +397,7 @@ export async function updateStockData(logId?: string | null, triggeredBy?: strin
 
     // Process emitens in parallel batches with memory management
     const results: Array<{ success: boolean; skipped: boolean; error?: string }> = [];
-    const BATCH_SIZE = BATCH_SIZE_PHASE_1_STOCK; // 400 stocks per batch
+    const BATCH_SIZE = BATCH_SIZE_PHASE_1_STOCK; 
     
     for (let i = 0; i < emitenList.length; i += BATCH_SIZE) {
       const batch = emitenList.slice(i, i + BATCH_SIZE);
@@ -434,7 +434,7 @@ export async function updateStockData(logId?: string | null, triggeredBy?: strin
           );
         },
         BATCH_SIZE,
-        MAX_CONCURRENT_REQUESTS
+        MAX_CONCURRENT_REQUESTS_PHASE_1_STOCK
       );
       
       results.push(...batchResults);
