@@ -681,9 +681,9 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                   {selectedDates.map((date, dateIndex) => (
                     <React.Fragment key={date}>
                       <th className={`text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>Price</th>
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">BLot/F</th>
                       <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">BFreq</th>
                       <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">BLot</th>
-                      <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">BLot/F</th>
                       {showOrdColumns && (
                         <>
                           <th className="text-center py-[1px] px-[6px] font-bold text-white whitespace-nowrap">BOr</th>
@@ -711,9 +711,9 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                     </React.Fragment>
                   ))}
                   <th className={`text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>Price</th>
+                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">BLot/F</th>
                   <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">BFreq</th>
                   <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">BLot</th>
-                  <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">BLot/F</th>
                   {showOrdColumns && (
                     <>
                       <th className="text-center py-[1px] px-[5px] font-bold text-white whitespace-nowrap">BOr</th>
@@ -793,6 +793,10 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                           <td className={`text-center py-[1px] px-[6px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                             {formatNumber(price)}
                           </td>
+                          {/* BLot/Freq */}
+                          <td className={`text-right py-[1px] px-[6px] font-bold ${data && data.bFreq > 0 && data.sFreq > 0 ? getComparisonColor(data.bLot / data.bFreq, data.sLot / data.sFreq, true) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {data ? formatRatio(data.bLot, data.bFreq) : '-'}
+                          </td>
                           {/* BFreq */}
                           <td className={`text-right py-[1px] px-[6px] font-bold ${data ? getComparisonColor(data.bFreq, data.sFreq, true) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                             {data ? formatNumberWithAbbreviation(data.bFreq) : '-'}
@@ -800,10 +804,6 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                           {/* BLot */}
                           <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                             {data ? formatNumberWithAbbreviation(data.bLot) : '-'}
-                          </td>
-                          {/* BLot/Freq */}
-                          <td className={`text-right py-[1px] px-[6px] font-bold ${data && data.bFreq > 0 && data.sFreq > 0 ? getComparisonColor(data.bLot / data.bFreq, data.sLot / data.sFreq, true) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                            {data ? formatRatio(data.bLot, data.bFreq) : '-'}
                           </td>
                           {/* BOrd */}
                           {showOrdColumns && (
@@ -901,14 +901,14 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                           <td className={`text-center py-[1px] px-[5px] font-bold text-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                             {formatNumber(price)}
                     </td>
+                          <td className={`text-right py-[1px] px-[5px] font-bold ${totalBFreq > 0 && totalSFreq > 0 ? getComparisonColor(totalBLotPerFreq, totalSLotPerFreq, true) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {formatRatio(totalBLot, totalBFreq)}
+                    </td>
                           <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(totalBFreq, totalSFreq, true)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                             {formatNumberWithAbbreviation(totalBFreq)}
                     </td>
                     <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                             {formatNumberWithAbbreviation(totalBLot)}
-                    </td>
-                          <td className={`text-right py-[1px] px-[5px] font-bold ${totalBFreq > 0 && totalSFreq > 0 ? getComparisonColor(totalBLotPerFreq, totalSLotPerFreq, true) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                            {formatRatio(totalBLot, totalBFreq)}
                     </td>
                           {showOrdColumns && (
                             <>
@@ -985,6 +985,10 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                         <td className={`text-center py-[1px] px-[6px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`}>
                           -
                         </td>
+                        {/* BLot/Freq */}
+                        <td className={`text-right py-[1px] px-[6px] font-bold ${totals.bFreq > 0 && totals.sFreq > 0 ? getComparisonColor(totals.bLot / totals.bFreq, totals.sLot / totals.sFreq, true) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {formatRatio(totals.bLot, totals.bFreq)}
+                        </td>
                         {/* BFreq */}
                         <td className={`text-right py-[1px] px-[6px] font-bold ${getComparisonColor(totals.bFreq, totals.sFreq, true)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                           {formatNumberWithAbbreviation(totals.bFreq)}
@@ -992,10 +996,6 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                         {/* BLot */}
                         <td className="text-right py-[1px] px-[6px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                           {formatNumberWithAbbreviation(totals.bLot)}
-                        </td>
-                        {/* BLot/Freq */}
-                        <td className={`text-right py-[1px] px-[6px] font-bold ${totals.bFreq > 0 && totals.sFreq > 0 ? getComparisonColor(totals.bLot / totals.bFreq, totals.sLot / totals.sFreq, true) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                          {formatRatio(totals.bLot, totals.bFreq)}
                         </td>
                         {/* BOrd */}
                         {showOrdColumns && (
@@ -1114,14 +1114,14 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                         <td className={`text-center py-[1px] px-[5px] font-bold text-white ${selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`}>
                           TOTAL
                     </td>
+                        <td className={`text-right py-[1px] px-[5px] font-bold ${grandTotalBFreq > 0 && grandTotalSFreq > 0 ? getComparisonColor(grandTotalBLotPerFreq, grandTotalSLotPerFreq, true) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                          {formatRatio(grandTotalBLot, grandTotalBFreq)}
+                      </td>
                         <td className={`text-right py-[1px] px-[5px] font-bold ${getComparisonColor(grandTotalBFreq, grandTotalSFreq, true)}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                           {formatNumberWithAbbreviation(grandTotalBFreq)}
                       </td>
                     <td className="text-right py-[1px] px-[5px] font-bold text-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                           {formatNumberWithAbbreviation(grandTotalBLot)}
-                      </td>
-                        <td className={`text-right py-[1px] px-[5px] font-bold ${grandTotalBFreq > 0 && grandTotalSFreq > 0 ? getComparisonColor(grandTotalBLotPerFreq, grandTotalSLotPerFreq, true) : 'text-white'}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                          {formatRatio(grandTotalBLot, grandTotalBFreq)}
                       </td>
                         {showOrdColumns && (
                           <>
