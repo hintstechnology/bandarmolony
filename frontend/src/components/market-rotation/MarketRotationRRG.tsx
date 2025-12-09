@@ -846,15 +846,17 @@ export default function MarketRotationRRG() {
 
 
   const handleGo = async () => {
-    // User sudah klik Show - langsung ubah state agar UI masuk mode loading
+    // User sudah klik Show - langsung set loading state SEBELUM clear data
     setHasRequestedData(true);
     setError(null);
-    setTrajectoryData([]);
+    setIsLoading(true); // SET LOADING SEBELUM CLEAR DATA - ini penting!
+    setIsDataReady(false);
     
     // Load inputs terlebih dahulu jika belum ada (sekaligus hitung default selection)
     const inputsInfo = await loadInputsIfNeeded();
     if (!inputsInfo.success) {
       // Error sudah ditampilkan di loadInputsIfNeeded
+      setIsLoading(false); // Reset loading jika gagal
       return;
     }
     
@@ -874,6 +876,7 @@ export default function MarketRotationRRG() {
         title: 'Selection Required',
         message: 'Please select at least one index and one item before clicking Show.',
       });
+      setIsLoading(false); // Reset loading jika tidak ada selection
       return;
     }
     
@@ -885,8 +888,11 @@ export default function MarketRotationRRG() {
       setSelectedItems(effectiveItems);
     }
     
-    // Reset state sebelum load data, lalu langsung panggil loader dengan parameter yang sudah pasti valid
-    setIsDataReady(false);
+    // JANGAN clear trajectoryData di sini - biarkan data lama tetap ada sampai data baru selesai
+    // setTrajectoryData([]); // REMOVED - ini menyebabkan "No data available" muncul
+    
+    // Langsung panggil loader dengan parameter yang sudah pasti valid
+    // loadChartDataWithParams akan set isLoading sendiri, tapi kita sudah set di awal untuk menghindari gap
     setShouldFetchData(false); // jangan pakai effect, langsung panggil loader
     await loadChartDataWithParams(effectiveIndex, effectiveItems, viewMode);
   };
