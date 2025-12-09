@@ -135,77 +135,70 @@ router.get('/data', async (req, res) => {
     
     const results: any[] = [];
     
-    for (const item of itemsArray) {
+    // Helper: baca / generate satu item dan kembalikan objek hasilnya
+    const loadItem = async (rawItem: string, itemType: 'stock' | 'sector' | 'index') => {
       try {
         let content: string | null = null;
         let filePath = '';
+        const cleanedItem = (rawItem as string).replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
         
-        if (type === 'stock') {
-          const stockNameClean = (item as string).replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-          filePath = `rrc_output/stock/o1-rrc-${stockNameClean}.csv`;
-          // Check if file exists in Azure
-          const fileExists = await exists(filePath);
-          
-          if (fileExists) {
-            console.log(`✅ Backend: File exists in Azure: ${filePath}`);
-            content = await downloadText(filePath);
-          } else {
-            console.log(`⚠️ Backend: File not found in Azure, generating: ${filePath}`);
-            content = await calculateRrcStock(item as string, AZURE_CONFIG);
-          }
-        } else if (type === 'sector') {
-          const sectorNameClean = (item as string).replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-          filePath = `rrc_output/sector/o2-rrc-${sectorNameClean}.csv`;
-          // Check if file exists in Azure
-          const fileExists = await exists(filePath);
-          
-          if (fileExists) {
-            console.log(`✅ Backend: File exists in Azure: ${filePath}`);
-            content = await downloadText(filePath);
-          } else {
-            console.log(`⚠️ Backend: File not found in Azure, generating: ${filePath}`);
-            content = await calculateRrcSector(item as string, AZURE_CONFIG);
-          }
-        } else if (type === 'index') {
-          const indexNameClean = (item as string).replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-          filePath = `rrc_output/index/o1-rrc-${indexNameClean}.csv`;
-          // Check if file exists in Azure
-          const fileExists = await exists(filePath);
-          
-          if (fileExists) {
-            console.log(`✅ Backend: File exists in Azure: ${filePath}`);
-            content = await downloadText(filePath);
-          } else {
-            console.log(`⚠️ Backend: File not found in Azure, generating: ${filePath}`);
-            content = await calculateRrcIndex(item as string, AZURE_CONFIG);
+        if (itemType === 'stock') {
+          filePath = `rrc_output/stock/o1-rrc-${cleanedItem}.csv`;
+        } else if (itemType === 'sector') {
+          filePath = `rrc_output/sector/o2-rrc-${cleanedItem}.csv`;
+        } else if (itemType === 'index') {
+          filePath = `rrc_output/index/o1-rrc-${cleanedItem}.csv`;
+        }
+        
+        // 1) Coba baca dari Azure jika file sudah ada (paling cepat)
+        if (await exists(filePath)) {
+          content = await downloadText(filePath);
+        } else {
+          // 2) Jika file belum ada, generate on-demand (lebih lambat tapi hanya sekali)
+          console.log(`⚠️ Backend: File not found in Azure, generating: ${filePath}`);
+          if (itemType === 'stock') {
+            content = await calculateRrcStock(rawItem, AZURE_CONFIG);
+          } else if (itemType === 'sector') {
+            content = await calculateRrcSector(rawItem, AZURE_CONFIG);
+          } else if (itemType === 'index') {
+            content = await calculateRrcIndex(rawItem, AZURE_CONFIG);
           }
         }
         
-        if (content) {
-          // Parse CSV content
-          const lines = content.split('\n').filter(line => line.trim());
-          const headers = lines[0]?.split(',') || [];
-          const data = lines.slice(1).map(line => {
-            const values = line.split(',');
-            const row: any = {};
-            headers.forEach((header, index) => {
-              row[header.trim()] = values[index]?.trim();
-            });
-            return row;
-          });
-          
-          results.push({
-            item,
-            type,
-            data,
-            headers
-          });
+        if (!content) {
+          return null;
         }
+        
+        // Parse CSV content
+        const lines = content.split('\n').filter(line => line.trim());
+        const headers = lines[0]?.split(',') || [];
+        const data = lines.slice(1).map(line => {
+          const values = line.split(',');
+          const row: any = {};
+          headers.forEach((header, index) => {
+            row[header.trim()] = values[index]?.trim();
+          });
+          return row;
+        });
+        
+        return {
+          item: rawItem, // Keep original item name
+          type: itemType,
+          data,
+          headers
+        };
       } catch (error) {
-        console.error(`❌ Backend: Error processing ${item}:`, error);
-        // Continue with other items
+        console.error(`Error loading RRC data for ${itemType} ${rawItem}:`, error);
+        return null;
       }
-    }
+    };
+    
+    // Load all items in parallel
+    const promises = itemsArray.map(item => loadItem(item as string, type as 'stock' | 'sector' | 'index'));
+    const loaded = await Promise.all(promises);
+    loaded.forEach(entry => {
+      if (entry) results.push(entry);
+    });
     
     console.log(`✅ Backend: RRC data retrieved for ${results.length} items`);
     const responseData = { results, type, index };
