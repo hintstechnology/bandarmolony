@@ -150,11 +150,11 @@ const formatLot = (value: number): string => {
   const sign = value < 0 ? '-' : '';
   
   // Format: < 1,000,000 → full number with comma (100,000)
-  // Format: >= 1,000,000 → format with 'B' (Billion) with 1 decimal (1.2B)
+  // Format: >= 1,000,000 → format with 'M' (Million) with 1 decimal (1.3M)
   if (absValue >= 1000000) {
-    // Convert to billions and format with 1 decimal place
-    const billions = absValue / 1000000000;
-    return `${sign}${billions.toFixed(1)}B`;
+    // Convert to millions and format with 1 decimal place
+    const millions = absValue / 1000000;
+    return `${sign}${millions.toFixed(1)}M`;
   } else {
     // < 1,000,000: Show full number with comma separator
     // Example: 100,000 → 100,000 (not 100K)
