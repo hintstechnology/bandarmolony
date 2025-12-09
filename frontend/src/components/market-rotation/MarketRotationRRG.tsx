@@ -89,6 +89,7 @@ export default function MarketRotationRRG() {
   const [, setIsDataReady] = useState<boolean>(false); // We only need the setter to control error/loading visibility
   const [shouldFetchData, setShouldFetchData] = useState<boolean>(false); // Control when to fetch data (only when Show button clicked)
   const [hasRequestedData, setHasRequestedData] = useState<boolean>(false); // Pernah klik Show minimal sekali
+  const [lastRequestedViewMode, setLastRequestedViewMode] = useState<'sector' | 'stock' | null>(null); // ViewMode terakhir kali digunakan saat klik Show
   const [isStockScreenerExpanded, setIsStockScreenerExpanded] = useState<boolean>(false); // Control stock screener expansion
   const [isSectorScreenerExpanded, setIsSectorScreenerExpanded] = useState<boolean>(false); // Control sector screener expansion
   
@@ -602,7 +603,7 @@ export default function MarketRotationRRG() {
     }
     
     const allTrajectories: TrajectoryPoint[] = [];
-    const currentOptions = viewMode === 'sector' ? sectorOptions : stockOptions;
+    const currentOptions = (lastRequestedViewMode || viewMode) === 'sector' ? sectorOptions : stockOptions;
     
     // Create mapping from cleaned name to original name
     const itemMapping: Record<string, string> = {};
@@ -646,7 +647,10 @@ export default function MarketRotationRRG() {
   };
 
 
-  const currentOptions = viewMode === 'sector' ? sectorOptions : stockOptions;
+  // Gunakan lastRequestedViewMode untuk menampilkan options, bukan viewMode saat ini
+  // Ini mencegah perubahan UI saat ganti menu tanpa klik Show
+  const currentOptions = (lastRequestedViewMode || viewMode) === 'sector' ? sectorOptions : stockOptions;
+  const displayViewMode = lastRequestedViewMode || viewMode; // Untuk display text
 
 
   const removeItem = (itemName: string) => {
@@ -848,6 +852,7 @@ export default function MarketRotationRRG() {
   const handleGo = async () => {
     // User sudah klik Show - langsung set loading state SEBELUM clear data
     setHasRequestedData(true);
+    setLastRequestedViewMode(viewMode); // Simpan viewMode yang digunakan saat klik Show
     setError(null);
     setIsLoading(true); // SET LOADING SEBELUM CLEAR DATA - ini penting!
     setIsDataReady(false);
@@ -1445,7 +1450,7 @@ export default function MarketRotationRRG() {
                     <p className="text-sm text-muted-foreground mb-2">Click 'Show' button to load chart data</p>
                   </div>
                 </div>
-              ) : isInputsLoading ? (
+              ) : (isInputsLoading || isLoading) ? (
                 <div className="flex items-center justify-center h-64">
                   <div className="flex items-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -1742,7 +1747,7 @@ export default function MarketRotationRRG() {
                   </div>
                   {selectedItems.length === 1 && (
                     <p className="text-xs text-muted-foreground mt-2">
-                      At least one {viewMode === 'sector' ? 'sector' : 'stock'} must be selected for comparison
+                      At least one {displayViewMode === 'sector' ? 'sector' : 'stock'} must be selected for comparison
                     </p>
                   )}
                 </div>
@@ -1751,14 +1756,14 @@ export default function MarketRotationRRG() {
               {/* Search and Select Combined */}
                 <div>
                 <h4 className="text-sm font-medium mb-2">
-                  Available {viewMode === 'sector' ? 'Sectors' : 'Stocks'}: {currentOptions.length}
+                  Available {displayViewMode === 'sector' ? 'Sectors' : 'Stocks'}: {currentOptions.length}
                 </h4>
                   <div className="relative" ref={searchRef}>
                     <div className="relative">
                       <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-muted-foreground" />
                       <input
                         type="text"
-                      placeholder={`Search and select ${viewMode === 'sector' ? 'sectors' : 'stocks'}...`}
+                      placeholder={`Search and select ${displayViewMode === 'sector' ? 'sectors' : 'stocks'}...`}
                         value={searchQuery}
                         onChange={(e) => {
                           setSearchQuery(e.target.value);
@@ -1779,8 +1784,8 @@ export default function MarketRotationRRG() {
                       ) : (
                         <>
                           {/* Show filtered results if searching, otherwise show all available */}
-                          {(searchQuery ? (viewMode === 'sector' ? filteredSectorOptions : filteredStockOptions) : currentOptions.filter(option => !selectedItems.includes(option.name)))
-                            .slice(0, viewMode === 'stock' ? 15 : undefined)
+                          {(searchQuery ? (displayViewMode === 'sector' ? filteredSectorOptions : filteredStockOptions) : currentOptions.filter(option => !selectedItems.includes(option.name)))
+                            .slice(0, displayViewMode === 'stock' ? 15 : undefined)
                             .map((option, index) => (
                           <button
                             key={option.name}
@@ -1818,21 +1823,21 @@ export default function MarketRotationRRG() {
                         ))}
                           
                           {/* Show "more available" message */}
-                          {!searchQuery && viewMode === 'stock' && currentOptions.filter(option => !selectedItems.includes(option.name)).length > 15 && (
+                          {!searchQuery && displayViewMode === 'stock' && currentOptions.filter(option => !selectedItems.includes(option.name)).length > 15 && (
                             <div className="text-xs text-muted-foreground px-3 py-2 border-t border-border">
-                              +{currentOptions.filter(option => !selectedItems.includes(option.name)).length - 15} more {viewMode === 'stock' ? 'stocks' : 'sectors'} available (use search to find specific items)
+                              +{currentOptions.filter(option => !selectedItems.includes(option.name)).length - 15} more {displayViewMode === 'stock' ? 'stocks' : 'sectors'} available (use search to find specific items)
                             </div>
                           )}
                           
                           {/* Show "no results" message */}
-                          {searchQuery && (viewMode === 'sector' ? filteredSectorOptions : filteredStockOptions).length === 0 && (
+                          {searchQuery && (displayViewMode === 'sector' ? filteredSectorOptions : filteredStockOptions).length === 0 && (
                           <div className="p-2 text-sm text-muted-foreground">
                               {currentOptions.filter(s => !selectedItems.includes(s.name)).length === 0 
-                                ? `All ${viewMode === 'stock' ? 'stocks' : 'sectors'} already selected` 
-                                : `No ${viewMode === 'stock' ? 'stocks' : 'sectors'} found matching "${searchQuery}"`
+                                ? `All ${displayViewMode === 'stock' ? 'stocks' : 'sectors'} already selected` 
+                                : `No ${displayViewMode === 'stock' ? 'stocks' : 'sectors'} found matching "${searchQuery}"`
                             }
                           </div>
-                        )}
+                          )}
                         </>
                         )}
                       </div>
