@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -92,9 +92,6 @@ export default function MarketRotationRRC() {
   const [selectedIndex, setSelectedIndex] = useState<string>('COMPOSITE');
   const [selectedIndexes, setSelectedIndexes] = useState<string[]>(['COMPOSITE']);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
-  
-  // Debug logging
-  console.log('🔍 Frontend: Current selectedItems:', selectedItems);
   const [searchQuery, setSearchQuery] = useState('');
   const [indexSearchQuery, setIndexSearchQuery] = useState('');
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
@@ -121,8 +118,9 @@ export default function MarketRotationRRC() {
   const [error, setError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState<any>(null);
-  const [isDataReady, setIsDataReady] = useState<boolean>(false); // Control when to show chart
+  const [, setIsDataReady] = useState<boolean>(false); // We only need the setter to control error/loading visibility
   const [shouldFetchData, setShouldFetchData] = useState<boolean>(false); // Control when to fetch data (only when Show button clicked)
+  const [hasRequestedData, setHasRequestedData] = useState<boolean>(false); // Pernah klik Show minimal sekali
   const searchRef = useRef<HTMLDivElement>(null);
   const indexSearchRef = useRef<HTMLDivElement>(null);
   const startDateRef = useRef<HTMLInputElement>(null);
@@ -131,11 +129,36 @@ export default function MarketRotationRRC() {
   const menuContainerRef = useRef<HTMLDivElement>(null);
   const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
 
+  // Apakah input (index & items) masih dalam proses loading setelah user klik Show
+  const isInputsLoading = hasRequestedData && (
+    indexOptions.length === 0 ||
+    (viewMode === 'sector' ? sectorOptions.length === 0 : stockOptions.length === 0)
+  );
+
+  interface LoadedInputsInfo {
+    success: boolean;
+    defaultIndex?: string | undefined;
+    defaultItems?: string[] | undefined;
+  }
+
   // Load available inputs only when Show button is clicked (first time)
-  const loadInputsIfNeeded = async (): Promise<boolean> => {
+  const loadInputsIfNeeded = async (): Promise<LoadedInputsInfo> => {
     // Only load if options are not yet loaded
     if (indexOptions.length > 0 && (sectorOptions.length > 0 || stockOptions.length > 0)) {
-      return true; // Already loaded
+      // Sudah pernah di-load, gunakan state saat ini untuk menentukan default
+      const currentIndex = selectedIndex || indexOptions[0]?.name;
+      const currentItems =
+        selectedItems.length > 0
+          ? selectedItems
+          : viewMode === 'sector'
+          ? [sectorOptions[0]?.name || '']
+          : [stockOptions[0]?.name || ''];
+
+      return {
+        success: !!currentIndex && currentItems.filter(Boolean).length > 0,
+        defaultIndex: currentIndex,
+        defaultItems: currentItems.filter(Boolean),
+      };
     }
     
     try {
@@ -168,35 +191,35 @@ export default function MarketRotationRRC() {
         setSectorOptions(generateSectorStockColors(result.data.stockSectors || []));
         setStockOptions(generateSectorStockColors(result.data.stocks || []));
         
-        // Set default selections if not already set
-        const defaultIndex = result.data.index?.[0] || 'COMPOSITE';
-        if (!selectedIndex) {
-          setSelectedIndex(defaultIndex);
-        }
-        
-        // Set default items if not already set
-        if (selectedItems.length === 0) {
-          let itemsToSelect: string[] = [];
-          
+        // Hitung default selections berdasarkan data yang baru di-load
+        const defaultIndex = selectedIndex || result.data.index?.[0] || 'COMPOSITE';
+        let itemsToSelect: string[] = selectedItems;
+
+        if (itemsToSelect.length === 0) {
           if (viewMode === 'sector' && result.data.stockSectors && result.data.stockSectors.length > 0) {
             const defaultSectors = ['Technology', 'Healthcare', 'Financials'];
             const availableSectors = result.data.stockSectors || [];
             const validSectors = defaultSectors.filter(sector => availableSectors.includes(sector));
             itemsToSelect = validSectors.length > 0 ? validSectors : [result.data.stockSectors[0]];
           } else if (viewMode === 'stock' && result.data.stocks && result.data.stocks.length > 0) {
-            // Default stocks: BBCA, BBRI, BMRI
             const defaultStocks = ['BBCA', 'BBRI', 'BMRI'];
             const availableStocks = result.data.stocks || [];
             const validStocks = defaultStocks.filter(stock => availableStocks.includes(stock));
             itemsToSelect = validStocks.length > 0 ? validStocks : [result.data.stocks[0]];
           }
-          
-          if (itemsToSelect.length > 0) {
-            setSelectedItems(itemsToSelect);
-          }
         }
-        
-        return true;
+
+        // Sinkronkan ke state
+        setSelectedIndex(defaultIndex);
+        if (itemsToSelect.length > 0) {
+          setSelectedItems(itemsToSelect);
+        }
+
+        return {
+          success: itemsToSelect.length > 0,
+          defaultIndex,
+          defaultItems: itemsToSelect,
+        };
       } else {
         console.error('❌ Frontend: Failed to load RRC inputs:', result.error);
         const errorMessage = result.error || 'Failed to load inputs';
@@ -205,7 +228,7 @@ export default function MarketRotationRRC() {
           title: 'Failed to Load Options',
           message: errorMessage
         });
-        return false;
+        return { success: false };
       }
     } catch (error: any) {
       console.error('❌ Frontend: Error loading inputs:', error);
@@ -215,7 +238,7 @@ export default function MarketRotationRRC() {
         title: 'Connection Error',
         message: `Failed to load options: ${errorMessage}. Please check your connection and try again.`
       });
-      return false;
+      return { success: false };
     }
   };
 
@@ -562,14 +585,29 @@ export default function MarketRotationRRC() {
   };
 
   const handleGenerateData = async () => {
-    // Load inputs first if not yet loaded
-    const inputsLoaded = await loadInputsIfNeeded();
-    if (!inputsLoaded) {
-      // Error already shown in loadInputsIfNeeded
+    // User sudah klik Show - langsung ubah state agar UI masuk mode loading
+    setHasRequestedData(true);
+    setError(null);
+    setChartData([]);
+    
+    // Load inputs terlebih dahulu jika belum ada (sekaligus hitung default selection)
+    const inputsInfo = await loadInputsIfNeeded();
+    if (!inputsInfo.success) {
+      // Error sudah ditampilkan di loadInputsIfNeeded
       return;
     }
     
-    if (!selectedIndex || selectedItems.length === 0) {
+    // Gunakan selection dari state jika sudah ada, fallback ke default dari inputsInfo
+    const effectiveIndex = selectedIndex || inputsInfo.defaultIndex || indexOptions[0]?.name || 'COMPOSITE';
+    const effectiveItems =
+      selectedItems.length > 0
+        ? selectedItems
+        : (inputsInfo.defaultItems && inputsInfo.defaultItems.length > 0
+            ? inputsInfo.defaultItems
+            : []);
+    
+    // Jika masih tidak ada item (case sangat jarang), baru tampilkan warning
+    if (!effectiveIndex || effectiveItems.length === 0) {
       showToast({
         type: 'warning',
         title: 'Selection Required',
@@ -578,10 +616,18 @@ export default function MarketRotationRRC() {
       return;
     }
     
-    setIsDataReady(false); // Hide chart before loading new data
-    setChartData([]); // Clear previous data
-    setError(null); // Clear previous errors
-    setShouldFetchData(true); // Trigger fetch
+    // Sinkronkan selection ke state (kalau sebelumnya kosong)
+    if (!selectedIndex && effectiveIndex) {
+      setSelectedIndex(effectiveIndex);
+    }
+    if (selectedItems.length === 0 && effectiveItems.length > 0) {
+      setSelectedItems(effectiveItems);
+    }
+    
+    // Reset state sebelum load data, lalu langsung panggil loader dengan parameter yang sudah pasti valid
+    setIsDataReady(false);
+    setShouldFetchData(false); // jangan pakai effect, langsung panggil loader
+    await loadChartDataWithParams(effectiveIndex, effectiveItems, viewMode);
   };
 
 
@@ -894,7 +940,7 @@ export default function MarketRotationRRC() {
       <div className={isMenuTwoRows ? "h-0 lg:h-[60px]" : "h-0 lg:h-[38px]"}></div>
 
       <div className="space-y-6">
-      {!shouldFetchData && !isDataReady ? null : (
+        <React.Fragment>
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 sm:gap-6 overflow-x-auto">
         {/* RRC Chart */}
         <div className="lg:col-span-3">
@@ -903,14 +949,18 @@ export default function MarketRotationRRC() {
               <CardTitle>{viewMode === 'sector' ? 'Sector' : 'Stock'} Activity vs {selectedIndex}</CardTitle>
             </CardHeader>
             <CardContent className="flex-1 min-h-[320px] md:min-h-[420px]">
-              {isGenerating ? (
+              {!hasRequestedData ? (
+                // Belum pernah klik Show
+                <div className="flex items-center justify-center h-96">
+                  <div className="text-center">
+                    <p className="text-sm text-muted-foreground mb-2">Click 'Show' button to load chart data</p>
+                  </div>
+                </div>
+              ) : isGenerating ? (
                 <div className="flex items-center justify-center h-96">
                   <div className="text-center">
                     <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-primary" />
                     <p className="text-sm font-medium mb-2">Data sedang diperbarui</p>
-                    <p className="text-xs text-muted-foreground mb-4">
-                      {generationProgress?.current || 'Memproses data...'}
-                    </p>
                     {generationProgress && (
                       <div className="w-full max-w-xs mx-auto">
                         <div className="flex justify-between text-xs text-muted-foreground mb-1">
@@ -918,21 +968,13 @@ export default function MarketRotationRRC() {
                           <span>{generationProgress.completed}/{generationProgress.total}</span>
                         </div>
                         <div className="w-full bg-muted rounded-full h-2">
-                          <div 
-                            className="bg-primary h-2 rounded-full transition-all duration-300"
-                            style={{ 
-                              width: `${(generationProgress.completed / generationProgress.total) * 100}%` 
-                            }}
-                          ></div>
+                          <div className="bg-primary h-2 rounded-full transition-all duration-300" style={{ width: `${(generationProgress.completed / generationProgress.total) * 100}%` }} />
                         </div>
                       </div>
                     )}
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Silakan tunggu sebentar...
-                    </p>
                   </div>
                 </div>
-              ) : isLoading ? (
+              ) : (isInputsLoading || isLoading || shouldFetchData) ? (
                 <div className="flex items-center justify-center h-96">
                   <div className="flex items-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -943,27 +985,16 @@ export default function MarketRotationRRC() {
                 <div className="flex items-center justify-center h-96">
                   <div className="text-center">
                     <p className="text-sm text-destructive mb-2">{error}</p>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={handleGenerateData}
-                    >
-                      Retry
-                    </Button>
+                    <Button variant="outline" size="sm" onClick={handleGenerateData}>Retry</Button>
                   </div>
                 </div>
-              ) : currentData.length === 0 && !isLoading && !isGenerating ? (
+              ) : currentData.length === 0 && !isLoading && !isGenerating && !shouldFetchData && !isInputsLoading ? (
+                // Setelah klik Show, tapi data kosong
                 <div className="flex items-center justify-center h-96">
                   <div className="text-center">
                     <p className="text-sm text-muted-foreground mb-2">No data available</p>
                     <p className="text-xs text-muted-foreground mb-3">Data mungkin sedang diproses atau belum tersedia</p>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={handleGenerateData}
-                    >
-                      Reload Data
-                    </Button>
+                    <Button variant="outline" size="sm" onClick={handleGenerateData}>Reload Data</Button>
                   </div>
                 </div>
               ) : currentData.length > 0 ? (
@@ -1030,6 +1061,7 @@ export default function MarketRotationRRC() {
               </ResponsiveContainer>
                 </div>
               ) : (
+                // Fallback safety: tampilkan loading
                 <div className="flex items-center justify-center h-96">
                   <div className="flex items-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -1041,13 +1073,28 @@ export default function MarketRotationRRC() {
           </Card>
         </div>
 
-        {/* Selector Panel */}
+        {/* Selection Panel */}
         <div className="lg:col-span-1">
-          <Card className="flex h-full flex-col">
+          <Card className="h-full flex flex-col">
             <CardHeader>
               <CardTitle>Selection Panel</CardTitle>
             </CardHeader>
-            <CardContent className="flex-1 space-y-4 overflow-visible">
+            <CardContent className="space-y-4">
+              {!hasRequestedData ? (
+                <div className="flex items-center justify-center h-64">
+                  <div className="text-center">
+                    <p className="text-sm text-muted-foreground mb-2">Click 'Show' button to load chart data</p>
+                  </div>
+                </div>
+              ) : isInputsLoading ? (
+                <div className="flex items-center justify-center h-64">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="text-sm text-muted-foreground">Loading options...</span>
+                  </div>
+                </div>
+              ) : (
+                <>
 
               {/* Index Search and Select Combined */}
               <div>
@@ -1362,11 +1409,13 @@ export default function MarketRotationRRC() {
                   )}
                 </div>
               )}
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
       </div>
-      )}
+      </React.Fragment>
       </div>
     </div>
   );
