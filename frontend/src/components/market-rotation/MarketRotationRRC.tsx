@@ -134,7 +134,9 @@ export default function MarketRotationRRC() {
   const [itemVisibility, setItemVisibility] = useState<Record<string, boolean>>({});
 
   // Apakah input (index & items) masih dalam proses loading setelah user klik Show
-  const isInputsLoading = hasRequestedData && (
+  // Hanya true jika sedang dalam proses fetch (shouldFetchData) DAN options belum ada
+  // TIDAK true hanya karena viewMode berubah dan options belum ada
+  const isInputsLoading = shouldFetchData && hasRequestedData && (
     indexOptions.length === 0 ||
     (viewMode === 'sector' ? sectorOptions.length === 0 : stockOptions.length === 0)
   );
@@ -654,34 +656,22 @@ export default function MarketRotationRRC() {
   };
 
   const handleViewModeChange = (mode: 'sector' | 'stock') => {
+    // Hanya ubah viewMode dan clear search - TIDAK ada proses apapun
     setViewMode(mode);
     setSearchQuery('');
     setIndexSearchQuery('');
     setShowSearchDropdown(false);
     setShowIndexSearchDropdown(false);
-    setChartData([]); // Clear chart data when switching modes
-    setIsDataReady(false); // Hide chart when view mode changes
-    setError(null); // Clear previous errors
-    setIsLoading(false); // Don't show loading - user must click Show button
     
-    // Set default selections based on available options (only if options already loaded)
-    let itemsToSelect: string[] = [];
+    // TIDAK clear data chart - tetap tampilkan data saat ini
+    // TIDAK set isDataReady - tetap tampilkan chart jika sudah ada data
+    // TIDAK set error - biarkan error tetap ada jika ada
+    // TIDAK set isLoading - biarkan loading state tetap
     
-    if (mode === 'sector' && sectorOptions.length > 0) {
-      itemsToSelect = [sectorOptions[0]?.name || 'Technology'];
-    } else if (mode === 'stock' && stockOptions.length > 0) {
-      // Default stocks: BBCA, BBRI, BMRI
-      const defaultStocks = ['BBCA', 'BBRI', 'BMRI'];
-      const availableDefaults = defaultStocks.filter(stock => 
-        stockOptions.some(opt => opt.name === stock)
-      );
-      itemsToSelect = availableDefaults.length > 0 ? availableDefaults : [stockOptions[0]?.name || 'BBCA'];
-    }
+    // TIDAK set selectedItems - biarkan selection tetap sama
+    // User akan klik Show untuk load data baru dengan viewMode baru
     
-    setSelectedItems(itemsToSelect);
-    
-    // NO AUTO-LOAD - User must click Show button to load data
-    // This ensures no backend/frontend processing happens until Show is clicked
+    // NO PROCESSING - Completely sterile, no backend/frontend activity
   };
 
   const handleGenerateData = async () => {
