@@ -653,7 +653,7 @@ export default function MarketRotationRRC() {
     });
   };
 
-  const handleViewModeChange = (mode: 'sector' | 'stock') => {
+  const handleViewModeChange = async (mode: 'sector' | 'stock') => {
     setViewMode(mode);
     setSearchQuery('');
     setIndexSearchQuery('');
@@ -661,17 +661,32 @@ export default function MarketRotationRRC() {
     setShowIndexSearchDropdown(false);
     setChartData([]); // Clear chart data when switching modes
     setIsDataReady(false); // Hide chart when view mode changes
+    setError(null); // Clear previous errors
+    setIsLoading(true); // Show loading state during transition
     
     // Set default selections based on available options
+    let itemsToSelect: string[] = [];
     if (mode === 'sector' && sectorOptions.length > 0) {
-      setSelectedItems([sectorOptions[0]?.name || 'Technology']);
+      itemsToSelect = [sectorOptions[0]?.name || 'Technology'];
     } else if (mode === 'stock' && stockOptions.length > 0) {
       // Default stocks: BBCA, BBRI, BMRI
       const defaultStocks = ['BBCA', 'BBRI', 'BMRI'];
       const availableDefaults = defaultStocks.filter(stock => 
         stockOptions.some(opt => opt.name === stock)
       );
-      setSelectedItems(availableDefaults.length > 0 ? availableDefaults : [stockOptions[0]?.name || 'BBCA']);
+      itemsToSelect = availableDefaults.length > 0 ? availableDefaults : [stockOptions[0]?.name || 'BBCA'];
+    }
+    
+    setSelectedItems(itemsToSelect);
+    
+    // If user has already clicked Show before, automatically load data for new viewMode
+    if (hasRequestedData && selectedIndex && itemsToSelect.length > 0) {
+      // Trigger data loading for new viewMode
+      setShouldFetchData(false); // Don't use effect, call directly
+      await loadChartDataWithParams(selectedIndex, itemsToSelect, mode);
+    } else {
+      // If not yet requested, just clear loading state
+      setIsLoading(false);
     }
   };
 
@@ -1072,15 +1087,15 @@ export default function MarketRotationRRC() {
                     <span className="text-sm text-muted-foreground">Loading chart data...</span>
                   </div>
                 </div>
-              ) : error && !isLoading ? (
+              ) : error && !isLoading && !isGenerating && !shouldFetchData && !isInputsLoading ? (
                 <div className="flex items-center justify-center h-96">
                   <div className="text-center">
                     <p className="text-sm text-destructive mb-2">{error}</p>
                     <Button variant="outline" size="sm" onClick={handleGenerateData}>Retry</Button>
                   </div>
                 </div>
-              ) : currentData.length === 0 && !isLoading && !isGenerating && !shouldFetchData && !isInputsLoading ? (
-                // Setelah klik Show, tapi data kosong
+              ) : currentData.length === 0 && !isLoading && !isGenerating && !shouldFetchData && !isInputsLoading && hasRequestedData ? (
+                // Setelah klik Show dan loading selesai, tapi data kosong
                 <div className="flex items-center justify-center h-96">
                   <div className="text-center">
                     <p className="text-sm text-muted-foreground mb-2">No data available</p>
