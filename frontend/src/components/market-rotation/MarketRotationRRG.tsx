@@ -1315,9 +1315,10 @@ export default function MarketRotationRRG() {
                 </div>
               ) : trajectoryData.length > 0 ? (
                 // Tampilkan data yang ada meskipun filteredTrajectoryData kosong (misalnya karena viewMode berubah)
+                // Gunakan selectedItems sebagai fallback jika visibleItems kosong
                 <div className="relative h-full w-full min-h-[320px] md:min-h-[420px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={trajectoryData.filter(point => visibleItems.includes(point.name) || selectedItems.includes(point.name))} margin={{ bottom: 20, left: 20, right: 20, top: 20 }}>
+                    <ComposedChart data={filteredTrajectoryData.length > 0 ? filteredTrajectoryData : trajectoryData.filter(point => selectedItems.includes(point.name))} margin={{ bottom: 20, left: 20, right: 20, top: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--muted-foreground))" opacity={0.3} />
                       <XAxis type="number" dataKey="rsRatio" domain={[0, 120]} name="RS-Ratio" stroke="hsl(var(--foreground))" tick={{ fill: 'hsl(var(--foreground))' }} />
                       <YAxis type="number" dataKey="rsMomentum" domain={[85, 115]} name="RS-Momentum" stroke="hsl(var(--foreground))" tick={{ fill: 'hsl(var(--foreground))' }} />
@@ -1326,14 +1327,14 @@ export default function MarketRotationRRG() {
                   <Tooltip content={<CustomTooltip />} />
                   
                       {/* Render latest points */}
-                      {trajectoryData.filter(point => point.isLatest && (visibleItems.includes(point.name) || selectedItems.includes(point.name))).map((point, index) => (
+                      {(filteredTrajectoryData.length > 0 ? filteredTrajectoryData : trajectoryData.filter(point => selectedItems.includes(point.name))).filter(point => point.isLatest).map((point, index) => (
                         <Scatter key={`${point.name}-${index}`} dataKey="rsMomentum" fill={point.fill} stroke={point.stroke} fillOpacity={0.8} strokeOpacity={0.8} r={point.radius} data={[point]} />
                       ))}
                       
                       {/* Trajectory lines & points per item (continuous, mudah dibaca) */}
                       {(() => {
                         const trajectories: Record<string, TrajectoryPoint[]> = {};
-                        // Gunakan selectedItems untuk menampilkan data yang ada, bukan visibleItems
+                        // Gunakan visibleItems jika ada, fallback ke selectedItems
                         const itemsToShow = visibleItems.length > 0 ? visibleItems : selectedItems;
                         itemsToShow.forEach(itemName => {
                           const itemTrajectory = trajectoryData
@@ -1403,7 +1404,7 @@ export default function MarketRotationRRG() {
                     <div className="absolute bottom-[25%] right-[10%]"><span className="text-yellow-600 font-bold text-lg bg-background/80 px-3 py-2 rounded">Weakening</span></div>
                 </div>
                 </div>
-              ) : filteredTrajectoryData.length === 0 && !isLoading && !isGenerating && !shouldFetchData && !isInputsLoading && hasRequestedData ? (
+              ) : trajectoryData.length === 0 && !isLoading && !isGenerating && !shouldFetchData && !isInputsLoading && hasRequestedData ? (
                 // Setelah klik Show dan loading selesai, tapi data kosong
                 <div className="flex items-center justify-center h-96">
                   <div className="text-center">
@@ -1411,93 +1412,6 @@ export default function MarketRotationRRG() {
                     <p className="text-xs text-muted-foreground mb-3">Data mungkin sedang diproses atau belum tersedia</p>
                     <Button variant="outline" size="sm" onClick={handleGo}>Reload Data</Button>
                   </div>
-                </div>
-              ) : filteredTrajectoryData.length > 0 ? (
-                <div className="relative h-full w-full min-h-[320px] md:min-h-[420px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={filteredTrajectoryData} margin={{ bottom: 20, left: 20, right: 20, top: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--muted-foreground))" opacity={0.3} />
-                      <XAxis type="number" dataKey="rsRatio" domain={[0, 120]} name="RS-Ratio" stroke="hsl(var(--foreground))" tick={{ fill: 'hsl(var(--foreground))' }} />
-                      <YAxis type="number" dataKey="rsMomentum" domain={[85, 115]} name="RS-Momentum" stroke="hsl(var(--foreground))" tick={{ fill: 'hsl(var(--foreground))' }} />
-                  <ReferenceLine x={100} stroke="hsl(var(--foreground))" strokeDasharray="2 2" />
-                  <ReferenceLine y={100} stroke="hsl(var(--foreground))" strokeDasharray="2 2" />
-                  <Tooltip content={<CustomTooltip />} />
-                  
-                      {/* Render latest points */}
-                      {filteredTrajectoryData.filter(point => point.isLatest).map((point, index) => (
-                        <Scatter key={`${point.name}-${index}`} dataKey="rsMomentum" fill={point.fill} stroke={point.stroke} fillOpacity={0.8} strokeOpacity={0.8} r={point.radius} data={[point]} />
-                      ))}
-                      
-                      {/* Trajectory lines & points per item (continuous, mudah dibaca) */}
-                      {(() => {
-                        const trajectories: Record<string, TrajectoryPoint[]> = {};
-                        visibleItems.forEach(itemName => {
-                          const itemTrajectory = trajectoryData
-                            .filter(point => point.name === itemName)
-                            .sort((a, b) => (a.point || 0) - (b.point || 0)); // Sort by point number
-                          if (itemTrajectory.length > 0) {
-                            trajectories[itemName] = itemTrajectory;
-                          }
-                        });
-
-                        return Object.values(trajectories).map((trajectory) => {
-                          const itemName = trajectory[0]?.name;
-                          const itemOption = currentOptions.find(opt => opt.name === itemName);
-                          const color = itemOption?.color || trajectory[0]?.stroke || '#6B7280';
-
-                          // Pastikan data sudah terurut dan punya rsRatio dan rsMomentum
-                          const sortedTrajectory = [...trajectory].sort((a, b) => (a.point || 0) - (b.point || 0));
-
-                          return (
-                            <React.Fragment key={`traj-wrap-${itemName}`}>
-                              {/* Garis kontinu - Line akan otomatis pakai rsRatio untuk X (dari XAxis dataKey) dan rsMomentum untuk Y */}
-                              <Line
-                                type="monotone"
-                                data={sortedTrajectory}
-                                dataKey="rsMomentum"
-                                stroke={color}
-                                strokeWidth={3}
-                                dot={false}
-                                connectNulls={true}
-                                strokeOpacity={1}
-                                isAnimationActive={false}
-                                xAxisId={0}
-                                yAxisId={0}
-                                key={`line-${itemName}`}
-                              />
-                              {/* Titik-titik body (kecuali head, karena sudah digambar di Scatter latest points) */}
-                              {sortedTrajectory.filter(p => !p.isLatest).map((point, idx) => (
-                                <Scatter
-                                  key={`${itemName}-body-${idx}-${point.point}`}
-                                  dataKey="rsMomentum"
-                                  fill={color}
-                                  stroke={color}
-                                  fillOpacity={1}
-                                  strokeOpacity={1}
-                                  r={6}
-                                  data={[point]}
-                                  xAxisId={0}
-                                  yAxisId={0}
-                                />
-                              ))}
-                            </React.Fragment>
-                          );
-                        });
-                      })()}
-                      
-                      <Scatter dataKey="rsMomentum" fill="#000000" data={[{ rsRatio: 100, rsMomentum: 100 }]} r={8} />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              
-                  {/* Quadrant Labels */}
-              <div className="absolute inset-0 pointer-events-none">
-                    <div className="absolute top-1/2 -left-8 text-sm text-muted-foreground font-bold whitespace-nowrap" style={{ transform: 'translateY(-50%) rotate(-90deg)', transformOrigin: 'center', zIndex: 10 }}>RS-Momentum</div>
-                    <div className="absolute bottom-2 left-1/2 text-sm text-muted-foreground font-bold whitespace-nowrap text-center" style={{ transform: 'translateX(-50%)', zIndex: 10 }}>RS-Ratio</div>
-                    <div className="absolute top-[8%] left-[15%]"><span className="text-blue-600 font-bold text-lg bg-background/80 px-3 py-2 rounded">Improving</span></div>
-                    <div className="absolute top-[8%] right-[10%]"><span className="text-green-600 font-bold text-lg bg-background/80 px-3 py-2 rounded">Leading</span></div>
-                    <div className="absolute bottom-[25%] left-[15%]"><span className="text-red-600 font-bold text-lg bg-background/80 px-3 py-2 rounded">Lagging</span></div>
-                    <div className="absolute bottom-[25%] right-[10%]"><span className="text-yellow-600 font-bold text-lg bg-background/80 px-3 py-2 rounded">Weakening</span></div>
-                </div>
                 </div>
               ) : (
                 // Fallback safety: tampilkan loading
