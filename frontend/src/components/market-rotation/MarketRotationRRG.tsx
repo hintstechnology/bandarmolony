@@ -116,7 +116,9 @@ export default function MarketRotationRRG() {
   const isLoadingRef = useRef(false);
 
   // Apakah input (index & items) masih dalam proses loading setelah user klik Show
-  const isInputsLoading = hasRequestedData && (
+  // Hanya true jika sedang dalam proses fetch (shouldFetchData) DAN options belum ada
+  // TIDAK true hanya karena viewMode berubah dan options belum ada
+  const isInputsLoading = shouldFetchData && hasRequestedData && (
     indexOptions.length === 0 ||
     (viewMode === 'sector' ? sectorOptions.length === 0 : stockOptions.length === 0)
   );
@@ -659,34 +661,22 @@ export default function MarketRotationRRG() {
   };
 
   const handleViewModeChange = (mode: 'sector' | 'stock') => {
+    // Hanya ubah viewMode dan clear search - TIDAK ada proses apapun
     setViewMode(mode);
     setSearchQuery('');
     setIndexSearchQuery('');
     setShowSearchDropdown(false);
     setShowIndexSearchDropdown(false);
-    setTrajectoryData([]);
-    setIsDataReady(false); // Hide chart when view mode changes
-    setError(null); // Clear previous errors
-    setIsLoading(false); // Don't show loading - user must click Show button
     
-    // Set default selections based on available options (only if options already loaded)
-    let itemsToSelect: string[] = [];
+    // TIDAK clear data chart - tetap tampilkan data saat ini
+    // TIDAK set isDataReady - tetap tampilkan chart jika sudah ada data
+    // TIDAK set error - biarkan error tetap ada jika ada
+    // TIDAK set isLoading - biarkan loading state tetap
     
-    if (mode === 'sector' && sectorOptions.length > 0) {
-      itemsToSelect = [sectorOptions[0]?.name || 'Technology'];
-    } else if (mode === 'stock' && stockOptions.length > 0) {
-      // Default stocks: BBCA, BBRI, BMRI
-      const defaultStocks = ['BBCA', 'BBRI', 'BMRI'];
-      const availableDefaults = defaultStocks.filter(stock => 
-        stockOptions.some(opt => opt.name === stock)
-      );
-      itemsToSelect = availableDefaults.length > 0 ? availableDefaults : [stockOptions[0]?.name || 'BBCA'];
-    }
+    // TIDAK set selectedItems - biarkan selection tetap sama
+    // User akan klik Show untuk load data baru dengan viewMode baru
     
-    setSelectedItems(itemsToSelect);
-    
-    // NO AUTO-LOAD - User must click Show button to load data
-    // This ensures no backend/frontend processing happens until Show is clicked
+    // NO PROCESSING - Completely sterile, no backend/frontend activity
   };
 
 
@@ -1322,6 +1312,96 @@ export default function MarketRotationRRG() {
                     <p className="text-sm text-destructive mb-2">{error}</p>
                     <Button variant="outline" size="sm" onClick={handleGo}>Retry</Button>
                   </div>
+                </div>
+              ) : trajectoryData.length > 0 ? (
+                // Tampilkan data yang ada meskipun filteredTrajectoryData kosong (misalnya karena viewMode berubah)
+                <div className="relative h-full w-full min-h-[320px] md:min-h-[420px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={trajectoryData.filter(point => visibleItems.includes(point.name) || selectedItems.includes(point.name))} margin={{ bottom: 20, left: 20, right: 20, top: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--muted-foreground))" opacity={0.3} />
+                      <XAxis type="number" dataKey="rsRatio" domain={[0, 120]} name="RS-Ratio" stroke="hsl(var(--foreground))" tick={{ fill: 'hsl(var(--foreground))' }} />
+                      <YAxis type="number" dataKey="rsMomentum" domain={[85, 115]} name="RS-Momentum" stroke="hsl(var(--foreground))" tick={{ fill: 'hsl(var(--foreground))' }} />
+                  <ReferenceLine x={100} stroke="hsl(var(--foreground))" strokeDasharray="2 2" />
+                  <ReferenceLine y={100} stroke="hsl(var(--foreground))" strokeDasharray="2 2" />
+                  <Tooltip content={<CustomTooltip />} />
+                  
+                      {/* Render latest points */}
+                      {trajectoryData.filter(point => point.isLatest && (visibleItems.includes(point.name) || selectedItems.includes(point.name))).map((point, index) => (
+                        <Scatter key={`${point.name}-${index}`} dataKey="rsMomentum" fill={point.fill} stroke={point.stroke} fillOpacity={0.8} strokeOpacity={0.8} r={point.radius} data={[point]} />
+                      ))}
+                      
+                      {/* Trajectory lines & points per item (continuous, mudah dibaca) */}
+                      {(() => {
+                        const trajectories: Record<string, TrajectoryPoint[]> = {};
+                        // Gunakan selectedItems untuk menampilkan data yang ada, bukan visibleItems
+                        const itemsToShow = visibleItems.length > 0 ? visibleItems : selectedItems;
+                        itemsToShow.forEach(itemName => {
+                          const itemTrajectory = trajectoryData
+                            .filter(point => point.name === itemName)
+                            .sort((a, b) => (a.point || 0) - (b.point || 0)); // Sort by point number
+                          if (itemTrajectory.length > 0) {
+                            trajectories[itemName] = itemTrajectory;
+                          }
+                        });
+
+                        return Object.values(trajectories).map((trajectory) => {
+                          const itemName = trajectory[0]?.name;
+                          const itemOption = currentOptions.find(opt => opt.name === itemName);
+                          const color = itemOption?.color || trajectory[0]?.stroke || '#6B7280';
+
+                          // Pastikan data sudah terurut dan punya rsRatio dan rsMomentum
+                          const sortedTrajectory = [...trajectory].sort((a, b) => (a.point || 0) - (b.point || 0));
+
+                          return (
+                            <React.Fragment key={`traj-wrap-${itemName}`}>
+                              {/* Garis kontinu - Line akan otomatis pakai rsRatio untuk X (dari XAxis dataKey) dan rsMomentum untuk Y */}
+                              <Line
+                                type="monotone"
+                                data={sortedTrajectory}
+                                dataKey="rsMomentum"
+                                stroke={color}
+                                strokeWidth={3}
+                                dot={false}
+                                connectNulls={true}
+                                strokeOpacity={1}
+                                isAnimationActive={false}
+                                xAxisId={0}
+                                yAxisId={0}
+                                key={`line-${itemName}`}
+                              />
+                              {/* Titik-titik body (kecuali head, karena sudah digambar di Scatter latest points) */}
+                              {sortedTrajectory.filter(p => !p.isLatest).map((point, idx) => (
+                                <Scatter
+                                  key={`${itemName}-body-${idx}-${point.point}`}
+                                  dataKey="rsMomentum"
+                                  fill={color}
+                                  stroke={color}
+                                  fillOpacity={1}
+                                  strokeOpacity={1}
+                                  r={6}
+                                  data={[point]}
+                                  xAxisId={0}
+                                  yAxisId={0}
+                                />
+                              ))}
+                            </React.Fragment>
+                          );
+                        });
+                      })()}
+                      
+                      <Scatter dataKey="rsMomentum" fill="#000000" data={[{ rsRatio: 100, rsMomentum: 100 }]} r={8} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              
+                  {/* Quadrant Labels */}
+              <div className="absolute inset-0 pointer-events-none">
+                    <div className="absolute top-1/2 -left-8 text-sm text-muted-foreground font-bold whitespace-nowrap" style={{ transform: 'translateY(-50%) rotate(-90deg)', transformOrigin: 'center', zIndex: 10 }}>RS-Momentum</div>
+                    <div className="absolute bottom-2 left-1/2 text-sm text-muted-foreground font-bold whitespace-nowrap text-center" style={{ transform: 'translateX(-50%)', zIndex: 10 }}>RS-Ratio</div>
+                    <div className="absolute top-[8%] left-[15%]"><span className="text-blue-600 font-bold text-lg bg-background/80 px-3 py-2 rounded">Improving</span></div>
+                    <div className="absolute top-[8%] right-[10%]"><span className="text-green-600 font-bold text-lg bg-background/80 px-3 py-2 rounded">Leading</span></div>
+                    <div className="absolute bottom-[25%] left-[15%]"><span className="text-red-600 font-bold text-lg bg-background/80 px-3 py-2 rounded">Lagging</span></div>
+                    <div className="absolute bottom-[25%] right-[10%]"><span className="text-yellow-600 font-bold text-lg bg-background/80 px-3 py-2 rounded">Weakening</span></div>
+                </div>
                 </div>
               ) : filteredTrajectoryData.length === 0 && !isLoading && !isGenerating && !shouldFetchData && !isInputsLoading && hasRequestedData ? (
                 // Setelah klik Show dan loading selesai, tapi data kosong
