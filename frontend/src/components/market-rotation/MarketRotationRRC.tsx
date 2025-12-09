@@ -128,12 +128,78 @@ export default function MarketRotationRRC() {
   const isLoadingRef = useRef(false);
   const menuContainerRef = useRef<HTMLDivElement>(null);
   const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
+  
+  // Visibility states for indexes and items (for showing/hiding in chart without removing from selection)
+  const [indexVisibility, setIndexVisibility] = useState<Record<string, boolean>>({});
+  const [itemVisibility, setItemVisibility] = useState<Record<string, boolean>>({});
 
   // Apakah input (index & items) masih dalam proses loading setelah user klik Show
   const isInputsLoading = hasRequestedData && (
     indexOptions.length === 0 ||
     (viewMode === 'sector' ? sectorOptions.length === 0 : stockOptions.length === 0)
   );
+  
+  // Get visible indexes and items (filtered by visibility state)
+  const visibleIndexes = selectedIndexes.filter(index => indexVisibility[index] !== false);
+  const visibleItems = selectedItems.filter(item => itemVisibility[item] !== false);
+  
+  // Toggle visibility functions
+  const handleToggleIndexVisibility = (index: string) => {
+    setIndexVisibility((prev) => ({
+      ...prev,
+      [index]: !(prev[index] !== false), // Default to true if undefined
+    }));
+  };
+  
+  const handleToggleItemVisibility = (item: string) => {
+    setItemVisibility((prev) => ({
+      ...prev,
+      [item]: !(prev[item] !== false), // Default to true if undefined
+    }));
+  };
+  
+  // Initialize visibility when indexes/items are added
+  useEffect(() => {
+    setIndexVisibility((prev) => {
+      const updated = { ...prev };
+      let changed = false;
+      selectedIndexes.forEach((index) => {
+        if (updated[index] === undefined) {
+          updated[index] = true; // Default to visible
+          changed = true;
+        }
+      });
+      // Remove visibility for indexes that are no longer selected
+      Object.keys(updated).forEach((index) => {
+        if (!selectedIndexes.includes(index)) {
+          delete updated[index];
+          changed = true;
+        }
+      });
+      return changed ? updated : prev;
+    });
+  }, [selectedIndexes]);
+  
+  useEffect(() => {
+    setItemVisibility((prev) => {
+      const updated = { ...prev };
+      let changed = false;
+      selectedItems.forEach((item) => {
+        if (updated[item] === undefined) {
+          updated[item] = true; // Default to visible
+          changed = true;
+        }
+      });
+      // Remove visibility for items that are no longer selected
+      Object.keys(updated).forEach((item) => {
+        if (!selectedItems.includes(item)) {
+          delete updated[item];
+          changed = true;
+        }
+      });
+      return changed ? updated : prev;
+    });
+  }, [selectedItems]);
 
   interface LoadedInputsInfo {
     success: boolean;
@@ -1052,21 +1118,28 @@ export default function MarketRotationRRC() {
                   />
                   <Legend />
                   
-                  {/* Selected Index line - always visible and locked */}
-                  <Line 
-                    type="monotone" 
-                    dataKey={selectedIndex} 
-                    stroke={indexOptions.find(opt => opt.name === selectedIndex)?.color || '#000000'}
-                    strokeWidth={3}
-                    strokeDasharray="5 5"
-                    name={`${selectedIndex} (Locked)`}
-                    connectNulls={true}
-                    dot={{ r: 4, fill: indexOptions.find(opt => opt.name === selectedIndex)?.color || '#000000', strokeWidth: 2 }}
-                    activeDot={{ r: 6, strokeWidth: 2 }}
-                  />
+                  {/* Selected Index lines - only show visible indexes */}
+                  {visibleIndexes.map((index) => {
+                    const option = indexOptions.find(opt => opt.name === index);
+                    const isPrimary = index === selectedIndex;
+                    return (
+                      <Line 
+                        key={index}
+                        type="monotone" 
+                        dataKey={index} 
+                        stroke={option?.color || '#000000'}
+                        strokeWidth={isPrimary ? 3 : 2.5}
+                        strokeDasharray={isPrimary ? "5 5" : undefined}
+                        name={isPrimary ? `${index} (Primary)` : index}
+                        connectNulls={true}
+                        dot={{ r: isPrimary ? 4 : 3, fill: option?.color || '#000000', strokeWidth: isPrimary ? 2 : 1 }}
+                        activeDot={{ r: isPrimary ? 6 : 5, strokeWidth: 2 }}
+                      />
+                    );
+                  })}
                   
-                  {/* Dynamic lines based on selection */}
-                  {selectedItems.map((item) => {
+                  {/* Dynamic lines based on visible items */}
+                  {visibleItems.map((item) => {
                     const option = currentOptions.find(opt => opt.name === item);
                     return (
                       <Line 
@@ -1223,17 +1296,53 @@ export default function MarketRotationRRC() {
                       <Badge variant="outline" className="text-xs">Min. required</Badge>
                     )}
                   </div>
+                  {/* Select All / Unselect All checkbox */}
+                  {selectedIndexes.length > 1 && (
+                    <div className="mb-2 pb-2 border-b border-border">
+                      <label className="flex items-center gap-2 text-xs font-medium cursor-pointer select-none text-muted-foreground hover:text-foreground transition-colors">
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary"
+                          checked={selectedIndexes.every(index => indexVisibility[index] !== false)}
+                          ref={(input) => {
+                            if (input) {
+                              const allVisible = selectedIndexes.every(index => indexVisibility[index] !== false);
+                              const someVisible = selectedIndexes.some(index => indexVisibility[index] !== false);
+                              input.indeterminate = someVisible && !allVisible;
+                            }
+                          }}
+                          onChange={() => {
+                            const allVisible = selectedIndexes.every(index => indexVisibility[index] !== false);
+                            selectedIndexes.forEach(index => {
+                              setIndexVisibility(prev => ({
+                                ...prev,
+                                [index]: !allVisible
+                              }));
+                            });
+                          }}
+                        />
+                        <span>{selectedIndexes.every(index => indexVisibility[index] !== false) ? 'Unselect All' : 'Select All'}</span>
+                      </label>
+                    </div>
+                  )}
                   <div className="space-y-1">
                     {selectedIndexes.map((index) => {
                       const option = indexOptions.find(opt => opt.name === index);
+                      const isVisible = indexVisibility[index] !== false;
                       return (
                         <div key={index} className="flex items-center justify-between p-2 bg-accent rounded-md">
                           <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary"
+                              checked={isVisible}
+                              onChange={() => handleToggleIndexVisibility(index)}
+                            />
                             <div 
                               className="w-3 h-3 rounded-full" 
                               style={{ backgroundColor: option?.color || '#000000' }}
                             ></div>
-                            <span className="text-sm">{index}</span>
+                            <span className={`text-sm ${!isVisible ? 'opacity-50' : ''}`}>{index}</span>
                             {index === selectedIndex && (
                               <Badge variant="secondary" className="text-xs">Primary</Badge>
                             )}
@@ -1395,17 +1504,53 @@ export default function MarketRotationRRC() {
                       <Badge variant="outline" className="text-xs">Min. required</Badge>
                     )}
                   </div>
-                  <div className="space-y-1">
+                  {/* Select All / Unselect All checkbox */}
+                  {selectedItems.length > 1 && (
+                    <div className="mb-2 pb-2 border-b border-border">
+                      <label className="flex items-center gap-2 text-xs font-medium cursor-pointer select-none text-muted-foreground hover:text-foreground transition-colors">
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary"
+                          checked={selectedItems.every(item => itemVisibility[item] !== false)}
+                          ref={(input) => {
+                            if (input) {
+                              const allVisible = selectedItems.every(item => itemVisibility[item] !== false);
+                              const someVisible = selectedItems.some(item => itemVisibility[item] !== false);
+                              input.indeterminate = someVisible && !allVisible;
+                            }
+                          }}
+                          onChange={() => {
+                            const allVisible = selectedItems.every(item => itemVisibility[item] !== false);
+                            selectedItems.forEach(item => {
+                              setItemVisibility(prev => ({
+                                ...prev,
+                                [item]: !allVisible
+                              }));
+                            });
+                          }}
+                        />
+                        <span>{selectedItems.every(item => itemVisibility[item] !== false) ? 'Unselect All' : 'Select All'}</span>
+                      </label>
+                    </div>
+                  )}
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
                     {selectedItems.map((item) => {
                       const option = currentOptions.find(opt => opt.name === item);
+                      const isVisible = itemVisibility[item] !== false;
                       return (
                         <div key={item} className="flex items-center justify-between p-2 bg-accent rounded-md">
                           <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary"
+                              checked={isVisible}
+                              onChange={() => handleToggleItemVisibility(item)}
+                            />
                       <div 
                         className="w-3 h-3 rounded-full" 
                               style={{ backgroundColor: option?.color }}
                       ></div>
-                            <span className="text-sm">{item}</span>
+                            <span className={`text-sm ${!isVisible ? 'opacity-50' : ''}`}>{item}</span>
                           </div>
                           <button
                             onClick={() => removeItem(item)}
