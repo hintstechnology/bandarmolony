@@ -669,7 +669,21 @@ export default function MarketRotationRRG() {
     setError(null); // Clear previous errors
     setIsLoading(true); // Show loading state during transition
     
+    // Load options if not yet loaded for this viewMode
+    const needsOptions = (mode === 'sector' && sectorOptions.length === 0) || 
+                         (mode === 'stock' && stockOptions.length === 0);
+    
+    if (needsOptions) {
+      const inputsInfo = await loadInputsIfNeeded();
+      if (!inputsInfo.success) {
+        setIsLoading(false);
+        return;
+      }
+    }
+    
+    // Set default selections based on available options
     let itemsToSelect: string[] = [];
+    
     if (mode === 'sector' && sectorOptions.length > 0) {
       itemsToSelect = [sectorOptions[0]?.name || 'Technology'];
     } else if (mode === 'stock' && stockOptions.length > 0) {
