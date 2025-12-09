@@ -658,7 +658,7 @@ export default function MarketRotationRRG() {
     });
   };
 
-  const handleViewModeChange = async (mode: 'sector' | 'stock') => {
+  const handleViewModeChange = (mode: 'sector' | 'stock') => {
     setViewMode(mode);
     setSearchQuery('');
     setIndexSearchQuery('');
@@ -667,21 +667,9 @@ export default function MarketRotationRRG() {
     setTrajectoryData([]);
     setIsDataReady(false); // Hide chart when view mode changes
     setError(null); // Clear previous errors
-    setIsLoading(true); // Show loading state during transition
+    setIsLoading(false); // Don't show loading - user must click Show button
     
-    // Load options if not yet loaded for this viewMode
-    const needsOptions = (mode === 'sector' && sectorOptions.length === 0) || 
-                         (mode === 'stock' && stockOptions.length === 0);
-    
-    if (needsOptions) {
-      const inputsInfo = await loadInputsIfNeeded();
-      if (!inputsInfo.success) {
-        setIsLoading(false);
-        return;
-      }
-    }
-    
-    // Set default selections based on available options
+    // Set default selections based on available options (only if options already loaded)
     let itemsToSelect: string[] = [];
     
     if (mode === 'sector' && sectorOptions.length > 0) {
@@ -697,15 +685,8 @@ export default function MarketRotationRRG() {
     
     setSelectedItems(itemsToSelect);
     
-    // If user has already clicked Show before, automatically load data for new viewMode
-    if (hasRequestedData && selectedIndex && itemsToSelect.length > 0) {
-      // Trigger data loading for new viewMode
-      setShouldFetchData(false); // Don't use effect, call directly
-      await loadChartDataWithParams(selectedIndex, itemsToSelect, mode);
-    } else {
-      // If not yet requested, just clear loading state
-      setIsLoading(false);
-    }
+    // NO AUTO-LOAD - User must click Show button to load data
+    // This ensures no backend/frontend processing happens until Show is clicked
   };
 
 
@@ -1295,7 +1276,6 @@ export default function MarketRotationRRG() {
       <div className={isMenuTwoRows ? "h-0 lg:h-[60px]" : "h-0 lg:h-[38px]"}></div>
 
       <div className="space-y-6">
-        <React.Fragment>
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 sm:gap-6 overflow-x-auto">
         {/* RRG Chart */}
         <div className="lg:col-span-3">
@@ -1868,10 +1848,10 @@ export default function MarketRotationRRG() {
 
       {/* Relative Momentum Screener (Stock) */}
       <Card>
-        <CardHeader>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <CardHeader className="items-center !py-4 !pt-4 !pb-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between w-full">
             <div className="flex items-center gap-2">
-              <CardTitle>Relative Momentum Screener (Stock)</CardTitle>
+              <CardTitle className="mb-0 leading-tight">Relative Momentum Screener (Stock)</CardTitle>
               <Button
                 variant="outline"
                 size="sm"
@@ -2133,10 +2113,10 @@ export default function MarketRotationRRG() {
 
       {/* Relative Momentum Screener (Sector) */}
       <Card>
-        <CardHeader>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <CardHeader className="items-center !py-4 !pt-4 !pb-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between w-full">
             <div className="flex items-center gap-2">
-              <CardTitle>Relative Momentum Screener (Sector)</CardTitle>
+              <CardTitle className="mb-0 leading-tight">Relative Momentum Screener (Sector)</CardTitle>
               <Button
                 variant="outline"
                 size="sm"
@@ -2388,7 +2368,6 @@ export default function MarketRotationRRG() {
         </CardContent>
         )}
       </Card>
-      </React.Fragment>
       </div>
     </div>
   );
