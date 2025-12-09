@@ -147,17 +147,18 @@ const formatValue = (value: any): string => {
 const formatLot = (value: number): string => {
   const rounded = Math.round(value);
   const absValue = Math.abs(rounded);
+  const sign = value < 0 ? '-' : '';
   
   // Format: < 1,000,000 → full number with comma (100,000)
-  // Format: >= 1,000,000 → rounded to thousands with 'K' (1,164K)
+  // Format: >= 1,000,000 → format with 'B' (Billion) with 1 decimal (1.2B)
   if (absValue >= 1000000) {
-    // Use 'K' suffix for millions: 1,164,152 → 1,164K
-    const thousands = Math.round(rounded / 1000);
-    return `${thousands.toLocaleString('en-US')}K`;
+    // Convert to billions and format with 1 decimal place
+    const billions = absValue / 1000000000;
+    return `${sign}${billions.toFixed(1)}B`;
   } else {
     // < 1,000,000: Show full number with comma separator
     // Example: 100,000 → 100,000 (not 100K)
-  return rounded.toLocaleString('en-US');
+    return rounded.toLocaleString('en-US');
   }
 };
 
