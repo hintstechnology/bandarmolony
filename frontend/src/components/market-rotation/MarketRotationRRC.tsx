@@ -479,7 +479,10 @@ export default function MarketRotationRRC() {
             // Index type uses 'scaled_values', others might use different field names
             // For sector data, try multiple possible field names
             let value = 0;
-            if (result.item === selectedIndex) {
+            const cleanedResultItem = result.item.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+            const cleanedSelectedIndex = selectedIndex.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+            
+            if (cleanedResultItem === cleanedSelectedIndex) {
               // Index data uses 'scaled_values'
               value = row.scaled_values ?? row.value ?? row.close ?? 0;
             } else {
@@ -487,7 +490,29 @@ export default function MarketRotationRRC() {
               value = row.scaled_values ?? row.value ?? row.close ?? row.rrc_value ?? row.sector_value ?? 0;
             }
             const parsedValue = parseFloat(String(value)) || 0;
-            point[result.item] = parsedValue;
+            
+            // Use original item name from result.item (backend returns original name)
+            // But match with selectedItems/selectedIndex for property name
+            let propertyName = result.item;
+            
+            // Try to find exact match in selectedItems first
+            const exactMatch = selectedItems.find(item => item === result.item);
+            if (exactMatch) {
+              propertyName = exactMatch;
+            } else {
+              // Try case-insensitive match
+              const caseInsensitiveMatch = selectedItems.find(item => {
+                const cleanedItem = item.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+                return cleanedItem === cleanedResultItem;
+              });
+              if (caseInsensitiveMatch) {
+                propertyName = caseInsensitiveMatch;
+              } else if (cleanedResultItem === cleanedSelectedIndex) {
+                propertyName = selectedIndex;
+              }
+            }
+            
+            point[propertyName] = parsedValue;
             
             // Debug logging for sector data
             if (viewMode === 'sector' && result.item !== selectedIndex) {
@@ -1036,8 +1061,8 @@ export default function MarketRotationRRC() {
                     strokeDasharray="5 5"
                     name={`${selectedIndex} (Locked)`}
                     connectNulls={true}
-                    dot={false}
-                    activeDot={false}
+                    dot={{ r: 4, fill: indexOptions.find(opt => opt.name === selectedIndex)?.color || '#000000', strokeWidth: 2 }}
+                    activeDot={{ r: 6, strokeWidth: 2 }}
                   />
                   
                   {/* Dynamic lines based on selection */}
@@ -1049,11 +1074,11 @@ export default function MarketRotationRRC() {
                         type="monotone" 
                         dataKey={item} 
                         stroke={option?.color || '#6B7280'}
-                        strokeWidth={2}
+                        strokeWidth={2.5}
                         name={item}
                         connectNulls={true}
-                        dot={false}
-                    activeDot={false}
+                        dot={{ r: 3, fill: option?.color || '#6B7280', strokeWidth: 1 }}
+                        activeDot={{ r: 5, strokeWidth: 2 }}
                       />
                     );
                   })}
