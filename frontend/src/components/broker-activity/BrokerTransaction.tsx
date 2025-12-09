@@ -875,17 +875,31 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           // For Broker pivot: aggregate by Emiten (stock) when multiple brokers are selected
           if (pivotFilter === 'Stock') {
             // Group rows by stock code (from fetch task) and date
-            // For Stock pivot, each fetch task has a stock code, and rows from the same stock code need to be aggregated
+            // CRITICAL: For Stock pivot with sector (like IDX), group by Emiten (actual stock) instead of sector code
+            // This ensures all brokers for each stock are shown, not just one broker per stock
             const stockDataMap = new Map<string, BrokerTransactionData[]>();
             
             filteredDataResults.forEach(({ date: resultDate, code, data }) => {
               // CRITICAL: Only process data for the current date being processed
               if (resultDate !== date) return;
               
-              // Group by stock code (code from fetch task)
-              const stockCode = code || 'UNKNOWN';
-              const existing = stockDataMap.get(stockCode) || [];
-              stockDataMap.set(stockCode, [...existing, ...data]);
+              // CRITICAL: If sector is selected (like IDX), group by Emiten (actual stock) instead of sector code
+              // This ensures all brokers for each stock are preserved
+              if (selectedSectors.length > 0) {
+                // Group by Emiten (actual stock) for sector data
+                data.forEach(row => {
+                  const emiten = row.Emiten || '';
+                  if (!emiten) return;
+                  
+                  const existing = stockDataMap.get(emiten) || [];
+                  stockDataMap.set(emiten, [...existing, row]);
+                });
+              } else {
+                // Group by stock code (code from fetch task) for individual ticker data
+                const stockCode = code || 'UNKNOWN';
+                const existing = stockDataMap.get(stockCode) || [];
+                stockDataMap.set(stockCode, [...existing, ...data]);
+              }
             });
             
             // Store raw data (before filtering and aggregation)
@@ -927,10 +941,23 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             
             // CRITICAL: For Stock pivot with multiple brokers, aggregate by stock code
             // and recalculate net from BuyerVol - SellerVol (not from NetBuyVol)
+            // EXCEPTION: For sector data (like IDX), don't aggregate - show all brokers per stock
             const aggregatedRows: BrokerTransactionData[] = [];
             
             filteredStockDataMap.forEach((rows) => {
               if (rows.length === 0) return;
+              
+              // CRITICAL: For sector data (like IDX), don't aggregate - show all brokers
+              // Each row represents a different broker for the same stock
+              if (selectedSectors.length > 0) {
+                // For sector data, each row is already a separate broker, don't aggregate
+                rows.forEach(row => {
+                  if (row) {
+                    aggregatedRows.push(row);
+                  }
+                });
+                return;
+              }
               
               // If only one row, no need to aggregate
               if (rows.length === 1) {
