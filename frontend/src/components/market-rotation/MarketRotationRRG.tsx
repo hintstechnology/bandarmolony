@@ -55,9 +55,6 @@ export default function MarketRotationRRG() {
   const [selectedIndex, setSelectedIndex] = useState<string>('COMPOSITE');
   const [selectedIndexes, setSelectedIndexes] = useState<string[]>(['COMPOSITE']);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
-  
-  // Debug logging
-  console.log('🔍 Frontend: Current selectedItems:', selectedItems);
   const [searchQuery, setSearchQuery] = useState('');
   const [indexSearchQuery, setIndexSearchQuery] = useState('');
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
@@ -89,8 +86,11 @@ export default function MarketRotationRRG() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isLoadingScanner, setIsLoadingScanner] = useState(false);
   const [generationProgress, setGenerationProgress] = useState<any>(null);
-  const [isDataReady, setIsDataReady] = useState<boolean>(false); // Control when to show chart
+  const [, setIsDataReady] = useState<boolean>(false); // We only need the setter to control error/loading visibility
   const [shouldFetchData, setShouldFetchData] = useState<boolean>(false); // Control when to fetch data (only when Show button clicked)
+  const [hasRequestedData, setHasRequestedData] = useState<boolean>(false); // Pernah klik Show minimal sekali
+  const [isStockScreenerExpanded, setIsStockScreenerExpanded] = useState<boolean>(false); // Control stock screener expansion
+  const [isSectorScreenerExpanded, setIsSectorScreenerExpanded] = useState<boolean>(false); // Control sector screener expansion
   
   // Separate search states for stock and sector scanners
   const [stockScreenerSearchQuery, setStockScreenerSearchQuery] = useState('');
@@ -114,14 +114,39 @@ export default function MarketRotationRRG() {
   const startDateRef = useRef<HTMLInputElement>(null);
   const endDateRef = useRef<HTMLInputElement>(null);
   const isLoadingRef = useRef(false);
+
+  // Apakah input (index & items) masih dalam proses loading setelah user klik Show
+  const isInputsLoading = hasRequestedData && (
+    indexOptions.length === 0 ||
+    (viewMode === 'sector' ? sectorOptions.length === 0 : stockOptions.length === 0)
+  );
   const menuContainerRef = useRef<HTMLDivElement>(null);
   const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
 
+  interface LoadedInputsInfo {
+    success: boolean;
+    defaultIndex?: string | undefined;
+    defaultItems?: string[] | undefined;
+  }
+
   // Load available inputs only when Show button is clicked (first time)
-  const loadInputsIfNeeded = async (): Promise<boolean> => {
+  const loadInputsIfNeeded = async (): Promise<LoadedInputsInfo> => {
     // Only load if options are not yet loaded
     if (indexOptions.length > 0 && (sectorOptions.length > 0 || stockOptions.length > 0)) {
-      return true; // Already loaded
+      // Sudah pernah di-load, gunakan state saat ini untuk menentukan default
+      const currentIndex = selectedIndex || indexOptions[0]?.name;
+      const currentItems =
+        selectedItems.length > 0
+          ? selectedItems
+          : viewMode === 'sector'
+          ? [sectorOptions[0]?.name || '']
+          : [stockOptions[0]?.name || ''];
+
+      return {
+        success: !!currentIndex && currentItems.filter(Boolean).length > 0,
+        defaultIndex: currentIndex,
+        defaultItems: currentItems.filter(Boolean),
+      };
     }
     
     try {
@@ -160,34 +185,35 @@ export default function MarketRotationRRG() {
         setSectorOptions(generateSectorStockColors(result.data.sectors || []));
         setStockOptions(generateSectorStockColors(result.data.stocks || []));
         
-        // Set default selections if not already set
-        const defaultIndex = result.data.index?.[0] || 'COMPOSITE';
-        if (!selectedIndex) {
-          setSelectedIndex(defaultIndex);
-        }
-        
-        // Set default items if not already set
-        if (selectedItems.length === 0) {
-          let itemsToSelect: string[] = [];
+        // Hitung default selections berdasarkan data yang baru di-load
+        const defaultIndex = selectedIndex || result.data.index?.[0] || 'COMPOSITE';
+        let itemsToSelect: string[] = selectedItems;
+
+        if (itemsToSelect.length === 0) {
           if (viewMode === 'sector' && result.data.sectors && result.data.sectors.length > 0) {
             const defaultSectors = ['Technology', 'Healthcare', 'Financials'];
             const availableSectors = result.data.sectors || [];
             const validSectors = defaultSectors.filter(sector => availableSectors.includes(sector));
             itemsToSelect = validSectors.length > 0 ? validSectors : [result.data.sectors[0]];
           } else if (viewMode === 'stock' && result.data.stocks && result.data.stocks.length > 0) {
-            // Default stocks: BBCA, BBRI, BMRI
             const defaultStocks = ['BBCA', 'BBRI', 'BMRI'];
             const availableStocks = result.data.stocks || [];
             const validStocks = defaultStocks.filter(stock => availableStocks.includes(stock));
             itemsToSelect = validStocks.length > 0 ? validStocks : [result.data.stocks[0]];
           }
-          
-          if (itemsToSelect.length > 0) {
-            setSelectedItems(itemsToSelect);
-          }
         }
-        
-        return true;
+
+        // Sinkronkan ke state
+        setSelectedIndex(defaultIndex);
+        if (itemsToSelect.length > 0) {
+          setSelectedItems(itemsToSelect);
+        }
+
+        return {
+          success: itemsToSelect.length > 0,
+          defaultIndex,
+          defaultItems: itemsToSelect,
+        };
       } else {
         console.error('❌ Frontend: Failed to load RRG inputs:', result.error);
         const errorMessage = result.error || 'Failed to load inputs';
@@ -196,7 +222,7 @@ export default function MarketRotationRRG() {
           title: 'Failed to Load Options',
           message: errorMessage
         });
-        return false;
+        return { success: false };
       }
     } catch (error: any) {
       console.error('❌ Frontend: Error loading inputs:', error);
@@ -206,7 +232,7 @@ export default function MarketRotationRRG() {
         title: 'Connection Error',
         message: `Failed to load options: ${errorMessage}. Please check your connection and try again.`
       });
-      return false;
+      return { success: false };
     }
   };
 
@@ -322,12 +348,12 @@ export default function MarketRotationRRG() {
     }
   }, []);
 
-  // Load scanner data only after Show button is clicked (when layout is visible)
+  // Load scanner data only when respective section is expanded
   useEffect(() => {
-    if (shouldFetchData || isDataReady) {
+    if (isStockScreenerExpanded || isSectorScreenerExpanded) {
       loadScannerData();
     }
-  }, [shouldFetchData, isDataReady, loadScannerData]);
+  }, [isStockScreenerExpanded, isSectorScreenerExpanded, loadScannerData]);
 
   // Click outside handlers
   useEffect(() => {
@@ -505,12 +531,8 @@ export default function MarketRotationRRG() {
 
   const parseResultsToTrajectoryData = (results: any[], originalItems: string[]): TrajectoryPoint[] => {
     if (results.length === 0) {
-      console.log('📊 Frontend: No results to parse');
       return [];
     }
-    
-    console.log('📊 Frontend: Parsing RRG results to trajectory:', results);
-    console.log('📊 Frontend: Original items:', originalItems);
     
     const allTrajectories: TrajectoryPoint[] = [];
     const currentOptions = viewMode === 'sector' ? sectorOptions : stockOptions;
@@ -522,52 +544,37 @@ export default function MarketRotationRRG() {
       itemMapping[cleaned] = item;
     });
     
-    console.log('📊 Frontend: Item mapping:', itemMapping);
-    
     results.forEach((result) => {
       if (result.data && Array.isArray(result.data)) {
         // Get original item name from mapping
         const originalItemName = itemMapping[result.item] || result.item;
-        const dataPoints = result.data.slice(-10);
+        // Ambil lebih banyak poin terakhir untuk membuat trajectory lebih jelas
+        const dataPoints = result.data.slice(-20);
         const itemColor = currentOptions.find(opt => opt.name === originalItemName)?.color || '#6B7280';
-        
-        console.log(`📊 Processing item: ${result.item} -> ${originalItemName}, color: ${itemColor}, dataPoints:`, dataPoints.length);
         
         dataPoints.forEach((row: any, pointIdx: number) => {
           if (row && row.rs_ratio !== undefined && row.rs_momentum !== undefined) {
             const isLast = pointIdx === dataPoints.length - 1;
-            let size = 3;
-            
-            if (isLast) {
-              size = 20;
-            } else if (dataPoints.length > 1) {
-              const progress = pointIdx / (dataPoints.length - 1);
-              size = 3 + progress * 17;
-            }
             
             const rsRatio = parseFloat(String(row.rs_ratio)) || 100;
             const rsMomentum = parseFloat(String(row.rs_momentum)) || 100;
             
-            console.log(`  Point ${pointIdx + 1}: RS-Ratio=${rsRatio}, RS-Momentum=${rsMomentum}, size=${size}`);
-            
             allTrajectories.push({
               point: pointIdx + 1,
-              rsRatio: rsRatio,
-              rsMomentum: rsMomentum,
+              rsRatio,
+              rsMomentum,
               name: originalItemName,
               color: itemColor,
               isLatest: isLast,
               fill: itemColor,
               stroke: itemColor,
-              radius: size
+              radius: isLast ? 20 : 6
             });
           }
         });
       }
     });
     
-    console.log('📊 Frontend: Final trajectory data points:', allTrajectories.length);
-    console.log('📊 Frontend: Sample points:', allTrajectories.slice(0, 3));
     return allTrajectories;
   };
 
@@ -775,14 +782,29 @@ export default function MarketRotationRRG() {
 
 
   const handleGo = async () => {
-    // Load inputs first if not yet loaded
-    const inputsLoaded = await loadInputsIfNeeded();
-    if (!inputsLoaded) {
-      // Error already shown in loadInputsIfNeeded
+    // User sudah klik Show - langsung ubah state agar UI masuk mode loading
+    setHasRequestedData(true);
+    setError(null);
+    setTrajectoryData([]);
+    
+    // Load inputs terlebih dahulu jika belum ada (sekaligus hitung default selection)
+    const inputsInfo = await loadInputsIfNeeded();
+    if (!inputsInfo.success) {
+      // Error sudah ditampilkan di loadInputsIfNeeded
       return;
     }
     
-    if (!selectedIndex || selectedItems.length === 0) {
+    // Gunakan selection dari state jika sudah ada, fallback ke default dari inputsInfo
+    const effectiveIndex = selectedIndex || inputsInfo.defaultIndex || indexOptions[0]?.name || 'COMPOSITE';
+    const effectiveItems =
+      selectedItems.length > 0
+        ? selectedItems
+        : (inputsInfo.defaultItems && inputsInfo.defaultItems.length > 0
+            ? inputsInfo.defaultItems
+            : []);
+    
+    // Jika masih tidak ada item (case sangat jarang), baru tampilkan warning
+    if (!effectiveIndex || effectiveItems.length === 0) {
       showToast({
         type: 'warning',
         title: 'Selection Required',
@@ -791,10 +813,18 @@ export default function MarketRotationRRG() {
       return;
     }
     
-    setIsDataReady(false); // Hide chart before loading new data
-    setTrajectoryData([]); // Clear previous data
-    setError(null); // Clear previous errors
-    setShouldFetchData(true); // Trigger fetch
+    // Sinkronkan selection ke state (kalau sebelumnya kosong)
+    if (!selectedIndex && effectiveIndex) {
+      setSelectedIndex(effectiveIndex);
+    }
+    if (selectedItems.length === 0 && effectiveItems.length > 0) {
+      setSelectedItems(effectiveItems);
+    }
+    
+    // Reset state sebelum load data, lalu langsung panggil loader dengan parameter yang sudah pasti valid
+    setIsDataReady(false);
+    setShouldFetchData(false); // jangan pakai effect, langsung panggil loader
+    await loadChartDataWithParams(effectiveIndex, effectiveItems, viewMode);
   };
 
   const triggerDatePicker = (inputRef: React.RefObject<HTMLInputElement>) => {
@@ -1172,8 +1202,7 @@ export default function MarketRotationRRG() {
       <div className={isMenuTwoRows ? "h-0 lg:h-[60px]" : "h-0 lg:h-[38px]"}></div>
 
       <div className="space-y-6">
-      {!shouldFetchData && !isDataReady ? null : (
-      <React.Fragment>
+        <React.Fragment>
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 sm:gap-6 overflow-x-auto">
         {/* RRG Chart */}
         <div className="lg:col-span-3">
@@ -1182,7 +1211,14 @@ export default function MarketRotationRRG() {
               <CardTitle>Relative Rotation Graph (RRG) vs {selectedIndex}</CardTitle>
             </CardHeader>
             <CardContent className="flex-1 min-h-[320px] md:min-h-[420px]">
-              {isGenerating ? (
+              {!hasRequestedData ? (
+                // Belum pernah klik Show
+                <div className="flex items-center justify-center h-96">
+                  <div className="text-center">
+                    <p className="text-sm text-muted-foreground mb-2">Click 'Show' button to load chart data</p>
+                  </div>
+                </div>
+              ) : isGenerating ? (
                 <div className="flex items-center justify-center h-96">
                   <div className="text-center">
                     <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-primary" />
@@ -1200,7 +1236,7 @@ export default function MarketRotationRRG() {
                     )}
                   </div>
                 </div>
-              ) : isLoading ? (
+              ) : (isInputsLoading || isLoading || shouldFetchData) ? (
                 <div className="flex items-center justify-center h-96">
                   <div className="flex items-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -1214,7 +1250,8 @@ export default function MarketRotationRRG() {
                     <Button variant="outline" size="sm" onClick={handleGo}>Retry</Button>
                   </div>
                 </div>
-              ) : filteredTrajectoryData.length === 0 && !isLoading && !isGenerating ? (
+              ) : filteredTrajectoryData.length === 0 && !isLoading && !isGenerating && !shouldFetchData && !isInputsLoading ? (
+                // Setelah klik Show, tapi data kosong
                 <div className="flex items-center justify-center h-96">
                   <div className="text-center">
                     <p className="text-sm text-muted-foreground mb-2">No data available</p>
@@ -1227,8 +1264,8 @@ export default function MarketRotationRRG() {
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={filteredTrajectoryData} margin={{ bottom: 20, left: 20, right: 20, top: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--muted-foreground))" opacity={0.3} />
-                      <XAxis type="number" dataKey="rsRatio" domain={[90, 110]} name="RS-Ratio" stroke="hsl(var(--foreground))" tick={{ fill: 'hsl(var(--foreground))' }} />
-                      <YAxis type="number" dataKey="rsMomentum" domain={[90, 110]} name="RS-Momentum" stroke="hsl(var(--foreground))" tick={{ fill: 'hsl(var(--foreground))' }} />
+                      <XAxis type="number" dataKey="rsRatio" domain={[0, 120]} name="RS-Ratio" stroke="hsl(var(--foreground))" tick={{ fill: 'hsl(var(--foreground))' }} />
+                      <YAxis type="number" dataKey="rsMomentum" domain={[85, 115]} name="RS-Momentum" stroke="hsl(var(--foreground))" tick={{ fill: 'hsl(var(--foreground))' }} />
                   <ReferenceLine x={100} stroke="hsl(var(--foreground))" strokeDasharray="2 2" />
                   <ReferenceLine y={100} stroke="hsl(var(--foreground))" strokeDasharray="2 2" />
                   <Tooltip content={<CustomTooltip />} />
@@ -1238,54 +1275,61 @@ export default function MarketRotationRRG() {
                         <Scatter key={`${point.name}-${index}`} dataKey="rsMomentum" fill={point.fill} stroke={point.stroke} fillOpacity={0.8} strokeOpacity={0.8} r={point.radius} data={[point]} />
                       ))}
                       
-                      {/* Trajectory lines for all selected items with gradient opacity and tapered ends */}
+                      {/* Trajectory lines & points per item (continuous, mudah dibaca) */}
                       {(() => {
-                        // Group trajectories by item name
                         const trajectories: Record<string, TrajectoryPoint[]> = {};
                         selectedItems.forEach(itemName => {
-                          const itemTrajectory = trajectoryData.filter(point => point.name === itemName);
+                          const itemTrajectory = trajectoryData
+                            .filter(point => point.name === itemName)
+                            .sort((a, b) => (a.point || 0) - (b.point || 0)); // Sort by point number
                           if (itemTrajectory.length > 0) {
                             trajectories[itemName] = itemTrajectory;
                           }
                         });
-                        
+
                         return Object.values(trajectories).map((trajectory) => {
                           const itemName = trajectory[0]?.name;
-                    const itemOption = currentOptions.find(opt => opt.name === itemName);
-                          
-                          // Create gradient lines for each segment
-                          return trajectory.map((point, index) => {
-                            if (index === 0) return null; // Skip first point as it has no previous point to connect
-                            
-                            const previousPoint = trajectory[index - 1];
-                            if (!previousPoint) return null;
-                            const segmentData = [previousPoint, point];
-                            
-                            // Calculate opacity: newer segments are more opaque with smoother gradient
-                            const totalPoints = trajectory.length;
-                            const progress = index / (totalPoints - 1);
-                            const opacity = 0.1 + (progress * progress * 0.9); // Smoother curve: 0.1 to 1.0
-                            
-                            // Calculate stroke width: taper from thin to thick
-                            const strokeWidth = 0.5 + (progress * 2.5); // From 0.5 to 3.0
-                    
-                    return (
-                      <Line
-                                key={`line-${itemName}-${index}`}
-                        type="monotone"
-                        dataKey="rsMomentum"
-                                stroke={itemOption?.color || trajectory[0]?.stroke || '#6B7280'}
-                                strokeWidth={strokeWidth}
-                        dot={false}
-                                data={segmentData}
-                        connectNulls={false}
-                                strokeOpacity={opacity}
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
+                          const itemOption = currentOptions.find(opt => opt.name === itemName);
+                          const color = itemOption?.color || trajectory[0]?.stroke || '#6B7280';
+
+                          // Pastikan data sudah terurut dan punya rsRatio dan rsMomentum
+                          const sortedTrajectory = [...trajectory].sort((a, b) => (a.point || 0) - (b.point || 0));
+
+                          return (
+                            <React.Fragment key={`traj-wrap-${itemName}`}>
+                              {/* Garis kontinu - Line akan otomatis pakai rsRatio untuk X (dari XAxis dataKey) dan rsMomentum untuk Y */}
+                              <Line
+                                type="monotone"
+                                data={sortedTrajectory}
+                                dataKey="rsMomentum"
+                                stroke={color}
+                                strokeWidth={3}
+                                dot={false}
+                                connectNulls={true}
+                                strokeOpacity={1}
+                                isAnimationActive={false}
+                                xAxisId={0}
+                                yAxisId={0}
+                                key={`line-${itemName}`}
                               />
-                            );
-                          }).filter(Boolean);
-                        }).flat();
+                              {/* Titik-titik body (kecuali head, karena sudah digambar di Scatter latest points) */}
+                              {sortedTrajectory.filter(p => !p.isLatest).map((point, idx) => (
+                                <Scatter
+                                  key={`${itemName}-body-${idx}-${point.point}`}
+                                  dataKey="rsMomentum"
+                                  fill={color}
+                                  stroke={color}
+                                  fillOpacity={1}
+                                  strokeOpacity={1}
+                                  r={6}
+                                  data={[point]}
+                                  xAxisId={0}
+                                  yAxisId={0}
+                                />
+                              ))}
+                            </React.Fragment>
+                          );
+                        });
                       })()}
                       
                       <Scatter dataKey="rsMomentum" fill="#000000" data={[{ rsRatio: 100, rsMomentum: 100 }]} r={8} />
@@ -1303,11 +1347,12 @@ export default function MarketRotationRRG() {
                 </div>
                 </div>
               ) : (
+                // Fallback safety: tampilkan loading
                 <div className="flex items-center justify-center h-96">
                   <div className="flex items-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin" />
                     <span className="text-sm text-muted-foreground">Loading chart data...</span>
-                </div>
+                  </div>
                 </div>
               )}
             </CardContent>
@@ -1321,7 +1366,21 @@ export default function MarketRotationRRG() {
               <CardTitle>Selection Panel</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-                  
+              {!hasRequestedData ? (
+                <div className="flex items-center justify-center h-64">
+                  <div className="text-center">
+                    <p className="text-sm text-muted-foreground mb-2">Click 'Show' button to load chart data</p>
+                  </div>
+                </div>
+              ) : isInputsLoading ? (
+                <div className="flex items-center justify-center h-64">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="text-sm text-muted-foreground">Loading options...</span>
+                  </div>
+                </div>
+              ) : (
+                <>
               {/* Index Search and Select Combined */}
               <div>
                 <h4 className="text-sm font-medium mb-2">
@@ -1635,6 +1694,8 @@ export default function MarketRotationRRG() {
                     )}
                   </div>
                 </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -1649,17 +1710,28 @@ export default function MarketRotationRRG() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={loadScannerData}
-                disabled={isLoadingScanner}
+                onClick={() => setIsStockScreenerExpanded(!isStockScreenerExpanded)}
                 className="h-8"
               >
-                {isLoadingScanner ? (
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                ) : (
-                  <RotateCcw className="w-3 h-3" />
-                )}
+                {isStockScreenerExpanded ? 'Hide' : 'Show'}
               </Button>
+              {isStockScreenerExpanded && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={loadScannerData}
+                  disabled={isLoadingScanner}
+                  className="h-8"
+                >
+                  {isLoadingScanner ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <RotateCcw className="w-3 h-3" />
+                  )}
+                </Button>
+              )}
             </div>
+            {isStockScreenerExpanded && (
             <div className="relative" ref={stockScreenerSearchRef}>
               <h4 className="text-sm font-medium mb-2">
                 Available Stocks: {isLoadingScanner ? (
@@ -1759,9 +1831,11 @@ export default function MarketRotationRRG() {
                   )}
         </div>
               )}
-      </div>
+            </div>
+            )}
           </div>
         </CardHeader>
+        {isStockScreenerExpanded && (
         <CardContent>
           <div className="space-y-4">
             {isLoadingScanner ? (
@@ -1889,6 +1963,7 @@ export default function MarketRotationRRG() {
             )}
           </div>
         </CardContent>
+        )}
       </Card>
 
       {/* Relative Momentum Screener (Sector) */}
@@ -1900,17 +1975,28 @@ export default function MarketRotationRRG() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={loadScannerData}
-                disabled={isLoadingScanner}
+                onClick={() => setIsSectorScreenerExpanded(!isSectorScreenerExpanded)}
                 className="h-8"
               >
-                {isLoadingScanner ? (
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                ) : (
-                  <RotateCcw className="w-3 h-3" />
-                )}
+                {isSectorScreenerExpanded ? 'Hide' : 'Show'}
               </Button>
+              {isSectorScreenerExpanded && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={loadScannerData}
+                  disabled={isLoadingScanner}
+                  className="h-8"
+                >
+                  {isLoadingScanner ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <RotateCcw className="w-3 h-3" />
+                  )}
+                </Button>
+              )}
             </div>
+            {isSectorScreenerExpanded && (
             <div className="relative" ref={sectorScreenerSearchRef}>
               <h4 className="text-sm font-medium mb-2">
                 Available Sectors: {isLoadingScanner ? (
@@ -1941,7 +2027,7 @@ export default function MarketRotationRRG() {
               
               {/* Sector Screener Search Dropdown */}
               {showSectorScreenerSearchDropdown && (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-50 max-h-60 overflow-y-auto">
+                <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-50 max-h-56 overflow-y-auto">
                   {sectorOptions.length === 0 ? (
                     <div className="p-3 text-sm text-muted-foreground">Loading sectors...</div>
                   ) : (
@@ -2011,8 +2097,10 @@ export default function MarketRotationRRG() {
                 </div>
               )}
             </div>
+            )}
           </div>
         </CardHeader>
+        {isSectorScreenerExpanded && (
         <CardContent>
           <div className="space-y-4">
             {isLoadingScanner ? (
@@ -2133,9 +2221,9 @@ export default function MarketRotationRRG() {
             )}
           </div>
         </CardContent>
+        )}
       </Card>
       </React.Fragment>
-      )}
       </div>
     </div>
   );
