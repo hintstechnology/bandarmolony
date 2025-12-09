@@ -8,8 +8,10 @@ import {
   CacheService,
   getTodayDate,
   parseCsvString,
+  removeDuplicates,
+  convertToCsv,
   BATCH_SIZE_PHASE_1_STOCK,
-  MAX_CONCURRENT_REQUESTS
+  MAX_CONCURRENT_REQUESTS_PHASE_1_STOCK
 } from './dataUpdateService';
 import { SchedulerLogService } from './schedulerLogService';
 
@@ -266,57 +268,22 @@ async function processEmiten(
       return { success: true, skipped: true };
     }
     
-    // IMPORTANT: Jangan ubah existing data sama sekali, hanya append data baru untuk tanggal yang belum ada
-    // Data existing sudah di-check di awal (existingDates), jadi newDataOnly hanya berisi tanggal yang benar-benar belum ada
-    
-    // Baca existing CSV sebagai string untuk append (preserve format as-is, jangan parse/modify)
-    let existingCsvContent = '';
-    if (await azureStorage.blobExists(azureBlobName)) {
-      existingCsvContent = await azureStorage.downloadCsvData(azureBlobName);
-      // Pastikan ada newline di akhir jika belum ada
-      if (existingCsvContent && !existingCsvContent.endsWith('\n')) {
-        existingCsvContent += '\n';
-      }
-    } else {
-      // Jika file belum ada, buat header dulu
-      const firstRow = newDataOnly[0];
-      if (firstRow) {
-        const headers = Object.keys(firstRow);
-        existingCsvContent = headers.join(',') + '\n';
-      }
-    }
-    
-    // Convert new data to CSV rows (tanpa header, karena header sudah ada di existing)
-    const newCsvRows: string[] = [];
-    for (const row of newDataOnly) {
-      // Gunakan header dari existing CSV atau dari row pertama
-      let headers: string[] = [];
-      if (existingCsvContent) {
-        const lines = existingCsvContent.split('\n');
-        const firstLine = lines[0];
-        if (firstLine) {
-          headers = firstLine.split(',').map(h => h.trim());
-        } else {
-          headers = Object.keys(row);
-        }
-      } else {
-        headers = Object.keys(row);
-      }
-      
-      const values = headers.map(header => {
-        // Cari value dari row dengan berbagai kemungkinan field name
-        const value = row[header] || row[header.toLowerCase()] || row[header.toUpperCase()] || '';
-        return typeof value === 'string' && value.includes(',') ? `"${value}"` : (value || '');
-      });
-      newCsvRows.push(values.join(','));
-    }
-    
-    // Append new data ke existing CSV (tanpa parse/modify existing)
-    const combinedCsv = existingCsvContent + newCsvRows.join('\n');
-    
-    // Upload langsung tanpa parse/sort/deduplicate untuk preserve existing data as-is
-    // Deduplicate sudah di-handle di awal dengan existingDates check
-    await azureStorage.uploadCsvData(azureBlobName, combinedCsv);
+    // Gabungkan data baru dengan data existing, sort berdasarkan tanggal (terbaru di atas),
+    // lalu hilangkan duplikat berdasarkan kolom tanggal.
+    const combinedData = [...newDataOnly, ...existingData];
+
+    combinedData.sort((a, b) => {
+      const dateA = a.date || a.tanggal || a.Date || '';
+      const dateB = b.date || b.tanggal || b.Date || '';
+      const timeA = new Date(dateA).getTime();
+      const timeB = new Date(dateB).getTime();
+      return timeB - timeA; // Descending: tanggal terbaru di atas
+    });
+
+    const deduplicatedData = removeDuplicates(combinedData);
+    const csvData = convertToCsv(deduplicatedData);
+
+    await azureStorage.uploadCsvData(azureBlobName, csvData);
     
     // Cache the result
     cache.set(cacheKey, { processed: true });
@@ -397,7 +364,7 @@ export async function updateStockData(logId?: string | null, triggeredBy?: strin
 
     // Process emitens in parallel batches with memory management
     const results: Array<{ success: boolean; skipped: boolean; error?: string }> = [];
-    const BATCH_SIZE = BATCH_SIZE_PHASE_1_STOCK; // 400 stocks per batch
+    const BATCH_SIZE = BATCH_SIZE_PHASE_1_STOCK; 
     
     for (let i = 0; i < emitenList.length; i += BATCH_SIZE) {
       const batch = emitenList.slice(i, i + BATCH_SIZE);
@@ -434,7 +401,7 @@ export async function updateStockData(logId?: string | null, triggeredBy?: strin
           );
         },
         BATCH_SIZE,
-        MAX_CONCURRENT_REQUESTS
+        MAX_CONCURRENT_REQUESTS_PHASE_1_STOCK
       );
       
       results.push(...batchResults);

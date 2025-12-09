@@ -151,122 +151,78 @@ router.get('/data', async (req, res) => {
     
     const results: any[] = [];
     
+    // Helper: baca / generate satu item (stock / sector) dan kembalikan objek hasilnya
+    const loadItem = async (rawItem: string, dir: 'stock' | 'sector') => {
+      const cleanedItem = (rawItem as string).replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+      const filePath = `${AZURE_CONFIG.outputDir}/${dir}/${dir === 'stock' ? 'o1' : 'o2'}-rrg-${cleanedItem}.csv`;
+      
+      try {
+        // 1) Coba baca dari Azure jika file sudah ada (paling cepat)
+        if (await exists(filePath)) {
+          const csvContent = await downloadText(filePath);
+          const lines = csvContent.split('\n').filter(line => line.trim());
+          const data = lines.slice(1).map(line => {
+            const [date, rs_ratio, rs_momentum] = line.split(',');
+            return { 
+              date: date || '', 
+              rs_ratio: parseFloat(rs_ratio || '0'), 
+              rs_momentum: parseFloat(rs_momentum || '0') 
+            };
+          });
+          
+          // Filter by tanggal
+          const filteredData = filterDataByDateRange(data, startDate as string, endDate as string);
+          
+          return {
+            item: cleanedItem,
+            data: filteredData
+          };
+        }
+        
+        // 2) Jika file belum ada, generate on-demand (lebih lambat tapi hanya sekali)
+        console.log(`⚠️ Backend: File not found in Azure, generating: ${filePath}`);
+        const csvContent = dir === 'stock'
+          ? await calculateRrgStock(cleanedItem, String(index || 'COMPOSITE'), AZURE_CONFIG)
+          : await calculateRrgSectorFromSector(cleanedItem, String(index || 'COMPOSITE'), AZURE_CONFIG);
+        
+        if (!csvContent) {
+          return null;
+        }
+        
+        const lines = csvContent.split('\n').filter(line => line.trim());
+        const data = lines.slice(1).map(line => {
+          const [date, rs_ratio, rs_momentum] = line.split(',');
+          return { 
+            date: date || '', 
+            rs_ratio: parseFloat(rs_ratio || '0'), 
+            rs_momentum: parseFloat(rs_momentum || '0') 
+          };
+        });
+        
+        const filteredData = filterDataByDateRange(data, startDate as string, endDate as string);
+        
+        return {
+          item: cleanedItem,
+          data: filteredData
+        };
+      } catch (error) {
+        console.error(`Error loading RRG data for ${dir} ${cleanedItem}:`, error);
+        return null;
+      }
+    };
+    
     if (type === 'stock') {
-      for (const item of itemsArray) {
-        const cleanedItem = (item as string).replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-        const filePath = `${AZURE_CONFIG.outputDir}/stock/o1-rrg-${cleanedItem}.csv`;
-        
-        if (await exists(filePath)) {
-          try {
-            const csvContent = await downloadText(filePath);
-            const lines = csvContent.split('\n').filter(line => line.trim());
-            const data = lines.slice(1).map(line => {
-              const [date, rs_ratio, rs_momentum] = line.split(',');
-              return { 
-                date: date || '', 
-                rs_ratio: parseFloat(rs_ratio || '0'), 
-                rs_momentum: parseFloat(rs_momentum || '0') 
-              };
-            });
-            
-            // Filter data by date range
-            const filteredData = filterDataByDateRange(data, startDate as string, endDate as string);
-            
-            results.push({
-              item: cleanedItem,
-              data: filteredData
-            });
-          } catch (error) {
-            console.error(`Error reading RRG data for ${cleanedItem}:`, error);
-          }
-        } else {
-          // Generate on demand if file doesn't exist
-          try {
-            console.log(`⚠️ Backend: File not found in Azure, generating: ${filePath}`);
-            const csvContent = await calculateRrgStock(cleanedItem, String(index || 'COMPOSITE'), AZURE_CONFIG);
-            
-            if (csvContent) {
-              const lines = csvContent.split('\n').filter(line => line.trim());
-              const data = lines.slice(1).map(line => {
-                const [date, rs_ratio, rs_momentum] = line.split(',');
-                return { 
-                  date: date || '', 
-                  rs_ratio: parseFloat(rs_ratio || '0'), 
-                  rs_momentum: parseFloat(rs_momentum || '0') 
-                };
-              });
-              
-              // Filter data by date range
-              const filteredData = filterDataByDateRange(data, startDate as string, endDate as string);
-              
-              results.push({
-                item: cleanedItem,
-                data: filteredData
-              });
-            }
-          } catch (error) {
-            console.error(`Error generating RRG data for ${cleanedItem}:`, error);
-          }
-        }
-      }
+      const promises = itemsArray.map(item => loadItem(item as string, 'stock'));
+      const loaded = await Promise.all(promises);
+      loaded.forEach(entry => {
+        if (entry) results.push(entry);
+      });
     } else if (type === 'sector') {
-      for (const item of itemsArray) {
-        const cleanedItem = (item as string).replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-        const filePath = `${AZURE_CONFIG.outputDir}/sector/o2-rrg-${cleanedItem}.csv`;
-        
-        if (await exists(filePath)) {
-          try {
-            const csvContent = await downloadText(filePath);
-            const lines = csvContent.split('\n').filter(line => line.trim());
-            const data = lines.slice(1).map(line => {
-              const [date, rs_ratio, rs_momentum] = line.split(',');
-              return { 
-                date: date || '', 
-                rs_ratio: parseFloat(rs_ratio || '0'), 
-                rs_momentum: parseFloat(rs_momentum || '0') 
-              };
-            });
-            
-            // Filter data by date range
-            const filteredData = filterDataByDateRange(data, startDate as string, endDate as string);
-            
-            results.push({
-              item: cleanedItem,
-              data: filteredData
-            });
-          } catch (error) {
-            console.error(`Error reading RRG data for ${cleanedItem}:`, error);
-          }
-        } else {
-          // Generate on demand if file doesn't exist
-          try {
-            console.log(`⚠️ Backend: File not found in Azure, generating: ${filePath}`);
-            const csvContent = await calculateRrgSectorFromSector(cleanedItem, String(index || 'COMPOSITE'), AZURE_CONFIG);
-            
-            if (csvContent) {
-              const lines = csvContent.split('\n').filter(line => line.trim());
-              const data = lines.slice(1).map(line => {
-                const [date, rs_ratio, rs_momentum] = line.split(',');
-                return { 
-                  date: date || '', 
-                  rs_ratio: parseFloat(rs_ratio || '0'), 
-                  rs_momentum: parseFloat(rs_momentum || '0') 
-                };
-              });
-              
-              // Filter data by date range
-              const filteredData = filterDataByDateRange(data, startDate as string, endDate as string);
-              
-              results.push({
-                item: cleanedItem,
-                data: filteredData
-              });
-            }
-          } catch (error) {
-            console.error(`Error generating RRG data for ${cleanedItem}:`, error);
-          }
-        }
-      }
+      const promises = itemsArray.map(item => loadItem(item as string, 'sector'));
+      const loaded = await Promise.all(promises);
+      loaded.forEach(entry => {
+        if (entry) results.push(entry);
+      });
     } else if (type === 'index') {
       for (const item of itemsArray) {
         const cleanedItem = (item as string).replace(/[^a-zA-Z0-9]/g, '').toUpperCase();

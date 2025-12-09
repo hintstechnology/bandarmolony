@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, ComposedChart, Line } from 'recharts';
-import { X, Search, Plus, Loader2, Play, RotateCcw, Calendar } from 'lucide-react';
+import { X, Search, Plus, Loader2, RotateCcw, Calendar } from 'lucide-react';
 import { api } from '@/services/api';
 import { useToast } from '../../contexts/ToastContext';
 
@@ -55,9 +55,6 @@ export default function MarketRotationRRG() {
   const [selectedIndex, setSelectedIndex] = useState<string>('COMPOSITE');
   const [selectedIndexes, setSelectedIndexes] = useState<string[]>(['COMPOSITE']);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
-  
-  // Debug logging
-  console.log('🔍 Frontend: Current selectedItems:', selectedItems);
   const [searchQuery, setSearchQuery] = useState('');
   const [indexSearchQuery, setIndexSearchQuery] = useState('');
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
@@ -84,11 +81,17 @@ export default function MarketRotationRRG() {
   const [screenerSectors, setScreenerSectors] = useState<any[]>([]);
   const [loadedStockData, setLoadedStockData] = useState<any[]>([]);
   const [loadedSectorData, setLoadedSectorData] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true); // Start with loading state
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isLoadingScanner, setIsLoadingScanner] = useState(false);
   const [generationProgress, setGenerationProgress] = useState<any>(null);
+  const [, setIsDataReady] = useState<boolean>(false); // We only need the setter to control error/loading visibility
+  const [shouldFetchData, setShouldFetchData] = useState<boolean>(false); // Control when to fetch data (only when Show button clicked)
+  const [hasRequestedData, setHasRequestedData] = useState<boolean>(false); // Pernah klik Show minimal sekali
+  const [lastRequestedViewMode, setLastRequestedViewMode] = useState<'sector' | 'stock' | null>(null); // ViewMode terakhir kali digunakan saat klik Show
+  const [isStockScreenerExpanded, setIsStockScreenerExpanded] = useState<boolean>(false); // Control stock screener expansion
+  const [isSectorScreenerExpanded, setIsSectorScreenerExpanded] = useState<boolean>(false); // Control sector screener expansion
   
   // Separate search states for stock and sector scanners
   const [stockScreenerSearchQuery, setStockScreenerSearchQuery] = useState('');
@@ -111,91 +114,195 @@ export default function MarketRotationRRG() {
   const sectorScreenerSearchRef = useRef<HTMLDivElement>(null);
   const startDateRef = useRef<HTMLInputElement>(null);
   const endDateRef = useRef<HTMLInputElement>(null);
-  const isInitialMount = useRef(true);
   const isLoadingRef = useRef(false);
 
-  // Load available inputs on mount and set defaults
+  // Apakah input (index & items) masih dalam proses loading setelah user klik Show
+  // Hanya true jika sedang dalam proses fetch (shouldFetchData) DAN options belum ada
+  // TIDAK true hanya karena viewMode berubah dan options belum ada
+  const isInputsLoading = shouldFetchData && hasRequestedData && (
+    indexOptions.length === 0 ||
+    (viewMode === 'sector' ? sectorOptions.length === 0 : stockOptions.length === 0)
+  );
+  const menuContainerRef = useRef<HTMLDivElement>(null);
+  const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
+  
+  // Visibility states for indexes and items (for showing/hiding in chart without removing from selection)
+  const [indexVisibility, setIndexVisibility] = useState<Record<string, boolean>>({});
+  const [itemVisibility, setItemVisibility] = useState<Record<string, boolean>>({});
+  
+  // Get visible items (filtered by visibility state) - indexes are not rendered in RRG chart
+  const visibleItems = selectedItems.filter(item => itemVisibility[item] !== false);
+  
+  // Toggle visibility functions
+  const handleToggleIndexVisibility = (index: string) => {
+    setIndexVisibility((prev) => ({
+      ...prev,
+      [index]: !(prev[index] !== false), // Default to true if undefined
+    }));
+  };
+  
+  const handleToggleItemVisibility = (item: string) => {
+    setItemVisibility((prev) => ({
+      ...prev,
+      [item]: !(prev[item] !== false), // Default to true if undefined
+    }));
+  };
+  
+  // Initialize visibility when indexes/items are added
   useEffect(() => {
-    isInitialMount.current = true; // Reset on viewMode change
+    setIndexVisibility((prev) => {
+      const updated = { ...prev };
+      let changed = false;
+      selectedIndexes.forEach((index) => {
+        if (updated[index] === undefined) {
+          updated[index] = true; // Default to visible
+          changed = true;
+        }
+      });
+      // Remove visibility for indexes that are no longer selected
+      Object.keys(updated).forEach((index) => {
+        if (!selectedIndexes.includes(index)) {
+          delete updated[index];
+          changed = true;
+        }
+      });
+      return changed ? updated : prev;
+    });
+  }, [selectedIndexes]);
+  
+  useEffect(() => {
+    setItemVisibility((prev) => {
+      const updated = { ...prev };
+      let changed = false;
+      selectedItems.forEach((item) => {
+        if (updated[item] === undefined) {
+          updated[item] = true; // Default to visible
+          changed = true;
+        }
+      });
+      // Remove visibility for items that are no longer selected
+      Object.keys(updated).forEach((item) => {
+        if (!selectedItems.includes(item)) {
+          delete updated[item];
+          changed = true;
+        }
+      });
+      return changed ? updated : prev;
+    });
+  }, [selectedItems]);
+
+  interface LoadedInputsInfo {
+    success: boolean;
+    defaultIndex?: string | undefined;
+    defaultItems?: string[] | undefined;
+  }
+
+  // Load available inputs only when Show button is clicked (first time)
+  const loadInputsIfNeeded = async (): Promise<LoadedInputsInfo> => {
+    // Only load if options are not yet loaded
+    if (indexOptions.length > 0 && (sectorOptions.length > 0 || stockOptions.length > 0)) {
+      // Sudah pernah di-load, gunakan state saat ini untuk menentukan default
+      const currentIndex = selectedIndex || indexOptions[0]?.name;
+      const currentItems =
+        selectedItems.length > 0
+          ? selectedItems
+          : viewMode === 'sector'
+          ? [sectorOptions[0]?.name || '']
+          : [stockOptions[0]?.name || ''];
+
+      return {
+        success: !!currentIndex && currentItems.filter(Boolean).length > 0,
+        defaultIndex: currentIndex,
+        defaultItems: currentItems.filter(Boolean),
+      };
+    }
     
-    const loadInputs = async () => {
-      try {
-        console.log('🔄 Frontend: Loading RRG inputs for viewMode:', viewMode);
-        const result = await api.listRRGInputs();
+    try {
+      console.log('🔄 Frontend: Loading RRG inputs for viewMode:', viewMode);
+      const result = await api.listRRGInputs();
+      
+      if (result.success && result.data) {
+        console.log('✅ Frontend: RRG inputs loaded:', result.data);
         
-        if (result.success && result.data) {
-          console.log('✅ Frontend: RRG inputs loaded:', result.data);
-          
-          // Generate colors for options - different color schemes for different types
-          const generateIndexColors = (items: string[]) => {
-            // Index colors - darker, more prominent colors
-            const indexColors = ['#DC2626', '#B91C1C', '#991B1B', '#7F1D1D', '#EF4444', '#F87171', '#FCA5A5'];
-            return items.map((item, index) => ({
-              name: item,
-              color: indexColors[index % indexColors.length] || '#DC2626'
-            }));
-          };
-          
-          const generateSectorStockColors = (items: string[]) => {
-            // Sector/Stock colors - vibrant, distinct colors
-            const sectorStockColors = ['#3B82F6', '#10B981', '#EF4444', '#F59E0B', '#8B5CF6', '#06B6D4', '#84CC16', '#EC4899', '#F97316', '#14B8A6', '#A855F7', '#F43F5E', '#0EA5E9', '#22C55E', '#EAB308'];
-            return items.map((item, index) => ({
-              name: item,
-              color: sectorStockColors[index % sectorStockColors.length] || '#6B7280'
-            }));
-          };
-          
-          console.log('📊 RRG Inputs received:', {
-            indexes: result.data.index?.length || 0,
-            sectors: result.data.sectors?.length || 0,
-            stocks: result.data.stocks?.length || 0
-          });
-          
-          setIndexOptions(generateIndexColors(result.data.index || []));
-          setSectorOptions(generateSectorStockColors(result.data.sectors || []));
-          setStockOptions(generateSectorStockColors(result.data.stocks || []));
-          
-          const defaultIndex = result.data.index?.[0] || 'COMPOSITE';
-          if (!selectedIndex) {
-            setSelectedIndex(defaultIndex);
-          }
-          
-          let itemsToSelect: string[] = [];
+        // Generate colors for options - different color schemes for different types
+        const generateIndexColors = (items: string[]) => {
+          // Index colors - darker, more prominent colors
+          const indexColors = ['#DC2626', '#B91C1C', '#991B1B', '#7F1D1D', '#EF4444', '#F87171', '#FCA5A5'];
+          return items.map((item, index) => ({
+            name: item,
+            color: indexColors[index % indexColors.length] || '#DC2626'
+          }));
+        };
+        
+        const generateSectorStockColors = (items: string[]) => {
+          // Sector/Stock colors - vibrant, distinct colors
+          const sectorStockColors = ['#3B82F6', '#10B981', '#EF4444', '#F59E0B', '#8B5CF6', '#06B6D4', '#84CC16', '#EC4899', '#F97316', '#14B8A6', '#A855F7', '#F43F5E', '#0EA5E9', '#22C55E', '#EAB308'];
+          return items.map((item, index) => ({
+            name: item,
+            color: sectorStockColors[index % sectorStockColors.length] || '#6B7280'
+          }));
+        };
+        
+        console.log('📊 RRG Inputs received:', {
+          indexes: result.data.index?.length || 0,
+          sectors: result.data.sectors?.length || 0,
+          stocks: result.data.stocks?.length || 0
+        });
+        
+        setIndexOptions(generateIndexColors(result.data.index || []));
+        setSectorOptions(generateSectorStockColors(result.data.sectors || []));
+        setStockOptions(generateSectorStockColors(result.data.stocks || []));
+        
+        // Hitung default selections berdasarkan data yang baru di-load
+        const defaultIndex = selectedIndex || result.data.index?.[0] || 'COMPOSITE';
+        let itemsToSelect: string[] = selectedItems;
+
+        if (itemsToSelect.length === 0) {
           if (viewMode === 'sector' && result.data.sectors && result.data.sectors.length > 0) {
             const defaultSectors = ['Technology', 'Healthcare', 'Financials'];
             const availableSectors = result.data.sectors || [];
             const validSectors = defaultSectors.filter(sector => availableSectors.includes(sector));
             itemsToSelect = validSectors.length > 0 ? validSectors : [result.data.sectors[0]];
           } else if (viewMode === 'stock' && result.data.stocks && result.data.stocks.length > 0) {
-            // Default stocks: BBCA, BBRI, BMRI
             const defaultStocks = ['BBCA', 'BBRI', 'BMRI'];
             const availableStocks = result.data.stocks || [];
             const validStocks = defaultStocks.filter(stock => availableStocks.includes(stock));
             itemsToSelect = validStocks.length > 0 ? validStocks : [result.data.stocks[0]];
           }
-          
-          if (itemsToSelect.length > 0) {
-            setSelectedItems(itemsToSelect);
-            const indexToUse = selectedIndex || defaultIndex;
-            if (indexToUse && itemsToSelect.length > 0) {
-              loadChartDataWithParams(indexToUse, itemsToSelect, viewMode);
-            }
-          }
-          
-          setIsLoading(false);
-        } else {
-          setError(result.error || 'Failed to load inputs');
-          setIsLoading(false);
         }
-      } catch (error) {
-        console.error('❌ Frontend: Error loading inputs:', error);
-        setError('Failed to load available options');
-        setIsLoading(false);
+
+        // Sinkronkan ke state
+        setSelectedIndex(defaultIndex);
+        if (itemsToSelect.length > 0) {
+          setSelectedItems(itemsToSelect);
+        }
+
+        return {
+          success: itemsToSelect.length > 0,
+          defaultIndex,
+          defaultItems: itemsToSelect,
+        };
+      } else {
+        console.error('❌ Frontend: Failed to load RRG inputs:', result.error);
+        const errorMessage = result.error || 'Failed to load inputs';
+        showToast({
+          type: 'error',
+          title: 'Failed to Load Options',
+          message: errorMessage
+        });
+        return { success: false };
       }
-    };
-    
-    loadInputs();
-  }, [viewMode]);
+    } catch (error: any) {
+      console.error('❌ Frontend: Error loading inputs:', error);
+      const errorMessage = error?.message || error?.toString() || 'Network error occurred';
+      showToast({
+        type: 'error',
+        title: 'Connection Error',
+        message: `Failed to load options: ${errorMessage}. Please check your connection and try again.`
+      });
+      return { success: false };
+    }
+  };
 
   // Load scanner data
   const loadScannerData = useCallback(async () => {
@@ -309,10 +416,12 @@ export default function MarketRotationRRG() {
     }
   }, []);
 
-  // Load scanner data on component mount
+  // Load scanner data only when respective section is expanded
   useEffect(() => {
-    loadScannerData();
-  }, [loadScannerData]);
+    if (isStockScreenerExpanded || isSectorScreenerExpanded) {
+      loadScannerData();
+    }
+  }, [isStockScreenerExpanded, isSectorScreenerExpanded, loadScannerData]);
 
   // Click outside handlers
   useEffect(() => {
@@ -355,17 +464,19 @@ export default function MarketRotationRRG() {
     }
   }, [sectorScreenerSearchQuery]);
 
+  // Load chart data only when shouldFetchData is true (triggered by Show button)
   useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
+    if (!shouldFetchData) {
       return;
     }
     
-    if (selectedIndex && selectedItems.length > 0 && !isLoading) {
+    if (selectedIndex && selectedItems.length > 0) {
       loadChartData();
+    } else {
+      setShouldFetchData(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIndex, selectedItems, viewMode]);
+  }, [shouldFetchData]);
 
   useEffect(() => {
     if (isGenerating) {
@@ -374,11 +485,11 @@ export default function MarketRotationRRG() {
           const statusResult = await api.getRRGStatus();
           if (statusResult.success && statusResult.data) {
             if (!statusResult.data.isGenerating) {
-              console.log('✅ Frontend: RRG generation completed, refreshing chart data');
+              console.log('✅ Frontend: RRG generation completed');
               setIsGenerating(false);
               setGenerationProgress(null);
               clearInterval(interval);
-              loadChartData();
+              // Don't auto-refresh - user must click Show button
             } else {
               setGenerationProgress(statusResult.data.progress);
             }
@@ -451,8 +562,10 @@ export default function MarketRotationRRG() {
         console.error('❌ Frontend: No results - empty array!');
         setError('No data available for selected items. Data mungkin belum di-generate atau file tidak ditemukan di Azure.');
         setTrajectoryData([]);
+        setIsDataReady(true); // Still set to true so error message can be shown
         setIsLoading(false);
         isLoadingRef.current = false;
+        setShouldFetchData(false); // Reset fetch trigger
         return;
       }
       
@@ -461,13 +574,17 @@ export default function MarketRotationRRG() {
       
       setTrajectoryData(trajectories);
       setError(null);
+      setIsDataReady(true);
       setIsLoading(false);
       isLoadingRef.current = false;
+      setShouldFetchData(false); // Reset fetch trigger
     } catch (error) {
       console.error('❌ Frontend: Error loading chart data:', error);
       setError('Failed to load chart data');
+      setIsDataReady(true); // Still set to true so error message can be shown
       setIsLoading(false);
       isLoadingRef.current = false;
+      setShouldFetchData(false); // Reset fetch trigger
     }
   };
 
@@ -482,15 +599,11 @@ export default function MarketRotationRRG() {
 
   const parseResultsToTrajectoryData = (results: any[], originalItems: string[]): TrajectoryPoint[] => {
     if (results.length === 0) {
-      console.log('📊 Frontend: No results to parse');
       return [];
     }
     
-    console.log('📊 Frontend: Parsing RRG results to trajectory:', results);
-    console.log('📊 Frontend: Original items:', originalItems);
-    
     const allTrajectories: TrajectoryPoint[] = [];
-    const currentOptions = viewMode === 'sector' ? sectorOptions : stockOptions;
+    const currentOptions = (lastRequestedViewMode || viewMode) === 'sector' ? sectorOptions : stockOptions;
     
     // Create mapping from cleaned name to original name
     const itemMapping: Record<string, string> = {};
@@ -499,57 +612,45 @@ export default function MarketRotationRRG() {
       itemMapping[cleaned] = item;
     });
     
-    console.log('📊 Frontend: Item mapping:', itemMapping);
-    
     results.forEach((result) => {
       if (result.data && Array.isArray(result.data)) {
         // Get original item name from mapping
         const originalItemName = itemMapping[result.item] || result.item;
-        const dataPoints = result.data.slice(-10);
+        // Ambil lebih banyak poin terakhir untuk membuat trajectory lebih jelas
+        const dataPoints = result.data.slice(-20);
         const itemColor = currentOptions.find(opt => opt.name === originalItemName)?.color || '#6B7280';
-        
-        console.log(`📊 Processing item: ${result.item} -> ${originalItemName}, color: ${itemColor}, dataPoints:`, dataPoints.length);
         
         dataPoints.forEach((row: any, pointIdx: number) => {
           if (row && row.rs_ratio !== undefined && row.rs_momentum !== undefined) {
             const isLast = pointIdx === dataPoints.length - 1;
-            let size = 3;
-            
-            if (isLast) {
-              size = 20;
-            } else if (dataPoints.length > 1) {
-              const progress = pointIdx / (dataPoints.length - 1);
-              size = 3 + progress * 17;
-            }
             
             const rsRatio = parseFloat(String(row.rs_ratio)) || 100;
             const rsMomentum = parseFloat(String(row.rs_momentum)) || 100;
             
-            console.log(`  Point ${pointIdx + 1}: RS-Ratio=${rsRatio}, RS-Momentum=${rsMomentum}, size=${size}`);
-            
             allTrajectories.push({
               point: pointIdx + 1,
-              rsRatio: rsRatio,
-              rsMomentum: rsMomentum,
+              rsRatio,
+              rsMomentum,
               name: originalItemName,
               color: itemColor,
               isLatest: isLast,
               fill: itemColor,
               stroke: itemColor,
-              radius: size
+              radius: isLast ? 20 : 6
             });
           }
         });
       }
     });
     
-    console.log('📊 Frontend: Final trajectory data points:', allTrajectories.length);
-    console.log('📊 Frontend: Sample points:', allTrajectories.slice(0, 3));
     return allTrajectories;
   };
 
 
-  const currentOptions = viewMode === 'sector' ? sectorOptions : stockOptions;
+  // Gunakan lastRequestedViewMode untuk menampilkan options, bukan viewMode saat ini
+  // Ini mencegah perubahan UI saat ganti menu tanpa klik Show
+  const currentOptions = (lastRequestedViewMode || viewMode) === 'sector' ? sectorOptions : stockOptions;
+  const displayViewMode = lastRequestedViewMode || viewMode; // Untuk display text
 
 
   const removeItem = (itemName: string) => {
@@ -564,26 +665,22 @@ export default function MarketRotationRRG() {
   };
 
   const handleViewModeChange = (mode: 'sector' | 'stock') => {
+    // Hanya ubah viewMode dan clear search - TIDAK ada proses apapun
     setViewMode(mode);
     setSearchQuery('');
     setIndexSearchQuery('');
     setShowSearchDropdown(false);
     setShowIndexSearchDropdown(false);
-    setTrajectoryData([]);
     
-    if (mode === 'sector' && sectorOptions.length > 0) {
-      setSelectedItems([sectorOptions[0]?.name || 'Technology']);
-      loadChartDataWithParams(selectedIndex, [sectorOptions[0]?.name || 'Technology'], mode);
-    } else if (mode === 'stock' && stockOptions.length > 0) {
-      // Default stocks: BBCA, BBRI, BMRI
-      const defaultStocks = ['BBCA', 'BBRI', 'BMRI'];
-      const availableDefaults = defaultStocks.filter(stock => 
-        stockOptions.some(opt => opt.name === stock)
-      );
-      const itemsToSelect = availableDefaults.length > 0 ? availableDefaults : [stockOptions[0]?.name || 'BBCA'];
-      setSelectedItems(itemsToSelect);
-      loadChartDataWithParams(selectedIndex, itemsToSelect, mode);
-    }
+    // TIDAK clear data chart - tetap tampilkan data saat ini
+    // TIDAK set isDataReady - tetap tampilkan chart jika sudah ada data
+    // TIDAK set error - biarkan error tetap ada jika ada
+    // TIDAK set isLoading - biarkan loading state tetap
+    
+    // TIDAK set selectedItems - biarkan selection tetap sama
+    // User akan klik Show untuk load data baru dengan viewMode baru
+    
+    // NO PROCESSING - Completely sterile, no backend/frontend activity
   };
 
 
@@ -752,48 +849,119 @@ export default function MarketRotationRRG() {
 
 
 
-  const handleGo = () => {
-    if (selectedIndex && selectedItems.length > 0) {
-      loadChartDataWithParams(selectedIndex, selectedItems, viewMode);
+  const handleGo = async () => {
+    // User sudah klik Show - langsung set loading state SEBELUM clear data
+    setHasRequestedData(true);
+    setLastRequestedViewMode(viewMode); // Simpan viewMode yang digunakan saat klik Show
+    setError(null);
+    setIsLoading(true); // SET LOADING SEBELUM CLEAR DATA - ini penting!
+    setIsDataReady(false);
+    
+    // Load inputs terlebih dahulu jika belum ada (sekaligus hitung default selection)
+    const inputsInfo = await loadInputsIfNeeded();
+    if (!inputsInfo.success) {
+      // Error sudah ditampilkan di loadInputsIfNeeded
+      setIsLoading(false); // Reset loading jika gagal
+      return;
+    }
+    
+    // Gunakan selection dari state jika sudah ada, fallback ke default dari inputsInfo
+    const effectiveIndex = selectedIndex || inputsInfo.defaultIndex || indexOptions[0]?.name || 'COMPOSITE';
+    const effectiveItems =
+      selectedItems.length > 0
+        ? selectedItems
+        : (inputsInfo.defaultItems && inputsInfo.defaultItems.length > 0
+            ? inputsInfo.defaultItems
+            : []);
+    
+    // Jika masih tidak ada item (case sangat jarang), baru tampilkan warning
+    if (!effectiveIndex || effectiveItems.length === 0) {
+      showToast({
+        type: 'warning',
+        title: 'Selection Required',
+        message: 'Please select at least one index and one item before clicking Show.',
+      });
+      setIsLoading(false); // Reset loading jika tidak ada selection
+      return;
+    }
+    
+    // Sinkronkan selection ke state (kalau sebelumnya kosong)
+    if (!selectedIndex && effectiveIndex) {
+      setSelectedIndex(effectiveIndex);
+    }
+    if (selectedItems.length === 0 && effectiveItems.length > 0) {
+      setSelectedItems(effectiveItems);
+    }
+    
+    // JANGAN clear trajectoryData di sini - biarkan data lama tetap ada sampai data baru selesai
+    // setTrajectoryData([]); // REMOVED - ini menyebabkan "No data available" muncul
+    
+    // Langsung panggil loader dengan parameter yang sudah pasti valid
+    // loadChartDataWithParams akan set isLoading sendiri, tapi kita sudah set di awal untuk menghindari gap
+    setShouldFetchData(false); // jangan pakai effect, langsung panggil loader
+    await loadChartDataWithParams(effectiveIndex, effectiveItems, viewMode);
+  };
+
+  const triggerDatePicker = (inputRef: React.RefObject<HTMLInputElement>) => {
+    if (inputRef.current) {
+      inputRef.current.showPicker();
     }
   };
 
-  const handleReset = () => {
-    // Reset to default dates
-    const today = new Date();
-    const tenDaysAgo = new Date(today);
-    tenDaysAgo.setDate(today.getDate() - 10);
-    setStartDate(tenDaysAgo);
-    setEndDate(today);
+  const handleStartDateChange = (dateString: string) => {
+    const newDate = getDateFromInput(dateString);
     
-    // Reset selections to default based on view mode
-    if (viewMode === 'sector' && sectorOptions.length > 0) {
-      // Default sectors: Technology, Healthcare, Financials
-      const defaultSectors = ['Technology', 'Healthcare', 'Financials'];
-      const availableDefaults = defaultSectors.filter(sector => 
-        sectorOptions.some(opt => opt.name === sector)
-      );
-      const itemsToSelect = availableDefaults.length > 0 ? availableDefaults : [sectorOptions[0]?.name || 'Technology'];
-      setSelectedItems(itemsToSelect);
-      loadChartDataWithParams(selectedIndex, itemsToSelect, 'sector');
-    } else if (viewMode === 'stock' && stockOptions.length > 0) {
-      // Default stocks: BBCA, BBRI, BMRI
-      const defaultStocks = ['BBCA', 'BBRI', 'BMRI'];
-      const availableDefaults = defaultStocks.filter(stock => 
-        stockOptions.some(opt => opt.name === stock)
-      );
-      const itemsToSelect = availableDefaults.length > 0 ? availableDefaults : [stockOptions[0]?.name || 'BBCA'];
-      setSelectedItems(itemsToSelect);
-      loadChartDataWithParams(selectedIndex, itemsToSelect, 'stock');
+    // Validate start date is not after end date
+    if (newDate > endDate) {
+      showToast({
+        type: 'error',
+        title: 'Start date cannot be after end date',
+        message: 'Please select a valid start date'
+      });
+      return;
     }
     
-    // Clear chart data
-    setTrajectoryData([]);
+    // Check if range exceeds 1 year
+    const daysDiff = Math.ceil((endDate.getTime() - newDate.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysDiff > 365) {
+      showToast({
+        type: 'error',
+        title: 'Date range cannot exceed 1 year',
+        message: 'Please select a date range within 1 year'
+      });
+      return;
+    }
+    
+    setStartDate(newDate);
   };
 
-  const hasValidSelection = () => {
-    return selectedIndex && selectedItems.length > 0;
+  const handleEndDateChange = (dateString: string) => {
+    const newDate = getDateFromInput(dateString);
+    
+    // Validate end date is not before start date
+    if (newDate < startDate) {
+      showToast({
+        type: 'error',
+        title: 'End date cannot be before start date',
+        message: 'Please select a valid end date'
+      });
+      return;
+    }
+    
+    // Check if range exceeds 1 year
+    const daysDiff = Math.ceil((newDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysDiff > 365) {
+      showToast({
+        type: 'error',
+        title: 'Date range cannot exceed 1 year',
+        message: 'Please select a date range within 1 year'
+      });
+      return;
+    }
+    
+    setEndDate(newDate);
   };
+
 
   const addToScreener = useCallback((stockName: string) => {
     const stockOption = stockOptions.find(opt => opt.name === stockName);
@@ -944,10 +1112,10 @@ export default function MarketRotationRRG() {
     }
   };
 
-  // Memoized filtered data for performance
+  // Memoized filtered data for performance (only show visible items)
   const filteredTrajectoryData = useMemo(() => 
-    trajectoryData.filter(point => selectedItems.includes(point.name)), 
-    [trajectoryData, selectedItems]
+    trajectoryData.filter(point => visibleItems.includes(point.name)), 
+    [trajectoryData, visibleItems]
   );
 
   // Memoized filtered options for performance
@@ -972,137 +1140,143 @@ export default function MarketRotationRRG() {
     [stockOptions, searchQuery]
   );
 
+  // Monitor menu height to detect if it wraps to 2 rows
+  useEffect(() => {
+    const checkMenuHeight = () => {
+      if (menuContainerRef.current) {
+        const menuHeight = menuContainerRef.current.offsetHeight;
+        // If menu height is more than ~50px, it's likely 2 rows (single row is usually ~40-45px)
+        setIsMenuTwoRows(menuHeight > 50);
+      }
+    };
+
+    // Check initially
+    checkMenuHeight();
+
+    // Check on window resize
+    window.addEventListener('resize', checkMenuHeight);
+    
+    // Use ResizeObserver for more accurate detection
+    let resizeObserver: ResizeObserver | null = null;
+    if (menuContainerRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        checkMenuHeight();
+      });
+      resizeObserver.observe(menuContainerRef.current);
+    }
+
+    return () => {
+      window.removeEventListener('resize', checkMenuHeight);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+    };
+  }, [viewMode, startDate, endDate]);
+
   return (
-    <div className="space-y-6">
-      {/* Control Panel */}
-      <div className="mb-6">
-        <Card>
-          <CardContent className="p-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {/* View Mode Toggle */}
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-foreground">View Mode</label>
-                <div className="flex items-center gap-1 border border-border rounded-lg p-1 h-10">
-                  <Button
-                    variant={viewMode === 'sector' ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => handleViewModeChange('sector')}
-                    className="h-full px-3 flex-1 text-xs sm:text-sm"
-                  >
-                    Sector
-                  </Button>
-                  <Button
-                    variant={viewMode === 'stock' ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => handleViewModeChange('stock')}
-                    className="h-full px-3 flex-1 text-xs sm:text-sm"
-                  >
-                    Stock
-                  </Button>
+    <div className="w-full">
+      {/* Top Controls - Compact without Card */}
+      {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
+      <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
+        <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-1 md:gap-x-7 md:gap-y-0.5">
+          {/* Stock/Sector Dropdown */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+            <label className="text-sm font-medium whitespace-nowrap">Stock/Sector:</label>
+            <select
+              value={viewMode}
+              onChange={(e) => handleViewModeChange(e.target.value as 'sector' | 'stock')}
+              className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
+            >
+              <option value="sector">Sector</option>
+              <option value="stock">Stock</option>
+            </select>
+          </div>
+
+          {/* Date Range */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+            <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
+            <div className="flex items-center gap-2 w-full md:w-auto">
+              <div 
+                className="relative h-9 flex-1 md:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                onClick={() => triggerDatePicker(startDateRef)}
+              >
+                <input
+                  ref={startDateRef}
+                  type="date"
+                  value={formatDateForInput(startDate)}
+                  onChange={(e) => handleStartDateChange(e.target.value)}
+                  onKeyDown={(e) => e.preventDefault()}
+                  onPaste={(e) => e.preventDefault()}
+                  onInput={(e) => e.preventDefault()}
+                  max={formatDateForInput(endDate)}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  style={{ caretColor: 'transparent' }}
+                />
+                <div className="flex items-center justify-between h-full px-3">
+                  <span className="text-sm text-foreground">
+                    {startDate.toLocaleDateString('en-GB', { 
+                      day: '2-digit', 
+                      month: '2-digit', 
+                      year: 'numeric' 
+                    })}
+                  </span>
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
                 </div>
               </div>
-
-              {/* Start Date */}
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Start Date</label>
-                <div 
-                  className="relative h-10 w-full rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
-                  onClick={() => startDateRef.current?.showPicker()}
-                >
-                  <input
-                    ref={startDateRef}
-                    type="date"
-                    value={formatDateForInput(startDate)}
-                    onChange={(e) => setStartDate(getDateFromInput(e.target.value))}
-                    onKeyDown={(e) => e.preventDefault()}
-                    onPaste={(e) => e.preventDefault()}
-                    onInput={(e) => e.preventDefault()}
-                    max={formatDateForInput(endDate)}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    style={{ caretColor: 'transparent' }}
-                  />
-                  <div className="flex items-center justify-between h-full px-3 py-2">
-                    <span className="text-sm text-foreground">
-                      {startDate.toLocaleDateString('en-GB', { 
-                        day: '2-digit', 
-                        month: '2-digit', 
-                        year: 'numeric' 
-                      })}
-                    </span>
-                    <Calendar className="w-4 h-4 text-muted-foreground" />
-                  </div>
-                </div>
-              </div>
-
-              {/* End Date */}
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">End Date</label>
-                <div 
-                  className="relative h-10 w-full rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
-                  onClick={() => endDateRef.current?.showPicker()}
-                >
-                  <input
-                    ref={endDateRef}
-                    type="date"
-                    value={formatDateForInput(endDate)}
-                    onChange={(e) => setEndDate(getDateFromInput(e.target.value))}
-                    onKeyDown={(e) => e.preventDefault()}
-                    onPaste={(e) => e.preventDefault()}
-                    onInput={(e) => e.preventDefault()}
-                    min={formatDateForInput(startDate)}
-                    max={formatDateForInput(new Date())}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    style={{ caretColor: 'transparent' }}
-                  />
-                  <div className="flex items-center justify-between h-full px-3 py-2">
-                    <span className="text-sm text-foreground">
-                      {endDate.toLocaleDateString('en-GB', { 
-                        day: '2-digit', 
-                        month: '2-digit', 
-                        year: 'numeric' 
-                      })}
-                    </span>
-                    <Calendar className="w-4 h-4 text-muted-foreground" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Action</label>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleGo}
-                    disabled={isLoading || !hasValidSelection()}
-                    className="flex-1 h-10 px-3 py-2 text-sm font-medium rounded-md border border-input bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {isLoading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Loading...
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-4 h-4" />
-                        Go
-                      </>
-                    )}
-                  </button>
-                  <button
-                    onClick={handleReset}
-                    disabled={isLoading}
-                    className="flex-1 h-10 px-3 py-2 text-sm font-medium rounded-md border border-input bg-background text-foreground hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    <RotateCcw className="w-4 h-4" />
-                    Reset
-                  </button>
+              <span className="text-sm text-muted-foreground whitespace-nowrap hidden md:inline">to</span>
+              <div 
+                className="relative h-9 flex-1 md:w-36 rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                onClick={() => triggerDatePicker(endDateRef)}
+              >
+                <input
+                  ref={endDateRef}
+                  type="date"
+                  value={formatDateForInput(endDate)}
+                  onChange={(e) => handleEndDateChange(e.target.value)}
+                  onKeyDown={(e) => e.preventDefault()}
+                  onPaste={(e) => e.preventDefault()}
+                  onInput={(e) => e.preventDefault()}
+                  min={formatDateForInput(startDate)}
+                  max={formatDateForInput(new Date())}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  style={{ caretColor: 'transparent' }}
+                />
+                <div className="flex items-center justify-between h-full px-3">
+                  <span className="text-sm text-foreground">
+                    {endDate.toLocaleDateString('en-GB', { 
+                      day: '2-digit', 
+                      month: '2-digit', 
+                      year: 'numeric' 
+                    })}
+                  </span>
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
                 </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+
+          {/* Show Button */}
+          <button
+            onClick={handleGo}
+            disabled={isGenerating}
+            className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full md:w-auto"
+          >
+            {isGenerating ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                Generating...
+              </>
+            ) : (
+              'Show'
+            )}
+          </button>
+        </div>
       </div>
 
+      {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
+      <div className={isMenuTwoRows ? "h-0 lg:h-[60px]" : "h-0 lg:h-[38px]"}></div>
+
+      <div className="space-y-6">
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 sm:gap-6 overflow-x-auto">
         {/* RRG Chart */}
         <div className="lg:col-span-3">
@@ -1111,7 +1285,14 @@ export default function MarketRotationRRG() {
               <CardTitle>Relative Rotation Graph (RRG) vs {selectedIndex}</CardTitle>
             </CardHeader>
             <CardContent className="flex-1 min-h-[320px] md:min-h-[420px]">
-              {isGenerating ? (
+              {!hasRequestedData ? (
+                // Belum pernah klik Show
+                <div className="flex items-center justify-center h-96">
+                  <div className="text-center">
+                    <p className="text-sm text-muted-foreground mb-2">Click 'Show' button to load chart data</p>
+                  </div>
+                </div>
+              ) : isGenerating ? (
                 <div className="flex items-center justify-center h-96">
                   <div className="text-center">
                     <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-primary" />
@@ -1129,92 +1310,95 @@ export default function MarketRotationRRG() {
                     )}
                   </div>
                 </div>
-              ) : isLoading ? (
+              ) : (isInputsLoading || isLoading || shouldFetchData) ? (
                 <div className="flex items-center justify-center h-96">
                   <div className="flex items-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin" />
                     <span className="text-sm text-muted-foreground">Loading chart data...</span>
                   </div>
                 </div>
-              ) : error && !isLoading ? (
+              ) : error && !isLoading && !isGenerating && !shouldFetchData && !isInputsLoading ? (
                 <div className="flex items-center justify-center h-96">
                   <div className="text-center">
                     <p className="text-sm text-destructive mb-2">{error}</p>
-                    <Button variant="outline" size="sm" onClick={() => loadChartData()}>Retry</Button>
+                    <Button variant="outline" size="sm" onClick={handleGo}>Retry</Button>
                   </div>
                 </div>
-              ) : filteredTrajectoryData.length === 0 && !isLoading && !isGenerating ? (
-                <div className="flex items-center justify-center h-96">
-                  <div className="text-center">
-                    <p className="text-sm text-muted-foreground mb-2">No data available</p>
-                    <p className="text-xs text-muted-foreground mb-3">Data mungkin sedang diproses atau belum tersedia</p>
-                    <Button variant="outline" size="sm" onClick={() => loadChartData()}>Reload Data</Button>
-                  </div>
-                </div>
-              ) : filteredTrajectoryData.length > 0 ? (
+              ) : trajectoryData.length > 0 ? (
+                // Tampilkan data yang ada meskipun filteredTrajectoryData kosong (misalnya karena viewMode berubah)
+                // Gunakan selectedItems sebagai fallback jika visibleItems kosong
                 <div className="relative h-full w-full min-h-[320px] md:min-h-[420px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={filteredTrajectoryData} margin={{ bottom: 20, left: 20, right: 20, top: 20 }}>
+                    <ComposedChart data={filteredTrajectoryData.length > 0 ? filteredTrajectoryData : trajectoryData.filter(point => selectedItems.includes(point.name))} margin={{ bottom: 20, left: 20, right: 20, top: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--muted-foreground))" opacity={0.3} />
-                      <XAxis type="number" dataKey="rsRatio" domain={[90, 110]} name="RS-Ratio" stroke="hsl(var(--foreground))" tick={{ fill: 'hsl(var(--foreground))' }} />
-                      <YAxis type="number" dataKey="rsMomentum" domain={[90, 110]} name="RS-Momentum" stroke="hsl(var(--foreground))" tick={{ fill: 'hsl(var(--foreground))' }} />
+                      <XAxis type="number" dataKey="rsRatio" domain={[0, 120]} name="RS-Ratio" stroke="hsl(var(--foreground))" tick={{ fill: 'hsl(var(--foreground))' }} />
+                      <YAxis type="number" dataKey="rsMomentum" domain={[85, 115]} name="RS-Momentum" stroke="hsl(var(--foreground))" tick={{ fill: 'hsl(var(--foreground))' }} />
                   <ReferenceLine x={100} stroke="hsl(var(--foreground))" strokeDasharray="2 2" />
                   <ReferenceLine y={100} stroke="hsl(var(--foreground))" strokeDasharray="2 2" />
                   <Tooltip content={<CustomTooltip />} />
                   
                       {/* Render latest points */}
-                      {filteredTrajectoryData.filter(point => point.isLatest).map((point, index) => (
+                      {(filteredTrajectoryData.length > 0 ? filteredTrajectoryData : trajectoryData.filter(point => selectedItems.includes(point.name))).filter(point => point.isLatest).map((point, index) => (
                         <Scatter key={`${point.name}-${index}`} dataKey="rsMomentum" fill={point.fill} stroke={point.stroke} fillOpacity={0.8} strokeOpacity={0.8} r={point.radius} data={[point]} />
                       ))}
                       
-                      {/* Trajectory lines for all selected items with gradient opacity and tapered ends */}
+                      {/* Trajectory lines & points per item (continuous, mudah dibaca) */}
                       {(() => {
-                        // Group trajectories by item name
                         const trajectories: Record<string, TrajectoryPoint[]> = {};
-                        selectedItems.forEach(itemName => {
-                          const itemTrajectory = trajectoryData.filter(point => point.name === itemName);
+                        // Gunakan visibleItems jika ada, fallback ke selectedItems
+                        const itemsToShow = visibleItems.length > 0 ? visibleItems : selectedItems;
+                        itemsToShow.forEach(itemName => {
+                          const itemTrajectory = trajectoryData
+                            .filter(point => point.name === itemName)
+                            .sort((a, b) => (a.point || 0) - (b.point || 0)); // Sort by point number
                           if (itemTrajectory.length > 0) {
                             trajectories[itemName] = itemTrajectory;
                           }
                         });
-                        
+
                         return Object.values(trajectories).map((trajectory) => {
                           const itemName = trajectory[0]?.name;
-                    const itemOption = currentOptions.find(opt => opt.name === itemName);
-                          
-                          // Create gradient lines for each segment
-                          return trajectory.map((point, index) => {
-                            if (index === 0) return null; // Skip first point as it has no previous point to connect
-                            
-                            const previousPoint = trajectory[index - 1];
-                            if (!previousPoint) return null;
-                            const segmentData = [previousPoint, point];
-                            
-                            // Calculate opacity: newer segments are more opaque with smoother gradient
-                            const totalPoints = trajectory.length;
-                            const progress = index / (totalPoints - 1);
-                            const opacity = 0.1 + (progress * progress * 0.9); // Smoother curve: 0.1 to 1.0
-                            
-                            // Calculate stroke width: taper from thin to thick
-                            const strokeWidth = 0.5 + (progress * 2.5); // From 0.5 to 3.0
-                    
-                    return (
-                      <Line
-                                key={`line-${itemName}-${index}`}
-                        type="monotone"
-                        dataKey="rsMomentum"
-                                stroke={itemOption?.color || trajectory[0]?.stroke || '#6B7280'}
-                                strokeWidth={strokeWidth}
-                        dot={false}
-                                data={segmentData}
-                        connectNulls={false}
-                                strokeOpacity={opacity}
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
+                          const itemOption = currentOptions.find(opt => opt.name === itemName);
+                          const color = itemOption?.color || trajectory[0]?.stroke || '#6B7280';
+
+                          // Pastikan data sudah terurut dan punya rsRatio dan rsMomentum
+                          const sortedTrajectory = [...trajectory].sort((a, b) => (a.point || 0) - (b.point || 0));
+
+                          return (
+                            <React.Fragment key={`traj-wrap-${itemName}`}>
+                              {/* Garis kontinu - Line akan otomatis pakai rsRatio untuk X (dari XAxis dataKey) dan rsMomentum untuk Y */}
+                              <Line
+                                type="monotone"
+                                data={sortedTrajectory}
+                                dataKey="rsMomentum"
+                                stroke={color}
+                                strokeWidth={3}
+                                dot={false}
+                                connectNulls={true}
+                                strokeOpacity={1}
+                                isAnimationActive={false}
+                                xAxisId={0}
+                                yAxisId={0}
+                                key={`line-${itemName}`}
                               />
-                            );
-                          }).filter(Boolean);
-                        }).flat();
+                              {/* Titik-titik body (kecuali head, karena sudah digambar di Scatter latest points) */}
+                              {sortedTrajectory.filter(p => !p.isLatest).map((point, idx) => (
+                                <Scatter
+                                  key={`${itemName}-body-${idx}-${point.point}`}
+                                  dataKey="rsMomentum"
+                                  fill={color}
+                                  stroke={color}
+                                  fillOpacity={1}
+                                  strokeOpacity={1}
+                                  r={6}
+                                  data={[point]}
+                                  xAxisId={0}
+                                  yAxisId={0}
+                                />
+                              ))}
+                            </React.Fragment>
+                          );
+                        });
                       })()}
                       
                       <Scatter dataKey="rsMomentum" fill="#000000" data={[{ rsRatio: 100, rsMomentum: 100 }]} r={8} />
@@ -1231,12 +1415,22 @@ export default function MarketRotationRRG() {
                     <div className="absolute bottom-[25%] right-[10%]"><span className="text-yellow-600 font-bold text-lg bg-background/80 px-3 py-2 rounded">Weakening</span></div>
                 </div>
                 </div>
+              ) : trajectoryData.length === 0 && !isLoading && !isGenerating && !shouldFetchData && !isInputsLoading && hasRequestedData ? (
+                // Setelah klik Show dan loading selesai, tapi data kosong
+                <div className="flex items-center justify-center h-96">
+                  <div className="text-center">
+                    <p className="text-sm text-muted-foreground mb-2">No data available</p>
+                    <p className="text-xs text-muted-foreground mb-3">Data mungkin sedang diproses atau belum tersedia</p>
+                    <Button variant="outline" size="sm" onClick={handleGo}>Reload Data</Button>
+                  </div>
+                </div>
               ) : (
+                // Fallback safety: tampilkan loading
                 <div className="flex items-center justify-center h-96">
                   <div className="flex items-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin" />
                     <span className="text-sm text-muted-foreground">Loading chart data...</span>
-                </div>
+                  </div>
                 </div>
               )}
             </CardContent>
@@ -1250,7 +1444,21 @@ export default function MarketRotationRRG() {
               <CardTitle>Selection Panel</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-                  
+              {!hasRequestedData ? (
+                <div className="flex items-center justify-center h-64">
+                  <div className="text-center">
+                    <p className="text-sm text-muted-foreground mb-2">Click 'Show' button to load chart data</p>
+                  </div>
+                </div>
+              ) : (isInputsLoading || isLoading) ? (
+                <div className="flex items-center justify-center h-64">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="text-sm text-muted-foreground">Loading options...</span>
+                  </div>
+                </div>
+              ) : (
+                <>
               {/* Index Search and Select Combined */}
               <div>
                 <h4 className="text-sm font-medium mb-2">
@@ -1353,17 +1561,53 @@ export default function MarketRotationRRG() {
                       <Badge variant="outline" className="text-xs">Min. required</Badge>
                     )}
                   </div>
+                  {/* Select All / Unselect All checkbox */}
+                  {selectedIndexes.length > 1 && (
+                    <div className="mb-2 pb-2 border-b border-border">
+                      <label className="flex items-center gap-2 text-xs font-medium cursor-pointer select-none text-muted-foreground hover:text-foreground transition-colors">
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary"
+                          checked={selectedIndexes.every(index => indexVisibility[index] !== false)}
+                          ref={(input) => {
+                            if (input) {
+                              const allVisible = selectedIndexes.every(index => indexVisibility[index] !== false);
+                              const someVisible = selectedIndexes.some(index => indexVisibility[index] !== false);
+                              input.indeterminate = someVisible && !allVisible;
+                            }
+                          }}
+                          onChange={() => {
+                            const allVisible = selectedIndexes.every(index => indexVisibility[index] !== false);
+                            selectedIndexes.forEach(index => {
+                              setIndexVisibility(prev => ({
+                                ...prev,
+                                [index]: !allVisible
+                              }));
+                            });
+                          }}
+                        />
+                        <span>{selectedIndexes.every(index => indexVisibility[index] !== false) ? 'Unselect All' : 'Select All'}</span>
+                      </label>
+                    </div>
+                  )}
                   <div className="space-y-1">
                     {selectedIndexes.map((index) => {
                       const option = indexOptions.find(opt => opt.name === index);
+                      const isVisible = indexVisibility[index] !== false;
                       return (
                         <div key={index} className="flex items-center justify-between p-2 bg-accent rounded-md">
                     <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary"
+                        checked={isVisible}
+                        onChange={() => handleToggleIndexVisibility(index)}
+                      />
                       <div 
                         className="w-3 h-3 rounded-full" 
                               style={{ backgroundColor: option?.color || '#000000' }}
                       ></div>
-                            <span className="text-sm">{index}</span>
+                            <span className={`text-sm ${!isVisible ? 'opacity-50' : ''}`}>{index}</span>
                             {index === selectedIndex && (
                               <Badge variant="secondary" className="text-xs">Primary</Badge>
                             )}
@@ -1433,17 +1677,53 @@ export default function MarketRotationRRG() {
                       <Badge variant="outline" className="text-xs">Min. required</Badge>
                     )}
                   </div>
+                  {/* Select All / Unselect All checkbox */}
+                  {selectedItems.length > 1 && (
+                    <div className="mb-2 pb-2 border-b border-border">
+                      <label className="flex items-center gap-2 text-xs font-medium cursor-pointer select-none text-muted-foreground hover:text-foreground transition-colors">
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary"
+                          checked={selectedItems.every(item => itemVisibility[item] !== false)}
+                          ref={(input) => {
+                            if (input) {
+                              const allVisible = selectedItems.every(item => itemVisibility[item] !== false);
+                              const someVisible = selectedItems.some(item => itemVisibility[item] !== false);
+                              input.indeterminate = someVisible && !allVisible;
+                            }
+                          }}
+                          onChange={() => {
+                            const allVisible = selectedItems.every(item => itemVisibility[item] !== false);
+                            selectedItems.forEach(item => {
+                              setItemVisibility(prev => ({
+                                ...prev,
+                                [item]: !allVisible
+                              }));
+                            });
+                          }}
+                        />
+                        <span>{selectedItems.every(item => itemVisibility[item] !== false) ? 'Unselect All' : 'Select All'}</span>
+                      </label>
+                    </div>
+                  )}
                   <div className="space-y-1 max-h-32 overflow-y-auto">
                     {selectedItems.map((item) => {
                       const option = currentOptions.find(opt => opt.name === item);
+                      const isVisible = itemVisibility[item] !== false;
                       return (
                         <div key={item} className="flex items-center justify-between p-2 bg-accent rounded-md">
                           <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-[#3a4252] bg-transparent text-primary focus:ring-primary"
+                              checked={isVisible}
+                              onChange={() => handleToggleItemVisibility(item)}
+                            />
                             <div 
                               className="w-3 h-3 rounded-full" 
                               style={{ backgroundColor: option?.color }}
                             ></div>
-                            <span className="text-sm">{item}</span>
+                            <span className={`text-sm ${!isVisible ? 'opacity-50' : ''}`}>{item}</span>
                           </div>
                           <button
                             onClick={() => removeItem(item)}
@@ -1467,7 +1747,7 @@ export default function MarketRotationRRG() {
                   </div>
                   {selectedItems.length === 1 && (
                     <p className="text-xs text-muted-foreground mt-2">
-                      At least one {viewMode === 'sector' ? 'sector' : 'stock'} must be selected for comparison
+                      At least one {displayViewMode === 'sector' ? 'sector' : 'stock'} must be selected for comparison
                     </p>
                   )}
                 </div>
@@ -1476,14 +1756,14 @@ export default function MarketRotationRRG() {
               {/* Search and Select Combined */}
                 <div>
                 <h4 className="text-sm font-medium mb-2">
-                  Available {viewMode === 'sector' ? 'Sectors' : 'Stocks'}: {currentOptions.length}
+                  Available {displayViewMode === 'sector' ? 'Sectors' : 'Stocks'}: {currentOptions.length}
                 </h4>
                   <div className="relative" ref={searchRef}>
                     <div className="relative">
                       <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-muted-foreground" />
                       <input
                         type="text"
-                      placeholder={`Search and select ${viewMode === 'sector' ? 'sectors' : 'stocks'}...`}
+                      placeholder={`Search and select ${displayViewMode === 'sector' ? 'sectors' : 'stocks'}...`}
                         value={searchQuery}
                         onChange={(e) => {
                           setSearchQuery(e.target.value);
@@ -1504,8 +1784,8 @@ export default function MarketRotationRRG() {
                       ) : (
                         <>
                           {/* Show filtered results if searching, otherwise show all available */}
-                          {(searchQuery ? (viewMode === 'sector' ? filteredSectorOptions : filteredStockOptions) : currentOptions.filter(option => !selectedItems.includes(option.name)))
-                            .slice(0, viewMode === 'stock' ? 15 : undefined)
+                          {(searchQuery ? (displayViewMode === 'sector' ? filteredSectorOptions : filteredStockOptions) : currentOptions.filter(option => !selectedItems.includes(option.name)))
+                            .slice(0, displayViewMode === 'stock' ? 15 : undefined)
                             .map((option, index) => (
                           <button
                             key={option.name}
@@ -1543,27 +1823,29 @@ export default function MarketRotationRRG() {
                         ))}
                           
                           {/* Show "more available" message */}
-                          {!searchQuery && viewMode === 'stock' && currentOptions.filter(option => !selectedItems.includes(option.name)).length > 15 && (
+                          {!searchQuery && displayViewMode === 'stock' && currentOptions.filter(option => !selectedItems.includes(option.name)).length > 15 && (
                             <div className="text-xs text-muted-foreground px-3 py-2 border-t border-border">
-                              +{currentOptions.filter(option => !selectedItems.includes(option.name)).length - 15} more {viewMode === 'stock' ? 'stocks' : 'sectors'} available (use search to find specific items)
+                              +{currentOptions.filter(option => !selectedItems.includes(option.name)).length - 15} more {displayViewMode === 'stock' ? 'stocks' : 'sectors'} available (use search to find specific items)
                             </div>
                           )}
                           
                           {/* Show "no results" message */}
-                          {searchQuery && (viewMode === 'sector' ? filteredSectorOptions : filteredStockOptions).length === 0 && (
+                          {searchQuery && (displayViewMode === 'sector' ? filteredSectorOptions : filteredStockOptions).length === 0 && (
                           <div className="p-2 text-sm text-muted-foreground">
                               {currentOptions.filter(s => !selectedItems.includes(s.name)).length === 0 
-                                ? `All ${viewMode === 'stock' ? 'stocks' : 'sectors'} already selected` 
-                                : `No ${viewMode === 'stock' ? 'stocks' : 'sectors'} found matching "${searchQuery}"`
+                                ? `All ${displayViewMode === 'stock' ? 'stocks' : 'sectors'} already selected` 
+                                : `No ${displayViewMode === 'stock' ? 'stocks' : 'sectors'} found matching "${searchQuery}"`
                             }
                           </div>
-                        )}
+                          )}
                         </>
                         )}
                       </div>
                     )}
                   </div>
                 </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -1571,24 +1853,35 @@ export default function MarketRotationRRG() {
 
       {/* Relative Momentum Screener (Stock) */}
       <Card>
-        <CardHeader>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <CardHeader className="items-center !py-4 !pt-4 !pb-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between w-full">
             <div className="flex items-center gap-2">
-              <CardTitle>Relative Momentum Screener (Stock)</CardTitle>
+              <CardTitle className="mb-0 leading-tight">Relative Momentum Screener (Stock)</CardTitle>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={loadScannerData}
-                disabled={isLoadingScanner}
+                onClick={() => setIsStockScreenerExpanded(!isStockScreenerExpanded)}
                 className="h-8"
               >
-                {isLoadingScanner ? (
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                ) : (
-                  <RotateCcw className="w-3 h-3" />
-                )}
+                {isStockScreenerExpanded ? 'Hide' : 'Show'}
               </Button>
+              {isStockScreenerExpanded && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={loadScannerData}
+                  disabled={isLoadingScanner}
+                  className="h-8"
+                >
+                  {isLoadingScanner ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <RotateCcw className="w-3 h-3" />
+                  )}
+                </Button>
+              )}
             </div>
+            {isStockScreenerExpanded && (
             <div className="relative" ref={stockScreenerSearchRef}>
               <h4 className="text-sm font-medium mb-2">
                 Available Stocks: {isLoadingScanner ? (
@@ -1688,9 +1981,11 @@ export default function MarketRotationRRG() {
                   )}
         </div>
               )}
-      </div>
+            </div>
+            )}
           </div>
         </CardHeader>
+        {isStockScreenerExpanded && (
         <CardContent>
           <div className="space-y-4">
             {isLoadingScanner ? (
@@ -1818,28 +2113,40 @@ export default function MarketRotationRRG() {
             )}
           </div>
         </CardContent>
+        )}
       </Card>
 
       {/* Relative Momentum Screener (Sector) */}
       <Card>
-        <CardHeader>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <CardHeader className="items-center !py-4 !pt-4 !pb-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between w-full">
             <div className="flex items-center gap-2">
-              <CardTitle>Relative Momentum Screener (Sector)</CardTitle>
+              <CardTitle className="mb-0 leading-tight">Relative Momentum Screener (Sector)</CardTitle>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={loadScannerData}
-                disabled={isLoadingScanner}
+                onClick={() => setIsSectorScreenerExpanded(!isSectorScreenerExpanded)}
                 className="h-8"
               >
-                {isLoadingScanner ? (
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                ) : (
-                  <RotateCcw className="w-3 h-3" />
-                )}
+                {isSectorScreenerExpanded ? 'Hide' : 'Show'}
               </Button>
+              {isSectorScreenerExpanded && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={loadScannerData}
+                  disabled={isLoadingScanner}
+                  className="h-8"
+                >
+                  {isLoadingScanner ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <RotateCcw className="w-3 h-3" />
+                  )}
+                </Button>
+              )}
             </div>
+            {isSectorScreenerExpanded && (
             <div className="relative" ref={sectorScreenerSearchRef}>
               <h4 className="text-sm font-medium mb-2">
                 Available Sectors: {isLoadingScanner ? (
@@ -1870,7 +2177,7 @@ export default function MarketRotationRRG() {
               
               {/* Sector Screener Search Dropdown */}
               {showSectorScreenerSearchDropdown && (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-50 max-h-60 overflow-y-auto">
+                <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-50 max-h-56 overflow-y-auto">
                   {sectorOptions.length === 0 ? (
                     <div className="p-3 text-sm text-muted-foreground">Loading sectors...</div>
                   ) : (
@@ -1940,8 +2247,10 @@ export default function MarketRotationRRG() {
                 </div>
               )}
             </div>
+            )}
           </div>
         </CardHeader>
+        {isSectorScreenerExpanded && (
         <CardContent>
           <div className="space-y-4">
             {isLoadingScanner ? (
@@ -2062,7 +2371,9 @@ export default function MarketRotationRRG() {
             )}
           </div>
         </CardContent>
+        )}
       </Card>
+      </div>
     </div>
   );
 }

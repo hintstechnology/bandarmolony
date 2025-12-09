@@ -10,10 +10,88 @@ import {
   removeDuplicates,
   convertToCsv,
   parseCsvString,
-  BATCH_SIZE_PHASE_1_STOCK,
-  MAX_CONCURRENT_REQUESTS
+  BATCH_SIZE_PHASE_1_HOLDING,
+  MAX_CONCURRENT_REQUESTS_PHASE_1_HOLDING
 } from './dataUpdateService';
 import { SchedulerLogService } from './schedulerLogService';
+
+// Normalize holding composition data (flatten foreign/local) to match CSV format
+function normalizeHoldingCompositionData(data: any[]): any[] {
+  const normalizedData: any[] = [];
+
+  for (const item of data) {
+    const baseRow: any = {
+      date: item.date,
+      lastUpdatedDate: item.lastUpdatedDate,
+      lastUpdatedTime: item.lastUpdatedTime,
+      total_value: item.total?.value ?? null,
+    };
+
+    // Flatten foreign data
+    if (item.foreign) {
+      baseRow.foreign_total_inPercent = item.foreign.inPercent ?? null;
+      baseRow.foreign_total_value = item.foreign.total ?? null;
+
+      const foreignCategories = [
+        'Corporate',
+        'Financial Institution',
+        'Foundation',
+        'Individual',
+        'Insurance',
+        'Mutual Fund',
+        'Others',
+        'Pension Fund',
+        'Securities Company',
+      ];
+
+      for (const category of foreignCategories) {
+        const catData = item.foreign[category];
+        const prefix = `foreign_${category}`;
+        if (catData) {
+          baseRow[`${prefix}_inPercent`] = catData.inPercent ?? null;
+          baseRow[`${prefix}_value`] = catData.value ?? null;
+        } else {
+          baseRow[`${prefix}_inPercent`] = null;
+          baseRow[`${prefix}_value`] = null;
+        }
+      }
+    }
+
+    // Flatten local data
+    if (item.local) {
+      baseRow.local_total_inPercent = item.local.inPercent ?? null;
+      baseRow.local_total_value = item.local.total ?? null;
+
+      const localCategories = [
+        'Corporate',
+        'Financial Institution',
+        'Foundation',
+        'Individual',
+        'Insurance',
+        'Mutual Fund',
+        'Others',
+        'Pension Fund',
+        'Securities Company',
+      ];
+
+      for (const category of localCategories) {
+        const catData = item.local[category];
+        const prefix = `local_${category}`;
+        if (catData) {
+          baseRow[`${prefix}_inPercent`] = catData.inPercent ?? null;
+          baseRow[`${prefix}_value`] = catData.value ?? null;
+        } else {
+          baseRow[`${prefix}_inPercent`] = null;
+          baseRow[`${prefix}_value`] = null;
+        }
+      }
+    }
+
+    normalizedData.push(baseRow);
+  }
+
+  return normalizedData;
+}
 
 // Process single emiten for holding data
 async function processHoldingEmiten(
@@ -23,7 +101,6 @@ async function processHoldingEmiten(
   httpClient: OptimizedHttpClient,
   azureStorage: OptimizedAzureStorageService,
   todayDate: string,
-  baseUrl: string,
   cache: CacheService,
   logId: string | null
 ): Promise<{ success: boolean; skipped: boolean; error?: string }> {
@@ -56,77 +133,17 @@ async function processHoldingEmiten(
       existingData = await parseCsvString(existingCsvData);
     }
     
-    // Check if any data exists for the past week
-    const weekAgo = new Date();
-    weekAgo.setDate(weekAgo.getDate() - 7);
-    const weekAgoDate = weekAgo.toISOString().split('T')[0];
-    
-    if (!weekAgoDate) {
-      console.error(`❌ Holding ERROR - ${emiten} - Failed to calculate week ago date`);
-      return { success: false, skipped: false, error: 'Failed to calculate week ago date' };
-    }
-    
-    // Check if ALL days in the past week have data
-    const weekAgoDateObj = new Date(weekAgoDate);
-    const todayDateObj = new Date(todayDate);
-    
-    // Generate all dates in the range
-    const requiredDates: string[] = [];
-    for (let d = new Date(weekAgoDateObj); d <= todayDateObj; d.setDate(d.getDate() + 1)) {
-      const isoString = d.toISOString();
-      if (isoString) {
-        const datePart = isoString.split('T')[0];
-        if (datePart) {
-          requiredDates.push(datePart);
-        }
-      }
-    }
-    
-    // Check if we have data for all required dates
-    const existingDates = new Set(
-      existingData
-        .map(row => {
-          const rowDate = row.date || row.tanggal || row.Date || '';
-          if (!rowDate) return '';
-          
-          // Try different date formats
-          let rowDateObj: Date;
-          if (rowDate.includes('/')) {
-            const parts = rowDate.split('/');
-            if (parts.length === 3) {
-              rowDateObj = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
-            } else {
-              rowDateObj = new Date(rowDate);
-            }
-          } else if (rowDate.includes('-')) {
-            rowDateObj = new Date(rowDate);
-          } else {
-            rowDateObj = new Date(rowDate);
-          }
-          
-          return isNaN(rowDateObj.getTime()) ? '' : rowDateObj.toISOString().split('T')[0];
-        })
-        .filter(date => date)
-    );
-    
-    // Check if all required dates exist
-    const weekDataExists = requiredDates.every(date => existingDates.has(date));
-    
-    if (weekDataExists) {
-      return { success: true, skipped: true };
-    }
-    
-    // Fetch data from API for the past week
+    // Fetch data from API (full holding history; endpoint cp/hc tidak pakai startDate/endDate)
     const params = {
       secCode: emiten,
-      startDate: weekAgoDate,
-      endDate: todayDate,
-      granularity: "daily",
+      // TICMI cp/hc endpoint expects numeric granularity (10) without startDate/endDate
+      granularity: "10",
     };
 
     let response;
     try {
-      response = await httpClient.get(baseUrl, params);
+      // OptimizedHttpClient sudah di-init dengan baseUrl cp/hc; path kosong di sini
+      response = await httpClient.get('', params);
     } catch (apiError: any) {
       // Handle 400 Bad Request - emiten may not exist or be invalid in TICMI API
       if (apiError.response && apiError.response.status === 400) {
@@ -202,7 +219,12 @@ async function processHoldingEmiten(
       return { success: true, skipped: true };
     }
     
-    const combinedData = [...normalizedData, ...existingData];
+    // Flatten holding composition structure (foreign/local) to scalar columns
+    const flattenedData = normalizeHoldingCompositionData(normalizedData);
+
+    // Gabungkan semua snapshot dari API dengan data existing,
+    // lalu sort & dedup per tanggal.
+    const combinedData = [...flattenedData, ...existingData];
     // Sort descending: newest first (dateB - dateA for descending order)
     combinedData.sort((a, b) => {
       const dateA = a.date || a.tanggal || a.Date || '';
@@ -284,23 +306,22 @@ export async function updateHoldingData(logId?: string | null, triggeredBy?: str
 
     // Process emitens in parallel batches
     const results = await ParallelProcessor.processInBatches(
-      emitenList,
-      async (emiten: string, index: number) => {
-        return processHoldingEmiten(
-          emiten,
-          index,
-          emitenList.length,
-          httpClient,
-          azureStorage,
-          todayDate,
-          baseUrl,
-          cache,
-          finalLogId
-        );
-      },
-      BATCH_SIZE_PHASE_1_STOCK,
-      MAX_CONCURRENT_REQUESTS
-    );
+    emitenList,
+    async (emiten: string, index: number) => {
+      return processHoldingEmiten(
+        emiten,
+        index,
+        emitenList.length,
+        httpClient,
+        azureStorage,
+        todayDate,
+        cache,
+        finalLogId
+      );
+    },
+    BATCH_SIZE_PHASE_1_HOLDING,
+    MAX_CONCURRENT_REQUESTS_PHASE_1_HOLDING
+  );
 
     const endTime = Date.now();
     const processingTime = (endTime - startTime) / 1000;

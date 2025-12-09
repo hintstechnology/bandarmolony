@@ -59,6 +59,15 @@ interface BrokerTransactionData {
 // Cache expiration time: 30 minutes (increased for better performance)
 const CACHE_EXPIRY_MS = 30 * 60 * 1000;
 
+// Foreign brokers (red background)
+const FOREIGN_BROKERS = [
+  "AG", "AH", "AI", "AK", "BK", "BQ", "CG", "CS", "DP", "DR", "DU", "FS", "GW", "HD", "KK", 
+  "KZ", "LH", "LG", "LS", "MS", "RB", "RX", "TX", "YP", "YU", "ZP"
+];
+
+// Government brokers (green background)
+const GOVERNMENT_BROKERS = ['CC', 'NI', 'OD', 'DX'];
+
 // Fetch broker transaction data from API (with caching)
 const fetchBrokerTransactionData = async (
   code: string, 
@@ -252,9 +261,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     return '';
   });
   const [brokerInput, setBrokerInput] = useState('');
+  const [debouncedBrokerInput, setDebouncedBrokerInput] = useState('');
   const [selectedBrokers, setSelectedBrokers] = useState<string[]>(['AK']); // Default to AK for testing with CSV
   const [showBrokerSuggestions, setShowBrokerSuggestions] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
+  // Windowing state for virtual scrolling
+  const [brokerScrollOffset, setBrokerScrollOffset] = useState(0);
+  const ITEMS_PER_PAGE = 50; // Render 50 items at a time
   const startDateRef = useRef<HTMLInputElement>(null);
   const endDateRef = useRef<HTMLInputElement>(null);
   const dropdownBrokerRef = useRef<HTMLDivElement>(null);
@@ -307,11 +320,15 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   
   // Multi-select ticker/sector states (combined)
   const [tickerInput, setTickerInput] = useState('');
+  const [debouncedTickerInput, setDebouncedTickerInput] = useState('');
   const [selectedTickers, setSelectedTickers] = useState<string[]>([]); // Empty by default - show all tickers
   const [selectedSectors, setSelectedSectors] = useState<string[]>([]); // Selected sectors (for filtering)
   const [showTickerSuggestions, setShowTickerSuggestions] = useState(false);
   const [highlightedTickerIndex, setHighlightedTickerIndex] = useState<number>(-1);
   const dropdownTickerRef = useRef<HTMLDivElement>(null);
+  // Windowing state for virtual scrolling
+  const [tickerScrollOffset, setTickerScrollOffset] = useState(0);
+  const [sectorScrollOffset, setSectorScrollOffset] = useState(0);
   
   // Stock list from API (loaded once on mount for fast dropdown)
   const [availableStocksFromAPI, setAvailableStocksFromAPI] = useState<string[]>([]);
@@ -359,6 +376,74 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     
     return Array.from(allTickers).sort();
   }, [availableStocksFromAPI, rawTransactionData, isDataReady, selectedSectors, stockToSectorMap]); // Include availableStocksFromAPI as primary source
+
+  // Debounce broker input for better performance
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setDebouncedBrokerInput(brokerInput);
+      // Reset scroll offset when search changes
+      setBrokerScrollOffset(0);
+    }, 150);
+    return () => clearTimeout(timeout);
+  }, [brokerInput]);
+
+  // Debounce ticker input for better performance
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setDebouncedTickerInput(tickerInput);
+      // Reset scroll offsets when search changes
+      setTickerScrollOffset(0);
+      setSectorScrollOffset(0);
+    }, 150);
+    return () => clearTimeout(timeout);
+  }, [tickerInput]);
+
+  // Memoized filtered brokers list for better performance
+  const filteredBrokersList = useMemo(() => {
+    const searchTerm = debouncedBrokerInput.toLowerCase();
+    return availableBrokers.filter(broker => {
+      if (selectedBrokers.includes(broker)) return false;
+      if (searchTerm === '') return true;
+      return broker.toLowerCase().includes(searchTerm);
+    });
+  }, [availableBrokers, debouncedBrokerInput, selectedBrokers]);
+
+  // Windowed filtered brokers list (only show visible items)
+  const visibleFilteredBrokers = useMemo(() => {
+    const start = brokerScrollOffset;
+    const end = start + ITEMS_PER_PAGE;
+    return filteredBrokersList.slice(start, end);
+  }, [filteredBrokersList, brokerScrollOffset]);
+
+  // Memoized filtered tickers list for better performance
+  const filteredTickersList = useMemo(() => {
+    const searchTerm = debouncedTickerInput.toLowerCase();
+    const availableTickersFiltered = availableTickers.filter(t => !selectedTickers.includes(t));
+    if (searchTerm === '') return availableTickersFiltered;
+    return availableTickersFiltered.filter(t => t.toLowerCase().includes(searchTerm));
+  }, [availableTickers, debouncedTickerInput, selectedTickers]);
+
+  // Memoized filtered sectors list for better performance
+  const filteredSectorsList = useMemo(() => {
+    const searchTerm = debouncedTickerInput.toLowerCase();
+    const availableSectorsFiltered = availableSectors.filter(s => !selectedSectors.includes(s));
+    if (searchTerm === '') return availableSectorsFiltered;
+    return availableSectorsFiltered.filter(s => s.toLowerCase().includes(searchTerm));
+  }, [availableSectors, debouncedTickerInput, selectedSectors]);
+
+  // Windowed filtered tickers list (only show visible items)
+  const visibleFilteredTickers = useMemo(() => {
+    const start = tickerScrollOffset;
+    const end = start + ITEMS_PER_PAGE;
+    return filteredTickersList.slice(start, end);
+  }, [filteredTickersList, tickerScrollOffset]);
+
+  // Windowed filtered sectors list (only show visible items)
+  const visibleFilteredSectors = useMemo(() => {
+    const start = sectorScrollOffset;
+    const end = start + ITEMS_PER_PAGE;
+    return filteredSectorsList.slice(start, end);
+  }, [filteredSectorsList, sectorScrollOffset]);
 
   // Request cancellation ref
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -3141,7 +3226,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       return (
         <div className="w-full max-w-full mt-1">
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border flex items-center justify-between">
-            <h3 className="font-semibold text-sm">B/S - {selectedBrokers.join(', ')}</h3>
+            <h3 className="font-semibold text-sm">B/S - {pivotFilter === 'Stock' ? (selectedTickers.length > 0 ? selectedTickers.join(', ') : '') : selectedBrokers.join(', ')}</h3>
           </div>
           <div className="w-full max-w-full">
             <div ref={valueTableContainerRef} className="w-full max-w-full overflow-x-auto max-h-[494px] overflow-y-auto border-l-2 border-r-2 border-b-2 border-white">
@@ -3261,7 +3346,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     const buyerLotPerOrdNum = dayData.BLotPerOrdNum ?? 0;
                                     
                                     const bCode = dayData.BCode || buyRowData.stock;
-                                    const bCodeColor = getStockColorClass(bCode);
+                                    // For Stock pivot: BCode is a broker code, use getBrokerColorClass
+                                    // For Broker pivot: BCode is a stock code, use getStockColorClass
+                                    const bCodeColor = pivotFilter === 'Stock' 
+                                      ? getBrokerColorClass(bCode)
+                                      : getStockColorClass(bCode);
                                     return (
                                       <>
                             <td className={`text-center py-[1px] px-[3px] font-bold ${bCodeColor.className} ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ ...(dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }), color: bCodeColor.color }}>
@@ -3317,7 +3406,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     // OPTIMIZED: Removed debug logging to improve performance
                                     
                                     const sCode = String(dayData.SCode || sellRowData.stock || '');
-                                    const sCodeColor = getStockColorClass(sCode);
+                                    // For Stock pivot: SCode is a broker code, use getBrokerColorClass
+                                    // For Broker pivot: SCode is a stock code, use getStockColorClass
+                                    const sCodeColor = pivotFilter === 'Stock' 
+                                      ? getBrokerColorClass(sCode)
+                                      : getStockColorClass(sCode);
                                     return (
                                       <>
                                         <td className={`text-center py-[1px] px-[3px] font-bold ${sCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', color: sCodeColor.color }}>{sCode}</td>
@@ -3404,9 +3497,19 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           );
                         }
                         
-                        // Get color classes for stock codes based on sector
-                        const buyBCodeColor = totalBuyBCode !== '-' ? getStockColorClass(totalBuyBCode) : { color: '#FFFFFF', className: 'font-semibold' };
-                        const sellSCodeColor = totalSellSCode !== '-' ? getStockColorClass(totalSellSCode) : { color: '#FFFFFF', className: 'font-semibold' };
+                        // Get color classes for codes based on pivot type
+                        // For Stock pivot: BCode/SCode are broker codes, use getBrokerColorClass
+                        // For Broker pivot: BCode/SCode are stock codes, use getStockColorClass
+                        const buyBCodeColor = totalBuyBCode !== '-' 
+                          ? (pivotFilter === 'Stock' 
+                              ? getBrokerColorClass(totalBuyBCode)
+                              : getStockColorClass(totalBuyBCode))
+                          : { color: '#FFFFFF', className: 'font-semibold' };
+                        const sellSCodeColor = totalSellSCode !== '-' 
+                          ? (pivotFilter === 'Stock' 
+                              ? getBrokerColorClass(totalSellSCode)
+                              : getStockColorClass(totalSellSCode))
+                          : { color: '#FFFFFF', className: 'font-semibold' };
                         
                         return (
                           <React.Fragment>
@@ -3659,7 +3762,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     return (
         <div className="w-full max-w-full mt-1">
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border flex items-center justify-between">
-            <h3 className="font-semibold text-sm">NET - {selectedBrokers.join(', ')}</h3>
+            <h3 className="font-semibold text-sm">NET - {pivotFilter === 'Stock' ? (selectedTickers.length > 0 ? selectedTickers.join(', ') : '') : selectedBrokers.join(', ')}</h3>
           </div>
           <div className="w-full max-w-full">
             <div ref={netTableContainerRef} className="w-full max-w-full overflow-x-auto max-h-[494px] overflow-y-auto border-l-2 border-r-2 border-b-2 border-white">
@@ -3760,7 +3863,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   {(() => {
                                     const dayData = netBuyRowData.data;
                                     const nbCode = dayData.NBCode || netBuyRowData.stock;
-                                    const nbCodeColor = getStockColorClass(nbCode);
+                                    // For Stock pivot: NBCode is a broker code, use getBrokerColorClass
+                                    // For Broker pivot: NBCode is a stock code, use getStockColorClass
+                                    const nbCodeColor = pivotFilter === 'Stock' 
+                                      ? getBrokerColorClass(nbCode)
+                                      : getStockColorClass(nbCode);
                                     const nbLot = dayData.NBLot || 0;
                                     const nbVal = dayData.NBVal || 0;
                                     const nbAvg = dayData.NBAvg;
@@ -3822,7 +3929,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   {(() => {
                                     const dayData = netSellRowData.data;
                                     const nsCode = dayData.NSCode || netSellRowData.stock;
-                                    const nsCodeColor = getStockColorClass(nsCode);
+                                    // For Stock pivot: NSCode is a broker code, use getBrokerColorClass
+                                    // For Broker pivot: NSCode is a stock code, use getStockColorClass
+                                    const nsCodeColor = pivotFilter === 'Stock' 
+                                      ? getBrokerColorClass(nsCode)
+                                      : getStockColorClass(nsCode);
                                     const nsLot = dayData.NSLot || 0;
                                     const nsVal = dayData.NSVal || 0;
                                     const nsAvg = dayData.NSAvg;
@@ -3930,9 +4041,19 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                             );
                           }
                           
-                          // Get color classes for stock codes based on sector
-                          const netBuyNBCodeColor = totalNetBuyNBCode !== '-' ? getStockColorClass(totalNetBuyNBCode) : { color: '#FFFFFF', className: 'font-semibold' };
-                          const netSellNSCodeColor = totalNetSellNSCode !== '-' ? getStockColorClass(totalNetSellNSCode) : { color: '#FFFFFF', className: 'font-semibold' };
+                          // Get color classes for codes based on pivot type
+                          // For Stock pivot: NBCode/NSCode are broker codes, use getBrokerColorClass
+                          // For Broker pivot: NBCode/NSCode are stock codes, use getStockColorClass
+                          const netBuyNBCodeColor = totalNetBuyNBCode !== '-' 
+                            ? (pivotFilter === 'Stock' 
+                                ? getBrokerColorClass(totalNetBuyNBCode)
+                                : getStockColorClass(totalNetBuyNBCode))
+                            : { color: '#FFFFFF', className: 'font-semibold' };
+                          const netSellNSCodeColor = totalNetSellNSCode !== '-' 
+                            ? (pivotFilter === 'Stock' 
+                                ? getBrokerColorClass(totalNetSellNSCode)
+                                : getStockColorClass(totalNetSellNSCode))
+                            : { color: '#FFFFFF', className: 'font-semibold' };
                           
                           // Color for values: Net Buy values are green, Net Sell values are red
                           const totalNetBuyColor = 'text-green-600';
@@ -4050,8 +4171,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         {renderNetTable()}
       </div>
     );
-    }, [filteredStocks, uniqueStocks, sortedStocksByDate, sortedNetStocksByDate, totalDataByStock, totalNetDataByStock, sortedTotalStocks, sortedTotalNetStocks, transactionData, visibleRowIndices, buyStocksByDate, sellStocksByDate, netBuyStocksByDate, netSellStocksByDate, totalNetBuyDataByStock, totalNetSellDataByStock, isDataReady, selectedDates, activeSectorFilter, selectedSectors, stockToSectorMap]); // CRITICAL: Added selectedDates, activeSectorFilter, selectedSectors, and stockToSectorMap to dependencies to react to showOnlyTotal and sector filter changes
+    }, [filteredStocks, uniqueStocks, sortedStocksByDate, sortedNetStocksByDate, totalDataByStock, totalNetDataByStock, sortedTotalStocks, sortedTotalNetStocks, transactionData, visibleRowIndices, buyStocksByDate, sellStocksByDate, netBuyStocksByDate, netSellStocksByDate, totalNetBuyDataByStock, totalNetSellDataByStock, isDataReady, selectedDates, activeSectorFilter, selectedSectors, stockToSectorMap, pivotFilter, selectedTickers, selectedBrokers]); // CRITICAL: Added selectedDates, activeSectorFilter, selectedSectors, stockToSectorMap, pivotFilter, selectedTickers, and selectedBrokers to dependencies to react to showOnlyTotal, sector filter changes, pivot type changes, and header text updates
 
+  // Helper function to get broker color class based on type
+  const getBrokerColorClass = (brokerCode: string): { color: string; className: string } => {
+    if (GOVERNMENT_BROKERS.includes(brokerCode)) {
+      return { color: '#10B981', className: 'font-semibold' }; // Green-600
+    }
+    if (FOREIGN_BROKERS.includes(brokerCode)) {
+      return { color: '#EF4444', className: 'font-semibold' }; // Red-600
+    }
+    return { color: '#FFFFFF', className: 'font-semibold' }; // White
+  };
 
   return (
     <div className="w-full">
@@ -4064,16 +4195,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             <label className="text-sm font-medium whitespace-nowrap">Broker:</label>
             <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
               {/* Selected Broker Chips */}
-              {selectedBrokers.map(broker => (
+              {selectedBrokers.map(broker => {
+                const brokerColor = broker !== 'ALL' ? getBrokerColorClass(broker) : null;
+                return (
                 <div
                   key={broker}
                   className={`flex items-center gap-1 px-2 h-9 rounded-md text-sm ${
                     broker === 'ALL' 
                       ? 'bg-primary text-primary-foreground font-semibold' 
-                      : 'bg-primary/20 text-primary'
+                      : 'bg-primary/20'
                   }`}
                 >
-                  <span>{broker}</span>
+                  <span className={brokerColor?.className || ''} style={brokerColor ? { color: brokerColor.color } : {}}>{broker}</span>
                   <button
                     type="button"
                     onClick={() => handleRemoveBroker(broker)}
@@ -4082,8 +4215,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   >
                     ×
                   </button>
-              </div>
-              ))}
+                </div>
+                );
+              })}
               {/* Broker Input */}
               <div className="relative flex-1 md:flex-none" ref={dropdownBrokerRef}>
                   <input
@@ -4097,13 +4231,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     }}
                     onFocus={() => setShowBrokerSuggestions(true)}
                     onKeyDown={(e) => {
-                    const filteredBrokers = brokerInput === '' 
-                      ? availableBrokers.filter(b => !selectedBrokers.includes(b))
-                      : availableBrokers.filter(b => 
-                          b.toLowerCase().includes(brokerInput.toLowerCase()) && 
-                          !selectedBrokers.includes(b)
-                        );
-                    const suggestions = filteredBrokers.slice(0, 10);
+                    const suggestions = filteredBrokersList.slice(0, 10);
                     
                       if (e.key === 'ArrowDown' && suggestions.length) {
                         e.preventDefault();
@@ -4129,16 +4257,24 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     aria-autocomplete="list"
                   />
                   {showBrokerSuggestions && (
-                  <div id="broker-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                  <div id="broker-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto"
+                    onScroll={(e) => {
+                      const target = e.target as HTMLElement;
+                      const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+                      if (scrollBottom < 100 && brokerScrollOffset + ITEMS_PER_PAGE < filteredBrokersList.length) {
+                        setBrokerScrollOffset(prev => prev + ITEMS_PER_PAGE);
+                      }
+                    }}
+                  >
                       {availableBrokers.length === 0 ? (
                         <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
                           <Loader2 className="w-4 h-4 animate-spin mr-2" />
                           Loading brokers...
                         </div>
-                    ) : brokerInput === '' ? (
+                    ) : debouncedBrokerInput === '' ? (
                       <>
-                        <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
-                          Available Brokers ({availableBrokers.filter(b => !selectedBrokers.includes(b)).length})
+                        <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                          Available Brokers ({filteredBrokersList.length})
                         </div>
                         {/* ALL option */}
                         {!selectedBrokers.includes('ALL') && (
@@ -4149,27 +4285,29 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                             ALL
                           </div>
                         )}
-                        {availableBrokers.filter(b => !selectedBrokers.includes(b)).map(broker => (
+                        {visibleFilteredBrokers.map((broker, idx) => (
                           <div
                             key={broker}
                             onClick={() => handleBrokerSelect(broker)}
-                            className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm"
+                            className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-accent' : ''}`}
+                            onMouseEnter={() => setHighlightedIndex(idx)}
                           >
                             {broker}
                           </div>
                         ))}
+                        {brokerScrollOffset + ITEMS_PER_PAGE < filteredBrokersList.length && (
+                          <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                            Loading more... ({Math.min(brokerScrollOffset + ITEMS_PER_PAGE, filteredBrokersList.length)} / {filteredBrokersList.length})
+                          </div>
+                        )}
                       </>
                     ) : (() => {
-                      const searchLower = brokerInput.toLowerCase();
+                      const searchLower = debouncedBrokerInput.toLowerCase();
                       const isAllMatch = 'all'.includes(searchLower) && !selectedBrokers.includes('ALL');
-                      const filteredBrokers = availableBrokers.filter(b => 
-                        b.toLowerCase().includes(searchLower) && 
-                        !selectedBrokers.includes(b)
-                      );
                       return (
                             <>
-                          <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252]">
-                            {filteredBrokers.length + (isAllMatch ? 1 : 0)} broker(s) found
+                          <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                            {filteredBrokersList.length + (isAllMatch ? 1 : 0)} broker(s) found
                           </div>
                           {isAllMatch && (
                             <div
@@ -4179,8 +4317,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                               ALL
                             </div>
                           )}
-                          {filteredBrokers.length > 0 ? (
-                            filteredBrokers.map((broker, idx) => (
+                          {visibleFilteredBrokers.length > 0 ? (
+                            visibleFilteredBrokers.map((broker, idx) => (
                               <div
                                 key={broker}
                                 onClick={() => handleBrokerSelect(broker)}
@@ -4193,6 +4331,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           ) : (
                             <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
                               No brokers found
+                            </div>
+                          )}
+                          {brokerScrollOffset + ITEMS_PER_PAGE < filteredBrokersList.length && (
+                            <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                              Loading more... ({Math.min(brokerScrollOffset + ITEMS_PER_PAGE, filteredBrokersList.length)} / {filteredBrokersList.length})
                             </div>
                           )}
                             </>
@@ -4256,26 +4399,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   }}
                   onFocus={() => setShowTickerSuggestions(true)}
                   onKeyDown={(e) => {
-                    // Get filtered suggestions (tickers + sectors)
-                    const availableTickersFiltered = availableTickers.filter(t => !selectedTickers.includes(t));
-                    const availableSectorsFiltered = availableSectors.filter(s => !selectedSectors.includes(s));
-                    
-                    const inputLower = tickerInput.toLowerCase();
-                    const filteredTickers = tickerInput === '' 
-                      ? availableTickersFiltered
-                      : availableTickersFiltered.filter(t => 
-                          t.toLowerCase().includes(inputLower)
-                        );
-                    const filteredSectors = tickerInput === '' 
-                      ? availableSectorsFiltered
-                      : availableSectorsFiltered.filter(s => 
-                          s.toLowerCase().includes(inputLower)
-                        );
-                    
                     // Combine suggestions: tickers first, then sectors
                     const allSuggestions: Array<{ type: 'ticker' | 'sector'; value: string }> = [
-                      ...filteredTickers.map(t => ({ type: 'ticker' as const, value: t })),
-                      ...filteredSectors.map(s => ({ type: 'sector' as const, value: s }))
+                      ...filteredTickersList.map(t => ({ type: 'ticker' as const, value: t })),
+                      ...filteredSectorsList.map(s => ({ type: 'sector' as const, value: s }))
                     ];
                     const suggestions = allSuggestions.slice(0, 20);
                     
@@ -4309,32 +4436,25 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       <Loader2 className="w-4 h-4 animate-spin mr-2" />
                       Loading stocks...
                     </div>
-                  ) : (() => {
-                    // Calculate filtered lists once for both columns
-                    const availableTickersFiltered = availableTickers.filter(t => !selectedTickers.includes(t));
-                    const availableSectorsFiltered = availableSectors.filter(s => !selectedSectors.includes(s));
-                    const inputLower = tickerInput.toLowerCase();
-                    const filteredTickers = tickerInput === '' 
-                      ? availableTickersFiltered
-                      : availableTickersFiltered.filter(t => 
-                          t.toLowerCase().includes(inputLower)
-                        );
-                    const filteredSectors = tickerInput === '' 
-                      ? availableSectorsFiltered
-                      : availableSectorsFiltered.filter(s => 
-                          s.toLowerCase().includes(inputLower)
-                        );
-                    
-                    return (
+                  ) : (
                       <div className="flex flex-row h-full max-h-96 overflow-hidden">
                         {/* Left column: Tickers */}
-                        <div className="flex-1 border-r border-[#3a4252] overflow-y-auto">
-                          {tickerInput === '' ? (
+                        <div 
+                          className="flex-1 border-r border-[#3a4252] overflow-y-auto"
+                          onScroll={(e) => {
+                            const target = e.target as HTMLElement;
+                            const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+                            if (scrollBottom < 100 && tickerScrollOffset + ITEMS_PER_PAGE < filteredTickersList.length) {
+                              setTickerScrollOffset(prev => prev + ITEMS_PER_PAGE);
+                            }
+                          }}
+                        >
+                          {debouncedTickerInput === '' ? (
                             <>
                               <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                Stocks ({availableTickersFiltered.length})
+                                Stocks ({filteredTickersList.length})
                               </div>
-                              {availableTickersFiltered.map((ticker, idx) => {
+                              {visibleFilteredTickers.map((ticker, idx) => {
                                 return (
                                   <div
                                     key={`ticker-${ticker}`}
@@ -4346,13 +4466,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   </div>
                                 );
                               })}
+                              {tickerScrollOffset + ITEMS_PER_PAGE < filteredTickersList.length && (
+                                <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                  Loading more... ({Math.min(tickerScrollOffset + ITEMS_PER_PAGE, filteredTickersList.length)} / {filteredTickersList.length})
+                                </div>
+                              )}
                             </>
-                          ) : filteredTickers.length > 0 ? (
+                          ) : filteredTickersList.length > 0 ? (
                             <>
                               <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                Stocks ({filteredTickers.length})
+                                Stocks ({filteredTickersList.length})
                               </div>
-                              {filteredTickers.map((ticker, idx) => {
+                              {visibleFilteredTickers.map((ticker, idx) => {
                                 return (
                                   <div
                                     key={`ticker-${ticker}`}
@@ -4364,6 +4489,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   </div>
                                 );
                               })}
+                              {tickerScrollOffset + ITEMS_PER_PAGE < filteredTickersList.length && (
+                                <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                  Loading more... ({Math.min(tickerScrollOffset + ITEMS_PER_PAGE, filteredTickersList.length)} / {filteredTickersList.length})
+                                </div>
+                              )}
                             </>
                           ) : (
                             <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
@@ -4372,14 +4502,23 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           )}
                         </div>
                         {/* Right column: Sectors */}
-                        <div className="flex-1 overflow-y-auto">
-                          {tickerInput === '' ? (
+                        <div 
+                          className="flex-1 overflow-y-auto"
+                          onScroll={(e) => {
+                            const target = e.target as HTMLElement;
+                            const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+                            if (scrollBottom < 100 && sectorScrollOffset + ITEMS_PER_PAGE < filteredSectorsList.length) {
+                              setSectorScrollOffset(prev => prev + ITEMS_PER_PAGE);
+                            }
+                          }}
+                        >
+                          {debouncedTickerInput === '' ? (
                             <>
                               <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                Sectors ({availableSectorsFiltered.length})
+                                Sectors ({filteredSectorsList.length})
                               </div>
-                              {availableSectorsFiltered.map((sector, idx) => {
-                                const itemIndex = availableTickersFiltered.length + idx;
+                              {visibleFilteredSectors.map((sector, idx) => {
+                                const itemIndex = filteredTickersList.length + idx;
                                 return (
                                   <div
                                     key={`sector-${sector}`}
@@ -4391,14 +4530,19 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   </div>
                                 );
                               })}
+                              {sectorScrollOffset + ITEMS_PER_PAGE < filteredSectorsList.length && (
+                                <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                  Loading more... ({Math.min(sectorScrollOffset + ITEMS_PER_PAGE, filteredSectorsList.length)} / {filteredSectorsList.length})
+                                </div>
+                              )}
                             </>
-                          ) : filteredSectors.length > 0 ? (
+                          ) : filteredSectorsList.length > 0 ? (
                             <>
                               <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                Sectors ({filteredSectors.length})
+                                Sectors ({filteredSectorsList.length})
                               </div>
-                              {filteredSectors.map((sector, idx) => {
-                                const itemIndex = filteredTickers.length + idx;
+                              {visibleFilteredSectors.map((sector, idx) => {
+                                const itemIndex = filteredTickersList.length + idx;
                                 return (
                                   <div
                                     key={`sector-${sector}`}
@@ -4410,6 +4554,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   </div>
                                 );
                               })}
+                              {sectorScrollOffset + ITEMS_PER_PAGE < filteredSectorsList.length && (
+                                <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                  Loading more... ({Math.min(sectorScrollOffset + ITEMS_PER_PAGE, filteredSectorsList.length)} / {filteredSectorsList.length})
+                                </div>
+                              )}
                             </>
                           ) : (
                             <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
@@ -4418,8 +4567,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           )}
                         </div>
                       </div>
-                    );
-                  })()}
+                  )}
                 </div>
               )}
               </div>

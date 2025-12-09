@@ -11,14 +11,28 @@ const REQUEST_TIMEOUT = 30000;
 const RETRY_ATTEMPTS = 3;
 const RETRY_DELAY = 1000;
 
-// Memory Management - Batch sizes per phase
-const BATCH_SIZE_PHASE_1_STOCK = 500; // Phase 1 Stock: 500
-const BATCH_SIZE_PHASE_1_INDEX = 44; // Phase 1 Index: 44
-const BATCH_SIZE_PHASE_1 = 500; // Phase 1: 500 (Shareholders, Holding)
-const MAX_CONCURRENT_REQUESTS_PHASE_1 = 250; // Phase 1: 250 concurrent
+// Memory Management - Batch sizes & concurrency per phase 1 service
+// STOCK
+const BATCH_SIZE_PHASE_1_STOCK = 200;              // Phase 1 Stock: items per batch
+const MAX_CONCURRENT_REQUESTS_PHASE_1_STOCK = 100; // Phase 1 Stock: concurrent requests
+
+// INDEX
+const BATCH_SIZE_PHASE_1_INDEX = 44;               // Phase 1 Index: items per batch
+const MAX_CONCURRENT_REQUESTS_INDEX = 44;          // Index Data: concurrent requests
+
+// HOLDING
+const BATCH_SIZE_PHASE_1_HOLDING = 200;               // Phase 1 Holding: items per batch
+const MAX_CONCURRENT_REQUESTS_PHASE_1_HOLDING = 100;  // Phase 1 Holding: concurrent requests
+
+// SHAREHOLDERS
+const BATCH_SIZE_PHASE_1_SHAREHOLDERS = 20;              // Phase 1 Shareholders: items per batch
+const MAX_CONCURRENT_REQUESTS_PHASE_1_SHAREHOLDERS = 10;  // Phase 1 Shareholders: concurrent requests
+
+// Legacy/general phase configs (digunakan oleh phase lain)
+const BATCH_SIZE_PHASE_1 = 500; // General Phase 1 default
+const MAX_CONCURRENT_REQUESTS_PHASE_1 = 250; // General Phase 1 default
 const BATCH_SIZE_PHASE_2 = 500; // Phase 2: 500
 const MAX_CONCURRENT_REQUESTS_PHASE_2 = 250; // Phase 2: 250 concurrent
-const MAX_CONCURRENT_REQUESTS_INDEX = 44; // Index Data: 44 concurrent
 const BATCH_SIZE_PHASE_3 = 6;   // Phase 3: 6
 const MAX_CONCURRENT_REQUESTS_PHASE_3 = 3; // Phase 3: 3 concurrent
 const BATCH_SIZE_PHASE_4 = 6;   // Phase 4: 6
@@ -206,8 +220,8 @@ class ParallelProcessor {
   static async processInBatches<T, R>(
     items: T[],
     processor: (item: T, index: number) => Promise<R>,
-    batchSize: number = BATCH_SIZE_PHASE_1,
-    maxConcurrency: number = MAX_CONCURRENT_REQUESTS
+    batchSize: number,
+    maxConcurrency: number
   ): Promise<R[]> {
     const results: R[] = [];
     
@@ -404,6 +418,11 @@ export {
   parseCsvString,
   BATCH_SIZE_PHASE_1_STOCK,
   BATCH_SIZE_PHASE_1_INDEX,
+  BATCH_SIZE_PHASE_1_HOLDING,
+  BATCH_SIZE_PHASE_1_SHAREHOLDERS,
+  MAX_CONCURRENT_REQUESTS_PHASE_1_STOCK,
+  MAX_CONCURRENT_REQUESTS_PHASE_1_HOLDING,
+  MAX_CONCURRENT_REQUESTS_PHASE_1_SHAREHOLDERS,
   BATCH_SIZE_PHASE_1,
   MAX_CONCURRENT_REQUESTS_PHASE_1,
   BATCH_SIZE_PHASE_2,
