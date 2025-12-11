@@ -1,4 +1,4 @@
-import { listPaths } from '../utils/azureBlob';
+import { listPaths, listPrefixes } from '../utils/azureBlob';
 import { BrokerTransactionStockIDXCalculator } from '../calculations/broker/broker_transaction_stock_IDX';
 import { SchedulerLogService } from './schedulerLogService';
 
@@ -15,44 +15,63 @@ class BrokerTransactionStockIDXDataScheduler {
 
   /**
    * Get list of available dates from broker_transaction_stock folders
+   * OPTIMIZED: Use listPrefixes to only scan date folders, limit to 7 most recent dates, with retry logic
    */
   private async getAvailableDates(): Promise<string[]> {
-    try {
-      const allFiles = await listPaths({ prefix: 'broker_transaction_stock/' });
-      
-      if (allFiles.length === 0) {
-        console.log('⚠️ No files found in broker_transaction_stock/');
-        return [];
-      }
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // OPTIMIZATION: Use listPrefixes to only list date folders, not all files
+        const prefixes = await listPrefixes('broker_transaction_stock/');
+        
+        if (prefixes.length === 0) {
+          console.log('⚠️ No date folders found in broker_transaction_stock/');
+          return [];
+        }
 
-      const dates = new Set<string>();
-      
-      // Extract dates from folder names
-      // Patterns: broker_transaction_stock/broker_transaction_stock_{date}/, broker_transaction_stock/broker_transaction_stock_{inv}_{date}/, etc.
-      for (const file of allFiles) {
-        const parts = file.split('/');
-        if (parts.length >= 2) {
-          const folderName = parts[1]; // broker_transaction_stock_{date} or broker_transaction_stock_{inv}_{date}
-          
+        const dates = new Set<string>();
+        
+        // Extract dates from folder names
+        // Patterns: broker_transaction_stock_{date}/, broker_transaction_stock_{inv}_{date}/, etc.
+        for (const prefix of prefixes) {
           // Extract date (8 digits YYYYMMDD) from folder name
-          if (folderName) {
-            const dateMatch = folderName.match(/(\d{8})/);
-            if (dateMatch && dateMatch[1]) {
-              dates.add(dateMatch[1]);
-            }
+          const dateMatch = prefix.match(/(\d{8})/);
+          if (dateMatch && dateMatch[1]) {
+            dates.add(dateMatch[1]);
           }
         }
+
+        // Sort dates descending (newest first)
+        const sortedDates = Array.from(dates).sort((a, b) => b.localeCompare(a));
+
+        // OPTIMIZATION: Limit to 7 most recent dates
+        const MAX_DATES_TO_PROCESS = 7;
+        const limitedDates = sortedDates.slice(0, MAX_DATES_TO_PROCESS);
+
+        if (sortedDates.length > MAX_DATES_TO_PROCESS) {
+          console.log(`📅 Found ${sortedDates.length} unique dates in broker_transaction_stock/, limiting to ${MAX_DATES_TO_PROCESS} most recent dates`);
+        } else {
+          console.log(`📅 Found ${sortedDates.length} unique dates in broker_transaction_stock/`);
+        }
+        
+        return limitedDates;
+      } catch (error: any) {
+        const isRetryable = 
+          error?.code === 'PARSE_ERROR' ||
+          error?.name === 'RestError' ||
+          (error?.message && error.message.includes('aborted'));
+        
+        if (!isRetryable || attempt === maxRetries) {
+          console.error('❌ Error getting available dates:', error);
+          return [];
+        }
+        
+        const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+        console.log(`⚠️ Retry ${attempt}/${maxRetries} for getAvailableDates() after ${delayMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
       }
-
-      // Sort dates descending (newest first)
-      const sortedDates = Array.from(dates).sort((a, b) => b.localeCompare(a));
-
-      console.log(`📅 Found ${sortedDates.length} unique dates in broker_transaction_stock/`);
-      return sortedDates;
-    } catch (error) {
-      console.error('❌ Error getting available dates:', error);
-      return [];
     }
+    return [];
   }
 
   /**

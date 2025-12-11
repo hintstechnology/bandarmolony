@@ -1,4 +1,4 @@
-import { downloadText, uploadText, listPaths } from '../../utils/azureBlob';
+import { downloadText, uploadText } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_3, MAX_CONCURRENT_REQUESTS_PHASE_3 } from '../../services/dataUpdateService';
 import { SchedulerLogService } from '../../services/schedulerLogService';
 import { doneSummaryCache } from '../../cache/doneSummaryCacheService';
@@ -53,8 +53,7 @@ export class ForeignFlowCalculator {
 
   /**
    * Find all DT files in done-summary folder
-   * CRITICAL: JANGAN LOAD INPUT SAMA SEKALI - hanya cek existing output
-   * Filter file berdasarkan tanggal di output vs tanggal di input (dari nama folder)
+   * OPTIMIZED: Limit to 7 most recent dates, quick check if date already has output
    */
   private async findAllDtFiles(existingDatesByStock: Map<string, Set<string>>): Promise<string[]> {
     console.log("Scanning all DT files in done-summary folder...");
@@ -71,57 +70,73 @@ export class ForeignFlowCalculator {
         return dateB.localeCompare(dateA); // Descending order (newest first)
       });
       
-      // CRITICAL: Filter file berdasarkan existing output - JANGAN LOAD INPUT
-      // Untuk setiap DT file, cek apakah ada minimal 1 stock yang belum punya dateSuffix di output
-      // Logika: Jika semua stock di existingDatesByStock sudah punya dateSuffix, skip file TANPA LOAD
-      // Tapi karena kita tidak tahu stock apa saja yang ada di file tanpa load, kita perlu cek lebih konservatif
-      // Strategi: Jika existingDatesByStock kosong atau ada minimal 1 stock yang belum punya dateSuffix, file perlu diproses
+      // OPTIMIZATION: Limit to 7 most recent dates
+      const MAX_DATES_TO_PROCESS = 7;
+      const limitedFiles = sortedFiles.slice(0, MAX_DATES_TO_PROCESS);
+      
+      if (sortedFiles.length > MAX_DATES_TO_PROCESS) {
+        console.log(`📅 Found ${sortedFiles.length} DT files, limiting to ${MAX_DATES_TO_PROCESS} most recent dates`);
+      }
+      
+      // OPTIMIZATION: Batch check untuk speed (check 20 files in parallel)
+      const CHECK_BATCH_SIZE = 20;
+      const MAX_CONCURRENT_CHECKS = 10;
       const filesToProcess: string[] = [];
       let skippedCount = 0;
       
-      for (const blobName of sortedFiles) {
-        const pathParts = blobName.split('/');
-        const dateSuffix = pathParts[1] || 'unknown';
+      for (let i = 0; i < limitedFiles.length; i += CHECK_BATCH_SIZE) {
+        const batch = limitedFiles.slice(i, i + CHECK_BATCH_SIZE);
         
-        // Cek apakah ada minimal 1 stock yang belum punya tanggal tersebut di output
-        let hasStockNeedingDate = false;
-        
-        if (existingDatesByStock.size === 0) {
-          // Belum ada output sama sekali, semua file perlu diproses
-          hasStockNeedingDate = true;
-        } else {
-          // Cek semua stock di existingDatesByStock
-          // Jika ada minimal 1 stock yang belum punya dateSuffix, file perlu diproses
-          // Tapi karena kita tidak tahu stock apa saja yang ada di file tanpa load,
-          // kita harus konservatif: jika ada minimal 1 stock yang belum punya dateSuffix, file perlu diproses
-          for (const existingDates of existingDatesByStock.values()) {
-            if (!existingDates || !existingDates.has(dateSuffix)) {
-              // Ada minimal 1 stock yang belum punya tanggal tersebut
-              hasStockNeedingDate = true;
-              break;
-            }
-          }
+        // Process batch checks in parallel with concurrency limit
+        const checkPromises = batch.map(async (file: string) => {
+          const pathParts = file.split('/');
+          const dateSuffix = pathParts[1] || 'unknown';
           
-          // Jika semua stock di existingDatesByStock sudah punya dateSuffix,
-          // kita masih perlu cek apakah ada stock lain yang belum ada di existingDatesByStock
-          // Tapi karena kita tidak tahu stock apa saja yang ada di file tanpa load,
-          // kita harus konservatif: jika semua stock di existingDatesByStock sudah punya dateSuffix,
-          // kita skip file (karena kemungkinan besar semua stock sudah diproses)
-          // Tapi ini bisa salah jika ada stock baru yang belum ada di existingDatesByStock
-          // Jadi kita perlu cek lebih teliti di processSingleDtFile()
+          try {
+            // OPTIMIZATION: Quick check - use representative file (BBCA) to check if date exists
+            // If BBCA already has this date, assume all stocks have it (skip)
+            if (existingDatesByStock.size > 0) {
+              const representativeDates = existingDatesByStock.get('BBCA');
+              if (representativeDates && representativeDates.has(dateSuffix)) {
+                // Representative file already has this date, assume all stocks have it
+                return { file, dateSuffix, needsProcessing: false };
+              }
+            }
+            
+            // If we can't determine or stocks need this date, process it
+            return { file, dateSuffix, needsProcessing: true };
+          } catch (error) {
+            // On error, be conservative and process the file
+            return { file, dateSuffix, needsProcessing: true };
+          }
+        });
+        
+        // Limit concurrency for checks
+        const checkResults: { file: string; dateSuffix: string; needsProcessing: boolean }[] = [];
+        for (let j = 0; j < checkPromises.length; j += MAX_CONCURRENT_CHECKS) {
+          const concurrentChecks = checkPromises.slice(j, j + MAX_CONCURRENT_CHECKS);
+          const results = await Promise.all(concurrentChecks);
+          checkResults.push(...results);
         }
         
-        if (hasStockNeedingDate) {
-          filesToProcess.push(blobName);
-        } else {
-          skippedCount++;
+        // Process results
+        for (const result of checkResults) {
+          if (result.needsProcessing) {
+            filesToProcess.push(result.file);
+          } else {
+            skippedCount++;
+            // Only log first few and last few to avoid spam
+            if (skippedCount <= 5 || skippedCount > limitedFiles.length - 5) {
+              console.log(`⏭️  Skipping ${result.file} - date ${result.dateSuffix} already has output`);
+            }
+          }
         }
       }
       
-      if (skippedCount > 0) {
-        console.log(`⏭️  Skipped ${skippedCount} files - all stocks already have dateSuffix in output (NO INPUT LOADED)`);
+      if (skippedCount > 5) {
+        console.log(`⏭️  ... and ${skippedCount - 5} more files skipped`);
       }
-      console.log(`Found ${sortedFiles.length} DT files: ${filesToProcess.length} to process, ${skippedCount} skipped`);
+      console.log(`Found ${limitedFiles.length} DT files (from ${sortedFiles.length} total): ${filesToProcess.length} to process, ${skippedCount} skipped`);
       return filesToProcess;
     } catch (error) {
       console.error('Error scanning DT files:', error);
@@ -291,38 +306,54 @@ export class ForeignFlowCalculator {
 
   /**
    * Read existing CSV data from Azure
+   * OPTIMIZED: Added retry logic for downloadText
    */
   private async readExistingCsvDataFromAzure(filename: string): Promise<ForeignFlowData[]> {
-    try {
-      const content = await downloadText(filename);
-    
-    const lines = content.trim().split('\n');
-    const data: ForeignFlowData[] = [];
-    
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i];
-      if (!line) continue;
-      
-      const values = line.split(',');
-      if (values.length >= 4) {
-        data.push({
-          Date: values[0]?.trim() || '',
-          BuyVol: parseFloat(values[1]?.trim() || '0'),
-          SellVol: parseFloat(values[2]?.trim() || '0'),
-          NetBuyVol: parseFloat(values[3]?.trim() || '0')
-        });
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const content = await downloadText(filename);
+        
+        const lines = content.trim().split('\n');
+        const data: ForeignFlowData[] = [];
+        
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i];
+          if (!line) continue;
+          
+          const values = line.split(',');
+          if (values.length >= 4) {
+            data.push({
+              Date: values[0]?.trim() || '',
+              BuyVol: parseFloat(values[1]?.trim() || '0'),
+              SellVol: parseFloat(values[2]?.trim() || '0'),
+              NetBuyVol: parseFloat(values[3]?.trim() || '0')
+            });
+          }
+        }
+        
+        return data;
+      } catch (error: any) {
+        // File not found is normal for new files - just return empty array
+        if (error instanceof Error && error.message.includes('Blob not found')) {
+          return [];
+        }
+        
+        const isRetryable = 
+          error?.code === 'PARSE_ERROR' ||
+          error?.name === 'RestError' ||
+          (error?.message && error.message.includes('aborted'));
+        
+        if (!isRetryable || attempt === maxRetries) {
+          console.error(`Error reading existing CSV data from ${filename}:`, error);
+          return [];
+        }
+        
+        const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
       }
     }
-    
-    return data;
-    } catch (error) {
-      // File not found is normal for new files - just return empty array
-      if (error instanceof Error && error.message.includes('Blob not found')) {
-        return [];
-      }
-      console.error(`Error reading existing CSV data from ${filename}:`, error);
-      return [];
-    }
+    return [];
   }
 
   /**
@@ -427,45 +458,35 @@ export class ForeignFlowCalculator {
 
   /**
    * Load existing dates for all stocks from output files
-   * OPTIMIZED: Pre-load all existing dates to avoid filtering later
+   * OPTIMIZED: Quick check - only load 1 representative file (BBCA.csv) for speed
    */
   private async loadExistingDatesByStock(): Promise<Map<string, Set<string>>> {
-    console.log("📋 Loading existing dates from foreign_flow output files...");
+    console.log("📋 Loading existing dates from foreign_flow output files (quick check - 1 file only)...");
     const existingDatesByStock = new Map<string, Set<string>>();
     
     try {
-      // List all foreign flow files
-      const allFiles = await listPaths({ prefix: 'foreign_flow/' });
-      const csvFiles = allFiles.filter(f => f.endsWith('.csv') && f.startsWith('foreign_flow/'));
+      // OPTIMIZATION: Only check 1 representative file (BBCA.csv) for speed
+      const representativeFile = 'foreign_flow/BBCA.csv';
       
-      console.log(`Found ${csvFiles.length} existing foreign flow files`);
-      
-      // Load each file and extract dates (in batches to avoid memory issues)
-      const BATCH_SIZE = BATCH_SIZE_PHASE_3;
-      for (let i = 0; i < csvFiles.length; i += BATCH_SIZE) {
-        const batch = csvFiles.slice(i, i + BATCH_SIZE);
-        
-        await Promise.allSettled(
-          batch.map(async (filename) => {
-            try {
-              const stockCode = filename.replace('foreign_flow/', '').replace('.csv', '');
-              const existingData = await this.readExistingCsvDataFromAzure(filename);
-              const dates = this.extractExistingDates(existingData);
-              if (dates.size > 0) {
-                existingDatesByStock.set(stockCode, dates);
-              }
-            } catch (error) {
-              // Skip files that can't be read
-            }
-          })
-        );
-        
-        if ((i + BATCH_SIZE) % 200 === 0) {
-          console.log(`📋 Loaded existing dates for ${existingDatesByStock.size} stocks...`);
+      try {
+        const existingData = await this.readExistingCsvDataFromAzure(representativeFile);
+        const dates = this.extractExistingDates(existingData);
+        if (dates.size > 0) {
+          // Use BBCA as representative for all stocks
+          existingDatesByStock.set('BBCA', dates);
+          console.log(`✅ Quick check: Loaded ${dates.size} existing dates from ${representativeFile} (representative for all stocks)`);
+        } else {
+          console.log(`⚠️ Quick check: ${representativeFile} exists but has no dates`);
+        }
+      } catch (error: any) {
+        // File not found is normal for new files
+        if (error instanceof Error && error.message.includes('Blob not found')) {
+          console.log(`ℹ️ Quick check: ${representativeFile} not found - assuming no existing dates`);
+        } else {
+          console.log(`⚠️ Quick check: Could not load ${representativeFile}, assuming no existing dates`);
         }
       }
       
-      console.log(`✅ Loaded existing dates for ${existingDatesByStock.size} stocks`);
       return existingDatesByStock;
     } catch (error) {
       console.error('Error loading existing dates:', error);

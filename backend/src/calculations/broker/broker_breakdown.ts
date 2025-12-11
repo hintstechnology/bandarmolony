@@ -110,8 +110,16 @@ export class BrokerBreakdownCalculator {
         return dateB.localeCompare(dateA); // Descending order (newest first)
       });
       
-      console.log(`Found ${sortedFiles.length} DT files to process (sorted newest first)`);
-      return sortedFiles;
+      // OPTIMIZATION: Limit to 7 most recent dates
+      const MAX_DATES_TO_PROCESS = 7;
+      const limitedFiles = sortedFiles.slice(0, MAX_DATES_TO_PROCESS);
+      
+      if (sortedFiles.length > MAX_DATES_TO_PROCESS) {
+        console.log(`📅 Found ${sortedFiles.length} DT files, limiting to ${MAX_DATES_TO_PROCESS} most recent dates`);
+      }
+      
+      console.log(`Found ${limitedFiles.length} DT files to process (from ${sortedFiles.length} total, sorted newest first)`);
+      return limitedFiles;
     } catch (error) {
       console.error('Error scanning DT files:', error);
       return [];
@@ -121,37 +129,96 @@ export class BrokerBreakdownCalculator {
   /**
    * Pre-check which dates already have broker breakdown output
    * Returns array of files that need processing (sorted newest first)
+   * OPTIMIZED: Parallel checking with retry logic
    */
   private async filterExistingDates(dtFiles: string[]): Promise<string[]> {
-    console.log(`🔍 Pre-checking existing broker breakdown outputs (checking from newest to oldest)...`);
+    console.log(`🔍 Pre-checking existing broker breakdown outputs (parallel batch checking)...`);
     
     const filesToProcess: string[] = [];
     let skippedCount = 0;
     
-    // Check sequentially from newest to oldest to maintain order
-    for (const blobName of dtFiles) {
-      const pathParts = blobName.split('/');
-      const dateFolder = pathParts[1] || 'unknown';
-      const dateSuffix = dateFolder;
+    // OPTIMIZATION: Process in batches for parallel checking (faster than sequential)
+    const CHECK_BATCH_SIZE = 20; // Check 20 files in parallel
+    const MAX_CONCURRENT_CHECKS = 10; // Max 10 concurrent checks
+    
+    for (let i = 0; i < dtFiles.length; i += CHECK_BATCH_SIZE) {
+      const batch = dtFiles.slice(i, i + CHECK_BATCH_SIZE);
+      const batchNumber = Math.floor(i / CHECK_BATCH_SIZE) + 1;
+      const totalBatches = Math.ceil(dtFiles.length / CHECK_BATCH_SIZE);
       
-      try {
+      // Process batch checks in parallel with concurrency limit
+      // OPTIMIZED: Added retry logic for listPaths
+      const checkPromises = batch.map(async (blobName: string) => {
+        const pathParts = blobName.split('/');
+        const dateFolder = pathParts[1] || 'unknown';
+        const dateSuffix = dateFolder;
         const outputPrefix = `done_summary_broker_breakdown/${dateSuffix}/`;
-        const existingFiles = await listPaths({ prefix: outputPrefix, maxResults: 1 });
         
-        if (existingFiles.length > 0) {
-          skippedCount++;
-          console.log(`⏭️ Broker breakdown already exists for date ${dateSuffix} - skipping`);
-        } else {
-          filesToProcess.push(blobName);
-          console.log(`✅ Date ${dateSuffix} needs processing`);
+        const maxRetries = 2;
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            const existingFiles = await listPaths({ prefix: outputPrefix, maxResults: 1 });
+            return { blobName, dateSuffix, exists: existingFiles.length > 0, error: null };
+          } catch (error: any) {
+            const isRetryable = 
+              error?.code === 'PARSE_ERROR' ||
+              error?.name === 'RestError' ||
+              (error?.message && error.message.includes('aborted'));
+            
+            if (!isRetryable || attempt === maxRetries) {
+              // If check fails, proceed with processing (safer to process than skip)
+              return { blobName, dateSuffix, exists: false, error: error instanceof Error ? error.message : String(error) };
+            }
+            
+            const delayMs = Math.min(500 * Math.pow(2, attempt - 1), 2000);
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+          }
         }
-      } catch (error) {
-        // If check fails, proceed with processing (safer to process than skip)
-        console.warn(`⚠️ Could not check existence for ${dateSuffix}, will process:`, error instanceof Error ? error.message : error);
-        filesToProcess.push(blobName);
+        return { blobName, dateSuffix, exists: false, error: 'Max retries exceeded' };
+      });
+      
+      // Limit concurrency for checks
+      const checkResults: { blobName: string; dateSuffix: string; exists: boolean; error: string | null }[] = [];
+      for (let j = 0; j < checkPromises.length; j += MAX_CONCURRENT_CHECKS) {
+        const concurrentChecks = checkPromises.slice(j, j + MAX_CONCURRENT_CHECKS);
+        const results = await Promise.all(concurrentChecks);
+        checkResults.push(...results);
+      }
+      
+      // Process results
+      for (const result of checkResults) {
+        if (result.exists) {
+          skippedCount++;
+          // Only log first few and last few to avoid spam
+          if (skippedCount <= 5 || skippedCount > dtFiles.length - 5) {
+            console.log(`⏭️ Broker breakdown already exists for date ${result.dateSuffix} - skipping`);
+          }
+        } else {
+          if (result.error) {
+            console.warn(`⚠️ Could not check existence for ${result.dateSuffix}, will process:`, result.error);
+          } else {
+            // Only log first few to avoid spam
+            if (filesToProcess.length < 5) {
+              console.log(`✅ Date ${result.dateSuffix} needs processing`);
+            }
+          }
+          filesToProcess.push(result.blobName);
+        }
+      }
+      
+      // Progress update for large batches
+      if (totalBatches > 1 && batchNumber % 5 === 0) {
+        console.log(`📊 Checked ${Math.min(i + CHECK_BATCH_SIZE, dtFiles.length)}/${dtFiles.length} files (${skippedCount} skipped, ${filesToProcess.length} to process)...`);
       }
     }
     
+    // Summary log
+    if (skippedCount > 5) {
+      console.log(`⏭️  ... and ${skippedCount - 5} more dates skipped`);
+    }
+    if (filesToProcess.length > 5) {
+      console.log(`✅ ... and ${filesToProcess.length - 5} more dates need processing`);
+    }
     console.log(`📊 Pre-check complete: ${filesToProcess.length} files to process, ${skippedCount} already exist`);
     
     if (filesToProcess.length > 0) {

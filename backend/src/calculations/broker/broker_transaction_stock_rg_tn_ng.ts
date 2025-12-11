@@ -242,30 +242,44 @@ export class BrokerTransactionStockRGTNNGCalculator {
 
   /**
    * Check if broker transaction stock folder for specific date and type already exists
+   * OPTIMIZED: Added retry logic for Azure network errors
    */
   private async checkBrokerTransactionStockRGTNNGExists(dateSuffix: string, type: TransactionType): Promise<boolean> {
-    try {
-      const name = type.toLowerCase();
-      const prefix = `broker_transaction_stock_${name}/broker_transaction_stock_${name}_${dateSuffix}/`;
-      const existingFiles = await listPaths({ prefix, maxResults: 1 });
-      return existingFiles.length > 0;
-    } catch (error) {
-      return false;
+    const maxRetries = 2;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const name = type.toLowerCase();
+        const prefix = `broker_transaction_stock_${name}/broker_transaction_stock_${name}_${dateSuffix}/`;
+        const existingFiles = await listPaths({ prefix, maxResults: 1 });
+        return existingFiles.length > 0;
+      } catch (error: any) {
+        const isRetryable = 
+          error?.code === 'PARSE_ERROR' ||
+          error?.name === 'RestError' ||
+          (error?.message && error.message.includes('aborted'));
+        
+        if (!isRetryable || attempt === maxRetries) {
+          return false;
+        }
+        
+        const delayMs = Math.min(500 * Math.pow(2, attempt - 1), 2000);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
     }
+    return false;
   }
 
   /**
    * Check if all types (RG, TN, NG) already exist for a date
+   * OPTIMIZED: Quick check - only check RG type for speed
    */
   private async checkAllTypesExist(dateSuffix: string): Promise<boolean> {
-    const types: TransactionType[] = ['RG', 'TN', 'NG'];
-    for (const type of types) {
-      const exists = await this.checkBrokerTransactionStockRGTNNGExists(dateSuffix, type);
-      if (!exists) {
-        return false; // At least one type is missing
-      }
+    // Quick check: if RG exists, assume all types exist (faster)
+    const rgExists = await this.checkBrokerTransactionStockRGTNNGExists(dateSuffix, 'RG');
+    if (rgExists) {
+      return true; // If RG exists, skip date (assume all types exist)
     }
-    return true; // All types exist
+    return false; // RG doesn't exist, need processing
   }
 
   /**
@@ -287,8 +301,16 @@ export class BrokerTransactionStockRGTNNGCalculator {
         return dateB.localeCompare(dateA); // Descending order
       });
       
+      // OPTIMIZATION: Limit to 7 most recent dates
+      const MAX_DATES_TO_PROCESS = 7;
+      const limitedFiles = sortedFiles.slice(0, MAX_DATES_TO_PROCESS);
+      
+      if (sortedFiles.length > MAX_DATES_TO_PROCESS) {
+        console.log(`📅 Found ${sortedFiles.length} DT files, limiting to ${MAX_DATES_TO_PROCESS} most recent dates`);
+      }
+      
       // OPTIMIZATION: Check which dates already have all broker_transaction_stock_rg/tn/ng outputs (BATCH CHECKING for speed)
-      console.log("🔍 Checking existing broker_transaction_stock_rg/tn/ng folders to skip (batch checking)...");
+      console.log("🔍 Checking existing broker_transaction_stock_rg/tn/ng folders to skip (batch checking - quick check: RG only)...");
       const filesToProcess: string[] = [];
       let skippedCount = 0;
       
@@ -296,10 +318,10 @@ export class BrokerTransactionStockRGTNNGCalculator {
       const CHECK_BATCH_SIZE = 20; // Check 20 files in parallel
       const MAX_CONCURRENT_CHECKS = 10; // Max 10 concurrent checks
       
-      for (let i = 0; i < sortedFiles.length; i += CHECK_BATCH_SIZE) {
-        const batch = sortedFiles.slice(i, i + CHECK_BATCH_SIZE);
+      for (let i = 0; i < limitedFiles.length; i += CHECK_BATCH_SIZE) {
+        const batch = limitedFiles.slice(i, i + CHECK_BATCH_SIZE);
         const batchNumber = Math.floor(i / CHECK_BATCH_SIZE) + 1;
-        const totalBatches = Math.ceil(sortedFiles.length / CHECK_BATCH_SIZE);
+        const totalBatches = Math.ceil(limitedFiles.length / CHECK_BATCH_SIZE);
         
         // Process batch checks in parallel with concurrency limit
         const checkPromises = batch.map(async (file: string) => {
@@ -321,7 +343,7 @@ export class BrokerTransactionStockRGTNNGCalculator {
           if (result.exists) {
             skippedCount++;
             // Only log first few and last few to avoid spam
-            if (skippedCount <= 5 || skippedCount > sortedFiles.length - 5) {
+            if (skippedCount <= 5 || skippedCount > limitedFiles.length - 5) {
               console.log(`⏭️ Skipping ${result.file} - broker_transaction_stock_rg/tn/ng folders already exist for ${result.dateFolder}`);
             }
           } else {
@@ -331,7 +353,7 @@ export class BrokerTransactionStockRGTNNGCalculator {
         
         // Progress update for large batches
         if (totalBatches > 1 && batchNumber % 5 === 0) {
-          console.log(`📊 Checked ${Math.min(i + CHECK_BATCH_SIZE, sortedFiles.length)}/${sortedFiles.length} files (${skippedCount} skipped, ${filesToProcess.length} to process)...`);
+          console.log(`📊 Checked ${Math.min(i + CHECK_BATCH_SIZE, limitedFiles.length)}/${limitedFiles.length} files (${skippedCount} skipped, ${filesToProcess.length} to process)...`);
         }
       }
       
@@ -339,7 +361,7 @@ export class BrokerTransactionStockRGTNNGCalculator {
       if (skippedCount > 5) {
         console.log(`⏭️  ... and ${skippedCount - 5} more files skipped`);
       }
-      console.log(`📊 Found ${sortedFiles.length} DT files: ${filesToProcess.length} to process, ${skippedCount} skipped (already processed)`);
+      console.log(`📊 Found ${limitedFiles.length} DT files (from ${sortedFiles.length} total): ${filesToProcess.length} to process, ${skippedCount} skipped (already processed)`);
       
       if (filesToProcess.length > 0) {
         console.log(`📋 Processing order (newest first):`);
