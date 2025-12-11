@@ -91,6 +91,14 @@ export class BidAskCalculator {
         return dateB.localeCompare(dateA); // Descending order (newest first)
       });
       
+      // OPTIMIZATION: Limit to 7 most recent dates
+      const MAX_DATES_TO_PROCESS = 7;
+      const limitedFiles = sortedFiles.slice(0, MAX_DATES_TO_PROCESS);
+      
+      if (sortedFiles.length > MAX_DATES_TO_PROCESS) {
+        console.log(`📅 Found ${sortedFiles.length} DT files, limiting to ${MAX_DATES_TO_PROCESS} most recent dates`);
+      }
+      
       // OPTIMIZATION: Pre-check which dates already have bid_ask output (BATCH CHECKING for speed)
       console.log("🔍 Pre-checking existing bid_ask outputs (batch checking)...");
       const filesToProcess: string[] = [];
@@ -100,23 +108,38 @@ export class BidAskCalculator {
       const CHECK_BATCH_SIZE = 20; // Check 20 files in parallel
       const MAX_CONCURRENT_CHECKS = 10; // Max 10 concurrent checks
       
-      for (let i = 0; i < sortedFiles.length; i += CHECK_BATCH_SIZE) {
-        const batch = sortedFiles.slice(i, i + CHECK_BATCH_SIZE);
+      for (let i = 0; i < limitedFiles.length; i += CHECK_BATCH_SIZE) {
+        const batch = limitedFiles.slice(i, i + CHECK_BATCH_SIZE);
         const batchNumber = Math.floor(i / CHECK_BATCH_SIZE) + 1;
-        const totalBatches = Math.ceil(sortedFiles.length / CHECK_BATCH_SIZE);
+        const totalBatches = Math.ceil(limitedFiles.length / CHECK_BATCH_SIZE);
         
         // Process batch checks in parallel with concurrency limit
+        // OPTIMIZED: Added retry logic for listPaths
         const checkPromises = batch.map(async (file: string) => {
           const dateFolder = file.split('/')[1] || '';
           const dateSuffix = dateFolder;
           const outputPrefix = `bid_ask/bid_ask_${dateSuffix}/`;
           
-          try {
-            const existingFiles = await listPaths({ prefix: outputPrefix, maxResults: 1 });
-            return { file, dateSuffix, exists: existingFiles.length > 0, error: null };
-          } catch (error) {
-            return { file, dateSuffix, exists: false, error: error instanceof Error ? error.message : String(error) };
+          const maxRetries = 2;
+          for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+              const existingFiles = await listPaths({ prefix: outputPrefix, maxResults: 1 });
+              return { file, dateSuffix, exists: existingFiles.length > 0, error: null };
+            } catch (error: any) {
+              const isRetryable = 
+                error?.code === 'PARSE_ERROR' ||
+                error?.name === 'RestError' ||
+                (error?.message && error.message.includes('aborted'));
+              
+              if (!isRetryable || attempt === maxRetries) {
+                return { file, dateSuffix, exists: false, error: error instanceof Error ? error.message : String(error) };
+              }
+              
+              const delayMs = Math.min(500 * Math.pow(2, attempt - 1), 2000);
+              await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
           }
+          return { file, dateSuffix, exists: false, error: 'Max retries exceeded' };
         });
         
         // Limit concurrency for checks
@@ -132,7 +155,7 @@ export class BidAskCalculator {
           if (result.exists) {
             skippedCount++;
             // Only log first few and last few to avoid spam
-            if (skippedCount <= 5 || skippedCount > sortedFiles.length - 5) {
+            if (skippedCount <= 5 || skippedCount > limitedFiles.length - 5) {
               console.log(`⏭️ Bid/Ask already exists for date ${result.dateSuffix} - skipping`);
             }
           } else {
@@ -150,7 +173,7 @@ export class BidAskCalculator {
         
         // Progress update for large batches
         if (totalBatches > 1 && batchNumber % 5 === 0) {
-          console.log(`📊 Checked ${Math.min(i + CHECK_BATCH_SIZE, sortedFiles.length)}/${sortedFiles.length} files (${skippedCount} skipped, ${filesToProcess.length} to process)...`);
+          console.log(`📊 Checked ${Math.min(i + CHECK_BATCH_SIZE, limitedFiles.length)}/${limitedFiles.length} files (${skippedCount} skipped, ${filesToProcess.length} to process)...`);
         }
       }
       
@@ -161,7 +184,7 @@ export class BidAskCalculator {
       if (filesToProcess.length > 5) {
         console.log(`✅ ... and ${filesToProcess.length - 5} more dates need processing`);
       }
-      console.log(`📊 Pre-check complete: ${filesToProcess.length} files to process, ${skippedCount} already exist`);
+      console.log(`📊 Pre-check complete: ${filesToProcess.length} files to process (from ${limitedFiles.length} limited, ${sortedFiles.length} total), ${skippedCount} already exist`);
       
       if (filesToProcess.length > 0) {
         console.log(`📋 Processing order (newest first):`);

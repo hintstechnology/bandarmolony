@@ -274,8 +274,16 @@ export class BrokerTransactionFDCalculator {
         return dateB.localeCompare(dateA); // Descending order (newest first)
       });
       
+      // OPTIMIZATION: Limit to 7 most recent dates
+      const MAX_DATES_TO_PROCESS = 7;
+      const limitedFiles = sortedFiles.slice(0, MAX_DATES_TO_PROCESS);
+      
+      if (sortedFiles.length > MAX_DATES_TO_PROCESS) {
+        console.log(`📅 Found ${sortedFiles.length} DT files, limiting to ${MAX_DATES_TO_PROCESS} most recent dates`);
+      }
+      
       // OPTIMIZATION: Check which dates already have broker_transaction_d and broker_transaction_f outputs (BATCH CHECKING for speed)
-      console.log("🔍 Checking existing broker_transaction_d/f folders to skip (batch checking)...");
+      console.log("🔍 Checking existing broker_transaction_d/f folders to skip (batch checking - quick check: D only)...");
       const filesToProcess: string[] = [];
       let skippedCount = 0;
       
@@ -283,10 +291,10 @@ export class BrokerTransactionFDCalculator {
       const CHECK_BATCH_SIZE = 20; // Check 20 files in parallel
       const MAX_CONCURRENT_CHECKS = 10; // Max 10 concurrent checks
       
-      for (let i = 0; i < sortedFiles.length; i += CHECK_BATCH_SIZE) {
-        const batch = sortedFiles.slice(i, i + CHECK_BATCH_SIZE);
+      for (let i = 0; i < limitedFiles.length; i += CHECK_BATCH_SIZE) {
+        const batch = limitedFiles.slice(i, i + CHECK_BATCH_SIZE);
         const batchNumber = Math.floor(i / CHECK_BATCH_SIZE) + 1;
-        const totalBatches = Math.ceil(sortedFiles.length / CHECK_BATCH_SIZE);
+        const totalBatches = Math.ceil(limitedFiles.length / CHECK_BATCH_SIZE);
         
         // Process batch checks in parallel with concurrency limit
         const checkPromises = batch.map(async (file: string) => {
@@ -308,7 +316,7 @@ export class BrokerTransactionFDCalculator {
           if (result.exists) {
             skippedCount++;
             // Only log first few and last few to avoid spam
-            if (skippedCount <= 5 || skippedCount > sortedFiles.length - 5) {
+            if (skippedCount <= 5 || skippedCount > limitedFiles.length - 5) {
               console.log(`⏭️ Skipping ${result.file} - broker_transaction_d/f folders already exist for ${result.dateFolder}`);
             }
           } else {
@@ -318,7 +326,7 @@ export class BrokerTransactionFDCalculator {
         
         // Progress update for large batches
         if (totalBatches > 1 && batchNumber % 5 === 0) {
-          console.log(`📊 Checked ${Math.min(i + CHECK_BATCH_SIZE, sortedFiles.length)}/${sortedFiles.length} files (${skippedCount} skipped, ${filesToProcess.length} to process)...`);
+          console.log(`📊 Checked ${Math.min(i + CHECK_BATCH_SIZE, limitedFiles.length)}/${limitedFiles.length} files (${skippedCount} skipped, ${filesToProcess.length} to process)...`);
         }
       }
       
@@ -326,7 +334,7 @@ export class BrokerTransactionFDCalculator {
       if (skippedCount > 5) {
         console.log(`⏭️  ... and ${skippedCount - 5} more files skipped`);
       }
-      console.log(`📊 Found ${sortedFiles.length} DT files: ${filesToProcess.length} to process, ${skippedCount} skipped (already processed)`);
+      console.log(`📊 Found ${limitedFiles.length} DT files (from ${sortedFiles.length} total): ${filesToProcess.length} to process, ${skippedCount} skipped (already processed)`);
       return filesToProcess;
     } catch (error) {
       console.error('Error scanning DT files:', error);
@@ -336,17 +344,32 @@ export class BrokerTransactionFDCalculator {
 
   /**
    * Check if broker transaction folders (d and f) for specific date already exist
+   * OPTIMIZED: Added retry logic and quick check (only check D for speed)
    */
   private async checkBrokerTransactionFDExists(dateSuffix: string): Promise<boolean> {
-    try {
-      const prefixD = `broker_transaction/broker_transaction_d_${dateSuffix}/`;
-      const prefixF = `broker_transaction/broker_transaction_f_${dateSuffix}/`;
-      const existingFilesD = await listPaths({ prefix: prefixD, maxResults: 1 });
-      const existingFilesF = await listPaths({ prefix: prefixF, maxResults: 1 });
-      return existingFilesD.length > 0 && existingFilesF.length > 0;
-    } catch (error) {
-      return false;
+    const maxRetries = 2;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // Quick check: only check D type for speed (if D exists, assume F also exists)
+        const prefixD = `broker_transaction/broker_transaction_d_${dateSuffix}/`;
+        const existingFilesD = await listPaths({ prefix: prefixD, maxResults: 1 });
+        // If D exists, assume both D and F exist (skip date)
+        return existingFilesD.length > 0;
+      } catch (error: any) {
+        const isRetryable = 
+          error?.code === 'PARSE_ERROR' ||
+          error?.name === 'RestError' ||
+          (error?.message && error.message.includes('aborted'));
+        
+        if (!isRetryable || attempt === maxRetries) {
+          return false;
+        }
+        
+        const delayMs = Math.min(500 * Math.pow(2, attempt - 1), 2000);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
     }
+    return false;
   }
 
   /**
