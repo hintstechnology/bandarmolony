@@ -53,10 +53,10 @@ export class BrokerSummaryIDXDataScheduler {
         });
       }
       
-      // Get list of all dates from broker_summary folders
-      const dates = await this.getAvailableDates();
+      // Get list of all dates from broker_summary folder
+      const allDates = await this.getAvailableDates();
       
-      if (dates.length === 0) {
+      if (allDates.length === 0) {
         console.log('⚠️ No dates found with broker summary data');
         return {
           success: false,
@@ -64,10 +64,24 @@ export class BrokerSummaryIDXDataScheduler {
         };
       }
 
-      console.log(`📅 Found ${dates.length} dates to process`);
+      console.log(`📅 Found ${allDates.length} dates from broker_summary folder`);
 
       // Process each market type for all dates
       const marketTypes: Array<'' | 'RG' | 'TN' | 'NG'> = ['', 'RG', 'TN', 'NG'];
+
+      // OPTIMIZATION: Pre-check which dates already have IDX.csv for all market types
+      const dates = await this.filterCompleteDates(allDates, marketTypes);
+      
+      if (dates.length === 0) {
+        console.log('✅ All dates already have IDX.csv for all market types - nothing to process');
+        return {
+          success: true,
+          message: `All dates already have IDX.csv for all market types - nothing to process`,
+          data: {}
+        };
+      }
+
+      console.log(`📊 After pre-check: ${dates.length} dates need processing (${allDates.length - dates.length} already complete)`);
 
       // Estimate total brokers: average brokers per date * dates * market types
       // Typical broker count per date is around 100-150, we'll use 120 as average
@@ -201,60 +215,229 @@ export class BrokerSummaryIDXDataScheduler {
   }
 
   /**
-   * Get available dates from broker_summary folders
+   * Get available dates from broker_summary folder (main folder only)
+   * OPTIMIZED: Use listPrefixes() to list only folder names (not all files) - much faster!
    */
   private async getAvailableDates(): Promise<string[]> {
     try {
-      const { listPaths } = await import('../utils/azureBlob');
+      const { listPrefixes } = await import('../utils/azureBlob');
       
-      // Check all market type folders
-      const marketFolders = [
-        'broker_summary/',
-        'broker_summary_rg/',
-        'broker_summary_tn/',
-        'broker_summary_ng/'
-      ];
+      // OPTIMIZATION: Only scan main folder broker_summary/ (not _rg, _tn, _ng)
+      // Use listPrefixes() to get folder names only (much faster than listPaths which scans all files)
+      const mainFolder = 'broker_summary/';
 
       const allDates = new Set<string>();
 
-      for (const folder of marketFolders) {
-        try {
-          const paths = await listPaths({ prefix: folder });
-          console.log(`📁 Found ${paths.length} paths in ${folder}`);
-          
-          paths.forEach(path => {
-            // Extract date from path patterns:
-            // - broker_summary_rg/broker_summary_rg_20241021/BBCA.csv
-            // - broker_summary_rg/broker_summary_rg_20241021/IDX.csv
-            // - broker_summary/broker_summary_20241021/BBCA.csv
-            // - broker_summary/broker_summary_20241021/IDX.csv
-            // Date format is YYYYMMDD (8 digits)
+      // Helper function untuk listPrefixes dengan retry logic
+      const listPrefixesWithRetry = async (prefix: string, maxRetries = 3): Promise<string[]> => {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            const prefixes = await listPrefixes(prefix);
+            return prefixes;
+          } catch (error: any) {
+            // Check if error is retryable
+            const isRetryable = 
+              error?.code === 'PARSE_ERROR' ||
+              error?.code === 'EADDRNOTAVAIL' ||
+              error?.code === 'ECONNRESET' ||
+              error?.code === 'ETIMEDOUT' ||
+              error?.code === 'ENOTFOUND' ||
+              error?.code === 'ECONNREFUSED' ||
+              error?.name === 'RestError' ||
+              (error?.message && (
+                error.message.includes('aborted') ||
+                error.message.includes('connect') ||
+                error.message.includes('timeout') ||
+                error.message.includes('network')
+              ));
             
-            // Match modern path: broker_summary_rg/broker_summary_rg_20241021/...
-            const m1 = path.match(/broker_summary_(rg|tn|ng)\/broker_summary_(rg|tn|ng)_(\d{8})\//);
-            // Match legacy path: broker_summary/broker_summary_20241021/...
-            const m2 = path.match(/broker_summary\/broker_summary_(\d{8})\//);
-            
-            if (m1 && m1[3] && /^\d{8}$/.test(m1[3])) {
-              allDates.add(m1[3]);
+            if (!isRetryable || attempt === maxRetries) {
+              // Not retryable or max retries reached
+              if (attempt === maxRetries) {
+                console.warn(`⚠️ Could not list prefixes in ${prefix} after ${maxRetries} attempts:`, error?.code || error?.message || error);
+              } else {
+                console.warn(`⚠️ Could not list prefixes in ${prefix} (non-retryable error):`, error?.code || error?.message || error);
+              }
+              return []; // Return empty array instead of throwing
             }
-            if (m2 && m2[1] && /^\d{8}$/.test(m2[1])) {
-              allDates.add(m2[1]);
+            
+            // Calculate exponential backoff delay: 1s, 2s, 4s
+            const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Max 5 seconds
+            console.warn(`⚠️ listPrefixes failed for ${prefix} (attempt ${attempt}/${maxRetries}), retrying in ${delayMs}ms...`, error?.code || error?.message);
+            
+            // Wait before retry
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+          }
+        }
+        
+        return []; // Return empty array if all retries failed
+      };
+
+      // OPTIMIZATION: Use listPrefixes() to get folder names only (not all files)
+      // This is MUCH faster - only returns folder names like "broker_summary_20251210/" instead of all files
+      console.log('🔍 Scanning broker_summary/ folder for date folders (using listPrefixes - fast!)...');
+      
+      try {
+        const prefixes = await listPrefixesWithRetry(mainFolder);
+        
+        if (prefixes.length > 0) {
+          console.log(`📁 Found ${prefixes.length} date folders in ${mainFolder}`);
+          
+          prefixes.forEach(prefix => {
+            // Extract date from folder name: broker_summary_20241021/
+            // Date format is YYYYMMDD (8 digits)
+            const m = prefix.match(/broker_summary_(\d{8})\//);
+            
+            if (m && m[1] && /^\d{8}$/.test(m[1])) {
+              allDates.add(m[1]);
             }
           });
-        } catch (error) {
-          // Continue if folder doesn't exist
-          console.warn(`⚠️ Could not list paths in ${folder}:`, error);
+        } else {
+          console.log(`📁 Folder ${mainFolder} exists but has no date subfolders`);
         }
+      } catch (error) {
+        console.warn(`⚠️ Could not list prefixes in ${mainFolder} (final error):`, error);
       }
 
       const dateList = Array.from(allDates).sort().reverse(); // Newest first
-      console.log(`📅 Found ${dateList.length} unique dates: ${dateList.slice(0, 10).join(', ')}${dateList.length > 10 ? '...' : ''}`);
-      return dateList;
+      
+      // OPTIMIZATION: Only process 7 most recent dates for faster processing
+      const MAX_DATES_TO_PROCESS = 7;
+      const limitedDateList = dateList.slice(0, MAX_DATES_TO_PROCESS);
+      
+      if (dateList.length > MAX_DATES_TO_PROCESS) {
+        console.log(`📅 Found ${dateList.length} unique dates, limiting to ${MAX_DATES_TO_PROCESS} most recent: ${limitedDateList.join(', ')}`);
+      } else {
+        console.log(`📅 Found ${dateList.length} unique dates: ${limitedDateList.join(', ')}`);
+      }
+      
+      return limitedDateList;
     } catch (error) {
       console.error('❌ Error getting available dates:', error);
       return [];
     }
+  }
+
+  /**
+   * Pre-check which dates already have IDX.csv for all market types
+   * OPTIMIZED: Batch checking untuk filter dates yang sudah complete
+   */
+  private async filterCompleteDates(
+    dates: string[], 
+    marketTypes: Array<'' | 'RG' | 'TN' | 'NG'>
+  ): Promise<string[]> {
+    console.log(`🔍 Pre-checking existing IDX.csv files (optimized batch checking)...`);
+    console.log(`📊 Checking ${dates.length} dates for completeness (${marketTypes.length} market types each)...`);
+    
+    const { exists } = await import('../utils/azureBlob');
+    const datesToProcess: string[] = [];
+    let skippedCount = 0;
+    
+    // Process in batches for parallel checking (faster than sequential)
+    const CHECK_BATCH_SIZE = 20; // Check 20 dates in parallel
+    const MAX_CONCURRENT_CHECKS = 10; // Max 10 concurrent checks
+    
+    // Helper function untuk exists dengan retry logic
+    const existsWithRetry = async (filePath: string, maxRetries = 2): Promise<boolean> => {
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          return await exists(filePath);
+        } catch (error: any) {
+          const isRetryable = 
+            error?.code === 'PARSE_ERROR' ||
+            error?.name === 'RestError' ||
+            (error?.message && error.message.includes('aborted'));
+          
+          if (!isRetryable || attempt === maxRetries) {
+            return false; // Not retryable or max retries reached
+          }
+          
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+      return false;
+    };
+    
+    for (let i = 0; i < dates.length; i += CHECK_BATCH_SIZE) {
+      const batch = dates.slice(i, i + CHECK_BATCH_SIZE);
+      const batchNumber = Math.floor(i / CHECK_BATCH_SIZE) + 1;
+      const totalBatches = Math.ceil(dates.length / CHECK_BATCH_SIZE);
+      
+      // Process batch checks in parallel with concurrency limit
+      const checkPromises = batch.map(async (dateSuffix) => {
+        try {
+          // Check if ALL market types have IDX.csv
+          let allComplete = true;
+          
+          for (const marketType of marketTypes) {
+            const marketLower = marketType.toLowerCase();
+            const folderPrefix = marketType === '' 
+              ? `broker_summary/broker_summary_${dateSuffix}`
+              : `broker_summary_${marketLower}/broker_summary_${marketLower}_${dateSuffix}`;
+            
+            const idxFilePath = `${folderPrefix}/IDX.csv`;
+            const idxExists = await existsWithRetry(idxFilePath);
+            
+            if (!idxExists) {
+              allComplete = false;
+              break;
+            }
+          }
+          
+          return { dateSuffix, isComplete: allComplete };
+        } catch (error) {
+          // If check fails, assume incomplete (safer to process than skip)
+          return { dateSuffix, isComplete: false };
+        }
+      });
+      
+      // Limit concurrency for checks
+      const checkResults: Array<{ dateSuffix: string; isComplete: boolean }> = [];
+      for (let j = 0; j < checkPromises.length; j += MAX_CONCURRENT_CHECKS) {
+        const concurrentChecks = checkPromises.slice(j, j + MAX_CONCURRENT_CHECKS);
+        const results = await Promise.all(concurrentChecks);
+        checkResults.push(...results);
+      }
+      
+      // Process results
+      for (const result of checkResults) {
+        if (result.isComplete) {
+          skippedCount++;
+          // Only log first few and last few to avoid spam
+          if (skippedCount <= 5 || skippedCount > dates.length - 5) {
+            console.log(`⏭️ Date ${result.dateSuffix}: Skip (IDX.csv exists for all market types)`);
+          }
+        } else {
+          // Only log first few to avoid spam
+          if (datesToProcess.length < 5) {
+            console.log(`✅ Date ${result.dateSuffix} needs processing`);
+          }
+          datesToProcess.push(result.dateSuffix);
+        }
+      }
+      
+      // Progress update for large batches
+      if (totalBatches > 1 && batchNumber % 5 === 0) {
+        console.log(`📊 Checked ${Math.min(i + CHECK_BATCH_SIZE, dates.length)}/${dates.length} dates (${skippedCount} skipped, ${datesToProcess.length} to process)...`);
+      }
+    }
+    
+    // Summary log
+    console.log(`📊 Pre-check complete:`);
+    console.log(`   ⏭️  Skipped: ${skippedCount} dates (IDX.csv exists for all market types)`);
+    console.log(`   ✅ To process: ${datesToProcess.length} dates`);
+    
+    if (datesToProcess.length > 0) {
+      console.log(`📋 Processing order (newest first):`);
+      datesToProcess.slice(0, 10).forEach((date: string, idx: number) => {
+        console.log(`   ${idx + 1}. ${date}`);
+      });
+      if (datesToProcess.length > 10) {
+        console.log(`   ... and ${datesToProcess.length - 10} more dates`);
+      }
+    }
+    
+    return datesToProcess;
   }
 
   /**
