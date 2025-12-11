@@ -882,21 +882,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             // Track processed stocks to avoid duplicates
             const processedStocks = new Set<string>();
             
-            // DEBUG: Log filteredDataResults to see what's coming in
-            console.log(`[DEBUG] filteredDataResults for date ${date}:`, 
-              filteredDataResults.filter(r => r.date === date).map(r => ({
-                code: r.code,
-                rowCount: r.data.length,
-                // Show first row's broker data to verify
-                firstRow: r.data[0] ? {
-                  Emiten: r.data[0].Emiten,
-                  BCode: r.data[0].BCode,
-                  BuyerValue: r.data[0].BuyerValue,
-                  BLot: r.data[0].BLot
-                } : null
-              }))
-            );
-            
             filteredDataResults.forEach(({ date: resultDate, code, data }) => {
               // CRITICAL: Only process data for the current date being processed
               if (resultDate !== date) return;
@@ -923,20 +908,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   return;
                 }
                 processedStocks.add(stockCode);
-                
-                // DEBUG: Log XL data specifically
-                const xlRows = data.filter(row => 
-                  (row.Emiten || '').toUpperCase() === 'XL' || 
-                  (row.BCode || '').toUpperCase() === 'XL'
-                );
-                if (xlRows.length > 0) {
-                  console.log(`[DEBUG] XL data from ${stockCode}:`, xlRows.map(r => ({
-                    Emiten: r.Emiten,
-                    BCode: r.BCode,
-                    BuyerValue: r.BuyerValue,
-                    BLot: r.BLot
-                  })));
-                }
                 
                 // REPLACE, don't append - each stock should have only 1 data set
                 stockDataMap.set(stockCode, data);
@@ -999,20 +970,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               // MULTIPLE TICKERS: Aggregate GLOBALLY by broker code across ALL stocks
               // This is the key fix - XL from AADI and XL from ADCP will be combined
               const globalBrokerMap = new Map<string, BrokerTransactionData[]>();
-              
-              // DEBUG: Log all rows before aggregation
-              const xlRowsBeforeAgg = allRows.filter(row => 
-                (row.Emiten || '').toUpperCase() === 'XL' || 
-                (row.BCode || '').toUpperCase() === 'XL'
-              );
-              console.log(`[DEBUG] XL rows before aggregation (count: ${xlRowsBeforeAgg.length}):`, 
-                xlRowsBeforeAgg.map(r => ({
-                  Emiten: r.Emiten,
-                  BCode: r.BCode,
-                  BuyerValue: r.BuyerValue,
-                  BLot: r.BLot
-                }))
-              );
               
               allRows.forEach(row => {
                 if (!row) return;
@@ -1156,17 +1113,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 aggregatedRow.NBLotPerOrdNum = Math.abs(aggregatedRow.NBOrdNum || 0) > 0 ? aggregatedRow.NBLot / Math.abs(aggregatedRow.NBOrdNum || 0) : 0;
                 aggregatedRow.NSLotPerFreq = Math.abs(aggregatedRow.NSFreq || 0) > 0 ? aggregatedRow.NSLot / Math.abs(aggregatedRow.NSFreq || 0) : 0;
                 aggregatedRow.NSLotPerOrdNum = Math.abs(aggregatedRow.NSOrdNum || 0) > 0 ? aggregatedRow.NSLot / Math.abs(aggregatedRow.NSOrdNum || 0) : 0;
-                
-                // DEBUG: Log XL after aggregation
-                if (aggregatedRow.BCode?.toUpperCase() === 'XL' || aggregatedRow.Emiten?.toUpperCase() === 'XL') {
-                  console.log(`[DEBUG] XL after aggregation:`, {
-                    Emiten: aggregatedRow.Emiten,
-                    BCode: aggregatedRow.BCode,
-                    BuyerValue: aggregatedRow.BuyerValue,
-                    BLot: aggregatedRow.BLot,
-                    rowsAggregated: brokerRows.length
-                  });
-                }
                 
                 aggregatedRows.push(aggregatedRow);
               });
