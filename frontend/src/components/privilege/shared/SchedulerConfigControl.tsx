@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { supabase } from "../../../lib/supabase";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -93,12 +94,7 @@ export function SchedulerConfigControl() {
     return '';
   };
 
-  // Load phases on mount (no auto refresh - manual refresh only)
-  useEffect(() => {
-    loadPhases();
-  }, []);
-
-  const loadPhases = async () => {
+  const loadPhases = useCallback(async () => {
     setLoading(true);
     try {
       const result = await api.getAllPhasesStatus();
@@ -121,7 +117,21 @@ export function SchedulerConfigControl() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [showToast]);
+
+  // Load phases on mount and poll for updates
+  useEffect(() => {
+    loadPhases();
+    
+    // Poll for status updates every 3 seconds
+    const pollInterval = setInterval(() => {
+      loadPhases();
+    }, 3000); // Poll every 3 seconds
+    
+    return () => {
+      clearInterval(pollInterval);
+    };
+  }, [loadPhases]); // Only depend on loadPhases function
 
   const handleTriggerPhase = async (phaseId: string, skipNext: boolean = false) => {
     const phase = phases.find(p => p.id === phaseId);
