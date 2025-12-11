@@ -85,6 +85,19 @@ export class TopBrokerCalculator {
         return dateB.localeCompare(dateA); // Descending order (newest first)
       });
       
+      // OPTIMIZATION: Limit to 7 most recent dates for faster processing
+      const MAX_DATES_TO_PROCESS = 7;
+      const uniqueDates = [...new Set(sortedFiles.map((f: string) => f.split('/')[1]).filter((v: string | undefined) => v !== undefined))] as string[];
+      const limitedDates = uniqueDates.slice(0, MAX_DATES_TO_PROCESS);
+      const limitedFiles = sortedFiles.filter((f: string) => {
+        const dateFolder = f.split('/')[1] || '';
+        return limitedDates.includes(dateFolder);
+      });
+      
+      if (sortedFiles.length > limitedFiles.length) {
+        console.log(`📅 Limiting to ${MAX_DATES_TO_PROCESS} most recent dates (${limitedDates.join(', ')}) from ${uniqueDates.length} total dates`);
+      }
+      
       // OPTIMIZATION: Pre-check which dates already have top_broker output (BATCH CHECKING for speed)
       console.log("🔍 Pre-checking existing top_broker outputs (batch checking)...");
       const filesToProcess: string[] = [];
@@ -94,10 +107,31 @@ export class TopBrokerCalculator {
       const CHECK_BATCH_SIZE = 20; // Check 20 files in parallel
       const MAX_CONCURRENT_CHECKS = 10; // Max 10 concurrent checks
       
-      for (let i = 0; i < sortedFiles.length; i += CHECK_BATCH_SIZE) {
-        const batch = sortedFiles.slice(i, i + CHECK_BATCH_SIZE);
+      // Helper function untuk exists dengan retry logic
+      const existsWithRetry = async (filePath: string, maxRetries = 2): Promise<boolean> => {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            return await exists(filePath);
+          } catch (error: any) {
+            const isRetryable = 
+              error?.code === 'PARSE_ERROR' ||
+              error?.name === 'RestError' ||
+              (error?.message && error.message.includes('aborted'));
+            
+            if (!isRetryable || attempt === maxRetries) {
+              return false; // Not retryable or max retries reached
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
+        return false;
+      };
+      
+      for (let i = 0; i < limitedFiles.length; i += CHECK_BATCH_SIZE) {
+        const batch = limitedFiles.slice(i, i + CHECK_BATCH_SIZE);
         const batchNumber = Math.floor(i / CHECK_BATCH_SIZE) + 1;
-        const totalBatches = Math.ceil(sortedFiles.length / CHECK_BATCH_SIZE);
+        const totalBatches = Math.ceil(limitedFiles.length / CHECK_BATCH_SIZE);
         
         // Process batch checks in parallel with concurrency limit
         const checkPromises = batch.map(async (file: string) => {
@@ -106,7 +140,7 @@ export class TopBrokerCalculator {
           const keyOutputFile = `top_broker/top_broker_${dateSuffix}/top_broker.csv`;
           
           try {
-            const outputExists = await exists(keyOutputFile);
+            const outputExists = await existsWithRetry(keyOutputFile);
             return { file, dateSuffix, exists: outputExists, error: null };
           } catch (error) {
             return { file, dateSuffix, exists: false, error: error instanceof Error ? error.message : String(error) };
@@ -144,7 +178,7 @@ export class TopBrokerCalculator {
         
         // Progress update for large batches
         if (totalBatches > 1 && batchNumber % 5 === 0) {
-          console.log(`📊 Checked ${Math.min(i + CHECK_BATCH_SIZE, sortedFiles.length)}/${sortedFiles.length} files (${skippedCount} skipped, ${filesToProcess.length} to process)...`);
+          console.log(`📊 Checked ${Math.min(i + CHECK_BATCH_SIZE, limitedFiles.length)}/${limitedFiles.length} files (${skippedCount} skipped, ${filesToProcess.length} to process)...`);
         }
       }
       
