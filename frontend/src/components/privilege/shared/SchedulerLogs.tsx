@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { supabase } from "../../../lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Badge } from "../../ui/badge";
@@ -84,7 +85,7 @@ export function SchedulerLogs() {
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
   const [deletingBulk, setDeletingBulk] = useState(false);
 
-  const loadSchedulerLogs = async (page: number = 1, limit: number = 10) => {
+  const loadSchedulerLogs = useCallback(async (page: number = 1, limit: number = 10) => {
     setLoadingLogs(true);
     try {
       const offset = (page - 1) * limit;
@@ -119,11 +120,32 @@ export function SchedulerLogs() {
     } finally {
       setLoadingLogs(false);
     }
-  };
+  }, [showToast]);
 
   useEffect(() => {
     loadSchedulerLogs(1, 10);
-  }, []);
+    
+    // Subscribe to scheduler_logs table changes
+    const channel = supabase
+      .channel('scheduler_logs_table_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen to all events (INSERT, UPDATE, DELETE)
+          schema: 'public',
+          table: 'scheduler_logs'
+        },
+        (payload) => {
+          // Refresh logs when any change occurs (status update, new log, etc.)
+          loadSchedulerLogs(logsCurrentPage, 10);
+        }
+      )
+      .subscribe();
+    
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadSchedulerLogs, logsCurrentPage]); // Only depend on loadSchedulerLogs function and current page
 
   const handleDeleteClick = (logId: string) => {
     setLogToDelete(logId);

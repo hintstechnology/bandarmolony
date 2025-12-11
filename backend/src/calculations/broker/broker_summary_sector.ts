@@ -1,6 +1,7 @@
-import { downloadText, uploadText } from '../../utils/azureBlob';
+import { uploadText } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_4, MAX_CONCURRENT_REQUESTS_PHASE_4 } from '../../services/dataUpdateService';
 import { downloadText as downloadTextUtil } from '../../utils/azureBlob';
+import { brokerSummaryCache } from '../../cache/brokerSummaryCacheService';
 
 // Helper function to limit concurrency for Phase 4
 async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: number): Promise<T[]> {
@@ -18,12 +19,23 @@ async function limitConcurrency<T>(promises: Promise<T>[], maxConcurrency: numbe
 }
 
 // Sector mapping cache - loaded from csv_input/sector_mapping.csv
+// OPTIMIZATION: Cache dengan timestamp untuk avoid reload berulang
 let SECTOR_MAPPING: { [key: string]: string[] } = {};
+let SECTOR_MAPPING_TIMESTAMP: number = 0;
+const SECTOR_MAPPING_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
 /**
  * Build sector mapping from csv_input/sector_mapping.csv
+ * OPTIMIZED: Cache dengan TTL untuk avoid reload berulang
  */
 async function buildSectorMappingFromCsv(): Promise<void> {
+  // Check if cache is still valid
+  const now = Date.now();
+  if (Object.keys(SECTOR_MAPPING).length > 0 && (now - SECTOR_MAPPING_TIMESTAMP) < SECTOR_MAPPING_CACHE_TTL) {
+    console.log('📦 Using cached sector mapping (age: ' + Math.round((now - SECTOR_MAPPING_TIMESTAMP) / 1000) + 's)');
+    return;
+  }
+  
   try {
     console.log('🔍 Building sector mapping from csv_input/sector_mapping.csv...');
     
@@ -56,12 +68,16 @@ async function buildSectorMappingFromCsv(): Promise<void> {
       }
     }
     
+    // Update cache timestamp
+    SECTOR_MAPPING_TIMESTAMP = now;
+    
     console.log('📊 Sector mapping built successfully from CSV');
     console.log(`📊 Found ${Object.keys(SECTOR_MAPPING).length} sectors with total ${Object.values(SECTOR_MAPPING).flat().length} emitens`);
   } catch (error) {
     console.warn('⚠️ Could not build sector mapping from CSV:', error);
     console.log('⚠️ Using empty sector mapping');
     SECTOR_MAPPING = {};
+    SECTOR_MAPPING_TIMESTAMP = 0;
   }
 }
 
@@ -349,11 +365,21 @@ export class BrokerSummarySectorCalculator {
           }
         }
         
+        // OPTIMIZATION: Mark files as active before processing (for caching)
+        batch.forEach((stockCode) => {
+          const stockFilePath = `${folderPrefix}/${stockCode}.csv`;
+          brokerSummaryCache.addActiveProcessingFile(stockFilePath);
+        });
+        
         // Process batch in parallel with concurrency limit
         const batchPromises = batch.map(async (stockCode) => {
           try {
             const stockFilePath = `${folderPrefix}/${stockCode}.csv`;
-            const csvContent = await downloadText(stockFilePath);
+            // OPTIMIZATION: Use cache service instead of direct downloadText
+            const csvContent = await brokerSummaryCache.getRawContent(stockFilePath);
+            if (!csvContent) {
+              throw new Error('No content');
+            }
             const brokerData = this.parseCSV(csvContent);
             return { stockCode, brokerData, success: true };
           } catch (error: any) {

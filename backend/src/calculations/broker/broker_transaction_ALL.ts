@@ -446,24 +446,65 @@ export class BrokerTransactionALLCalculator {
       }
 
       // Check if ALL.csv already exists - skip if exists
+      // OPTIMIZED: Added retry logic for exists() check
       const allFilePath = `${folderPrefix}/ALL.csv`;
-      try {
-        const allExists = await exists(allFilePath);
-        if (allExists) {
-          console.log(`⏭️ Skipping ${allFilePath} - ALL.csv already exists`);
-          return {
-            success: true,
-            message: `ALL.csv already exists for ${dateSuffix} (${investorType || 'all'}, ${marketType || 'all'})`,
-            file: allFilePath
-          };
+      const maxRetries = 2;
+      let allExists = false;
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          allExists = await exists(allFilePath);
+          break;
+        } catch (error: any) {
+          const isRetryable = 
+            error?.code === 'PARSE_ERROR' ||
+            error?.name === 'RestError' ||
+            (error?.message && error.message.includes('aborted'));
+          
+          if (!isRetryable || attempt === maxRetries) {
+            console.log(`ℹ️ Could not check existence of ${allFilePath}, proceeding with generation`);
+            break;
+          }
+          
+          const delayMs = Math.min(500 * Math.pow(2, attempt - 1), 2000);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
         }
-      } catch (error) {
-        console.log(`ℹ️ Could not check existence of ${allFilePath}, proceeding with generation`);
+      }
+      
+      if (allExists) {
+        console.log(`⏭️ Skipping ${allFilePath} - ALL.csv already exists`);
+        return {
+          success: true,
+          message: `ALL.csv already exists for ${dateSuffix} (${investorType || 'all'}, ${marketType || 'all'})`,
+          file: allFilePath
+        };
       }
 
       // List all broker CSV files in the folder
+      // OPTIMIZED: Added retry logic for listPaths
       console.log(`🔍 Scanning for broker CSV files in: ${folderPrefix}/`);
-      const allFiles = await listPaths({ prefix: `${folderPrefix}/` });
+      let allFiles: string[] = [];
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          allFiles = await listPaths({ prefix: `${folderPrefix}/` });
+          break;
+        } catch (error: any) {
+          const isRetryable = 
+            error?.code === 'PARSE_ERROR' ||
+            error?.name === 'RestError' ||
+            (error?.message && error.message.includes('aborted'));
+          
+          if (!isRetryable || attempt === maxRetries) {
+            console.error(`❌ Error listing files in ${folderPrefix}/:`, error);
+            return {
+              success: false,
+              message: `Error listing broker CSV files in ${folderPrefix}/`
+            };
+          }
+          
+          const delayMs = Math.min(500 * Math.pow(2, attempt - 1), 2000);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+      }
       
       // Filter for CSV files with broker codes (2-3 uppercase letters)
       // Exclude sector files, IDX.csv, and ALL.csv

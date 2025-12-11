@@ -417,6 +417,7 @@ export class BrokerTransactionSectorCalculator {
       }
 
       // CRITICAL: Check if Sector.csv already exists FIRST - skip if exists
+      // OPTIMIZED: Simplified check (like broker_summary_sector)
       const sectorFilePath = `${folderPrefix}/${sectorName}.csv`;
       try {
         const sectorExists = await exists(sectorFilePath);
@@ -437,8 +438,18 @@ export class BrokerTransactionSectorCalculator {
       brokerTransactionCache.addActiveProcessingDate(dateSuffix);
 
       // List all broker CSV files in the folder
+      // OPTIMIZED: Simplified (like broker_summary_sector)
       console.log(`🔍 Scanning for broker CSV files in: ${folderPrefix}/`);
-      const allFiles = await listPaths({ prefix: `${folderPrefix}/` });
+      let allFiles: string[] = [];
+      try {
+        allFiles = await listPaths({ prefix: `${folderPrefix}/` });
+      } catch (error) {
+        console.error(`❌ Error listing files in ${folderPrefix}/:`, error);
+        return {
+          success: false,
+          message: `Error listing broker CSV files in ${folderPrefix}/`
+        };
+      }
       
       // Filter for CSV files with broker codes (2-3 uppercase letters)
       // Exclude sector files and IDX.csv

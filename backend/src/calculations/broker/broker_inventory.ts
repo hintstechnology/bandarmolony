@@ -1,4 +1,4 @@
-import { uploadText, listPaths, downloadText } from '../../utils/azureBlob';
+import { uploadText, listPaths, downloadText, listPrefixes } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_8, MAX_CONCURRENT_REQUESTS_PHASE_8 } from '../../services/dataUpdateService';
 import { SchedulerLogService } from '../../services/schedulerLogService';
 import { brokerTransactionCache } from '../../cache/brokerTransactionCacheService';
@@ -61,67 +61,74 @@ export class BrokerInventoryCalculator {
 
   /**
    * Auto-detect date range from available broker_transaction folders in Azure
+   * OPTIMIZED: Use listPrefixes to only scan date folders, with retry logic
    */
   private async listAllBrokerTransactionDates(): Promise<string[]> {
-    try {
-      // Check if broker_transaction_output folder exists
-      console.log("🔍 Checking all blobs in Azure...");
-      const allBlobs = await listPaths({ prefix: '' });
-      console.log(`📁 Total blobs in Azure: ${allBlobs.length}`);
-      console.log(`📋 Sample blobs:`, allBlobs.slice(0, 20));
-      
-      const brokerTransactionPrefix = 'broker_transaction/';
-      const blobs = await listPaths({ prefix: brokerTransactionPrefix });
-      
-      if (blobs.length === 0) {
-        console.log(`No files found in broker_transaction/`);
-        return [];
-      }
-      
-      // Extract dates from broker transaction folders
-      console.log(`📁 Found ${blobs.length} blobs in broker_transaction/`);
-      console.log(`📋 Sample blobs:`, blobs.slice(0, 10));
-      
-      const dates = new Set<string>();
-      for (const blobName of blobs) {
-        console.log(`🔍 Processing broker blob: ${blobName}`);
-        const pathParts = blobName.split('/');
-        console.log(`📂 Path parts:`, pathParts);
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // OPTIMIZATION: Use listPrefixes to only list date folders, not all files
+        const brokerTransactionPrefix = 'broker_transaction/';
+        const prefixes = await listPrefixes(brokerTransactionPrefix);
         
-        // Look for folders like: broker_transaction/broker_transaction_YYYYMMDD/
-        if (pathParts.length >= 2 && pathParts[0] === 'broker_transaction') {
-          const folderName = pathParts[1];
-          console.log(`📁 Folder name: ${folderName}`);
-          
-          if (folderName && folderName.startsWith('broker_transaction_')) {
-            const date = folderName.replace('broker_transaction_', '');
-            console.log(`📅 Extracted date: ${date}`);
-            if (/^\d{6}$/.test(date) || /^\d{8}$/.test(date)) {
-              dates.add(date);
-              console.log(`✅ Added broker date: ${date}`);
-            }
+        if (prefixes.length === 0) {
+          console.log(`No date folders found in broker_transaction/`);
+          return [];
+        }
+        
+        // Extract dates from broker transaction folder names
+        console.log(`📁 Found ${prefixes.length} date folders in broker_transaction/`);
+        
+        const dates = new Set<string>();
+        for (const prefix of prefixes) {
+          // Extract date from folder name (e.g., broker_transaction_YYYYMMDD or broker_transaction_YYMMDD)
+          const dateMatch = prefix.match(/broker_transaction_(\d{6}|\d{8})/);
+          if (dateMatch && dateMatch[1]) {
+            dates.add(dateMatch[1]);
           }
         }
-      }
-      
-      // Normalize dates to YYYYMMDD format for consistency
-      const normalizedDates = Array.from(dates).map(date => {
-        if (date.length === 6) {
-          // Convert YYMMDD to YYYYMMDD
-          const year = 2000 + parseInt(date.substring(0, 2) || '0');
-          return `${year}${date.substring(2)}`;
+        
+        // Normalize dates to YYYYMMDD format for consistency
+        const normalizedDates = Array.from(dates).map(date => {
+          if (date.length === 6) {
+            // Convert YYMMDD to YYYYMMDD
+            const year = 2000 + parseInt(date.substring(0, 2) || '0');
+            return `${year}${date.substring(2)}`;
+          }
+          return date; // Already YYYYMMDD
+        });
+        
+        // Sort dates in ascending order (oldest first) for proper cumulative calculation
+        const dateList = normalizedDates.sort();
+        
+        // OPTIMIZATION: Limit to 7 most recent dates (for cumulative calculation, we still process all but limit input)
+        const MAX_DATES_TO_PROCESS = 7;
+        const limitedDates = dateList.slice(-MAX_DATES_TO_PROCESS); // Take last 7 (most recent)
+        
+        if (dateList.length > MAX_DATES_TO_PROCESS) {
+          console.log(`📅 Discovered ${dateList.length} broker_transaction dates, limiting to ${MAX_DATES_TO_PROCESS} most recent dates: ${limitedDates.join(', ')}`);
+        } else {
+          console.log(`📅 Discovered ${dateList.length} broker_transaction dates: ${limitedDates.join(', ')}`);
         }
-        return date; // Already YYYYMMDD
-      });
-      
-      // Sort dates in ascending order (oldest first) for proper cumulative calculation
-      const dateList = normalizedDates.sort();
-      console.log(`Discovered ${dateList.length} broker_transaction dates: ${dateList.join(', ')}`);
-      return dateList;
-    } catch (error) {
-      console.error('Error listing broker transaction dates from Azure:', error);
-      return [];
+        
+        return limitedDates;
+      } catch (error: any) {
+        const isRetryable = 
+          error?.code === 'PARSE_ERROR' ||
+          error?.name === 'RestError' ||
+          (error?.message && error.message.includes('aborted'));
+        
+        if (!isRetryable || attempt === maxRetries) {
+          console.error('Error listing broker transaction dates from Azure:', error);
+          return [];
+        }
+        
+        const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+        console.log(`⚠️ Retry ${attempt}/${maxRetries} for listAllBrokerTransactionDates() after ${delayMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
     }
+    return [];
   }
 
   /**
@@ -131,21 +138,63 @@ export class BrokerInventoryCalculator {
    * normalized to YYYYMMDD format to match broker_transaction dates.
    */
   private async getProcessedBrokerInventoryDatesFromSample(): Promise<Set<string>> {
-    try {
-      // Find a sample broker_inventory CSV blob if any exist
-      const blobs = await listPaths({ prefix: 'broker_inventory/' });
-      const sampleBlob = blobs.find(name => name && name.endsWith('.csv'));
+    const maxRetries = 2;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // OPTIMIZED: Added retry logic for listPaths
+        let blobs: string[] = [];
+        for (let listAttempt = 1; listAttempt <= maxRetries; listAttempt++) {
+          try {
+            blobs = await listPaths({ prefix: 'broker_inventory/' });
+            break;
+          } catch (error: any) {
+            const isRetryable = 
+              error?.code === 'PARSE_ERROR' ||
+              error?.name === 'RestError' ||
+              (error?.message && error.message.includes('aborted'));
+            
+            if (!isRetryable || listAttempt === maxRetries) {
+              throw error;
+            }
+            
+            const delayMs = Math.min(500 * Math.pow(2, listAttempt - 1), 2000);
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+          }
+        }
+        
+        const sampleBlob = blobs.find(name => name && name.endsWith('.csv'));
 
-      if (!sampleBlob) {
-        console.log('No existing broker_inventory files found - treating as first run.');
-        return new Set();
-      }
+        if (!sampleBlob) {
+          console.log('No existing broker_inventory files found - treating as first run.');
+          return new Set();
+        }
 
-      console.log(`Using sample broker_inventory blob for existing dates: ${sampleBlob}`);
-      const content = await downloadText(sampleBlob);
-      if (!content) {
-        return new Set();
-      }
+        console.log(`Using sample broker_inventory blob for existing dates: ${sampleBlob}`);
+        
+        // OPTIMIZED: Added retry logic for downloadText
+        let content: string | null = null;
+        for (let downloadAttempt = 1; downloadAttempt <= maxRetries; downloadAttempt++) {
+          try {
+            content = await downloadText(sampleBlob);
+            break;
+          } catch (error: any) {
+            const isRetryable = 
+              error?.code === 'PARSE_ERROR' ||
+              error?.name === 'RestError' ||
+              (error?.message && error.message.includes('aborted'));
+            
+            if (!isRetryable || downloadAttempt === maxRetries) {
+              throw error;
+            }
+            
+            const delayMs = Math.min(500 * Math.pow(2, downloadAttempt - 1), 2000);
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+          }
+        }
+        
+        if (!content) {
+          return new Set();
+        }
 
       const rawLines = content.split('\n');
       const lines: string[] = [];
@@ -186,12 +235,24 @@ export class BrokerInventoryCalculator {
         processedDates.add(normalizedDate);
       }
 
-      console.log(`Found ${processedDates.size} processed broker inventory dates from sample output.`);
-      return processedDates;
-    } catch (error) {
-      console.error('Error detecting processed broker inventory dates from sample output:', error);
-      return new Set();
+        console.log(`Found ${processedDates.size} processed broker inventory dates from sample output.`);
+        return processedDates;
+      } catch (error: any) {
+        const isRetryable = 
+          error?.code === 'PARSE_ERROR' ||
+          error?.name === 'RestError' ||
+          (error?.message && error.message.includes('aborted'));
+        
+        if (!isRetryable || attempt === maxRetries) {
+          console.error('Error detecting processed broker inventory dates from sample output:', error);
+          return new Set();
+        }
+        
+        const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
     }
+    return new Set();
   }
 
   /**
@@ -529,15 +590,52 @@ export class BrokerInventoryCalculator {
             const brokerMap = new Map<string, BrokerTransactionData[]>();
             
             // Try YYYYMMDD format first, then YYMMDD format
+            // OPTIMIZED: Added retry logic for listPaths
             let datePrefix = `broker_transaction/broker_transaction_${date}/`;
-            let blobs = await listPaths({ prefix: datePrefix });
+            const maxRetries = 2;
+            let blobs: string[] = [];
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+              try {
+                blobs = await listPaths({ prefix: datePrefix });
+                break;
+              } catch (error: any) {
+                const isRetryable = 
+                  error?.code === 'PARSE_ERROR' ||
+                  error?.name === 'RestError' ||
+                  (error?.message && error.message.includes('aborted'));
+                
+                if (!isRetryable || attempt === maxRetries) {
+                  throw error;
+                }
+                
+                const delayMs = Math.min(500 * Math.pow(2, attempt - 1), 2000);
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+              }
+            }
             
             // If no blobs found and date is YYYYMMDD format, try YYMMDD format
             if (blobs.length === 0 && date.length === 8) {
               // Convert YYYYMMDD to YYMMDD: 20251201 -> 251201
               const yyMMdd = `${date.substring(2, 4)}${date.substring(4, 6)}${date.substring(6, 8)}`;
               datePrefix = `broker_transaction/broker_transaction_${yyMMdd}/`;
-              blobs = await listPaths({ prefix: datePrefix });
+              for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                  blobs = await listPaths({ prefix: datePrefix });
+                  break;
+                } catch (error: any) {
+                  const isRetryable = 
+                    error?.code === 'PARSE_ERROR' ||
+                    error?.name === 'RestError' ||
+                    (error?.message && error.message.includes('aborted'));
+                  
+                  if (!isRetryable || attempt === maxRetries) {
+                    throw error;
+                  }
+                  
+                  const delayMs = Math.min(500 * Math.pow(2, attempt - 1), 2000);
+                  await new Promise(resolve => setTimeout(resolve, delayMs));
+                }
+              }
             }
             const brokersForDate: string[] = [];
             for (const blobName of blobs) {
