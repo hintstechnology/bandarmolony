@@ -879,6 +879,24 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             // This ensures all brokers for each stock are shown, not just one broker per stock
             const stockDataMap = new Map<string, BrokerTransactionData[]>();
             
+            // Track processed stocks to avoid duplicates
+            const processedStocks = new Set<string>();
+            
+            // DEBUG: Log filteredDataResults to see what's coming in
+            console.log(`[DEBUG] filteredDataResults for date ${date}:`, 
+              filteredDataResults.filter(r => r.date === date).map(r => ({
+                code: r.code,
+                rowCount: r.data.length,
+                // Show first row's broker data to verify
+                firstRow: r.data[0] ? {
+                  Emiten: r.data[0].Emiten,
+                  BCode: r.data[0].BCode,
+                  BuyerValue: r.data[0].BuyerValue,
+                  BLot: r.data[0].BLot
+                } : null
+              }))
+            );
+            
             filteredDataResults.forEach(({ date: resultDate, code, data }) => {
               // CRITICAL: Only process data for the current date being processed
               if (resultDate !== date) return;
@@ -895,10 +913,33 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   stockDataMap.set(emiten, [...existing, row]);
                 });
               } else {
-                // Group by stock code (code from fetch task) for individual ticker data
-              const stockCode = code || 'UNKNOWN';
-              const existing = stockDataMap.get(stockCode) || [];
-              stockDataMap.set(stockCode, [...existing, ...data]);
+                // CRITICAL: For individual tickers, REPLACE data (don't append) to avoid duplicates
+                // Each stock should only have 1 data set per date
+                const stockCode = code || 'UNKNOWN';
+                
+                // Skip if already processed this stock for this date (prevent duplicates)
+                if (processedStocks.has(stockCode)) {
+                  console.log(`[BrokerTransaction] Skipping duplicate data for ${stockCode} on ${date}`);
+                  return;
+                }
+                processedStocks.add(stockCode);
+                
+                // DEBUG: Log XL data specifically
+                const xlRows = data.filter(row => 
+                  (row.Emiten || '').toUpperCase() === 'XL' || 
+                  (row.BCode || '').toUpperCase() === 'XL'
+                );
+                if (xlRows.length > 0) {
+                  console.log(`[DEBUG] XL data from ${stockCode}:`, xlRows.map(r => ({
+                    Emiten: r.Emiten,
+                    BCode: r.BCode,
+                    BuyerValue: r.BuyerValue,
+                    BLot: r.BLot
+                  })));
+                }
+                
+                // REPLACE, don't append - each stock should have only 1 data set
+                stockDataMap.set(stockCode, data);
               }
             });
             
@@ -939,79 +980,264 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               }
             });
             
-            // CRITICAL: For Stock pivot with multiple brokers, aggregate by stock code
-            // and recalculate net from BuyerVol - SellerVol (not from NetBuyVol)
-            // EXCEPTION: For sector data (like IDX), don't aggregate - show all brokers per stock
+            // CRITICAL: For Stock pivot with multiple tickers, aggregate GLOBALLY by broker code
+            // This ensures brokers from different stocks (e.g., XL from AADI and XL from ADCP) are aggregated together
             const aggregatedRows: BrokerTransactionData[] = [];
             
+            // STEP 1: Collect ALL rows from ALL stocks first
+            const allRows: BrokerTransactionData[] = [];
             filteredStockDataMap.forEach((rows) => {
-              if (rows.length === 0) return;
+              allRows.push(...rows);
+            });
+            
+            // STEP 2: Determine aggregation strategy
+            // - For multiple tickers (no sector): aggregate GLOBALLY by broker code across all stocks
+            // - For sector data: aggregate by broker code per stock
+            // - For single ticker: show all brokers separately
+            
+            if (selectedTickers.length > 1 && selectedSectors.length === 0) {
+              // MULTIPLE TICKERS: Aggregate GLOBALLY by broker code across ALL stocks
+              // This is the key fix - XL from AADI and XL from ADCP will be combined
+              const globalBrokerMap = new Map<string, BrokerTransactionData[]>();
               
-              // CRITICAL: For sector data (like IDX), aggregate by broker code per stock
-              // Group rows by broker code (BCode/SCode/NBCode/NSCode) and aggregate duplicates
-              if (selectedSectors.length > 0) {
-                // Group rows by broker code for this stock
+              // DEBUG: Log all rows before aggregation
+              const xlRowsBeforeAgg = allRows.filter(row => 
+                (row.Emiten || '').toUpperCase() === 'XL' || 
+                (row.BCode || '').toUpperCase() === 'XL'
+              );
+              console.log(`[DEBUG] XL rows before aggregation (count: ${xlRowsBeforeAgg.length}):`, 
+                xlRowsBeforeAgg.map(r => ({
+                  Emiten: r.Emiten,
+                  BCode: r.BCode,
+                  BuyerValue: r.BuyerValue,
+                  BLot: r.BLot
+                }))
+              );
+              
+              allRows.forEach(row => {
+                if (!row) return;
+                // Use BCode as primary broker identifier, fallback to SCode, NBCode, NSCode, Emiten
+                // CRITICAL: Normalize to uppercase and ensure string type for consistent comparison
+                const brokerCode = String(row.BCode || row.SCode || row.NBCode || row.NSCode || row.Emiten || '').toUpperCase().trim();
+                if (!brokerCode) return;
+                
+                const existing = globalBrokerMap.get(brokerCode) || [];
+                globalBrokerMap.set(brokerCode, [...existing, row]);
+              });
+              
+              // Aggregate rows with the same broker code globally
+              globalBrokerMap.forEach((brokerRows) => {
+                if (brokerRows.length === 0) return;
+                
+                // If only one row for this broker, no need to aggregate
+                if (brokerRows.length === 1) {
+                  const row = brokerRows[0];
+                  if (row) {
+                    // Ensure BuyerAvg and SellerAvg are calculated correctly
+                    if ((!row.BuyerAvg || row.BuyerAvg === 0) && row.BuyerVol && row.BuyerVol > 0) {
+                      row.BuyerAvg = row.BuyerValue / row.BuyerVol;
+                    }
+                    if ((!row.SellerAvg || row.SellerAvg === 0) && row.SellerVol && row.SellerVol > 0) {
+                      row.SellerAvg = row.SellerValue / row.SellerVol;
+                    }
+                    aggregatedRows.push(row);
+                  }
+                  return;
+                }
+                
+                // Get first row as base
+                const firstRow = brokerRows[0];
+                if (!firstRow) return;
+                
+                // Aggregate multiple rows (same broker, different stocks)
+                // CRITICAL: Initial value must have numeric fields set to 0 to avoid double-counting firstRow
+                const initialAcc: BrokerTransactionData = {
+                  ...firstRow,
+                  // Reset all numeric fields to 0 - they will be summed in the reduce
+                  BuyerVol: 0,
+                  BuyerValue: 0,
+                  BuyerAvg: 0,
+                  BFreq: 0,
+                  BOrdNum: 0,
+                  BLot: 0,
+                  SellerVol: 0,
+                  SellerValue: 0,
+                  SellerAvg: 0,
+                  SFreq: 0,
+                  SOrdNum: 0,
+                  SLot: 0,
+                  NetBuyVol: 0,
+                  NetBuyValue: 0,
+                  NetSellVol: 0,
+                  NetSellValue: 0,
+                  TotalVolume: 0,
+                  TotalValue: 0,
+                  TransactionCount: 0,
+                  AvgPrice: 0
+                };
+                
+                const aggregatedRow = brokerRows.reduce((acc, row) => {
+                  if (!row) return acc;
+                  
+                  // Preserve broker codes from first row (BCode, SCode, NBCode, NSCode)
+                  if (!acc.BCode && row.BCode) acc.BCode = String(row.BCode).toUpperCase().trim();
+                  if (!acc.SCode && row.SCode) acc.SCode = String(row.SCode).toUpperCase().trim();
+                  if (!acc.NBCode && row.NBCode) acc.NBCode = String(row.NBCode).toUpperCase().trim();
+                  if (!acc.NSCode && row.NSCode) acc.NSCode = String(row.NSCode).toUpperCase().trim();
+                  
+                  // Sum Buyer values
+                  acc.BuyerVol = (acc.BuyerVol || 0) + (row.BuyerVol || 0);
+                  acc.BuyerValue = (acc.BuyerValue || 0) + (row.BuyerValue || 0);
+                  acc.BFreq = (acc.BFreq || 0) + (row.BFreq || 0);
+                  acc.BOrdNum = (acc.BOrdNum || 0) + (row.BOrdNum || 0);
+                  acc.BLot = (acc.BLot || 0) + (row.BLot || 0);
+                  
+                  // Sum Seller values
+                  acc.SellerVol = (acc.SellerVol || 0) + (row.SellerVol || 0);
+                  acc.SellerValue = (acc.SellerValue || 0) + (row.SellerValue || 0);
+                  acc.SFreq = (acc.SFreq || 0) + (row.SFreq || 0);
+                  acc.SOrdNum = (acc.SOrdNum || 0) + (row.SOrdNum || 0);
+                  acc.SLot = (acc.SLot || 0) + (row.SLot || 0);
+                  
+                  return acc;
+                }, initialAcc);
+                
+                // Ensure broker codes are normalized
+                if (aggregatedRow.BCode) aggregatedRow.BCode = String(aggregatedRow.BCode).toUpperCase().trim();
+                if (aggregatedRow.SCode) aggregatedRow.SCode = String(aggregatedRow.SCode).toUpperCase().trim();
+                if (aggregatedRow.NBCode) aggregatedRow.NBCode = String(aggregatedRow.NBCode).toUpperCase().trim();
+                if (aggregatedRow.NSCode) aggregatedRow.NSCode = String(aggregatedRow.NSCode).toUpperCase().trim();
+                
+                // CRITICAL: Ensure BuyerVol and SellerVol are calculated from BLot/SLot if they are 0
+                // This handles cases where CSV has BLot but not BuyerVol
+                if ((!aggregatedRow.BuyerVol || aggregatedRow.BuyerVol === 0) && aggregatedRow.BLot && aggregatedRow.BLot > 0) {
+                  aggregatedRow.BuyerVol = aggregatedRow.BLot * 100;
+                }
+                if ((!aggregatedRow.SellerVol || aggregatedRow.SellerVol === 0) && aggregatedRow.SLot && aggregatedRow.SLot > 0) {
+                  aggregatedRow.SellerVol = aggregatedRow.SLot * 100;
+                }
+                
+                // Recalculate averages
+                aggregatedRow.BuyerAvg = aggregatedRow.BuyerVol > 0 ? aggregatedRow.BuyerValue / aggregatedRow.BuyerVol : 0;
+                aggregatedRow.SellerAvg = aggregatedRow.SellerVol > 0 ? aggregatedRow.SellerValue / aggregatedRow.SellerVol : 0;
+                
+                // CRITICAL: Recalculate net from BuyerVol - SellerVol
+                const rawNetBuyVol = aggregatedRow.BuyerVol - aggregatedRow.SellerVol;
+                const rawNetBuyValue = aggregatedRow.BuyerValue - aggregatedRow.SellerValue;
+                const rawNetBuyFreq = (aggregatedRow.BFreq || 0) - (aggregatedRow.SFreq || 0);
+                const rawNetBuyOrdNum = (aggregatedRow.BOrdNum || 0) - (aggregatedRow.SOrdNum || 0);
+                
+                if (rawNetBuyVol < 0 || rawNetBuyValue < 0) {
+                  aggregatedRow.NetSellVol = Math.abs(rawNetBuyVol);
+                  aggregatedRow.NetSellValue = Math.abs(rawNetBuyValue);
+                  aggregatedRow.NSFreq = Math.abs(rawNetBuyFreq);
+                  aggregatedRow.NSOrdNum = Math.abs(rawNetBuyOrdNum);
+                  aggregatedRow.NetBuyVol = 0;
+                  aggregatedRow.NetBuyValue = 0;
+                  aggregatedRow.NBFreq = 0;
+                  aggregatedRow.NBOrdNum = 0;
+                } else {
+                  aggregatedRow.NetBuyVol = rawNetBuyVol;
+                  aggregatedRow.NetBuyValue = rawNetBuyValue;
+                  aggregatedRow.NBFreq = rawNetBuyFreq;
+                  aggregatedRow.NBOrdNum = rawNetBuyOrdNum;
+                  aggregatedRow.NetSellVol = 0;
+                  aggregatedRow.NetSellValue = 0;
+                  aggregatedRow.NSFreq = 0;
+                  aggregatedRow.NSOrdNum = 0;
+                }
+                
+                // Recalculate net averages and lots
+                aggregatedRow.NBAvg = aggregatedRow.NetBuyVol > 0 ? aggregatedRow.NetBuyValue / aggregatedRow.NetBuyVol : 0;
+                aggregatedRow.NSAvg = aggregatedRow.NetSellVol > 0 ? aggregatedRow.NetSellValue / aggregatedRow.NetSellVol : 0;
+                aggregatedRow.NBLot = aggregatedRow.NetBuyVol / 100;
+                aggregatedRow.NSLot = aggregatedRow.NetSellVol / 100;
+                aggregatedRow.NBLotPerFreq = Math.abs(aggregatedRow.NBFreq || 0) > 0 ? aggregatedRow.NBLot / Math.abs(aggregatedRow.NBFreq || 0) : 0;
+                aggregatedRow.NBLotPerOrdNum = Math.abs(aggregatedRow.NBOrdNum || 0) > 0 ? aggregatedRow.NBLot / Math.abs(aggregatedRow.NBOrdNum || 0) : 0;
+                aggregatedRow.NSLotPerFreq = Math.abs(aggregatedRow.NSFreq || 0) > 0 ? aggregatedRow.NSLot / Math.abs(aggregatedRow.NSFreq || 0) : 0;
+                aggregatedRow.NSLotPerOrdNum = Math.abs(aggregatedRow.NSOrdNum || 0) > 0 ? aggregatedRow.NSLot / Math.abs(aggregatedRow.NSOrdNum || 0) : 0;
+                
+                // DEBUG: Log XL after aggregation
+                if (aggregatedRow.BCode?.toUpperCase() === 'XL' || aggregatedRow.Emiten?.toUpperCase() === 'XL') {
+                  console.log(`[DEBUG] XL after aggregation:`, {
+                    Emiten: aggregatedRow.Emiten,
+                    BCode: aggregatedRow.BCode,
+                    BuyerValue: aggregatedRow.BuyerValue,
+                    BLot: aggregatedRow.BLot,
+                    rowsAggregated: brokerRows.length
+                  });
+                }
+                
+                aggregatedRows.push(aggregatedRow);
+              });
+            } else if (selectedSectors.length > 0) {
+              // SECTOR DATA: Aggregate by broker code per stock (preserve stock grouping)
+              filteredStockDataMap.forEach((rows) => {
+                if (rows.length === 0) return;
+                
                 const brokerMap = new Map<string, BrokerTransactionData[]>();
                 rows.forEach(row => {
                   if (!row) return;
-                  // Use BCode as primary broker identifier, fallback to Emiten, SCode, NBCode, NSCode
-                  const brokerCode = (row.BCode || row.Emiten || row.SCode || row.NBCode || row.NSCode || '').toUpperCase();
+                  const brokerCode = String(row.BCode || row.Emiten || row.SCode || row.NBCode || row.NSCode || '').toUpperCase().trim();
                   if (!brokerCode) return;
                   
                   const existing = brokerMap.get(brokerCode) || [];
                   brokerMap.set(brokerCode, [...existing, row]);
                 });
                 
-                // Aggregate rows with the same broker code for this stock
                 brokerMap.forEach((brokerRows) => {
                   if (brokerRows.length === 0) return;
                   
-                  // If only one row for this broker, no need to aggregate
                   if (brokerRows.length === 1) {
                     const row = brokerRows[0];
-                    if (row) {
-                      aggregatedRows.push(row);
-                    }
+                    if (row) aggregatedRows.push(row);
                     return;
                   }
                   
-                  // Get first row as base
                   const firstRow = brokerRows[0];
                   if (!firstRow) return;
                   
-                  // Aggregate multiple rows (same broker, same stock)
+                  // CRITICAL: Initial value must have numeric fields set to 0 to avoid double-counting
+                  const sectorInitialAcc: BrokerTransactionData = {
+                    ...firstRow,
+                    BuyerVol: 0, BuyerValue: 0, BuyerAvg: 0, BFreq: 0, BOrdNum: 0, BLot: 0,
+                    SellerVol: 0, SellerValue: 0, SellerAvg: 0, SFreq: 0, SOrdNum: 0, SLot: 0,
+                    NetBuyVol: 0, NetBuyValue: 0, NetSellVol: 0, NetSellValue: 0,
+                    TotalVolume: 0, TotalValue: 0, TransactionCount: 0, AvgPrice: 0
+                  };
+                  
                   const aggregatedRow = brokerRows.reduce((acc, row) => {
                     if (!row) return acc;
-                    
-                    // Sum Buyer values
                     acc.BuyerVol = (acc.BuyerVol || 0) + (row.BuyerVol || 0);
                     acc.BuyerValue = (acc.BuyerValue || 0) + (row.BuyerValue || 0);
                     acc.BFreq = (acc.BFreq || 0) + (row.BFreq || 0);
                     acc.BOrdNum = (acc.BOrdNum || 0) + (row.BOrdNum || 0);
                     acc.BLot = (acc.BLot || 0) + (row.BLot || 0);
-                    
-                    // Sum Seller values
                     acc.SellerVol = (acc.SellerVol || 0) + (row.SellerVol || 0);
                     acc.SellerValue = (acc.SellerValue || 0) + (row.SellerValue || 0);
                     acc.SFreq = (acc.SFreq || 0) + (row.SFreq || 0);
                     acc.SOrdNum = (acc.SOrdNum || 0) + (row.SOrdNum || 0);
                     acc.SLot = (acc.SLot || 0) + (row.SLot || 0);
-                    
                     return acc;
-                  }, { ...firstRow } as BrokerTransactionData);
+                  }, sectorInitialAcc);
                   
-                  // Recalculate averages
+                  // Ensure BuyerVol and SellerVol are calculated from BLot/SLot if they are 0
+                  if ((!aggregatedRow.BuyerVol || aggregatedRow.BuyerVol === 0) && aggregatedRow.BLot && aggregatedRow.BLot > 0) {
+                    aggregatedRow.BuyerVol = aggregatedRow.BLot * 100;
+                  }
+                  if ((!aggregatedRow.SellerVol || aggregatedRow.SellerVol === 0) && aggregatedRow.SLot && aggregatedRow.SLot > 0) {
+                    aggregatedRow.SellerVol = aggregatedRow.SLot * 100;
+                  }
+                  
                   aggregatedRow.BuyerAvg = aggregatedRow.BuyerVol > 0 ? aggregatedRow.BuyerValue / aggregatedRow.BuyerVol : 0;
                   aggregatedRow.SellerAvg = aggregatedRow.SellerVol > 0 ? aggregatedRow.SellerValue / aggregatedRow.SellerVol : 0;
                   
-                  // CRITICAL: Recalculate net from BuyerVol - SellerVol (not from NetBuyVol)
                   const rawNetBuyVol = aggregatedRow.BuyerVol - aggregatedRow.SellerVol;
                   const rawNetBuyValue = aggregatedRow.BuyerValue - aggregatedRow.SellerValue;
                   const rawNetBuyFreq = (aggregatedRow.BFreq || 0) - (aggregatedRow.SFreq || 0);
                   const rawNetBuyOrdNum = (aggregatedRow.BOrdNum || 0) - (aggregatedRow.SOrdNum || 0);
                   
                   if (rawNetBuyVol < 0 || rawNetBuyValue < 0) {
-                    // NetBuy is negative, so it becomes NetSell
                     aggregatedRow.NetSellVol = Math.abs(rawNetBuyVol);
                     aggregatedRow.NetSellValue = Math.abs(rawNetBuyValue);
                     aggregatedRow.NSFreq = Math.abs(rawNetBuyFreq);
@@ -1021,7 +1247,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     aggregatedRow.NBFreq = 0;
                     aggregatedRow.NBOrdNum = 0;
                   } else {
-                    // NetBuy is positive or zero
                     aggregatedRow.NetBuyVol = rawNetBuyVol;
                     aggregatedRow.NetBuyValue = rawNetBuyValue;
                     aggregatedRow.NBFreq = rawNetBuyFreq;
@@ -1032,15 +1257,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     aggregatedRow.NSOrdNum = 0;
                   }
                   
-                  // Recalculate net averages
                   aggregatedRow.NBAvg = aggregatedRow.NetBuyVol > 0 ? aggregatedRow.NetBuyValue / aggregatedRow.NetBuyVol : 0;
                   aggregatedRow.NSAvg = aggregatedRow.NetSellVol > 0 ? aggregatedRow.NetSellValue / aggregatedRow.NetSellVol : 0;
-                  
-                  // Recalculate lots
                   aggregatedRow.NBLot = aggregatedRow.NetBuyVol / 100;
                   aggregatedRow.NSLot = aggregatedRow.NetSellVol / 100;
-                  
-                  // Recalculate lot per frequency and order number
                   aggregatedRow.NBLotPerFreq = Math.abs(aggregatedRow.NBFreq || 0) > 0 ? aggregatedRow.NBLot / Math.abs(aggregatedRow.NBFreq || 0) : 0;
                   aggregatedRow.NBLotPerOrdNum = Math.abs(aggregatedRow.NBOrdNum || 0) > 0 ? aggregatedRow.NBLot / Math.abs(aggregatedRow.NBOrdNum || 0) : 0;
                   aggregatedRow.NSLotPerFreq = Math.abs(aggregatedRow.NSFreq || 0) > 0 ? aggregatedRow.NSLot / Math.abs(aggregatedRow.NSFreq || 0) : 0;
@@ -1048,27 +1268,21 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   
                   aggregatedRows.push(aggregatedRow);
                 });
-                return;
-              }
-              
-              // CRITICAL: For single ticker, don't aggregate - show all brokers separately
-              // Only aggregate if multiple tickers are selected (handled separately)
-              // For single ticker, each row represents a different broker, show them all
-              rows.forEach(row => {
+              });
+            } else {
+              // SINGLE TICKER: Show all brokers separately
+              allRows.forEach(row => {
                 if (row) {
-                  // Ensure BuyerAvg and SellerAvg are calculated correctly
-                  // If they're 0 or missing, recalculate from BuyerVol/BuyerValue and SellerVol/SellerValue
                   if ((!row.BuyerAvg || row.BuyerAvg === 0) && row.BuyerVol && row.BuyerVol > 0) {
                     row.BuyerAvg = row.BuyerValue / row.BuyerVol;
                   }
                   if ((!row.SellerAvg || row.SellerAvg === 0) && row.SellerVol && row.SellerVol > 0) {
                     row.SellerAvg = row.SellerValue / row.SellerVol;
                   }
-                  
                   aggregatedRows.push(row);
                 }
               });
-            });
+            }
             
             // Store data
             newRawTransactionData.set(date, rawRows);
@@ -3384,9 +3598,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     const buyerLot = dayData.BLot ?? 0;
                                     // Use BVal (BuyerValue) from CSV column 2
                                     const buyerVal = dayData.BuyerValue || 0;
-                                    // Use BAvg from CSV column 3, or calculate from BLot and BVal
-                                    // const buyerAvg = dayData.BuyerAvg || (buyerLot > 0 ? buyerVal / (buyerLot * 100) : 0);
-                                    const buyerAvg = dayData.BuyerAvg;
+                                    // Use BAvg from CSV column 3, or calculate from BLot and BVal if BAvg is 0/missing
+                                    const buyerAvg = (dayData.BuyerAvg && dayData.BuyerAvg !== 0) 
+                                      ? dayData.BuyerAvg 
+                                      : (buyerLot > 0 ? buyerVal / (buyerLot * 100) : 0);
 
                                     // Use BFreq from CSV column 4
                                     const buyerFreq = dayData.BFreq || 0;
@@ -3445,8 +3660,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     const sellerLot = dayData.SLot ?? 0;
                                     // Use SVal (SellerValue) from CSV column 10
                                     const sellerVal = dayData.SellerValue || 0;
-                                    // Use SAvg from CSV column 11, no fallback
-                                    const sellerAvg = dayData.SellerAvg;
+                                    // Use SAvg from CSV column 11, or calculate from SLot and SVal if SAvg is 0/missing
+                                    const sellerAvg = (dayData.SellerAvg && dayData.SellerAvg !== 0)
+                                      ? dayData.SellerAvg
+                                      : (sellerLot > 0 ? sellerVal / (sellerLot * 100) : 0);
                                     // Use SFreq from CSV column 12
                                     const sellerFreq = dayData.SFreq || 0;
                                     // Use SLotPerFreq directly from CSV column 13, no fallback
@@ -3923,8 +4140,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                       ? getBrokerColorClass(nbCode)
                                       : getStockColorClass(nbCode);
                                     const nbLot = dayData.NBLot || 0;
-                                    const nbVal = dayData.NBVal || 0;
-                                    const nbAvg = dayData.NBAvg;
+                                    const nbVal = dayData.NBVal || dayData.NetBuyValue || 0;
+                                    // Use NBAvg from data, or calculate from NBLot and NBVal if NBAvg is 0/missing
+                                    const nbAvg = (dayData.NBAvg && dayData.NBAvg !== 0)
+                                      ? dayData.NBAvg
+                                      : (nbLot > 0 ? nbVal / (nbLot * 100) : 0);
                                     const nbFreq = dayData.NBFreq || 0;
                                     // Use value from CSV, no fallback
                                     const nbLotPerFreq = dayData.NBLotPerFreq;
@@ -3989,8 +4209,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                       ? getBrokerColorClass(nsCode)
                                       : getStockColorClass(nsCode);
                                     const nsLot = dayData.NSLot || 0;
-                                    const nsVal = dayData.NSVal || 0;
-                                    const nsAvg = dayData.NSAvg;
+                                    const nsVal = dayData.NSVal || dayData.NetSellValue || 0;
+                                    // Use NSAvg from data, or calculate from NSLot and NSVal if NSAvg is 0/missing
+                                    const nsAvg = (dayData.NSAvg && dayData.NSAvg !== 0)
+                                      ? dayData.NSAvg
+                                      : (nsLot > 0 ? nsVal / (nsLot * 100) : 0);
                                     const nsFreq = dayData.NSFreq || 0;
                                     // Use value from CSV, no fallback
                                     const nsLotPerFreq = dayData.NSLotPerFreq;
