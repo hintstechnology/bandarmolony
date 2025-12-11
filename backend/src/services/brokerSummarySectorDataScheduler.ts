@@ -11,12 +11,23 @@ interface ProgressTracker {
 }
 
 // Sector mapping cache - loaded from csv_input/sector_mapping.csv
+// OPTIMIZATION: Cache dengan timestamp untuk avoid reload berulang
 let SECTOR_MAPPING: { [key: string]: string[] } = {};
+let SECTOR_MAPPING_TIMESTAMP: number = 0;
+const SECTOR_MAPPING_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
 /**
  * Build sector mapping from csv_input/sector_mapping.csv
+ * OPTIMIZED: Cache dengan TTL untuk avoid reload berulang
  */
 async function buildSectorMappingFromCsv(): Promise<void> {
+  // Check if cache is still valid
+  const now = Date.now();
+  if (Object.keys(SECTOR_MAPPING).length > 0 && (now - SECTOR_MAPPING_TIMESTAMP) < SECTOR_MAPPING_CACHE_TTL) {
+    console.log('📦 Using cached sector mapping (age: ' + Math.round((now - SECTOR_MAPPING_TIMESTAMP) / 1000) + 's)');
+    return;
+  }
+  
   try {
     console.log('🔍 Building sector mapping from csv_input/sector_mapping.csv...');
     
@@ -49,12 +60,16 @@ async function buildSectorMappingFromCsv(): Promise<void> {
       }
     }
     
+    // Update cache timestamp
+    SECTOR_MAPPING_TIMESTAMP = now;
+    
     console.log('📊 Sector mapping built successfully from CSV');
     console.log(`📊 Found ${Object.keys(SECTOR_MAPPING).length} sectors with total ${Object.values(SECTOR_MAPPING).flat().length} emitens`);
   } catch (error) {
     console.warn('⚠️ Could not build sector mapping from CSV:', error);
     console.log('⚠️ Using empty sector mapping');
     SECTOR_MAPPING = {};
+    SECTOR_MAPPING_TIMESTAMP = 0;
   }
 }
 
@@ -136,6 +151,20 @@ export class BrokerSummarySectorDataScheduler {
       // Process each date, then all market types, then all sectors for that date
       const marketTypes: Array<'' | 'RG' | 'TN' | 'NG'> = ['', 'RG', 'TN', 'NG'];
 
+      // OPTIMIZATION: Pre-check which dates already have all sectors for all market types
+      const datesToProcess = await this.filterCompleteDates(dates, sectors, marketTypes);
+      
+      if (datesToProcess.length === 0) {
+        console.log('✅ All dates already have complete sector files - nothing to process');
+        return {
+          success: true,
+          message: `All dates already have complete sector files - nothing to process`,
+          data: {}
+        };
+      }
+
+      console.log(`📊 After pre-check: ${datesToProcess.length} dates need processing (${dates.length - datesToProcess.length} already complete)`);
+
       // Estimate total brokers: average brokers per date * dates * market types * sectors
       // Typical broker count per date is around 100-150, we'll use 120 as average
       const avgBrokersPerDate = 120;
@@ -164,111 +193,167 @@ export class BrokerSummarySectorDataScheduler {
       let totalSkipped = 0;
       const results: any = {};
 
-      // NEW LOGIC: Loop by date first, then market type, then all sectors
-      for (let dateIdx = 0; dateIdx < dates.length; dateIdx++) {
-        const dateSuffix = dates[dateIdx];
-        if (!dateSuffix) continue;
+      // OPTIMIZATION: Parallel processing untuk dates dengan concurrency limit
+      // Process dates in batches untuk balance speed dan memory
+      const DATE_BATCH_SIZE = 3; // Process 3 dates in parallel
+      const MAX_CONCURRENT_DATES = 2; // Max 2 concurrent dates (untuk avoid memory overload)
+      
+      // Helper function untuk process single date
+      const processSingleDate = async (dateSuffix: string, dateIdx: number): Promise<{
+        dateSuffix: string;
+        success: number;
+        failed: number;
+        skipped: number;
+        dateResults: any;
+      }> => {
+        const dateResults: any = {};
+        let dateSuccess = 0;
+        let dateFailed = 0;
+        let dateSkipped = 0;
         
-        console.log(`\n📅 Processing date ${dateSuffix} (${dateIdx + 1}/${dates.length})...`);
-        
-        // Initialize results for this date
-        if (!results[dateSuffix]) {
-          results[dateSuffix] = {};
-        }
+        console.log(`\n📅 Processing date ${dateSuffix} (${dateIdx + 1}/${datesToProcess.length})...`);
         
         // For each market type
         for (let marketIdx = 0; marketIdx < marketTypes.length; marketIdx++) {
           const marketTypeValue = marketTypes[marketIdx];
           if (marketTypeValue === undefined) continue;
           
-          // Create explicit block scope to help TypeScript with type narrowing
-          {
-            const marketType: '' | 'RG' | 'TN' | 'NG' = marketTypeValue;
-            const marketKey: string = marketType || 'all';
-            console.log(`\n  🔄 Processing ${marketType || 'All Trade'} market (${marketIdx + 1}/${marketTypes.length})...`);
-            
-            // Initialize results for this date + market
-            if (!results[dateSuffix][marketKey]) {
-              results[dateSuffix][marketKey] = {};
-            }
-            
-            // For each sector (process all sectors for this date + market)
-            for (let sectorIdx = 0; sectorIdx < sectors.length; sectorIdx++) {
-              const sectorNameValue = sectors[sectorIdx];
-              if (!sectorNameValue) continue;
-              
-              // Create explicit block scope to help TypeScript with type narrowing
-              {
-                const sectorName: string = sectorNameValue;
-                console.log(`\n    📊 Processing sector ${sectorName} (${sectorIdx + 1}/${sectors.length})...`);
-                
-                // Update progress
-                if (finalLogId) {
-                  const dateProgress = dateIdx / dates.length;
-                  const marketProgress = marketIdx / marketTypes.length;
-                  const sectorProgress = sectorIdx / sectors.length;
-                  const overallProgress = (dateProgress + (marketProgress + sectorProgress / marketTypes.length) / dates.length) * 100;
-                  await SchedulerLogService.updateLog(finalLogId, {
-                    progress_percentage: Math.min(100, Math.round(overallProgress)),
-                    current_processing: `Processing ${dateSuffix}, ${marketType || 'All Trade'} market, sector ${sectorName} (${sectorIdx + 1}/${sectors.length}, ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers)...`
-                  });
-                }
-                
-                // Process single date + sector (not batch)
-                try {
-                  const result = await this.calculator.generateSector(
-                    dateSuffix,
-                    sectorName as string,
-                    marketType as '' | 'RG' | 'TN' | 'NG'
-                  );
-                  
-                  // Store result
-                  const dateMarketResults = results[dateSuffix][marketKey];
-                  if (dateMarketResults) {
-                    dateMarketResults[sectorName as string] = result;
-                  }
-                  
-                  // Update counters
-                  if (result.success) {
-                    if (result.message?.includes('already exists')) {
-                      totalSkipped++;
-                    } else {
-                      totalSuccess++;
-                    }
-                  } else {
-                    totalFailed++;
-                  }
-                  
-                  // Update broker count if available
-                  if (result.brokerCount && progressTracker) {
-                    progressTracker.processedBrokers += result.brokerCount;
-                    await progressTracker.updateProgress();
-                  }
-                  
-                  const status = result.message?.includes('already exists') ? 'skipped' : (result.success ? 'success' : 'failed');
-                  console.log(`    ${status === 'success' ? '✅' : status === 'skipped' ? '⏭️' : '❌'} ${sectorName}: ${status}${result.brokerCount ? ` (${result.brokerCount} brokers)` : ''}`);
-                } catch (error: any) {
-                  totalFailed++;
-                  const errorMsg = error?.message || 'Unknown error';
-                  console.error(`    ❌ ${sectorName}: Error - ${errorMsg}`);
-                  
-                  // Store error result
-                  const dateMarketResults = results[dateSuffix][marketKey];
-                  if (dateMarketResults) {
-                    dateMarketResults[sectorName as string] = {
-                      success: false,
-                      message: errorMsg
-                    };
-                  }
-                }
-              }
-            }
-            
-            console.log(`  ✅ ${marketType || 'All Trade'}: Completed all sectors for ${dateSuffix}`);
+          const marketType: '' | 'RG' | 'TN' | 'NG' = marketTypeValue;
+          const marketKey: string = marketType || 'all';
+          console.log(`\n  🔄 Processing ${marketType || 'All Trade'} market (${marketIdx + 1}/${marketTypes.length})...`);
+          
+          // Initialize results for this date + market
+          if (!dateResults[marketKey]) {
+            dateResults[marketKey] = {};
           }
+          
+          // For each sector (process all sectors for this date + market)
+          for (let sectorIdx = 0; sectorIdx < sectors.length; sectorIdx++) {
+            const sectorNameValue = sectors[sectorIdx];
+            if (!sectorNameValue) continue;
+            
+            const sectorName: string = sectorNameValue;
+            console.log(`\n    📊 Processing sector ${sectorName} (${sectorIdx + 1}/${sectors.length})...`);
+            
+            // Update progress
+            if (finalLogId) {
+              const dateProgress = dateIdx / datesToProcess.length;
+              const marketProgress = marketIdx / marketTypes.length;
+              const sectorProgress = sectorIdx / sectors.length;
+              const overallProgress = (dateProgress + (marketProgress + sectorProgress / marketTypes.length) / datesToProcess.length) * 100;
+              await SchedulerLogService.updateLog(finalLogId, {
+                progress_percentage: Math.min(100, Math.round(overallProgress)),
+                current_processing: `Processing ${dateSuffix}, ${marketType || 'All Trade'} market, sector ${sectorName} (${sectorIdx + 1}/${sectors.length}, ${progressTracker.processedBrokers.toLocaleString()}/${estimatedTotalBrokers.toLocaleString()} brokers)...`
+              });
+            }
+            
+            // Process single date + sector (not batch)
+            try {
+              const result = await this.calculator.generateSector(
+                dateSuffix,
+                sectorName as string,
+                marketType as '' | 'RG' | 'TN' | 'NG'
+              );
+              
+              // Store result
+              dateResults[marketKey][sectorName] = result;
+              
+              // Update counters
+              if (result.success) {
+                if (result.message?.includes('already exists')) {
+                  dateSkipped++;
+                } else {
+                  dateSuccess++;
+                }
+              } else {
+                dateFailed++;
+              }
+              
+              // Update broker count if available
+              if (result.brokerCount && progressTracker) {
+                progressTracker.processedBrokers += result.brokerCount;
+                await progressTracker.updateProgress();
+              }
+              
+              const status = result.message?.includes('already exists') ? 'skipped' : (result.success ? 'success' : 'failed');
+              console.log(`    ${status === 'success' ? '✅' : status === 'skipped' ? '⏭️' : '❌'} ${sectorName}: ${status}${result.brokerCount ? ` (${result.brokerCount} brokers)` : ''}`);
+            } catch (error: any) {
+              dateFailed++;
+              const errorMsg = error?.message || 'Unknown error';
+              console.error(`    ❌ ${sectorName}: Error - ${errorMsg}`);
+              
+              // Store error result
+              dateResults[marketKey][sectorName] = {
+                success: false,
+                message: errorMsg
+              };
+            }
+          }
+          
+          console.log(`  ✅ ${marketType || 'All Trade'}: Completed all sectors for ${dateSuffix}`);
         }
         
         console.log(`✅ Date ${dateSuffix}: Completed all market types and sectors`);
+        
+        return {
+          dateSuffix,
+          success: dateSuccess,
+          failed: dateFailed,
+          skipped: dateSkipped,
+          dateResults
+        };
+      };
+      
+      // Process dates in batches dengan concurrency limit
+      for (let i = 0; i < datesToProcess.length; i += DATE_BATCH_SIZE) {
+        const dateBatch = datesToProcess.slice(i, i + DATE_BATCH_SIZE);
+        const batchNumber = Math.floor(i / DATE_BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(datesToProcess.length / DATE_BATCH_SIZE);
+        
+        console.log(`\n📦 Processing date batch ${batchNumber}/${totalBatches} (${dateBatch.length} dates)...`);
+        
+        // Process batch dengan concurrency limit
+        const datePromises = dateBatch.map((dateSuffix, batchIdx) => 
+          processSingleDate(dateSuffix, i + batchIdx)
+        );
+        
+        // Limit concurrency untuk dates
+        const dateResults: Array<{
+          dateSuffix: string;
+          success: number;
+          failed: number;
+          skipped: number;
+          dateResults: any;
+        }> = [];
+        
+        for (let j = 0; j < datePromises.length; j += MAX_CONCURRENT_DATES) {
+          const concurrentDates = datePromises.slice(j, j + MAX_CONCURRENT_DATES);
+          const batchResults = await Promise.all(concurrentDates);
+          dateResults.push(...batchResults);
+        }
+        
+        // Aggregate results
+        dateResults.forEach(({ dateSuffix, success, failed, skipped, dateResults: dateRes }) => {
+          results[dateSuffix] = dateRes;
+          totalSuccess += success;
+          totalFailed += failed;
+          totalSkipped += skipped;
+        });
+        
+        console.log(`📊 Date batch ${batchNumber} complete: ${dateResults.reduce((sum, r) => sum + r.success, 0)} success, ${dateResults.reduce((sum, r) => sum + r.skipped, 0)} skipped, ${dateResults.reduce((sum, r) => sum + r.failed, 0)} failed`);
+        
+        // Memory cleanup after batch
+        if (global.gc) {
+          global.gc();
+          const memAfter = process.memoryUsage();
+          const heapUsedMB = memAfter.heapUsed / 1024 / 1024;
+          console.log(`📊 Date batch ${batchNumber} complete - Memory: ${heapUsedMB.toFixed(2)}MB`);
+        }
+        
+        // Small delay between batches
+        if (i + DATE_BATCH_SIZE < datesToProcess.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
       }
 
       const totalProcessed = totalSuccess + totalFailed + totalSkipped;
@@ -341,60 +426,321 @@ export class BrokerSummarySectorDataScheduler {
   }
 
   /**
-   * Get available dates from broker_summary folders
+   * Get available dates from broker_summary folder (main folder only)
+   * OPTIMIZED: Use listPrefixes() to list only folder names (not all files) - much faster!
    */
   private async getAvailableDates(): Promise<string[]> {
     try {
-      const { listPaths } = await import('../utils/azureBlob');
+      const { listPrefixes } = await import('../utils/azureBlob');
       
-      // Check all market type folders
-      const marketFolders = [
-        'broker_summary/',
-        'broker_summary_rg/',
-        'broker_summary_tn/',
-        'broker_summary_ng/'
-      ];
+      // OPTIMIZATION: Only scan main folder broker_summary/ (not _rg, _tn, _ng)
+      // Use listPrefixes() to get folder names only (much faster than listPaths which scans all files)
+      const mainFolder = 'broker_summary/';
 
       const allDates = new Set<string>();
 
-      for (const folder of marketFolders) {
-        try {
-          const paths = await listPaths({ prefix: folder });
-          console.log(`📁 Found ${paths.length} paths in ${folder}`);
-          
-          paths.forEach(path => {
-            // Extract date from path patterns:
-            // - broker_summary_rg/broker_summary_rg_20241021/BBCA.csv
-            // - broker_summary_rg/broker_summary_rg_20241021/BANK.csv
-            // - broker_summary/broker_summary_20241021/BBCA.csv
-            // - broker_summary/broker_summary_20241021/BANK.csv
-            // Date format is YYYYMMDD (8 digits)
+      // Helper function untuk listPrefixes dengan retry logic
+      const listPrefixesWithRetry = async (prefix: string, maxRetries = 3): Promise<string[]> => {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            const prefixes = await listPrefixes(prefix);
+            return prefixes;
+          } catch (error: any) {
+            // Check if error is retryable
+            const isRetryable = 
+              error?.code === 'PARSE_ERROR' ||
+              error?.code === 'EADDRNOTAVAIL' ||
+              error?.code === 'ECONNRESET' ||
+              error?.code === 'ETIMEDOUT' ||
+              error?.code === 'ENOTFOUND' ||
+              error?.code === 'ECONNREFUSED' ||
+              error?.name === 'RestError' ||
+              (error?.message && (
+                error.message.includes('aborted') ||
+                error.message.includes('connect') ||
+                error.message.includes('timeout') ||
+                error.message.includes('network')
+              ));
             
-            // Match modern path: broker_summary_rg/broker_summary_rg_20241021/...
-            const m1 = path.match(/broker_summary_(rg|tn|ng)\/broker_summary_(rg|tn|ng)_(\d{8})\//);
-            // Match legacy path: broker_summary/broker_summary_20241021/...
-            const m2 = path.match(/broker_summary\/broker_summary_(\d{8})\//);
-            
-            if (m1 && m1[3] && /^\d{8}$/.test(m1[3])) {
-              allDates.add(m1[3]);
+            if (!isRetryable || attempt === maxRetries) {
+              // Not retryable or max retries reached
+              if (attempt === maxRetries) {
+                console.warn(`⚠️ Could not list prefixes in ${prefix} after ${maxRetries} attempts:`, error?.code || error?.message || error);
+              } else {
+                console.warn(`⚠️ Could not list prefixes in ${prefix} (non-retryable error):`, error?.code || error?.message || error);
+              }
+              return []; // Return empty array instead of throwing
             }
-            if (m2 && m2[1] && /^\d{8}$/.test(m2[1])) {
-              allDates.add(m2[1]);
+            
+            // Calculate exponential backoff delay: 1s, 2s, 4s
+            const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Max 5 seconds
+            console.warn(`⚠️ listPrefixes failed for ${prefix} (attempt ${attempt}/${maxRetries}), retrying in ${delayMs}ms...`, error?.code || error?.message);
+            
+            // Wait before retry
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+          }
+        }
+        
+        return []; // Return empty array if all retries failed
+      };
+
+      // OPTIMIZATION: Use listPrefixes() to get folder names only (not all files)
+      // This is MUCH faster - only returns folder names like "broker_summary_20251210/" instead of all files
+      console.log('🔍 Scanning broker_summary/ folder for date folders (using listPrefixes - fast!)...');
+      
+      try {
+        const prefixes = await listPrefixesWithRetry(mainFolder);
+        
+        if (prefixes.length > 0) {
+          console.log(`📁 Found ${prefixes.length} date folders in ${mainFolder}`);
+          
+          prefixes.forEach(prefix => {
+            // Extract date from folder name: broker_summary_20241021/
+            // Date format is YYYYMMDD (8 digits)
+            const m = prefix.match(/broker_summary_(\d{8})\//);
+            
+            if (m && m[1] && /^\d{8}$/.test(m[1])) {
+              allDates.add(m[1]);
             }
           });
-        } catch (error) {
-          // Continue if folder doesn't exist
-          console.warn(`⚠️ Could not list paths in ${folder}:`, error);
+        } else {
+          console.log(`📁 Folder ${mainFolder} exists but has no date subfolders`);
         }
+      } catch (error) {
+        console.warn(`⚠️ Could not list prefixes in ${mainFolder} (final error):`, error);
       }
 
       const dateList = Array.from(allDates).sort().reverse(); // Newest first
-      console.log(`📅 Found ${dateList.length} unique dates: ${dateList.slice(0, 10).join(', ')}${dateList.length > 10 ? '...' : ''}`);
-      return dateList;
+      
+      // OPTIMIZATION: Only process 7 most recent dates for faster processing
+      const MAX_DATES_TO_PROCESS = 7;
+      const limitedDateList = dateList.slice(0, MAX_DATES_TO_PROCESS);
+      
+      if (dateList.length > MAX_DATES_TO_PROCESS) {
+        console.log(`📅 Found ${dateList.length} unique dates, limiting to ${MAX_DATES_TO_PROCESS} most recent: ${limitedDateList.join(', ')}`);
+      } else {
+        console.log(`📅 Found ${dateList.length} unique dates: ${limitedDateList.join(', ')}`);
+      }
+      
+      return limitedDateList;
     } catch (error) {
       console.error('❌ Error getting available dates:', error);
       return [];
     }
+  }
+
+  /**
+   * Pre-check which dates already have all sectors for all market types
+   * OPTIMIZED: Quick check dulu (count sector files di folder utama), baru full check jika perlu
+   * Strategy:
+   * 1. Quick check: Count sector files di broker_summary/broker_summary_{date}/
+   *    - Jika sudah ada {sectors.length} sector files → langsung skip (anggap complete)
+   * 2. Jika belum lengkap → full check (cek semua market types × semua sectors)
+   */
+  private async filterCompleteDates(
+    dates: string[], 
+    sectors: string[], 
+    marketTypes: Array<'' | 'RG' | 'TN' | 'NG'>
+  ): Promise<string[]> {
+    console.log(`🔍 Pre-checking existing sector files (optimized batch checking)...`);
+    console.log(`📊 Checking ${dates.length} dates for completeness (${marketTypes.length} market types × ${sectors.length} sectors each)...`);
+    
+    const { listPaths } = await import('../utils/azureBlob');
+    const { exists } = await import('../utils/azureBlob');
+    const datesToProcess: string[] = [];
+    let quickSkippedCount = 0;
+    let fullCheckCount = 0;
+    let fullSkippedCount = 0;
+    
+    // Process in batches for parallel checking (faster than sequential)
+    const CHECK_BATCH_SIZE = 20; // Check 20 dates in parallel
+    const MAX_CONCURRENT_CHECKS = 10; // Max 10 concurrent checks
+    
+    for (let i = 0; i < dates.length; i += CHECK_BATCH_SIZE) {
+      const batch = dates.slice(i, i + CHECK_BATCH_SIZE);
+      const batchNumber = Math.floor(i / CHECK_BATCH_SIZE) + 1;
+      const totalBatches = Math.ceil(dates.length / CHECK_BATCH_SIZE);
+      
+      // Process batch checks in parallel with concurrency limit
+      const checkPromises = batch.map(async (dateSuffix) => {
+        try {
+          // STEP 1: QUICK CHECK - Count sector files di folder utama (broker_summary/)
+          const mainFolderPrefix = `broker_summary/broker_summary_${dateSuffix}`;
+          
+          try {
+            // List semua files di folder utama dengan retry logic
+            let allFiles: string[] = [];
+            let retryCount = 0;
+            const maxRetries = 2; // Quick check: hanya 2 retries (lebih cepat)
+            
+            while (retryCount <= maxRetries) {
+              try {
+                allFiles = await listPaths({ prefix: `${mainFolderPrefix}/` });
+                break; // Success, exit retry loop
+              } catch (error: any) {
+                retryCount++;
+                const isRetryable = 
+                  error?.code === 'PARSE_ERROR' ||
+                  error?.name === 'RestError' ||
+                  (error?.message && error.message.includes('aborted'));
+                
+                if (!isRetryable || retryCount > maxRetries) {
+                  // Not retryable or max retries reached - skip quick check, go to full check
+                  allFiles = [];
+                  break;
+                }
+                
+                // Small delay before retry (500ms for quick check)
+                await new Promise(resolve => setTimeout(resolve, 500));
+              }
+            }
+            
+            if (allFiles.length > 0) {
+              // Filter hanya sector CSV files yang ada di list sectors
+              // Exclude: stock files (4-letter codes), IDX.csv, ALLSUM files
+              // IMPORTANT: Convert sectors to uppercase for case-insensitive comparison
+              const sectorsUpper = sectors.map(s => s.toUpperCase());
+              
+              const sectorFiles = allFiles.filter(file => {
+                const fileName = file.split('/').pop() || '';
+                if (!fileName.endsWith('.csv')) return false;
+                if (fileName.toUpperCase() === 'IDX.CSV') return false;
+                if (fileName.toUpperCase().includes('ALLSUM')) return false;
+                
+                // Check if file name is a known sector name (case-insensitive)
+                const nameWithoutExt = fileName.replace('.csv', '').toUpperCase();
+                return sectorsUpper.includes(nameWithoutExt);
+              });
+              
+              // Jika sudah ada {sectors.length} sector files → anggap complete (quick skip)
+              if (sectorFiles.length >= sectors.length) {
+                return { dateSuffix, isComplete: true, checkType: 'quick' };
+              }
+            }
+          } catch (error) {
+            // Jika listPaths gagal setelah retry, lanjut ke full check
+            // Silent fail - tidak perlu log karena ini normal jika folder belum ada
+          }
+          
+          // STEP 2: FULL CHECK - Hanya jika quick check tidak complete
+          // Check if ALL sectors exist for ALL market types
+          let allComplete = true;
+          
+          for (const marketType of marketTypes) {
+            const marketLower = marketType.toLowerCase();
+            const folderPrefix = marketType === '' 
+              ? `broker_summary/broker_summary_${dateSuffix}`
+              : `broker_summary_${marketLower}/broker_summary_${marketLower}_${dateSuffix}`;
+            
+            // Quick check: sample first 3 sectors (if all exist, check all)
+            const sampleSectors = sectors.slice(0, Math.min(3, sectors.length));
+            let sampleAllExist = true;
+            
+            for (const sectorName of sampleSectors) {
+              const sectorFilePath = `${folderPrefix}/${sectorName}.csv`;
+              try {
+                const sectorExists = await exists(sectorFilePath);
+                if (!sectorExists) {
+                  sampleAllExist = false;
+                  break;
+                }
+              } catch (error) {
+                sampleAllExist = false;
+                break;
+              }
+            }
+            
+            if (!sampleAllExist) {
+              allComplete = false;
+              break;
+            }
+            
+            // If sample check passed, verify ALL sectors exist
+            for (const sectorName of sectors) {
+              const sectorFilePath = `${folderPrefix}/${sectorName}.csv`;
+              try {
+                const sectorExists = await exists(sectorFilePath);
+                if (!sectorExists) {
+                  allComplete = false;
+                  break;
+                }
+              } catch (error) {
+                allComplete = false;
+                break;
+              }
+            }
+            
+            if (!allComplete) {
+              break;
+            }
+          }
+          
+          return { dateSuffix, isComplete: allComplete, checkType: allComplete ? 'full' : 'none' };
+        } catch (error) {
+          // If check fails, assume incomplete (safer to process than skip)
+          return { dateSuffix, isComplete: false, checkType: 'error' };
+        }
+      });
+      
+      // Limit concurrency for checks
+      const checkResults: Array<{ dateSuffix: string; isComplete: boolean; checkType: string }> = [];
+      for (let j = 0; j < checkPromises.length; j += MAX_CONCURRENT_CHECKS) {
+        const concurrentChecks = checkPromises.slice(j, j + MAX_CONCURRENT_CHECKS);
+        const results = await Promise.all(concurrentChecks);
+        checkResults.push(...results);
+      }
+      
+      // Process results
+      for (const result of checkResults) {
+        if (result.isComplete) {
+          if (result.checkType === 'quick') {
+            quickSkippedCount++;
+            // Only log first few and last few to avoid spam
+            if (quickSkippedCount <= 5 || quickSkippedCount > dates.length - 5) {
+              console.log(`⏭️ Date ${result.dateSuffix}: Quick skip (${sectors.length} sectors found in main folder)`);
+            }
+          } else {
+            fullSkippedCount++;
+            if (fullSkippedCount <= 5 || fullSkippedCount > dates.length - 5) {
+              console.log(`⏭️ Date ${result.dateSuffix}: Full check skip (all sectors exist for all market types)`);
+            }
+          }
+        } else {
+          if (result.checkType === 'full') {
+            fullCheckCount++;
+          }
+          // Only log first few to avoid spam
+          if (datesToProcess.length < 5) {
+            console.log(`✅ Date ${result.dateSuffix} needs processing`);
+          }
+          datesToProcess.push(result.dateSuffix);
+        }
+      }
+      
+      // Progress update for large batches
+      if (totalBatches > 1 && batchNumber % 5 === 0) {
+        console.log(`📊 Checked ${Math.min(i + CHECK_BATCH_SIZE, dates.length)}/${dates.length} dates (${quickSkippedCount + fullSkippedCount} skipped, ${datesToProcess.length} to process)...`);
+      }
+    }
+    
+    // Summary log
+    console.log(`📊 Pre-check complete:`);
+    console.log(`   ⚡ Quick skip: ${quickSkippedCount} dates (${sectors.length} sectors found in main folder)`);
+    console.log(`   🔍 Full check: ${fullCheckCount} dates (needed detailed verification)`);
+    console.log(`   ⏭️  Full skip: ${fullSkippedCount} dates (all sectors exist for all market types)`);
+    console.log(`   ✅ To process: ${datesToProcess.length} dates`);
+    
+    if (datesToProcess.length > 0) {
+      console.log(`📋 Processing order (newest first):`);
+      datesToProcess.slice(0, 10).forEach((date: string, idx: number) => {
+        console.log(`   ${idx + 1}. ${date}`);
+      });
+      if (datesToProcess.length > 10) {
+        console.log(`   ... and ${datesToProcess.length - 10} more dates`);
+      }
+    }
+    
+    return datesToProcess;
   }
 
   /**
