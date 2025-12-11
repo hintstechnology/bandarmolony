@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { supabase } from "../../../lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Badge } from "../../ui/badge";
@@ -40,7 +41,7 @@ export function DataSchedulerControl() {
   });
 
   // Load scheduled tasks (status = 'running' and trigger_type = 'scheduled' OR manual phase triggers from SchedulerConfigControl)
-  const loadScheduledTasks = async () => {
+  const loadScheduledTasks = useCallback(async () => {
     setLoading(true);
     try {
       const result = await api.getSchedulerLogs({
@@ -75,12 +76,56 @@ export function DataSchedulerControl() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  // Load on mount and manual refresh only (no auto refresh)
+  // Load on mount and listen for status changes via Supabase realtime
   useEffect(() => {
     loadScheduledTasks();
-  }, []);
+    
+    // Subscribe to scheduler_logs table changes
+    const channel = supabase
+      .channel('scheduler_logs_scheduled_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'scheduler_logs',
+          filter: 'status=eq.completed'
+        },
+        (payload: any) => {
+          // Only refresh if the completed task is scheduled or phase trigger
+          const triggerType = payload.new?.trigger_type || payload.new?.['trigger_type'];
+          const featureName = payload.new?.feature_name || payload.new?.['feature_name'];
+          if (triggerType === 'scheduled' || (triggerType === 'manual' && featureName?.startsWith('phase'))) {
+            // Refresh this section when a scheduled/phase task completes
+            loadScheduledTasks();
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'scheduler_logs',
+          filter: 'status=eq.running'
+        },
+        (payload: any) => {
+          // Refresh when a new scheduled/phase task starts running
+          const triggerType = payload.new?.trigger_type || payload.new?.['trigger_type'];
+          const featureName = payload.new?.feature_name || payload.new?.['feature_name'];
+          if (triggerType === 'scheduled' || (triggerType === 'manual' && featureName?.startsWith('phase'))) {
+            loadScheduledTasks();
+          }
+        }
+      )
+      .subscribe();
+    
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadScheduledTasks]);
 
   // Cancel a running scheduled task
   const handleCancelTask = async (logId: string, featureName: string) => {

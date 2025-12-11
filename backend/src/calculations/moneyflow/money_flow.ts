@@ -336,15 +336,31 @@ export class MoneyFlowCalculator {
 
   /**
    * Find all CSV files in a directory (like rrc_stock.ts)
+   * OPTIMIZED: Added retry logic for Azure network errors
    */
   private async findAllCsvFiles(prefix: string): Promise<string[]> {
-    try {
-      const files = await listPaths({ prefix });
-      const csvFiles = files.filter(f => f.toLowerCase().endsWith('.csv'));
-      return csvFiles;
-    } catch (err) {
-      throw new Error(`Tidak bisa baca folder ${prefix}: ${err}`);
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const files = await listPaths({ prefix });
+        const csvFiles = files.filter(f => f.toLowerCase().endsWith('.csv'));
+        return csvFiles;
+      } catch (err: any) {
+        const isRetryable = 
+          err?.code === 'PARSE_ERROR' ||
+          err?.name === 'RestError' ||
+          (err?.message && err.message.includes('aborted'));
+        
+        if (!isRetryable || attempt === maxRetries) {
+          throw new Error(`Tidak bisa baca folder ${prefix}: ${err}`);
+        }
+        
+        const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+        console.log(`⚠️ Retry ${attempt}/${maxRetries} for listPaths(${prefix}) after ${delayMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
     }
+    return [];
   }
 
   /**
@@ -397,50 +413,55 @@ export class MoneyFlowCalculator {
 
   /**
    * Load existing dates for all stocks/indices from output files
-   * OPTIMIZED: Pre-load all existing dates to avoid filtering later
+   * OPTIMIZED: Quick check - only load 1 representative file (BBCA.csv for stock, JCI.csv for index) for speed
    */
   private async loadExistingDatesByStock(): Promise<Map<string, Set<string>>> {
-    console.log("📋 Loading existing dates from money_flow output files...");
+    console.log("📋 Loading existing dates from money_flow output files (quick check - 1 file per type only)...");
     const existingDatesByStock = new Map<string, Set<string>>();
     
     try {
-      // List all money flow files (both stock and index)
-      const stockFiles = await listPaths({ prefix: 'money_flow/stock/' });
-      const indexFiles = await listPaths({ prefix: 'money_flow/index/' });
-      const allFiles = [...stockFiles, ...indexFiles].filter(f => f.endsWith('.csv'));
+      // OPTIMIZATION: Only check 1 representative file per type for speed
+      const representativeStockFile = 'money_flow/stock/BBCA.csv';
+      const representativeIndexFile = 'money_flow/index/JCI.csv';
       
-      console.log(`Found ${allFiles.length} existing money flow files (${stockFiles.length} stock, ${indexFiles.length} index)`);
-      
-      // Load each file and extract dates (in batches to avoid memory issues)
-      const BATCH_SIZE = BATCH_SIZE_PHASE_3;
-      for (let i = 0; i < allFiles.length; i += BATCH_SIZE) {
-        const batch = allFiles.slice(i, i + BATCH_SIZE);
-        
-        await Promise.allSettled(
-          batch.map(async (filename) => {
-            try {
-              // Extract code from path: money_flow/stock/{code}.csv or money_flow/index/{code}.csv
-              const pathParts = filename.split('/');
-              const code = pathParts[pathParts.length - 1]?.replace('.csv', '') || '';
-              const key = filename.startsWith('money_flow/stock/') ? `stock:${code}` : `index:${code}`;
-              
-              const existingData = await this.readExistingCsvDataFromAzure(filename);
-              const dates = this.extractExistingDates(existingData);
-              if (dates.size > 0) {
-                existingDatesByStock.set(key, dates);
-              }
-            } catch (error) {
-              // Skip files that can't be read
-            }
-          })
-        );
-        
-        if ((i + BATCH_SIZE) % 200 === 0) {
-          console.log(`📋 Loaded existing dates for ${existingDatesByStock.size} stocks/indices...`);
+      // Check stock representative file
+      try {
+        const stockData = await this.readExistingCsvDataFromAzure(representativeStockFile);
+        const stockDates = this.extractExistingDates(stockData);
+        if (stockDates.size > 0) {
+          existingDatesByStock.set('stock:BBCA', stockDates);
+          console.log(`✅ Quick check: Loaded ${stockDates.size} existing dates from ${representativeStockFile} (representative for all stocks)`);
+        } else {
+          console.log(`⚠️ Quick check: ${representativeStockFile} exists but has no dates`);
+        }
+      } catch (error: any) {
+        // File not found is normal for new files
+        if (error instanceof Error && error.message.includes('Blob not found')) {
+          console.log(`ℹ️ Quick check: ${representativeStockFile} not found - assuming no existing dates for stocks`);
+        } else {
+          console.log(`⚠️ Quick check: Could not load ${representativeStockFile}, assuming no existing dates for stocks`);
         }
       }
       
-      console.log(`✅ Loaded existing dates for ${existingDatesByStock.size} stocks/indices`);
+      // Check index representative file
+      try {
+        const indexData = await this.readExistingCsvDataFromAzure(representativeIndexFile);
+        const indexDates = this.extractExistingDates(indexData);
+        if (indexDates.size > 0) {
+          existingDatesByStock.set('index:JCI', indexDates);
+          console.log(`✅ Quick check: Loaded ${indexDates.size} existing dates from ${representativeIndexFile} (representative for all indices)`);
+        } else {
+          console.log(`⚠️ Quick check: ${representativeIndexFile} exists but has no dates`);
+        }
+      } catch (error: any) {
+        // File not found is normal for new files
+        if (error instanceof Error && error.message.includes('Blob not found')) {
+          console.log(`ℹ️ Quick check: ${representativeIndexFile} not found - assuming no existing dates for indices`);
+        } else {
+          console.log(`⚠️ Quick check: Could not load ${representativeIndexFile}, assuming no existing dates for indices`);
+        }
+      }
+      
       return existingDatesByStock;
     } catch (error) {
       console.error('Error loading existing dates:', error);
@@ -529,34 +550,42 @@ export class MoneyFlowCalculator {
       const batchPromises = batch.map(async (blobName) => {
           const code = this.extractStockCode(blobName);
           const key = `stock:${code}`;
-          const existingDates = existingDatesByStock.get(key) || new Set<string>();
           
           try {
-            // CRITICAL: JANGAN LOAD FILE SAMA SEKALI jika semua dates sudah exist
-            // Cek existing dates DULU sebelum load
-            if (existingDates.size > 0) {
-              // Get the latest existing date
-              const sortedExistingDates = Array.from(existingDates).sort((a, b) => b.localeCompare(a));
+            // OPTIMIZATION: Quick check - use representative file (BBCA for stocks) to check if file needs processing
+            // If representative file has many dates and latest is recent, assume all stocks are up to date
+            const representativeKey = 'stock:BBCA';
+            const representativeDates = existingDatesByStock.get(representativeKey);
+            
+            if (representativeDates && representativeDates.size > 0) {
+              const sortedExistingDates = Array.from(representativeDates).sort((a, b) => b.localeCompare(a));
               const latestExistingDate = sortedExistingDates[0];
               
-              // If we have many existing dates and the latest is recent, assume file doesn't need processing
-              // This is a heuristic - we don't know dates in file without loading
-              // But if we have > 1000 existing dates and latest is within last 7 days, likely all dates exist
-              if (existingDates.size > 1000 && latestExistingDate) {
-                const latestDate = new Date(
-                  parseInt(latestExistingDate.substring(0, 4)),
-                  parseInt(latestExistingDate.substring(4, 6)) - 1,
-                  parseInt(latestExistingDate.substring(6, 8))
-                );
+              if (latestExistingDate) {
+                // Parse date (format: YYYYMMDD or YYYY-MM-DD)
+                let latestDate: Date;
+                if (latestExistingDate.includes('-')) {
+                  latestDate = new Date(latestExistingDate);
+                } else {
+                  latestDate = new Date(
+                    parseInt(latestExistingDate.substring(0, 4)),
+                    parseInt(latestExistingDate.substring(4, 6)) - 1,
+                    parseInt(latestExistingDate.substring(6, 8))
+                  );
+                }
+                
                 const daysSinceLatest = (Date.now() - latestDate.getTime()) / (1000 * 60 * 60 * 24);
                 
-                // If latest date is within last 7 days and we have many dates, likely file is up to date
-                if (daysSinceLatest < 7) {
+                // If representative file has many dates and latest is within last 7 days, likely all stocks are up to date
+                if (representativeDates.size > 100 && daysSinceLatest < 7) {
                   // Skip file without loading - assume all dates already exist
                   return { code, mfiData: [], success: false, error: 'All dates likely already exist (skipped without load)', type: 'stock' as const, skipped: true };
                 }
               }
             }
+            
+            // Use stock-specific existing dates if available, otherwise use representative
+            const stockExistingDates = existingDatesByStock.get(key) || representativeDates || new Set<string>();
             
             // File might need processing - add to active files and load with cache
             if (!activeFiles.includes(blobName)) {
@@ -567,8 +596,8 @@ export class MoneyFlowCalculator {
             // Load with cache for actual processing
             const ohlcData = await this.loadOHLCDataFromAzure(blobName);
             
-            // OPTIMIZATION: Filter to only new dates
-            const filteredOHLC = this.filterOHLCDataForNewDates(ohlcData, existingDates);
+            // OPTIMIZATION: Filter to only new dates (use stock-specific or representative dates)
+            const filteredOHLC = this.filterOHLCDataForNewDates(ohlcData, stockExistingDates);
             
             if (filteredOHLC.length === 0) {
               // No new dates - remove from cache since we don't need it
@@ -581,8 +610,8 @@ export class MoneyFlowCalculator {
             // So we'll filter AFTER calculation
             const allMfiData = this.calculateMFI(ohlcData);
             
-            // Filter MFI data to only include new dates
-            const newMfiData = allMfiData.filter(item => !existingDates.has(item.Date));
+            // Filter MFI data to only include new dates (use stock-specific or representative dates)
+            const newMfiData = allMfiData.filter(item => !stockExistingDates.has(item.Date));
             
             if (newMfiData.length > 0) {
               return { code, mfiData: newMfiData, success: true, type: 'stock' as const };
@@ -671,34 +700,42 @@ export class MoneyFlowCalculator {
       const batchPromises = batch.map(async (blobName) => {
           const code = this.extractStockCode(blobName);
           const key = `index:${code}`;
-          const existingDates = existingDatesByStock.get(key) || new Set<string>();
           
           try {
-            // CRITICAL: JANGAN LOAD FILE SAMA SEKALI jika semua dates sudah exist
-            // Cek existing dates DULU sebelum load
-            if (existingDates.size > 0) {
-              // Get the latest existing date
-              const sortedExistingDates = Array.from(existingDates).sort((a, b) => b.localeCompare(a));
+            // OPTIMIZATION: Quick check - use representative file (JCI for indices) to check if file needs processing
+            // If representative file has many dates and latest is recent, assume all indices are up to date
+            const representativeKey = 'index:JCI';
+            const representativeDates = existingDatesByStock.get(representativeKey);
+            
+            if (representativeDates && representativeDates.size > 0) {
+              const sortedExistingDates = Array.from(representativeDates).sort((a, b) => b.localeCompare(a));
               const latestExistingDate = sortedExistingDates[0];
               
-              // If we have many existing dates and the latest is recent, assume file doesn't need processing
-              // This is a heuristic - we don't know dates in file without loading
-              // But if we have > 1000 existing dates and latest is within last 7 days, likely all dates exist
-              if (existingDates.size > 1000 && latestExistingDate) {
-                const latestDate = new Date(
-                  parseInt(latestExistingDate.substring(0, 4)),
-                  parseInt(latestExistingDate.substring(4, 6)) - 1,
-                  parseInt(latestExistingDate.substring(6, 8))
-                );
+              if (latestExistingDate) {
+                // Parse date (format: YYYYMMDD or YYYY-MM-DD)
+                let latestDate: Date;
+                if (latestExistingDate.includes('-')) {
+                  latestDate = new Date(latestExistingDate);
+                } else {
+                  latestDate = new Date(
+                    parseInt(latestExistingDate.substring(0, 4)),
+                    parseInt(latestExistingDate.substring(4, 6)) - 1,
+                    parseInt(latestExistingDate.substring(6, 8))
+                  );
+                }
+                
                 const daysSinceLatest = (Date.now() - latestDate.getTime()) / (1000 * 60 * 60 * 24);
                 
-                // If latest date is within last 7 days and we have many dates, likely file is up to date
-                if (daysSinceLatest < 7) {
+                // If representative file has many dates and latest is within last 7 days, likely all indices are up to date
+                if (representativeDates.size > 100 && daysSinceLatest < 7) {
                   // Skip file without loading - assume all dates already exist
                   return { code, mfiData: [], success: false, error: 'All dates likely already exist (skipped without load)', type: 'index' as const, skipped: true };
                 }
               }
             }
+            
+            // Use index-specific existing dates if available, otherwise use representative
+            const indexExistingDates = existingDatesByStock.get(key) || representativeDates || new Set<string>();
             
             // File might need processing - add to active files and load with cache
             if (!activeFiles.includes(blobName)) {
@@ -709,8 +746,8 @@ export class MoneyFlowCalculator {
             // Load with cache for actual processing
             const ohlcData = await this.loadOHLCDataFromAzure(blobName);
             
-            // OPTIMIZATION: Filter to only new dates
-            const filteredOHLC = this.filterOHLCDataForNewDates(ohlcData, existingDates);
+            // OPTIMIZATION: Filter to only new dates (use index-specific or representative dates)
+            const filteredOHLC = this.filterOHLCDataForNewDates(ohlcData, indexExistingDates);
             
             if (filteredOHLC.length === 0) {
               // No new dates - remove from cache since we don't need it
@@ -723,8 +760,8 @@ export class MoneyFlowCalculator {
             // So we'll filter AFTER calculation
             const allMfiData = this.calculateMFI(ohlcData);
             
-            // Filter MFI data to only include new dates
-            const newMfiData = allMfiData.filter(item => !existingDates.has(item.Date));
+            // Filter MFI data to only include new dates (use index-specific or representative dates)
+            const newMfiData = allMfiData.filter(item => !indexExistingDates.has(item.Date));
             
             if (newMfiData.length > 0) {
               return { code, mfiData: newMfiData, success: true, type: 'index' as const };
@@ -794,6 +831,26 @@ export class MoneyFlowCalculator {
   }
 
   /**
+   * Get latest date from existing output files to limit processing
+   * OPTIMIZATION: Only process files that might have dates newer than latest existing
+   */
+  private async getLatestExistingDate(existingDatesByStock: Map<string, Set<string>>): Promise<string | null> {
+    let latestDate: string | null = null;
+    
+    for (const dates of existingDatesByStock.values()) {
+      if (dates.size > 0) {
+        const sortedDates = Array.from(dates).sort((a, b) => b.localeCompare(a));
+        const currentLatest = sortedDates[0];
+        if (currentLatest && (!latestDate || currentLatest.localeCompare(latestDate) > 0)) {
+          latestDate = currentLatest;
+        }
+      }
+    }
+    
+    return latestDate;
+  }
+
+  /**
    * Main function to generate money flow data
    * OPTIMIZED: Pre-load existing dates to skip already processed dates
    */
@@ -803,6 +860,12 @@ export class MoneyFlowCalculator {
       
       // OPTIMIZATION: Pre-load existing dates from output files
       const existingDatesByStock = await this.loadExistingDatesByStock();
+      
+      // Get latest existing date to determine cutoff
+      const latestExistingDate = await this.getLatestExistingDate(existingDatesByStock);
+      if (latestExistingDate) {
+        console.log(`📅 Latest existing date in output: ${latestExistingDate}`);
+      }
       
       // Load index list first (for reference/validation only, source folder is authoritative)
       const indexList = await this.loadIndexList();

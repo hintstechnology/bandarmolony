@@ -1,4 +1,4 @@
-import { uploadText, listPaths, exists } from '../../utils/azureBlob';
+import { uploadText, exists } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_4, MAX_CONCURRENT_REQUESTS_PHASE_4 } from '../../services/dataUpdateService';
 import { SchedulerLogService } from '../../services/schedulerLogService';
 import { doneSummaryCache } from '../../cache/doneSummaryCacheService';
@@ -78,6 +78,19 @@ export class BrokerDataRGTNNGCalculator {
         return dateB.localeCompare(dateA); // Descending order
       });
       
+      // OPTIMIZATION: Limit to 7 most recent dates for faster processing
+      const MAX_DATES_TO_PROCESS = 7;
+      const uniqueDates = [...new Set(sortedFiles.map((f: string) => f.split('/')[1]).filter((v: string | undefined) => v !== undefined))] as string[];
+      const limitedDates = uniqueDates.slice(0, MAX_DATES_TO_PROCESS);
+      const limitedFiles = sortedFiles.filter((f: string) => {
+        const dateFolder = f.split('/')[1] || '';
+        return limitedDates.includes(dateFolder);
+      });
+      
+      if (sortedFiles.length > limitedFiles.length) {
+        console.log(`📅 Limiting to ${MAX_DATES_TO_PROCESS} most recent dates (${limitedDates.join(', ')}) from ${uniqueDates.length} total dates`);
+      }
+      
       // OPTIMIZATION: Pre-check which dates already have broker_data_rg_tn_ng output (BATCH CHECKING for speed)
       console.log("🔍 Pre-checking existing broker_data_rg_tn_ng outputs (batch checking)...");
       const filesToProcess: string[] = [];
@@ -87,32 +100,64 @@ export class BrokerDataRGTNNGCalculator {
       const CHECK_BATCH_SIZE = 20; // Check 20 files in parallel
       const MAX_CONCURRENT_CHECKS = 10; // Max 10 concurrent checks
       
-      for (let i = 0; i < sortedFiles.length; i += CHECK_BATCH_SIZE) {
-        const batch = sortedFiles.slice(i, i + CHECK_BATCH_SIZE);
+      const { listPaths } = await import('../../utils/azureBlob');
+      
+      // Helper function untuk listPaths dengan retry logic
+      const listPathsWithRetry = async (prefix: string, maxRetries = 2): Promise<string[]> => {
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          try {
+            const paths = await listPaths({ prefix, maxResults: 1 }); // Hanya perlu 1 file untuk check
+            return paths;
+          } catch (error: any) {
+            const isRetryable = 
+              error?.code === 'PARSE_ERROR' ||
+              error?.name === 'RestError' ||
+              (error?.message && error.message.includes('aborted'));
+            
+            if (!isRetryable || attempt === maxRetries) {
+              return []; // Not retryable or max retries reached
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        }
+        return [];
+      };
+      
+      for (let i = 0; i < limitedFiles.length; i += CHECK_BATCH_SIZE) {
+        const batch = limitedFiles.slice(i, i + CHECK_BATCH_SIZE);
         const batchNumber = Math.floor(i / CHECK_BATCH_SIZE) + 1;
-        const totalBatches = Math.ceil(sortedFiles.length / CHECK_BATCH_SIZE);
+        const totalBatches = Math.ceil(limitedFiles.length / CHECK_BATCH_SIZE);
         
         // Process batch checks in parallel with concurrency limit
         const checkPromises = batch.map(async (file: string) => {
           const dateFolder = file.split('/')[1] || '';
           const dateSuffix = dateFolder;
           
-          // Check if all types (RG, TN, NG) already have output
-          let allExist = true;
-          for (const type of ['RG', 'TN', 'NG'] as const) {
-            const paths = this.getSummaryPaths(type, dateSuffix);
-            try {
-              const summaryPrefix = `${paths.brokerSummary}/`;
-              const summaryFiles = await listPaths({ prefix: summaryPrefix, maxResults: 1 });
-              if (summaryFiles.length === 0) {
-                allExist = false;
-                break; // At least one type is missing, need to process
-              }
-            } catch (error) {
-              // If check fails, proceed with processing (safer to process than skip)
-              allExist = false;
-              break;
+          // OPTIMIZATION: Quick check hanya di type RG saja untuk lebih cepat
+          // Jika RG sudah ada minimal 1 CSV file, skip tanggal tersebut
+          // (tidak perlu cek TN dan NG karena jika RG sudah ada, biasanya TN dan NG juga sudah ada)
+          let allExist = false;
+          
+          try {
+            const paths = this.getSummaryPaths('RG', dateSuffix);
+            // Quick check: list files di folder RG, jika ada minimal 1 CSV file, anggap complete
+            const folderPrefix = `${paths.brokerSummary}/`;
+            const files = await listPathsWithRetry(folderPrefix);
+            
+            // Filter hanya CSV files (exclude folder names)
+            const csvFiles = files.filter(file => {
+              const fileName = file.split('/').pop() || '';
+              return fileName.endsWith('.csv');
+            });
+            
+            // Jika ada minimal 1 CSV file di RG, skip tanggal tersebut
+            if (csvFiles.length > 0) {
+              allExist = true;
             }
+          } catch (error) {
+            // If check fails, proceed with processing (safer to process than skip)
+            allExist = false;
           }
           
           return { file, dateSuffix, exists: allExist };
@@ -131,7 +176,7 @@ export class BrokerDataRGTNNGCalculator {
           if (result.exists) {
             skippedCount++;
             // Only log first few and last few to avoid spam
-            if (skippedCount <= 5 || skippedCount > sortedFiles.length - 5) {
+            if (skippedCount <= 5 || skippedCount > limitedFiles.length - 5) {
               console.log(`⏭️ Broker data (RG/TN/NG) already exists for date ${result.dateSuffix} - skipping`);
             }
           } else {
@@ -145,7 +190,7 @@ export class BrokerDataRGTNNGCalculator {
         
         // Progress update for large batches
         if (totalBatches > 1 && batchNumber % 5 === 0) {
-          console.log(`📊 Checked ${Math.min(i + CHECK_BATCH_SIZE, sortedFiles.length)}/${sortedFiles.length} files (${skippedCount} skipped, ${filesToProcess.length} to process)...`);
+          console.log(`📊 Checked ${Math.min(i + CHECK_BATCH_SIZE, limitedFiles.length)}/${limitedFiles.length} files (${skippedCount} skipped, ${filesToProcess.length} to process)...`);
         }
       }
       

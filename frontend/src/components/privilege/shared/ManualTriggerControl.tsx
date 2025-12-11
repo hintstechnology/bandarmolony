@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Button } from "../../ui/button";
 import { Badge } from "../../ui/badge";
@@ -138,8 +138,48 @@ export function ManualTriggerControl() {
     onConfirm: () => {},
   });
 
+  // Normalize feature name to match type (convert underscore to dash and handle special cases)
+  const normalizeFeatureName = useCallback((featureName: string): string => {
+    // Map backend feature_name to frontend type
+    const nameMap: Record<string, string> = {
+      'accumulation_distribution': 'accumulation',
+      'bidask_footprint': 'bidask',
+      'broker_breakdown': 'broker-breakdown',
+      'broker_inventory': 'broker-inventory',
+      'broker_summary_type': 'broker-summary-type',
+      'broker_summary_idx': 'broker-summary-idx',
+      'broker_summary_sector': 'broker-summary-sector',
+      'foreign_flow': 'foreign-flow',
+      'money_flow': 'money-flow',
+      'seasonality': 'seasonal',
+      'trend_filter': 'trend-filter',
+      'watchlist_snapshot': 'watchlist-snapshot',
+      'broker_transaction': 'broker-transaction',
+      'broker_transaction_rgtnng': 'broker-transaction-rgtnng',
+      'broker_transaction_fd': 'broker-transaction-fd',
+      'broker_transaction_fd_rgtnng': 'broker-transaction-fd-rgtnng',
+      'broker_transaction_stock': 'broker-transaction-stock',
+      'broker_transaction_stock_fd': 'broker-transaction-stock-fd',
+      'broker_transaction_stock_rgtnng': 'broker-transaction-stock-rgtnng',
+      'broker_transaction_stock_fd_rgtnng': 'broker-transaction-stock-fd-rgtnng',
+      'broker_transaction_stock_idx': 'broker-transaction-stock-idx',
+      'broker_transaction_sector': 'broker-transaction-sector',
+      'broker_transaction_stock_sector': 'broker-transaction-stock-sector',
+      'broker_transaction_all': 'broker-transaction-all',
+      'break_done_trade': 'break-done-trade',
+    };
+    
+    // Check if there's a direct mapping
+    if (nameMap[featureName]) {
+      return nameMap[featureName];
+    }
+    
+    // Otherwise, convert underscore to dash
+    return featureName.replace(/_/g, '-');
+  }, []);
+
   // Load running tasks - only manual triggers from Data Input Updates or Data Calculations (not from SchedulerConfigControl)
-  const loadRunningTasks = async () => {
+  const loadRunningTasks = useCallback(async () => {
     setLoading(true);
     try {
       const result = await api.getSchedulerLogs({
@@ -166,20 +206,100 @@ export function ManualTriggerControl() {
             triggeredBy: log.triggered_by
           }));
         setRunningTasks(tasks);
+        
+        // Clear activeLogs and triggering for tasks that are no longer running
+        setActiveLogs(prev => {
+          const updated = { ...prev };
+          const currentRunningTypes = new Set(
+            tasks.map(task => normalizeFeatureName(task.featureName))
+          );
+          
+          // Remove activeLogs for types that are no longer running
+          Object.keys(updated).forEach(type => {
+            if (!currentRunningTypes.has(type)) {
+              delete updated[type];
+            }
+          });
+          
+          return updated;
+        });
+        
+        setTriggering(prev => {
+          const updated = { ...prev };
+          const currentRunningTypes = new Set(
+            tasks.map(task => normalizeFeatureName(task.featureName))
+          );
+          
+          // Remove triggering for types that are no longer running
+          Object.keys(updated).forEach(type => {
+            if (!currentRunningTypes.has(type)) {
+              delete updated[type];
+            }
+          });
+          
+          return updated;
+        });
+        
         // Reset selected tasks when data changes
         setSelectedTaskIds(new Set());
+      } else {
+        // No running tasks - clear all activeLogs and triggering
+        setActiveLogs({});
+        setTriggering({});
       }
     } catch (error) {
       console.error('Error loading running tasks:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [normalizeFeatureName]);
 
-  // Load on mount and manual refresh only (no auto refresh)
+  // Load on mount and listen for status changes via Supabase realtime
   useEffect(() => {
     loadRunningTasks();
-  }, []);
+    
+    // Subscribe to scheduler_logs table changes
+    const channel = supabase
+      .channel('scheduler_logs_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'scheduler_logs',
+          filter: 'status=eq.completed'
+        },
+        (payload: any) => {
+          // Only refresh if the completed task is a manual trigger (not phase)
+          const featureName = payload.new?.feature_name || payload.new?.['feature_name'];
+          if (featureName && !featureName.startsWith('phase')) {
+            // Refresh this section when a manual trigger completes
+            loadRunningTasks();
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'scheduler_logs',
+          filter: 'status=eq.running'
+        },
+        (payload: any) => {
+          // Refresh when a new task starts running
+          const featureName = payload.new?.feature_name || payload.new?.['feature_name'];
+          if (featureName && !featureName.startsWith('phase')) {
+            loadRunningTasks();
+          }
+        }
+      )
+      .subscribe();
+    
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadRunningTasks]);
 
   // Handle manual trigger
   const handleTriggerDataUpdate = async (type: string) => {
@@ -431,45 +551,6 @@ export function ManualTriggerControl() {
     );
   };
 
-  // Normalize feature name to match type (convert underscore to dash and handle special cases)
-  const normalizeFeatureName = (featureName: string): string => {
-    // Map backend feature_name to frontend type
-    const nameMap: Record<string, string> = {
-      'accumulation_distribution': 'accumulation',
-      'bidask_footprint': 'bidask',
-      'broker_breakdown': 'broker-breakdown',
-      'broker_inventory': 'broker-inventory',
-      'broker_summary_type': 'broker-summary-type',
-      'broker_summary_idx': 'broker-summary-idx',
-      'broker_summary_sector': 'broker-summary-sector',
-      'foreign_flow': 'foreign-flow',
-      'money_flow': 'money-flow',
-      'seasonality': 'seasonal',
-      'trend_filter': 'trend-filter',
-      'watchlist_snapshot': 'watchlist-snapshot',
-      'broker_transaction': 'broker-transaction',
-      'broker_transaction_rgtnng': 'broker-transaction-rgtnng',
-      'broker_transaction_fd': 'broker-transaction-fd',
-      'broker_transaction_fd_rgtnng': 'broker-transaction-fd-rgtnng',
-      'broker_transaction_stock': 'broker-transaction-stock',
-      'broker_transaction_stock_fd': 'broker-transaction-stock-fd',
-      'broker_transaction_stock_rgtnng': 'broker-transaction-stock-rgtnng',
-      'broker_transaction_stock_fd_rgtnng': 'broker-transaction-stock-fd-rgtnng',
-      'broker_transaction_stock_idx': 'broker-transaction-stock-idx',
-      'broker_transaction_sector': 'broker-transaction-sector',
-      'broker_transaction_stock_sector': 'broker-transaction-stock-sector',
-      'broker_transaction_all': 'broker-transaction-all',
-      'break_done_trade': 'break-done-trade',
-    };
-    
-    // Check if there's a direct mapping
-    if (nameMap[featureName]) {
-      return nameMap[featureName];
-    }
-    
-    // Otherwise, convert underscore to dash
-    return featureName.replace(/_/g, '-');
-  };
 
   // Get running task for a specific type
   const getRunningTask = (type: string) => {

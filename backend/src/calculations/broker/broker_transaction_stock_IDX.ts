@@ -414,24 +414,66 @@ export class BrokerTransactionStockIDXCalculator {
       console.log(`🔍 Scanning for stock CSV files in: ${folderPrefix}/`);
 
       // Check if IDX.csv already exists - skip if exists
+      // OPTIMIZED: Added retry logic for exists() check
       const idxFilePath = `${folderPrefix}/IDX.csv`;
-      try {
-        const idxExists = await exists(idxFilePath);
-        if (idxExists) {
-          console.log(`⏭️ Skipping ${idxFilePath} - IDX.csv already exists`);
-          return {
-            success: true,
-            message: `IDX.csv already exists for ${dateSuffix} (${investorType || 'all'}, ${marketType || 'all'})`,
-            file: idxFilePath
-          };
+      const maxRetriesExists = 2;
+      let idxExists = false;
+      for (let attempt = 1; attempt <= maxRetriesExists; attempt++) {
+        try {
+          idxExists = await exists(idxFilePath);
+          break;
+        } catch (error: any) {
+          const isRetryable = 
+            error?.code === 'PARSE_ERROR' ||
+            error?.name === 'RestError' ||
+            (error?.message && error.message.includes('aborted'));
+          
+          if (!isRetryable || attempt === maxRetriesExists) {
+            // If check fails, continue with generation
+            console.log(`ℹ️ Could not check existence of ${idxFilePath}, proceeding with generation`);
+            break;
+          }
+          
+          const delayMs = Math.min(500 * Math.pow(2, attempt - 1), 2000);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
         }
-      } catch (error) {
-        // If check fails, continue with generation
-        console.log(`ℹ️ Could not check existence of ${idxFilePath}, proceeding with generation`);
+      }
+      
+      if (idxExists) {
+        console.log(`⏭️ Skipping ${idxFilePath} - IDX.csv already exists`);
+        return {
+          success: true,
+          message: `IDX.csv already exists for ${dateSuffix} (${investorType || 'all'}, ${marketType || 'all'})`,
+          file: idxFilePath
+        };
       }
 
       // List all stock CSV files in the folder
-      const allFiles = await listPaths({ prefix: `${folderPrefix}/` });
+      // OPTIMIZED: Added retry logic for listPaths
+      const maxRetries = 2;
+      let allFiles: string[] = [];
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          allFiles = await listPaths({ prefix: `${folderPrefix}/` });
+          break;
+        } catch (error: any) {
+          const isRetryable = 
+            error?.code === 'PARSE_ERROR' ||
+            error?.name === 'RestError' ||
+            (error?.message && error.message.includes('aborted'));
+          
+          if (!isRetryable || attempt === maxRetries) {
+            console.error(`❌ Error listing files in ${folderPrefix}/:`, error);
+            return {
+              success: false,
+              message: `Error listing stock CSV files in ${folderPrefix}/`
+            };
+          }
+          
+          const delayMs = Math.min(500 * Math.pow(2, attempt - 1), 2000);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+      }
       
       // Filter for CSV files with 4-letter stock codes (e.g., BBCA.csv, BBRI.csv)
       // Exclude IDX.csv itself

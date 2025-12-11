@@ -1,4 +1,4 @@
-import { downloadText, uploadText, listPaths, exists } from '../../utils/azureBlob';
+import { downloadText, uploadText, listPaths, exists, listPrefixes } from '../../utils/azureBlob';
 import { BATCH_SIZE_PHASE_8, MAX_CONCURRENT_REQUESTS_PHASE_8 } from '../../services/dataUpdateService';
 import { SchedulerLogService } from '../../services/schedulerLogService';
 import { stockCache } from '../../cache/stockCacheService';
@@ -94,7 +94,27 @@ export class AccumulationDistributionCalculator {
     console.log(`Loading bid/ask data from Azure for date: ${dateSuffix}`);
     
     const blobName = `bid_ask/bid_ask_${dateSuffix}/ALL_STOCK.csv`;
-    const content = await downloadText(blobName);
+    // OPTIMIZED: Added retry logic for downloadText
+    const maxRetries = 2;
+    let content: string = '';
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        content = await downloadText(blobName);
+        break;
+      } catch (error: any) {
+        const isRetryable = 
+          error?.code === 'PARSE_ERROR' ||
+          error?.name === 'RestError' ||
+          (error?.message && error.message.includes('aborted'));
+        
+        if (!isRetryable || attempt === maxRetries) {
+          throw error;
+        }
+        
+        const delayMs = Math.min(500 * Math.pow(2, attempt - 1), 2000);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
     
     const lines = content.trim().split('\n');
     const data: BidAskData[] = [];
@@ -130,12 +150,31 @@ export class AccumulationDistributionCalculator {
   private async loadStockDataFromAzure(stockCode: string, stockFiles?: string[]): Promise<StockData[] | null> {
     try {
       // Get all files under stock/ prefix (only if not provided)
-      let files: string[];
+      let files: string[] = [];
       if (stockFiles) {
         files = stockFiles;
       } else {
         const { listPaths } = await import('../../utils/azureBlob');
-        files = await listPaths({ prefix: 'stock/' });
+        // OPTIMIZED: Added retry logic for listPaths
+        const maxRetriesFiles = 2;
+        for (let attempt = 1; attempt <= maxRetriesFiles; attempt++) {
+          try {
+            files = await listPaths({ prefix: 'stock/' });
+            break;
+          } catch (error: any) {
+            const isRetryable = 
+              error?.code === 'PARSE_ERROR' ||
+              error?.name === 'RestError' ||
+              (error?.message && error.message.includes('aborted'));
+            
+            if (!isRetryable || attempt === maxRetriesFiles) {
+              throw error;
+            }
+            
+            const delayMs = Math.min(500 * Math.pow(2, attempt - 1), 2000);
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+          }
+        }
       }
       
       // Find the specific stock file (same logic as RRC)
@@ -549,35 +588,57 @@ export class AccumulationDistributionCalculator {
       console.log(`Starting accumulation distribution calculation for ALL available bid_ask dates...`);
 
       // Discover all available bid_ask dates
+      // OPTIMIZED: Use listPrefixes to only scan date folders, with retry logic
       console.log("🔍 Searching for bid_ask folders in Azure...");
       
-      // Get bid_ask blobs
-      const blobs = await listPaths({ prefix: 'bid_ask/' });
-      console.log(`📁 Found ${blobs.length} blobs with prefix 'bid_ask/'`);
-      
-      const allDates: string[] = [];
-      for (const blobName of blobs) {
-        const pathParts = blobName.split('/');
-        
-        if (pathParts.length >= 2 && pathParts[0] === 'bid_ask') {
-          const folderName = pathParts[1];
+      const maxRetries = 3;
+      let prefixes: string[] = [];
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          // OPTIMIZATION: Use listPrefixes to only list date folders, not all files
+          prefixes = await listPrefixes('bid_ask/');
+          break;
+        } catch (error: any) {
+          const isRetryable = 
+            error?.code === 'PARSE_ERROR' ||
+            error?.name === 'RestError' ||
+            (error?.message && error.message.includes('aborted'));
           
-          if (folderName && folderName.startsWith('bid_ask_')) {
-            const date = folderName.replace('bid_ask_', '');
-            if (/^\d{6}$/.test(date) || /^\d{8}$/.test(date)) {
-              allDates.push(date);
-            }
+          if (!isRetryable || attempt === maxRetries) {
+            console.error('❌ Error listing bid_ask prefixes:', error);
+            return {
+              success: false,
+              message: `Failed to list bid_ask dates: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              data: []
+            };
           }
+          
+          const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+          console.log(`⚠️ Retry ${attempt}/${maxRetries} for listPrefixes() after ${delayMs}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
         }
       }
+      
+      console.log(`📁 Found ${prefixes.length} date folders with prefix 'bid_ask/'`);
+      
+      const allDates: string[] = [];
+      for (const prefix of prefixes) {
+        // Extract date from folder name (e.g., bid_ask_YYYYMMDD or bid_ask_YYMMDD)
+        const dateMatch = prefix.match(/bid_ask_(\d{6}|\d{8})/);
+        if (dateMatch && dateMatch[1]) {
+          allDates.push(dateMatch[1]);
+        }
+      }
+      
       // Remove duplicates and sort
       const uniqueDates = [...new Set(allDates)].sort();
       console.log(`📊 Final unique dates found: ${uniqueDates.length} dates`);
       console.log(`📅 Sample dates: ${uniqueDates.slice(0, 10).join(', ')}`);
 
-      // Limit to last 100 dates to prevent infinite processing
-      const limitedDates = uniqueDates.slice(-100);
-      console.log(`📊 Processing last ${limitedDates.length} dates (limited to prevent infinite loop)`);
+      // OPTIMIZATION: Limit to 7 most recent dates (consistent with other phases)
+      const MAX_DATES_TO_PROCESS = 7;
+      const limitedDates = uniqueDates.slice(-MAX_DATES_TO_PROCESS);
+      console.log(`📊 Processing last ${limitedDates.length} dates (limited to ${MAX_DATES_TO_PROCESS} most recent dates)`);
       
       if (limitedDates.length === 0) {
         console.log("⚠️ No bid_ask dates found in Azure - skipping accumulation distribution");
@@ -624,8 +685,33 @@ export class AccumulationDistributionCalculator {
       };
 
       // Load stock files list ONCE to avoid calling listPaths repeatedly
+      // OPTIMIZED: Added retry logic for listPaths
       console.log("📁 Loading stock files list from Azure (one-time operation)...");
-      const stockFilesList = await listPaths({ prefix: 'stock/' });
+      const maxRetriesStock = 2;
+      let stockFilesList: string[] = [];
+      for (let attempt = 1; attempt <= maxRetriesStock; attempt++) {
+        try {
+          stockFilesList = await listPaths({ prefix: 'stock/' });
+          break;
+        } catch (error: any) {
+          const isRetryable = 
+            error?.code === 'PARSE_ERROR' ||
+            error?.name === 'RestError' ||
+            (error?.message && error.message.includes('aborted'));
+          
+          if (!isRetryable || attempt === maxRetriesStock) {
+            console.error('❌ Error loading stock files list:', error);
+            return {
+              success: false,
+              message: `Failed to load stock files list: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              data: []
+            };
+          }
+          
+          const delayMs = Math.min(500 * Math.pow(2, attempt - 1), 2000);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+      }
       console.log(`📊 Found ${stockFilesList.length} stock files in Azure`);
       
       // Note: Stock files akan diproses secara dinamis berdasarkan stock codes dari bid_ask data
@@ -643,25 +729,43 @@ export class AccumulationDistributionCalculator {
         }
         
         // Check if output file already exists (using exists() instead of downloadText() for efficiency)
+        // OPTIMIZED: Added retry logic for exists() check
         const checkFilename = `accumulation_distribution/${dateSuffix}.csv`;
-        try {
-          const fileExists = await exists(checkFilename);
-          if (fileExists) {
-            console.log(`⏭️ Skipping ${dateSuffix} - file already exists`);
-            skippedCount++;
-            // Update progress even for skipped files
-            if (logId) {
-              const { SchedulerLogService } = await import('../../services/schedulerLogService');
-              await SchedulerLogService.updateLog(logId, {
-                progress_percentage: Math.round(((di + 1) / limitedDates.length) * 100),
-                current_processing: `Processing accumulation for date ${dateSuffix} (${di + 1}/${limitedDates.length}) - Skipped (already exists)`
-              });
+        const maxRetriesExists = 2;
+        let fileExists = false;
+        for (let attempt = 1; attempt <= maxRetriesExists; attempt++) {
+          try {
+            fileExists = await exists(checkFilename);
+            break;
+          } catch (error: any) {
+            const isRetryable = 
+              error?.code === 'PARSE_ERROR' ||
+              error?.name === 'RestError' ||
+              (error?.message && error.message.includes('aborted'));
+            
+            if (!isRetryable || attempt === maxRetriesExists) {
+              // If check fails, proceed with processing (safer to process than skip)
+              console.warn(`⚠️ Could not check existence for ${dateSuffix}, will process:`, error instanceof Error ? error.message : error);
+              break;
             }
-            continue;
+            
+            const delayMs = Math.min(500 * Math.pow(2, attempt - 1), 2000);
+            await new Promise(resolve => setTimeout(resolve, delayMs));
           }
-        } catch (error) {
-          // If check fails, proceed with processing (safer to process than skip)
-          console.warn(`⚠️ Could not check existence for ${dateSuffix}, will process:`, error instanceof Error ? error.message : error);
+        }
+        
+        if (fileExists) {
+          console.log(`⏭️ Skipping ${dateSuffix} - file already exists`);
+          skippedCount++;
+          // Update progress even for skipped files
+          if (logId) {
+            const { SchedulerLogService } = await import('../../services/schedulerLogService');
+            await SchedulerLogService.updateLog(logId, {
+              progress_percentage: Math.round(((di + 1) / limitedDates.length) * 100),
+              current_processing: `Processing accumulation for date ${dateSuffix} (${di + 1}/${limitedDates.length}) - Skipped (already exists)`
+            });
+          }
+          continue;
         }
         
         processedCount++;

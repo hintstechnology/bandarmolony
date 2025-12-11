@@ -260,6 +260,14 @@ export class BrokerTransactionStockCalculator {
         return dateB.localeCompare(dateA); // Descending order (newest first)
       });
       
+      // OPTIMIZATION: Limit to 7 most recent dates
+      const MAX_DATES_TO_PROCESS = 7;
+      const limitedFiles = sortedFiles.slice(0, MAX_DATES_TO_PROCESS);
+      
+      if (sortedFiles.length > MAX_DATES_TO_PROCESS) {
+        console.log(`📅 Found ${sortedFiles.length} DT files, limiting to ${MAX_DATES_TO_PROCESS} most recent dates`);
+      }
+      
       // OPTIMIZATION: Check which dates already have broker_transaction_stock output (BATCH CHECKING for speed)
       console.log("🔍 Checking existing broker_transaction_stock folders to skip (batch checking)...");
       const filesToProcess: string[] = [];
@@ -269,10 +277,10 @@ export class BrokerTransactionStockCalculator {
       const CHECK_BATCH_SIZE = 20; // Check 20 files in parallel
       const MAX_CONCURRENT_CHECKS = 10; // Max 10 concurrent checks
       
-      for (let i = 0; i < sortedFiles.length; i += CHECK_BATCH_SIZE) {
-        const batch = sortedFiles.slice(i, i + CHECK_BATCH_SIZE);
+      for (let i = 0; i < limitedFiles.length; i += CHECK_BATCH_SIZE) {
+        const batch = limitedFiles.slice(i, i + CHECK_BATCH_SIZE);
         const batchNumber = Math.floor(i / CHECK_BATCH_SIZE) + 1;
-        const totalBatches = Math.ceil(sortedFiles.length / CHECK_BATCH_SIZE);
+        const totalBatches = Math.ceil(limitedFiles.length / CHECK_BATCH_SIZE);
         
         // Process batch checks in parallel with concurrency limit
         const checkPromises = batch.map(async (file: string) => {
@@ -294,7 +302,7 @@ export class BrokerTransactionStockCalculator {
           if (result.exists) {
             skippedCount++;
             // Only log first few and last few to avoid spam
-            if (skippedCount <= 5 || skippedCount > sortedFiles.length - 5) {
+            if (skippedCount <= 5 || skippedCount > limitedFiles.length - 5) {
               console.log(`⏭️ Skipping ${result.file} - broker_transaction_stock/broker_transaction_stock_${result.dateFolder}/ already exists`);
             }
           } else {
@@ -304,7 +312,7 @@ export class BrokerTransactionStockCalculator {
         
         // Progress update for large batches
         if (totalBatches > 1 && batchNumber % 5 === 0) {
-          console.log(`📊 Checked ${Math.min(i + CHECK_BATCH_SIZE, sortedFiles.length)}/${sortedFiles.length} files (${skippedCount} skipped, ${filesToProcess.length} to process)...`);
+          console.log(`📊 Checked ${Math.min(i + CHECK_BATCH_SIZE, limitedFiles.length)}/${limitedFiles.length} files (${skippedCount} skipped, ${filesToProcess.length} to process)...`);
         }
       }
       
@@ -312,7 +320,7 @@ export class BrokerTransactionStockCalculator {
       if (skippedCount > 5) {
         console.log(`⏭️  ... and ${skippedCount - 5} more files skipped`);
       }
-      console.log(`📊 Found ${sortedFiles.length} DT files: ${filesToProcess.length} to process, ${skippedCount} skipped (already processed)`);
+      console.log(`📊 Found ${limitedFiles.length} DT files (from ${sortedFiles.length} total): ${filesToProcess.length} to process, ${skippedCount} skipped (already processed)`);
       return filesToProcess;
     } catch (error) {
       console.error('Error scanning DT files:', error);
@@ -416,15 +424,30 @@ export class BrokerTransactionStockCalculator {
 
   /**
    * Check if broker transaction stock folder for specific date already exists
+   * OPTIMIZED: Added retry logic for Azure network errors
    */
   private async checkBrokerTransactionStockExists(dateSuffix: string): Promise<boolean> {
-    try {
-      const prefix = `broker_transaction_stock/broker_transaction_stock_${dateSuffix}/`;
-      const existingFiles = await listPaths({ prefix, maxResults: 1 });
-      return existingFiles.length > 0;
-    } catch (error) {
-      return false;
+    const maxRetries = 2;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const prefix = `broker_transaction_stock/broker_transaction_stock_${dateSuffix}/`;
+        const existingFiles = await listPaths({ prefix, maxResults: 1 });
+        return existingFiles.length > 0;
+      } catch (error: any) {
+        const isRetryable = 
+          error?.code === 'PARSE_ERROR' ||
+          error?.name === 'RestError' ||
+          (error?.message && error.message.includes('aborted'));
+        
+        if (!isRetryable || attempt === maxRetries) {
+          return false;
+        }
+        
+        const delayMs = Math.min(500 * Math.pow(2, attempt - 1), 2000);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
     }
+    return false;
   }
 
   /**
