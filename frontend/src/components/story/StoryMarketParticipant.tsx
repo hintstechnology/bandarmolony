@@ -857,7 +857,7 @@ export function StoryMarketParticipant({
         <div ref={controlMenuRef} className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
           {/* Stock Search */}
           <div className="flex items-center gap-2 w-full md:w-auto md:min-w-[280px] md:max-w-[320px]">
-            <label className="text-sm font-medium whitespace-nowrap">Stock Search:</label>
+            <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
             <div className="relative stock-dropdown-container flex-1 min-w-0">
               <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground z-10" />
               <input
