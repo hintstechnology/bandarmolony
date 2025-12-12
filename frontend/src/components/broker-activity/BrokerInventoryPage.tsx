@@ -3540,7 +3540,8 @@ const visibleBrokers = useMemo(
                 {/* Ticker Selection */}
                 <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
                   <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
-                  <div className="relative flex-1 md:flex-none">
+                  <div className="relative flex-1 md:flex-none" ref={dropdownRef}>
+                    <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                     <input
                       type="text"
                       value={tickerInput || (selectedTicker ? formatStockDisplayName(selectedTicker) : '')}
@@ -4182,13 +4183,17 @@ const visibleBrokers = useMemo(
                     // Set shouldFetchData to true to trigger data fetch
                     setShouldFetchData(true);
                     setIsDataReady(false);
+                    // Set loading states immediately to show loading spinner right away
+                    setIsLoadingData(true);
+                    setIsLoadingBrokerData(true);
+                    setIsLoadingInventoryData(true);
                   }}
-                  disabled={isLoadingData || isLoadingBrokerData || selectedBrokers.length === 0 || !startDate || !endDate || !getActualTicker}
-                  className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center"
+                  disabled={isLoadingData || isLoadingBrokerData || selectedBrokers.length === 0 || !startDate || !endDate || !selectedTicker}
+                  className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full md:w-auto"
                 >
                   Show
                 </button>
-              </div>
+                </div>
               </div>
               {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
               <div className="hidden lg:block" style={{ height: `${controlSpacerHeight}px` }} />
