@@ -336,7 +336,7 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
           <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-end w-full">
             <div className="flex-1">
               <label className="block text-sm font-medium mb-2">
-                Stock Search:
+                Ticker:
                 <span className="ml-2 text-xs text-muted-foreground">
                   Available stocks: {stockList.length}
                 </span>
