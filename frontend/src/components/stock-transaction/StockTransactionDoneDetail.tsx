@@ -1104,12 +1104,12 @@ export function StockTransactionDoneDetail() {
                   if (!rowData || !parsedRow) return null;
 
                   return (
-                    <tr key={rowKey} className="border-b border-border/50 hover:bg-accent/50">
+                    <tr key={rowKey} className={`border-b border-border/50 hover:bg-accent/50 ${rowIdx % 2 === 0 ? 'bg-background' : 'bg-muted/20'}`}>
                       {/* Row dimension values - separate columns */}
                       {parsedRow.map((rowPart: { fieldId: string; value: string }, partIdx: number) => (
                         <td
                           key={partIdx}
-                          className={`py-2 px-2 font-medium border-r border-border ${partIdx === 0 ? 'sticky left-0 bg-background z-10' : ''}`}
+                          className={`py-2 px-2 font-medium border-r border-border ${partIdx === 0 ? `sticky left-0 z-10 ${rowIdx % 2 === 0 ? 'bg-background' : 'bg-muted/20'}` : ''}`}
                         >
                           {rowPart.value}
                         </td>
@@ -1258,7 +1258,7 @@ export function StockTransactionDoneDetail() {
                 </tr>
               </thead>
               <tbody>
-                {paginatedRows.map((rowKey) => {
+                {paginatedRows.map((rowKey, rowIdx) => {
                   const rowData = pivotData[rowKey];
                   if (!rowData) return null;
                   const rowTotal = selectedDates.reduce((sum, date) => {
@@ -1266,8 +1266,8 @@ export function StockTransactionDoneDetail() {
                   }, 0);
 
                   return (
-                    <tr key={rowKey} className="border-b border-border/50 hover:bg-accent/50">
-                      <td className="py-2 px-2 font-medium border-r-2 border-border sticky left-0 bg-background z-10">
+                    <tr key={rowKey} className={`border-b border-border/50 hover:bg-accent/50 ${rowIdx % 2 === 0 ? 'bg-background' : 'bg-muted/20'}`}>
+                      <td className={`py-2 px-2 font-medium border-r-2 border-border sticky left-0 z-10 ${rowIdx % 2 === 0 ? 'bg-background' : 'bg-muted/20'}`}>
                         {rowKey}
                       </td>
                       {selectedDates.map(date => {
@@ -1476,7 +1476,7 @@ export function StockTransactionDoneDetail() {
                 </tr>
               </thead>
               <tbody>
-                {paginatedBuyers.map((buyer) => {
+                {paginatedBuyers.map((buyer, buyerIdx) => {
                   const buyerData = pivotData[buyer];
                   if (!buyerData) return null;
                   const buyerTotal = sellerList.reduce((sum, seller) => {
@@ -1488,8 +1488,8 @@ export function StockTransactionDoneDetail() {
                   }, 0);
 
                   return (
-                    <tr key={buyer} className="border-b border-border/50 hover:bg-accent/50">
-                      <td className="py-2 px-2 font-medium border-r-2 border-border sticky left-0 bg-background z-10">
+                    <tr key={buyer} className={`border-b border-border/50 hover:bg-accent/50 ${buyerIdx % 2 === 0 ? 'bg-background' : 'bg-muted/20'}`}>
+                      <td className={`py-2 px-2 font-medium border-r-2 border-border sticky left-0 z-10 ${buyerIdx % 2 === 0 ? 'bg-background' : 'bg-muted/20'}`}>
                         {buyer}
                       </td>
                       {sellerList.map(seller => {

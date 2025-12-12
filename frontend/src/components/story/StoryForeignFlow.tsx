@@ -205,6 +205,10 @@ const TradingViewMultiPaneChart = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const userColors = useUserChartColors();
+  const paneHeightsSetRef = useRef(false);
+  const resizeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isResizingRef = useRef(false);
+  const isSettingHeightsRef = useRef(false);
 
   // Get theme-aware colors
   const getThemeColors = () => {
@@ -219,19 +223,56 @@ const TradingViewMultiPaneChart = ({
     };
   };
 
+  // Store previous data to prevent unnecessary recreations
+  const prevDataRef = useRef<string>('');
+  
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
+    // Create data signature to detect actual changes
+    const dataSignature = JSON.stringify({
+      candlestick: candlestickData.length,
+      foreignFlow: foreignFlowData.length,
+      volume: volumeData.length,
+      firstCandle: candlestickData[0]?.time,
+      lastCandle: candlestickData[candlestickData.length - 1]?.time
+    });
+    
+    // Skip if data hasn't actually changed
+    if (prevDataRef.current === dataSignature && chartRef.current && paneHeightsSetRef.current) {
+      console.log('[StoryForeignFlow] Data unchanged, skipping recreation');
+      return;
+    }
+    
+    prevDataRef.current = dataSignature;
+    
+    console.log('[StoryForeignFlow] useEffect triggered - Chart recreation', dataSignature);
+    
     // Clean up existing chart
     if (chartRef.current) {
+      console.log('[StoryForeignFlow] Removing existing chart');
       chartRef.current.remove();
       chartRef.current = null;
+    }
+    
+    // Reset pane heights flag when recreating chart
+    console.log('[StoryForeignFlow] Resetting flags');
+    paneHeightsSetRef.current = false;
+    isSettingHeightsRef.current = false;
+    isResizingRef.current = false;
+    
+    // Clear any pending resize operations and timeouts
+    if (resizeTimeoutRef.current) {
+      clearTimeout(resizeTimeoutRef.current);
+      resizeTimeoutRef.current = null;
     }
     
     const width = el.clientWidth || 800;
     const height = el.clientHeight || 650;
     const colors = getThemeColors();
+    
+    console.log('[StoryForeignFlow] Creating chart with dimensions:', { width, height });
     
     // Create chart with separate panes
     chartRef.current = createChart(el, {
@@ -240,6 +281,11 @@ const TradingViewMultiPaneChart = ({
       layout: { 
         background: { type: ColorType.Solid, color: 'transparent' }, 
         textColor: colors.axisTextColor,
+        panes: {
+          separatorColor: colors.separatorColor,
+          separatorHoverColor: colors.separatorHoverColor,
+          enableResize: false, // Disable resize to prevent loop
+        }
       },
       grid: { 
         horzLines: { color: colors.gridColor, style: 1 }, 
@@ -311,16 +357,80 @@ const TradingViewMultiPaneChart = ({
         color: d.buyVolume > d.sellVolume ? userColors.bullish : userColors.bearish,
       })));
 
-      // Force separate panes by setting heights
-      setTimeout(() => {
-        const panes = chartRef.current?.panes();
-        if (panes && panes.length >= 3) {
-          // Set pane heights - 5:1:1 ratio (Price:Foreign Flow:Volume) - Price lebih tinggi
-          panes[0]?.setHeight(450); // Main price chart - 5 parts (75%)
-          panes[1]?.setHeight(75); // Foreign flow - 1 part (12.5%)
-          panes[2]?.setHeight(75); // Volume - 1 part (12.5%)
-        }
-      }, 200);
+      // Force separate panes by setting heights - ONE TIME ONLY, NO RETRY
+      // Use requestAnimationFrame to ensure DOM is ready, then single setTimeout
+      if (!paneHeightsSetRef.current && !isSettingHeightsRef.current) {
+        console.log('[StoryForeignFlow] Setting pane heights - START');
+        isSettingHeightsRef.current = true;
+        isResizingRef.current = true;
+        
+        // Use requestAnimationFrame + single setTimeout to prevent multiple calls
+        requestAnimationFrame(() => {
+          // Clear any existing timeout first
+          if (resizeTimeoutRef.current) {
+            clearTimeout(resizeTimeoutRef.current);
+          }
+          
+          resizeTimeoutRef.current = setTimeout(() => {
+            // Double check conditions inside timeout
+            if (!chartRef.current || paneHeightsSetRef.current) {
+              console.log('[StoryForeignFlow] Chart removed or heights already set, aborting');
+              isResizingRef.current = false;
+              isSettingHeightsRef.current = false;
+              return;
+            }
+            
+            const panes = chartRef.current?.panes();
+            console.log('[StoryForeignFlow] Pane heights timeout - panes:', panes?.length, 'paneHeightsSet:', paneHeightsSetRef.current);
+            
+            if (panes && panes.length >= 3 && !paneHeightsSetRef.current) {
+              try {
+                // Calculate fixed heights based on container
+                const totalHeight = el.clientHeight || 600;
+                const pane0Height = Math.floor(totalHeight * 0.75); // 75% - Price
+                const pane1Height = Math.floor(totalHeight * 0.125); // 12.5% - Foreign Flow
+                const pane2Height = Math.floor(totalHeight * 0.125); // 12.5% - Volume
+                
+                console.log('[StoryForeignFlow] Setting pane heights:', {
+                  totalHeight,
+                  pane0Height,
+                  pane1Height,
+                  pane2Height
+                });
+                
+                // Set heights ONCE and lock them IMMEDIATELY
+                paneHeightsSetRef.current = true; // Set BEFORE calling setHeight to prevent re-entry
+                
+                panes[0]?.setHeight(pane0Height);
+                panes[1]?.setHeight(pane1Height);
+                panes[2]?.setHeight(pane2Height);
+                
+                console.log('[StoryForeignFlow] Pane heights SET - locked');
+                
+                // Keep flags locked for extended period
+                setTimeout(() => {
+                  console.log('[StoryForeignFlow] Unlocking flags after 3s');
+                  isResizingRef.current = false;
+                  isSettingHeightsRef.current = false;
+                }, 3000);
+              } catch (e) {
+                console.error('[StoryForeignFlow] Error setting pane heights:', e);
+                paneHeightsSetRef.current = false; // Reset on error
+                isResizingRef.current = false;
+                isSettingHeightsRef.current = false;
+              }
+            } else {
+              console.log('[StoryForeignFlow] Skipping setHeight - conditions not met');
+              isResizingRef.current = false;
+              isSettingHeightsRef.current = false;
+            }
+            
+            resizeTimeoutRef.current = null;
+          }, 500);
+        });
+      } else {
+        console.log('[StoryForeignFlow] Skipping setHeight - already set or in progress');
+      }
 
       chartRef.current.timeScale().fitContent();
     } catch (e) {
@@ -328,20 +438,39 @@ const TradingViewMultiPaneChart = ({
     }
   }, [candlestickData, foreignFlowData, volumeData, userColors]);
 
-  // Resize responsif
+  // Resize responsif - COMPLETELY DISABLED to prevent loop
+  // Multi-pane charts with fixed heights should not be resized dynamically
+  // as it causes infinite loops with pane height recalculation
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver((entries) => {
-      const cr = entries[0]?.contentRect;
-      if (!cr || !chartRef.current) return;
-      chartRef.current.applyOptions({
-        width: Math.max(1, Math.floor(cr.width)),
-        height: Math.max(1, Math.floor(cr.height)),
-      });
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
+    console.log('[StoryForeignFlow] Resize effect - DISABLED');
+    
+    // NO RESIZE HANDLING - Fixed dimensions only
+    // This prevents the infinite loop caused by ResizeObserver triggering
+    // setHeight which triggers resize which triggers ResizeObserver again
+    
+    // Debug: Check if anything is trying to resize
+    const checkResize = () => {
+      if (chartRef.current) {
+        const options = chartRef.current.options();
+        console.log('[StoryForeignFlow] Chart dimensions:', {
+          width: options.width,
+          height: options.height,
+          paneHeightsSet: paneHeightsSetRef.current,
+          isResizing: isResizingRef.current,
+          isSettingHeights: isSettingHeightsRef.current
+        });
+      }
+    };
+    
+    // Check every 2 seconds for debugging
+    const debugInterval = setInterval(checkResize, 2000);
+    
+    return () => {
+      clearInterval(debugInterval);
+      if (resizeTimeoutRef.current) {
+        clearTimeout(resizeTimeoutRef.current);
+      }
+    };
   }, []);
 
   // Cleanup on unmount
@@ -407,6 +536,10 @@ export function StoryForeignFlow() {
   const [showStockSuggestions, setShowStockSuggestions] = useState(false);
   const [highlightedStockIndex, setHighlightedStockIndex] = useState<number>(-1);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  
+  // Control menu ref and spacer height for fixed positioning
+  const controlMenuRef = useRef<HTMLDivElement>(null);
+  const [controlSpacerHeight, setControlSpacerHeight] = useState<number>(72);
 
   // Fallback stocks if API fails
   const FALLBACK_STOCKS = [
@@ -730,6 +863,32 @@ export function StoryForeignFlow() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Update spacer height for fixed control menu
+  useEffect(() => {
+    const updateSpacerHeight = () => {
+      if (controlMenuRef.current) {
+        const height = controlMenuRef.current.offsetHeight;
+        setControlSpacerHeight(Math.max(height + 16, 48));
+      }
+    };
+
+    updateSpacerHeight();
+    window.addEventListener('resize', updateSpacerHeight);
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && controlMenuRef.current) {
+      resizeObserver = new ResizeObserver(() => updateSpacerHeight());
+      resizeObserver.observe(controlMenuRef.current);
+    }
+
+    return () => {
+      window.removeEventListener('resize', updateSpacerHeight);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+    };
+  }, [stockInput, layoutMode]);
+
   // Use real data from state
 
   // Convert to candlestick format for TradingView chart
@@ -788,11 +947,10 @@ export function StoryForeignFlow() {
       )}
 
       {/* Controls */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col gap-4">
-            {/* Row 1: Stock Search & Layout */}
-            <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-end justify-between">
+      <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
+        <div ref={controlMenuRef} className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
+          {/* Row 1: Stock Search & Layout */}
+          <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-end justify-between w-full">
               <div className="flex-1">
                 <label className="block text-sm font-medium mb-2">
                   Stock Search:
@@ -888,31 +1046,31 @@ export function StoryForeignFlow() {
                 </div>
               </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
+      <div className="hidden lg:block" style={{ height: `${controlSpacerHeight}px` }} />
 
       {/* Main Chart Layout */}
       {!loading && !error && (
         <div className="space-y-4">
           {layoutMode === 'combined' ? (
-            /* Combined TradingView Chart with Multiple Panes */
-              <Card>
-                <CardHeader>
+            // Combined TradingView Chart with Multiple Panes
+            <Card>
+              <CardHeader>
                 <CardTitle>{selectedTicker} - Foreign Flow Analysis</CardTitle>
                 <p className="text-sm text-muted-foreground">Price action, foreign flow, and volume analysis</p>
-                </CardHeader>
-                <CardContent>
+              </CardHeader>
+              <CardContent>
                 <TradingViewMultiPaneChart 
                   candlestickData={candlestickData}
                   foreignFlowData={foreignFlowChartData}
                   volumeData={volumeChartData}
                 />
-                </CardContent>
-              </Card>
+              </CardContent>
+            </Card>
           ) : (
-          /* Split View - Individual Charts */
-          <div className="space-y-4">
+            // Split View - Individual Charts
+            <div className="space-y-4">
             {/* Price Chart */}
             <Card>
               <CardHeader>
