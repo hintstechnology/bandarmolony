@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
-import { Undo2, Search } from 'lucide-react';
+import { Undo2, Search, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight } from 'lucide-react';
 import { api } from '../../services/api';
 
 interface AccumulationData {
@@ -154,6 +154,10 @@ export function StoryAccumulationDistribution() {
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
+  const controlMenuRef = useRef<HTMLDivElement>(null);
+  const [controlSpacerHeight, setControlSpacerHeight] = useState<number>(72);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(50);
 
   // Load data from API
   useEffect(() => {
@@ -212,6 +216,32 @@ export function StoryAccumulationDistribution() {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
+
+  // Update spacer height for fixed control menu
+  useEffect(() => {
+    const updateSpacerHeight = () => {
+      if (controlMenuRef.current) {
+        const height = controlMenuRef.current.offsetHeight;
+        setControlSpacerHeight(Math.max(height + 16, 48));
+      }
+    };
+
+    updateSpacerHeight();
+    window.addEventListener('resize', updateSpacerHeight);
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && controlMenuRef.current) {
+      resizeObserver = new ResizeObserver(() => updateSpacerHeight());
+      resizeObserver.observe(controlMenuRef.current);
+    }
+
+    return () => {
+      window.removeEventListener('resize', updateSpacerHeight);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+    };
+  }, [normalize, movingAverage, volumeChange, selectedTickers, tickerInput]);
 
   const dates = data.length > 0 ? Object.keys(data[0]?.dates || {}) : [];
   
@@ -294,6 +324,24 @@ export function StoryAccumulationDistribution() {
     return 0;
   });
 
+  // Pagination calculations
+  const totalPages = Math.ceil(sortedData.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedData = sortedData.slice(startIndex, endIndex);
+
+  // Calculate min/max for normalization once (not in every row render) - memoized for performance
+  const allValues = useMemo(() => {
+    return data.flatMap(item => Object.values(item.dates).filter(v => v !== null)) as number[];
+  }, [data]);
+  const minValue = allValues.length > 0 ? Math.min(...allValues) : 0;
+  const maxValue = allValues.length > 0 ? Math.max(...allValues) : 0;
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedTickers, sortConfig, normalize, movingAverage, volumeChange]);
+
   const formatPrice = (price: number): string => {
     return new Intl.NumberFormat('id-ID').format(price);
   };
@@ -306,6 +354,7 @@ export function StoryAccumulationDistribution() {
     setTickerInput('');
     setSelectedTickers([]);
     setShowDropdown(false);
+    setCurrentPage(1);
   };
 
   const handleTickerSelect = (ticker: string) => {
@@ -353,147 +402,13 @@ export function StoryAccumulationDistribution() {
   return (
     <div className="space-y-6">
       {/* Top Control Bar */}
-      <Card className="p-4">
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col sm:flex-row gap-4 items-end">
-            <div className="flex items-center gap-4">
-            <div>
-              <label htmlFor="tickerFilter" className="block text-sm font-medium mb-2">
-                Filter Ticker:
-              </label>
-               <div className="relative" ref={dropdownRef}>
-                 <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <input
-                    type="text"
-                    placeholder="Ticker code"
-                    value={tickerInput}
-                    onChange={(e) => {
-                      setTickerInput(e.target.value);
-                      if (e.target.value === '') {
-                        setShowDropdown(false);
-                        setHighlightedIndex(-1);
-                      } else {
-                        setShowDropdown(true);
-                      }
-                    }}
-                    onFocus={() => {
-                      if (tickerInput) {
-                        setShowDropdown(true);
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (!filteredTickers.length) return;
-                      if (e.key === 'ArrowDown') {
-                        e.preventDefault();
-                        setShowDropdown(true);
-                        setHighlightedIndex((prev) => (prev + 1) % filteredTickers.length);
-                      } else if (e.key === 'ArrowUp') {
-                        e.preventDefault();
-                        setShowDropdown(true);
-                        setHighlightedIndex((prev) => (prev <= 0 ? filteredTickers.length - 1 : prev - 1));
-                      } else if (e.key === 'Enter') {
-                        if (highlightedIndex >= 0) {
-                          e.preventDefault();
-                          const ticker = filteredTickers[highlightedIndex];
-                        handleTickerSelect(ticker || '');
-                        setTickerInput('');
-                          setShowDropdown(false);
-                          setHighlightedIndex(-1);
-                        }
-                      } else if (e.key === 'Escape') {
-                        setShowDropdown(false);
-                        setHighlightedIndex(-1);
-                      }
-                    }}
-                    className="pl-9 pr-3 py-1 h-10 border border-border rounded-md text-sm w-full sm:w-64 bg-background text-foreground placeholder:text-muted-foreground"
-                  />
-                {tickerInput && (
-                  <button
-                    onClick={() => {
-                      setTickerInput('');
-                      setShowDropdown(false);
-                    }}
-                    className="absolute right-2 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  >
-                    ✕
-                  </button>
-                )}
-                {showDropdown && tickerInput && (
-                  <div className="absolute top-full left-0 right-0 bg-background border border-border rounded-md shadow-lg z-30 max-h-40 overflow-y-auto">
-                    {filteredTickers.map((ticker, idx) => (
-                      <div
-                        key={ticker}
-                        className={`px-3 py-1 cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-muted' : 'hover:bg-muted'}`}
-                        onMouseEnter={() => setHighlightedIndex(idx)}
-                        onMouseLeave={() => setHighlightedIndex(-1)}
-                        onClick={() => {
-                          handleTickerSelect(ticker || '');
-                          setTickerInput('');
-                          setShowDropdown(false);
-                          setHighlightedIndex(-1);
-                        }}
-                      >
-                        {ticker}
-                      </div>
-                    ))}
-                    {filteredTickers.length === 0 && (
-                      <div className="px-3 py-1 text-sm text-muted-foreground">
-                        No tickers found
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-              </div>
-            </div>
-            
-            <div>
-               <label className="block text-sm font-medium mb-2">Options:</label>
-              <div className="flex flex-wrap items-center gap-3 border border-border rounded-lg px-2 py-2 min-h-[40px]">
-                 <div className="flex items-center gap-2">
-                   <input
-                     type="checkbox"
-                     id="normalize"
-                     checked={normalize}
-                     onChange={(e) => setNormalize(e.target.checked)}
-                     className="w-4 h-4 text-primary bg-background border border-border rounded focus:ring-primary focus:ring-2 hover:border-primary/50 transition-colors"
-                   />
-                   <label htmlFor="normalize" className="text-sm font-medium">Normalize</label>
-                 </div>
-                 
-                 <div className="flex items-center gap-2">
-                   <input
-                     type="checkbox"
-                     id="movingAverage"
-                     checked={movingAverage}
-                     onChange={(e) => setMovingAverage(e.target.checked)}
-                     className="w-4 h-4 text-primary bg-background border border-border rounded focus:ring-primary focus:ring-2 hover:border-primary/50 transition-colors"
-                   />
-                   <label htmlFor="movingAverage" className="text-sm font-medium">Moving Average</label>
-                 </div>
-                 
-                 <div className="flex items-center gap-2">
-                   <input
-                     type="checkbox"
-                     id="volumeChange"
-                     checked={volumeChange}
-                     onChange={(e) => setVolumeChange(e.target.checked)}
-                     className="w-4 h-4 text-primary bg-background border border-border rounded focus:ring-primary focus:ring-2 hover:border-primary/50 transition-colors"
-                   />
-                   <label htmlFor="volumeChange" className="text-sm font-medium">Volume Change</label>
-                </div>
-                
-                <Button onClick={resetSettings} variant="outline" size="sm" className="flex items-center gap-2 h-8">
-                  <Undo2 className="w-4 h-4 rotate-180" />
-                  Reset
-                </Button>
-              </div>
-        </div>
-        </div>
-          
-          {selectedTickers.length > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium">Selected:</span>
+      <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
+        <div ref={controlMenuRef} className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+            <label htmlFor="tickerFilter" className="text-sm font-medium whitespace-nowrap">
+              Ticker:
+            </label>
+            {selectedTickers.length > 0 && (
               <div className="flex flex-wrap gap-1">
                 {selectedTickers.map(ticker => (
                   <span
@@ -505,18 +420,147 @@ export function StoryAccumulationDistribution() {
                   </span>
                 ))}
               </div>
+            )}
+            <div className="relative flex-1 md:flex-none" ref={dropdownRef}>
+              <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+              <input
+                type="text"
+                id="tickerFilter"
+                placeholder="Ticker code"
+                value={tickerInput}
+                onChange={(e) => {
+                  setTickerInput(e.target.value);
+                  if (e.target.value === '') {
+                    setShowDropdown(false);
+                    setHighlightedIndex(-1);
+                  } else {
+                    setShowDropdown(true);
+                  }
+                }}
+                onFocus={() => {
+                  if (tickerInput) {
+                    setShowDropdown(true);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (!filteredTickers.length) return;
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setShowDropdown(true);
+                    setHighlightedIndex((prev) => (prev + 1) % filteredTickers.length);
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setShowDropdown(true);
+                    setHighlightedIndex((prev) => (prev <= 0 ? filteredTickers.length - 1 : prev - 1));
+                  } else if (e.key === 'Enter') {
+                    if (highlightedIndex >= 0) {
+                      e.preventDefault();
+                      const ticker = filteredTickers[highlightedIndex];
+                      handleTickerSelect(ticker || '');
+                      setTickerInput('');
+                      setShowDropdown(false);
+                      setHighlightedIndex(-1);
+                    }
+                  } else if (e.key === 'Escape') {
+                    setShowDropdown(false);
+                    setHighlightedIndex(-1);
+                  }
+                }}
+                className="w-full sm:w-64 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground placeholder:text-muted-foreground"
+              />
+              {tickerInput && (
+                <button
+                  onClick={() => {
+                    setTickerInput('');
+                    setShowDropdown(false);
+                  }}
+                  className="absolute right-2 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  ✕
+                </button>
+              )}
+              {showDropdown && tickerInput && (
+                <div className="absolute top-full left-0 right-0 bg-popover border border-[#3a4252] rounded-md shadow-lg z-30 max-h-40 overflow-y-auto">
+                  {filteredTickers.map((ticker, idx) => (
+                    <div
+                      key={ticker}
+                      className={`px-3 py-1 cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-muted' : 'hover:bg-muted'}`}
+                      onMouseEnter={() => setHighlightedIndex(idx)}
+                      onMouseLeave={() => setHighlightedIndex(-1)}
+                      onClick={() => {
+                        handleTickerSelect(ticker || '');
+                        setTickerInput('');
+                        setShowDropdown(false);
+                        setHighlightedIndex(-1);
+                      }}
+                    >
+                      {ticker}
+                    </div>
+                  ))}
+                  {filteredTickers.length === 0 && (
+                    <div className="px-3 py-1 text-sm text-muted-foreground">
+                      No tickers found
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-          )}
+          </div>
+          
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+            <label className="text-sm font-medium whitespace-nowrap">Options:</label>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="normalize"
+                  checked={normalize}
+                  onChange={(e) => setNormalize(e.target.checked)}
+                  className="w-4 h-4 text-primary bg-background border border-border rounded focus:ring-primary focus:ring-2 hover:border-primary/50 transition-colors"
+                />
+                <label htmlFor="normalize" className="text-sm font-medium">Normalize</label>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="movingAverage"
+                  checked={movingAverage}
+                  onChange={(e) => setMovingAverage(e.target.checked)}
+                  className="w-4 h-4 text-primary bg-background border border-border rounded focus:ring-primary focus:ring-2 hover:border-primary/50 transition-colors"
+                />
+                <label htmlFor="movingAverage" className="text-sm font-medium">Moving Average</label>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="volumeChange"
+                  checked={volumeChange}
+                  onChange={(e) => setVolumeChange(e.target.checked)}
+                  className="w-4 h-4 text-primary bg-background border border-border rounded focus:ring-primary focus:ring-2 hover:border-primary/50 transition-colors"
+                />
+                <label htmlFor="volumeChange" className="text-sm font-medium">Volume Change</label>
+              </div>
+              
+              <Button onClick={resetSettings} variant="outline" size="sm" className="flex items-center gap-2 h-8">
+                <Undo2 className="w-4 h-4 rotate-180" />
+                Reset
+              </Button>
+            </div>
+          </div>
           
           {lastUpdate && (
-            <div className="text-right">
+            <div className="text-right w-full md:w-auto md:ml-auto">
               <p className="text-sm text-muted-foreground">
                 Last Update: <span className="font-medium text-foreground">{lastUpdate}</span>
               </p>
             </div>
           )}
-          </div>
-        </Card>
+        </div>
+      </div>
+      {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
+      <div className="hidden lg:block" style={{ height: `${controlSpacerHeight}px` }} />
 
       {/* Market Maker Analysis Summary Table */}
       <Card className="p-0 bg-card">
@@ -605,12 +649,7 @@ export function StoryAccumulationDistribution() {
             </div>
 
             {/* Data Rows */}
-              {sortedData.map((row) => {
-              // Calculate min/max for normalization (general across all data)
-              const allValues = data.flatMap(item => Object.values(item.dates).filter(v => v !== null)) as number[];
-              const minValue = allValues.length > 0 ? Math.min(...allValues) : 0;
-              const maxValue = allValues.length > 0 ? Math.max(...allValues) : 0;
-                
+              {paginatedData.map((row) => {
                 return (
                 <div key={row.symbol} className={`flex w-full border-b border-border hover:bg-muted/20 ${
                   row.suspend ? 'bg-red-500/10 dark:bg-red-500/20' : ''
@@ -631,15 +670,12 @@ export function StoryAccumulationDistribution() {
                       displayValue = normalizeValue(displayValue, minValue, maxValue);
                     }
                     
-                    const isHighlighted = date === 'D0' && Math.random() > 0.8;
                       return (
                         <div 
                           key={`${row.symbol}-${date}`}
                         className={`flex-1 p-1 border-r border-border text-center text-xs min-w-[50px] ${
                           normalize ? getNormalizedColor(displayValue) : ''
-                        } ${getTextColor(displayValue)} ${
-                          isHighlighted ? 'bg-red-500/20 dark:bg-red-500/30' : ''
-                        }`}
+                        } ${getTextColor(displayValue)}`}
                       >
                         {normalize 
                           ? (displayValue !== null ? displayValue.toFixed(1) : '-')
@@ -682,6 +718,71 @@ export function StoryAccumulationDistribution() {
               })}
             </div>
           </div>
+
+          {/* Pagination Controls */}
+          {sortedData.length > 0 && (
+            <div className="border-t border-border bg-muted/30 px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Items per page:</span>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="px-2 py-1 text-sm border border-border rounded-md bg-background text-foreground"
+                >
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={200}>200</option>
+                  <option value={500}>500</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">
+                  Showing {startIndex + 1} - {Math.min(endIndex, sortedData.length)} of {sortedData.length}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  className="p-2 border border-border rounded-md bg-background text-foreground disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent transition-colors"
+                  aria-label="First page"
+                >
+                  <ChevronFirst className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                  className="p-2 border border-border rounded-md bg-background text-foreground disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent transition-colors"
+                  aria-label="Previous page"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="text-sm text-foreground px-2">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage === totalPages}
+                  className="p-2 border border-border rounded-md bg-background text-foreground disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent transition-colors"
+                  aria-label="Next page"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  className="p-2 border border-border rounded-md bg-background text-foreground disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent transition-colors"
+                  aria-label="Last page"
+                >
+                  <ChevronLast className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </Card>
     </div>
   );

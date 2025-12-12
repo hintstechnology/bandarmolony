@@ -37,6 +37,10 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
   // Cache for API responses (5 minutes)
   const cacheRef = useRef<Map<string, { data: any; timestamp: number }>>(new Map());
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+  
+  // Control menu ref and spacer height for fixed positioning
+  const controlMenuRef = useRef<HTMLDivElement>(null);
+  const [controlSpacerHeight, setControlSpacerHeight] = useState<number>(72);
 
   // Constants for search display
   const MAX_DISPLAYED = 10;
@@ -171,6 +175,32 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Update spacer height for fixed control menu
+  useEffect(() => {
+    const updateSpacerHeight = () => {
+      if (controlMenuRef.current) {
+        const height = controlMenuRef.current.offsetHeight;
+        setControlSpacerHeight(Math.max(height + 16, 48));
+      }
+    };
+
+    updateSpacerHeight();
+    window.addEventListener('resize', updateSpacerHeight);
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && controlMenuRef.current) {
+      resizeObserver = new ResizeObserver(() => updateSpacerHeight());
+      resizeObserver.observe(controlMenuRef.current);
+    }
+
+    return () => {
+      window.removeEventListener('resize', updateSpacerHeight);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+    };
+  }, [stockInput, selectedView]);
+
   // Process real shareholders data for pie chart
   const getOwnershipData = () => {
     if (!shareholdersData?.data?.shareholders || shareholdersData.data.shareholders.length === 0) {
@@ -301,112 +331,111 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
   return (
     <div className="space-y-6">
       {/* Header Controls */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-end justify-between">
-            <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-end w-full">
-              <div className="flex-1">
-                <label className="block text-sm font-medium mb-2">
-                  Stock Search:
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    Available stocks: {stockList.length}
-                  </span>
-                </label>
-                <div className="relative stock-dropdown-container">
-                  <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground z-10" />
-                  <input
-                    type="text"
-                    value={stockInput}
-                    onChange={(e) => handleStockInputChange(e.target.value)}
-                    onFocus={() => setShowStockSuggestions(true)}
-                    onKeyDown={(e) => {
-                      if (!showStockSuggestions) setShowStockSuggestions(true);
-                      if (e.key === 'ArrowDown' && displayedStocks.length) {
-                        e.preventDefault();
-                        setHighlightedIndex((prev) => (prev + 1) % displayedStocks.length);
-                      } else if (e.key === 'ArrowUp' && displayedStocks.length) {
-                        e.preventDefault();
-                        setHighlightedIndex((prev) => (prev <= 0 ? displayedStocks.length - 1 : prev - 1));
-                      } else if (e.key === 'Enter') {
-                        if (highlightedIndex >= 0 && displayedStocks[highlightedIndex]) {
-                          handleStockSelect(displayedStocks[highlightedIndex]);
-                          setHighlightedIndex(-1);
-                        }
-                      } else if (e.key === 'Escape') {
-                        setShowStockSuggestions(false);
+      <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
+        <div ref={controlMenuRef} className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
+          <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-end w-full">
+            <div className="flex-1">
+              <label className="block text-sm font-medium mb-2">
+                Stock Search:
+                <span className="ml-2 text-xs text-muted-foreground">
+                  Available stocks: {stockList.length}
+                </span>
+              </label>
+              <div className="relative stock-dropdown-container">
+                <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground z-10" />
+                <input
+                  type="text"
+                  value={stockInput}
+                  onChange={(e) => handleStockInputChange(e.target.value)}
+                  onFocus={() => setShowStockSuggestions(true)}
+                  onKeyDown={(e) => {
+                    if (!showStockSuggestions) setShowStockSuggestions(true);
+                    if (e.key === 'ArrowDown' && displayedStocks.length) {
+                      e.preventDefault();
+                      setHighlightedIndex((prev) => (prev + 1) % displayedStocks.length);
+                    } else if (e.key === 'ArrowUp' && displayedStocks.length) {
+                      e.preventDefault();
+                      setHighlightedIndex((prev) => (prev <= 0 ? displayedStocks.length - 1 : prev - 1));
+                    } else if (e.key === 'Enter') {
+                      if (highlightedIndex >= 0 && displayedStocks[highlightedIndex]) {
+                        handleStockSelect(displayedStocks[highlightedIndex]);
                         setHighlightedIndex(-1);
                       }
+                    } else if (e.key === 'Escape') {
+                      setShowStockSuggestions(false);
+                      setHighlightedIndex(-1);
+                    }
+                  }}
+                  placeholder="Enter stock code..."
+                  className="pl-9 pr-10 py-1 h-10 border border-border rounded-md bg-background text-foreground w-full"
+                />
+                {stockInput && (
+                  <button
+                    onClick={() => {
+                      setStockInput('');
+                      setShowStockSuggestions(true);
                     }}
-                    placeholder="Enter stock code..."
-                    className="pl-9 pr-10 py-1 h-10 border border-border rounded-md bg-background text-foreground w-full"
-                  />
-                  {stockInput && (
-                    <button
-                      onClick={() => {
-                        setStockInput('');
-                        setShowStockSuggestions(true);
-                      }}
-                      className="absolute right-2 top-1/2 transform -translate-y-1/2 w-6 h-6 flex items-center justify-center hover:bg-muted rounded-full transition-colors z-10"
-                    >
-                      <X className="w-4 h-4 text-muted-foreground" />
-                    </button>
-                  )}
-                  {showStockSuggestions && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-64 overflow-y-auto">
-                      {stockInput === '' && (
-                        <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
-                          All Stocks
-                        </div>
-                      )}
-                      {displayedStocks.length > 0 ? (
-                        <>
-                          {displayedStocks.map((stock, idx) => (
-                            <div
-                              key={stock}
-                              onClick={() => handleStockSelect(stock)}
-                              onMouseEnter={() => setHighlightedIndex(idx)}
-                              onMouseLeave={() => setHighlightedIndex(-1)}
-                              className={`px-3 py-2 cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-muted' : 'hover:bg-muted'}`}
-                            >
-                              {stock}
-                            </div>
-                          ))}
-                          {hasMore && (
-                            <div className="px-3 py-2 text-xs text-muted-foreground border-t border-border">
-                              +{moreCount} more stocks available
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <div className="px-3 py-2 text-sm text-muted-foreground">
-                          No stocks found
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium mb-2">View:</label>
-              <div className="flex gap-1 border border-border rounded-lg p-1 h-10">
-                {views.map(view => (
-                  <Button
-                    key={view.key}
-                    variant={selectedView === view.key ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => setSelectedView(view.key)}
-                    className="flex-1 h-8"
+                    className="absolute right-2 top-1/2 transform -translate-y-1/2 w-6 h-6 flex items-center justify-center hover:bg-muted rounded-full transition-colors z-10"
                   >
-                    {view.label}
-                  </Button>
-                ))}
+                    <X className="w-4 h-4 text-muted-foreground" />
+                  </button>
+                )}
+                {showStockSuggestions && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-64 overflow-y-auto">
+                    {stockInput === '' && (
+                      <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
+                        All Stocks
+                      </div>
+                    )}
+                    {displayedStocks.length > 0 ? (
+                      <>
+                        {displayedStocks.map((stock, idx) => (
+                          <div
+                            key={stock}
+                            onClick={() => handleStockSelect(stock)}
+                            onMouseEnter={() => setHighlightedIndex(idx)}
+                            onMouseLeave={() => setHighlightedIndex(-1)}
+                            className={`px-3 py-2 cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-muted' : 'hover:bg-muted'}`}
+                          >
+                            {stock}
+                          </div>
+                        ))}
+                        {hasMore && (
+                          <div className="px-3 py-2 text-xs text-muted-foreground border-t border-border">
+                            +{moreCount} more stocks available
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="px-3 py-2 text-sm text-muted-foreground">
+                        No stocks found
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
-        </CardContent>
-      </Card>
+          
+          <div>
+            <label className="block text-sm font-medium mb-2">View:</label>
+            <div className="flex gap-1 border border-border rounded-lg p-1 h-10">
+              {views.map(view => (
+                <Button
+                  key={view.key}
+                  variant={selectedView === view.key ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setSelectedView(view.key)}
+                  className="flex-1 h-8"
+                >
+                  {view.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="hidden lg:block" style={{ height: `${controlSpacerHeight}px` }} />
 
       {/* Loading State */}
       {loading && (
