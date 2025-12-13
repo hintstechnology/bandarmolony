@@ -4188,8 +4188,8 @@ const visibleBrokers = useMemo(
                     setIsLoadingBrokerData(true);
                     setIsLoadingInventoryData(true);
                   }}
-                  disabled={isLoadingData || isLoadingBrokerData || selectedBrokers.length === 0 || !startDate || !endDate || !getActualTicker}
-                  className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full sm:w-auto"
+                  disabled={isLoadingData || isLoadingBrokerData || selectedBrokers.length === 0 || !startDate || !endDate || !selectedTicker}
+                  className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full md:w-auto"
                 >
                   Show
                 </button>
