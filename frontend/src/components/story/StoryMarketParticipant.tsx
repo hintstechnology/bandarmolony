@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart } from 'recharts';
+import { Line, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, ComposedChart, CartesianGrid } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Search, X } from 'lucide-react';
@@ -82,8 +82,8 @@ const IndividualChart = ({
         textColor: colors.axisTextColor,
       },
       grid: { 
-        horzLines: { color: colors.gridColor, style: 1 }, 
-        vertLines: { color: colors.gridColor, style: 1 } 
+        horzLines: { visible: false }, 
+        vertLines: { visible: false } 
       },
       rightPriceScale: { 
         borderColor: colors.borderColor
@@ -293,8 +293,8 @@ const TradingViewMultiPaneChart = ({
         }
       },
       grid: { 
-        horzLines: { color: colors.gridColor, style: 1 }, 
-        vertLines: { color: colors.gridColor, style: 1 } 
+        horzLines: { visible: false }, 
+        vertLines: { visible: false } 
       },
       rightPriceScale: { 
         borderColor: colors.borderColor
@@ -1111,7 +1111,6 @@ export function StoryMarketParticipant({
                 <div className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={foreignFlowDataReal} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
                       <XAxis 
                         dataKey="time" 
                         axisLine={false}
@@ -1184,7 +1183,6 @@ export function StoryMarketParticipant({
                     }))} 
                     margin={{ top: 10, right: 10, left: 10, bottom: 10 }}
                   >
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
                     <XAxis 
                       dataKey="date" 
                       axisLine={false}
@@ -1244,7 +1242,6 @@ export function StoryMarketParticipant({
                     }))} 
                     margin={{ top: 10, right: 10, left: 10, bottom: 10 }}
                   >
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
                     <XAxis 
                       dataKey="date" 
                       axisLine={false}

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { Search } from 'lucide-react';
 
 // Combined Local vs Foreign data from StoryMarketParticipant.tsx
@@ -127,7 +127,6 @@ export function MarketParticipant({ selectedStock = 'BBRI' }: MarketParticipantP
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={combinedStackedData} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
                 <XAxis
                   dataKey="date"
                   axisLine={false}

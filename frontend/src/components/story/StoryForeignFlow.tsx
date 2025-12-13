@@ -87,8 +87,8 @@ const IndividualChart = ({
         textColor: colors.axisTextColor,
       },
       grid: { 
-        horzLines: { color: colors.gridColor, style: 1 }, 
-        vertLines: { color: colors.gridColor, style: 1 } 
+        horzLines: { visible: false }, 
+        vertLines: { visible: false } 
       },
       rightPriceScale: { 
         borderColor: colors.borderColor
@@ -288,8 +288,8 @@ const TradingViewMultiPaneChart = ({
         }
       },
       grid: { 
-        horzLines: { color: colors.gridColor, style: 1 }, 
-        vertLines: { color: colors.gridColor, style: 1 } 
+        horzLines: { visible: false }, 
+        vertLines: { visible: false } 
       },
       rightPriceScale: { 
         borderColor: colors.borderColor
