@@ -922,6 +922,106 @@ export function StoryForeignFlow() {
 
   return (
     <div className="space-y-4">
+      {/* Controls */}
+      <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
+        <div ref={controlMenuRef} className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
+          <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-center">
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium whitespace-nowrap">
+                Stock Search:
+              </label>
+              <div className="relative stock-dropdown-container w-32" ref={dropdownRef}>
+                <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground z-10" />
+                <input
+                  type="text"
+                  value={stockInput}
+                  onChange={(e) => handleStockInputChange(e.target.value)}
+                  onFocus={() => setShowStockSuggestions(true)}
+                  onKeyDown={(e) => {
+                    if (!showStockSuggestions) setShowStockSuggestions(true);
+                    if (e.key === 'ArrowDown' && filteredStocks.length) {
+                      e.preventDefault();
+                      setHighlightedStockIndex((prev) => (prev + 1) % filteredStocks.length);
+                    } else if (e.key === 'ArrowUp' && filteredStocks.length) {
+                      e.preventDefault();
+                      setHighlightedStockIndex((prev) => (prev <= 0 ? filteredStocks.length - 1 : prev - 1));
+                    } else if (e.key === 'Enter') {
+                      if (highlightedStockIndex >= 0 && filteredStocks[highlightedStockIndex]) {
+                        handleStockSelect(filteredStocks[highlightedStockIndex]);
+                        setHighlightedStockIndex(-1);
+                      }
+                    } else if (e.key === 'Escape') {
+                      setShowStockSuggestions(false);
+                      setHighlightedStockIndex(-1);
+                    }
+                  }}
+                  placeholder="Enter stock code..."
+                  className="pl-9 pr-10 py-1 h-10 border border-border rounded-md bg-background text-foreground w-full"
+                />
+                {stockInput && (
+                  <button
+                    onClick={clearStockInput}
+                    className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground hover:text-foreground z-10"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+                {showStockSuggestions && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
+                    {stockInput === '' && (
+                      <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
+                        All Stocks ({availableStocks.length > 0 ? availableStocks.length : FALLBACK_STOCKS.length} available)
+                      </div>
+                    )}
+                    {filteredStocks.slice(0, 10).map((stock, idx) => (
+                      <div
+                        key={`${stock}-${idx}`}
+                        onClick={() => handleStockSelect(stock)}
+                        onMouseEnter={() => setHighlightedStockIndex(idx)}
+                        className={`px-3 py-2 cursor-pointer text-sm ${idx === highlightedStockIndex ? 'bg-muted' : 'hover:bg-muted'}`}
+                      >
+                        {stock}
+                      </div>
+                    ))}
+                    {filteredStocks.length > 10 && (
+                      <div className="px-3 py-2 text-xs text-muted-foreground border-t border-border">
+                        +{filteredStocks.length - 10} more
+                      </div>
+                    )}
+                    {filteredStocks.length === 0 && stockInput !== '' && (
+                      <div className="px-3 py-2 text-sm text-muted-foreground">No stocks found</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium whitespace-nowrap">Layout:</label>
+              <div className="flex gap-1 border border-border rounded-lg p-1 h-10">
+                <Button
+                  variant={layoutMode === 'combined' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setLayoutMode('combined')}
+                  className="flex-1 h-8"
+                >
+                  Combine
+                </Button>
+                <Button
+                  variant={layoutMode === 'split' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setLayoutMode('split')}
+                  className="flex-1 h-8"
+                >
+                  Split
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="hidden lg:block" style={{ height: `${controlSpacerHeight}px` }} />
+
       {/* Loading State */}
       {loading && (
         <Card>
@@ -945,110 +1045,6 @@ export function StoryForeignFlow() {
           </CardContent>
         </Card>
       )}
-
-      {/* Controls */}
-      <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
-        <div ref={controlMenuRef} className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
-          {/* Row 1: Stock Search & Layout */}
-          <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-end justify-between w-full">
-              <div className="flex-1">
-                <label className="block text-sm font-medium mb-2">
-                  Stock Search:
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    Available stocks: {availableStocks.length > 0 ? availableStocks.length : FALLBACK_STOCKS.length}
-                  </span>
-                </label>
-                <div className="relative stock-dropdown-container" ref={dropdownRef}>
-                  <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground z-10" />
-                  <input
-                    type="text"
-                    value={stockInput}
-                    onChange={(e) => handleStockInputChange(e.target.value)}
-                    onFocus={() => setShowStockSuggestions(true)}
-                    onKeyDown={(e) => {
-                      if (!showStockSuggestions) setShowStockSuggestions(true);
-                      if (e.key === 'ArrowDown' && filteredStocks.length) {
-                        e.preventDefault();
-                        setHighlightedStockIndex((prev) => (prev + 1) % filteredStocks.length);
-                      } else if (e.key === 'ArrowUp' && filteredStocks.length) {
-                        e.preventDefault();
-                        setHighlightedStockIndex((prev) => (prev <= 0 ? filteredStocks.length - 1 : prev - 1));
-                      } else if (e.key === 'Enter') {
-                        if (highlightedStockIndex >= 0 && filteredStocks[highlightedStockIndex]) {
-                          handleStockSelect(filteredStocks[highlightedStockIndex]);
-                          setHighlightedStockIndex(-1);
-                        }
-                      } else if (e.key === 'Escape') {
-                        setShowStockSuggestions(false);
-                        setHighlightedStockIndex(-1);
-                      }
-                    }}
-                    placeholder="Enter stock code..."
-                    className="pl-9 pr-10 py-1 h-10 border border-border rounded-md bg-background text-foreground w-full"
-                  />
-                  {stockInput && (
-                    <button
-                      onClick={clearStockInput}
-                      className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground hover:text-foreground z-10"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  )}
-                  {showStockSuggestions && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-48 overflow-y-auto">
-                      {stockInput === '' && (
-                        <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
-                          All Stocks
-                        </div>
-                      )}
-                      {filteredStocks.slice(0, 10).map((stock, idx) => (
-                        <div
-                          key={`${stock}-${idx}`}
-                          onClick={() => handleStockSelect(stock)}
-                          onMouseEnter={() => setHighlightedStockIndex(idx)}
-                          className={`px-3 py-2 cursor-pointer text-sm ${idx === highlightedStockIndex ? 'bg-muted' : 'hover:bg-muted'}`}
-                        >
-                          {stock}
-                        </div>
-                      ))}
-                      {filteredStocks.length > 10 && (
-                        <div className="px-3 py-2 text-xs text-muted-foreground border-t border-border">
-                          +{filteredStocks.length - 10} more
-                        </div>
-                      )}
-                      {filteredStocks.length === 0 && stockInput !== '' && (
-                        <div className="px-3 py-2 text-sm text-muted-foreground">No stocks found</div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-              
-              <div className="w-full lg:w-auto">
-                <label className="block text-sm font-medium mb-2">Layout:</label>
-                <div className="flex gap-1 border border-border rounded-lg p-1 h-10 w-full lg:w-auto">
-                  <Button
-                    variant={layoutMode === 'combined' ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => setLayoutMode('combined')}
-                    className="flex-1 h-8"
-                  >
-                    Combine
-                  </Button>
-                  <Button
-                    variant={layoutMode === 'split' ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => setLayoutMode('split')}
-                    className="flex-1 h-8"
-                  >
-                    Split
-                  </Button>
-                </div>
-              </div>
-            </div>
-        </div>
-      </div>
-      <div className="hidden lg:block" style={{ height: `${controlSpacerHeight}px` }} />
 
       {/* Main Chart Layout */}
       {!loading && !error && (

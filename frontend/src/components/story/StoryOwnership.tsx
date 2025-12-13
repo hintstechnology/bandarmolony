@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -201,8 +201,8 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
     };
   }, [stockInput, selectedView]);
 
-  // Process real shareholders data for pie chart
-  const getOwnershipData = () => {
+  // Process real shareholders data for pie chart - memoized to prevent infinite loops
+  const ownershipData = useMemo(() => {
     if (!shareholdersData?.data?.shareholders || shareholdersData.data.shareholders.length === 0) {
       return [];
     }
@@ -210,23 +210,37 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
     const colors = ['#3b82f6', '#06b6d4', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#14b8a6'];
     const shareholders = shareholdersData.data.shareholders;
     
-    // Get major shareholders (>= 2%)
+    // Get major shareholders (>= 2%) - ensure percentage is a valid number
     const majorShareholders = shareholders
-      .filter((s: any) => s.PemegangSaham_Persentase >= 2)
+      .filter((s: any) => {
+        const percentage = Number(s.PemegangSaham_Persentase);
+        return !isNaN(percentage) && percentage >= 2;
+      })
       .map((s: any, idx: number) => ({
-        name: s.PemegangSaham_Nama,
-        percentage: s.PemegangSaham_Persentase,
-        shares: s.PemegangSaham_JmlSaham,
-        category: s.PemegangSaham_Kategori,
+        name: s.PemegangSaham_Nama || 'Unknown',
+        percentage: Number(s.PemegangSaham_Persentase),
+        shares: Number(s.PemegangSaham_JmlSaham) || 0,
+        category: s.PemegangSaham_Kategori || 'Unknown',
         color: colors[idx % colors.length]
       }));
 
     // Get minor shareholders (< 2%) and combine as "Others"
-    const minorShareholders = shareholders.filter((s: any) => s.PemegangSaham_Persentase < 2);
-    const othersTotal = minorShareholders.reduce((sum: number, s: any) => sum + s.PemegangSaham_Persentase, 0);
-    const othersShares = minorShareholders.reduce((sum: number, s: any) => sum + s.PemegangSaham_JmlSaham, 0);
+    const minorShareholders = shareholders.filter((s: any) => {
+      const percentage = Number(s.PemegangSaham_Persentase);
+      return !isNaN(percentage) && percentage < 2;
+    });
+    
+    const othersTotal = minorShareholders.reduce((sum: number, s: any) => {
+      const percentage = Number(s.PemegangSaham_Persentase);
+      return sum + (isNaN(percentage) ? 0 : percentage);
+    }, 0);
+    
+    const othersShares = minorShareholders.reduce((sum: number, s: any) => {
+      const shares = Number(s.PemegangSaham_JmlSaham);
+      return sum + (isNaN(shares) ? 0 : shares);
+    }, 0);
 
-    if (othersTotal > 0) {
+    if (othersTotal > 0 && !isNaN(othersTotal)) {
       majorShareholders.push({
         name: 'Others',
         percentage: parseFloat(othersTotal.toFixed(3)),
@@ -236,52 +250,65 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
       });
     }
 
-    return majorShareholders;
-  };
+    // Final validation - ensure all percentages are valid numbers
+    const finalData = majorShareholders
+      .filter((entry: any) => {
+        const percentage = Number(entry.percentage);
+        return !isNaN(percentage) && percentage > 0;
+      })
+      .map((entry: any) => ({
+        ...entry,
+        percentage: Number(entry.percentage)
+      }));
 
-  // Get detailed shareholders list - ALL shareholders
-  const getDetailedOwnership = () => {
+    return finalData;
+  }, [shareholdersData, selectedStock]);
+
+  // Get detailed shareholders list - ALL shareholders - memoized to prevent infinite loops
+  const detailedOwnership = useMemo(() => {
     if (!shareholdersData?.data?.shareholders || shareholdersData.data.shareholders.length === 0) {
       return [];
     }
 
     return shareholdersData.data.shareholders.map((s: any, idx: number) => ({
       rank: idx + 1,
-      holder: s.PemegangSaham_Nama,
-      type: s.PemegangSaham_Kategori,
-      shares: s.PemegangSaham_JmlSaham,
-      percentage: s.PemegangSaham_Persentase,
+      holder: s.PemegangSaham_Nama || 'Unknown',
+      type: s.PemegangSaham_Kategori || 'Unknown',
+      shares: Number(s.PemegangSaham_JmlSaham) || 0,
+      percentage: Number(s.PemegangSaham_Persentase) || 0,
       value: 0, // Not available in current data
       change: '0.0%', // Not available in current data
-      lastUpdate: s.DataDate
+      lastUpdate: s.DataDate || '-'
     }));
-  };
+  }, [shareholdersData]);
 
-  // Get historical data based on selected range
-  const getHistoricalData = () => {
+  // Get historical data based on selected range - memoized to prevent infinite loops
+  const historicalData = useMemo(() => {
     if (!shareholdersData?.data?.historical || shareholdersData.data.historical.length === 0) {
       return [];
     }
 
     const historical = shareholdersData.data.historical;
     
-    // Format dates to show month/year
-    const formattedHistorical = historical.map((h: any) => {
-      const date = new Date(h.period);
-      const month = date.toLocaleDateString('en-US', { month: 'short' });
-      const year = date.getFullYear();
-      return {
-        period: `${month} ${year}`,
-        controlling: h.controlling,
-        public: h.public,
-        affiliate: h.affiliate,
-        others: h.others
-      };
-    });
+    // Format dates to show month/year and ensure numbers are valid
+    const formattedHistorical = historical
+      .filter((h: any) => h.period) // Filter out invalid entries
+      .map((h: any) => {
+        const date = new Date(h.period);
+        const month = date.toLocaleDateString('en-US', { month: 'short' });
+        const year = date.getFullYear();
+        return {
+          period: `${month} ${year}`,
+          controlling: Number(h.controlling) || 0,
+          public: Number(h.public) || 0,
+          affiliate: Number(h.affiliate) || 0,
+          others: Number(h.others) || 0
+        };
+      });
 
     // Return last N months based on dataRange
     return formattedHistorical.slice(-dataRange);
-  };
+  }, [shareholdersData, dataRange]);
 
   // Get summary metrics
   const getSummaryMetrics = () => {
@@ -333,15 +360,12 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
       {/* Header Controls */}
       <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
         <div ref={controlMenuRef} className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
-          <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-end w-full">
-            <div className="flex-1">
-              <label className="block text-sm font-medium mb-2">
+          <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-center">
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium whitespace-nowrap">
                 Ticker:
-                <span className="ml-2 text-xs text-muted-foreground">
-                  Available stocks: {stockList.length}
-                </span>
               </label>
-              <div className="relative stock-dropdown-container">
+              <div className="relative stock-dropdown-container w-32">
                 <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground z-10" />
                 <input
                   type="text"
@@ -384,7 +408,7 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
                   <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-64 overflow-y-auto">
                     {stockInput === '' && (
                       <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
-                        All Stocks
+                        All Stocks ({stockList.length} available)
                       </div>
                     )}
                     {displayedStocks.length > 0 ? (
@@ -415,22 +439,22 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
                 )}
               </div>
             </div>
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium mb-2">View:</label>
-            <div className="flex gap-1 border border-border rounded-lg p-1 h-10">
-              {views.map(view => (
-                <Button
-                  key={view.key}
-                  variant={selectedView === view.key ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => setSelectedView(view.key)}
-                  className="flex-1 h-8"
-                >
-                  {view.label}
-                </Button>
-              ))}
+            
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium whitespace-nowrap">View:</label>
+              <div className="flex gap-1 border border-border rounded-lg p-1 h-10">
+                {views.map(view => (
+                  <Button
+                    key={view.key}
+                    variant={selectedView === view.key ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setSelectedView(view.key)}
+                    className="flex-1 h-8"
+                  >
+                    {view.label}
+                  </Button>
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -489,50 +513,85 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
               <CardHeader>
                 <CardTitle>Ownership Distribution</CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={getOwnershipData()}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={120}
-                        paddingAngle={2}
-                        dataKey="percentage"
-                        nameKey="name"
-                      >
-                        {getOwnershipData().map((entry: any, index: number) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip 
-                        formatter={(value: any, _name: any, props: any) => [
-                          `${value}%`,
-                          props.payload.name
-                        ]}
-                        contentStyle={{
-                          backgroundColor: 'hsl(var(--popover))',
-                          border: '1px solid hsl(var(--border))',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          color: 'hsl(var(--popover-foreground))'
-                        }}
-                        labelStyle={{
-                          color: 'hsl(var(--popover-foreground))'
-                        }}
-                        itemStyle={{
-                          color: 'hsl(var(--popover-foreground))'
-                        }}
-                      />
-                      <Legend 
-                        verticalAlign="bottom" 
-                        height={36}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
+              <CardContent className="p-6 overflow-visible">
+                {(() => {
+                  if (ownershipData.length === 0) {
+                    return (
+                      <div className="h-80 flex items-center justify-center text-muted-foreground">
+                        No ownership data available
+                      </div>
+                    );
+                  }
+                  
+                  // Ensure data is properly formatted
+                  const chartData = ownershipData.map((entry: any) => ({
+                    name: entry.name,
+                    percentage: Number(entry.percentage),
+                    value: Number(entry.percentage), // Add value for compatibility
+                    color: entry.color
+                  }));
+                  
+                  // Debug: Log chart data
+                  console.log('📊 Chart data:', chartData);
+                  console.log('📊 Chart data length:', chartData.length);
+                  console.log('📊 Chart data validation:', chartData.every((d: any) => 
+                    !isNaN(d.percentage) && d.percentage > 0 && d.color
+                  ));
+                  
+                  if (chartData.length === 0 || !chartData.every((d: any) => !isNaN(d.percentage) && d.percentage > 0)) {
+                    return (
+                      <div className="h-80 flex items-center justify-center text-muted-foreground">
+                        Invalid chart data
+                      </div>
+                    );
+                  }
+                  
+                  return (
+                    <>
+                      <ResponsiveContainer width="100%" height={300}>
+                        <PieChart>
+                          <Pie
+                            data={chartData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={60}
+                            outerRadius={120}
+                            paddingAngle={2}
+                            dataKey="percentage"
+                            nameKey="name"
+                          >
+                            {chartData.map((entry: any, index: number) => (
+                              <Cell key={`cell-${index}-${entry.name}`} fill={entry.color} />
+                            ))}
+                          </Pie>
+                          <Tooltip 
+                            formatter={(value: any, _name: any, props: any) => [
+                              `${Number(value).toFixed(2)}%`,
+                              props.payload.name
+                            ]}
+                            contentStyle={{
+                              backgroundColor: 'hsl(var(--popover))',
+                              border: '1px solid hsl(var(--border))',
+                              borderRadius: '6px',
+                              fontSize: '12px',
+                              color: 'hsl(var(--popover-foreground))'
+                            }}
+                            labelStyle={{
+                              color: 'hsl(var(--popover-foreground))'
+                            }}
+                            itemStyle={{
+                              color: 'hsl(var(--popover-foreground))'
+                            }}
+                          />
+                          <Legend 
+                            verticalAlign="bottom" 
+                            height={36}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </>
+                  );
+                })()}
               </CardContent>
             </Card>
 
@@ -542,36 +601,48 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
                 <CardTitle>Top Shareholders</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto overflow-y-auto max-h-80">
-                  <table className="w-full text-sm">
-                     <thead className="sticky top-0 bg-muted/50">
-                       <tr className="border-b border-border">
-                         <th className="text-left p-2 text-foreground">Shareholder</th>
-                         <th className="text-right p-2 text-foreground">%</th>
-                         <th className="text-right p-2 text-foreground">Shares</th>
-                       </tr>
-                     </thead>
-                    <tbody>
-                      {getOwnershipData().map((owner: any, index: number) => (
-                        <tr key={index} className="border-b border-border/50 hover:bg-muted/20">
-                          <td className="p-2">
-                            <div className="flex items-center gap-2">
-                              <div 
-                                className="w-3 h-3 rounded-full" 
-                                style={{ backgroundColor: owner.color }}
-                              ></div>
-                              <span className="truncate text-foreground" title={owner.name}>
-                                {owner.name}
-                              </span>
-                            </div>
-                          </td>
-                          <td className="p-2 text-right font-medium text-foreground">{owner.percentage.toFixed(2)}%</td>
-                          <td className="p-2 text-right text-foreground">{formatNumber(owner.shares)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                {(() => {
+                  if (ownershipData.length === 0) {
+                    return (
+                      <div className="h-80 flex items-center justify-center text-muted-foreground">
+                        No shareholder data available
+                      </div>
+                    );
+                  }
+                  
+                  return (
+                    <div className="overflow-x-auto overflow-y-auto max-h-80">
+                      <table className="w-full text-sm">
+                         <thead className="sticky top-0 bg-muted/50">
+                           <tr className="border-b border-border">
+                             <th className="text-left p-2 text-foreground">Shareholder</th>
+                             <th className="text-right p-2 text-foreground">%</th>
+                             <th className="text-right p-2 text-foreground">Shares</th>
+                           </tr>
+                         </thead>
+                        <tbody>
+                          {ownershipData.map((owner: any, index: number) => (
+                            <tr key={index} className="border-b border-border/50 hover:bg-muted/20">
+                              <td className="p-2">
+                                <div className="flex items-center gap-2">
+                                  <div 
+                                    className="w-3 h-3 rounded-full" 
+                                    style={{ backgroundColor: owner.color }}
+                                  ></div>
+                                  <span className="truncate text-foreground" title={owner.name}>
+                                    {owner.name}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="p-2 text-right font-medium text-foreground">{Number(owner.percentage).toFixed(2)}%</td>
+                              <td className="p-2 text-right text-foreground">{formatNumber(owner.shares)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
               </CardContent>
             </Card>
           </div>
@@ -597,47 +668,59 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
               </div>
             </CardHeader>
             <CardContent>
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={getHistoricalData()}
-                    margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-                    <XAxis 
-                      dataKey="period" 
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
-                    />
-                    <YAxis 
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
-                      domain={[0, 100]}
-                    />
-                    <Tooltip 
-                      contentStyle={{
-                        backgroundColor: 'hsl(var(--popover))',
-                        border: '1px solid hsl(var(--border))',
-                        borderRadius: '6px',
-                        fontSize: '12px',
-                        color: 'hsl(var(--popover-foreground))'
-                      }}
-                      labelStyle={{
-                        color: 'hsl(var(--popover-foreground))'
-                      }}
-                      formatter={(value, name) => [`${value}%`, name]}
-                    />
-                    <Legend />
-                    
-                    <Bar dataKey="controlling" stackId="ownership" fill={stackColors.controlling} name="Controlling" />
-                    <Bar dataKey="public" stackId="ownership" fill={stackColors.public} name="Public" />
-                    <Bar dataKey="affiliate" stackId="ownership" fill={stackColors.affiliate} name="Affiliate" />
-                    <Bar dataKey="others" stackId="ownership" fill={stackColors.others} name="Others" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+              {(() => {
+                if (historicalData.length === 0) {
+                  return (
+                    <div className="h-80 flex items-center justify-center text-muted-foreground">
+                      No historical data available
+                    </div>
+                  );
+                }
+                
+                return (
+                  <div className="h-80">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={historicalData}
+                        margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
+                        <XAxis 
+                          dataKey="period" 
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
+                        />
+                        <YAxis 
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fontSize: 12, fill: 'hsl(var(--muted-foreground))' }}
+                          domain={[0, 100]}
+                        />
+                        <Tooltip 
+                          contentStyle={{
+                            backgroundColor: 'hsl(var(--popover))',
+                            border: '1px solid hsl(var(--border))',
+                            borderRadius: '6px',
+                            fontSize: '12px',
+                            color: 'hsl(var(--popover-foreground))'
+                          }}
+                          labelStyle={{
+                            color: 'hsl(var(--popover-foreground))'
+                          }}
+                          formatter={(value, name) => [`${Number(value).toFixed(2)}%`, name]}
+                        />
+                        <Legend />
+                        
+                        <Bar dataKey="controlling" stackId="ownership" fill={stackColors.controlling} name="Controlling" />
+                        <Bar dataKey="public" stackId="ownership" fill={stackColors.public} name="Public" />
+                        <Bar dataKey="affiliate" stackId="ownership" fill={stackColors.affiliate} name="Affiliate" />
+                        <Bar dataKey="others" stackId="ownership" fill={stackColors.others} name="Others" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
         </>
@@ -650,36 +733,48 @@ export function StoryOwnership({ selectedStock: propSelectedStock }: StoryOwners
             <CardTitle>Detailed Ownership Analysis</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                 <thead>
-                   <tr className="border-b border-border bg-muted/50">
-                     <th className="text-left p-3 text-foreground">Rank</th>
-                     <th className="text-left p-3 text-foreground">Holder Name</th>
-                     <th className="text-left p-3 text-foreground">Type</th>
-                     <th className="text-right p-3 text-foreground">Shares</th>
-                     <th className="text-right p-3 text-foreground">%</th>
-                     <th className="text-right p-3 text-foreground">Last Update</th>
-                   </tr>
-                 </thead>
-                <tbody>
-                  {getDetailedOwnership().map((holder: any, index: number) => (
-                    <tr key={index} className="border-b border-border/50 hover:bg-muted/20">
-                      <td className="p-3 font-medium text-foreground">#{holder.rank}</td>
-                      <td className="p-3 font-medium text-foreground">{holder.holder}</td>
-                      <td className="p-3">
-                        <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded text-xs">
-                          {holder.type}
-                        </span>
-                      </td>
-                      <td className="p-3 text-right font-mono text-foreground">{formatNumber(holder.shares)}</td>
-                      <td className="p-3 text-right font-medium text-foreground">{holder.percentage.toFixed(3)}%</td>
-                      <td className="p-3 text-right text-muted-foreground">{holder.lastUpdate}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            {(() => {
+              if (detailedOwnership.length === 0) {
+                return (
+                  <div className="h-80 flex items-center justify-center text-muted-foreground">
+                    No detailed ownership data available
+                  </div>
+                );
+              }
+              
+              return (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                     <thead>
+                       <tr className="border-b border-border bg-muted/50">
+                         <th className="text-left p-3 text-foreground">Rank</th>
+                         <th className="text-left p-3 text-foreground">Holder Name</th>
+                         <th className="text-left p-3 text-foreground">Type</th>
+                         <th className="text-right p-3 text-foreground">Shares</th>
+                         <th className="text-right p-3 text-foreground">%</th>
+                         <th className="text-right p-3 text-foreground">Last Update</th>
+                       </tr>
+                     </thead>
+                    <tbody>
+                      {detailedOwnership.map((holder: any, index: number) => (
+                        <tr key={index} className="border-b border-border/50 hover:bg-muted/20">
+                          <td className="p-3 font-medium text-foreground">#{holder.rank}</td>
+                          <td className="p-3 font-medium text-foreground">{holder.holder}</td>
+                          <td className="p-3">
+                            <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded text-xs">
+                              {holder.type}
+                            </span>
+                          </td>
+                          <td className="p-3 text-right font-mono text-foreground">{formatNumber(holder.shares)}</td>
+                          <td className="p-3 text-right font-medium text-foreground">{Number(holder.percentage).toFixed(3)}%</td>
+                          <td className="p-3 text-right text-muted-foreground">{holder.lastUpdate}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
       )}
