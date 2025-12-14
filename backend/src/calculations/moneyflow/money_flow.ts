@@ -380,23 +380,25 @@ export class MoneyFlowCalculator {
         console.log(`✅ Quick check: Representative file has ${availableDates.size} dates, latest: ${latestDate}`);
         
         // Parse latest date to check if recent
-        let latestDateObj: Date;
-        if (latestDate.includes('-')) {
-          latestDateObj = new Date(latestDate);
-        } else {
-          latestDateObj = new Date(
-            parseInt(latestDate.substring(0, 4)),
-            parseInt(latestDate.substring(4, 6)) - 1,
-            parseInt(latestDate.substring(6, 8))
-          );
-        }
-        
-        const daysSinceLatest = (Date.now() - latestDateObj.getTime()) / (1000 * 60 * 60 * 24);
-        
-        // If latest date is very recent (< 1 day), likely all files are up-to-date
-        // But we still need to scan all files to process them
-        if (daysSinceLatest < 1) {
-          console.log(`ℹ️ Quick check: Latest date is very recent (${daysSinceLatest.toFixed(1)} days ago) - files likely up-to-date, but will scan all files for processing`);
+        if (latestDate) {
+          let latestDateObj: Date;
+          if (latestDate.includes('-')) {
+            latestDateObj = new Date(latestDate);
+          } else {
+            latestDateObj = new Date(
+              parseInt(latestDate.substring(0, 4)),
+              parseInt(latestDate.substring(4, 6)) - 1,
+              parseInt(latestDate.substring(6, 8))
+            );
+          }
+          
+          const daysSinceLatest = (Date.now() - latestDateObj.getTime()) / (1000 * 60 * 60 * 24);
+          
+          // If latest date is very recent (< 1 day), likely all files are up-to-date
+          // But we still need to scan all files to process them
+          if (daysSinceLatest < 1) {
+            console.log(`ℹ️ Quick check: Latest date is very recent (${daysSinceLatest.toFixed(1)} days ago) - files likely up-to-date, but will scan all files for processing`);
+          }
         }
       } else {
         console.log(`ℹ️ Quick check: Representative file not found or empty - will scan all files`);

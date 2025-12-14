@@ -1,6 +1,6 @@
 import { BrokerTransactionALLCalculator } from '../calculations/broker/broker_transaction_ALL';
 import { SchedulerLogService } from './schedulerLogService';
-import { listPrefixes } from '../utils/azureBlob';
+import { listPrefixes, exists } from '../utils/azureBlob';
 import { downloadText } from '../utils/azureBlob';
 
 // Progress tracker interface for thread-safe broker counting
@@ -128,6 +128,165 @@ export class BrokerTransactionALLDataScheduler {
   }
 
   /**
+   * Pre-check which dates already have ALL.csv for all combinations
+   * OPTIMIZED: Batch checking untuk filter dates yang sudah complete
+   * Checks:
+   * 1. All sector_ALL.csv files for all investorType × marketType × sectors
+   * 2. All ALL.csv files (without sector) for all investorType × marketType
+   */
+  private async filterCompleteDates(
+    dates: string[],
+    sectors: string[],
+    investorTypes: Array<'' | 'D' | 'F'>,
+    marketTypes: Array<'' | 'RG' | 'TN' | 'NG'>
+  ): Promise<string[]> {
+    console.log(`🔍 Pre-checking existing ALL.csv files (optimized batch checking)...`);
+    console.log(`📊 Checking ${dates.length} dates for completeness (${investorTypes.length} investor types × ${marketTypes.length} market types × ${sectors.length} sectors + ${investorTypes.length} investor types × ${marketTypes.length} market types for ALL.csv)...`);
+    
+    const datesToProcess: string[] = [];
+    let skippedCount = 0;
+    
+    // Process in batches for parallel checking (faster than sequential)
+    const CHECK_BATCH_SIZE = 20; // Check 20 dates in parallel
+    const MAX_CONCURRENT_CHECKS = 10; // Max 10 concurrent checks
+    
+    // Helper function untuk exists dengan retry logic
+    const existsWithRetry = async (filePath: string, maxRetries = 2): Promise<boolean> => {
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          return await exists(filePath);
+        } catch (error: any) {
+          const isRetryable = 
+            error?.code === 'PARSE_ERROR' ||
+            error?.name === 'RestError' ||
+            (error?.message && error.message.includes('aborted'));
+          
+          if (!isRetryable || attempt === maxRetries) {
+            return false; // Not retryable or max retries reached
+          }
+          
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+      return false;
+    };
+    
+    // Helper function untuk determine folder path (same logic as calculator)
+    const getFolderPrefix = (dateSuffix: string, investorType: '' | 'D' | 'F', marketType: '' | 'RG' | 'TN' | 'NG'): string => {
+      if (investorType && marketType) {
+        const invPrefix = investorType === 'D' ? 'd' : 'f';
+        const marketLower = marketType.toLowerCase();
+        return `broker_transaction_${marketLower}_${invPrefix}/broker_transaction_${marketLower}_${invPrefix}_${dateSuffix}`;
+      } else if (investorType) {
+        const invPrefix = investorType === 'D' ? 'd' : 'f';
+        return `broker_transaction/broker_transaction_${invPrefix}_${dateSuffix}`;
+      } else if (marketType) {
+        const marketLower = marketType.toLowerCase();
+        return `broker_transaction_${marketLower}/broker_transaction_${marketLower}_${dateSuffix}`;
+      } else {
+        return `broker_transaction/broker_transaction_${dateSuffix}`;
+      }
+    };
+    
+    for (let i = 0; i < dates.length; i += CHECK_BATCH_SIZE) {
+      const batch = dates.slice(i, i + CHECK_BATCH_SIZE);
+      const batchNumber = Math.floor(i / CHECK_BATCH_SIZE) + 1;
+      const totalBatches = Math.ceil(dates.length / CHECK_BATCH_SIZE);
+      
+      // Process batch checks in parallel with concurrency limit
+      const checkPromises = batch.map(async (dateSuffix) => {
+        try {
+          // Check all combinations: investorType × marketType × sectors (for sector_ALL.csv)
+          // + investorType × marketType (for ALL.csv without sector)
+          let allComplete = true;
+          
+          for (const investorType of investorTypes) {
+            for (const marketType of marketTypes) {
+              const folderPrefix = getFolderPrefix(dateSuffix, investorType, marketType);
+              
+              // Check 1: All sector_ALL.csv files
+              for (const sector of sectors) {
+                const sectorAllFilePath = `${folderPrefix}/${sector}_ALL.csv`;
+                const sectorAllExists = await existsWithRetry(sectorAllFilePath);
+                
+                if (!sectorAllExists) {
+                  allComplete = false;
+                  break;
+                }
+              }
+              
+              if (!allComplete) break;
+              
+              // Check 2: ALL.csv (without sector)
+              const allFilePath = `${folderPrefix}/ALL.csv`;
+              const allExists = await existsWithRetry(allFilePath);
+              
+              if (!allExists) {
+                allComplete = false;
+                break;
+              }
+            }
+            
+            if (!allComplete) break;
+          }
+          
+          return { dateSuffix, isComplete: allComplete };
+        } catch (error) {
+          // If check fails, assume incomplete (safer to process than skip)
+          return { dateSuffix, isComplete: false };
+        }
+      });
+      
+      // Limit concurrency for checks
+      const checkResults: Array<{ dateSuffix: string; isComplete: boolean }> = [];
+      for (let j = 0; j < checkPromises.length; j += MAX_CONCURRENT_CHECKS) {
+        const concurrentChecks = checkPromises.slice(j, j + MAX_CONCURRENT_CHECKS);
+        const results = await Promise.all(concurrentChecks);
+        checkResults.push(...results);
+      }
+      
+      // Process results
+      for (const result of checkResults) {
+        if (result.isComplete) {
+          skippedCount++;
+          // Only log first few and last few to avoid spam
+          if (skippedCount <= 5 || skippedCount > dates.length - 5) {
+            console.log(`⏭️ Date ${result.dateSuffix}: Skip (ALL.csv exists for all combinations)`);
+          }
+        } else {
+          // Only log first few to avoid spam
+          if (datesToProcess.length < 5) {
+            console.log(`✅ Date ${result.dateSuffix} needs processing`);
+          }
+          datesToProcess.push(result.dateSuffix);
+        }
+      }
+      
+      // Progress update for large batches
+      if (totalBatches > 1 && batchNumber % 5 === 0) {
+        console.log(`📊 Checked ${Math.min(i + CHECK_BATCH_SIZE, dates.length)}/${dates.length} dates (${skippedCount} skipped, ${datesToProcess.length} to process)...`);
+      }
+    }
+    
+    // Summary log
+    console.log(`📊 Pre-check complete:`);
+    console.log(`   ⏭️  Skipped: ${skippedCount} dates (ALL.csv exists for all combinations)`);
+    console.log(`   ✅ To process: ${datesToProcess.length} dates`);
+    
+    if (datesToProcess.length > 0) {
+      console.log(`📋 Processing order (newest first):`);
+      datesToProcess.slice(0, 10).forEach((date: string, idx: number) => {
+        console.log(`   ${idx + 1}. ${date}`);
+      });
+      if (datesToProcess.length > 10) {
+        console.log(`   ... and ${datesToProcess.length - 10} more dates`);
+      }
+    }
+    
+    return datesToProcess;
+  }
+
+  /**
    * Generate ALL.csv for all dates, market types, investor types, and sectors
    * @param _scope 'all' to process all available dates (reserved for future use)
    */
@@ -199,10 +358,24 @@ export class BrokerTransactionALLDataScheduler {
       const investorTypes: Array<'' | 'D' | 'F'> = ['', 'D', 'F'];
       const marketTypes: Array<'' | 'RG' | 'TN' | 'NG'> = ['', 'RG', 'TN', 'NG'];
 
-      // Estimate total brokers: average brokers per date * dates * investor types * market types * sectors
+      // OPTIMIZATION: Pre-check which dates already have all ALL.csv files (sector_ALL.csv + ALL.csv)
+      const datesToProcess = await this.filterCompleteDates(dates, sectors, investorTypes, marketTypes);
+      
+      if (datesToProcess.length === 0) {
+        console.log('✅ All dates already have complete ALL.csv files - nothing to process');
+        return {
+          success: true,
+          message: `All dates already have complete ALL.csv files - nothing to process`,
+          data: {}
+        };
+      }
+
+      console.log(`📊 After pre-check: ${datesToProcess.length} dates need processing (${dates.length - datesToProcess.length} already complete)`);
+
+      // Estimate total brokers: average brokers per date * datesToProcess * investor types * market types * sectors
       // Typical broker count per date is around 100-150, we'll use 120 as average
       const avgBrokersPerDate = 120;
-      const estimatedTotalBrokers = dates.length * investorTypes.length * marketTypes.length * sectors.length * avgBrokersPerDate;
+      const estimatedTotalBrokers = datesToProcess.length * investorTypes.length * marketTypes.length * sectors.length * avgBrokersPerDate;
       
       // Create progress tracker for thread-safe broker counting
       const progressTracker: ProgressTracker = {
@@ -228,11 +401,11 @@ export class BrokerTransactionALLDataScheduler {
       const results: any = {};
 
       // NEW LOGIC: Loop by date first, then investor type, then market type, then all sectors
-      for (let dateIdx = 0; dateIdx < dates.length; dateIdx++) {
-        const dateSuffix = dates[dateIdx];
+      for (let dateIdx = 0; dateIdx < datesToProcess.length; dateIdx++) {
+        const dateSuffix = datesToProcess[dateIdx];
         if (!dateSuffix) continue;
         
-        console.log(`\n📅 Processing date ${dateSuffix} (${dateIdx + 1}/${dates.length})...`);
+        console.log(`\n📅 Processing date ${dateSuffix} (${dateIdx + 1}/${datesToProcess.length})...`);
         
         // Initialize results for this date
         if (!results[dateSuffix]) {
@@ -279,10 +452,10 @@ export class BrokerTransactionALLDataScheduler {
                     
                     // Update progress
                     if (finalLogId) {
-                      const dateProgress = dateIdx / dates.length;
-                      const invProgress = invIdx / (dates.length * investorTypes.length);
-                      const marketProgress = marketIdx / (dates.length * investorTypes.length * marketTypes.length);
-                      const sectorProgress = sectorIdx / (dates.length * investorTypes.length * marketTypes.length * sectors.length);
+                      const dateProgress = dateIdx / datesToProcess.length;
+                      const invProgress = invIdx / (datesToProcess.length * investorTypes.length);
+                      const marketProgress = marketIdx / (datesToProcess.length * investorTypes.length * marketTypes.length);
+                      const sectorProgress = sectorIdx / (datesToProcess.length * investorTypes.length * marketTypes.length * sectors.length);
                       const overallProgress = (dateProgress + invProgress + marketProgress + sectorProgress) * 100;
                       await SchedulerLogService.updateLog(finalLogId, {
                         progress_percentage: Math.min(100, Math.round(overallProgress)),
