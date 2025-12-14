@@ -417,6 +417,8 @@ export function AstrologyLunarCalendar() {
   // Cache for stock data
   const [stockDataCache, setStockDataCache] = useState<Map<string, AstrologyData[]>>(new Map());
   const stockSearchRef = useRef<HTMLDivElement>(null);
+  const menuContainerRef = useRef<HTMLDivElement>(null);
+  const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
   
   // Load available stocks from Azure
   useEffect(() => {
@@ -479,6 +481,43 @@ export function AstrologyLunarCalendar() {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
+
+  // Monitor menu height to detect if it wraps to 2 rows
+  useEffect(() => {
+    const checkMenuHeight = () => {
+      if (menuContainerRef.current) {
+        const menuHeight = menuContainerRef.current.offsetHeight;
+        // If menu height is more than ~50px, it's likely 2 rows (single row is usually ~40-45px)
+        setIsMenuTwoRows(menuHeight > 50);
+      }
+    };
+
+    // Check initially
+    checkMenuHeight();
+
+    // Check on window resize
+    window.addEventListener('resize', checkMenuHeight);
+    
+    // Use ResizeObserver for more accurate detection
+    let resizeObserver: ResizeObserver | null = null;
+    if (menuContainerRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        checkMenuHeight();
+      });
+      resizeObserver.observe(menuContainerRef.current);
+    }
+
+    // Also check when filters change (affects menu height)
+    const timeoutId = setTimeout(checkMenuHeight, 100);
+
+    return () => {
+      window.removeEventListener('resize', checkMenuHeight);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+      clearTimeout(timeoutId);
+    };
+  }, [selectedStock, priceFilter, spikeFilter, showPivot]);
   
   // When ALL is selected, show combined data from all stocks
   // When specific stock is selected, show data for that stock only
@@ -624,168 +663,186 @@ export function AstrologyLunarCalendar() {
 
   return (
     <div className="h-screen overflow-hidden w-full">
-      <div className="h-full flex flex-col w-full px-4 sm:px-6">
-        <div className="flex-1 min-h-0 overflow-y-auto space-y-6 py-4 sm:py-6">
-      {/* Header Controls */}
-      <Card>
-        <div className="p-4">
-          <div className="flex flex-col gap-4">
-            {/* First Row - Basic Filters */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-center">
-              {/* Stock Selection */}
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Stock:</label>
-                <div className="relative" ref={stockSearchRef}>
-                  <div className="relative">
-                    <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-                    <input
-                      type="text"
-                      placeholder={selectedStock === 'ALL' ? 'ALL (All Stocks)' : selectedStock}
-                      value={stockSearchQuery}
-                      onChange={(e) => {
-                        setStockSearchQuery(e.target.value);
-                        setShowStockDropdown(true);
-                      }}
-                      onFocus={() => setShowStockDropdown(true)}
-                      className="w-full pl-7 pr-9 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors"
-                    />
-                    {selectedStock && selectedStock !== 'ALL' && (
-                      <button
-                        type="button"
-                        aria-label="Clear selection"
-                        className="absolute inset-y-0 right-6 pr-2 flex items-center text-muted-foreground hover:text-foreground"
-                        onClick={() => {
-                          setSelectedStock('ALL');
-                          setStockSearchQuery('');
-                        }}
-                      >
-                        <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                        </svg>
-                      </button>
+      <div className="h-full flex flex-col w-full">
+        {/* Top Controls - Compact without Card */}
+        {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
+        <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
+          <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-1 md:gap-x-7 md:gap-y-0.5">
+            {/* Stock Selection */}
+            <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+              <label className="text-sm font-medium whitespace-nowrap">Stock:</label>
+              <div className="relative flex-1 md:flex-none md:w-64" ref={stockSearchRef}>
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder={selectedStock === 'ALL' ? 'ALL (All Stocks)' : selectedStock}
+                  value={stockSearchQuery}
+                  onChange={(e) => {
+                    setStockSearchQuery(e.target.value);
+                    setShowStockDropdown(true);
+                  }}
+                  onFocus={() => setShowStockDropdown(true)}
+                  className="w-full h-9 pl-10 pr-3 text-sm border border-[#3a4252] rounded-md bg-background text-foreground hover:border-primary/50 focus:border-primary focus:outline-none transition-colors"
+                />
+                {selectedStock && selectedStock !== 'ALL' && (
+                  <button
+                    type="button"
+                    aria-label="Clear selection"
+                    className="absolute inset-y-0 right-0 pr-2 flex items-center text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      setSelectedStock('ALL');
+                      setStockSearchQuery('');
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                      <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                )}
+                
+                {/* Stock Search and Select Dropdown */}
+                {showStockDropdown && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-60 overflow-y-auto">
+                    {availableStocks.length === 0 ? (
+                      <div className="p-3 text-sm text-muted-foreground">Loading stocks...</div>
+                    ) : (
+                      <>
+                        {/* Show ALL option first */}
+                        <button
+                          onClick={() => {
+                            setSelectedStock('ALL');
+                            setStockSearchQuery('');
+                            setShowStockDropdown(false);
+                          }}
+                          className={`flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors ${
+                            selectedStock === 'ALL' ? 'bg-accent' : ''
+                          }`}
+                        >
+                          <span className="text-sm font-medium">ALL (All Stocks)</span>
+                          <div className="flex items-center gap-2">
+                            {selectedStock === 'ALL' && (
+                              <div className="w-2 h-2 bg-primary rounded-full"></div>
+                            )}
+                            <Plus className="w-3 h-3 text-muted-foreground" />
+                          </div>
+                        </button>
+                        
+                        {/* Show filtered results */}
+                        {getFilteredStockOptions()
+                          .slice(0, 15)
+                          .map((stock) => (
+                            <button
+                              key={stock}
+                              onClick={() => {
+                                setSelectedStock(stock);
+                                setStockSearchQuery('');
+                                setShowStockDropdown(false);
+                              }}
+                              className={`flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors ${
+                                selectedStock === stock ? 'bg-accent' : ''
+                              }`}
+                            >
+                              <span className="text-sm">{stock}</span>
+                              <div className="flex items-center gap-2">
+                                {selectedStock === stock && (
+                                  <div className="w-2 h-2 bg-primary rounded-full"></div>
+                                )}
+                                <Plus className="w-3 h-3 text-muted-foreground" />
+                              </div>
+                            </button>
+                          ))}
+                        
+                        {/* Show "more available" message */}
+                        {!stockSearchQuery && getFilteredStockOptions().length > 15 && (
+                          <div className="text-xs text-muted-foreground px-3 py-2 border-t border-[#3a4252]">
+                            +{getFilteredStockOptions().length - 15} more stocks available (use search to find specific stocks)
+                          </div>
+                        )}
+                        
+                        {/* Show "no results" message */}
+                        {stockSearchQuery && getFilteredStockOptions().length === 0 && (
+                          <div className="p-2 text-sm text-muted-foreground">
+                            No stocks found matching "{stockSearchQuery}"
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
-                  
-                  {/* Stock Search and Select Dropdown */}
-                  {showStockDropdown && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-10 max-h-60 overflow-y-auto">
-                      {availableStocks.length === 0 ? (
-                        <div className="p-3 text-sm text-muted-foreground">Loading stocks...</div>
-                      ) : (
-                        <>
-                          {/* Show ALL option first */}
-                          <button
-                            onClick={() => {
-                              setSelectedStock('ALL');
-                              setStockSearchQuery('');
-                              setShowStockDropdown(false);
-                            }}
-                            className={`flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors ${
-                              selectedStock === 'ALL' ? 'bg-accent' : ''
-                            }`}
-                          >
-                            <span className="text-sm font-medium">ALL (All Stocks)</span>
-                            <div className="flex items-center gap-2">
-                              {selectedStock === 'ALL' && (
-                                <div className="w-2 h-2 bg-primary rounded-full"></div>
-                              )}
-                              <Plus className="w-3 h-3 text-muted-foreground" />
-                            </div>
-                          </button>
-                          
-                          {/* Show filtered results */}
-                          {getFilteredStockOptions()
-                            .slice(0, 15)
-                            .map((stock) => (
-                              <button
-                                key={stock}
-                                onClick={() => {
-                                  setSelectedStock(stock);
-                                  setStockSearchQuery('');
-                                  setShowStockDropdown(false);
-                                }}
-                                className={`flex items-center justify-between w-full px-3 py-2 text-left hover:bg-accent transition-colors ${
-                                  selectedStock === stock ? 'bg-accent' : ''
-                                }`}
-                              >
-                                <span className="text-sm">{stock}</span>
-                                <div className="flex items-center gap-2">
-                                  {selectedStock === stock && (
-                                    <div className="w-2 h-2 bg-primary rounded-full"></div>
-                                  )}
-                                  <Plus className="w-3 h-3 text-muted-foreground" />
-                                </div>
-                              </button>
-                            ))}
-                          
-                          {/* Show "more available" message */}
-                          {!stockSearchQuery && getFilteredStockOptions().length > 15 && (
-                            <div className="text-xs text-muted-foreground px-3 py-2 border-t border-border">
-                              +{getFilteredStockOptions().length - 15} more stocks available (use search to find specific stocks)
-                            </div>
-                          )}
-                          
-                          {/* Show "no results" message */}
-                          {stockSearchQuery && getFilteredStockOptions().length === 0 && (
-                            <div className="p-2 text-sm text-muted-foreground">
-                              No stocks found matching "{stockSearchQuery}"
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Price Change Filter */}
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Price Change:</label>
-                <select
-                  value={priceFilter}
-                  onChange={(e) => setPriceFilter(e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
-                >
-                  <option value="all">All</option>
-                  <option value="5%">Above 5%</option>
-                  <option value="10%">Above 10%</option>
-                </select>
-              </div>
-
-              {/* Spike Filter */}
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Spike:</label>
-                <select
-                  value={spikeFilter}
-                  onChange={(e) => setSpikeFilter(e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
-                >
-                  <option value="all">All</option>
-                  <option value="5%">Above 5%</option>
-                  <option value="10%">Above 10%</option>
-                </select>
-              </div>
-
-              {/* Show Pivot Analysis */}
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Show Pivot Analysis:</label>
-                <div className="flex items-center gap-2 h-10">
-                  <input
-                    type="checkbox"
-                    id="showPivot"
-                    checked={showPivot}
-                    onChange={(e) => setShowPivot(e.target.checked)}
-                    className="rounded border-border"
-                  />
-                  <label htmlFor="showPivot" className="text-sm">Enable</label>
-                  {stockLoading && (
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
-                  )}
-                </div>
+                )}
               </div>
             </div>
 
-            {/* Second Row - Individual Column Filters */}
+            {/* Price Change Filter */}
+            <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+              <label className="text-sm font-medium whitespace-nowrap">Price Change:</label>
+              <select
+                value={priceFilter}
+                onChange={(e) => setPriceFilter(e.target.value)}
+                className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
+              >
+                <option value="all">All</option>
+                <option value="5%">Above 5%</option>
+                <option value="10%">Above 10%</option>
+              </select>
+            </div>
+
+            {/* Spike Filter */}
+            <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+              <label className="text-sm font-medium whitespace-nowrap">Spike:</label>
+              <select
+                value={spikeFilter}
+                onChange={(e) => setSpikeFilter(e.target.value)}
+                className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
+              >
+                <option value="all">All</option>
+                <option value="5%">Above 5%</option>
+                <option value="10%">Above 10%</option>
+              </select>
+            </div>
+
+            {/* Show Pivot Analysis */}
+            <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+              <label className="text-sm font-medium whitespace-nowrap">Show Pivot Analysis:</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="showPivot"
+                  checked={showPivot}
+                  onChange={(e) => setShowPivot(e.target.checked)}
+                  className="w-4 h-4 text-primary bg-background border border-[#3a4252] rounded focus:ring-primary focus:ring-2 hover:border-primary/50 transition-colors"
+                />
+                <label htmlFor="showPivot" className="text-sm">Enable</label>
+                {stockLoading && (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
+        <div className={isMenuTwoRows ? "h-0 lg:h-[60px]" : "h-0 lg:h-[38px]"}></div>
+
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-6 py-4 sm:py-6 px-4 sm:px-6">
+      {/* Main Astrology Table */}
+      <Card>
+        <div className="p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-medium">Input Data Astrology</h3>
+            <div className="text-sm text-muted-foreground flex items-center gap-2">
+              {stockLoading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+                  <span>Loading data...</span>
+                </>
+              ) : (
+                `Total Records: ${filteredData.length}`
+              )}
+            </div>
+          </div>
+
+          {/* Individual Column Filters */}
+          <div className="mb-4">
             <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-medium text-muted-foreground">Year Element:</label>
@@ -870,25 +927,6 @@ export function AstrologyLunarCalendar() {
                   ))}
                 </select>
               </div>
-            </div>
-          </div>
-        </div>
-      </Card>
-
-      {/* Main Astrology Table */}
-      <Card>
-        <div className="p-4">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-medium">Input Data Astrology</h3>
-            <div className="text-sm text-muted-foreground flex items-center gap-2">
-              {stockLoading ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
-                  <span>Loading data...</span>
-                </>
-              ) : (
-                `Total Records: ${filteredData.length}`
-              )}
             </div>
           </div>
           
