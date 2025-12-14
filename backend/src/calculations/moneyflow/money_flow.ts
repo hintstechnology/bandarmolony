@@ -335,10 +335,75 @@ export class MoneyFlowCalculator {
   }
 
   /**
-   * Find all CSV files in a directory (like rrc_stock.ts)
-   * OPTIMIZED: Added retry logic for Azure network errors
+   * Quick check: Scan 1 representative file to infer available dates
+   * Returns available dates from representative file, or null if file not found
    */
-  private async findAllCsvFiles(prefix: string): Promise<string[]> {
+  private async quickCheckAvailableDates(representativeFile: string): Promise<Set<string> | null> {
+    try {
+      const ohlcData = await this.loadOHLCDataFromAzure(representativeFile);
+      if (ohlcData.length === 0) {
+        return null;
+      }
+      
+      const availableDates = new Set<string>();
+      ohlcData.forEach(item => {
+        if (item.Date) {
+          availableDates.add(item.Date);
+        }
+      });
+      
+      return availableDates;
+    } catch (error: any) {
+      // File not found is normal - return null
+      if (error instanceof Error && (error.message.includes('Blob not found') || error.message.includes('not found'))) {
+        return null;
+      }
+      // Other errors - log but return null
+      console.log(`⚠️ Quick check: Could not load ${representativeFile}: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Find all CSV files in a directory (like rrc_stock.ts)
+   * OPTIMIZED: Added retry logic and quick check with representative file
+   */
+  private async findAllCsvFiles(prefix: string, representativeFile?: string): Promise<string[]> {
+    // OPTIMIZATION: Quick check with representative file to infer available dates
+    if (representativeFile) {
+      console.log(`🔍 Quick check: Scanning representative file ${representativeFile} to infer available dates...`);
+      const availableDates = await this.quickCheckAvailableDates(representativeFile);
+      
+      if (availableDates && availableDates.size > 0) {
+        const sortedDates = Array.from(availableDates).sort((a, b) => b.localeCompare(a));
+        const latestDate = sortedDates[0];
+        console.log(`✅ Quick check: Representative file has ${availableDates.size} dates, latest: ${latestDate}`);
+        
+        // Parse latest date to check if recent
+        let latestDateObj: Date;
+        if (latestDate.includes('-')) {
+          latestDateObj = new Date(latestDate);
+        } else {
+          latestDateObj = new Date(
+            parseInt(latestDate.substring(0, 4)),
+            parseInt(latestDate.substring(4, 6)) - 1,
+            parseInt(latestDate.substring(6, 8))
+          );
+        }
+        
+        const daysSinceLatest = (Date.now() - latestDateObj.getTime()) / (1000 * 60 * 60 * 24);
+        
+        // If latest date is very recent (< 1 day), likely all files are up-to-date
+        // But we still need to scan all files to process them
+        if (daysSinceLatest < 1) {
+          console.log(`ℹ️ Quick check: Latest date is very recent (${daysSinceLatest.toFixed(1)} days ago) - files likely up-to-date, but will scan all files for processing`);
+        }
+      } else {
+        console.log(`ℹ️ Quick check: Representative file not found or empty - will scan all files`);
+      }
+    }
+    
+    // Scan all files (still needed to process all stocks/indices)
     const maxRetries = 3;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -514,7 +579,9 @@ export class MoneyFlowCalculator {
     
     // Process stock files first
     console.log("\n📈 Processing STOCK files...");
-    const allStockFiles = await this.findAllCsvFiles('stock/');
+    // OPTIMIZATION: Quick check with representative file (BBCA in Financials sector)
+    const representativeStockFile = 'stock/Financials/BBCA.csv';
+    const allStockFiles = await this.findAllCsvFiles('stock/', representativeStockFile);
     console.log(`Found ${allStockFiles.length} stock files`);
     
     // CRITICAL: Don't add active files before processing - add only when file needs processing
@@ -675,7 +742,9 @@ export class MoneyFlowCalculator {
     
     // Process index files second
     console.log("\n📊 Processing INDEX files...");
-    const allIndexFiles = await this.findAllCsvFiles('index/');
+    // OPTIMIZATION: Quick check with representative file (JCI)
+    const representativeIndexFile = 'index/JCI.csv';
+    const allIndexFiles = await this.findAllCsvFiles('index/', representativeIndexFile);
     console.log(`Found ${allIndexFiles.length} index files`);
     
     // CRITICAL: Don't add active files before processing - add only when file needs processing
