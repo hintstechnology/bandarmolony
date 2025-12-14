@@ -28,6 +28,7 @@ import topBrokerRoutes from './routes/top-broker';
 import watchlistRoutes from './routes/watchlist';
 import brokerSummaryRoutes from './routes/broker-summary';
 import brokerInventoryRoutes from './routes/broker_inventory';
+import sectorOhlcPriceRoutes from './routes/sector_ohlc_price';
 import publicRoutes from './routes/public';
 import { requireSupabaseUser } from './middleware/requireSupabaseUser';
 import { securityHeaders, sanitizeInput } from './middleware/security';
@@ -101,6 +102,7 @@ app.use('/api/top-broker', topBrokerRoutes);
 app.use('/api/watchlist', watchlistRoutes);
 app.use('/api/broker-summary', brokerSummaryRoutes);
 app.use('/api/broker-inventory', brokerInventoryRoutes);
+app.use('/api/sector-ohlc-price', sectorOhlcPriceRoutes);
 
 // contoh protected route pakai Supabase Auth token
 app.get('/me', requireSupabaseUser, (req: any, res) => {
