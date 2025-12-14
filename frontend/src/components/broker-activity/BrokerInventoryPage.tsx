@@ -1612,7 +1612,13 @@ const visibleBrokers = useMemo(
         const sectorsWithPrefix = sectors.map(sector => `[SECTOR] ${sector}`);
         
         // Combine stocks and sectors, then sort alphabetically
-        const allItems = [...stocksWithoutIdx, ...sectorsWithPrefix].sort((a: string, b: string) => a.localeCompare(b));
+        // Ensure IDX is always first
+        const allItems = [...stocksWithoutIdx, ...sectorsWithPrefix].sort((a: string, b: string) => {
+          // IDX always comes first
+          if (a === '[SECTOR] IDX') return -1;
+          if (b === '[SECTOR] IDX') return 1;
+          return a.localeCompare(b);
+        });
         
         setAvailableStocks(allItems);
         console.log(`📊 Loaded ${stocksWithoutIdx.length} stocks and ${sectors.length} sectors from API`);
@@ -2673,7 +2679,13 @@ const visibleBrokers = useMemo(
           const sectorsWithPrefix = sectors.map(sector => `[SECTOR] ${sector}`);
           
           // Combine stocks and sectors, then sort alphabetically
-          const allItems = [...stocksWithoutIdx, ...sectorsWithPrefix].sort((a: string, b: string) => a.localeCompare(b));
+          // Ensure IDX is always first
+          const allItems = [...stocksWithoutIdx, ...sectorsWithPrefix].sort((a: string, b: string) => {
+            // IDX always comes first
+            if (a === '[SECTOR] IDX') return -1;
+            if (b === '[SECTOR] IDX') return 1;
+            return a.localeCompare(b);
+          });
           
           setAvailableStocks(allItems);
         } catch (err) {
@@ -2803,7 +2815,9 @@ const visibleBrokers = useMemo(
   // Helper function to format display name (remove [SECTOR] prefix for display)
   const formatStockDisplayName = (stock: string): string => {
     if (stock.startsWith('[SECTOR] ')) {
-      return stock.replace('[SECTOR] ', '');
+      const sectorName = stock.replace('[SECTOR] ', '');
+      // Replace IDX with IDX Composite for display
+      return sectorName === 'IDX' ? 'IDX Composite' : sectorName;
     }
     return stock;
   };
@@ -3198,19 +3212,20 @@ const visibleBrokers = useMemo(
       }))
       .sort((a, b) => b.nsval - a.nsval);
 
-    // Top 5 Buy: Top 5 from sortedTotalNetBuy (brokers with highest NetBuy)
-    // IMPORTANT: Data has already been swapped for sectors in the mapping step (line 1920-1926)
-    // So NetBuyVol/NetSellVol are already correct - no need for additional swap
-    const topBuyers = sortedTotalNetBuy
+    // IMPORTANT: Match BrokerSummaryPage display logic
+    // In BrokerSummaryPage NET table:
+    // - BY columns (BLot, BVal, BAvg) display NetSell data → Top 5 NetSell = Top 5 Sellers
+    // - SL columns (SLot, SVal, SAvg) display NetBuy data → Top 5 NetBuy = Top 5 Buyers
+    // So we need to swap the mapping:
+    // - Top 5 Buyers = Top 5 from sortedTotalNetSell (because BVal shows NetSellValue, which represents buyers in display)
+    // - Top 5 Sellers = Top 5 from sortedTotalNetBuy (because SVal shows NetBuyValue, which represents sellers in display)
+    const topBuyers = sortedTotalNetSell
       .slice(0, 5)
-      .map(({ broker, nbval, nblot }) => ({ broker, buy: nbval, lot: nblot }));
+      .map(({ broker, nsval, nslot }) => ({ broker, buy: nsval, lot: nslot }));
 
-    // Top 5 Sell: Top 5 from sortedTotalNetSell (brokers with highest NetSell)
-    // IMPORTANT: Data has already been swapped for sectors in the mapping step (line 1920-1926)
-    // So NetBuyVol/NetSellVol are already correct - no need for additional swap
-    const topSellers = sortedTotalNetSell
+    const topSellers = sortedTotalNetBuy
       .slice(0, 5)
-      .map(({ broker, nsval, nslot }) => ({ broker, sell: nsval, lot: nslot }));
+      .map(({ broker, nbval, nblot }) => ({ broker, sell: nbval, lot: nblot }));
 
     return {
       netByBroker,

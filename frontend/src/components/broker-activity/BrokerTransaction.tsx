@@ -485,7 +485,12 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               if (!cachedSectors.includes('IDX')) {
                 cachedSectors.push('IDX');
               }
-              setAvailableSectors(cachedSectors.sort()); // Exclude 'All' from available sectors
+              // Sort with IDX always first
+              setAvailableSectors(cachedSectors.sort((a: string, b: string) => {
+                if (a === 'IDX') return -1;
+                if (b === 'IDX') return 1;
+                return a.localeCompare(b);
+              })); // Exclude 'All' from available sectors
             }
           }
         } catch (e) {
@@ -525,7 +530,12 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           if (!sectorsWithIdx.includes('IDX')) {
             sectorsWithIdx.push('IDX');
           }
-          setAvailableSectors(sectorsWithIdx.sort()); // Exclude 'All' from available sectors
+          // Sort with IDX always first
+          setAvailableSectors(sectorsWithIdx.sort((a: string, b: string) => {
+            if (a === 'IDX') return -1;
+            if (b === 'IDX') return 1;
+            return a.localeCompare(b);
+          })); // Exclude 'All' from available sectors
           // Cache for next time
           try {
             localStorage.setItem(SECTOR_MAPPING_CACHE_KEY, JSON.stringify({
@@ -541,7 +551,12 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           const cachedSectors = cachedSectorMapping.sectors || [];
           if (!cachedSectors.includes('IDX')) {
             cachedSectors.push('IDX');
-            setAvailableSectors(cachedSectors.sort());
+            // Sort with IDX always first
+            setAvailableSectors(cachedSectors.sort((a: string, b: string) => {
+              if (a === 'IDX') return -1;
+              if (b === 'IDX') return 1;
+              return a.localeCompare(b);
+            }));
             // Update cache
             try {
               localStorage.setItem(SECTOR_MAPPING_CACHE_KEY, JSON.stringify({
@@ -4624,9 +4639,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             </div>
           </div>
 
-              {/* Ticker/Sector Multi-Select (Combined) */}
+              {/* Ticker Multi-Select (Combined) */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-            <label className="text-sm font-medium whitespace-nowrap">Ticker/Sector:</label>
+            <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
             <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
               {/* Selected Tickers */}
               {selectedTickers.map(ticker => (
@@ -4651,12 +4666,12 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   key={sector}
                   className="flex items-center gap-1 px-2 h-9 bg-blue-500/20 text-blue-400 rounded-md text-sm"
                 >
-                  <span>{sector}</span>
+                  <span>{sector === 'IDX' ? 'IDX Composite' : sector}</span>
                   <button
                     type="button"
                     onClick={() => handleRemoveSector(sector)}
                     className="hover:bg-blue-500/30 rounded px-1"
-                    aria-label={`Remove ${sector}`}
+                    aria-label={`Remove ${sector === 'IDX' ? 'IDX Composite' : sector}`}
                   >
                     ×
                   </button>
@@ -4803,7 +4818,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${itemIndex === highlightedTickerIndex ? 'bg-accent' : ''}`}
                                     onMouseEnter={() => setHighlightedTickerIndex(itemIndex)}
                                   >
-                                    {sector}
+                                    {sector === 'IDX' ? 'IDX Composite' : sector}
                                   </div>
                                 );
                               })}
@@ -4827,7 +4842,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${itemIndex === highlightedTickerIndex ? 'bg-accent' : ''}`}
                                     onMouseEnter={() => setHighlightedTickerIndex(itemIndex)}
                                   >
-                                    {sector}
+                                    {sector === 'IDX' ? 'IDX Composite' : sector}
                                   </div>
                                 );
                               })}
