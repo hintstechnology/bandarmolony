@@ -345,7 +345,7 @@ export function MarketRotationTrendFilter() {
         <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-1 md:gap-x-7 md:gap-y-0.5">
           {/* Search Bar */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-            <label className="text-sm font-medium whitespace-nowrap">Search:</label>
+            <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
             <div className="relative flex-1 md:flex-none md:w-64">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
@@ -356,6 +356,24 @@ export function MarketRotationTrendFilter() {
                 className="w-full h-9 pl-10 pr-3 text-sm border border-[#3a4252] rounded-md bg-background text-foreground hover:border-primary/50 focus:border-primary focus:outline-none transition-colors"
               />
             </div>
+          </div>
+
+          {/* Sector Filter */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+            <label className="text-sm font-medium whitespace-nowrap">Sector:</label>
+            <select
+              value={selectedSector}
+              onChange={(e) =>
+                setSelectedSector(e.target.value)
+              }
+              className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
+            >
+              {sectors.map((sector) => (
+                <option key={sector} value={sector}>
+                  {sector}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Timeframe Filter */}
@@ -434,24 +452,6 @@ export function MarketRotationTrendFilter() {
                 Down
               </Button>
             </div>
-          </div>
-
-          {/* Sector Filter */}
-          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
-            <label className="text-sm font-medium whitespace-nowrap">Sector:</label>
-            <select
-              value={selectedSector}
-              onChange={(e) =>
-                setSelectedSector(e.target.value)
-              }
-              className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
-            >
-              {sectors.map((sector) => (
-                <option key={sector} value={sector}>
-                  {sector}
-                </option>
-              ))}
-            </select>
           </div>
         </div>
       </div>
