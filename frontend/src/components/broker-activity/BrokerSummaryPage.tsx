@@ -353,7 +353,13 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         const sectorsWithPrefix = sectors.map(sector => `[SECTOR] ${sector}`);
         
         // Combine stocks and sectors, then sort alphabetically
-        return [...stocksWithoutIdx, ...sectorsWithPrefix].sort((a: string, b: string) => a.localeCompare(b));
+        // Ensure IDX is always first
+        return [...stocksWithoutIdx, ...sectorsWithPrefix].sort((a: string, b: string) => {
+          // IDX always comes first
+          if (a === '[SECTOR] IDX') return -1;
+          if (b === '[SECTOR] IDX') return 1;
+          return a.localeCompare(b);
+        });
       };
       
       // Try to load from cache first for instant display
@@ -1714,7 +1720,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   // Helper function to format display name (remove [SECTOR] prefix for display)
   const formatStockDisplayName = (stock: string): string => {
     if (stock.startsWith('[SECTOR] ')) {
-      return stock.replace('[SECTOR] ', '');
+      const sectorName = stock.replace('[SECTOR] ', '');
+      // Replace IDX with IDX Composite for display
+      return sectorName === 'IDX' ? 'IDX Composite' : sectorName;
     }
     return stock;
   };
