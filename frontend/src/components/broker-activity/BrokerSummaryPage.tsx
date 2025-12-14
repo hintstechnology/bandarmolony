@@ -1740,7 +1740,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   };
 
   // Font size fixed to normal (no menu)
-  const getFontSizeClass = () => 'text-[12px]';
+  const getFontSizeClass = () => 'text-[12.5px]';
 
   // Filter raw data by investor filter (client-side filtering)
   useEffect(() => {
