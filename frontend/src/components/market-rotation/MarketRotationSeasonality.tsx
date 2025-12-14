@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { X, Plus, TrendingUp, Search, Loader2, RefreshCw } from 'lucide-react';
+import { X, Plus, Search, Loader2, RefreshCw } from 'lucide-react';
 import { api } from '../../services/api';
 
 interface MonthData {
@@ -83,11 +83,15 @@ export function MarketRotationSeasonality() {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const indexDropdownRef = useRef<HTMLDivElement>(null);
   const sectorDropdownRef = useRef<HTMLDivElement>(null);
+  const controlPanelRef = useRef<HTMLDivElement>(null);
   
   // Keyboard navigation state
   const [stockDropdownIndex, setStockDropdownIndex] = useState(-1);
   const [indexDropdownIndex, setIndexDropdownIndex] = useState(-1);
   const [sectorDropdownIndex, setSectorDropdownIndex] = useState(-1);
+  
+  // Control panel spacer height for fixed positioning
+  const [controlSpacerHeight, setControlSpacerHeight] = useState<number>(72);
 
   // API data states
   const [indexData, setIndexData] = useState<ApiSeasonalityData[]>([]);
@@ -185,6 +189,39 @@ export function MarketRotationSeasonality() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  // Update spacer height for fixed control panel
+  // Match BrokerSummaryPage: single row ~38px, two rows ~60px
+  useEffect(() => {
+    const updateSpacerHeight = () => {
+      if (controlPanelRef.current) {
+        const height = controlPanelRef.current.offsetHeight;
+        // Match BrokerSummaryPage logic: if height > 50px, it's likely 2 rows
+        // Single row is usually ~38px, two rows is usually ~60px
+        if (height > 50) {
+          setControlSpacerHeight(60);
+        } else {
+          setControlSpacerHeight(38);
+        }
+      }
+    };
+
+    updateSpacerHeight();
+    window.addEventListener('resize', updateSpacerHeight);
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && controlPanelRef.current) {
+      resizeObserver = new ResizeObserver(() => updateSpacerHeight());
+      resizeObserver.observe(controlPanelRef.current);
+    }
+
+    return () => {
+      window.removeEventListener('resize', updateSpacerHeight);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
     };
   }, []);
 
@@ -457,12 +494,11 @@ export function MarketRotationSeasonality() {
 
   return (
     <div className="space-y-6">
-      {/* Display Options */}
-      <Card className="p-4">
-        <div className="space-y-4">
+      {/* Display Options - Fixed at top on large screens */}
+      <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
+        <div ref={controlPanelRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-1 md:gap-x-7 md:gap-y-0.5">
           <div className="flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Display Options:</span>
+            <span className="text-sm font-medium whitespace-nowrap" style={{ paddingTop: '8px', paddingBottom: '8px' }}>Display Options:</span>
           </div>
           
           <div className="flex flex-col sm:flex-row gap-4">
@@ -472,7 +508,7 @@ export function MarketRotationSeasonality() {
                 type="checkbox"
                 checked={showIndex}
                 onChange={(e) => setShowIndex(e.target.checked)}
-                className="w-4 h-4 text-primary bg-background border border-border rounded focus:ring-primary focus:ring-2 hover:border-primary/50 transition-colors"
+                className="w-4 h-4 text-primary bg-background border border-[#3a4252] rounded focus:ring-primary focus:ring-2 hover:border-primary/50 transition-colors"
               />
               <span className="text-sm font-medium">Index</span>
             </label>
@@ -483,7 +519,7 @@ export function MarketRotationSeasonality() {
                 type="checkbox"
                 checked={showSector}
                 onChange={(e) => setShowSector(e.target.checked)}
-                className="w-4 h-4 text-primary bg-background border border-border rounded focus:ring-primary focus:ring-2 hover:border-primary/50 transition-colors"
+                className="w-4 h-4 text-primary bg-background border border-[#3a4252] rounded focus:ring-primary focus:ring-2 hover:border-primary/50 transition-colors"
               />
               <span className="text-sm font-medium">Sector</span>
             </label>
@@ -494,17 +530,20 @@ export function MarketRotationSeasonality() {
                 type="checkbox"
                 checked={showStock}
                 onChange={(e) => setShowStock(e.target.checked)}
-                className="w-4 h-4 text-primary bg-background border border-border rounded focus:ring-primary focus:ring-2 hover:border-primary/50 transition-colors"
+                className="w-4 h-4 text-primary bg-background border border-[#3a4252] rounded focus:ring-primary focus:ring-2 hover:border-primary/50 transition-colors"
               />
               <span className="text-sm font-medium">Saham</span>
             </label>
           </div>
         </div>
-      </Card>
+      </div>
+      
+      {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
+      <div className="hidden lg:block" style={{ height: `${controlSpacerHeight}px` }} />
 
       {/* Index Seasonality */}
       {showIndex && (
-        <Card className="space-y-4 p-4 sm:p-6">
+        <Card className="space-y-4 p-4 sm:p-6 lg:pt-6">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <h3 className="text-base font-semibold sm:text-lg">Index Seasonality Pattern</h3>
