@@ -1888,11 +1888,11 @@ export function StockTransactionDoneDetail() {
 
       {/* Pivot Builder Dialog */}
       <Dialog open={isPivotBuilderOpen} onOpenChange={setIsPivotBuilderOpen}>
-        <DialogContent className="max-w-[90vw] sm:max-w-[80vw] md:max-w-[70vw] lg:max-w-[60vw] max-h-[90vh] flex flex-col p-0">
-          <DialogHeader className="sticky top-0 z-10 bg-background border-b px-4 py-3">
+        <DialogContent className="max-w-[90vw] sm:max-w-[80vw] md:max-w-[70vw] lg:max-w-[60vw] max-h-[90vh] flex flex-col p-0 overflow-hidden">
+          <DialogHeader className="flex-shrink-0 bg-background border-b px-4 py-3">
             <DialogTitle className="text-base">Customize Pivot Table Fields</DialogTitle>
           </DialogHeader>
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto min-h-0">
           <div className="py-3">
       {/* Drag and Drop Pivot Builder Section */}
       <div className="px-3 py-3 border-b border-[#3a4252] bg-[#0a0f20]">
@@ -2589,7 +2589,7 @@ export function StockTransactionDoneDetail() {
             </div>
           </div>
           </div>
-          <DialogFooter className="sticky bottom-0 z-10 bg-background border-t px-4 py-3 flex items-center justify-between sm:justify-between">
+          <DialogFooter className="flex-shrink-0 bg-background border-t px-4 py-3 flex items-center justify-between sm:justify-between">
             <Button
               variant="outline"
               size="sm"
