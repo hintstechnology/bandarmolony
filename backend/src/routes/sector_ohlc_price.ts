@@ -100,12 +100,21 @@ router.get('/:sectorName', async (req, res) => {
       headers.forEach((header, index) => {
         const value = values[index] || '';
         // Convert numeric fields
-        if (['Open', 'High', 'Low', 'Close', 'Volume', 'Value', 'Frequency', 'ChangePercent'].includes(header)) {
+        if (['Open', 'High', 'Low', 'Close', 'Volume', 'Value', 'Frequency', 'ChangePercent', 'Previous'].includes(header)) {
           row[header] = parseFloat(value) || 0;
         } else {
           row[header] = value;
         }
       });
+      
+      // Use Previous as Open for sector OHLC data (if Previous exists, use it; otherwise keep Open)
+      if (row.Previous !== undefined && row.Previous !== null && !isNaN(row.Previous)) {
+        row.Open = row.Previous;
+      } else if (row.Open === undefined || row.Open === null || isNaN(row.Open)) {
+        // If Open is not available and Previous is also not available, set to Close (fallback)
+        row.Open = row.Close || 0;
+      }
+      
       return row;
     });
     
