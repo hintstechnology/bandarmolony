@@ -53,8 +53,8 @@ router.get('/:sectorName', async (req, res) => {
       });
     }
     
-    // Path: stock-trading-data/index/{filename}
-    const filePath = `stock-trading-data/index/${filename}`;
+    // Path: index/{filename} (container is already stock-trading-data)
+    const filePath = `index/${filename}`;
     
     console.log(`📊 Getting sector OHLC data for: ${sectorName}`);
     console.log(`📊 Looking for file: ${filePath}`);
