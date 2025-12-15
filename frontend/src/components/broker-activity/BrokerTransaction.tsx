@@ -4466,11 +4466,84 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         </div>
       );
     };
+
+    // Summary Table - Aggregated totals across all brokers/dates
+    const renderAggregateSummaryTable = () => {
+      let totalValue = 0;
+      let totalLot = 0;
+      let foreignBuyValue = 0;
+      let foreignSellValue = 0;
+
+      const dates = Array.from(transactionData.keys());
+
+      dates.forEach((date: string) => {
+        const dateData = transactionData.get(date) || [];
+        dateData.forEach(item => {
+          const buyVal = Number(item.BuyerValue) || 0;
+          const sellVal = Number(item.SellerValue) || 0;
+          totalValue += buyVal + sellVal;
+
+          const buyLot = Number(item.BLot) || 0;
+          const sellLot = Number(item.SLot) || 0;
+          totalLot += buyLot + sellLot;
+
+          const bCode = (item.BCode || '').toUpperCase();
+          const sCode = (item.SCode || '').toUpperCase();
+          if (bCode && FOREIGN_BROKERS.includes(bCode)) {
+            foreignBuyValue += buyVal;
+          }
+          if (sCode && FOREIGN_BROKERS.includes(sCode)) {
+            foreignSellValue += sellVal;
+          }
+        });
+      });
+
+      const foreignNetValue = foreignBuyValue - foreignSellValue;
+      const avgPrice = totalLot > 0 ? totalValue / (totalLot * 100) : 0;
+      const foreignNetClass = foreignNetValue > 0 ? 'text-green-500' : foreignNetValue < 0 ? 'text-red-500' : 'text-white';
+
+      return (
+        <div className="w-full max-w-full mt-2">
+          <div className="bg-muted/50 px-4 py-1.5 border-y border-border flex items-center justify-between">
+            <h3 className="font-semibold text-sm">Summary (All Brokers)</h3>
+          </div>
+          <div className="w-full max-w-full">
+            <table className={`min-w-[600px] ${getFontSizeClass()} border-collapse border-l-2 border-r-2 border-b-2 border-white`}>
+              <thead className="bg-[#3a4252]">
+                <tr className="border-t-2 border-white">
+                  <th className="text-center py-[4px] px-3 font-bold text-white">TVal</th>
+                  <th className="text-center py-[4px] px-3 font-bold text-white">FNVal</th>
+                  <th className="text-center py-[4px] px-3 font-bold text-white">TLot</th>
+                  <th className="text-center py-[4px] px-3 font-bold text-white">Avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="bg-[#0f172a]">
+                  <td className="text-center py-[4px] px-3 text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatValue(totalValue)}
+                  </td>
+                  <td className={`text-center py-[4px] px-3 font-bold ${foreignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatValue(foreignNetValue)}
+                  </td>
+                  <td className="text-center py-[4px] px-3 text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatLot(totalLot)}
+                  </td>
+                  <td className="text-center py-[4px] px-3 text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatAverage(avgPrice)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    };
     
     return (
       <div className="w-full">
         {renderValueTable()}
         {renderNetTable()}
+        {renderAggregateSummaryTable()}
       </div>
     );
     }, [filteredStocks, uniqueStocks, sortedStocksByDate, sortedNetStocksByDate, totalDataByStock, totalNetDataByStock, sortedTotalStocks, sortedTotalNetStocks, transactionData, visibleRowIndices, buyStocksByDate, sellStocksByDate, netBuyStocksByDate, netSellStocksByDate, totalNetBuyDataByStock, totalNetSellDataByStock, isDataReady, selectedDates, activeSectorFilter, selectedSectors, stockToSectorMap, pivotFilter, selectedTickers, selectedBrokers]); // CRITICAL: Added selectedDates, activeSectorFilter, selectedSectors, stockToSectorMap, pivotFilter, selectedTickers, and selectedBrokers to dependencies to react to showOnlyTotal, sector filter changes, pivot type changes, and header text updates
