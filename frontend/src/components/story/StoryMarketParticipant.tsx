@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ComposedChart } from 'recharts';
+import { Line, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, ComposedChart, CartesianGrid } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Search, X } from 'lucide-react';
@@ -82,8 +82,8 @@ const IndividualChart = ({
         textColor: colors.axisTextColor,
       },
       grid: { 
-        horzLines: { color: colors.gridColor, style: 1 }, 
-        vertLines: { color: colors.gridColor, style: 1 } 
+        horzLines: { visible: false }, 
+        vertLines: { visible: false } 
       },
       rightPriceScale: { 
         borderColor: colors.borderColor
@@ -212,6 +212,11 @@ const TradingViewMultiPaneChart = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const userColors = useUserChartColors();
+  const paneHeightsSetRef = useRef(false);
+  const resizeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isResizingRef = useRef(false);
+  const isSettingHeightsRef = useRef(false);
+  const prevDataRef = useRef<string>('');
 
   // Get theme-aware colors
   const getThemeColors = () => {
@@ -230,15 +235,49 @@ const TradingViewMultiPaneChart = ({
     const el = containerRef.current;
     if (!el) return;
 
+    // Create data signature to detect actual changes
+    const dataSignature = JSON.stringify({
+      candlestick: candlestickData.length,
+      moneyFlow: moneyFlowData.length,
+      volume: volumeData.length,
+      firstCandle: candlestickData[0]?.time,
+      lastCandle: candlestickData[candlestickData.length - 1]?.time
+    });
+    
+    // Skip if data hasn't actually changed
+    if (prevDataRef.current === dataSignature && chartRef.current && paneHeightsSetRef.current) {
+      console.log('[StoryMarketParticipant] Data unchanged, skipping recreation');
+      return;
+    }
+    
+    prevDataRef.current = dataSignature;
+    
+    console.log('[StoryMarketParticipant] useEffect triggered - Chart recreation', dataSignature);
+
     // Clean up existing chart
     if (chartRef.current) {
+      console.log('[StoryMarketParticipant] Removing existing chart');
       chartRef.current.remove();
       chartRef.current = null;
+    }
+    
+    // Reset pane heights flag when recreating chart
+    console.log('[StoryMarketParticipant] Resetting flags');
+    paneHeightsSetRef.current = false;
+    isSettingHeightsRef.current = false;
+    isResizingRef.current = false;
+    
+    // Clear any pending resize operations and timeouts
+    if (resizeTimeoutRef.current) {
+      clearTimeout(resizeTimeoutRef.current);
+      resizeTimeoutRef.current = null;
     }
     
     const width = el.clientWidth || 800;
     const height = el.clientHeight || 650;
     const colors = getThemeColors();
+    
+    console.log('[StoryMarketParticipant] Creating chart with dimensions:', { width, height });
     
     // Create chart with panes configuration
     chartRef.current = createChart(el, {
@@ -250,12 +289,12 @@ const TradingViewMultiPaneChart = ({
         panes: {
           separatorColor: colors.separatorColor,
           separatorHoverColor: colors.separatorHoverColor,
-          enableResize: true,
+          enableResize: false, // Disable resize to prevent loop
         }
       },
       grid: { 
-        horzLines: { color: colors.gridColor, style: 1 }, 
-        vertLines: { color: colors.gridColor, style: 1 } 
+        horzLines: { visible: false }, 
+        vertLines: { visible: false } 
       },
       rightPriceScale: { 
         borderColor: colors.borderColor
@@ -324,16 +363,80 @@ const TradingViewMultiPaneChart = ({
         color: d.buyVolume > d.sellVolume ? userColors.bullish : userColors.bearish,
       })));
 
-      // Force separate panes by setting heights
-      setTimeout(() => {
-        const panes = chartRef.current?.panes();
-        if (panes && panes.length >= 3) {
-          // Set pane heights - 6:1:1 ratio (Price:Money Flow:Volume) - Fixed ratio
-          panes[0]?.setHeight(450); // Main price chart - 6 parts (64.3%)
-          panes[1]?.setHeight(125); // Money flow - 1 part (17.9%) - Tidak gepeng
-          panes[2]?.setHeight(125); // Volume - 1 part (17.9%) - Tidak gepeng
-        }
-      }, 200);
+      // Force separate panes by setting heights - ONE TIME ONLY, NO RETRY
+      // Use requestAnimationFrame to ensure DOM is ready, then single setTimeout
+      if (!paneHeightsSetRef.current && !isSettingHeightsRef.current) {
+        console.log('[StoryMarketParticipant] Setting pane heights - START');
+        isSettingHeightsRef.current = true;
+        isResizingRef.current = true;
+        
+        // Use requestAnimationFrame + single setTimeout to prevent multiple calls
+        requestAnimationFrame(() => {
+          // Clear any existing timeout first
+          if (resizeTimeoutRef.current) {
+            clearTimeout(resizeTimeoutRef.current);
+          }
+          
+          resizeTimeoutRef.current = setTimeout(() => {
+            // Double check conditions inside timeout
+            if (!chartRef.current || paneHeightsSetRef.current) {
+              console.log('[StoryMarketParticipant] Chart removed or heights already set, aborting');
+              isResizingRef.current = false;
+              isSettingHeightsRef.current = false;
+              return;
+            }
+            
+            const panes = chartRef.current?.panes();
+            console.log('[StoryMarketParticipant] Pane heights timeout - panes:', panes?.length, 'paneHeightsSet:', paneHeightsSetRef.current);
+            
+            if (panes && panes.length >= 3 && !paneHeightsSetRef.current) {
+              try {
+                // Calculate fixed heights based on container
+                const totalHeight = el.clientHeight || 700;
+                const pane0Height = Math.floor(totalHeight * 0.643); // 64.3% - Price
+                const pane1Height = Math.floor(totalHeight * 0.179); // 17.9% - Money Flow
+                const pane2Height = Math.floor(totalHeight * 0.179); // 17.9% - Volume
+                
+                console.log('[StoryMarketParticipant] Setting pane heights:', {
+                  totalHeight,
+                  pane0Height,
+                  pane1Height,
+                  pane2Height
+                });
+                
+                // Set heights ONCE and lock them IMMEDIATELY
+                paneHeightsSetRef.current = true; // Set BEFORE calling setHeight to prevent re-entry
+                
+                panes[0]?.setHeight(pane0Height);
+                panes[1]?.setHeight(pane1Height);
+                panes[2]?.setHeight(pane2Height);
+                
+                console.log('[StoryMarketParticipant] Pane heights SET - locked');
+                
+                // Keep flags locked for extended period
+                setTimeout(() => {
+                  console.log('[StoryMarketParticipant] Unlocking flags after 3s');
+                  isResizingRef.current = false;
+                  isSettingHeightsRef.current = false;
+                }, 3000);
+              } catch (e) {
+                console.error('[StoryMarketParticipant] Error setting pane heights:', e);
+                paneHeightsSetRef.current = false; // Reset on error
+                isResizingRef.current = false;
+                isSettingHeightsRef.current = false;
+              }
+            } else {
+              console.log('[StoryMarketParticipant] Skipping setHeight - conditions not met');
+              isResizingRef.current = false;
+              isSettingHeightsRef.current = false;
+            }
+            
+            resizeTimeoutRef.current = null;
+          }, 500);
+        });
+      } else {
+        console.log('[StoryMarketParticipant] Skipping setHeight - already set or in progress');
+      }
 
       chartRef.current.timeScale().fitContent();
     } catch (e) {
@@ -341,20 +444,42 @@ const TradingViewMultiPaneChart = ({
     }
   }, [candlestickData, moneyFlowData, volumeData, userColors]);
 
-  // Resize responsif
+  // Resize responsif - COMPLETELY DISABLED to prevent loop
+  // Multi-pane charts with fixed heights should not be resized dynamically
+  // as it causes infinite loops with pane height recalculation
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return;
-      const ro = new ResizeObserver((entries) => {
-      const cr = entries[0]?.contentRect;
-      if (!cr || !chartRef.current) return;
-      chartRef.current.applyOptions({
-        width: Math.max(1, Math.floor(cr.width)),
-        height: Math.max(1, Math.floor(cr.height)),
-      });
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
+    console.log('[StoryMarketParticipant] Resize effect - DISABLED');
+    
+    // NO RESIZE HANDLING - Fixed dimensions only
+    // This prevents the infinite loop caused by ResizeObserver triggering
+    // setHeight which triggers resize which triggers ResizeObserver again
+    
+    // Debug: Check if anything is trying to resize
+    const checkResize = () => {
+      if (chartRef.current) {
+        const options = chartRef.current.options();
+        const panes = chartRef.current.panes();
+        console.log('[StoryMarketParticipant] Chart dimensions:', {
+          width: options.width,
+          height: options.height,
+          paneCount: panes?.length,
+          paneHeights: panes?.map((p, i) => ({ index: i, height: (p as any).height })),
+          paneHeightsSet: paneHeightsSetRef.current,
+          isResizing: isResizingRef.current,
+          isSettingHeights: isSettingHeightsRef.current
+        });
+      }
+    };
+    
+    // Check every 2 seconds for debugging
+    const debugInterval = setInterval(checkResize, 2000);
+    
+    return () => {
+      clearInterval(debugInterval);
+      if (resizeTimeoutRef.current) {
+        clearTimeout(resizeTimeoutRef.current);
+      }
+    };
   }, []);
 
   // Cleanup on unmount
@@ -436,6 +561,10 @@ export function StoryMarketParticipant({
   // Cache
   const cacheRef = useRef<Map<string, { data: any; timestamp: number }>>(new Map());
   const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+  
+  // Control menu ref and spacer height for fixed positioning
+  const controlMenuRef = useRef<HTMLDivElement>(null);
+  const [controlSpacerHeight, setControlSpacerHeight] = useState<number>(72);
 
   const stocks = ['BBRI', 'BBCA', 'BMRI', 'BBNI', 'TLKM', 'ASII', 'UNVR', 'GGRM', 'ICBP', 'INDF', 'KLBF', 'ADRO', 'ANTM', 'ITMG', 'PTBA', 'SMGR', 'INTP', 'WIKA', 'WSKT', 'PGAS'];
 
@@ -494,7 +623,20 @@ export function StoryMarketParticipant({
       let volumeData: any[] = [];
       
       if (ohlcResponse.success && ohlcResponse.data?.data) {
-        ohlcData = ohlcResponse.data.data.map((row: any) => ({
+        // Sort data by date descending (newest first, oldest last) - from today backwards
+        const sortedData = [...ohlcResponse.data.data].sort((a: any, b: any) => {
+          const dateA = new Date(a.Date).getTime();
+          const dateB = new Date(b.Date).getTime();
+          return dateB - dateA; // Descending order (newest to oldest)
+        });
+        
+        // Take only the last N records (most recent) if dataLimit is specified
+        const limitedData = dataLimit > 0 ? sortedData.slice(0, dataLimit) : sortedData;
+        
+        // Reverse to chronological order (oldest to newest) for chart display
+        const chronologicalData = [...limitedData].reverse();
+        
+        ohlcData = chronologicalData.map((row: any) => ({
           time: row.Date as any, // Format: YYYY-MM-DD
           open: row.Open,
           high: row.High,
@@ -523,7 +665,20 @@ export function StoryMarketParticipant({
       let mfiData: any[] = [];
       
       if (moneyFlowResponse.success && moneyFlowResponse.data?.data) {
-        mfiData = moneyFlowResponse.data.data.map((row: any) => ({
+        // Sort data by date descending (newest first, oldest last) - from today backwards
+        const sortedData = [...moneyFlowResponse.data.data].sort((a: any, b: any) => {
+          const dateA = new Date(a.Date).getTime();
+          const dateB = new Date(b.Date).getTime();
+          return dateB - dateA; // Descending order (newest to oldest)
+        });
+        
+        // Take only the last N records (most recent) if dataLimit is specified
+        const limitedData = dataLimit > 0 ? sortedData.slice(0, dataLimit) : sortedData;
+        
+        // Reverse to chronological order (oldest to newest) for chart display
+        const chronologicalData = [...limitedData].reverse();
+        
+        mfiData = chronologicalData.map((row: any) => ({
           time: row.Date as any,
           moneyFlow: row.MFI, // MFI value (0-100)
           inflow: row.MFI > 50 ? row.MFI * 100 : 0, // Mock inflow/outflow
@@ -540,7 +695,20 @@ export function StoryMarketParticipant({
       let foreignData: any[] = [];
       
       if (foreignFlowResponse.success && foreignFlowResponse.data?.data) {
-        foreignData = foreignFlowResponse.data.data.map((row: any) => ({
+        // Sort data by date descending (newest first, oldest last) - from today backwards
+        const sortedData = [...foreignFlowResponse.data.data].sort((a: any, b: any) => {
+          const dateA = new Date(a.Date).getTime();
+          const dateB = new Date(b.Date).getTime();
+          return dateB - dateA; // Descending order (newest to oldest)
+        });
+        
+        // Take only the last N records (most recent) if dataLimit is specified
+        const limitedData = dataLimit > 0 ? sortedData.slice(0, dataLimit) : sortedData;
+        
+        // Reverse to chronological order (oldest to newest) for chart display
+        const chronologicalData = [...limitedData].reverse();
+        
+        foreignData = chronologicalData.map((row: any) => ({
           time: row.Date as any,
           buyVol: row.BuyVol,
           sellVol: row.SellVol,
@@ -558,7 +726,20 @@ export function StoryMarketParticipant({
       let holdingData: any[] = [];
       
       if (holdingResponse.success && holdingResponse.data?.data) {
-        holdingData = holdingResponse.data.data;
+        // Sort data by date descending (newest first, oldest last) - from today backwards
+        const sortedData = [...holdingResponse.data.data].sort((a: any, b: any) => {
+          const dateA = new Date(a.date || a.Date).getTime();
+          const dateB = new Date(b.date || b.Date).getTime();
+          return dateB - dateA; // Descending order (newest to oldest)
+        });
+        
+        // Take only the last N records (most recent) if dataLimit is specified
+        const limitedData = dataLimit > 0 ? sortedData.slice(0, dataLimit) : sortedData;
+        
+        // Reverse to chronological order (oldest to newest) for chart display
+        const chronologicalData = [...limitedData].reverse();
+        
+        holdingData = chronologicalData;
         setHoldingDataReal(holdingData);
         console.log(`✅ Holding data loaded: ${holdingData.length} records`);
       } else {
@@ -633,6 +814,32 @@ export function StoryMarketParticipant({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Update spacer height for fixed control menu
+  useEffect(() => {
+    const updateSpacerHeight = () => {
+      if (controlMenuRef.current) {
+        const height = controlMenuRef.current.offsetHeight;
+        setControlSpacerHeight(Math.max(height + 16, 48));
+      }
+    };
+
+    updateSpacerHeight();
+    window.addEventListener('resize', updateSpacerHeight);
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && controlMenuRef.current) {
+      resizeObserver = new ResizeObserver(() => updateSpacerHeight());
+      resizeObserver.observe(controlMenuRef.current);
+    }
+
+    return () => {
+      window.removeEventListener('resize', updateSpacerHeight);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+    };
+  }, [stockInput, layoutMode, tempDateRange, dataLimit]);
+
   // Use available stocks from API or fallback to default
   const stockList = availableStocks.length > 0 ? availableStocks : stocks;
   const filteredStocksFromAPI = stockList.filter(stock => 
@@ -646,168 +853,158 @@ export function StoryMarketParticipant({
   return (
     <div className="space-y-4">
       {/* Controls */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col gap-4">
-            {/* Row 1: Stock Search & Layout */}
-          <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-end justify-between">
-              <div className="flex-1">
-                <label className="block text-sm font-medium mb-2">
-                  Stock Search:
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    Available stocks: {availableStocks.length > 0 ? availableStocks.length : stocks.length}
-                  </span>
-                </label>
-                <div className="relative stock-dropdown-container">
-                  <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground z-10" />
-                  <input
-                    type="text"
-                    value={stockInput}
-                    onChange={(e) => handleStockInputChange(e.target.value)}
-                    onFocus={() => setShowStockSuggestions(true)}
-                    onKeyDown={(e) => {
-                      if (!showStockSuggestions) setShowStockSuggestions(true);
-                      if (e.key === 'ArrowDown' && displayedStocks.length) {
-                        e.preventDefault();
-                        setHighlightedIndex((prev) => (prev + 1) % displayedStocks.length);
-                      } else if (e.key === 'ArrowUp' && displayedStocks.length) {
-                        e.preventDefault();
-                        setHighlightedIndex((prev) => (prev <= 0 ? displayedStocks.length - 1 : prev - 1));
-                      } else if (e.key === 'Enter') {
-                        if (highlightedIndex >= 0 && displayedStocks[highlightedIndex]) {
-                          handleStockSelect(displayedStocks[highlightedIndex]);
-                          setHighlightedIndex(-1);
-                        }
-                      } else if (e.key === 'Escape') {
-                        setShowStockSuggestions(false);
-                        setHighlightedIndex(-1);
-                      }
-                    }}
-                    placeholder="Enter stock code..."
-                    className="pl-9 pr-10 py-1 h-10 border border-border rounded-md bg-background text-foreground w-full"
-                  />
-                  {stockInput && (
-                    <button
-                      onClick={() => {
-                        setStockInput('');
-                        setShowStockSuggestions(true);
-                      }}
-                      className="absolute right-2 top-1/2 transform -translate-y-1/2 w-6 h-6 flex items-center justify-center hover:bg-muted rounded-full transition-colors z-10"
-                    >
-                      <X className="w-4 h-4 text-muted-foreground" />
-                    </button>
-                  )}
-                  {showStockSuggestions && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-64 overflow-y-auto">
-                      {stockInput === '' && (
-                        <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
-                          All Stocks
-                        </div>
-                      )}
-                      {displayedStocks.length > 0 ? (
-                        <>
-                          {displayedStocks.map((stock, idx) => (
-                          <div
-                            key={stock}
-                            onClick={() => handleStockSelect(stock)}
-                            onMouseEnter={() => setHighlightedIndex(idx)}
-                            onMouseLeave={() => setHighlightedIndex(-1)}
-                            className={`px-3 py-2 cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-muted' : 'hover:bg-muted'}`}
-                          >
-                            {stock}
-                          </div>
-                          ))}
-                          {hasMore && (
-                            <div className="px-3 py-2 text-xs text-muted-foreground border-t border-border">
-                              +{moreCount} more stocks available
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <div className="px-3 py-2 text-sm text-muted-foreground">
-                          No stocks found
-                        </div>
-                      )}
+      <div className="bg-[#0a0f20]/95 border-b border-[#3a4252] px-4 py-1.5 backdrop-blur-md shadow-lg lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
+        <div ref={controlMenuRef} className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-3 md:gap-6">
+          {/* Stock Search */}
+          <div className="flex items-center gap-2 w-full md:w-auto md:min-w-[280px] md:max-w-[320px]">
+            <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
+            <div className="relative stock-dropdown-container flex-1 min-w-0">
+              <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground z-10" />
+              <input
+                type="text"
+                value={stockInput}
+                onChange={(e) => handleStockInputChange(e.target.value)}
+                onFocus={() => setShowStockSuggestions(true)}
+                onKeyDown={(e) => {
+                  if (!showStockSuggestions) setShowStockSuggestions(true);
+                  if (e.key === 'ArrowDown' && displayedStocks.length) {
+                    e.preventDefault();
+                    setHighlightedIndex((prev) => (prev + 1) % displayedStocks.length);
+                  } else if (e.key === 'ArrowUp' && displayedStocks.length) {
+                    e.preventDefault();
+                    setHighlightedIndex((prev) => (prev <= 0 ? displayedStocks.length - 1 : prev - 1));
+                  } else if (e.key === 'Enter') {
+                    if (highlightedIndex >= 0 && displayedStocks[highlightedIndex]) {
+                      handleStockSelect(displayedStocks[highlightedIndex]);
+                      setHighlightedIndex(-1);
+                    }
+                  } else if (e.key === 'Escape') {
+                    setShowStockSuggestions(false);
+                    setHighlightedIndex(-1);
+                  }
+                }}
+                placeholder="Enter stock code..."
+                className="pl-9 pr-10 py-1 h-10 border border-border rounded-md bg-background text-foreground w-full"
+              />
+              {stockInput && (
+                <button
+                  onClick={() => {
+                    setStockInput('');
+                    setShowStockSuggestions(true);
+                  }}
+                  className="absolute right-2 top-1/2 transform -translate-y-1/2 w-6 h-6 flex items-center justify-center hover:bg-muted rounded-full transition-colors z-10"
+                >
+                  <X className="w-4 h-4 text-muted-foreground" />
+                </button>
+              )}
+              {showStockSuggestions && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-64 overflow-y-auto">
+                  {stockInput === '' && (
+                    <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
+                      All Stocks ({availableStocks.length > 0 ? availableStocks.length : stocks.length})
                     </div>
                   )}
-              </div>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium mb-2">Layout:</label>
-              <div className="flex gap-1 border border-border rounded-lg p-1 h-10">
-                <Button
-                  variant={layoutMode === 'combined' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => setLayoutMode('combined')}
-                  className="flex-1 h-8"
-                >
-                  Combine
-                </Button>
-                <Button
-                  variant={layoutMode === 'split' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => setLayoutMode('split')}
-                  className="flex-1 h-8"
-                >
-                  Split
-                </Button>
-                </div>
-              </div>
-            </div>
-
-            {/* Row 2: Date Range & Data Limit */}
-            <div className="flex flex-col sm:flex-row gap-4">
-              <div className="flex-1">
-                <label className="block text-sm font-medium mb-2">Date Range (optional):</label>
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <div className="grid w-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:flex-1">
-                    <div className="relative">
-                      <input
-                        type="date"
-                        value={tempDateRange.start}
-                        onChange={(e) => setTempDateRange(prev => ({ ...prev, start: e.target.value }))}
-                        className="w-full px-3 py-2 h-10 border border-border rounded-md bg-background text-foreground cursor-pointer"
-                      />
+                  {displayedStocks.length > 0 ? (
+                    <>
+                      {displayedStocks.map((stock, idx) => (
+                      <div
+                        key={stock}
+                        onClick={() => handleStockSelect(stock)}
+                        onMouseEnter={() => setHighlightedIndex(idx)}
+                        onMouseLeave={() => setHighlightedIndex(-1)}
+                        className={`px-3 py-2 cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-muted' : 'hover:bg-muted'}`}
+                      >
+                        {stock}
+                      </div>
+                      ))}
+                      {hasMore && (
+                        <div className="px-3 py-2 text-xs text-muted-foreground border-t border-border">
+                          +{moreCount} more stocks available
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="px-3 py-2 text-sm text-muted-foreground">
+                      No stocks found
                     </div>
-                    <span className="flex items-center justify-center text-muted-foreground">to</span>
-                    <div className="relative">
-                      <input
-                        type="date"
-                        value={tempDateRange.end}
-                        onChange={(e) => setTempDateRange(prev => ({ ...prev, end: e.target.value }))}
-                        className="w-full px-3 py-2 h-10 border border-border rounded-md bg-background text-foreground cursor-pointer"
-                      />
-                    </div>
-                  </div>
-                  <Button
-                    onClick={() => setDateRange(tempDateRange)}
-                    className="w-full sm:w-auto h-10"
-                    variant="default"
-                  >
-                    Apply Date
-                  </Button>
+                  )}
                 </div>
-              </div>
-              
-              <div className="w-full sm:w-48">
-                <label className="block text-sm font-medium mb-2">Data Points:</label>
-                <select
-                  value={dataLimit}
-                  onChange={(e) => setDataLimit(Number(e.target.value))}
-                  className="w-full h-10 px-3 border border-border rounded-md bg-background text-foreground"
-                >
-                  <option value={30}>Last 30 days</option>
-                  <option value={60}>Last 60 days</option>
-                  <option value={100}>Last 100 days</option>
-                  <option value={200}>Last 200 days</option>
-                  <option value={365}>Last 1 year</option>
-                </select>
-              </div>
+              )}
             </div>
           </div>
-        </CardContent>
-      </Card>
+          
+          {/* Date Range & Data Points */}
+          <div className="flex-1 min-w-0 flex items-center gap-2">
+            <label className="text-sm font-medium whitespace-nowrap">Date Range:</label>
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 flex-1">
+                <div className="relative">
+                  <input
+                    type="date"
+                    value={tempDateRange.start}
+                    onChange={(e) => setTempDateRange(prev => ({ ...prev, start: e.target.value }))}
+                    className="w-full px-3 py-2 h-10 border border-border rounded-md bg-background text-foreground cursor-pointer"
+                  />
+                </div>
+                <span className="flex items-center justify-center text-muted-foreground text-xs">to</span>
+                <div className="relative">
+                  <input
+                    type="date"
+                    value={tempDateRange.end}
+                    onChange={(e) => setTempDateRange(prev => ({ ...prev, end: e.target.value }))}
+                    className="w-full px-3 py-2 h-10 border border-border rounded-md bg-background text-foreground cursor-pointer"
+                  />
+                </div>
+              </div>
+              <Button
+                onClick={() => setDateRange(tempDateRange)}
+                className="h-10 whitespace-nowrap flex-shrink-0"
+                variant="default"
+              >
+                Apply Date
+              </Button>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <label className="text-sm font-medium whitespace-nowrap">Data Points:</label>
+              <select
+                value={dataLimit}
+                onChange={(e) => setDataLimit(Number(e.target.value))}
+                className="h-10 px-3 border border-border rounded-md bg-background text-foreground w-auto min-w-[140px]"
+              >
+                <option value={30}>Last 30 days</option>
+                <option value={60}>Last 60 days</option>
+                <option value={100}>Last 100 days</option>
+                <option value={200}>Last 200 days</option>
+                <option value={365}>Last 1 year</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Layout */}
+          <div className="flex-shrink-0 flex items-center gap-2">
+            <label className="text-sm font-medium whitespace-nowrap">Layout:</label>
+            <div className="flex gap-1 border border-border rounded-lg p-1 h-10">
+              <Button
+                variant={layoutMode === 'combined' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setLayoutMode('combined')}
+                className="flex-1 h-8"
+              >
+                Combine
+              </Button>
+              <Button
+                variant={layoutMode === 'split' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setLayoutMode('split')}
+                className="flex-1 h-8"
+              >
+                Split
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="hidden lg:block" style={{ height: `${controlSpacerHeight}px` }} />
 
       {/* Main Chart Layout */}
       <div className="space-y-4">
@@ -914,7 +1111,6 @@ export function StoryMarketParticipant({
                 <div className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={foreignFlowDataReal} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
                       <XAxis 
                         dataKey="time" 
                         axisLine={false}
@@ -987,7 +1183,6 @@ export function StoryMarketParticipant({
                     }))} 
                     margin={{ top: 10, right: 10, left: 10, bottom: 10 }}
                   >
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
                     <XAxis 
                       dataKey="date" 
                       axisLine={false}
@@ -1047,7 +1242,6 @@ export function StoryMarketParticipant({
                     }))} 
                     margin={{ top: 10, right: 10, left: 10, bottom: 10 }}
                   >
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
                     <XAxis 
                       dataKey="date" 
                       axisLine={false}

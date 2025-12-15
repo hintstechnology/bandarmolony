@@ -644,7 +644,8 @@ export default function BaZiCycleAnalyzer() {
   });
   const [rows, setRows] = useState<Row[]>([]);
   const [result, setResult] = useState<any | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false); // Loading for data fetching (when ticker changes)
+  const [analyzing, setAnalyzing] = useState(false); // Loading for analysis (when Run Analysis is clicked)
   const [err, setErr] = useState<string | null>(null);
   const [timeframe, setTimeframe] = useState<Timeframe>('yearly');
   const [elemSort, setElemSort] = useState<{ key: string | null; mode: 'default' | 'desc' | 'asc' }>({ key: null, mode: 'default' });
@@ -658,6 +659,8 @@ export default function BaZiCycleAnalyzer() {
   const startDateRef = useRef<HTMLInputElement>(null);
   const endDateRef = useRef<HTMLInputElement>(null);
   const anchorDateRef = useRef<HTMLInputElement>(null);
+  const menuContainerRef = useRef<HTMLDivElement>(null);
+  const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
 
   const filteredTickers = useMemo(() => {
     const q = (tickerSearchQuery || '').toLowerCase().trim();
@@ -688,7 +691,8 @@ export default function BaZiCycleAnalyzer() {
     const loadStockData = async () => {
       if (!params.ticker || availableStocks.length === 0) {
         setRows([]);
-        setResult(null);
+        // Don't reset result - keep previous result visible until user clicks "Run Analysis"
+        // setResult(null);
         return;
       }
 
@@ -701,7 +705,8 @@ export default function BaZiCycleAnalyzer() {
       const selectedTicker = params.ticker;
       if (!selectedTicker) {
         setRows([]);
-        setResult(null);
+        // Don't reset result - keep previous result visible until user clicks "Run Analysis"
+        // setResult(null);
         return;
       }
 
@@ -730,12 +735,20 @@ export default function BaZiCycleAnalyzer() {
           }));
           
           setRows(convertedRows);
+          // Don't reset result here - keep previous result visible until user clicks "Run Analysis"
+          // setResult(null); // Removed - keep previous result visible
           // Set default start date to oldest available date from loaded data
           try {
             const dates = convertedRows.map(r=>r.date).filter((d:any)=> d instanceof Date && !isNaN(+d));
             if (dates.length) {
               const minISO = new Date(Math.min.apply(null, dates as any)).toISOString().slice(0,10);
-              setParams(p=> ({ ...p, startDate: minISO }));
+              // Only update startDate if it's different to avoid triggering unnecessary re-renders
+              setParams(p=> {
+                if (p.startDate !== minISO) {
+                  return { ...p, startDate: minISO };
+                }
+                return p;
+              });
             }
           } catch {}
         } else {
@@ -752,7 +765,8 @@ export default function BaZiCycleAnalyzer() {
     };
     
     loadStockData();
-  }, [params.ticker, params.startDate, params.endDate, availableStocks]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.ticker, availableStocks]);
 
   // Handle click outside dropdown
   useEffect(() => {
@@ -767,6 +781,43 @@ export default function BaZiCycleAnalyzer() {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
+
+  // Monitor menu height to detect if it wraps to 2 rows
+  useEffect(() => {
+    const checkMenuHeight = () => {
+      if (menuContainerRef.current) {
+        const menuHeight = menuContainerRef.current.offsetHeight;
+        // If menu height is more than ~50px, it's likely 2 rows (single row is usually ~40-45px)
+        setIsMenuTwoRows(menuHeight > 50);
+      }
+    };
+
+    // Check initially
+    checkMenuHeight();
+
+    // Check on window resize
+    window.addEventListener('resize', checkMenuHeight);
+    
+    // Use ResizeObserver for more accurate detection
+    let resizeObserver: ResizeObserver | null = null;
+    if (menuContainerRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        checkMenuHeight();
+      });
+      resizeObserver.observe(menuContainerRef.current);
+    }
+
+    // Also check when filters change (affects menu height)
+    const timeoutId = setTimeout(checkMenuHeight, 100);
+
+    return () => {
+      window.removeEventListener('resize', checkMenuHeight);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+      clearTimeout(timeoutId);
+    };
+  }, [params.ticker, params.anchorMethod, params.anchorDate, params.startDate, params.endDate]);
 
   const onUpload = async (f: File | null) => {
     setErr(null);
@@ -792,7 +843,7 @@ export default function BaZiCycleAnalyzer() {
   const runAnalysis = async () => {
     if (!rows.length) return;
     
-    setLoading(true);
+    setAnalyzing(true);
     setErr(null);
     try{
       const start = new Date(params.startDate + "T00:00:00Z");
@@ -818,7 +869,20 @@ export default function BaZiCycleAnalyzer() {
       const byShMonth = aggregateByShioMonthly(enriched as any);
       const byShDay = aggregateByShioDaily(enriched as any);
       const presentCount = byElemYear.filter((x:any) => x.days > 0).length;
-      setResult({ enriched, byElemYear, byElemMonth, byElemDay, byShYear, byShMonth, byShDay, presentCount });
+      // Store the ticker and date range used for this analysis so "Ringkasan Data" doesn't change when params change
+      setResult({ 
+        enriched, 
+        byElemYear, 
+        byElemMonth, 
+        byElemDay, 
+        byShYear, 
+        byShMonth, 
+        byShDay, 
+        presentCount,
+        analysisTicker: params.ticker,
+        analysisStartDate: params.startDate,
+        analysisEndDate: params.endDate
+      });
       
       showToast({
         type: 'success',
@@ -835,23 +899,11 @@ export default function BaZiCycleAnalyzer() {
         message: errorMessage
       });
     }finally{
-      setLoading(false);
+      setAnalyzing(false);
     }
   };
 
-  // Auto-run analysis when parameters change
-  useEffect(() => {
-    if (rows.length > 0 && params.ticker) {
-      console.log('🔄 Auto-running analysis due to parameter change:', {
-        ticker: params.ticker,
-        startDate: params.startDate,
-        endDate: params.endDate,
-        anchorMethod: params.anchorMethod,
-        anchorDate: params.anchorDate
-      });
-      runAnalysis();
-    }
-  }, [rows, params.startDate, params.endDate, params.ticker, params.anchorMethod, params.anchorDate]);
+  // Removed auto-run analysis - analysis will only run when "Run Analysis" button is clicked
 
   // Handle start date change
   const handleStartDateChange = (dateString: string) => {
@@ -950,342 +1002,321 @@ export default function BaZiCycleAnalyzer() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background via-muted/20 to-background p-4 sm:p-6 md:p-10 overflow-x-hidden">
-      <div className="w-full space-y-8">
-        {/* <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
-          <div className="flex items-start justify-between gap-6">
-            <div>
-              <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Ba Zi Cycle Analyzer</h1>
-              <p className="text-muted-foreground mt-2">Upload <strong>CSV OHLC</strong>, isi <strong>ticker</strong>, pilih <strong>anchor</strong>, lalu jalankan analisis.</p>
-            </div>
-            <Badge intent="blue">v0.8.0</Badge>
-          </div>
-        </motion.div> */}
-
-        <Card>
-          <CardHeader>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <SectionTitle title="Pengaturan Analisis" subtitle="Isi parameter & upload data sebelum running" />
-              <button
-                type="button"
-                onClick={runAnalysis}
-                disabled={loading || rows.length === 0}
-                className={`inline-flex items-center gap-2 px-3 py-2 text-sm rounded-md border ${
-                  loading || rows.length === 0
-                    ? 'bg-muted text-muted-foreground border-border cursor-not-allowed opacity-60'
-                    : 'bg-primary text-primary-foreground border-primary hover:opacity-90'
-                }`}
-                aria-disabled={loading || rows.length === 0}
-                title={rows.length === 0 ? 'Load data dulu sebelum menjalankan analisis' : 'Jalankan analisis'}
-              >
-                <Sparkles className="w-4 h-4" />
-                {loading ? 'Running…' : 'Run Analysis'}
-              </button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-4">
-              <div className="sm:col-span-2 lg:col-span-4">
-                <label className="text-sm font-medium">Stock:</label>
-                <div ref={tickerDropdownWrapRef} className="relative mt-1">
-                  <div className="relative">
-                    <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-                    <input
-                      type="text"
-                      placeholder={params.ticker === 'DEMO' ? 'DEMO' : params.ticker || 'Search and select stock...'}
-                      value={tickerSearchQuery}
-                      onChange={(e) => {
-                        setTickerSearchQuery(e.target.value);
-                        setTickerDropdownOpen(true);
-                        setTickerActiveIndex(0);
-                      }}
-                      onFocus={() => {
-                        setTickerDropdownOpen(true);
-                        setTickerActiveIndex(0);
-                      }}
-                      onKeyDown={(e) => {
-                        if (!tickerDropdownOpen) return;
-                        const suggestions = filteredTickers.slice(0, 15);
-                        const total = suggestions.length + 1; // +1 for Browse CSV option
-                        if (total === 0) return;
-                        if (e.key === 'ArrowDown') {
-                          e.preventDefault();
-                          setTickerActiveIndex(prev => {
-                            const next = prev + 1;
-                            return next >= total ? 0 : next;
-                          });
-                        } else if (e.key === 'ArrowUp') {
-                          e.preventDefault();
-                          setTickerActiveIndex(prev => {
-                            const next = prev - 1;
-                            return next < 0 ? total - 1 : next;
-                          });
-                        } else if (e.key === 'Enter') {
-                          e.preventDefault();
-                          const idx = tickerActiveIndex >= 0 ? tickerActiveIndex : 0;
-                          if (idx === suggestions.length) {
-                            // Browse CSV selected
+    <div className="min-h-screen bg-gradient-to-b from-background via-muted/20 to-background overflow-x-hidden">
+      <div className="w-full">
+        {/* Top Controls - Compact without Card */}
+        {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
+        <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
+          <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-1 md:gap-x-7 md:gap-y-0.5">
+            {/* Stock Selection */}
+            <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+              <label className="text-sm font-medium whitespace-nowrap">Stock:</label>
+              <div className="relative flex-1 md:flex-none md:w-64" ref={tickerDropdownWrapRef}>
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder={params.ticker === 'DEMO' ? 'DEMO' : params.ticker || 'Search and select stock...'}
+                  value={tickerSearchQuery}
+                  onChange={(e) => {
+                    setTickerSearchQuery(e.target.value);
+                    setTickerDropdownOpen(true);
+                    setTickerActiveIndex(0);
+                  }}
+                  onFocus={() => {
+                    setTickerDropdownOpen(true);
+                    setTickerActiveIndex(0);
+                  }}
+                  onKeyDown={(e) => {
+                    if (!tickerDropdownOpen) return;
+                    const suggestions = filteredTickers.slice(0, 15);
+                    const total = suggestions.length + 1; // +1 for Browse CSV option
+                    if (total === 0) return;
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      setTickerActiveIndex(prev => {
+                        const next = prev + 1;
+                        return next >= total ? 0 : next;
+                      });
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      setTickerActiveIndex(prev => {
+                        const next = prev - 1;
+                        return next < 0 ? total - 1 : next;
+                      });
+                    } else if (e.key === 'Enter') {
+                      e.preventDefault();
+                      const idx = tickerActiveIndex >= 0 ? tickerActiveIndex : 0;
+                      if (idx === suggestions.length) {
+                        // Browse CSV selected
+                        setTickerDropdownOpen(false);
+                        setTickerActiveIndex(-1);
+                        fileInputRef.current?.click();
+                        return;
+                      }
+                      const choice = suggestions[idx];
+                      if (choice) {
+                        setParams(p => ({ ...p, ticker: choice }));
+                        setTickerSearchQuery('');
+                        setTickerDropdownOpen(false);
+                        setTickerActiveIndex(-1);
+                      }
+                    } else if (e.key === 'Escape') {
+                      setTickerDropdownOpen(false);
+                      setTickerActiveIndex(-1);
+                    }
+                  }}
+                  className="w-full h-9 pl-10 pr-3 text-sm border border-[#3a4252] rounded-md bg-background text-foreground hover:border-primary/50 focus:border-primary focus:outline-none transition-colors"
+                  role="combobox"
+                  aria-expanded={tickerDropdownOpen}
+                  aria-controls="bazi-ticker-suggestions"
+                  aria-autocomplete="list"
+                />
+                {params.ticker && params.ticker !== 'DEMO' && params.ticker !== '' && (
+                  <button
+                    type="button"
+                    aria-label="Clear selection"
+                    className="absolute inset-y-0 right-0 pr-2 flex items-center text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      setParams(p => ({ ...p, ticker: '' }));
+                      setTickerSearchQuery('');
+                      setRows([]);
+                      // Don't reset result - keep previous result visible until user clicks "Run Analysis"
+                      // setResult(null);
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                      <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                )}
+                
+                {/* Stock Search and Select Dropdown */}
+                {tickerDropdownOpen && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-60 overflow-y-auto">
+                    {availableStocks.length === 0 ? (
+                      <div className="p-3 text-sm text-muted-foreground">Loading stocks...</div>
+                    ) : (
+                      <>
+                        {/* Show filtered results */}
+                        {filteredTickers
+                          .slice(0, 15)
+                          .map((stock, idx) => (
+                            <button
+                              key={stock}
+                              role="option"
+                              aria-selected={tickerActiveIndex === idx}
+                              onMouseEnter={() => setTickerActiveIndex(idx)}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                setParams(p => ({ ...p, ticker: stock }));
+                                setTickerSearchQuery('');
+                                setTickerDropdownOpen(false);
+                                setTickerActiveIndex(-1);
+                              }}
+                              className={`flex items-center justify-between w-full px-3 py-2 text-left transition-colors ${
+                                tickerActiveIndex === idx ? 'bg-accent' : 'hover:bg-accent'
+                              }`}
+                            >
+                              <span className="text-sm">{stock}</span>
+                              <div className="flex items-center gap-2">
+                                {params.ticker === stock && (
+                                  <div className="w-2 h-2 bg-primary rounded-full"></div>
+                                )}
+                                <Plus className="w-3 h-3 text-muted-foreground" />
+                              </div>
+                            </button>
+                          ))}
+                        
+                        {/* Show "more available" message */}
+                        {!tickerSearchQuery && filteredTickers.length > 15 && (
+                          <div className="text-xs text-muted-foreground px-3 py-2 border-t border-[#3a4252]">
+                            +{filteredTickers.length - 15} more stocks available (use search to find specific stocks)
+                          </div>
+                        )}
+                        
+                        {/* Show "no results" message */}
+                        {tickerSearchQuery && filteredTickers.length === 0 && (
+                          <div className="p-2 text-sm text-muted-foreground">
+                            No stocks found matching "{tickerSearchQuery}"
+                          </div>
+                        )}
+                        
+                        {/* Browse CSV action */}
+                        <div className="my-1 h-px bg-[#3a4252]" />
+                        <div
+                          key="browse-csv"
+                          role="option"
+                          aria-selected={tickerActiveIndex === filteredTickers.length}
+                          onMouseEnter={() => setTickerActiveIndex(filteredTickers.length)}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
                             setTickerDropdownOpen(false);
                             setTickerActiveIndex(-1);
                             fileInputRef.current?.click();
-                            return;
-                          }
-                          const choice = suggestions[idx];
-                          if (choice) {
-                            setParams(p => ({ ...p, ticker: choice }));
-                            setTickerSearchQuery('');
-                            setTickerDropdownOpen(false);
-                            setTickerActiveIndex(-1);
-                          }
-                        } else if (e.key === 'Escape') {
-                          setTickerDropdownOpen(false);
-                          setTickerActiveIndex(-1);
-                        }
-                      }}
-                      className="w-full pl-7 pr-9 py-2 text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors"
-                      role="combobox"
-                      aria-expanded={tickerDropdownOpen}
-                      aria-controls="bazi-ticker-suggestions"
-                      aria-autocomplete="list"
-                    />
-                    {params.ticker && params.ticker !== 'DEMO' && params.ticker !== '' && (
-                      <button
-                        type="button"
-                        aria-label="Clear selection"
-                        className="absolute inset-y-0 right-8 pr-2 flex items-center text-muted-foreground hover:text-foreground"
-                        onClick={() => {
-                          setParams(p => ({ ...p, ticker: '' }));
-                          setTickerSearchQuery('');
-                          setRows([]);
-                          setResult(null);
-                        }}
-                      >
-                        <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                        </svg>
-                      </button>
+                          }}
+                          className={`px-3 py-2 rounded cursor-pointer flex items-center justify-between ${tickerActiveIndex === filteredTickers.length ? 'bg-accent' : 'hover:bg-muted'}`}
+                        >
+                          <span className="text-sm font-medium">Browse CSV…</span>
+                          <span className="text-xs text-muted-foreground">Upload file</span>
+                        </div>
+                      </>
                     )}
-                    <button
-                      type="button"
-                      aria-label="Toggle ticker suggestions"
-                      className="absolute inset-y-0 right-0 pr-2 flex items-center text-muted-foreground hover:text-foreground"
-                      onClick={() => {
-                        setTickerDropdownOpen(o => !o);
-                        if (!tickerDropdownOpen) setTickerActiveIndex(0);
-                      }}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                        <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0l-4.24-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
-                      </svg>
-                    </button>
                   </div>
-                  
-                  {/* Stock Search and Select Dropdown */}
-                    {tickerDropdownOpen && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-10 max-h-60 overflow-y-auto">
-                      {availableStocks.length === 0 ? (
-                        <div className="p-3 text-sm text-muted-foreground">Loading stocks...</div>
-                      ) : (
-                        <>
-                          {/* Show filtered results */}
-                          {filteredTickers
-                            .slice(0, 15)
-                            .map((stock, idx) => (
-                              <button
-                                key={stock}
-                                role="option"
-                                aria-selected={tickerActiveIndex === idx}
-                                onMouseEnter={() => setTickerActiveIndex(idx)}
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => {
-                                  setParams(p => ({ ...p, ticker: stock }));
-                                  setTickerSearchQuery('');
-                                  setTickerDropdownOpen(false);
-                                  setTickerActiveIndex(-1);
-                                }}
-                                className={`flex items-center justify-between w-full px-3 py-2 text-left transition-colors ${
-                                  tickerActiveIndex === idx ? 'bg-accent' : 'hover:bg-accent'
-                                }`}
-                              >
-                                <span className="text-sm">{stock}</span>
-                                <div className="flex items-center gap-2">
-                                  {params.ticker === stock && (
-                                    <div className="w-2 h-2 bg-primary rounded-full"></div>
-                                  )}
-                                  <Plus className="w-3 h-3 text-muted-foreground" />
-                                </div>
-                              </button>
-                            ))}
-                          
-                          {/* Show "more available" message */}
-                          {!tickerSearchQuery && filteredTickers.length > 15 && (
-                            <div className="text-xs text-muted-foreground px-3 py-2 border-t border-border">
-                              +{filteredTickers.length - 15} more stocks available (use search to find specific stocks)
-                            </div>
-                          )}
-                          
-                          {/* Show "no results" message */}
-                          {tickerSearchQuery && filteredTickers.length === 0 && (
-                            <div className="p-2 text-sm text-muted-foreground">
-                              No stocks found matching "{tickerSearchQuery}"
-                            </div>
-                          )}
-                          
-                          {/* Browse CSV action */}
-                          <div className="my-1 h-px bg-border" />
-                          <div
-                            key="browse-csv"
-                            role="option"
-                            aria-selected={tickerActiveIndex === filteredTickers.length}
-                            onMouseEnter={() => setTickerActiveIndex(filteredTickers.length)}
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => {
-                              setTickerDropdownOpen(false);
-                              setTickerActiveIndex(-1);
-                              fileInputRef.current?.click();
-                            }}
-                            className={`px-3 py-2 rounded cursor-pointer flex items-center justify-between ${tickerActiveIndex === filteredTickers.length ? 'bg-accent' : 'hover:bg-muted'}`}
-                          >
-                            <span className="text-sm font-medium">Browse CSV…</span>
-                            <span className="text-xs text-muted-foreground">Upload file</span>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-                {/* <p className="text-xs text-muted-foreground mt-1">Kamu juga bisa drag & drop CSV ke area ini.</p> */}
+                )}
                 {/* Hidden file input to support Browse CSV */}
                 <input ref={fileInputRef} className="hidden" type="file" accept=".csv" onChange={(e) => onUpload(e.target.files?.[0] || null)} />
               </div>
-              <div className="sm:col-span-1 lg:col-span-3">
-                <label className="text-sm font-medium">Anchor Method</label>
-                <select 
-                  value={params.anchorMethod} 
-                  onChange={(e:any)=>setParams(p=>({...p,anchorMethod:e.target.value}))} 
-                  className="w-full px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors mt-1"
-                >
-                  <option value="jiazi1984">Default</option>
-                  <option value="custom">Custom</option>
-                </select>
-              </div>
-              {params.anchorMethod==="custom" && (
-                <div className="sm:col-span-1 lg:col-span-2">
-                  <label className="text-sm font-medium">Anchor Date (Custom)</label>
-                  <div 
-                    className="relative h-10 w-full rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors mt-1"
-                    onClick={() => triggerDatePicker(anchorDateRef)}
-                  >
-                    <input
-                      ref={anchorDateRef}
-                      type="date"
-                      value={params.anchorDate||""}
-                      onChange={(e:any)=>setParams(p=>({...p,anchorDate:e.target.value}))}
-                      onKeyDown={(e) => e.preventDefault()}
-                      onPaste={(e) => e.preventDefault()}
-                      onInput={(e) => e.preventDefault()}
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                      style={{ caretColor: 'transparent' }}
-                    />
-                    <div className="flex items-center justify-between h-full px-3 py-2">
-                      <span className="text-sm text-foreground">
-                        {params.anchorDate ? new Date(params.anchorDate + "T00:00:00").toLocaleDateString('en-GB', { 
-                          day: '2-digit', 
-                          month: '2-digit', 
-                          year: 'numeric' 
-                        }) : 'Select anchor date'}
-                      </span>
-                      <Calendar className="w-4 h-4 text-muted-foreground" />
-                    </div>
-                  </div>
-                </div>
-              )}
-              <div className="sm:col-span-1 lg:col-span-2">
-                <label className="text-sm font-medium">Start Date</label>
-                <div 
-                  className="relative h-10 w-full rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors mt-1"
-                  onClick={() => triggerDatePicker(startDateRef)}
-                >
-                  <input
-                    ref={startDateRef}
-                    type="date"
-                    value={params.startDate}
-                    onChange={(e) => handleStartDateChange(e.target.value)}
-                    onKeyDown={(e) => e.preventDefault()}
-                    onPaste={(e) => e.preventDefault()}
-                    onInput={(e) => e.preventDefault()}
-                    max={params.endDate}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    style={{ caretColor: 'transparent' }}
-                  />
-                  <div className="flex items-center justify-between h-full px-3 py-2">
-                    <span className="text-sm text-foreground">
-                      {new Date(params.startDate + "T00:00:00").toLocaleDateString('en-GB', { 
-                        day: '2-digit', 
-                        month: '2-digit', 
-                        year: 'numeric' 
-                      })}
-                    </span>
-                    <Calendar className="w-4 h-4 text-muted-foreground" />
-                  </div>
-                </div>
-              </div>
-              <div className="sm:col-span-1 lg:col-span-2">
-                <label className="text-sm font-medium">End Date</label>
-                <div 
-                  className="relative h-10 w-full rounded-md border border-input bg-background cursor-pointer hover:bg-accent/50 transition-colors mt-1"
-                  onClick={() => triggerDatePicker(endDateRef)}
-                >
-                  <input
-                    ref={endDateRef}
-                    type="date"
-                    value={params.endDate}
-                    onChange={(e) => handleEndDateChange(e.target.value)}
-                    onKeyDown={(e) => e.preventDefault()}
-                    onPaste={(e) => e.preventDefault()}
-                    onInput={(e) => e.preventDefault()}
-                    min={params.startDate}
-                    max={new Date().toISOString().split('T')[0]}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    style={{ caretColor: 'transparent' }}
-                  />
-                  <div className="flex items-center justify-between h-full px-3 py-2">
-                    <span className="text-sm text-foreground">
-                      {new Date(params.endDate + "T00:00:00").toLocaleDateString('en-GB', { 
-                        day: '2-digit', 
-                        month: '2-digit', 
-                        year: 'numeric' 
-                      })}
-                    </span>
-                    <Calendar className="w-4 h-4 text-muted-foreground" />
-                  </div>
-                </div>
-              </div>
-
-              {/* <div className="md:col-span-12 pt-2">
-                <div className="text-xs text-muted-foreground">
-                  Analysis runs automatically when you select a stock or upload CSV data.
-                </div>
-              </div> */}
-              {err && <div className="md:col-span-12 text-sm text-destructive">{err}</div>}
-              {!err && !rows.length && params.ticker && params.ticker !== 'DEMO' && (<div className="md:col-span-12 text-xs text-muted-foreground">Tips: pilih stock dari dropdown atau klik <em>Browse CSV</em> untuk upload file CSV.</div>)}
-              
-              {/* Loading indicator */}
-              {loading && (
-                <div className="md:col-span-12 pt-4">
-                  <div className="flex items-center gap-3 p-4 bg-muted/50 rounded-lg border border-border">
-                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary"></div>
-                    <div className="text-sm text-muted-foreground">
-                      {rows.length > 0 ? 'Menjalankan analisis Ba Zi...' : 'Memuat data...'}
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
-          </CardContent>
-        </Card>
 
-        {result && (
+            {/* Anchor Method */}
+            <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+              <label className="text-sm font-medium whitespace-nowrap">Anchor Method:</label>
+              <select 
+                value={params.anchorMethod} 
+                onChange={(e:any)=>setParams(p=>({...p,anchorMethod:e.target.value}))} 
+                className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
+              >
+                <option value="jiazi1984">Default</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+
+            {/* Anchor Date (Custom) - Conditional */}
+            {params.anchorMethod==="custom" && (
+              <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+                <label className="text-sm font-medium whitespace-nowrap">Anchor Date:</label>
+                <div 
+                  className="relative h-9 w-full md:w-auto md:min-w-[140px] rounded-md border border-[#3a4252] bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                  onClick={() => triggerDatePicker(anchorDateRef)}
+                >
+                  <input
+                    ref={anchorDateRef}
+                    type="date"
+                    value={params.anchorDate||""}
+                    onChange={(e:any)=>setParams(p=>({...p,anchorDate:e.target.value}))}
+                    onKeyDown={(e) => e.preventDefault()}
+                    onPaste={(e) => e.preventDefault()}
+                    onInput={(e) => e.preventDefault()}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    style={{ caretColor: 'transparent' }}
+                  />
+                  <div className="flex items-center justify-between h-full px-3">
+                    <span className="text-sm text-foreground">
+                      {params.anchorDate ? new Date(params.anchorDate + "T00:00:00").toLocaleDateString('en-GB', { 
+                        day: '2-digit', 
+                        month: '2-digit', 
+                        year: 'numeric' 
+                      }) : 'Select date'}
+                    </span>
+                    <Calendar className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Start Date */}
+            <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+              <label className="text-sm font-medium whitespace-nowrap">Start Date:</label>
+              <div 
+                className="relative h-9 w-full md:w-auto md:min-w-[140px] rounded-md border border-[#3a4252] bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                onClick={() => triggerDatePicker(startDateRef)}
+              >
+                <input
+                  ref={startDateRef}
+                  type="date"
+                  value={params.startDate}
+                  onChange={(e) => handleStartDateChange(e.target.value)}
+                  onKeyDown={(e) => e.preventDefault()}
+                  onPaste={(e) => e.preventDefault()}
+                  onInput={(e) => e.preventDefault()}
+                  max={params.endDate}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  style={{ caretColor: 'transparent' }}
+                />
+                <div className="flex items-center justify-between h-full px-3">
+                  <span className="text-sm text-foreground">
+                    {new Date(params.startDate + "T00:00:00").toLocaleDateString('en-GB', { 
+                      day: '2-digit', 
+                      month: '2-digit', 
+                      year: 'numeric' 
+                    })}
+                  </span>
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
+                </div>
+              </div>
+            </div>
+
+            {/* End Date */}
+            <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+              <label className="text-sm font-medium whitespace-nowrap">End Date:</label>
+              <div 
+                className="relative h-9 w-full md:w-auto md:min-w-[140px] rounded-md border border-[#3a4252] bg-background cursor-pointer hover:bg-accent/50 transition-colors"
+                onClick={() => triggerDatePicker(endDateRef)}
+              >
+                <input
+                  ref={endDateRef}
+                  type="date"
+                  value={params.endDate}
+                  onChange={(e) => handleEndDateChange(e.target.value)}
+                  onKeyDown={(e) => e.preventDefault()}
+                  onPaste={(e) => e.preventDefault()}
+                  onInput={(e) => e.preventDefault()}
+                  min={params.startDate}
+                  max={new Date().toISOString().split('T')[0]}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  style={{ caretColor: 'transparent' }}
+                />
+                <div className="flex items-center justify-between h-full px-3">
+                  <span className="text-sm text-foreground">
+                    {new Date(params.endDate + "T00:00:00").toLocaleDateString('en-GB', { 
+                      day: '2-digit', 
+                      month: '2-digit', 
+                      year: 'numeric' 
+                    })}
+                  </span>
+                  <Calendar className="w-4 h-4 text-muted-foreground" />
+                </div>
+              </div>
+            </div>
+
+            {/* Run Analysis Button */}
+            <button
+              type="button"
+              onClick={runAnalysis}
+              disabled={analyzing || rows.length === 0}
+              className={`h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center gap-2 w-full md:w-auto ${
+                loading || rows.length === 0
+                  ? ''
+                  : ''
+              }`}
+              aria-disabled={loading || rows.length === 0}
+              title={rows.length === 0 ? 'Load data dulu sebelum menjalankan analisis' : 'Jalankan analisis'}
+            >
+              <Sparkles className="w-4 h-4" />
+              {loading ? 'Running…' : 'Run Analysis'}
+            </button>
+          </div>
+        </div>
+
+        {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
+        <div className={isMenuTwoRows ? "h-0 lg:h-[60px]" : "h-0 lg:h-[38px]"}></div>
+
+        <div className="w-full space-y-8 p-4 sm:p-6 md:p-10">
+          {/* Error and Loading Messages */}
+          {err && (
+            <div className="text-sm text-destructive px-4 py-2 bg-destructive/10 rounded-md">
+              {err}
+            </div>
+          )}
+          {!err && !rows.length && params.ticker && params.ticker !== 'DEMO' && (
+            <div className="text-xs text-muted-foreground px-4">
+              Tips: pilih stock dari dropdown atau klik <em>Browse CSV</em> untuk upload file CSV.
+            </div>
+          )}
+          
+          {/* Loading indicator removed - loading will be shown on each card when analyzing */}
+
+        {(result || analyzing) && (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05, duration: 0.4 }}>
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 sm:gap-6 overflow-x-auto">
               <Card className="xl:col-span-1">
@@ -1293,23 +1324,48 @@ export default function BaZiCycleAnalyzer() {
                   <SectionTitle title="Ringkasan Data" />
                 </CardHeader>
                 <CardContent>
+                  {analyzing ? (
+                    <div className="flex items-center justify-center py-8">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                        <div className="text-sm text-muted-foreground">Menjalankan analisis Ba Zi...</div>
+                      </div>
+                    </div>
+                  ) : (
                   <div className="space-y-3 text-sm">
                     <div className="flex items-center justify-between">
                       <span className="text-muted-foreground">Ticker</span>
                       <Badge intent="blue">
-                        {params.ticker === 'DEMO' ? 'DEMO' : 
-                         params.ticker ? params.ticker.toUpperCase() : 'No Selection'}
+                        {result.analysisTicker === 'DEMO' ? 'DEMO' : 
+                         result.analysisTicker ? result.analysisTicker.toUpperCase() : 'No Selection'}
                       </Badge>
                     </div>
                     <div className="flex items-center justify-between"><span className="text-muted-foreground">Rows</span><span className="font-medium">{result.enriched.length}</span></div>
-                    <div className="flex items-center justify-between"><span className="text-muted-foreground">Date Range</span><span className="font-medium text-xs sm:text-sm">{params.startDate} → {params.endDate}</span></div>
+                    <div className="flex items-center justify-between"><span className="text-muted-foreground">Date Range</span><span className="font-medium text-xs sm:text-sm">{result.analysisStartDate || params.startDate} → {result.analysisEndDate || params.endDate}</span></div>
                     {/* <div className="text-xs text-muted-foreground">Tahun Ba Zi pakai batas <b>Li Chun (λ☉=315°)</b>; tanggal sebelum Li Chun masuk ke tahun sebelumnya.</div> */}
                   </div>
+                  )}
                 </CardContent>
               </Card>
 
               <div className="xl:col-span-2">
-                <DateInfoCardNew />
+                {analyzing ? (
+                  <Card>
+                    <CardHeader>
+                      <h3 className="text-lg font-semibold">Hari Ini</h3>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex items-center justify-center py-8">
+                        <div className="flex flex-col items-center gap-3">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                          <div className="text-sm text-muted-foreground">Menjalankan analisis Ba Zi...</div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <DateInfoCardNew />
+                )}
               </div>
 
               <Card className="xl:col-span-3">
@@ -1318,34 +1374,43 @@ export default function BaZiCycleAnalyzer() {
                   <div className="mt-0"><TimeframeTabs value={timeframe} onChange={setTimeframe} /></div>
                 </CardHeader>
                 <CardContent>
-                  {timeframe==='yearly' && (<>
-                  <div className="w-full overflow-x-auto">
-                  <div className="min-w-[720px] grid grid-cols-1 md:grid-cols-7 gap-2 text-sm font-medium mb-2 justify-items-start">
-                    <button className="text-left" onClick={()=>cycleElemSort('element')}>Element <Filter className="inline w-3 h-3 ml-1" /></button>
-                    <button className="text-left" onClick={()=>cycleElemSort('days')}>Days <Filter className="inline w-3 h-3 ml-1" /></button>
-                    <button className="text-left" onClick={()=>cycleElemSort('prob_up')}>Prob Up <Filter className="inline w-3 h-3 ml-1" /></button>
-                    <button className="text-left" onClick={()=>cycleElemSort('prob_down')}>Prob Down <Filter className="inline w-3 h-3 ml-1" /></button>
-                    <button className="text-left" onClick={()=>cycleElemSort('prob_flat')}>Prob Flat <Filter className="inline w-3 h-3 ml-1" /></button>
-                    <button className="text-left" onClick={()=>cycleElemSort('avg_year_oc')}>Avg Open-Close % (Year) <Filter className="inline w-3 h-3 ml-1" /></button>
-                    <button className="text-left" onClick={()=>cycleElemSort('n_years')}>Cycle Count <Filter className="inline w-3 h-3 ml-1" /></button>
-                  </div>
-                  <div className="divide-y min-w-[720px]">
-                    {sortedElemData.map((r:any, i:number)=> (
-                      <div key={i} className="grid grid-cols-1 md:grid-cols-7 gap-2 py-2 text-sm">
-                        <div><Badge intent="violet">{r.element}</Badge></div>
-                        <div>{r.days}</div>
-                        
-                        <div>{(r.prob_up*100).toFixed(1)}%</div>
-                        <div>{(r.prob_down*100).toFixed(1)}%</div>
-                        <div>{(r.prob_flat*100).toFixed(1)}%</div>
-                        <div>{Number.isFinite(r.avg_year_oc) ? (r.avg_year_oc*100).toFixed(2) + '%' : '—'}</div>
-                        <div>{r.n_years ?? 0}</div>
+                  {analyzing ? (
+                    <div className="flex items-center justify-center py-12">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                        <div className="text-sm text-muted-foreground">Menjalankan analisis Ba Zi...</div>
                       </div>
-                    ))}
-                  </div>
-                  </div>
-                  </>) }
-                  {timeframe!=='yearly' && (
+                    </div>
+                  ) : (
+                    <>
+                      {timeframe==='yearly' && (<>
+                        <div className="w-full overflow-x-auto">
+                          <div className="min-w-[720px] grid grid-cols-1 md:grid-cols-7 gap-2 text-sm font-medium mb-2 justify-items-start">
+                            <button className="text-left" onClick={()=>cycleElemSort('element')}>Element <Filter className="inline w-3 h-3 ml-1" /></button>
+                            <button className="text-left" onClick={()=>cycleElemSort('days')}>Days <Filter className="inline w-3 h-3 ml-1" /></button>
+                            <button className="text-left" onClick={()=>cycleElemSort('prob_up')}>Prob Up <Filter className="inline w-3 h-3 ml-1" /></button>
+                            <button className="text-left" onClick={()=>cycleElemSort('prob_down')}>Prob Down <Filter className="inline w-3 h-3 ml-1" /></button>
+                            <button className="text-left" onClick={()=>cycleElemSort('prob_flat')}>Prob Flat <Filter className="inline w-3 h-3 ml-1" /></button>
+                            <button className="text-left" onClick={()=>cycleElemSort('avg_year_oc')}>Avg Open-Close % (Year) <Filter className="inline w-3 h-3 ml-1" /></button>
+                            <button className="text-left" onClick={()=>cycleElemSort('n_years')}>Cycle Count <Filter className="inline w-3 h-3 ml-1" /></button>
+                          </div>
+                          <div className="divide-y min-w-[720px]">
+                            {sortedElemData.map((r:any, i:number)=> (
+                              <div key={i} className="grid grid-cols-1 md:grid-cols-7 gap-2 py-2 text-sm">
+                                <div><Badge intent="violet">{r.element}</Badge></div>
+                                <div>{r.days}</div>
+                                
+                                <div>{(r.prob_up*100).toFixed(1)}%</div>
+                                <div>{(r.prob_down*100).toFixed(1)}%</div>
+                                <div>{(r.prob_flat*100).toFixed(1)}%</div>
+                                <div>{Number.isFinite(r.avg_year_oc) ? (r.avg_year_oc*100).toFixed(2) + '%' : '—'}</div>
+                                <div>{r.n_years ?? 0}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </>)}
+                      {timeframe!=='yearly' && (
                     <>
                       <div className="w-full overflow-x-auto">
                       <div className={"min-w-[720px] grid grid-cols-1 " + (timeframe==='daily' ? 'md:grid-cols-7' : 'md:grid-cols-7') + " gap-2 text-sm font-medium mb-2 justify-items-start"}>
@@ -1393,6 +1458,8 @@ export default function BaZiCycleAnalyzer() {
                       </div>
                     </>
                   )}
+                    </>
+                  )}
                 </CardContent>
               </Card>
 
@@ -1411,6 +1478,14 @@ export default function BaZiCycleAnalyzer() {
                     <div className="mt-0"><TimeframeTabs value={timeframe} onChange={setTimeframe} /></div>
                   </CardHeader>
                   <CardContent>
+                    {analyzing ? (
+                      <div className="flex items-center justify-center py-12">
+                        <div className="flex flex-col items-center gap-3">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                          <div className="text-sm text-muted-foreground">Menjalankan analisis Ba Zi...</div>
+                        </div>
+                      </div>
+                    ) : (
                     <div className="w-full overflow-x-auto">
                     <div className={"min-w-[720px] grid grid-cols-1 " + (timeframe==='daily' ? 'md:grid-cols-7' : 'md:grid-cols-7') + " gap-2 text-sm font-medium mb-2 justify-items-start"}>
                       <button className="text-left" onClick={()=>cycleShioSort('shio')}>Shio <Filter className="inline w-3 h-3 ml-1" /></button>
@@ -1452,6 +1527,7 @@ export default function BaZiCycleAnalyzer() {
                       ))}
                     </div>
                     </div>
+                  )}
                   </CardContent>
                 </Card>
               </div>
@@ -1473,6 +1549,7 @@ export default function BaZiCycleAnalyzer() {
             </CardContent>
           </Card>
         )}
+        </div>
       </div>
     </div>
   );

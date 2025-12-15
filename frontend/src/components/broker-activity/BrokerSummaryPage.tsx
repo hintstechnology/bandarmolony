@@ -353,7 +353,13 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
         const sectorsWithPrefix = sectors.map(sector => `[SECTOR] ${sector}`);
         
         // Combine stocks and sectors, then sort alphabetically
-        return [...stocksWithoutIdx, ...sectorsWithPrefix].sort((a: string, b: string) => a.localeCompare(b));
+        // Ensure IDX is always first
+        return [...stocksWithoutIdx, ...sectorsWithPrefix].sort((a: string, b: string) => {
+          // IDX always comes first
+          if (a === '[SECTOR] IDX') return -1;
+          if (b === '[SECTOR] IDX') return 1;
+          return a.localeCompare(b);
+        });
       };
       
       // Try to load from cache first for instant display
@@ -1714,7 +1720,9 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   // Helper function to format display name (remove [SECTOR] prefix for display)
   const formatStockDisplayName = (stock: string): string => {
     if (stock.startsWith('[SECTOR] ')) {
-      return stock.replace('[SECTOR] ', '');
+      const sectorName = stock.replace('[SECTOR] ', '');
+      // Replace IDX with IDX Composite for display
+      return sectorName === 'IDX' ? 'IDX Composite' : sectorName;
     }
     return stock;
   };
@@ -1732,7 +1740,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   };
 
   // Font size fixed to normal (no menu)
-  const getFontSizeClass = () => 'text-[13px]';
+  const getFontSizeClass = () => 'text-[12.5px]';
 
   // Filter raw data by investor filter (client-side filtering)
   useEffect(() => {
@@ -2538,6 +2546,73 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
             </div>
           </div>
         </div>
+      {/* Aggregate Summary Table */}
+      {(() => {
+        let totalValue = 0;
+        let totalLotShares = 0; // volume in shares
+        let foreignBuyValue = 0;
+        let foreignSellValue = 0;
+
+        availableDates.forEach((date: string) => {
+          const rows = summaryByDate.get(date) || [];
+          rows.forEach(row => {
+            const buyVal = Number(row.buyerValue) || 0;
+            const sellVal = Number(row.sellerValue) || 0;
+            totalValue += buyVal + sellVal;
+
+            const buyVol = Number(row.buyerVol) || 0;
+            const sellVol = Number(row.sellerVol) || 0;
+            totalLotShares += buyVol + sellVol;
+
+            const brokerCode = (row.broker || '').toUpperCase();
+            if (brokerCode && FOREIGN_BROKERS.includes(brokerCode)) {
+              foreignBuyValue += buyVal;
+              foreignSellValue += sellVal;
+            }
+          });
+        });
+
+        const totalLot = totalLotShares / 100; // convert to lot
+        const foreignNetValue = foreignBuyValue - foreignSellValue;
+        const avgPrice = totalLotShares > 0 ? totalValue / totalLotShares : 0;
+        const foreignNetClass = foreignNetValue > 0 ? 'text-green-500' : foreignNetValue < 0 ? 'text-red-500' : 'text-white';
+
+        return (
+          <div className="w-full max-w-full mt-2">
+            <div className="bg-muted/50 px-4 py-1.5 border-y border-border flex items-center justify-between">
+              <h3 className="font-semibold text-sm">Summary (All Brokers)</h3>
+            </div>
+            <div className="w-full max-w-full">
+              <table className={`${getFontSizeClass()} min-w-[600px] border-collapse border-l-2 border-r-2 border-b-2 border-white`}>
+                <thead className="bg-[#3a4252]">
+                  <tr className="border-t-2 border-white">
+                    <th className="text-center py-[4px] px-3 font-bold text-white">TVal</th>
+                    <th className="text-center py-[4px] px-3 font-bold text-white">FNVal</th>
+                    <th className="text-center py-[4px] px-3 font-bold text-white">TLot</th>
+                    <th className="text-center py-[4px] px-3 font-bold text-white">Avg</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="bg-[#0f172a]">
+                    <td className="text-center py-[4px] px-3 text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatNumber(totalValue)}
+                    </td>
+                    <td className={`text-center py-[4px] px-3 font-bold ${foreignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatNumber(foreignNetValue)}
+                    </td>
+                    <td className="text-center py-[4px] px-3 text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatLot(totalLot)}
+                    </td>
+                    <td className="text-center py-[4px] px-3 text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatAverage(avgPrice)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
       </div>
     );
   };

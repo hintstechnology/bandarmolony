@@ -1360,6 +1360,10 @@ export const BrokerInventoryPage = React.memo(function BrokerInventoryPage({
   const [hasUserSelectedBrokers, setHasUserSelectedBrokers] = useState(false);
   const controlMenuRef = useRef<HTMLDivElement>(null);
   const [controlSpacerHeight, setControlSpacerHeight] = useState<number>(72);
+  const [fdFilter, setFdFilter] = useState<'All' | 'Foreign' | 'Domestic'>('All'); // Temporary filter (can be changed before Show button clicked)
+  const [displayedFdFilter, setDisplayedFdFilter] = useState<'All' | 'Foreign' | 'Domestic'>('All'); // Actual filter used for data display (updated when Show button clicked)
+  const [marketFilter, setMarketFilter] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Default to RG
+  const [displayedMarket, setDisplayedMarket] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Market/Board displayed (updated when Show button clicked)
   
   // Minimum date allowed: 19/09/2025
   const MIN_DATE = '2025-09-19';
@@ -1608,7 +1612,13 @@ const visibleBrokers = useMemo(
         const sectorsWithPrefix = sectors.map(sector => `[SECTOR] ${sector}`);
         
         // Combine stocks and sectors, then sort alphabetically
-        const allItems = [...stocksWithoutIdx, ...sectorsWithPrefix].sort((a: string, b: string) => a.localeCompare(b));
+        // Ensure IDX is always first
+        const allItems = [...stocksWithoutIdx, ...sectorsWithPrefix].sort((a: string, b: string) => {
+          // IDX always comes first
+          if (a === '[SECTOR] IDX') return -1;
+          if (b === '[SECTOR] IDX') return 1;
+          return a.localeCompare(b);
+        });
         
         setAvailableStocks(allItems);
         console.log(`📊 Loaded ${stocksWithoutIdx.length} stocks and ${sectors.length} sectors from API`);
@@ -1737,18 +1747,29 @@ const visibleBrokers = useMemo(
         setIsDataReady(false);
         return;
       }
-      console.log(`[BrokerInventory] Loading stock data for:`, { actualTicker, startDate, endDate });
+      // Check if ticker is a sector (starts with [SECTOR] prefix)
+      const isSector = selectedTicker.startsWith('[SECTOR] ');
+      const sectorName = isSector ? selectedTicker.replace('[SECTOR] ', '') : null;
+      
+      console.log(`[BrokerInventory] Loading ${isSector ? 'sector' : 'stock'} data for:`, { 
+        selectedTicker, 
+        actualTicker, 
+        isSector, 
+        sectorName, 
+        startDate, 
+        endDate 
+      });
       
       setIsLoadingData(true);
       setDataError(null);
       
       try {
-        // Check cache first (5 minutes TTL)
-        const cacheKey = `${actualTicker}-${startDate}-${endDate}`;
+        // Check cache first (5 minutes TTL) - use selectedTicker for cache key to differentiate sector vs stock
+        const cacheKey = `${selectedTicker}-${startDate}-${endDate}`;
         const cachedData = cache.get(cacheKey, cache.stockData, 5 * 60 * 1000);
         
         if (cachedData) {
-          console.log(`📊 Using cached stock data for ${actualTicker}`);
+          console.log(`📊 Using cached ${isSector ? 'sector' : 'stock'} data for ${isSector ? sectorName : actualTicker}`);
           // Ensure cached data is sorted and deduplicated
           const sortedCandlestick = (cachedData.candlestick || [])
             .filter((item: any, index: number, arr: any[]) => {
@@ -1778,14 +1799,30 @@ const visibleBrokers = useMemo(
           return;
         }
         
-        console.log(`📊 Loading stock data for ${actualTicker} from ${startDate} to ${endDate}`);
+        console.log(`📊 Loading ${isSector ? 'sector' : 'stock'} data for ${isSector ? sectorName : actualTicker} from ${startDate} to ${endDate}`);
         
-        // Call stock API to get OHLC data (backend already filters by date range)
-        const response = await api.getStockData(actualTicker, startDate, endDate, 1000);
+        let response: any;
+        
+        if (isSector && sectorName) {
+          // For sectors, use sector OHLC price API
+          console.log(`📊 Fetching sector OHLC data for: "${sectorName}"`);
+          console.log(`📊 Selected ticker: "${selectedTicker}", Extracted sector name: "${sectorName}"`);
+          response = await api.getSectorOhlcPrice(sectorName, startDate, endDate, 1000);
+          
+          if (!response.success) {
+            console.error(`❌ Failed to fetch sector OHLC data:`, response.error);
+            console.error(`❌ Sector name sent: "${sectorName}"`);
+            console.error(`❌ Selected ticker: "${selectedTicker}"`);
+          }
+        } else {
+          // For regular stocks, use stock API
+          console.log(`📊 Fetching stock data for: ${actualTicker}`);
+          response = await api.getStockData(actualTicker, startDate, endDate, 1000);
+        }
         
         if (response.success && response.data?.data) {
           const stockData = response.data.data;
-          console.log(`📊 Received ${stockData.length} records for ${actualTicker}`);
+          console.log(`📊 Received ${stockData.length} records for ${isSector ? `sector "${sectorName}"` : `stock ${actualTicker}`}`);
           
           // Filter data by date range (additional client-side filter for safety)
           const filteredData = stockData.filter((row: any) => {
@@ -1872,12 +1909,14 @@ const visibleBrokers = useMemo(
           // Don't reset shouldFetchData here - let loadBrokerInventory handle it
           
         } else {
-          throw new Error(response.error || 'Failed to load stock data');
+          const errorMsg = response.error || `Failed to load ${isSector ? 'sector' : 'stock'} data`;
+          throw new Error(errorMsg);
         }
         
       } catch (error) {
-        console.error('Error loading stock data:', error);
-        setDataError(error instanceof Error ? error.message : 'Failed to load stock data');
+        console.error(`Error loading ${isSector ? 'sector' : 'stock'} data:`, error);
+        const errorMessage = error instanceof Error ? error.message : `Failed to load ${isSector ? 'sector' : 'stock'} data`;
+        setDataError(errorMessage);
         setShouldFetchData(false);
         // Don't set isDataReady to false on error - keep showing old data if available
         // Only set to false if there's no data at all
@@ -2002,14 +2041,17 @@ const visibleBrokers = useMemo(
         // Load all dates in parallel for much faster performance
         const datePromises = tradingDays.map(async (dateStr) => {
           try {
-            // Check cache first (5 minutes TTL) - use tickerToFetch for cache key
-            const cacheKey = `broker-summary-${tickerToFetch}-${dateStr}`;
+            // Check cache first (5 minutes TTL) - use tickerToFetch and market for cache key
+            // Use displayedMarket (the market filter that was applied when Show button was clicked)
+            const market = displayedMarket || '';
+            const cacheKey = `broker-summary-${tickerToFetch}-${dateStr}-${market}`;
             let brokerData: any[] | null = cache.get(cacheKey, cache.topBrokers, 5 * 60 * 1000);
             
             if (!brokerData) {
               // Use getBrokerSummaryData API (same as BrokerSummaryPage) to get buyerValue and sellerValue
               // For sectors, fetch sector data directly (not first stock)
-              const response = await api.getBrokerSummaryData(tickerToFetch, dateStr, '');
+              // Use market variable already defined above (from displayedMarket)
+              const response = await api.getBrokerSummaryData(tickerToFetch, dateStr, market);
               
               if (response.success && response.data?.brokerData) {
                 const brokers = response.data.brokerData;
@@ -2085,7 +2127,21 @@ const visibleBrokers = useMemo(
           setBrokerDataError(null);
         }
         
-        setBrokerSummaryData(filteredBrokerData);
+        // Apply F/D filter client-side (same as BrokerSummaryPage)
+        let finalBrokerData = filteredBrokerData;
+        if (displayedFdFilter === 'Foreign') {
+          finalBrokerData = filteredBrokerData.filter(row => 
+            FOREIGN_BROKERS.includes(row.broker || row.BrokerCode || '') && 
+            !GOVERNMENT_BROKERS.includes(row.broker || row.BrokerCode || '')
+          );
+        } else if (displayedFdFilter === 'Domestic') {
+          finalBrokerData = filteredBrokerData.filter(row => {
+            const broker = row.broker || row.BrokerCode || '';
+            return !FOREIGN_BROKERS.includes(broker) || GOVERNMENT_BROKERS.includes(broker);
+          });
+        }
+        
+        setBrokerSummaryData(finalBrokerData);
         
         // Extract unique brokers from brokerSummaryData and use as fallback/merge for availableBrokersForStock
         // This ensures dropdown shows brokers even if getBrokerInventoryBrokers doesn't return data
@@ -2136,7 +2192,7 @@ const visibleBrokers = useMemo(
     loadTopBrokersData();
     // Depend on shouldFetchData - only load when Show button is clicked
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shouldFetchData, getActualTicker, startDate, endDate, showToast]);
+  }, [shouldFetchData, getActualTicker, startDate, endDate, displayedMarket, displayedFdFilter, showToast]);
 
   // Load available brokers for selected stock code from broker_inventory folder
   useEffect(() => {
@@ -2623,7 +2679,13 @@ const visibleBrokers = useMemo(
           const sectorsWithPrefix = sectors.map(sector => `[SECTOR] ${sector}`);
           
           // Combine stocks and sectors, then sort alphabetically
-          const allItems = [...stocksWithoutIdx, ...sectorsWithPrefix].sort((a: string, b: string) => a.localeCompare(b));
+          // Ensure IDX is always first
+          const allItems = [...stocksWithoutIdx, ...sectorsWithPrefix].sort((a: string, b: string) => {
+            // IDX always comes first
+            if (a === '[SECTOR] IDX') return -1;
+            if (b === '[SECTOR] IDX') return 1;
+            return a.localeCompare(b);
+          });
           
           setAvailableStocks(allItems);
         } catch (err) {
@@ -2753,7 +2815,9 @@ const visibleBrokers = useMemo(
   // Helper function to format display name (remove [SECTOR] prefix for display)
   const formatStockDisplayName = (stock: string): string => {
     if (stock.startsWith('[SECTOR] ')) {
-      return stock.replace('[SECTOR] ', '');
+      const sectorName = stock.replace('[SECTOR] ', '');
+      // Replace IDX with IDX Composite for display
+      return sectorName === 'IDX' ? 'IDX Composite' : sectorName;
     }
     return stock;
   };
@@ -3148,19 +3212,20 @@ const visibleBrokers = useMemo(
       }))
       .sort((a, b) => b.nsval - a.nsval);
 
-    // Top 5 Buy: Top 5 from sortedTotalNetBuy (brokers with highest NetBuy)
-    // IMPORTANT: Data has already been swapped for sectors in the mapping step (line 1920-1926)
-    // So NetBuyVol/NetSellVol are already correct - no need for additional swap
-    const topBuyers = sortedTotalNetBuy
+    // IMPORTANT: Match BrokerSummaryPage display logic
+    // In BrokerSummaryPage NET table:
+    // - BY columns (BLot, BVal, BAvg) display NetSell data → Top 5 NetSell = Top 5 Sellers
+    // - SL columns (SLot, SVal, SAvg) display NetBuy data → Top 5 NetBuy = Top 5 Buyers
+    // So we need to swap the mapping:
+    // - Top 5 Buyers = Top 5 from sortedTotalNetSell (because BVal shows NetSellValue, which represents buyers in display)
+    // - Top 5 Sellers = Top 5 from sortedTotalNetBuy (because SVal shows NetBuyValue, which represents sellers in display)
+    const topBuyers = sortedTotalNetSell
       .slice(0, 5)
-      .map(({ broker, nbval, nblot }) => ({ broker, buy: nbval, lot: nblot }));
+      .map(({ broker, nsval, nslot }) => ({ broker, buy: nsval, lot: nslot }));
 
-    // Top 5 Sell: Top 5 from sortedTotalNetSell (brokers with highest NetSell)
-    // IMPORTANT: Data has already been swapped for sectors in the mapping step (line 1920-1926)
-    // So NetBuyVol/NetSellVol are already correct - no need for additional swap
-    const topSellers = sortedTotalNetSell
+    const topSellers = sortedTotalNetBuy
       .slice(0, 5)
-      .map(({ broker, nsval, nslot }) => ({ broker, sell: nsval, lot: nslot }));
+      .map(({ broker, nbval, nblot }) => ({ broker, sell: nbval, lot: nblot }));
 
     return {
       netByBroker,
@@ -4177,9 +4242,49 @@ const visibleBrokers = useMemo(
                   </div>
                 </div>
 
+                {/* F/D Filter */}
+                <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+                  <label className="text-sm font-medium whitespace-nowrap">F/D:</label>
+                  <select 
+                    value={fdFilter}
+                    onChange={(e) => {
+                      setFdFilter(e.target.value as 'All' | 'Foreign' | 'Domestic');
+                      // CRITICAL: Keep existing data visible - no auto-fetch, no hide charts
+                      // User must click Show button to fetch new data
+                    }}
+                    className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
+                  >
+                    <option value="All">All</option>
+                    <option value="Foreign">Foreign</option>
+                    <option value="Domestic">Domestic</option>
+                  </select>
+                </div>
+
+                {/* Board Filter */}
+                <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+                  <label className="text-sm font-medium whitespace-nowrap">Board:</label>
+                  <select
+                    value={marketFilter}
+                    onChange={(e) => {
+                      setMarketFilter(e.target.value as 'RG' | 'TN' | 'NG' | '');
+                      // CRITICAL: Keep existing data visible - no auto-fetch, no hide charts
+                      // User must click Show button to fetch new data
+                    }}
+                    className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
+                  >
+                    <option value="">All Trade</option>
+                    <option value="RG">RG</option>
+                    <option value="TN">TN</option>
+                    <option value="NG">NG</option>
+                  </select>
+                </div>
+
                 {/* Show Button */}
                 <button
                   onClick={() => {
+                    // Update displayed filters when Show button is clicked
+                    setDisplayedFdFilter(fdFilter);
+                    setDisplayedMarket(marketFilter);
                     // Set shouldFetchData to true to trigger data fetch
                     setShouldFetchData(true);
                     setIsDataReady(false);
@@ -4188,8 +4293,8 @@ const visibleBrokers = useMemo(
                     setIsLoadingBrokerData(true);
                     setIsLoadingInventoryData(true);
                   }}
-                  disabled={isLoadingData || isLoadingBrokerData || selectedBrokers.length === 0 || !startDate || !endDate || !getActualTicker}
-                  className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full sm:w-auto"
+                  disabled={isLoadingData || isLoadingBrokerData || selectedBrokers.length === 0 || !startDate || !endDate || !selectedTicker}
+                  className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center w-full md:w-auto"
                 >
                   Show
                 </button>

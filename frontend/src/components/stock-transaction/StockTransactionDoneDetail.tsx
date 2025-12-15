@@ -1104,12 +1104,12 @@ export function StockTransactionDoneDetail() {
                   if (!rowData || !parsedRow) return null;
 
                   return (
-                    <tr key={rowKey} className="border-b border-border/50 hover:bg-accent/50">
+                    <tr key={rowKey} className={`border-b border-border/50 hover:bg-accent/50 ${rowIdx % 2 === 0 ? 'bg-background' : 'bg-muted/20'}`}>
                       {/* Row dimension values - separate columns */}
                       {parsedRow.map((rowPart: { fieldId: string; value: string }, partIdx: number) => (
                         <td
                           key={partIdx}
-                          className={`py-2 px-2 font-medium border-r border-border ${partIdx === 0 ? 'sticky left-0 bg-background z-10' : ''}`}
+                          className={`py-2 px-2 font-medium border-r border-border ${partIdx === 0 ? `sticky left-0 z-10 ${rowIdx % 2 === 0 ? 'bg-background' : 'bg-muted/20'}` : ''}`}
                         >
                           {rowPart.value}
                         </td>
@@ -1258,7 +1258,7 @@ export function StockTransactionDoneDetail() {
                 </tr>
               </thead>
               <tbody>
-                {paginatedRows.map((rowKey) => {
+                {paginatedRows.map((rowKey, rowIdx) => {
                   const rowData = pivotData[rowKey];
                   if (!rowData) return null;
                   const rowTotal = selectedDates.reduce((sum, date) => {
@@ -1266,8 +1266,8 @@ export function StockTransactionDoneDetail() {
                   }, 0);
 
                   return (
-                    <tr key={rowKey} className="border-b border-border/50 hover:bg-accent/50">
-                      <td className="py-2 px-2 font-medium border-r-2 border-border sticky left-0 bg-background z-10">
+                    <tr key={rowKey} className={`border-b border-border/50 hover:bg-accent/50 ${rowIdx % 2 === 0 ? 'bg-background' : 'bg-muted/20'}`}>
+                      <td className={`py-2 px-2 font-medium border-r-2 border-border sticky left-0 z-10 ${rowIdx % 2 === 0 ? 'bg-background' : 'bg-muted/20'}`}>
                         {rowKey}
                       </td>
                       {selectedDates.map(date => {
@@ -1476,7 +1476,7 @@ export function StockTransactionDoneDetail() {
                 </tr>
               </thead>
               <tbody>
-                {paginatedBuyers.map((buyer) => {
+                {paginatedBuyers.map((buyer, buyerIdx) => {
                   const buyerData = pivotData[buyer];
                   if (!buyerData) return null;
                   const buyerTotal = sellerList.reduce((sum, seller) => {
@@ -1488,8 +1488,8 @@ export function StockTransactionDoneDetail() {
                   }, 0);
 
                   return (
-                    <tr key={buyer} className="border-b border-border/50 hover:bg-accent/50">
-                      <td className="py-2 px-2 font-medium border-r-2 border-border sticky left-0 bg-background z-10">
+                    <tr key={buyer} className={`border-b border-border/50 hover:bg-accent/50 ${buyerIdx % 2 === 0 ? 'bg-background' : 'bg-muted/20'}`}>
+                      <td className={`py-2 px-2 font-medium border-r-2 border-border sticky left-0 z-10 ${buyerIdx % 2 === 0 ? 'bg-background' : 'bg-muted/20'}`}>
                         {buyer}
                       </td>
                       {sellerList.map(seller => {
@@ -1888,11 +1888,11 @@ export function StockTransactionDoneDetail() {
 
       {/* Pivot Builder Dialog */}
       <Dialog open={isPivotBuilderOpen} onOpenChange={setIsPivotBuilderOpen}>
-        <DialogContent className="max-w-[90vw] sm:max-w-[80vw] md:max-w-[70vw] lg:max-w-[60vw] max-h-[90vh] flex flex-col p-0">
-          <DialogHeader className="sticky top-0 z-10 bg-background border-b px-4 py-3">
+        <DialogContent className="max-w-[90vw] sm:max-w-[80vw] md:max-w-[70vw] lg:max-w-[60vw] max-h-[90vh] flex flex-col p-0 overflow-hidden">
+          <DialogHeader className="flex-shrink-0 bg-background border-b px-4 py-3">
             <DialogTitle className="text-base">Customize Pivot Table Fields</DialogTitle>
           </DialogHeader>
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto min-h-0">
           <div className="py-3">
       {/* Drag and Drop Pivot Builder Section */}
       <div className="px-3 py-3 border-b border-[#3a4252] bg-[#0a0f20]">
@@ -2589,7 +2589,7 @@ export function StockTransactionDoneDetail() {
             </div>
           </div>
           </div>
-          <DialogFooter className="sticky bottom-0 z-10 bg-background border-t px-4 py-3 flex items-center justify-between sm:justify-between">
+          <DialogFooter className="flex-shrink-0 bg-background border-t px-4 py-3 flex items-center justify-between sm:justify-between">
             <Button
               variant="outline"
               size="sm"

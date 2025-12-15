@@ -1940,6 +1940,26 @@ export const api = {
     }
   },
 
+  // Get sector OHLC price data
+  async getSectorOhlcPrice(sectorName: string, startDate?: string, endDate?: string, limit?: number): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const params = new URLSearchParams();
+      if (startDate) params.append('startDate', startDate);
+      if (endDate) params.append('endDate', endDate);
+      if (limit) params.append('limit', limit.toString());
+      
+      const res = await fetch(`${API_URL}/api/sector-ohlc-price/${encodeURIComponent(sectorName)}?${params}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to get sector OHLC price');
+      return { success: true, data: json.data };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to get sector OHLC price' };
+    }
+  },
+
   // Get sector mapping (stock code -> sector name)
   async getSectorMapping(): Promise<{ success: boolean; data?: { stockToSector: { [stock: string]: string }; sectors: string[]; sectorMapping: { [sector: string]: string[] } }; error?: string }> {
     try {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { api } from '../../services/api';
@@ -11,7 +11,12 @@ export function StoryForeignFlowAnalysis({ selectedStock: propSelectedStock }: S
   const [selectedStock, setSelectedStock] = useState(propSelectedStock || 'BBRI');
   const [foreignFlowDataReal, setForeignFlowDataReal] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [dataLimit, setDataLimit] = useState(100);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const resizeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [chartKey, setChartKey] = useState(0);
+  const isResizingRef = useRef(false);
+  const [chartDimensions, setChartDimensions] = useState({ width: 0, height: 320 });
+  const lastResizeTimeRef = useRef(0);
 
   // Update selectedStock when prop changes
   useEffect(() => {
@@ -29,7 +34,7 @@ export function StoryForeignFlowAnalysis({ selectedStock: propSelectedStock }: S
         setLoading(true);
         
         // Fetch Foreign Flow data
-        const foreignFlowResponse = await api.getForeignFlowData(selectedStock, dataLimit);
+        const foreignFlowResponse = await api.getForeignFlowData(selectedStock, 100);
         let foreignData: any[] = [];
         
         if (foreignFlowResponse.success && foreignFlowResponse.data?.data) {
@@ -54,7 +59,64 @@ export function StoryForeignFlowAnalysis({ selectedStock: propSelectedStock }: S
     };
 
     fetchForeignFlowData();
-  }, [selectedStock, dataLimit]);
+  }, [selectedStock]);
+
+  // Debounced resize handler to prevent loop - AGGRESSIVE throttling
+  const handleResize = useCallback(() => {
+    if (isResizingRef.current) return;
+    
+    const now = Date.now();
+    // Throttle resize to max once per 1000ms
+    if (now - lastResizeTimeRef.current < 1000) {
+      return;
+    }
+    
+    if (resizeTimeoutRef.current) {
+      clearTimeout(resizeTimeoutRef.current);
+    }
+    
+    resizeTimeoutRef.current = setTimeout(() => {
+      if (containerRef.current && !isResizingRef.current) {
+        isResizingRef.current = true;
+        lastResizeTimeRef.current = Date.now();
+        
+        // Set fixed height to prevent vertical scaling loop
+        const rect = containerRef.current.getBoundingClientRect();
+        setChartDimensions({
+          width: Math.max(1, Math.floor(rect.width)),
+          height: 320 // Fixed height to prevent loop
+        });
+        
+        setChartKey(prev => prev + 1);
+        setTimeout(() => {
+          isResizingRef.current = false;
+        }, 500);
+      }
+    }, 1000);
+  }, []);
+
+  // Setup resize observer with aggressive debounce - DISABLED ResizeObserver, use window resize only
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    // Initialize dimensions
+    const rect = container.getBoundingClientRect();
+    setChartDimensions({
+      width: Math.max(1, Math.floor(rect.width)),
+      height: 320 // Fixed height
+    });
+
+    // Only listen to window resize, NOT ResizeObserver (which causes loop)
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      if (resizeTimeoutRef.current) {
+        clearTimeout(resizeTimeoutRef.current);
+      }
+    };
+  }, [handleResize]);
 
   // Format numbers with M/B/T prefix
   const formatNumber = (num: number): string => {
@@ -125,15 +187,34 @@ export function StoryForeignFlowAnalysis({ selectedStock: propSelectedStock }: S
         </p>
       </CardHeader>
       <CardContent>
-        <div className="h-80">
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={foreignFlowDataReal} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
+        <div 
+          ref={containerRef} 
+          className="w-full" 
+          style={{ 
+            height: '320px', 
+            width: '100%',
+            position: 'relative',
+            overflow: 'hidden',
+            minWidth: '100%'
+          }}
+        >
+          <ResponsiveContainer 
+            width={chartDimensions.width || '100%'} 
+            height={chartDimensions.height || 320} 
+            key={`${chartKey}-${chartDimensions.width}-${chartDimensions.height}`}
+            debounce={500}
+          >
+            <ComposedChart 
+              data={foreignFlowDataReal} 
+              margin={{ top: 10, right: 10, left: 10, bottom: 10 }}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
               <XAxis 
                 dataKey="time" 
                 axisLine={false}
                 tickLine={false}
                 tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                allowDataOverflow={false}
               />
               <YAxis 
                 yAxisId="left"
@@ -142,6 +223,8 @@ export function StoryForeignFlowAnalysis({ selectedStock: propSelectedStock }: S
                 tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
                 tickFormatter={formatNumber}
                 label={{ value: 'Volume', angle: -90, position: 'insideLeft', style: { fontSize: 12 } }}
+                allowDataOverflow={false}
+                width={60}
               />
               <YAxis 
                 yAxisId="right"
@@ -151,6 +234,8 @@ export function StoryForeignFlowAnalysis({ selectedStock: propSelectedStock }: S
                 tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
                 tickFormatter={formatNumber}
                 label={{ value: 'Net Buy Volume', angle: 90, position: 'insideRight', style: { fontSize: 12 } }}
+                allowDataOverflow={false}
+                width={80}
               />
               <Tooltip 
                 content={customTooltip}

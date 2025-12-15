@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { TrendingUp, TrendingDown, Minus, Filter, Search, ChevronLeft, ChevronRight, Loader2, RefreshCw } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, Search, ChevronLeft, ChevronRight, Loader2, RefreshCw } from 'lucide-react';
 import { api } from '../../services/api';
 
 interface TrendStock {
@@ -44,6 +44,9 @@ export function MarketRotationTrendFilter() {
   const [sectors, setSectors] = useState<string[]>(["All Sectors"]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const menuContainerRef = useRef<HTMLDivElement>(null);
+  const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
+  const [controlSpacerHeight, setControlSpacerHeight] = useState<number>(72);
 
   const itemsPerPage = 15;
 
@@ -157,6 +160,49 @@ export function MarketRotationTrendFilter() {
     })();
     return () => { mounted = false; };
   }, [selectedTimeframe]);
+
+  // Monitor menu height to detect if it wraps to 2 rows
+  useEffect(() => {
+    const checkMenuHeight = () => {
+      if (menuContainerRef.current) {
+        const menuHeight = menuContainerRef.current.offsetHeight;
+        // If menu height is more than ~50px, it's likely 2 rows (single row is usually ~40-45px)
+        setIsMenuTwoRows(menuHeight > 50);
+        // Update spacer height
+        if (menuHeight > 50) {
+          setControlSpacerHeight(60);
+        } else {
+          setControlSpacerHeight(38);
+        }
+      }
+    };
+
+    // Check initially
+    checkMenuHeight();
+
+    // Check on window resize
+    window.addEventListener('resize', checkMenuHeight);
+    
+    // Use ResizeObserver for more accurate detection
+    let resizeObserver: ResizeObserver | null = null;
+    if (menuContainerRef.current) {
+      resizeObserver = new ResizeObserver(() => {
+        checkMenuHeight();
+      });
+      resizeObserver.observe(menuContainerRef.current);
+    }
+
+    // Also check when filters change (affects menu height)
+    const timeoutId = setTimeout(checkMenuHeight, 100);
+
+    return () => {
+      window.removeEventListener('resize', checkMenuHeight);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+      clearTimeout(timeoutId);
+    };
+  }, [selectedTimeframe, selectedTrend, selectedSector]);
 
 
   const getTrendIcon = (trend: string) => {
@@ -292,132 +338,138 @@ export function MarketRotationTrendFilter() {
   }
 
   return (
-    <div className="space-y-6">
-      <Card className="p-4">
-        <div className="space-y-4">
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Filters:</span>
+    <div className="w-full">
+      {/* Top Controls - Compact without Card */}
+      {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
+      <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
+        <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-1 md:gap-x-7 md:gap-y-0.5">
+          {/* Search Bar */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+            <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
+            <div className="relative flex-1 md:flex-none md:w-64">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder={`Search ${selectedTrend === "all" ? "all" : `${selectedTrend}`} stocks...`}
+                value={searchQuery}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                className="w-full h-9 pl-10 pr-3 text-sm border border-[#3a4252] rounded-md bg-background text-foreground hover:border-primary/50 focus:border-primary focus:outline-none transition-colors"
+              />
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {/* Timeframe Filter */}
-            <div className="w-full">
-              <label className="block text-sm font-medium mb-2">Timeframe:</label>
-              <div className="grid grid-cols-4 gap-1 border border-border rounded-lg p-1">
-                {timeframes.map((tf) => (
-                  <Button
-                    key={tf}
-                    variant={
-                      selectedTimeframe === tf
-                        ? "default"
-                        : "ghost"
-                    }
-                    size="sm"
-                    onClick={() => setSelectedTimeframe(tf)}
-                    className="px-2 py-1 h-8 text-xs hover:bg-primary/10 hover:text-primary transition-colors"
-                  >
-                    {tf}
-                  </Button>
-                ))}
-              </div>
-            </div>
+          {/* Sector Filter */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+            <label className="text-sm font-medium whitespace-nowrap">Sector:</label>
+            <select
+              value={selectedSector}
+              onChange={(e) =>
+                setSelectedSector(e.target.value)
+              }
+              className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
+            >
+              {sectors.map((sector) => (
+                <option key={sector} value={sector}>
+                  {sector}
+                </option>
+              ))}
+            </select>
+          </div>
 
-            {/* Trend Filter */}
-            <div className="w-full">
-              <label className="block text-sm font-medium mb-2">Trend:</label>
-              <div className="grid grid-cols-4 gap-1 border border-border rounded-lg p-1">
+          {/* Timeframe Filter */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+            <label className="text-sm font-medium whitespace-nowrap">Timeframe:</label>
+            <div className="grid grid-cols-4 gap-1 border border-[#3a4252] rounded-lg p-1">
+              {timeframes.map((tf) => (
                 <Button
+                  key={tf}
                   variant={
-                    selectedTrend === "all" ? "default" : "ghost"
+                    selectedTimeframe === tf
+                      ? "default"
+                      : "ghost"
                   }
                   size="sm"
-                  onClick={() => setSelectedTrend("all")}
+                  onClick={() => setSelectedTimeframe(tf)}
                   className="px-2 py-1 h-8 text-xs hover:bg-primary/10 hover:text-primary transition-colors"
                 >
-                  All
+                  {tf}
                 </Button>
-                <Button
-                  variant={
-                    selectedTrend === "uptrend"
-                      ? "default"
-                      : "ghost"
-                  }
-                  size="sm"
-                  onClick={() => setSelectedTrend("uptrend")}
-                  className="px-2 py-1 h-8 text-xs flex items-center justify-center gap-1 hover:bg-primary/10 hover:text-primary transition-colors"
-                >
-                  <TrendingUp className="w-3 h-3" />
-                  Up
-                </Button>
-                <Button
-                  variant={
-                    selectedTrend === "sideways"
-                      ? "default"
-                      : "ghost"
-                  }
-                  size="sm"
-                  onClick={() => setSelectedTrend("sideways")}
-                  className="px-2 py-1 h-8 text-xs flex items-center justify-center gap-1 hover:bg-primary/10 hover:text-primary transition-colors"
-                >
-                  <Minus className="w-3 h-3" />
-                  Side
-                </Button>
-                <Button
-                  variant={
-                    selectedTrend === "downtrend"
-                      ? "default"
-                      : "ghost"
-                  }
-                  size="sm"
-                  onClick={() => setSelectedTrend("downtrend")}
-                  className="px-2 py-1 h-8 text-xs flex items-center justify-center gap-1 hover:bg-primary/10 hover:text-primary transition-colors"
-                >
-                  <TrendingDown className="w-3 h-3" />
-                  Down
-                </Button>
-              </div>
+              ))}
             </div>
+          </div>
 
-            {/* Sector Filter */}
-            <div className="w-full">
-              <label className="block text-sm font-medium mb-2">Sector:</label>
-              <select
-                value={selectedSector}
-                onChange={(e) =>
-                  setSelectedSector(e.target.value)
+          {/* Trend Filter */}
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+            <label className="text-sm font-medium whitespace-nowrap">Trend:</label>
+            <div className="grid grid-cols-4 gap-1 border border-[#3a4252] rounded-lg p-1">
+              <Button
+                variant={
+                  selectedTrend === "all" ? "default" : "ghost"
                 }
-                className="w-full px-3 py-2 h-10 text-xs bg-background border border-border rounded-md hover:border-primary/50 transition-colors"
+                size="sm"
+                onClick={() => setSelectedTrend("all")}
+                className="px-2 py-1 h-8 text-xs hover:bg-primary/10 hover:text-primary transition-colors"
               >
-                {sectors.map((sector) => (
-                  <option key={sector} value={sector}>
-                    {sector}
-                  </option>
-                ))}
-              </select>
+                All
+              </Button>
+              <Button
+                variant={
+                  selectedTrend === "uptrend"
+                    ? "default"
+                    : "ghost"
+                }
+                size="sm"
+                onClick={() => setSelectedTrend("uptrend")}
+                className="px-2 py-1 h-8 text-xs flex items-center justify-center gap-1 hover:bg-primary/10 hover:text-primary transition-colors"
+              >
+                <TrendingUp className="w-3 h-3" />
+                Up
+              </Button>
+              <Button
+                variant={
+                  selectedTrend === "sideways"
+                    ? "default"
+                    : "ghost"
+                }
+                size="sm"
+                onClick={() => setSelectedTrend("sideways")}
+                className="px-2 py-1 h-8 text-xs flex items-center justify-center gap-1 hover:bg-primary/10 hover:text-primary transition-colors"
+              >
+                <Minus className="w-3 h-3" />
+                Side
+              </Button>
+              <Button
+                variant={
+                  selectedTrend === "downtrend"
+                    ? "default"
+                    : "ghost"
+                }
+                size="sm"
+                onClick={() => setSelectedTrend("downtrend")}
+                className="px-2 py-1 h-8 text-xs flex items-center justify-center gap-1 hover:bg-primary/10 hover:text-primary transition-colors"
+              >
+                <TrendingDown className="w-3 h-3" />
+                Down
+              </Button>
             </div>
           </div>
         </div>
-      </Card>
+      </div>
 
-      {/* Global Search Bar */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder={`Search ${selectedTrend === "all" ? "all" : `${selectedTrend}`} stock symbols or company names here...`}
-            value={searchQuery}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            className="w-full pl-10 pr-3 py-2 text-sm bg-background border border-border rounded-md hover:border-primary/50 focus:border-primary focus:outline-none transition-colors"
-          />
-        </div>
-        {searchQuery && (
-          <p className="text-xs text-muted-foreground mt-2">
+      {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
+      <div className={isMenuTwoRows ? "h-0 lg:h-[60px]" : "h-0 lg:h-[38px]"}></div>
+
+      {/* Search Results Info */}
+      {searchQuery && (
+        <div className="px-4 pt-2">
+          <p className="text-xs text-muted-foreground">
             Searching in {selectedTrend === "all" ? "all trends" : selectedTrend} • {getFilteredSummary().reduce((sum, item) => sum + item.count, 0)} results
           </p>
-        )}
+        </div>
+      )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="space-y-6 px-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {getFilteredSummary().map((item, index) => (
           <Card key={index} className="p-4">
             <div className="flex items-center justify-between">
@@ -445,10 +497,10 @@ export function MarketRotationTrendFilter() {
             </div>
           </Card>
         ))}
-      </div>
+        </div>
 
-      <div className="space-y-6">
-        {Object.entries(filteredData).map(
+        <div className="space-y-6">
+          {Object.entries(filteredData).map(
           ([trendType, _stocks]) => {
             const paginatedResult = getPaginatedData(trendType);
             return (
@@ -575,7 +627,8 @@ export function MarketRotationTrendFilter() {
               </Card>
             );
           }
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

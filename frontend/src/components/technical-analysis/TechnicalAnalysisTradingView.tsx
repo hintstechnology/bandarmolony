@@ -526,6 +526,8 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
   
   // New: measure controls height and compute available viewport height for the chart
   const controlsContainerRef = useRef<HTMLDivElement | null>(null);
+  const menuContainerRef = useRef<HTMLDivElement>(null);
+  const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
   const [chartViewportHeight, setChartViewportHeight] = useState<number>(600);
   useEffect(() => {
     const HEADER_H = 56; // h-14 in header
@@ -1291,8 +1293,8 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
         textColor: colors.axisTextColor
       },
       grid: { 
-        horzLines: { color: colors.gridColor, style: 1 }, 
-        vertLines: { color: colors.gridColor, style: 1 } 
+        horzLines: { visible: false }, 
+        vertLines: { visible: false } 
       },
       rightPriceScale: { 
         borderColor: colors.borderColor
@@ -2013,8 +2015,8 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
           textColor: colors.axisTextColor
         },
         grid: { 
-          horzLines: { color: colors.gridColor, style: 1 }, 
-          vertLines: { color: colors.gridColor, style: 1 } 
+          horzLines: { visible: false }, 
+          vertLines: { visible: false } 
         },
         rightPriceScale: { 
           borderColor: colors.borderColor
@@ -2618,15 +2620,17 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
       `}</style>
       
       {!hideControls && (
-        <Card className="p-3 sm:p-4" ref={controlsContainerRef}>
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 items-start sm:items-center w-full">
-            {/* Symbol/Ticker selector styled like BrokerInventoryPage */}
-            <div className="w-full sm:w-auto sm:flex-1 sm:max-w-[200px]">
-              <label className="hidden sm:block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Symbol:</label>
-              <div className="relative" ref={searchRef}>
+        <>
+        {/* Top Controls - Compact without Card */}
+        {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
+        <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40" ref={controlsContainerRef}>
+          <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-1 md:gap-x-7 md:gap-y-0.5">
+            {/* Symbol/Ticker selector */}
+            <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+              <label className="text-sm font-medium whitespace-nowrap">Symbol:</label>
+              <div className="relative flex-1 md:flex-none md:w-64" ref={searchRef}>
                 <div className="relative">
-                  <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <input
                     type="text"
                     value={searchQuery}
@@ -2638,7 +2642,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                     onFocus={() => setShowSearchDropdown(true)}
                     onKeyDown={handleSearchKeyDown}
                     placeholder="Search and select stocks..."
-                    className="w-full pl-7 pr-8 h-10 text-xs sm:text-sm bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/50 transition-colors"
+                    className="w-full h-9 pl-10 pr-3 text-sm border border-[#3a4252] rounded-md bg-background text-foreground hover:border-primary/50 focus:border-primary focus:outline-none transition-colors"
                   />
                   {searchQuery && (
                     <button
@@ -2690,7 +2694,7 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
                 
                 {/* Combined Search and Select Dropdown */}
                 {showSearchDropdown && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-md shadow-lg z-50 max-h-48 sm:max-h-60 overflow-y-auto">
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-48 sm:max-h-60 overflow-y-auto">
                     {isLoadingSymbols ? (
                       <div className="p-3 text-sm text-muted-foreground">Loading symbols...</div>
                     ) : symbols.length === 0 ? (
@@ -2744,12 +2748,13 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               </div>
             </div>
 
-            <div className="w-full sm:w-auto sm:min-w-[140px]">
-              <label className="hidden sm:block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Timeframe:</label>
+            {/* Timeframe */}
+            <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+              <label className="text-sm font-medium whitespace-nowrap">Timeframe:</label>
               <select
                 value={timeframe}
                 onChange={(e) => setTimeframe(e.target.value as Timeframe)}
-                className="w-full h-10 px-2 sm:px-3 text-xs sm:text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
               >
                 {availableTimeframes.map(tf => (
                   <option key={tf.value} value={tf.value}>
@@ -2759,37 +2764,43 @@ export const TechnicalAnalysisTradingView = React.memo(function TechnicalAnalysi
               </select>
             </div>
 
-            <div className="w-full sm:w-auto">
-              <label className="hidden sm:block text-xs sm:text-sm font-medium mb-1 sm:mb-2">Chart Style:</label>
-              <div className="flex flex-col sm:grid sm:grid-cols-3 gap-2">
-                <select
-                  value={style}
-                  onChange={(e) => setStyle(e.target.value as ChartStyle)}
-                  className="w-full h-10 px-2 sm:px-3 text-xs sm:text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
-                >
-                  <option value="line">Line</option>
-                  <option value="candles">Candles</option>
-                  <option value="footprint">Footprint</option>
-                </select>
-              <button
-                onClick={() => setShowIndicatorSettings(true)}
-                className="w-full sm:w-auto h-10 px-2 sm:px-3 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground hover:bg-accent inline-flex items-center justify-center gap-2"
+            {/* Chart Style */}
+            <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
+              <label className="text-sm font-medium whitespace-nowrap">Chart Style:</label>
+              <select
+                value={style}
+                onChange={(e) => setStyle(e.target.value as ChartStyle)}
+                className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
               >
-                <BarChart2 className="w-4 h-4" />
-                <span>Indicators</span>
-              </button>
-             <button
-               onClick={() => setShowSettings(true)}
-               className="w-full sm:w-auto h-10 px-2 sm:px-3 text-xs sm:text-sm border border-border rounded-md bg-background text-foreground hover:bg-accent inline-flex items-center justify-center gap-2"
-             >
-               <SettingsIcon className="w-4 h-4" />
-                <span>Settings</span>
-             </button>
+                <option value="line">Line</option>
+                <option value="candles">Candles</option>
+                <option value="footprint">Footprint</option>
+              </select>
             </div>
+
+            {/* Indicators Button */}
+            <button
+              onClick={() => setShowIndicatorSettings(true)}
+              className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center gap-2 w-full md:w-auto"
+            >
+              <BarChart2 className="w-4 h-4" />
+              <span>Indicators</span>
+            </button>
+
+            {/* Settings Button */}
+            <button
+              onClick={() => setShowSettings(true)}
+              className="h-9 px-4 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors text-sm font-medium whitespace-nowrap flex items-center justify-center gap-2 w-full md:w-auto"
+            >
+              <SettingsIcon className="w-4 h-4" />
+              <span>Settings</span>
+            </button>
           </div>
         </div>
-        </div>
-        </Card>
+
+        {/* Spacer untuk header fixed - hanya diperlukan di layar besar (lg+) */}
+        <div className={isMenuTwoRows ? "h-0 lg:h-[60px]" : "h-0 lg:h-[38px]"}></div>
+        </>
       )}
 
       <Card className="flex-1 p-0 relative overflow-hidden" style={{ padding: 0, margin: 0, height: chartViewportHeight }}>
