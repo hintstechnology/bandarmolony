@@ -88,18 +88,96 @@ export class AccumulationDistributionCalculator {
 
   /**
    * Load bid/ask data from Azure Blob Storage
-   * OPTIMIZED: Uses shared cache to avoid repeated downloads
+   * OPTIMIZED: Try ALL_STOCK.csv first, if not exists, load all individual stock files
    */
   private async loadBidAskDataFromAzure(dateSuffix: string): Promise<BidAskData[]> {
     console.log(`Loading bid/ask data from Azure for date: ${dateSuffix}`);
     
-    const blobName = `bid_ask/bid_ask_${dateSuffix}/ALL_STOCK.csv`;
-    // OPTIMIZED: Added retry logic for downloadText
+    // Try ALL_STOCK.csv first (if exists)
+    const allStockBlobName = `bid_ask/bid_ask_${dateSuffix}/ALL_STOCK.csv`;
     const maxRetries = 2;
-    let content: string = '';
+    
+    // Check if ALL_STOCK.csv exists
+    let allStockExists = false;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        content = await downloadText(blobName);
+        allStockExists = await exists(allStockBlobName);
+        break;
+      } catch (error: any) {
+        const isRetryable = 
+          error?.code === 'PARSE_ERROR' ||
+          error?.name === 'RestError' ||
+          (error?.message && error.message.includes('aborted'));
+        
+        if (!isRetryable || attempt === maxRetries) {
+          // If check fails, assume it doesn't exist and try individual files
+          allStockExists = false;
+          break;
+        }
+        
+        const delayMs = Math.min(500 * Math.pow(2, attempt - 1), 2000);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+    
+    // If ALL_STOCK.csv exists, load it
+    if (allStockExists) {
+      let content: string = '';
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          content = await downloadText(allStockBlobName);
+          break;
+        } catch (error: any) {
+          const isRetryable = 
+            error?.code === 'PARSE_ERROR' ||
+            error?.name === 'RestError' ||
+            (error?.message && error.message.includes('aborted'));
+          
+          if (!isRetryable || attempt === maxRetries) {
+            throw error;
+          }
+          
+          const delayMs = Math.min(500 * Math.pow(2, attempt - 1), 2000);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+      }
+      
+      const lines = content.trim().split('\n');
+      const data: BidAskData[] = [];
+      
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line) continue;
+        
+        const values = line.split(',');
+        if (values.length >= 10) {
+          data.push({
+            StockCode: values[0]?.trim() || '',
+            Price: parseFloat(values[1]?.trim() || '0'),
+            BidVolume: parseFloat(values[2]?.trim() || '0'),
+            AskVolume: parseFloat(values[3]?.trim() || '0'),
+            NetVolume: parseFloat(values[4]?.trim() || '0'),
+            TotalVolume: parseFloat(values[5]?.trim() || '0'),
+            BidCount: parseFloat(values[6]?.trim() || '0'),
+            AskCount: parseFloat(values[7]?.trim() || '0'),
+            UniqueBidBrokers: parseFloat(values[8]?.trim() || '0'),
+            UniqueAskBrokers: parseFloat(values[9]?.trim() || '0')
+          });
+        }
+      }
+      
+      console.log(`Loaded ${data.length} bid/ask records from ALL_STOCK.csv`);
+      return data;
+    }
+    
+    // If ALL_STOCK.csv doesn't exist, load all individual stock files
+    console.log(`ALL_STOCK.csv not found, loading individual stock files...`);
+    const folderPrefix = `bid_ask/bid_ask_${dateSuffix}/`;
+    let allFiles: string[] = [];
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        allFiles = await listPaths({ prefix: folderPrefix });
         break;
       } catch (error: any) {
         const isRetryable = 
@@ -116,31 +194,84 @@ export class AccumulationDistributionCalculator {
       }
     }
     
-    const lines = content.trim().split('\n');
-    const data: BidAskData[] = [];
+    // Filter only CSV files (exclude ALL_STOCK.csv if exists)
+    const stockFiles = allFiles.filter(file => {
+      const fileName = file.split('/').pop() || '';
+      return fileName.endsWith('.csv') && fileName.toUpperCase() !== 'ALL_STOCK.CSV';
+    });
     
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i];
-      if (!line) continue;
+    console.log(`Found ${stockFiles.length} individual stock files, loading...`);
+    
+    const data: BidAskData[] = [];
+    const BATCH_SIZE = 20; // Load 20 files at a time
+    const MAX_CONCURRENT = 10; // Max 10 concurrent downloads
+    
+    for (let i = 0; i < stockFiles.length; i += BATCH_SIZE) {
+      const batch = stockFiles.slice(i, i + BATCH_SIZE);
       
-      const values = line.split(',');
-      if (values.length >= 10) {
-        data.push({
-          StockCode: values[0]?.trim() || '',
-          Price: parseFloat(values[1]?.trim() || '0'),
-          BidVolume: parseFloat(values[2]?.trim() || '0'),
-          AskVolume: parseFloat(values[3]?.trim() || '0'),
-          NetVolume: parseFloat(values[4]?.trim() || '0'),
-          TotalVolume: parseFloat(values[5]?.trim() || '0'),
-          BidCount: parseFloat(values[6]?.trim() || '0'),
-          AskCount: parseFloat(values[7]?.trim() || '0'),
-          UniqueBidBrokers: parseFloat(values[8]?.trim() || '0'),
-          UniqueAskBrokers: parseFloat(values[9]?.trim() || '0')
-        });
+      const loadPromises = batch.map(async (file) => {
+        try {
+          const content = await downloadText(file);
+          const lines = content.trim().split('\n');
+          
+          // Extract stock code from filename
+          const fileName = file.split('/').pop() || '';
+          const stockCode = fileName.replace('.csv', '');
+          
+          // Parse CSV (skip header if exists)
+          for (let j = 1; j < lines.length; j++) {
+            const line = lines[j];
+            if (!line) continue;
+            
+            const values = line.split(',');
+            if (values.length >= 9) {
+              // Format: StockCode,Price,BidVolume,AskVolume,NetVolume,TotalVolume,BidCount,AskCount,UniqueBidBrokers,UniqueAskBrokers
+              // Or: Price,BidVolume,AskVolume,NetVolume,TotalVolume,BidCount,AskCount,UniqueBidBrokers,UniqueAskBrokers (if StockCode in filename)
+              let stockCodeValue = stockCode;
+              let priceIdx = 0;
+              let bidVolIdx = 1;
+              
+              // Check if first column is StockCode
+              if (values[0]?.trim() && values[0].trim().length === 4 && /^[A-Z]{4}$/.test(values[0].trim())) {
+                stockCodeValue = values[0].trim();
+                priceIdx = 1;
+                bidVolIdx = 2;
+              }
+              
+              if (values.length >= priceIdx + 9) {
+                data.push({
+                  StockCode: stockCodeValue,
+                  Price: parseFloat(values[priceIdx]?.trim() || '0'),
+                  BidVolume: parseFloat(values[bidVolIdx]?.trim() || '0'),
+                  AskVolume: parseFloat(values[bidVolIdx + 1]?.trim() || '0'),
+                  NetVolume: parseFloat(values[bidVolIdx + 2]?.trim() || '0'),
+                  TotalVolume: parseFloat(values[bidVolIdx + 3]?.trim() || '0'),
+                  BidCount: parseFloat(values[bidVolIdx + 4]?.trim() || '0'),
+                  AskCount: parseFloat(values[bidVolIdx + 5]?.trim() || '0'),
+                  UniqueBidBrokers: parseFloat(values[bidVolIdx + 6]?.trim() || '0'),
+                  UniqueAskBrokers: parseFloat(values[bidVolIdx + 7]?.trim() || '0')
+                });
+              }
+            }
+          }
+          
+          return { success: true, file };
+        } catch (error) {
+          console.warn(`⚠️ Failed to load ${file}:`, error instanceof Error ? error.message : error);
+          return { success: false, file, error: error instanceof Error ? error.message : 'Unknown error' };
+        }
+      });
+      
+      // Limit concurrency (data is already pushed to array inside promises)
+      await limitConcurrency(loadPromises, MAX_CONCURRENT);
+      
+      // Log progress
+      if ((i + BATCH_SIZE) % 100 === 0 || i + BATCH_SIZE >= stockFiles.length) {
+        console.log(`  Loaded ${Math.min(i + BATCH_SIZE, stockFiles.length)}/${stockFiles.length} files...`);
       }
     }
     
-    console.log(`Loaded ${data.length} bid/ask records from Azure`);
+    console.log(`Loaded ${data.length} bid/ask records from ${stockFiles.length} individual stock files`);
     return data;
   }
 
@@ -623,21 +754,40 @@ export class AccumulationDistributionCalculator {
       
       const allDates: string[] = [];
       for (const prefix of prefixes) {
-        // Extract date from folder name (e.g., bid_ask_YYYYMMDD or bid_ask_YYMMDD)
-        const dateMatch = prefix.match(/bid_ask_(\d{6}|\d{8})/);
+        // Extract date from folder name (e.g., bid_ask/bid_ask_YYYYMMDD/)
+        // listPrefixes returns format: "bid_ask/bid_ask_YYYYMMDD/"
+        const dateMatch = prefix.match(/bid_ask\/bid_ask_(\d{8})\//);
         if (dateMatch && dateMatch[1]) {
-          allDates.push(dateMatch[1]);
+          const dateStr = dateMatch[1];
+          // Validate: must be 8 digits (YYYYMMDD format)
+          if (dateStr.length === 8 && /^\d{8}$/.test(dateStr)) {
+            allDates.push(dateStr);
+          } else {
+            console.warn(`⚠️ Skipping invalid date format in prefix: ${prefix} (extracted: ${dateStr})`);
+          }
+        } else {
+          // Log prefixes that don't match expected format for debugging
+          if (!prefix.includes('bid_ask_')) {
+            console.warn(`⚠️ Unexpected prefix format: ${prefix}`);
+          }
         }
       }
       
-      // Remove duplicates and sort
-      const uniqueDates = [...new Set(allDates)].sort();
+      // Remove duplicates and sort (descending - newest first)
+      const uniqueDates = [...new Set(allDates)].sort((a, b) => b.localeCompare(a));
       console.log(`📊 Final unique dates found: ${uniqueDates.length} dates`);
-      console.log(`📅 Sample dates: ${uniqueDates.slice(0, 10).join(', ')}`);
+      if (uniqueDates.length > 0) {
+        console.log(`📅 Sample dates: ${uniqueDates.slice(0, 10).join(', ')}`);
+      } else {
+        console.warn(`⚠️ No valid 8-digit dates found in ${prefixes.length} prefixes`);
+        if (prefixes.length > 0) {
+          console.log(`📋 Sample prefixes: ${prefixes.slice(0, 5).join(', ')}`);
+        }
+      }
 
       // OPTIMIZATION: Limit to 7 most recent dates (consistent with other phases)
       const MAX_DATES_TO_PROCESS = 7;
-      const limitedDates = uniqueDates.slice(-MAX_DATES_TO_PROCESS);
+      const limitedDates = uniqueDates.slice(0, MAX_DATES_TO_PROCESS);
       console.log(`📊 Processing last ${limitedDates.length} dates (limited to ${MAX_DATES_TO_PROCESS} most recent dates)`);
       
       if (limitedDates.length === 0) {
@@ -649,12 +799,116 @@ export class AccumulationDistributionCalculator {
         };
       }
 
-      // Pre-count total stocks from all dates for accurate progress tracking
-      console.log(`🔍 Pre-counting total stocks from ${limitedDates.length} dates...`);
+      // OPTIMIZATION: Batch checking for skip logic (parallel checking for speed)
+      console.log(`🔍 Pre-checking existing output files (batch checking)...`);
+      const datesToProcess: string[] = [];
+      let skippedCount = 0;
+      
+      const CHECK_BATCH_SIZE = 20; // Check 20 dates in parallel
+      const MAX_CONCURRENT_CHECKS = 10; // Max 10 concurrent checks
+      
+      for (let i = 0; i < limitedDates.length; i += CHECK_BATCH_SIZE) {
+        const batch = limitedDates.slice(i, i + CHECK_BATCH_SIZE);
+        const batchNumber = Math.floor(i / CHECK_BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(limitedDates.length / CHECK_BATCH_SIZE);
+        
+        // Process batch checks in parallel with concurrency limit
+        const checkPromises = batch.map(async (dateSuffix) => {
+          const checkFilename = `accumulation_distribution/${dateSuffix}.csv`;
+          const maxRetriesExists = 2;
+          
+          for (let attempt = 1; attempt <= maxRetriesExists; attempt++) {
+            try {
+              const fileExists = await exists(checkFilename);
+              return { dateSuffix, exists: fileExists, error: null };
+            } catch (error: any) {
+              const isRetryable = 
+                error?.code === 'PARSE_ERROR' ||
+                error?.name === 'RestError' ||
+                (error?.message && error.message.includes('aborted'));
+              
+              if (!isRetryable || attempt === maxRetriesExists) {
+                // If check fails, proceed with processing (safer to process than skip)
+                return { dateSuffix, exists: false, error: error instanceof Error ? error.message : String(error) };
+              }
+              
+              const delayMs = Math.min(500 * Math.pow(2, attempt - 1), 2000);
+              await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
+          }
+          return { dateSuffix, exists: false, error: 'Max retries exceeded' };
+        });
+        
+        // Limit concurrency for checks
+        const checkResults: Array<{ dateSuffix: string; exists: boolean; error: string | null }> = [];
+        for (let j = 0; j < checkPromises.length; j += MAX_CONCURRENT_CHECKS) {
+          const concurrentChecks = checkPromises.slice(j, j + MAX_CONCURRENT_CHECKS);
+          const results = await Promise.all(concurrentChecks);
+          checkResults.push(...results);
+        }
+        
+        // Process results
+        for (const result of checkResults) {
+          if (result.exists) {
+            skippedCount++;
+            // Only log first few and last few to avoid spam
+            if (skippedCount <= 5 || skippedCount > limitedDates.length - 5) {
+              console.log(`⏭️ Skipping ${result.dateSuffix} - file already exists`);
+            }
+          } else {
+            if (result.error) {
+              console.warn(`⚠️ Could not check existence for ${result.dateSuffix}, will process:`, result.error);
+            } else {
+              // Only log first few to avoid spam
+              if (datesToProcess.length < 5) {
+                console.log(`✅ Date ${result.dateSuffix} needs processing`);
+              }
+            }
+            datesToProcess.push(result.dateSuffix);
+          }
+        }
+        
+        // Progress update for large batches
+        if (totalBatches > 1 && batchNumber % 5 === 0) {
+          console.log(`📊 Checked ${Math.min(i + CHECK_BATCH_SIZE, limitedDates.length)}/${limitedDates.length} dates (${skippedCount} skipped, ${datesToProcess.length} to process)...`);
+        }
+      }
+      
+      // Summary log
+      if (skippedCount > 5) {
+        console.log(`⏭️  ... and ${skippedCount - 5} more dates skipped`);
+      }
+      if (datesToProcess.length > 5) {
+        console.log(`✅ ... and ${datesToProcess.length - 5} more dates need processing`);
+      }
+      console.log(`📊 Pre-check complete: ${datesToProcess.length} dates to process, ${skippedCount} already exist`);
+      
+      if (datesToProcess.length === 0) {
+        console.log('✅ All dates already have output files - nothing to process');
+        return {
+          success: true,
+          message: `All dates already have output files - nothing to process (${skippedCount} skipped)`,
+          data: []
+        };
+      }
+      
+      if (datesToProcess.length > 0) {
+        console.log(`📋 Processing order (newest first):`);
+        datesToProcess.slice(0, 10).forEach((date: string, idx: number) => {
+          console.log(`   ${idx + 1}. ${date}`);
+        });
+        if (datesToProcess.length > 10) {
+          console.log(`   ... and ${datesToProcess.length - 10} more dates`);
+        }
+      }
+
+      // OPTIMIZATION: Pre-count total stocks AFTER skip logic (only for dates that will be processed)
+      console.log(`🔍 Pre-counting total stocks from ${datesToProcess.length} dates (after skip check)...`);
       const allStocks = new Set<string>();
-      for (let i = 0; i < Math.min(limitedDates.length, 10); i++) { // Sample first 10 dates
-        const date = limitedDates[i];
-        if (!date) continue; // Skip undefined dates
+      const sampleSize = Math.min(datesToProcess.length, 5); // Sample first 5 dates that will be processed
+      for (let i = 0; i < sampleSize; i++) {
+        const date = datesToProcess[i];
+        if (!date) continue;
         try {
           const bidAskData = await this.loadBidAskDataFromAzure(date);
           bidAskData.forEach(d => allStocks.add(d.StockCode));
@@ -663,7 +917,7 @@ export class AccumulationDistributionCalculator {
         }
       }
       const avgStocksPerDate = allStocks.size;
-      const estimatedTotalStocks = limitedDates.length * avgStocksPerDate;
+      const estimatedTotalStocks = datesToProcess.length * avgStocksPerDate;
       console.log(`✅ Pre-count complete: ~${avgStocksPerDate} stocks per date, estimated ${estimatedTotalStocks.toLocaleString()} total stocks`);
       
       // Create progress tracker for thread-safe stock counting
@@ -719,52 +973,11 @@ export class AccumulationDistributionCalculator {
       
       const createdFilesSummary: { date: string; file: string; count: number }[] = [];
       let processedCount = 0;
-      let skippedCount = 0;
 
-      for (let di = 0; di < limitedDates.length; di++) {
-        const dateSuffix = limitedDates[di];
+      for (let di = 0; di < datesToProcess.length; di++) {
+        const dateSuffix = datesToProcess[di];
         if (!dateSuffix) {
           console.log(`Skip undefined date at index ${di}`);
-          continue;
-        }
-        
-        // Check if output file already exists (using exists() instead of downloadText() for efficiency)
-        // OPTIMIZED: Added retry logic for exists() check
-        const checkFilename = `accumulation_distribution/${dateSuffix}.csv`;
-        const maxRetriesExists = 2;
-        let fileExists = false;
-        for (let attempt = 1; attempt <= maxRetriesExists; attempt++) {
-          try {
-            fileExists = await exists(checkFilename);
-            break;
-          } catch (error: any) {
-            const isRetryable = 
-              error?.code === 'PARSE_ERROR' ||
-              error?.name === 'RestError' ||
-              (error?.message && error.message.includes('aborted'));
-            
-            if (!isRetryable || attempt === maxRetriesExists) {
-              // If check fails, proceed with processing (safer to process than skip)
-              console.warn(`⚠️ Could not check existence for ${dateSuffix}, will process:`, error instanceof Error ? error.message : error);
-              break;
-            }
-            
-            const delayMs = Math.min(500 * Math.pow(2, attempt - 1), 2000);
-            await new Promise(resolve => setTimeout(resolve, delayMs));
-          }
-        }
-        
-        if (fileExists) {
-          console.log(`⏭️ Skipping ${dateSuffix} - file already exists`);
-          skippedCount++;
-          // Update progress even for skipped files
-          if (logId) {
-            const { SchedulerLogService } = await import('../../services/schedulerLogService');
-            await SchedulerLogService.updateLog(logId, {
-              progress_percentage: Math.round(((di + 1) / limitedDates.length) * 100),
-              current_processing: `Processing accumulation for date ${dateSuffix} (${di + 1}/${limitedDates.length}) - Skipped (already exists)`
-            });
-          }
           continue;
         }
         
@@ -806,6 +1019,7 @@ export class AccumulationDistributionCalculator {
         });
 
         // Load up to 20 previous trading days
+        // Note: Use limitedDates (all available dates) for historical data, not just datesToProcess
         const currentDateIndex = limitedDates.indexOf(dateSuffix);
         if (currentDateIndex > 0) {
           const previousDates = limitedDates.slice(Math.max(0, currentDateIndex - 20), currentDateIndex);
@@ -980,7 +1194,7 @@ export class AccumulationDistributionCalculator {
 
       return {
         success: true,
-        message: `Accumulation distribution generated for ${limitedDates.length} dates`,
+        message: `Accumulation distribution generated for ${processedCount} dates (${skippedCount} skipped, ${limitedDates.length} total available)`,
         data: createdFilesSummary
       };
     } catch (error) {
