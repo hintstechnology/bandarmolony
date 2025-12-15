@@ -174,6 +174,16 @@ const formatAverage = (value: number): string => {
   });
 };
 
+const formatLotPerFreqOrOrdNum = (value: number): string => {
+  // Format: dibulatkan tanpa angka di belakang koma
+  // Contoh: 64.6 → 65, 290.3 → 290
+  const rounded = Math.round(value);
+  return rounded.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  });
+};
+
 // Note: getFilteredAndSortedStocks function removed - filtering and sorting now handled in useMemo
 
 // Get trading days based on count (start from yesterday, skip today)
@@ -3535,7 +3545,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     {!showOnlyTotal && selectedDates.map((date, dateIndex) => (
                       <React.Fragment key={date}>
                         {/* Buyer Columns */}
-                        <th className={`text-center py-[1px] px-[3px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} title={formatDisplayDate(date)} style={dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>BCode</th>
+                        <th className={`text-center py-[1px] px-[3px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} title={formatDisplayDate(date)} style={dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>BY</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BVal</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BLot</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BAvg</th>
@@ -3546,7 +3556,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         {/* Separator */}
                         <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap" title={formatDisplayDate(date)}>#</th>
                         {/* Seller Columns */}
-                        <th className="text-center py-[1px] px-[3px] font-bold text-white" title={formatDisplayDate(date)} style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>SCode</th>
+                        <th className="text-center py-[1px] px-[3px] font-bold text-white" title={formatDisplayDate(date)} style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>SL</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SVal</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SLot</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
@@ -3557,7 +3567,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       </React.Fragment>
                     ))}
                     {/* Total Columns */}
-                    <th className={`text-center py-[1px] px-[3px] font-bold text-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>BCode</th>
+                    <th className={`text-center py-[1px] px-[3px] font-bold text-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>BY</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BVal</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BLot</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BAvg</th>
@@ -3566,7 +3576,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BOr</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/Or</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap">#</th>
-                    <th className="text-center py-[1px] px-[3px] font-bold text-white" style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>SCode</th>
+                    <th className="text-center py-[1px] px-[3px] font-bold text-white" style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>SL</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SVal</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SLot</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SAvg</th>
@@ -3644,9 +3654,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                             <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(buyerLot)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(buyerAvg ?? 0)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{buyerFreq}</td>
-                                        <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(buyerLotPerFreq ?? 0)}</td>
+                                        <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(buyerLotPerFreq ?? 0)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{buyerOrdNum}</td>
-                                        <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-16" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(buyerLotPerOrdNum ?? 0)}</td>
+                                        <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-16" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(buyerLotPerOrdNum ?? 0)}</td>
                                       </>
                                     );
                                   })()}
@@ -3704,10 +3714,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                             <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(sellerLot)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(sellerAvg ?? 0)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{sellerFreq}</td>
-                                        <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(sellerLotPerFreq ?? 0)}</td>
+                                        <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(sellerLotPerFreq ?? 0)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{sellerOrdNum}</td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                          {formatAverage(sellerLotPerOrdNum ?? 0)}
+                                          {formatLotPerFreqOrOrdNum(sellerLotPerOrdNum ?? 0)}
                             </td>
                                       </>
                                     );
@@ -3809,9 +3819,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   <td className="text-right py-[1px] px-[6px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(totalBuyLot)}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(finalBuyAvg)}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalBuyFreq}</td>
-                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(totalBuyLotPerFreq)}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(totalBuyLotPerFreq)}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalBuyOrdNum}</td>
-                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-16" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(totalBuyLotPerOrdNum)}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-16" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(totalBuyLotPerOrdNum)}</td>
                                 </>
                               ) : (
                                 <>
@@ -3837,10 +3847,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   <td className="text-right py-[1px] px-[6px] font-bold text-red-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(totalSellLot)}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-red-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(finalSellAvg)}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-red-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalSellFreq}</td>
-                                  <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(totalSellLotPerFreq)}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(totalSellLotPerFreq)}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-red-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalSellOrdNum}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-red-600 border-r-2 border-white w-16" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatAverage(totalSellLotPerOrdNum)}
+                                    {formatLotPerFreqOrOrdNum(totalSellLotPerOrdNum)}
                             </td>
                                 </>
                               ) : (
@@ -4074,7 +4084,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     {!showOnlyTotal && selectedDates.map((date, dateIndex) => (
                       <React.Fragment key={date}>
                         {/* Net Buy Columns (from CSV columns 17-23) */}
-                        <th className={`text-center py-[1px] px-[3px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} title={formatDisplayDate(date)} style={dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>BCode</th>
+                        <th className={`text-center py-[1px] px-[3px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} title={formatDisplayDate(date)} style={dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>BY</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BVal</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BLot</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BAvg</th>
@@ -4085,7 +4095,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         {/* Separator */}
                         <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap" title={formatDisplayDate(date)}>#</th>
                         {/* Net Sell Columns (from CSV columns 24-30) */}
-                        <th className="text-center py-[1px] px-[3px] font-bold text-white" title={formatDisplayDate(date)} style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>SCode</th>
+                        <th className="text-center py-[1px] px-[3px] font-bold text-white" title={formatDisplayDate(date)} style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>SL</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SVal</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SLot</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
@@ -4096,7 +4106,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       </React.Fragment>
                     ))}
                     {/* Total Columns - Net Buy/Net Sell */}
-                    <th className={`text-center py-[1px] px-[3px] font-bold text-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>BCode</th>
+                    <th className={`text-center py-[1px] px-[3px] font-bold text-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>BY</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BVal</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BLot</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BAvg</th>
@@ -4105,7 +4115,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BOr</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/Or</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap">#</th>
-                    <th className="text-center py-[1px] px-[3px] font-bold text-white" style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>SCode</th>
+                    <th className="text-center py-[1px] px-[3px] font-bold text-white" style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>SL</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SVal</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SLot</th>
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SAvg</th>
@@ -4185,13 +4195,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                           {nbFreq}
                                         </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-8`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                          {formatAverage(nbLotPerFreq ?? 0)}
+                                          {formatLotPerFreqOrOrdNum(nbLotPerFreq ?? 0)}
                                         </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                           {nbOrdNum}
                                         </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-16`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                          {formatAverage(nbLotPerOrdNum ?? 0)}
+                                          {formatLotPerFreqOrOrdNum(nbLotPerOrdNum ?? 0)}
                                         </td>
                                       </>
                                     );
@@ -4254,13 +4264,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                           {nsFreq}
                             </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-8`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                          {formatAverage(nsLotPerFreq ?? 0)}
+                                          {formatLotPerFreqOrOrdNum(nsLotPerFreq ?? 0)}
                                         </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                           {nsOrdNum}
                                         </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                          {formatAverage(nsLotPerOrdNum ?? 0)}
+                                          {formatLotPerFreqOrOrdNum(nsLotPerOrdNum ?? 0)}
                                         </td>
                                       </>
                                     );
@@ -4372,13 +4382,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     {totalNetBuyFreq}
                             </td>
                                   <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor} w-8`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatAverage(totalNetBuyLotPerFreq)}
+                                    {formatLotPerFreqOrOrdNum(totalNetBuyLotPerFreq)}
                                   </td>
                                   <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {totalNetBuyOrdNum}
                                   </td>
                                   <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor} w-16`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatAverage(totalNetBuyLotPerOrdNum)}
+                                    {formatLotPerFreqOrOrdNum(totalNetBuyLotPerOrdNum)}
                                   </td>
                                 </>
                               ) : (
@@ -4414,13 +4424,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     {totalNetSellFreq}
                             </td>
                                   <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-8`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatAverage(totalNetSellLotPerFreq)}
+                                    {formatLotPerFreqOrOrdNum(totalNetSellLotPerFreq)}
                                   </td>
                                   <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {totalNetSellOrdNum}
                                   </td>
                                   <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-16 border-r-2 border-white`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatAverage(totalNetSellLotPerOrdNum)}
+                                    {formatLotPerFreqOrOrdNum(totalNetSellLotPerOrdNum)}
                                   </td>
                                 </>
                               ) : (
@@ -4456,11 +4466,84 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         </div>
       );
     };
+
+    // Summary Table - Aggregated totals across all brokers/dates
+    const renderAggregateSummaryTable = () => {
+      let totalValue = 0;
+      let totalLot = 0;
+      let foreignBuyValue = 0;
+      let foreignSellValue = 0;
+
+      const dates = Array.from(transactionData.keys());
+
+      dates.forEach((date: string) => {
+        const dateData = transactionData.get(date) || [];
+        dateData.forEach(item => {
+          const buyVal = Number(item.BuyerValue) || 0;
+          const sellVal = Number(item.SellerValue) || 0;
+          totalValue += buyVal + sellVal;
+
+          const buyLot = Number(item.BLot) || 0;
+          const sellLot = Number(item.SLot) || 0;
+          totalLot += buyLot + sellLot;
+
+          const bCode = (item.BCode || '').toUpperCase();
+          const sCode = (item.SCode || '').toUpperCase();
+          if (bCode && FOREIGN_BROKERS.includes(bCode)) {
+            foreignBuyValue += buyVal;
+          }
+          if (sCode && FOREIGN_BROKERS.includes(sCode)) {
+            foreignSellValue += sellVal;
+          }
+        });
+      });
+
+      const foreignNetValue = foreignBuyValue - foreignSellValue;
+      const avgPrice = totalLot > 0 ? totalValue / (totalLot * 100) : 0;
+      const foreignNetClass = foreignNetValue > 0 ? 'text-green-500' : foreignNetValue < 0 ? 'text-red-500' : 'text-white';
+
+      return (
+        <div className="w-full max-w-full mt-2">
+          <div className="bg-muted/50 px-4 py-1.5 border-y border-border flex items-center justify-between">
+            <h3 className="font-semibold text-sm">Summary (All Brokers)</h3>
+          </div>
+          <div className="w-full max-w-full">
+            <table className={`min-w-[600px] ${getFontSizeClass()} border-collapse border-l-2 border-r-2 border-b-2 border-white`}>
+              <thead className="bg-[#3a4252]">
+                <tr className="border-t-2 border-white">
+                  <th className="text-center py-[4px] px-3 font-bold text-white">TVal</th>
+                  <th className="text-center py-[4px] px-3 font-bold text-white">FNVal</th>
+                  <th className="text-center py-[4px] px-3 font-bold text-white">TLot</th>
+                  <th className="text-center py-[4px] px-3 font-bold text-white">Avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="bg-[#0f172a]">
+                  <td className="text-center py-[4px] px-3 text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatValue(totalValue)}
+                  </td>
+                  <td className={`text-center py-[4px] px-3 font-bold ${foreignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatValue(foreignNetValue)}
+                  </td>
+                  <td className="text-center py-[4px] px-3 text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatLot(totalLot)}
+                  </td>
+                  <td className="text-center py-[4px] px-3 text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatAverage(avgPrice)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    };
     
     return (
       <div className="w-full">
         {renderValueTable()}
         {renderNetTable()}
+        {renderAggregateSummaryTable()}
       </div>
     );
     }, [filteredStocks, uniqueStocks, sortedStocksByDate, sortedNetStocksByDate, totalDataByStock, totalNetDataByStock, sortedTotalStocks, sortedTotalNetStocks, transactionData, visibleRowIndices, buyStocksByDate, sellStocksByDate, netBuyStocksByDate, netSellStocksByDate, totalNetBuyDataByStock, totalNetSellDataByStock, isDataReady, selectedDates, activeSectorFilter, selectedSectors, stockToSectorMap, pivotFilter, selectedTickers, selectedBrokers]); // CRITICAL: Added selectedDates, activeSectorFilter, selectedSectors, stockToSectorMap, pivotFilter, selectedTickers, and selectedBrokers to dependencies to react to showOnlyTotal, sector filter changes, pivot type changes, and header text updates
