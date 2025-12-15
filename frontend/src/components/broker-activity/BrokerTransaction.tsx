@@ -1694,7 +1694,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   };
 
   // Font size fixed to normal
-  const getFontSizeClass = () => 'text-[13px]';
+  const getFontSizeClass = () => 'text-[12px]';
 
   // Handle broker selection
   const handleBrokerSelect = (broker: string) => {
