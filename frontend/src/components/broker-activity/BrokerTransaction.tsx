@@ -174,6 +174,16 @@ const formatAverage = (value: number): string => {
   });
 };
 
+const formatLotPerFreqOrOrdNum = (value: number): string => {
+  // Format: dibulatkan tanpa angka di belakang koma
+  // Contoh: 64.6 → 65, 290.3 → 290
+  const rounded = Math.round(value);
+  return rounded.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  });
+};
+
 // Note: getFilteredAndSortedStocks function removed - filtering and sorting now handled in useMemo
 
 // Get trading days based on count (start from yesterday, skip today)
@@ -3644,9 +3654,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                             <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(buyerLot)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(buyerAvg ?? 0)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{buyerFreq}</td>
-                                        <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(buyerLotPerFreq ?? 0)}</td>
+                                        <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(buyerLotPerFreq ?? 0)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{buyerOrdNum}</td>
-                                        <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-16" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(buyerLotPerOrdNum ?? 0)}</td>
+                                        <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-16" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(buyerLotPerOrdNum ?? 0)}</td>
                                       </>
                                     );
                                   })()}
@@ -3704,10 +3714,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                             <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(sellerLot)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(sellerAvg ?? 0)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{sellerFreq}</td>
-                                        <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(sellerLotPerFreq ?? 0)}</td>
+                                        <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(sellerLotPerFreq ?? 0)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{sellerOrdNum}</td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                          {formatAverage(sellerLotPerOrdNum ?? 0)}
+                                          {formatLotPerFreqOrOrdNum(sellerLotPerOrdNum ?? 0)}
                             </td>
                                       </>
                                     );
@@ -3809,9 +3819,9 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   <td className="text-right py-[1px] px-[6px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(totalBuyLot)}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(finalBuyAvg)}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalBuyFreq}</td>
-                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(totalBuyLotPerFreq)}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(totalBuyLotPerFreq)}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalBuyOrdNum}</td>
-                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-16" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(totalBuyLotPerOrdNum)}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-16" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(totalBuyLotPerOrdNum)}</td>
                                 </>
                               ) : (
                                 <>
@@ -3837,10 +3847,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   <td className="text-right py-[1px] px-[6px] font-bold text-red-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(totalSellLot)}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-red-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(finalSellAvg)}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-red-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalSellFreq}</td>
-                                  <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(totalSellLotPerFreq)}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(totalSellLotPerFreq)}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-red-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalSellOrdNum}</td>
                                   <td className="text-right py-[1px] px-[6px] font-bold text-red-600 border-r-2 border-white w-16" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatAverage(totalSellLotPerOrdNum)}
+                                    {formatLotPerFreqOrOrdNum(totalSellLotPerOrdNum)}
                             </td>
                                 </>
                               ) : (
@@ -4185,13 +4195,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                           {nbFreq}
                                         </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-8`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                          {formatAverage(nbLotPerFreq ?? 0)}
+                                          {formatLotPerFreqOrOrdNum(nbLotPerFreq ?? 0)}
                                         </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                           {nbOrdNum}
                                         </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-16`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                          {formatAverage(nbLotPerOrdNum ?? 0)}
+                                          {formatLotPerFreqOrOrdNum(nbLotPerOrdNum ?? 0)}
                                         </td>
                                       </>
                                     );
@@ -4254,13 +4264,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                           {nsFreq}
                             </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-8`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                          {formatAverage(nsLotPerFreq ?? 0)}
+                                          {formatLotPerFreqOrOrdNum(nsLotPerFreq ?? 0)}
                                         </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                           {nsOrdNum}
                                         </td>
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                          {formatAverage(nsLotPerOrdNum ?? 0)}
+                                          {formatLotPerFreqOrOrdNum(nsLotPerOrdNum ?? 0)}
                                         </td>
                                       </>
                                     );
@@ -4372,13 +4382,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     {totalNetBuyFreq}
                             </td>
                                   <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor} w-8`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatAverage(totalNetBuyLotPerFreq)}
+                                    {formatLotPerFreqOrOrdNum(totalNetBuyLotPerFreq)}
                                   </td>
                                   <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {totalNetBuyOrdNum}
                                   </td>
                                   <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor} w-16`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatAverage(totalNetBuyLotPerOrdNum)}
+                                    {formatLotPerFreqOrOrdNum(totalNetBuyLotPerOrdNum)}
                                   </td>
                                 </>
                               ) : (
@@ -4414,13 +4424,13 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                     {totalNetSellFreq}
                             </td>
                                   <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-8`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatAverage(totalNetSellLotPerFreq)}
+                                    {formatLotPerFreqOrOrdNum(totalNetSellLotPerFreq)}
                                   </td>
                                   <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {totalNetSellOrdNum}
                                   </td>
                                   <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-16 border-r-2 border-white`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatAverage(totalNetSellLotPerOrdNum)}
+                                    {formatLotPerFreqOrOrdNum(totalNetSellLotPerOrdNum)}
                                   </td>
                                 </>
                               ) : (
