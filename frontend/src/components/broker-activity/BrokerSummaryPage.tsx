@@ -1740,7 +1740,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   };
 
   // Font size fixed to normal (no menu)
-  const getFontSizeClass = () => 'text-[12.5px]';
+  const getFontSizeClass = () => 'text-[12px]';
 
   // Filter raw data by investor filter (client-side filtering)
   useEffect(() => {
@@ -1881,7 +1881,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       <th className={`text-center py-[1px] px-[7px] font-bold text-white border-r-2 border-white`} style={{ textAlign: 'center' }}>SAvg</th>
                         </tr>
                       </thead>
-                      <tbody>
+                      <tbody className="text-[12px]">
                         {(() => {
                           // Get broker text color class
                           const getBrokerColorClass = (brokerCode: string): string => {
@@ -2120,7 +2120,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       <th className={`text-center py-[1px] px-[7px] font-bold text-white border-r-2 border-white`} style={{ textAlign: 'center' }}>SAvg</th>
                         </tr>
                       </thead>
-                      <tbody>
+                      <tbody className="text-[12px]">
                         {(() => {
                           // Get broker text color class
                           const getBrokerColorClass = (brokerCode: string): string => {
@@ -2592,7 +2592,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                     <th className="text-center py-[4px] px-3 font-bold text-white">Avg</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="text-[12px]">
                   <tr className="bg-[#0f172a]">
                     <td className="text-center py-[4px] px-3 text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
                       {formatNumber(totalValue)}

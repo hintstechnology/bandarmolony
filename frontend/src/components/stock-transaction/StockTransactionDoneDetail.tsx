@@ -972,7 +972,7 @@ export function StockTransactionDoneDetail() {
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
+            <table className="w-full text-[12px] border-collapse">
               <thead>
                 {/* Row dimension headers - First row for row dimensions and column group headers */}
                     {type === 'cross' && parsedColumns.length > 0 && columns.length > 1 ? (
@@ -1097,7 +1097,7 @@ export function StockTransactionDoneDetail() {
                   </tr>
                 )}
               </thead>
-              <tbody>
+              <tbody className="text-[12px]">
                 {paginatedRows.map((rowKey, rowIdx) => {
                   const rowData = data[rowKey];
                   const parsedRow = paginatedParsedRows[rowIdx];
@@ -1215,7 +1215,7 @@ export function StockTransactionDoneDetail() {
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
+            <table className="w-full text-[12px] border-collapse">
               <thead>
                 <tr className="border-b border-border bg-muted/50">
                   <th className="text-left py-2 px-2 font-medium border-r-2 border-border sticky left-0 bg-muted/50 z-10">
@@ -1257,7 +1257,7 @@ export function StockTransactionDoneDetail() {
                   </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="text-[12px]">
                 {paginatedRows.map((rowKey, rowIdx) => {
                   const rowData = pivotData[rowKey];
                   if (!rowData) return null;
@@ -1459,7 +1459,7 @@ export function StockTransactionDoneDetail() {
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
+            <table className="w-full text-[12px] border-collapse">
               <thead>
                 <tr className="border-b border-border bg-muted/50">
                   <th className="text-left py-2 px-2 font-medium border-r-2 border-border sticky left-0 bg-muted/50 z-10">
@@ -1475,7 +1475,7 @@ export function StockTransactionDoneDetail() {
                   </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="text-[12px]">
                 {paginatedBuyers.map((buyer, buyerIdx) => {
                   const buyerData = pivotData[buyer];
                   if (!buyerData) return null;

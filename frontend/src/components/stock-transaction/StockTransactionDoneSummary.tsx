@@ -663,7 +663,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
         <CardContent>
           <div className="overflow-x-auto -mx-4 sm:mx-0">
             <div className="min-w-full px-4 sm:px-0">
-              <table className="w-full text-[13px] border-collapse" style={{ tableLayout: 'auto', width: 'auto' }}>
+              <table className="w-full text-[12px] border-collapse" style={{ tableLayout: 'auto', width: 'auto' }}>
               <thead>
                 {/* Main Header Row - Dates */}
                 <tr className="border-t-2 border-white bg-[#3a4252]">
@@ -740,7 +740,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
                   )}
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="text-[12px]">
                 {allPrices.map((price) => {
                   return (
                   <tr key={price} className="hover:bg-accent/50">
