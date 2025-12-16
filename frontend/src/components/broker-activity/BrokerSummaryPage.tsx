@@ -1642,6 +1642,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     setSelectedTickers(selectedTickers.filter(t => t !== stock));
   };
 
+  const handleClearAllTickers = () => {
+    setSelectedTickers([]);
+  };
+
   const handleStockInputChange = (value: string) => {
     setTickerInput(value);
     setShowStockSuggestions(true);
@@ -1818,7 +1822,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     if (market === 'RG') return 'RG';
     if (market === 'TN') return 'TN';
     if (market === 'NG') return 'NG';
-    return 'All Trade';
+    return 'All';
   };
 
   // Memoize availableDates to avoid recalculating on every render
@@ -2876,6 +2880,17 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       </button>
                     </div>
                   ))}
+                  {/* Clear All Tickers Button */}
+                  {selectedTickers.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleClearAllTickers}
+                      className="px-2 h-9 rounded-md text-sm bg-destructive/20 text-destructive hover:bg-destructive/30 font-medium"
+                      title="Clear all tickers"
+                    >
+                      Clear
+                    </button>
+                  )}
                   {/* Ticker Input */}
                   <div className="relative flex-1 md:flex-none" ref={dropdownRef}>
                     <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
@@ -3368,7 +3383,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                   }}
                   className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
                 >
-                  <option value="">All Trade</option>
+                  <option value="">All</option>
                   <option value="RG">RG</option>
                   <option value="TN">TN</option>
                   <option value="NG">NG</option>

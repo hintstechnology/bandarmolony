@@ -1686,6 +1686,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     // User must click Show button to fetch new data
   };
 
+  const handleClearAllBrokers = () => {
+    setSelectedBrokers([]);
+  };
+
   // Handle ticker selection
   const handleTickerSelect = (ticker: string) => {
     if (!selectedTickers.includes(ticker)) {
@@ -1702,6 +1706,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     setSelectedTickers(selectedTickers.filter(t => t !== ticker));
     // CRITICAL: Keep existing data visible - no auto-fetch, no hide tables
     // User must click Show button to fetch new data
+  };
+
+  const handleClearAllTickers = () => {
+    setSelectedTickers([]);
   };
 
   // Handle sector selection (from combined dropdown)
@@ -4768,6 +4776,17 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               </div>
                 );
               })}
+              {/* Clear All Brokers Button */}
+              {selectedBrokers.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleClearAllBrokers}
+                  className="px-2 h-9 rounded-md text-sm bg-destructive/20 text-destructive hover:bg-destructive/30 font-medium"
+                  title="Clear all brokers"
+                >
+                  Clear
+                </button>
+              )}
               {/* Broker Input */}
               <div className="relative flex-1 md:flex-none" ref={dropdownBrokerRef}>
                   <input
@@ -4935,6 +4954,20 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   </button>
                 </div>
               ))}
+              {/* Clear All Tickers and Sectors Button */}
+              {(selectedTickers.length > 0 || selectedSectors.length > 0) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleClearAllTickers();
+                    setSelectedSectors([]);
+                  }}
+                  className="px-2 h-9 rounded-md text-sm bg-destructive/20 text-destructive hover:bg-destructive/30 font-medium"
+                  title="Clear all tickers and sectors"
+                >
+                  Clear
+                </button>
+              )}
               <div className="relative flex-1 md:flex-none" ref={dropdownTickerRef}>
                 <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                 <input
@@ -5278,7 +5311,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               }}
               className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
             >
-              <option value="">All Trade</option>
+              <option value="">All</option>
               <option value="RG">RG</option>
               <option value="TN">TN</option>
               <option value="NG">NG</option>

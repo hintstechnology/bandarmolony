@@ -479,7 +479,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
       try {
         // Determine fd parameter: if empty, use 'all', otherwise use lowercase
         const fdParam = invFilter === '' ? 'all' : invFilter.toLowerCase();
-        // Determine board parameter: if empty (All Trade), use 'all', otherwise use lowercase
+        // Determine board parameter: if empty (All), use 'all', otherwise use lowercase
         const boardParam = boardFilter === '' ? 'all' : boardFilter.toLowerCase();
         
         // Determine brokers to fetch: if empty, use 'All', otherwise fetch all selected brokers
@@ -1529,7 +1529,7 @@ export function StockTransactionDoneSummary({ selectedStock: propSelectedStock }
               }}
               className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
             >
-              <option value="">All Trade</option>
+              <option value="">All</option>
               <option value="RG">RG</option>
               <option value="TN">TN</option>
               <option value="NG">NG</option>
