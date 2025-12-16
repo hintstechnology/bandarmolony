@@ -162,7 +162,17 @@ const formatLot = (value: number): string => {
   }
 };
 
-const formatAverage = (value: number): string => {
+const formatAverage = (value: number | undefined | null): string => {
+  // Handle invalid values
+  if (value === undefined || value === null || isNaN(value)) {
+    return '-';
+  }
+  
+  // Handle zero
+  if (value === 0) {
+    return '0.0';
+  }
+  
   // Format: ribuan pakai ',' (koma), desimal pakai '.' (titik)
   // Pastikan selalu 1 angka di belakang koma
   // Contoh: 1335.0, 10,000.5, -3.0, -197.6
@@ -297,6 +307,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   const hasSyncedColumnWidthsRef = useRef<boolean>(false);
   // Store column widths to maintain consistency after lazy loading
   const columnWidthsRef = useRef<number[]>([]);
+  // Refs for Total table column widths
+  const totalTableRef = useRef<HTMLTableElement>(null);
+  const totalTableContainerRef = useRef<HTMLDivElement>(null);
+  const dateColumnWidthsRef = useRef<Map<string, number>>(new Map()); // Store width of each date column from VALUE table
+  const totalColumnWidthRef = useRef<number>(0); // Store width of Total column from VALUE table
   
   // API data states
   const [transactionData, setTransactionData] = useState<Map<string, BrokerTransactionData[]>>(new Map());
@@ -2389,40 +2404,125 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     };
   }, [isLoading, isDataReady]);
 
-  // Synchronize horizontal scroll between Value and Net tables
+  // Measure and store date column widths from VALUE table to apply to Total table
+  useEffect(() => {
+    if (isLoading || !isDataReady) return;
+    
+    const showOnlyTotal = selectedDates.length > 7;
+    if (showOnlyTotal) return;
+
+    const valueTable = valueTableRef.current;
+    if (!valueTable) return;
+
+    // Wait for table to render
+    const measureWidths = () => {
+      const valueHeaderRows = valueTable.querySelectorAll('thead tr');
+      if (valueHeaderRows.length < 2) return;
+
+      // Get the second row (column headers) for accurate width measurement
+      const columnHeaderRow = valueHeaderRows[1];
+      if (!columnHeaderRow) return;
+      
+      const columnHeaderCells = Array.from(columnHeaderRow.querySelectorAll('th'));
+
+      // Clear previous widths
+      dateColumnWidthsRef.current.clear();
+      totalColumnWidthRef.current = 0;
+
+      // Measure width of each date column (excluding Total column)
+      // Each date column spans 17 columns
+      let cellIndex = 0;
+
+      selectedDates.forEach((date) => {
+        // Each date column spans 17 columns, so we need to sum the width of 17 cells
+        let totalWidth = 0;
+        for (let i = 0; i < 17 && cellIndex < columnHeaderCells.length; i++) {
+          const cell = columnHeaderCells[cellIndex] as HTMLElement;
+          if (cell) {
+            // Use offsetWidth for more accurate measurement
+            const cellWidth = cell.offsetWidth || cell.getBoundingClientRect().width || 0;
+            totalWidth += cellWidth;
+          }
+          cellIndex++;
+        }
+        
+        if (totalWidth > 0) {
+          dateColumnWidthsRef.current.set(date, totalWidth);
+        }
+      });
+
+      // Measure width of Total column (also spans 17 columns)
+      let totalColumnWidth = 0;
+      for (let i = 0; i < 17 && cellIndex < columnHeaderCells.length; i++) {
+        const cell = columnHeaderCells[cellIndex] as HTMLElement;
+        if (cell) {
+          const cellWidth = cell.offsetWidth || cell.getBoundingClientRect().width || 0;
+          totalColumnWidth += cellWidth;
+        }
+        cellIndex++;
+      }
+      
+      if (totalColumnWidth > 0) {
+        totalColumnWidthRef.current = totalColumnWidth;
+      }
+    };
+
+    // Measure after a delay to ensure table is fully rendered and column widths are synced
+    // Wait longer to ensure syncTableWidths has finished (which runs after 100ms)
+    const timeoutId = setTimeout(measureWidths, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [transactionData, isLoading, isDataReady, selectedDates]);
+
+  // Synchronize horizontal scroll between Value, Net, and Total tables
   // FIXED: Don't depend on selectedDates to prevent re-render on input change
   useEffect(() => {
     if (isLoading || !isDataReady) return;
 
     const valueContainer = valueTableContainerRef.current;
     const netContainer = netTableContainerRef.current;
+    const totalContainer = totalTableContainerRef.current;
 
-    if (!valueContainer || !netContainer) return;
+    if (!valueContainer || !netContainer || !totalContainer) return;
 
     // Flag to prevent infinite loop
-    let isSyncing = false;
+    let isValueScrolling = false;
+    let isNetScrolling = false;
+    let isTotalScrolling = false;
 
     // OPTIMIZED: Direct scroll sync without requestAnimationFrame (faster)
-    // Handle Value table scroll - sync to Net table
+    // Handle Value table scroll - sync to Net and Total tables
     const handleValueScroll = () => {
-      if (!isSyncing && netContainer) {
-        isSyncing = true;
-        netContainer.scrollLeft = valueContainer.scrollLeft;
-        // Use setTimeout with 0ms instead of requestAnimationFrame for faster sync
+      if (!isNetScrolling && !isTotalScrolling) {
+        isValueScrolling = true;
+        if (netContainer) netContainer.scrollLeft = valueContainer.scrollLeft;
+        if (totalContainer) totalContainer.scrollLeft = valueContainer.scrollLeft;
         setTimeout(() => {
-          isSyncing = false;
+          isValueScrolling = false;
         }, 0);
       }
     };
 
-    // Handle Net table scroll - sync to Value table
+    // Handle Net table scroll - sync to Value and Total tables
     const handleNetScroll = () => {
-      if (!isSyncing && valueContainer) {
-        isSyncing = true;
-        valueContainer.scrollLeft = netContainer.scrollLeft;
-        // Use setTimeout with 0ms instead of requestAnimationFrame for faster sync
+      if (!isValueScrolling && !isTotalScrolling) {
+        isNetScrolling = true;
+        if (valueContainer) valueContainer.scrollLeft = netContainer.scrollLeft;
+        if (totalContainer) totalContainer.scrollLeft = netContainer.scrollLeft;
         setTimeout(() => {
-          isSyncing = false;
+          isNetScrolling = false;
+        }, 0);
+      }
+    };
+
+    // Handle Total table scroll - sync to Value and Net tables
+    const handleTotalScroll = () => {
+      if (!isValueScrolling && !isNetScrolling) {
+        isTotalScrolling = true;
+        if (valueContainer) valueContainer.scrollLeft = totalContainer.scrollLeft;
+        if (netContainer) netContainer.scrollLeft = totalContainer.scrollLeft;
+        setTimeout(() => {
+          isTotalScrolling = false;
         }, 0);
       }
     };
@@ -2430,10 +2530,12 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     // Add event listeners
     valueContainer.addEventListener('scroll', handleValueScroll, { passive: true });
     netContainer.addEventListener('scroll', handleNetScroll, { passive: true });
+    totalContainer.addEventListener('scroll', handleTotalScroll, { passive: true });
 
     return () => {
       valueContainer.removeEventListener('scroll', handleValueScroll);
       netContainer.removeEventListener('scroll', handleNetScroll);
+      totalContainer.removeEventListener('scroll', handleTotalScroll);
     };
   }, [isLoading, isDataReady, transactionData]); // FIXED: Removed selectedDates dependency to prevent re-render on input change
 
@@ -4413,73 +4515,200 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       );
     };
 
-    // Summary Table - Aggregated totals across all brokers/dates
+    // Total Table - Per Date Totals with 4 columns
     const renderAggregateSummaryTable = () => {
-      let totalValue = 0;
-      let totalLot = 0;
-      let foreignBuyValue = 0;
-      let foreignSellValue = 0;
+      const showOnlyTotal = selectedDates.length > 7;
+      
+      // Calculate totals per date
+      const totalsByDate = new Map<string, {
+        totalValue: number;
+        foreignNetValue: number;
+        totalLot: number;
+        avgPrice: number;
+      }>();
 
-      const dates = Array.from(transactionData.keys());
+      // Grand totals across all dates
+      let grandTotalValue = 0;
+      let grandForeignBuyValue = 0;
+      let grandForeignSellValue = 0;
+      let grandTotalLot = 0;
 
-      dates.forEach((date: string) => {
+      selectedDates.forEach((date: string) => {
         const dateData = transactionData.get(date) || [];
+        let dateTotalValue = 0;
+        let dateTotalLot = 0;
+        let dateForeignBuyValue = 0;
+        let dateForeignSellValue = 0;
+
         dateData.forEach(item => {
           const buyVal = Number(item.BuyerValue) || 0;
           const sellVal = Number(item.SellerValue) || 0;
-          totalValue += buyVal + sellVal;
+          
+          // TVal: Only count buyer value (not buyer + seller, that would be double counting)
+          // Since every transaction has a buyer and seller with same value
+          dateTotalValue += buyVal;
 
           const buyLot = Number(item.BLot) || 0;
-          const sellLot = Number(item.SLot) || 0;
-          totalLot += buyLot + sellLot;
+          dateTotalLot += buyLot;
 
           const bCode = (item.BCode || '').toUpperCase();
           const sCode = (item.SCode || '').toUpperCase();
           if (bCode && FOREIGN_BROKERS.includes(bCode)) {
-            foreignBuyValue += buyVal;
+            dateForeignBuyValue += buyVal;
           }
           if (sCode && FOREIGN_BROKERS.includes(sCode)) {
-            foreignSellValue += sellVal;
+            dateForeignSellValue += sellVal;
           }
         });
+
+        const dateForeignNetValue = dateForeignBuyValue - dateForeignSellValue;
+        const dateAvgPrice = dateTotalLot > 0 ? dateTotalValue / (dateTotalLot * 100) : 0;
+
+        totalsByDate.set(date, {
+          totalValue: dateTotalValue,
+          foreignNetValue: dateForeignNetValue,
+          totalLot: dateTotalLot,
+          avgPrice: dateAvgPrice
+        });
+
+        grandTotalValue += dateTotalValue;
+        grandTotalLot += dateTotalLot;
+        grandForeignBuyValue += dateForeignBuyValue;
+        grandForeignSellValue += dateForeignSellValue;
       });
 
-      const foreignNetValue = foreignBuyValue - foreignSellValue;
-      const avgPrice = totalLot > 0 ? totalValue / (totalLot * 100) : 0;
-      const foreignNetClass = foreignNetValue > 0 ? 'text-green-500' : foreignNetValue < 0 ? 'text-red-500' : 'text-white';
+      // Calculate grand totals
+      const grandForeignNetValue = grandForeignBuyValue - grandForeignSellValue;
+      const grandAvgPrice = grandTotalLot > 0 ? grandTotalValue / (grandTotalLot * 100) : 0;
 
       return (
         <div className="w-full max-w-full mt-2">
-          <div className="bg-muted/50 px-4 py-1.5 border-y border-border flex items-center justify-between">
-            <h3 className="font-semibold text-sm">Summary (All Brokers)</h3>
-          </div>
-          <div className="w-full max-w-full">
-            <table className={`min-w-[600px] ${getFontSizeClass()} border-collapse border-l-2 border-r-2 border-b-2 border-white`}>
-              <thead className="bg-[#3a4252]">
-                <tr className="border-t-2 border-white">
-                  <th className="text-center py-[4px] px-3 font-bold text-white">TVal</th>
-                  <th className="text-center py-[4px] px-3 font-bold text-white">FNVal</th>
-                  <th className="text-center py-[4px] px-3 font-bold text-white">TLot</th>
-                  <th className="text-center py-[4px] px-3 font-bold text-white">Avg</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="bg-[#0f172a]">
-                  <td className="text-center py-[4px] px-3 text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                    {formatValue(totalValue)}
-                  </td>
-                  <td className={`text-center py-[4px] px-3 font-bold ${foreignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                    {formatValue(foreignNetValue)}
-                  </td>
-                  <td className="text-center py-[4px] px-3 text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                    {formatLot(totalLot)}
-                  </td>
-                  <td className="text-center py-[4px] px-3 text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                    {formatAverage(avgPrice)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+          <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
+            <div ref={totalTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} overflow-x-auto border-l-2 border-r-2 border-b-2 border-white`}>
+              <table ref={totalTableRef} className={`${showOnlyTotal ? 'min-w-0' : 'min-w-[1000px]'} ${getFontSizeClass()} table-auto`} style={{ tableLayout: showOnlyTotal ? 'auto' : (dateColumnWidthsRef.current.size > 0 && totalColumnWidthRef.current > 0 ? 'fixed' : 'auto') }}>
+                <thead className="bg-[#3a4252]">
+                  <tr className="border-t-2 border-white">
+                    {!showOnlyTotal && selectedDates.map((date, dateIndex) => {
+                      const dateWidth = dateColumnWidthsRef.current.get(date);
+                      return (
+                        <th 
+                          key={date} 
+                          className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} 
+                          colSpan={4} 
+                          style={{ 
+                            textAlign: 'center', 
+                            width: dateWidth ? `${dateWidth}px` : undefined, 
+                            minWidth: dateWidth ? `${dateWidth}px` : undefined,
+                            maxWidth: dateWidth ? `${dateWidth}px` : undefined
+                          }}
+                        >
+                          {formatDisplayDate(date)}
+                        </th>
+                      );
+                    })}
+                    <th 
+                      className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} 
+                      colSpan={4} 
+                      style={{ 
+                        textAlign: 'center', 
+                        width: totalColumnWidthRef.current > 0 ? `${totalColumnWidthRef.current}px` : undefined, 
+                        minWidth: totalColumnWidthRef.current > 0 ? `${totalColumnWidthRef.current}px` : undefined,
+                        maxWidth: totalColumnWidthRef.current > 0 ? `${totalColumnWidthRef.current}px` : undefined
+                      }}
+                    >
+                      Total
+                    </th>
+                  </tr>
+                  <tr className="bg-[#3a4252]">
+                    {!showOnlyTotal && selectedDates.map((date, dateIndex) => {
+                      const dateWidth = dateColumnWidthsRef.current.get(date);
+                      const colWidth = dateWidth ? dateWidth / 4 : undefined;
+                      return (
+                        <React.Fragment key={`detail-${date}`}>
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TVal</th>
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>FNVal</th>
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TLot</th>
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>Avg</th>
+                        </React.Fragment>
+                      );
+                    })}
+                    {/* Total Columns */}
+                    {(() => {
+                      const totalColWidth = totalColumnWidthRef.current > 0 ? totalColumnWidthRef.current / 4 : undefined;
+                      return (
+                        <>
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TVal</th>
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>FNVal</th>
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TLot</th>
+                          <th className={`text-center py-[1px] px-[7px] font-bold text-white border-r-2 border-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>Avg</th>
+                        </>
+                      );
+                    })()}
+                  </tr>
+                </thead>
+                <tbody className="text-[12px]">
+                  <tr className="bg-[#0f172a] border-b-2 border-white">
+                    {!showOnlyTotal && selectedDates.map((date, dateIndex) => {
+                      const dateTotals = totalsByDate.get(date);
+                      const dateWidth = dateColumnWidthsRef.current.get(date);
+                      const colWidth = dateWidth ? dateWidth / 4 : undefined;
+                      
+                      if (!dateTotals) {
+                        return (
+                          <React.Fragment key={date}>
+                            <td className={`text-center py-[1px] px-[6px] text-white font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                            <td className="text-center py-[1px] px-[6px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                            <td className="text-center py-[1px] px-[6px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                            <td className={`text-center py-[1px] px-[6px] text-white font-bold ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                          </React.Fragment>
+                        );
+                      }
+
+                      const foreignNetClass = dateTotals.foreignNetValue > 0 ? 'text-green-500' : dateTotals.foreignNetValue < 0 ? 'text-red-500' : 'text-white';
+
+                      return (
+                        <React.Fragment key={date}>
+                          <td className={`text-center py-[1px] px-[6px] text-white font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                            {formatValue(dateTotals.totalValue)}
+                          </td>
+                          <td className={`text-center py-[1px] px-[6px] font-bold ${foreignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                            {formatValue(dateTotals.foreignNetValue)}
+                          </td>
+                          <td className="text-center py-[1px] px-[6px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                            {formatLot(dateTotals.totalLot)}
+                          </td>
+                          <td className={`text-center py-[1px] px-[6px] text-white font-bold ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                            {formatAverage(dateTotals.avgPrice)}
+                          </td>
+                        </React.Fragment>
+                      );
+                    })}
+                    {/* Grand Total Column */}
+                    {(() => {
+                      const grandForeignNetClass = grandForeignNetValue > 0 ? 'text-green-500' : grandForeignNetValue < 0 ? 'text-red-500' : 'text-white';
+                      const totalColWidth = totalColumnWidthRef.current > 0 ? totalColumnWidthRef.current / 4 : undefined;
+
+                      return (
+                        <React.Fragment>
+                          <td className={`text-center py-[1px] px-[5px] text-white font-bold ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                            {formatValue(grandTotalValue)}
+                          </td>
+                          <td className={`text-center py-[1px] px-[5px] font-bold ${grandForeignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                            {formatValue(grandForeignNetValue)}
+                          </td>
+                          <td className="text-center py-[1px] px-[5px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                            {formatLot(grandTotalLot)}
+                          </td>
+                          <td className="text-center py-[1px] px-[7px] text-white font-bold border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                            {formatAverage(grandAvgPrice)}
+                          </td>
+                        </React.Fragment>
+                      );
+                    })()}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       );
