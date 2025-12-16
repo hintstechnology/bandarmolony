@@ -2859,38 +2859,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
       {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
       <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
             <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-1 md:gap-x-7 md:gap-y-0.5">
-              {/* Ticker Selection - Multi-select with chips */}
+              {/* Ticker Selection - Dropdown only */}
               <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
                 <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
-                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-                  {/* Selected Ticker Chips */}
-                  {selectedTickers.map(ticker => (
-                    <div
-                      key={ticker}
-                      className="flex items-center gap-1 px-2 h-9 bg-primary/20 text-primary rounded-md text-sm"
-                    >
-                      <span>{formatStockDisplayName(ticker)}</span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveTicker(ticker)}
-                        className="hover:bg-primary/30 rounded px-1"
-                        aria-label={`Remove ${formatStockDisplayName(ticker)}`}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                  {/* Clear All Tickers Button */}
-                  {selectedTickers.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={handleClearAllTickers}
-                      className="px-2 h-9 rounded-md text-sm bg-destructive/20 text-destructive hover:bg-destructive/30 font-medium"
-                      title="Clear all tickers"
-                    >
-                      Clear
-                    </button>
-                  )}
+                <div className="flex items-center gap-2 w-full md:w-auto">
                   {/* Ticker Input */}
                   <div className="relative flex-1 md:flex-none" ref={dropdownRef}>
                     <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
@@ -2922,20 +2894,59 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       className="w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground"
                     />
                     {showStockSuggestions && (
-                      <div className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col w-full sm:w-auto min-w-[280px] sm:min-w-[400px]">
+                      <div className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col w-64">
                         {availableStocks.length === 0 ? (
                           <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
                             <Loader2 className="w-4 h-4 animate-spin mr-2" />
                             Loading stocks...
                           </div>
                         ) : (
-                          <div className="flex flex-row h-full max-h-96 overflow-hidden">
-                            {/* Left column: Stocks */}
-                            <div className="flex-1 border-r border-[#3a4252] overflow-y-auto">
-                              {tickerInput === '' ? (
-                                <>
-                                  <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                    Stocks ({availableStocks.filter(s => {
+                          <>
+                            {/* Selected Items Section */}
+                            {selectedTickers.length > 0 && (
+                              <div className="border-b border-[#3a4252] overflow-y-auto" style={{ minHeight: '120px', maxHeight: `${Math.min(selectedTickers.length * 24 + 30, 250)}px` }}>
+                                <div className="px-3 py-1 text-xs text-muted-foreground sticky top-0 bg-popover flex items-center justify-between">
+                                  <span>Selected ({selectedTickers.length})</span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleClearAllTickers();
+                                    }}
+                                    className="text-xs text-destructive hover:text-destructive/80 font-medium"
+                                  >
+                                    Clear
+                                  </button>
+                                </div>
+                                {selectedTickers.map(ticker => (
+                                  <div
+                                    key={`selected-ticker-${ticker}`}
+                                    className="px-3 py-1 hover:bg-muted flex items-center justify-between min-h-[24px]"
+                                  >
+                                    <span className="text-sm text-primary">{formatStockDisplayName(ticker)}</span>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleRemoveTicker(ticker);
+                                      }}
+                                      className="text-muted-foreground hover:text-destructive text-sm"
+                                      aria-label={`Remove ${formatStockDisplayName(ticker)}`}
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {/* Search Results Section */}
+                            <div className="flex flex-row flex-1 overflow-hidden">
+                              {/* Left column: Stocks */}
+                              <div className="flex-1 border-r border-[#3a4252] overflow-y-auto">
+                                {tickerInput === '' ? (
+                                  <>
+                                    <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                      Stocks ({availableStocks.filter(s => {
                                       if (s.startsWith('[SECTOR] ')) return false;
                                       // Check if stock's sector is already selected
                                       const stockSector = Object.keys(sectorMapping).find(sector => 
@@ -3023,6 +3034,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                               )}
                             </div>
                           </div>
+                          </>
                         )}
                       </div>
                     )}

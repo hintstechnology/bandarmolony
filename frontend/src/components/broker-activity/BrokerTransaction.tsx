@@ -4748,46 +4748,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
       <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
         <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-2 md:gap-x-7 md:gap-y-0.2">
-          {/* Broker Selection - Multi-select with chips */}
+          {/* Broker Selection - Dropdown only */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             <label className="text-sm font-medium whitespace-nowrap">Broker:</label>
-            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-              {/* Selected Broker Chips */}
-              {selectedBrokers.map(broker => {
-                const brokerColor = broker !== 'ALL' ? getBrokerColorClass(broker) : null;
-                return (
-                <div
-                  key={broker}
-                  className={`flex items-center gap-1 px-2 h-9 rounded-md text-sm ${
-                    broker === 'ALL' 
-                      ? 'bg-primary text-primary-foreground font-semibold' 
-                      : 'bg-primary/20'
-                  }`}
-                >
-                  <span className={brokerColor?.className || ''} style={brokerColor ? { color: brokerColor.color } : {}}>{broker}</span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveBroker(broker)}
-                    className="hover:bg-primary/30 rounded px-1"
-                    aria-label={`Remove ${broker}`}
-                  >
-                    ×
-                  </button>
-              </div>
-                );
-              })}
-              {/* Clear All Brokers Button */}
-              {selectedBrokers.length > 0 && (
-                <button
-                  type="button"
-                  onClick={handleClearAllBrokers}
-                  className="px-2 h-9 rounded-md text-sm bg-destructive/20 text-destructive hover:bg-destructive/30 font-medium"
-                  title="Clear all brokers"
-                >
-                  Clear
-                </button>
-              )}
-              {/* Broker Input */}
+            <div className="flex items-center gap-2 w-full md:w-auto">
+              {/* Broker Input with selected count */}
               <div className="relative flex-1 md:flex-none" ref={dropdownBrokerRef}>
                   <input
                     type="text"
@@ -4818,7 +4783,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         setHighlightedIndex(-1);
                       }
                     }}
-                  placeholder="Add broker"
+                  placeholder={selectedBrokers.length > 0 ? `${selectedBrokers.length} selected` : "Add broker"}
                   className="w-full md:w-32 h-9 px-3 text-sm border border-input rounded-md bg-background text-foreground"
                     role="combobox"
                     aria-expanded={showBrokerSuggestions}
@@ -4826,7 +4791,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     aria-autocomplete="list"
                   />
                   {showBrokerSuggestions && (
-                  <div id="broker-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto"
+                  <div id="broker-suggestions" role="listbox" className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-y-auto w-40"
                     onScroll={(e) => {
                       const target = e.target as HTMLElement;
                       const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
@@ -4840,134 +4805,129 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           <Loader2 className="w-4 h-4 animate-spin mr-2" />
                           Loading brokers...
                         </div>
-                    ) : debouncedBrokerInput === '' ? (
+                    ) : (
                       <>
-                        <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                          Available Brokers ({filteredBrokersList.length})
-                        </div>
-                        {/* ALL option */}
-                        {!selectedBrokers.includes('ALL') && (
-                          <div
-                            onClick={() => handleBrokerSelect('ALL')}
-                            className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm font-semibold text-primary"
-                          >
-                            ALL
-                          </div>
-                        )}
-                        {visibleFilteredBrokers.map((broker, idx) => (
-                          <div
-                            key={broker}
-                            onClick={() => handleBrokerSelect(broker)}
-                            className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-accent' : ''}`}
-                            onMouseEnter={() => setHighlightedIndex(idx)}
-                          >
-                            {broker}
-                          </div>
-                        ))}
-                        {brokerScrollOffset + ITEMS_PER_PAGE < filteredBrokersList.length && (
-                          <div className="px-3 py-2 text-xs text-muted-foreground text-center">
-                            Loading more... ({Math.min(brokerScrollOffset + ITEMS_PER_PAGE, filteredBrokersList.length)} / {filteredBrokersList.length})
-                          </div>
-                        )}
-                      </>
-                    ) : (() => {
-                      const searchLower = debouncedBrokerInput.toLowerCase();
-                      const isAllMatch = 'all'.includes(searchLower) && !selectedBrokers.includes('ALL');
-                      return (
-                            <>
-                          <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                            {filteredBrokersList.length + (isAllMatch ? 1 : 0)} broker(s) found
-                          </div>
-                          {isAllMatch && (
-                            <div
-                              onClick={() => handleBrokerSelect('ALL')}
-                              className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm font-semibold text-primary"
-                            >
-                              ALL
+                        {/* Selected Brokers Section */}
+                        {selectedBrokers.length > 0 && (
+                          <>
+                            <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover flex items-center justify-between">
+                              <span>Selected ({selectedBrokers.length})</span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleClearAllBrokers();
+                                }}
+                                className="text-xs text-destructive hover:text-destructive/80 font-medium"
+                              >
+                                Clear
+                              </button>
                             </div>
-                          )}
-                          {visibleFilteredBrokers.length > 0 ? (
-                            visibleFilteredBrokers.map((broker, idx) => (
+                            {selectedBrokers.map(broker => {
+                              const brokerColor = broker !== 'ALL' ? getBrokerColorClass(broker) : null;
+                              return (
+                                <div
+                                  key={broker}
+                                  className="px-3 py-[2.06px] hover:bg-muted flex items-center justify-between"
+                                >
+                                  <span className={`text-sm ${brokerColor?.className || ''}`} style={brokerColor ? { color: brokerColor.color } : {}}>
+                                    {broker}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRemoveBroker(broker);
+                                    }}
+                                    className="text-muted-foreground hover:text-destructive text-sm"
+                                    aria-label={`Remove ${broker}`}
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              );
+                            })}
+                            <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                              {debouncedBrokerInput === '' ? `Available (${filteredBrokersList.length})` : 'Search Results'}
+                            </div>
+                          </>
+                        )}
+                        {/* Available Brokers Section */}
+                        {debouncedBrokerInput === '' ? (
+                          <>
+                            {!selectedBrokers.includes('ALL') && (
+                              <div
+                                onClick={() => handleBrokerSelect('ALL')}
+                                className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm font-semibold text-primary"
+                              >
+                                ALL
+                              </div>
+                            )}
+                            {visibleFilteredBrokers.map((broker, idx) => (
                               <div
                                 key={broker}
                                 onClick={() => handleBrokerSelect(broker)}
                                 className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-accent' : ''}`}
-                              onMouseEnter={() => setHighlightedIndex(idx)}
+                                onMouseEnter={() => setHighlightedIndex(idx)}
                               >
                                 {broker}
                               </div>
-                            ))
-                          ) : (
-                            <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
-                              No brokers found
-                            </div>
-                          )}
-                          {brokerScrollOffset + ITEMS_PER_PAGE < filteredBrokersList.length && (
-                            <div className="px-3 py-2 text-xs text-muted-foreground text-center">
-                              Loading more... ({Math.min(brokerScrollOffset + ITEMS_PER_PAGE, filteredBrokersList.length)} / {filteredBrokersList.length})
-                            </div>
-                          )}
+                            ))}
+                            {brokerScrollOffset + ITEMS_PER_PAGE < filteredBrokersList.length && (
+                              <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                Loading more... ({Math.min(brokerScrollOffset + ITEMS_PER_PAGE, filteredBrokersList.length)} / {filteredBrokersList.length})
+                              </div>
+                            )}
+                          </>
+                        ) : (() => {
+                          const searchLower = debouncedBrokerInput.toLowerCase();
+                          const isAllMatch = 'all'.includes(searchLower) && !selectedBrokers.includes('ALL');
+                          return (
+                            <>
+                              {isAllMatch && (
+                                <div
+                                  onClick={() => handleBrokerSelect('ALL')}
+                                  className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm font-semibold text-primary"
+                                >
+                                  ALL
+                                </div>
+                              )}
+                              {visibleFilteredBrokers.length > 0 ? (
+                                visibleFilteredBrokers.map((broker, idx) => (
+                                  <div
+                                    key={broker}
+                                    onClick={() => handleBrokerSelect(broker)}
+                                    className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-accent' : ''}`}
+                                    onMouseEnter={() => setHighlightedIndex(idx)}
+                                  >
+                                    {broker}
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
+                                  No brokers found
+                                </div>
+                              )}
+                              {brokerScrollOffset + ITEMS_PER_PAGE < filteredBrokersList.length && (
+                                <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                  Loading more... ({Math.min(brokerScrollOffset + ITEMS_PER_PAGE, filteredBrokersList.length)} / {filteredBrokersList.length})
+                                </div>
+                              )}
                             </>
-                      );
-                    })()}
+                          );
+                        })()}
+                      </>
+                    )}
                     </div>
                   )}
               </div>
             </div>
           </div>
 
-              {/* Ticker Multi-Select (Combined) */}
+              {/* Ticker Multi-Select (Combined) - Dropdown only */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
-            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-              {/* Selected Tickers */}
-              {selectedTickers.map(ticker => (
-                <div
-                  key={ticker}
-                  className="flex items-center gap-1 px-2 h-9 bg-primary/20 text-primary rounded-md text-sm"
-                >
-                  <span>{ticker}</span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveTicker(ticker)}
-                    className="hover:bg-primary/30 rounded px-1"
-                    aria-label={`Remove ${ticker}`}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-              {/* Selected Sectors */}
-              {selectedSectors.map(sector => (
-                <div
-                  key={sector}
-                  className="flex items-center gap-1 px-2 h-9 bg-blue-500/20 text-blue-400 rounded-md text-sm"
-                >
-                  <span>{sector === 'IDX' ? 'IDX Composite' : sector}</span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveSector(sector)}
-                    className="hover:bg-blue-500/30 rounded px-1"
-                    aria-label={`Remove ${sector === 'IDX' ? 'IDX Composite' : sector}`}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-              {/* Clear All Tickers and Sectors Button */}
-              {(selectedTickers.length > 0 || selectedSectors.length > 0) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    handleClearAllTickers();
-                    setSelectedSectors([]);
-                  }}
-                  className="px-2 h-9 rounded-md text-sm bg-destructive/20 text-destructive hover:bg-destructive/30 font-medium"
-                  title="Clear all tickers and sectors"
-                >
-                  Clear
-                </button>
-              )}
+            <div className="flex items-center gap-2 w-full md:w-auto">
               <div className="relative flex-1 md:flex-none" ref={dropdownTickerRef}>
                 <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                 <input
@@ -5013,30 +4973,89 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   className="w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground"
                 />
               {showTickerSuggestions && (
-                <div id="ticker-suggestions" role="listbox" className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col w-full sm:w-auto min-w-[280px] sm:min-w-[400px]">
+                <div id="ticker-suggestions" role="listbox" className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col w-64">
                   {isLoadingStocks || (availableTickers.length === 0 && availableStocksFromAPI.length === 0) ? (
                     <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
                       <Loader2 className="w-4 h-4 animate-spin mr-2" />
                       Loading stocks...
                     </div>
                   ) : (
-                      <div className="flex flex-row h-full max-h-96 overflow-hidden">
-                        {/* Left column: Tickers */}
-                        <div 
-                          className="flex-1 border-r border-[#3a4252] overflow-y-auto"
-                          onScroll={(e) => {
-                            const target = e.target as HTMLElement;
-                            const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
-                            if (scrollBottom < 100 && tickerScrollOffset + ITEMS_PER_PAGE < filteredTickersList.length) {
-                              setTickerScrollOffset(prev => prev + ITEMS_PER_PAGE);
-                            }
-                          }}
-                        >
-                          {debouncedTickerInput === '' ? (
-                            <>
-                              <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                Stocks ({filteredTickersList.length})
+                    <>
+                        {/* Selected Items Section */}
+                        {(selectedTickers.length > 0 || selectedSectors.length > 0) && (
+                          <div className="border-b border-[#3a4252] overflow-y-auto" style={{ minHeight: '120px', maxHeight: `${Math.min((selectedTickers.length + selectedSectors.length) * 24 + 30, 250)}px` }}>
+                            <div className="px-3 py-1 text-xs text-muted-foreground sticky top-0 bg-popover flex items-center justify-between">
+                              <span>Selected ({selectedTickers.length + selectedSectors.length})</span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleClearAllTickers();
+                                  setSelectedSectors([]);
+                                }}
+                                className="text-xs text-destructive hover:text-destructive/80 font-medium"
+                              >
+                                Clear
+                              </button>
+                            </div>
+                            {selectedTickers.map(ticker => (
+                              <div
+                                key={`selected-ticker-${ticker}`}
+                                className="px-3 py-1 hover:bg-muted flex items-center justify-between min-h-[24px]"
+                              >
+                                <span className="text-sm text-primary">{ticker}</span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRemoveTicker(ticker);
+                                  }}
+                                  className="text-muted-foreground hover:text-destructive text-sm"
+                                  aria-label={`Remove ${ticker}`}
+                                >
+                                  ×
+                                </button>
                               </div>
+                            ))}
+                            {selectedSectors.map(sector => (
+                              <div
+                                key={`selected-sector-${sector}`}
+                                className="px-3 py-1 hover:bg-muted flex items-center justify-between min-h-[24px]"
+                              >
+                                <span className="text-sm text-blue-400">{sector === 'IDX' ? 'IDX Composite' : sector}</span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRemoveSector(sector);
+                                  }}
+                                  className="text-muted-foreground hover:text-destructive text-sm"
+                                  aria-label={`Remove ${sector === 'IDX' ? 'IDX Composite' : sector}`}
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      {/* Search Results Section */}
+                      <div className="flex flex-row flex-1 overflow-hidden">
+                          {/* Left column: Tickers */}
+                          <div 
+                            className="flex-1 border-r border-[#3a4252] overflow-y-auto"
+                            onScroll={(e) => {
+                              const target = e.target as HTMLElement;
+                              const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+                              if (scrollBottom < 100 && tickerScrollOffset + ITEMS_PER_PAGE < filteredTickersList.length) {
+                                setTickerScrollOffset(prev => prev + ITEMS_PER_PAGE);
+                              }
+                            }}
+                          >
+                            {debouncedTickerInput === '' ? (
+                              <>
+                                <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                  Stocks ({filteredTickersList.length})
+                                </div>
                               {visibleFilteredTickers.map((ticker, idx) => {
                                 return (
                                   <div
@@ -5150,6 +5169,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           )}
                         </div>
                       </div>
+                    </>
                   )}
                 </div>
               )}
