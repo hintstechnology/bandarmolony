@@ -1943,11 +1943,11 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                          <thead className="bg-[#3a4252]">
                          <tr className="border-t-2 border-white">
                       {!showOnlyTotal && datesForHeader.map((date, dateIndex) => (
-                        <th key={date} className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} colSpan={9} style={{ textAlign: 'center' }}>
+                        <th key={date} className={`text-center py-[1px] px-[7.4px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} colSpan={9} style={{ textAlign: 'center' }}>
                          {formatDisplayDate(date)}
                             </th>
                           ))}
-                      <th className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={9} style={{ textAlign: 'center' }}>
+                      <th className={`text-center py-[1px] px-[3.8px] font-bold text-white border-r-2 border-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={9} style={{ textAlign: 'center' }}>
                             Total
                           </th>
                         </tr>
@@ -1955,28 +1955,28 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       {!showOnlyTotal && datesForHeader.map((date, dateIndex) => (
                       <React.Fragment key={`detail-${date}`}>
                               {/* BY Columns */}
-                          <th className={`text-center py-[1px] px-[6px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ textAlign: 'center' }}>BY</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BLot</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BVal</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BAvg</th>
+                          <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ textAlign: 'center' }}>BY</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BLot</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BVal</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BAvg</th>
                               {/* SL Columns */}
-                              <th className="text-center py-[1px] px-[6px] font-bold text-white bg-[#3a4252] w-4" style={{ textAlign: 'center' }}>#</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-4`} style={{ textAlign: 'center' }}>SL</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>SLot</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>SVal</th>
-                        <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6 ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ textAlign: 'center' }}>SAvg</th>
+                              <th className="text-center py-[1px] px-[5.4px] font-bold text-white bg-[#3a4252] w-4" style={{ textAlign: 'center' }}>#</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-4`} style={{ textAlign: 'center' }}>SL</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>SLot</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>SVal</th>
+                        <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6 ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ textAlign: 'center' }}>SAvg</th>
                             </React.Fragment>
                           ))}
                     {/* Total Columns - Include BAvg and SAvg */}
-                      <th className={`text-center py-[1px] px-[5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ textAlign: 'center' }}>BY</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>BLot</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>BVal</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>BAvg</th>
-                          <th className="text-center py-[1px] px-[6px] font-bold text-white bg-[#3a4252]" style={{ textAlign: 'center' }}>#</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>SL</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>SLot</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>SVal</th>
-                      <th className={`text-center py-[1px] px-[7px] font-bold text-white border-r-2 border-white`} style={{ textAlign: 'center' }}>SAvg</th>
+                      <th className={`text-center py-[1px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ textAlign: 'center' }}>BY</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>BLot</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>BVal</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>BAvg</th>
+                          <th className="text-center py-[1px] px-[5.4px] font-bold text-white bg-[#3a4252]" style={{ textAlign: 'center' }}>#</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>SL</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>SLot</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>SVal</th>
+                      <th className={`text-center py-[1px] px-[6.3px] font-bold text-white border-r-2 border-white`} style={{ textAlign: 'center' }}>SAvg</th>
                         </tr>
                       </thead>
                       <tbody className="text-[12px]">
@@ -2095,30 +2095,30 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   return (
                             <React.Fragment key={`${date}-${rowIdx}`}>
                                       {/* BY (Buyer) Columns - Using Buyer fields */}
-                                <td className={`text-center py-[1px] px-[6px] w-4 font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${buyData ? getBrokerColorClass(buyData.broker) : ''}`}>
+                                <td className={`text-center py-[1px] px-[5.4px] w-4 font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${buyData ? getBrokerColorClass(buyData.broker) : ''}`}>
                                         {buyData?.broker || '-'}
                                       </td>
-                              <td className="text-right py-[1px] px-[6px] text-green-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              <td className="text-right py-[1px] px-[5.4px] text-green-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                 {buyData ? formatLot(buyData.buyerVol / 100) : '-'}
                               </td>
-                                      <td className="text-right py-[1px] px-[6px] text-green-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                      <td className="text-right py-[1px] px-[5.4px] text-green-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                         {buyData ? formatNumber(buyData.buyerValue) : '-'}
                                       </td>
-                                      <td className="text-right py-[1px] px-[6px] text-green-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                      <td className="text-right py-[1px] px-[5.4px] text-green-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                         {buyData ? formatAverage(buyData.bavg) : '-'}
                                       </td>
                                       {/* SL (Seller) Columns - Keep # column */}
-                                      <td className={`text-center py-[1px] px-[6px] text-white bg-[#3a4252] font-bold w-4 ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>{sellData ? rowIdx + 1 : '-'}</td>
-                                      <td className={`py-[1px] px-[6px] font-bold w-4 ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>
+                                      <td className={`text-center py-[1px] px-[5.4px] text-white bg-[#3a4252] font-bold w-4 ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>{sellData ? rowIdx + 1 : '-'}</td>
+                                      <td className={`py-[1px] px-[5.4px] font-bold w-4 ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>
                                         {sellData?.broker || '-'}
                                       </td>
-                              <td className="text-right py-[1px] px-[6px] text-red-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              <td className="text-right py-[1px] px-[5.4px] text-red-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                 {sellData ? formatLot(sellData.sellerVol / 100) : '-'}
                               </td>
-                                      <td className="text-right py-[1px] px-[6px] text-red-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                      <td className="text-right py-[1px] px-[5.4px] text-red-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                         {sellData ? formatNumber(sellData.sellerValue) : '-'}
                                       </td>
-                              <td className={`text-right py-[1px] px-[6px] text-red-600 font-bold w-6 ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              <td className={`text-right py-[1px] px-[5.4px] text-red-600 font-bold w-6 ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                         {sellData ? formatAverage(sellData.savg) : '-'}
                                       </td>
                                     </React.Fragment>
@@ -2134,29 +2134,29 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                           const totalSellAvg = totalSell && totalSell.nslot > 0 ? Math.abs(totalSell.nsval) / totalSell.nslot : 0;
                           return (
                             <React.Fragment>
-                                <td className={`text-center py-[1px] px-[5px] font-bold ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${totalBuy ? getBrokerColorClass(totalBuy.broker) : ''}`}>
+                                <td className={`text-center py-[1px] px-[4.5px] font-bold ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${totalBuy ? getBrokerColorClass(totalBuy.broker) : ''}`}>
                                   {totalBuy?.broker || '-'}
                                 </td>
-                              <td className="text-right py-[1px] px-[5px] text-green-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              <td className="text-right py-[1px] px-[4.5px] text-green-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                 {totalBuy ? formatLot(totalBuy.nblot / 100) : '-'}
                               </td>
-                                <td className="text-right py-[1px] px-[5px] text-green-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                <td className="text-right py-[1px] px-[4.5px] text-green-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                   {totalBuy ? formatNumber(totalBuy.nbval) : '-'}
                                 </td>
-                                <td className="text-right py-[1px] px-[5px] text-green-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                <td className="text-right py-[1px] px-[4.5px] text-green-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                   {totalBuy && totalBuyAvg > 0 ? formatAverage(totalBuyAvg) : '-'}
                                 </td>
-                                <td className={`text-center py-[1px] px-[6px] text-white bg-[#3a4252] font-bold ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>{totalSell ? rowIdx + 1 : '-'}</td>
-                                <td className={`py-[1px] px-[5px] font-bold ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>
+                                <td className={`text-center py-[1px] px-[5.4px] text-white bg-[#3a4252] font-bold ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>{totalSell ? rowIdx + 1 : '-'}</td>
+                                <td className={`py-[1px] px-[4.5px] font-bold ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>
                                   {totalSell?.broker || '-'}
                                 </td>
-                              <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              <td className="text-right py-[1px] px-[4.5px] text-red-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                 {totalSell ? formatLot(totalSell.nslot / 100) : '-'}
                               </td>
-                              <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              <td className="text-right py-[1px] px-[4.5px] text-red-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                   {totalSell ? formatNumber(totalSell.nsval) : '-'}
                                 </td>
-                                <td className="text-right py-[1px] px-[7px] text-red-600 font-bold border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                <td className="text-right py-[1px] px-[6.3px] text-red-600 font-bold border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                   {totalSell && totalSellAvg > 0 ? formatAverage(totalSellAvg) : '-'}
                                 </td>
                             </React.Fragment>
@@ -2182,11 +2182,11 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                         <thead className="bg-[#3a4252]">
                         <tr className="border-t-2 border-white">
                       {!showOnlyTotal && datesForHeader.map((date, dateIndex) => (
-                        <th key={date} className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} colSpan={9} style={{ textAlign: 'center' }}>
+                        <th key={date} className={`text-center py-[1px] px-[7.4px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} colSpan={9} style={{ textAlign: 'center' }}>
                         {formatDisplayDate(date)}
                             </th>
                           ))}
-                      <th className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={9} style={{ textAlign: 'center' }}>
+                      <th className={`text-center py-[1px] px-[3.8px] font-bold text-white border-r-2 border-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={9} style={{ textAlign: 'center' }}>
                             Total
                           </th>
                         </tr>
@@ -2194,28 +2194,28 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       {!showOnlyTotal && datesForHeader.map((date, dateIndex) => (
                       <React.Fragment key={`detail-${date}`}>
                               {/* Net Buy Columns - No # */}
-                          <th className={`text-center py-[1px] px-[6px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ textAlign: 'center' }}>BY</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BLot</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BVal</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BAvg</th>
+                          <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ textAlign: 'center' }}>BY</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BLot</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BVal</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BAvg</th>
                               {/* Net Sell Columns - Keep # */}
-                              <th className="text-center py-[1px] px-[6px] font-bold text-white bg-[#3a4252] w-4" style={{ textAlign: 'center' }}>#</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-4`} style={{ textAlign: 'center' }}>SL</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>SLot</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>SVal</th>
-                          <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6 ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ textAlign: 'center' }}>SAvg</th>
+                              <th className="text-center py-[1px] px-[5.4px] font-bold text-white bg-[#3a4252] w-4" style={{ textAlign: 'center' }}>#</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-4`} style={{ textAlign: 'center' }}>SL</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>SLot</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>SVal</th>
+                          <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6 ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ textAlign: 'center' }}>SAvg</th>
                             </React.Fragment>
                           ))}
                     {/* Total Columns - Include BAvg and SAvg */}
-                      <th className={`text-center py-[1px] px-[5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ textAlign: 'center' }}>BY</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>BLot</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>BVal</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>BAvg</th>
-                          <th className="text-center py-[1px] px-[6px] font-bold text-white bg-[#3a4252]" style={{ textAlign: 'center' }}>#</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>SL</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>SLot</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>SVal</th>
-                      <th className={`text-center py-[1px] px-[7px] font-bold text-white border-r-2 border-white`} style={{ textAlign: 'center' }}>SAvg</th>
+                      <th className={`text-center py-[1px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ textAlign: 'center' }}>BY</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>BLot</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>BVal</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>BAvg</th>
+                          <th className="text-center py-[1px] px-[5.4px] font-bold text-white bg-[#3a4252]" style={{ textAlign: 'center' }}>#</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>SL</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>SLot</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>SVal</th>
+                      <th className={`text-center py-[1px] px-[6.3px] font-bold text-white border-r-2 border-white`} style={{ textAlign: 'center' }}>SAvg</th>
                         </tr>
                       </thead>
                       <tbody className="text-[12px]">
@@ -2545,30 +2545,30 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   return (
                               <React.Fragment key={`${date}-${rowIdx}`}>
                                       {/* Net Buy Columns (BY) - Display NetSell Data - No # */}
-                                  <td className={`text-center py-[1px] px-[6px] w-4 font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`} style={byColumnStyle}>
+                                  <td className={`text-center py-[1px] px-[5.4px] w-4 font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`} style={byColumnStyle}>
                                         {netSellData?.broker || '-'}
                                       </td>
-                                <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...byColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                <td className={`text-right py-[1px] px-[5.4px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...byColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
                                   {netSellData ? formatLot(nbLot / 100) : '-'}
                                 </td>
-                                      <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...byColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                      <td className={`text-right py-[1px] px-[5.4px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...byColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
                                         {netSellData ? formatNumber(nbVal) : '-'}
                                       </td>
-                                      <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...byColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                      <td className={`text-right py-[1px] px-[5.4px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...byColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
                                         {netSellData ? formatAverage(nbAvg) : '-'}
                                       </td>
                                       {/* Net Sell Columns (SL) - Display NetBuy Data - Keep # */}
-                                      <td className={`text-center py-[1px] px-[6px] text-white bg-[#3a4252] font-bold w-4 ${netBuyData ? getBrokerColorClass(netBuyData.broker) : ''}`}>{netBuyData ? rowIdx + 1 : '-'}</td>
-                                  <td className={`py-[1px] px-[6px] w-4 font-bold ${netBuyData ? getBrokerColorClass(netBuyData.broker) : ''} ${sellBgStyle ? 'text-white' : ''}`} style={slColumnStyle}>
+                                      <td className={`text-center py-[1px] px-[5.4px] text-white bg-[#3a4252] font-bold w-4 ${netBuyData ? getBrokerColorClass(netBuyData.broker) : ''}`}>{netBuyData ? rowIdx + 1 : '-'}</td>
+                                  <td className={`py-[1px] px-[5.4px] w-4 font-bold ${netBuyData ? getBrokerColorClass(netBuyData.broker) : ''} ${sellBgStyle ? 'text-white' : ''}`} style={slColumnStyle}>
                                         {netBuyData?.broker || '-'}
                                       </td>
-                                  <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${sellBgStyle ? 'text-white' : 'text-red-600'}`} style={{ ...slColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                  <td className={`text-right py-[1px] px-[5.4px] w-6 font-bold ${sellBgStyle ? 'text-white' : 'text-red-600'}`} style={{ ...slColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
                                   {netBuyData ? formatLot(nsLot / 100) : '-'}
                                 </td>
-                                  <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${sellBgStyle ? 'text-white' : 'text-red-600'}`} style={{ ...slColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                  <td className={`text-right py-[1px] px-[5.4px] w-6 font-bold ${sellBgStyle ? 'text-white' : 'text-red-600'}`} style={{ ...slColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
                                         {netBuyData ? formatNumber(nsVal) : '-'}
                                       </td>
-                                  <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${sellBgStyle ? 'text-white' : 'text-red-600'} ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ ...slColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                  <td className={`text-right py-[1px] px-[5.4px] w-6 font-bold ${sellBgStyle ? 'text-white' : 'text-red-600'} ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ ...slColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
                                         {netBuyData ? formatAverage(nsAvg) : '-'}
                                       </td>
                                     </React.Fragment>
@@ -2605,30 +2605,30 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                             return (
                               <React.Fragment>
                                   {/* Total BY columns - Display totalNetSell data */}
-                                  <td className={`text-center py-[1px] px-[5px] font-bold ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${totalNetSell ? getBrokerColorClass(totalNetSell.broker) : ''}`} style={totalNetBuyBgStyle}>
+                                  <td className={`text-center py-[1px] px-[4.5px] font-bold ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${totalNetSell ? getBrokerColorClass(totalNetSell.broker) : ''}`} style={totalNetBuyBgStyle}>
                                   {totalNetSell?.broker || '-'}
                                 </td>
-                                <td className={`text-right py-[1px] px-[5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...totalNetBuyBgStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                <td className={`text-right py-[1px] px-[4.5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...totalNetBuyBgStyle, fontVariantNumeric: 'tabular-nums' }}>
                                   {totalNetSell ? formatLot((totalNetSell.nslot || 0) / 100) : '-'}
                                 </td>
-                                <td className={`text-right py-[1px] px-[5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...totalNetBuyBgStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                <td className={`text-right py-[1px] px-[4.5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...totalNetBuyBgStyle, fontVariantNumeric: 'tabular-nums' }}>
                                   {totalNetSell ? formatNumber(totalNetSell.nsval || 0) : '-'}
                                 </td>
-                                <td className={`text-right py-[1px] px-[5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...totalNetBuyBgStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                <td className={`text-right py-[1px] px-[4.5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...totalNetBuyBgStyle, fontVariantNumeric: 'tabular-nums' }}>
                                   {totalNetSell && totalNetBuyAvg > 0 ? formatAverage(totalNetBuyAvg) : '-'}
                                 </td>
                                 {/* Total SL columns - Display totalNetBuy data */}
-                                <td className={`text-center py-[1px] px-[6px] text-white bg-[#3a4252] font-bold ${totalNetBuy ? getBrokerColorClass(totalNetBuy.broker) : ''}`}>{totalNetBuy ? rowIdx + 1 : '-'}</td>
-                                  <td className={`py-[1px] px-[5px] font-bold ${totalNetBuy ? getBrokerColorClass(totalNetBuy.broker) : ''}`} style={totalSellUnderlineStyle}>
+                                <td className={`text-center py-[1px] px-[5.4px] text-white bg-[#3a4252] font-bold ${totalNetBuy ? getBrokerColorClass(totalNetBuy.broker) : ''}`}>{totalNetBuy ? rowIdx + 1 : '-'}</td>
+                                  <td className={`py-[1px] px-[4.5px] font-bold ${totalNetBuy ? getBrokerColorClass(totalNetBuy.broker) : ''}`} style={totalSellUnderlineStyle}>
                                   {totalNetBuy?.broker || '-'}
                                 </td>
-                                  <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={{ ...totalSellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                  <td className="text-right py-[1px] px-[4.5px] text-red-600 font-bold" style={{ ...totalSellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
                                     {totalNetBuy ? formatLot(totalNetBuy.nblot / 100) : '-'}
                                 </td>
-                                  <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={{ ...totalSellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                  <td className="text-right py-[1px] px-[4.5px] text-red-600 font-bold" style={{ ...totalSellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
                                     {totalNetBuy ? formatNumber(totalNetBuy.nbval) : '-'}
                                 </td>
-                                  <td className="text-right py-[1px] px-[7px] text-red-600 font-bold border-r-2 border-white" style={{ ...totalSellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                  <td className="text-right py-[1px] px-[6.3px] text-red-600 font-bold border-r-2 border-white" style={{ ...totalSellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
                                   {totalNetBuy && totalNetSellAvg > 0 ? formatAverage(totalNetSellAvg) : '-'}
                                 </td>
                               </React.Fragment>
@@ -2725,7 +2725,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                         return (
                           <th 
                             key={date} 
-                            className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} 
+                            className={`text-center py-[1px] px-[7.4px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} 
                             colSpan={4} 
                             style={{ 
                               textAlign: 'center', 
@@ -2739,7 +2739,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                         );
                       })}
                       <th 
-                        className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} 
+                        className={`text-center py-[1px] px-[3.8px] font-bold text-white border-r-2 border-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} 
                         colSpan={4} 
                         style={{ 
                           textAlign: 'center', 
@@ -2757,10 +2757,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                         const colWidth = dateWidth ? dateWidth / 4 : undefined;
                         return (
                           <React.Fragment key={`detail-${date}`}>
-                            <th className={`text-center py-[1px] px-[6px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TVal</th>
-                            <th className={`text-center py-[1px] px-[6px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>FNVal</th>
-                            <th className={`text-center py-[1px] px-[6px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TLot</th>
-                            <th className={`text-center py-[1px] px-[6px] font-bold text-white ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>Avg</th>
+                            <th className={`text-center py-[1px] px-[5.4px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TVal</th>
+                            <th className={`text-center py-[1px] px-[5.4px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>FNVal</th>
+                            <th className={`text-center py-[1px] px-[5.4px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TLot</th>
+                            <th className={`text-center py-[1px] px-[5.4px] font-bold text-white ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>Avg</th>
                           </React.Fragment>
                         );
                       })}
@@ -2769,10 +2769,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                         const totalColWidth = totalColumnWidthRef.current > 0 ? totalColumnWidthRef.current / 4 : undefined;
                         return (
                           <>
-                            <th className={`text-center py-[1px] px-[5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TVal</th>
-                            <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>FNVal</th>
-                            <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TLot</th>
-                            <th className={`text-center py-[1px] px-[7px] font-bold text-white border-r-2 border-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>Avg</th>
+                            <th className={`text-center py-[1px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TVal</th>
+                            <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>FNVal</th>
+                            <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TLot</th>
+                            <th className={`text-center py-[1px] px-[6.3px] font-bold text-white border-r-2 border-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>Avg</th>
                           </>
                         );
                       })()}
@@ -2788,10 +2788,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                         if (!dateTotals) {
                           return (
                             <React.Fragment key={date}>
-                              <td className={`text-center py-[1px] px-[6px] text-white font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
-                              <td className="text-center py-[1px] px-[6px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
-                              <td className="text-center py-[1px] px-[6px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
-                              <td className={`text-center py-[1px] px-[6px] text-white font-bold ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                              <td className={`text-center py-[1px] px-[5.4px] text-white font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                              <td className="text-center py-[1px] px-[5.4px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                              <td className="text-center py-[1px] px-[5.4px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                              <td className={`text-center py-[1px] px-[5.4px] text-white font-bold ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
                             </React.Fragment>
                           );
                         }
@@ -2800,16 +2800,16 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
 
                         return (
                           <React.Fragment key={date}>
-                            <td className={`text-center py-[1px] px-[6px] text-white font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                            <td className={`text-center py-[1px] px-[5.4px] text-white font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
                               {formatNumber(dateTotals.totalValue)}
                     </td>
-                            <td className={`text-center py-[1px] px-[6px] font-bold ${foreignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                            <td className={`text-center py-[1px] px-[5.4px] font-bold ${foreignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
                               {formatNumber(dateTotals.foreignNetValue)}
                     </td>
-                            <td className="text-center py-[1px] px-[6px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                            <td className="text-center py-[1px] px-[5.4px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
                               {formatLot(dateTotals.totalLot)}
                     </td>
-                            <td className={`text-center py-[1px] px-[6px] text-white font-bold ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                            <td className={`text-center py-[1px] px-[5.4px] text-white font-bold ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
                               {formatAverage(dateTotals.avgPrice)}
                     </td>
                           </React.Fragment>
@@ -2822,16 +2822,16 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
 
                         return (
                           <React.Fragment>
-                            <td className={`text-center py-[1px] px-[5px] text-white font-bold ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                            <td className={`text-center py-[1px] px-[4.5px] text-white font-bold ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
                               {formatNumber(grandTotalValue)}
                             </td>
-                            <td className={`text-center py-[1px] px-[5px] font-bold ${grandForeignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                            <td className={`text-center py-[1px] px-[4.5px] font-bold ${grandForeignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
                               {formatNumber(grandForeignNetValue)}
                             </td>
-                            <td className="text-center py-[1px] px-[5px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                            <td className="text-center py-[1px] px-[4.5px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
                               {formatLot(grandTotalLot)}
                             </td>
-                            <td className="text-center py-[1px] px-[7px] text-white font-bold border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                            <td className="text-center py-[1px] px-[6.3px] text-white font-bold border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
                               {formatAverage(grandAvgPrice)}
                             </td>
                           </React.Fragment>
