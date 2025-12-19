@@ -2689,7 +2689,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
               dateForeignBuyValue += buyVal;
               dateForeignSellValue += sellVal;
             }
-          });
+        });
 
           const dateTotalLot = dateTotalLotShares / 100;
           const dateForeignNetValue = dateForeignBuyValue - dateForeignSellValue;
@@ -2941,12 +2941,12 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                             )}
                             {/* Search Results Section */}
                             <div className="flex flex-row flex-1 overflow-hidden">
-                              {/* Left column: Stocks */}
-                              <div className="flex-1 border-r border-[#3a4252] overflow-y-auto">
-                                {tickerInput === '' ? (
-                                  <>
-                                    <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                      Stocks ({availableStocks.filter(s => {
+                            {/* Left column: Stocks */}
+                            <div className="flex-1 border-r border-[#3a4252] overflow-y-auto">
+                              {tickerInput === '' ? (
+                                <>
+                                  <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                    Stocks ({availableStocks.filter(s => {
                                       if (s.startsWith('[SECTOR] ')) return false;
                                       // Check if stock's sector is already selected
                                       const stockSector = Object.keys(sectorMapping).find(sector => 

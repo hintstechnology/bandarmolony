@@ -2476,7 +2476,7 @@ export const api = {
       const url = marketParam ? `${API_URL}/api/broker-summary/summary/${stockCode}?date=${dateStr}&market=${marketParam}` : `${API_URL}/api/broker-summary/summary/${stockCode}?date=${dateStr}`;
       console.log(`[API] Fetching broker summary: ${url}`);
       
-      const response = await fetch(url);
+      const response = await authenticatedFetch(url, {}, 'getBrokerSummaryData');
       const data = await response.json();
       
       if (!response.ok) {
@@ -2499,12 +2499,12 @@ export const api = {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
       
-      const response = await fetch(`${API_URL}/api/broker/dates`, {
+      const response = await authenticatedFetch(`${API_URL}/api/broker/dates`, {
         signal: controller.signal,
         headers: {
           'Content-Type': 'application/json',
         },
-      });
+      }, 'getBrokerSummaryDates');
       
       clearTimeout(timeoutId);
       
@@ -2538,7 +2538,7 @@ export const api = {
       // When market is empty string (All Trade), send it as empty string
       const marketParam = market || '';
       const url = marketParam ? `${API_URL}/api/broker-summary/stocks?date=${dateStr}&market=${marketParam}` : `${API_URL}/api/broker-summary/stocks?date=${dateStr}`;
-      const response = await fetch(url);
+      const response = await authenticatedFetch(url, {}, 'getBrokerSummaryStocks');
       const data = await response.json();
       return data;
     } catch (err: any) {
