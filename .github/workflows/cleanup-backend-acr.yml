@@ -1,0 +1,62 @@
+name: Cleanup Backend Images in Azure Container Registry
+
+on:
+  schedule:
+    # 09:30 WIB = 02:30 UTC
+    - cron: '35 2 * * *'
+  workflow_dispatch:
+
+env:
+  ACR_NAME: ${{ vars.ACR_NAME }}
+  IMAGE_NAME: bandarmolony-backend
+
+jobs:
+  cleanup-backend-acr:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Cleanup old backend images (keep last 3)
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        echo "Mengambil daftar manifest dari ACR..."
+        MANIFESTS=$(az acr repository show-manifests \
+          --name "$ACR_NAME" \
+          --repository "$IMAGE_NAME_BE" \
+          --orderby time_desc \
+          --query "[].digest" -o tsv)
+
+        TOTAL=$(echo "$MANIFESTS" | sed '/^$/d' | wc -l)
+        echo "Total manifest: $TOTAL untuk repo $IMAGE_NAME_BE"
+
+        if [ "$TOTAL" -le 3 ]; then
+          echo "≤ 3 manifest, tidak ada yang dihapus."
+          exit 0
+        fi
+
+        KEEP=$(echo "$MANIFESTS" | head -n 3)
+        DELETE=$(echo "$MANIFESTS" | tail -n +4)
+
+        echo "Dipertahankan (3 terbaru):"
+        echo "$KEEP"
+        echo
+        echo "Akan dihapus ($(echo "$DELETE" | sed '/^$/d' | wc -l)):"
+        echo "$DELETE"
+        echo
+
+        echo "$DELETE" | while read -r digest; do
+          [ -z "$digest" ] && continue
+          echo "Menghapus manifest: $digest"
+          az acr repository delete \
+            --name "$ACR_NAME" \
+            --image "${IMAGE_NAME}@${digest}" \
+            --yes
+        done
+
+        echo "Cleanup selesai. Tersisa 3 manifest terbaru di $IMAGE_NAME_BE."
