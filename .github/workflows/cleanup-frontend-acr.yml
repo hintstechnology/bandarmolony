@@ -2,8 +2,8 @@ name: Cleanup Frontend Images in Azure Container Registry
 
 on:
   schedule:
-    # 09:30 WIB = 02:30 UTC
-    - cron: '35 2 * * *'
+    # 10:25 WIB
+    - cron: '25 10 * * *'
   workflow_dispatch:
 
 env:
