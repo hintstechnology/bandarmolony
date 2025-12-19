@@ -4944,7 +4944,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                 <input
                   type="text"
-                  placeholder="Add ticker"
+                  placeholder={selectedTickers.length > 0 ? `${selectedTickers.length} selected` : "Add ticker"}
                   value={tickerInput}
                   onChange={(e) => {
                     const v = e.target.value;
