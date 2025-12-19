@@ -343,6 +343,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   const [boardFilter, setBoardFilter] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Default to RG - Board Type
   const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
   
+  // Visualisasi label untuk Output dropdown (ditukar untuk display)
+  // Logika tetap menggunakan pivotFilter yang asli
+  // Tukar label: Broker -> Stock, Stock -> Broker
+  const pivotFilterDisplayLabel = pivotFilter === 'Broker' ? 'Stock' : 'Broker';
+  
+  // Helper untuk mendapatkan value dari display label (untuk onChange)
+  const handlePivotFilterChange = (displayLabel: string) => {
+    // Tukar kembali: Stock -> Broker, Broker -> Stock
+    const actualValue: 'Broker' | 'Stock' = displayLabel === 'Stock' ? 'Broker' : 'Stock';
+    setPivotFilter(actualValue);
+  };
+  
   // Multi-select ticker/sector states (combined)
   const [tickerInput, setTickerInput] = useState('');
   const [debouncedTickerInput, setDebouncedTickerInput] = useState('');
@@ -5288,16 +5300,16 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             <label className="text-sm font-medium whitespace-nowrap">Output:</label>
             <select
-              value={pivotFilter}
+              value={pivotFilterDisplayLabel}
               onChange={(e) => {
-                setPivotFilter(e.target.value as 'Broker' | 'Stock');
+                handlePivotFilterChange(e.target.value);
                 // CRITICAL: Keep existing data visible - no auto-fetch, no hide tables
                 // User must click Show button to fetch new data
               }}
               className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
             >
-              <option value="Broker">Broker</option>
               <option value="Stock">Stock</option>
+              <option value="Broker">Broker</option>
             </select>
           </div>
 
