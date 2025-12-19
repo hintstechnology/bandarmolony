@@ -2707,8 +2707,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       
       // CRITICAL: For Output: stock, calculate net per date from Buy - Sell per stock (Emiten)
       // Aggregate Buy and Sell per Emiten (stock) for this date
-      const buyByStock = new Map<string, { buyerLot: number; buyerValue: number; buyerFreq: number; buyerOrdNum: number }>();
-      const sellByStock = new Map<string, { sellerLot: number; sellerValue: number; sellerFreq: number; sellerOrdNum: number }>();
+      const buyByStock = new Map<string, { buyerLot: number; buyerValue: number; buyerFreq: number; buyerOrdNum: number; buyerLotPerFreq: number; buyerLotPerOrdNum: number; buyerLotPerFreqSum: number; buyerLotPerFreqWeight: number; buyerLotPerOrdNumSum: number; buyerLotPerOrdNumWeight: number }>();
+      const sellByStock = new Map<string, { sellerLot: number; sellerValue: number; sellerFreq: number; sellerOrdNum: number; sellerLotPerFreq: number; sellerLotPerOrdNum: number; sellerLotPerFreqSum: number; sellerLotPerFreqWeight: number; sellerLotPerOrdNumSum: number; sellerLotPerOrdNumWeight: number }>();
       
       dateData.forEach(d => {
         const emiten = d.Emiten || '';
@@ -2719,9 +2719,12 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         const buyerValue = d.BuyerValue || 0;
         const buyerFreq = d.BFreq || 0;
         const buyerOrdNum = d.BOrdNum || 0;
+        const buyerLotPerFreq = d.BLotPerFreq;
+        const buyerLotPerOrdNum = d.BLotPerOrdNum;
+        const newBuyerOrdNum = d.NewBuyerOrdNum !== undefined ? d.NewBuyerOrdNum : buyerOrdNum;
         
         if (!buyByStock.has(emiten)) {
-          buyByStock.set(emiten, { buyerLot: 0, buyerValue: 0, buyerFreq: 0, buyerOrdNum: 0 });
+          buyByStock.set(emiten, { buyerLot: 0, buyerValue: 0, buyerFreq: 0, buyerOrdNum: 0, buyerLotPerFreq: 0, buyerLotPerOrdNum: 0, buyerLotPerFreqSum: 0, buyerLotPerFreqWeight: 0, buyerLotPerOrdNumSum: 0, buyerLotPerOrdNumWeight: 0 });
         }
         const buyData = buyByStock.get(emiten)!;
         buyData.buyerLot += buyerLot;
@@ -2729,20 +2732,45 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         buyData.buyerFreq += buyerFreq;
         buyData.buyerOrdNum += buyerOrdNum;
         
+        // Weighted average for Lot/F (same as B/S)
+        if (buyerFreq > 0 && buyerLotPerFreq !== undefined && buyerLotPerFreq !== null) {
+          buyData.buyerLotPerFreqSum += buyerLotPerFreq * buyerFreq;
+          buyData.buyerLotPerFreqWeight += buyerFreq;
+        }
+        // Weighted average for Lot/Or (same as B/S)
+        if (newBuyerOrdNum !== 0 && buyerLotPerOrdNum !== undefined && buyerLotPerOrdNum !== null) {
+          buyData.buyerLotPerOrdNumSum += buyerLotPerOrdNum * Math.abs(newBuyerOrdNum);
+          buyData.buyerLotPerOrdNumWeight += Math.abs(newBuyerOrdNum);
+        }
+        
         // Aggregate Sell data per Emiten (stock)
         const sellerLot = d.SLot !== undefined ? d.SLot : ((d.SellerVol || 0) / 100);
         const sellerValue = d.SellerValue || 0;
         const sellerFreq = d.SFreq || 0;
         const sellerOrdNum = d.SOrdNum || 0;
+        const sellerLotPerFreq = d.SLotPerFreq;
+        const sellerLotPerOrdNum = d.SLotPerOrdNum;
+        const newSellerOrdNum = d.NewSellerOrdNum !== undefined ? d.NewSellerOrdNum : sellerOrdNum;
         
         if (!sellByStock.has(emiten)) {
-          sellByStock.set(emiten, { sellerLot: 0, sellerValue: 0, sellerFreq: 0, sellerOrdNum: 0 });
+          sellByStock.set(emiten, { sellerLot: 0, sellerValue: 0, sellerFreq: 0, sellerOrdNum: 0, sellerLotPerFreq: 0, sellerLotPerOrdNum: 0, sellerLotPerFreqSum: 0, sellerLotPerFreqWeight: 0, sellerLotPerOrdNumSum: 0, sellerLotPerOrdNumWeight: 0 });
         }
         const sellData = sellByStock.get(emiten)!;
         sellData.sellerLot += sellerLot;
         sellData.sellerValue += sellerValue;
         sellData.sellerFreq += sellerFreq;
         sellData.sellerOrdNum += sellerOrdNum;
+        
+        // Weighted average for Lot/F (same as B/S)
+        if (sellerFreq > 0 && sellerLotPerFreq !== undefined && sellerLotPerFreq !== null) {
+          sellData.sellerLotPerFreqSum += sellerLotPerFreq * sellerFreq;
+          sellData.sellerLotPerFreqWeight += sellerFreq;
+        }
+        // Weighted average for Lot/Or (same as B/S)
+        if (newSellerOrdNum !== 0 && sellerLotPerOrdNum !== undefined && sellerLotPerOrdNum !== null) {
+          sellData.sellerLotPerOrdNumSum += sellerLotPerOrdNum * Math.abs(newSellerOrdNum);
+          sellData.sellerLotPerOrdNumWeight += Math.abs(newSellerOrdNum);
+        }
       });
       
       // Calculate Net Buy and Net Sell per stock from Buy - Sell
@@ -2752,8 +2780,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       const allStocks = new Set([...buyByStock.keys(), ...sellByStock.keys()]);
       
       allStocks.forEach(stock => {
-        const buyData = buyByStock.get(stock) || { buyerLot: 0, buyerValue: 0, buyerFreq: 0, buyerOrdNum: 0 };
-        const sellData = sellByStock.get(stock) || { sellerLot: 0, sellerValue: 0, sellerFreq: 0, sellerOrdNum: 0 };
+        const buyData = buyByStock.get(stock) || { buyerLot: 0, buyerValue: 0, buyerFreq: 0, buyerOrdNum: 0, buyerLotPerFreq: 0, buyerLotPerOrdNum: 0, buyerLotPerFreqSum: 0, buyerLotPerFreqWeight: 0, buyerLotPerOrdNumSum: 0, buyerLotPerOrdNumWeight: 0 };
+        const sellData = sellByStock.get(stock) || { sellerLot: 0, sellerValue: 0, sellerFreq: 0, sellerOrdNum: 0, sellerLotPerFreq: 0, sellerLotPerOrdNum: 0, sellerLotPerFreqSum: 0, sellerLotPerFreqWeight: 0, sellerLotPerOrdNumSum: 0, sellerLotPerOrdNumWeight: 0 };
         
         // Calculate Net Buy = Buy - Sell (only if positive)
         const netBuyLot = buyData.buyerLot - sellData.sellerLot;
@@ -2761,11 +2789,14 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         const netBuyFreq = buyData.buyerFreq - sellData.sellerFreq;
         const netBuyOrdNum = buyData.buyerOrdNum - sellData.sellerOrdNum;
         
+        // Calculate Lot/F and Lot/Or using weighted average from Buy/Sell (same as B/S)
+        // For Net Buy: use Buy weighted average (since Net Buy = Buy - Sell, use Buy's Lot/F and Lot/Or)
+        const netBuyLotPerFreq = buyData.buyerLotPerFreqWeight > 0 ? buyData.buyerLotPerFreqSum / buyData.buyerLotPerFreqWeight : 0;
+        const netBuyLotPerOrdNum = buyData.buyerLotPerOrdNumWeight > 0 ? buyData.buyerLotPerOrdNumSum / buyData.buyerLotPerOrdNumWeight : 0;
+        
         if (netBuyLot > 0) {
           const netBuyLotVolume = netBuyLot * 100;
           const netBuyAvg = netBuyLotVolume > 0 ? netBuyValue / netBuyLotVolume : 0;
-          const netBuyLotPerFreq = Math.abs(netBuyFreq) > 0 ? netBuyLot / Math.abs(netBuyFreq) : 0;
-          const netBuyLotPerOrdNum = Math.abs(netBuyOrdNum) > 0 ? netBuyLot / Math.abs(netBuyOrdNum) : 0;
           
           // Create Net Buy data object
           const netBuyData: BrokerTransactionData = {
@@ -2803,11 +2834,14 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         const netSellFreq = sellData.sellerFreq - buyData.buyerFreq;
         const netSellOrdNum = sellData.sellerOrdNum - buyData.buyerOrdNum;
         
+        // Calculate Lot/F and Lot/Or using weighted average from Buy/Sell (same as B/S)
+        // For Net Sell: use Sell weighted average (since Net Sell = Sell - Buy, use Sell's Lot/F and Lot/Or)
+        const netSellLotPerFreq = sellData.sellerLotPerFreqWeight > 0 ? sellData.sellerLotPerFreqSum / sellData.sellerLotPerFreqWeight : 0;
+        const netSellLotPerOrdNum = sellData.sellerLotPerOrdNumWeight > 0 ? sellData.sellerLotPerOrdNumSum / sellData.sellerLotPerOrdNumWeight : 0;
+        
         if (netSellLot > 0) {
           const netSellLotVolume = netSellLot * 100;
           const netSellAvg = netSellLotVolume > 0 ? netSellValue / netSellLotVolume : 0;
-          const netSellLotPerFreq = Math.abs(netSellFreq) > 0 ? netSellLot / Math.abs(netSellFreq) : 0;
-          const netSellLotPerOrdNum = Math.abs(netSellOrdNum) > 0 ? netSellLot / Math.abs(netSellOrdNum) : 0;
           
           // Create Net Sell data object
           const netSellData: BrokerTransactionData = {
@@ -4039,13 +4073,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         const netBuyLot = buyLot - sellLot;
         const netBuyValue = buyValue - sellValue;
         
+        // Use Lot/F and Lot/Or from B/S Total (same as B/S calculation)
+        const buyLotPerFreq = buyData?.buyerLotPerFreq || 0;
+        const buyLotPerOrdNum = buyData?.buyerLotPerOrdNum || 0;
+        
         if (netBuyLot > 0) {
           const netBuyLotVolume = netBuyLot * 100;
           const netBuyAvg = netBuyLotVolume > 0 ? netBuyValue / netBuyLotVolume : 0;
           const netBuyFreq = buyFreq - sellFreq;
           const netBuyOrdNum = buyOrdNum - sellOrdNum;
-          const netBuyLotPerFreq = netBuyFreq !== 0 ? netBuyLot / netBuyFreq : 0;
-          const netBuyLotPerOrdNum = netBuyOrdNum !== 0 ? netBuyLot / netBuyOrdNum : 0;
+          // Use Buy's Lot/F and Lot/Or (same as B/S)
+          const netBuyLotPerFreq = buyLotPerFreq;
+          const netBuyLotPerOrdNum = buyLotPerOrdNum;
           
           netBuyFromBS.set(stock, {
             stock,
@@ -4063,13 +4102,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         const netSellLot = sellLot - buyLot;
         const netSellValue = sellValue - buyValue;
         
+        // Use Lot/F and Lot/Or from B/S Total (same as B/S calculation)
+        const sellLotPerFreq = sellData?.sellerLotPerFreq || 0;
+        const sellLotPerOrdNum = sellData?.sellerLotPerOrdNum || 0;
+        
         if (netSellLot > 0) {
           const netSellLotVolume = netSellLot * 100;
           const netSellAvg = netSellLotVolume > 0 ? netSellValue / netSellLotVolume : 0;
           const netSellFreq = sellFreq - buyFreq;
           const netSellOrdNum = sellOrdNum - buyOrdNum;
-          const netSellLotPerFreq = netSellFreq !== 0 ? netSellLot / netSellFreq : 0;
-          const netSellLotPerOrdNum = netSellOrdNum !== 0 ? netSellLot / netSellOrdNum : 0;
+          // Use Sell's Lot/F and Lot/Or (same as B/S)
+          const netSellLotPerFreq = sellLotPerFreq;
+          const netSellLotPerOrdNum = sellLotPerOrdNum;
           
           netSellFromBS.set(stock, {
             stock,
