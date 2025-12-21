@@ -4272,7 +4272,7 @@ const visibleBrokers = useMemo(
                     }}
                     className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
                   >
-                    <option value="">All Trade</option>
+                    <option value="">All</option>
                     <option value="RG">RG</option>
                     <option value="TN">TN</option>
                     <option value="NG">NG</option>

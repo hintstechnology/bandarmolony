@@ -34,7 +34,6 @@ import BrokerTransactionStockFDDataScheduler from '../services/brokerTransaction
 import BrokerTransactionStockRGTNNGDataScheduler from '../services/brokerTransactionStockRGTNNGDataScheduler';
 import BrokerTransactionStockFDRGTNNGDataScheduler from '../services/brokerTransactionStockFDRGTNNGDataScheduler';
 import { BrokerTransactionStockIDXDataScheduler } from '../services/brokerTransactionStockIDXDataScheduler';
-import { BrokerTransactionSectorDataScheduler } from '../services/brokerTransactionSectorDataScheduler';
 import { BrokerTransactionStockSectorDataScheduler } from '../services/brokerTransactionStockSectorDataScheduler';
 import { BrokerTransactionALLDataScheduler } from '../services/brokerTransactionALLDataScheduler';
 import { BrokerDataRGTNNGCalculator } from '../calculations/broker/broker_data_rg_tn_ng';
@@ -2024,65 +2023,6 @@ router.post('/broker-summary-sector', async (req, res) => {
     return res.status(500).json({
       success: false,
       message: `Failed to trigger broker-summary-sector update: ${errorMessage}`
-    });
-  }
-});
-
-// Manual trigger for Broker Transaction Sector calculation
-router.post('/broker-transaction-sector', async (req, res) => {
-  try {
-    console.log('🔄 Manual trigger: Broker Transaction Sector calculation');
-    
-    const triggeredBy = getTriggeredBy(req);
-    const logEntry = await SchedulerLogService.createLog({
-      feature_name: 'broker_transaction_sector',
-      trigger_type: 'manual',
-      triggered_by: triggeredBy,
-      status: 'running',
-      environment: process.env['NODE_ENV'] || 'development'
-    });
-
-    if (!logEntry) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to create scheduler log entry' 
-      });
-    }
-
-    const brokerTransactionSectorService = new BrokerTransactionSectorDataScheduler();
-    
-    // Execute in background and return immediately
-    brokerTransactionSectorService.generateBrokerTransactionSectorData('all', logEntry.id || null, triggeredBy).then(async (result) => {
-      console.log(`✅ Broker Transaction Sector calculation completed: ${result.message}`);
-      if (logEntry.id) {
-        await SchedulerLogService.updateLog(logEntry.id, {
-          status: result.success ? 'completed' : 'failed',
-          progress_percentage: 100,
-          ...(result.success ? {} : { error_message: result.message })
-        });
-      }
-    }).catch(async (error: any) => {
-      const errorMessage = error?.message || error?.toString() || 'Unknown error';
-      console.error(`❌ Broker Transaction Sector calculation error: ${errorMessage}`);
-      if (logEntry.id) {
-        await SchedulerLogService.updateLog(logEntry.id, {
-          status: 'failed',
-          error_message: errorMessage
-        });
-      }
-    });
-
-    return res.json({
-      success: true,
-      message: 'Broker Transaction Sector calculation triggered successfully',
-      log_id: logEntry.id
-    });
-  } catch (error: any) {
-    console.error('❌ Error triggering broker transaction sector calculation:', error);
-    const errorMessage = error?.message || error?.toString() || 'Unknown error';
-    return res.status(500).json({
-      success: false,
-      message: `Failed to trigger broker-transaction-sector update: ${errorMessage}`
     });
   }
 });

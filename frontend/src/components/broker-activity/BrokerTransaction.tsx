@@ -162,7 +162,17 @@ const formatLot = (value: number): string => {
   }
 };
 
-const formatAverage = (value: number): string => {
+const formatAverage = (value: number | undefined | null): string => {
+  // Handle invalid values
+  if (value === undefined || value === null || isNaN(value)) {
+    return '-';
+  }
+  
+  // Handle zero
+  if (value === 0) {
+    return '0.0';
+  }
+  
   // Format: ribuan pakai ',' (koma), desimal pakai '.' (titik)
   // Pastikan selalu 1 angka di belakang koma
   // Contoh: 1335.0, 10,000.5, -3.0, -197.6
@@ -297,6 +307,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   const hasSyncedColumnWidthsRef = useRef<boolean>(false);
   // Store column widths to maintain consistency after lazy loading
   const columnWidthsRef = useRef<number[]>([]);
+  // Refs for Total table column widths
+  const totalTableRef = useRef<HTMLTableElement>(null);
+  const totalTableContainerRef = useRef<HTMLDivElement>(null);
+  const dateColumnWidthsRef = useRef<Map<string, number>>(new Map()); // Store width of each date column from VALUE table
+  const totalColumnWidthRef = useRef<number>(0); // Store width of Total column from VALUE table
   
   // API data states
   const [transactionData, setTransactionData] = useState<Map<string, BrokerTransactionData[]>>(new Map());
@@ -327,6 +342,22 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
   const [invFilter, setInvFilter] = useState<'F' | 'D' | ''>(''); // Default to All (F = Foreign, D = Domestic) - Investor Type
   const [boardFilter, setBoardFilter] = useState<'RG' | 'TN' | 'NG' | ''>('RG'); // Default to RG - Board Type
   const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
+  
+  // Toggle untuk show/hide kolom Frequency dan Order
+  const [showFrequency, setShowFrequency] = useState<boolean>(true); // Default: show Freq dan Lot/F
+  const [showOrder, setShowOrder] = useState<boolean>(true); // Default: show Or dan Lot/Or
+  
+  // Visualisasi label untuk Output dropdown (ditukar untuk display)
+  // Logika tetap menggunakan pivotFilter yang asli
+  // Tukar label: Broker -> Stock, Stock -> Broker
+  const pivotFilterDisplayLabel = pivotFilter === 'Broker' ? 'Stock' : 'Broker';
+  
+  // Helper untuk mendapatkan value dari display label (untuk onChange)
+  const handlePivotFilterChange = (displayLabel: string) => {
+    // Tukar kembali: Stock -> Broker, Broker -> Stock
+    const actualValue: 'Broker' | 'Stock' = displayLabel === 'Stock' ? 'Broker' : 'Stock';
+    setPivotFilter(actualValue);
+  };
   
   // Multi-select ticker/sector states (combined)
   const [tickerInput, setTickerInput] = useState('');
@@ -907,21 +938,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
             // Track processed stocks to avoid duplicates
             const processedStocks = new Set<string>();
             
-            // DEBUG: Log filteredDataResults to see what's coming in
-            console.log(`[DEBUG] filteredDataResults for date ${date}:`, 
-              filteredDataResults.filter(r => r.date === date).map(r => ({
-                code: r.code,
-                rowCount: r.data.length,
-                // Show first row's broker data to verify
-                firstRow: r.data[0] ? {
-                  Emiten: r.data[0].Emiten,
-                  BCode: r.data[0].BCode,
-                  BuyerValue: r.data[0].BuyerValue,
-                  BLot: r.data[0].BLot
-                } : null
-              }))
-            );
-            
             filteredDataResults.forEach(({ date: resultDate, code, data }) => {
               // CRITICAL: Only process data for the current date being processed
               if (resultDate !== date) return;
@@ -948,20 +964,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   return;
                 }
                 processedStocks.add(stockCode);
-                
-                // DEBUG: Log XL data specifically
-                const xlRows = data.filter(row => 
-                  (row.Emiten || '').toUpperCase() === 'XL' || 
-                  (row.BCode || '').toUpperCase() === 'XL'
-                );
-                if (xlRows.length > 0) {
-                  console.log(`[DEBUG] XL data from ${stockCode}:`, xlRows.map(r => ({
-                    Emiten: r.Emiten,
-                    BCode: r.BCode,
-                    BuyerValue: r.BuyerValue,
-                    BLot: r.BLot
-                  })));
-                }
                 
                 // REPLACE, don't append - each stock should have only 1 data set
                 stockDataMap.set(stockCode, data);
@@ -1024,20 +1026,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               // MULTIPLE TICKERS: Aggregate GLOBALLY by broker code across ALL stocks
               // This is the key fix - XL from AADI and XL from ADCP will be combined
               const globalBrokerMap = new Map<string, BrokerTransactionData[]>();
-              
-              // DEBUG: Log all rows before aggregation
-              const xlRowsBeforeAgg = allRows.filter(row => 
-                (row.Emiten || '').toUpperCase() === 'XL' || 
-                (row.BCode || '').toUpperCase() === 'XL'
-              );
-              console.log(`[DEBUG] XL rows before aggregation (count: ${xlRowsBeforeAgg.length}):`, 
-                xlRowsBeforeAgg.map(r => ({
-                  Emiten: r.Emiten,
-                  BCode: r.BCode,
-                  BuyerValue: r.BuyerValue,
-                  BLot: r.BLot
-                }))
-              );
               
               allRows.forEach(row => {
                 if (!row) return;
@@ -1181,17 +1169,6 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 aggregatedRow.NBLotPerOrdNum = Math.abs(aggregatedRow.NBOrdNum || 0) > 0 ? aggregatedRow.NBLot / Math.abs(aggregatedRow.NBOrdNum || 0) : 0;
                 aggregatedRow.NSLotPerFreq = Math.abs(aggregatedRow.NSFreq || 0) > 0 ? aggregatedRow.NSLot / Math.abs(aggregatedRow.NSFreq || 0) : 0;
                 aggregatedRow.NSLotPerOrdNum = Math.abs(aggregatedRow.NSOrdNum || 0) > 0 ? aggregatedRow.NSLot / Math.abs(aggregatedRow.NSOrdNum || 0) : 0;
-                
-                // DEBUG: Log XL after aggregation
-                if (aggregatedRow.BCode?.toUpperCase() === 'XL' || aggregatedRow.Emiten?.toUpperCase() === 'XL') {
-                  console.log(`[DEBUG] XL after aggregation:`, {
-                    Emiten: aggregatedRow.Emiten,
-                    BCode: aggregatedRow.BCode,
-                    BuyerValue: aggregatedRow.BuyerValue,
-                    BLot: aggregatedRow.BLot,
-                    rowsAggregated: brokerRows.length
-                  });
-                }
                 
                 aggregatedRows.push(aggregatedRow);
               });
@@ -1725,6 +1702,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     // User must click Show button to fetch new data
   };
 
+  const handleClearAllBrokers = () => {
+    setSelectedBrokers([]);
+  };
+
   // Handle ticker selection
   const handleTickerSelect = (ticker: string) => {
     if (!selectedTickers.includes(ticker)) {
@@ -1741,6 +1722,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     setSelectedTickers(selectedTickers.filter(t => t !== ticker));
     // CRITICAL: Keep existing data visible - no auto-fetch, no hide tables
     // User must click Show button to fetch new data
+  };
+
+  const handleClearAllTickers = () => {
+    setSelectedTickers([]);
   };
 
   // Handle sector selection (from combined dropdown)
@@ -2443,40 +2428,130 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     };
   }, [isLoading, isDataReady]);
 
-  // Synchronize horizontal scroll between Value and Net tables
+  // Measure and store date column widths from VALUE table to apply to Total table
+  useEffect(() => {
+    if (isLoading || !isDataReady) return;
+    
+    const showOnlyTotal = selectedDates.length > 7;
+    if (showOnlyTotal) return;
+
+    const valueTable = valueTableRef.current;
+    if (!valueTable) return;
+
+    // Calculate colsPerDate dynamically based on toggles
+    const baseCols = 9;
+    const optionalCols = (showFrequency ? 4 : 0) + (showOrder ? 4 : 0);
+    const colsPerDate = baseCols + optionalCols;
+
+    // Wait for table to render
+    const measureWidths = () => {
+      const valueHeaderRows = valueTable.querySelectorAll('thead tr');
+      if (valueHeaderRows.length < 2) return;
+
+      // Get the second row (column headers) for accurate width measurement
+      const columnHeaderRow = valueHeaderRows[1];
+      if (!columnHeaderRow) return;
+      
+      const columnHeaderCells = Array.from(columnHeaderRow.querySelectorAll('th'));
+
+      // Clear previous widths
+      dateColumnWidthsRef.current.clear();
+      totalColumnWidthRef.current = 0;
+
+      // Measure width of each date column (excluding Total column)
+      // Each date column spans colsPerDate columns (dynamic based on toggles)
+      let cellIndex = 0;
+
+      selectedDates.forEach((date) => {
+        // Each date column spans colsPerDate columns, so we need to sum the width of colsPerDate cells
+        let totalWidth = 0;
+        for (let i = 0; i < colsPerDate && cellIndex < columnHeaderCells.length; i++) {
+          const cell = columnHeaderCells[cellIndex] as HTMLElement;
+          if (cell) {
+            // Use offsetWidth for more accurate measurement
+            const cellWidth = cell.offsetWidth || cell.getBoundingClientRect().width || 0;
+            totalWidth += cellWidth;
+          }
+          cellIndex++;
+        }
+        
+        if (totalWidth > 0) {
+          dateColumnWidthsRef.current.set(date, totalWidth);
+        }
+      });
+
+      // Measure width of Total column (also spans colsPerDate columns)
+      let totalColumnWidth = 0;
+      for (let i = 0; i < colsPerDate && cellIndex < columnHeaderCells.length; i++) {
+        const cell = columnHeaderCells[cellIndex] as HTMLElement;
+        if (cell) {
+          const cellWidth = cell.offsetWidth || cell.getBoundingClientRect().width || 0;
+          totalColumnWidth += cellWidth;
+        }
+        cellIndex++;
+      }
+      
+      if (totalColumnWidth > 0) {
+        totalColumnWidthRef.current = totalColumnWidth;
+      }
+    };
+
+    // Measure after a delay to ensure table is fully rendered and column widths are synced
+    // Wait longer to ensure syncTableWidths has finished (which runs after 100ms)
+    const timeoutId = setTimeout(measureWidths, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [transactionData, isLoading, isDataReady, selectedDates, showFrequency, showOrder]);
+
+  // Synchronize horizontal scroll between Value, Net, and Total tables
   // FIXED: Don't depend on selectedDates to prevent re-render on input change
   useEffect(() => {
     if (isLoading || !isDataReady) return;
 
     const valueContainer = valueTableContainerRef.current;
     const netContainer = netTableContainerRef.current;
+    const totalContainer = totalTableContainerRef.current;
 
-    if (!valueContainer || !netContainer) return;
+    if (!valueContainer || !netContainer || !totalContainer) return;
 
     // Flag to prevent infinite loop
-    let isSyncing = false;
+    let isValueScrolling = false;
+    let isNetScrolling = false;
+    let isTotalScrolling = false;
 
     // OPTIMIZED: Direct scroll sync without requestAnimationFrame (faster)
-    // Handle Value table scroll - sync to Net table
+    // Handle Value table scroll - sync to Net and Total tables
     const handleValueScroll = () => {
-      if (!isSyncing && netContainer) {
-        isSyncing = true;
-        netContainer.scrollLeft = valueContainer.scrollLeft;
-        // Use setTimeout with 0ms instead of requestAnimationFrame for faster sync
+      if (!isNetScrolling && !isTotalScrolling) {
+        isValueScrolling = true;
+        if (netContainer) netContainer.scrollLeft = valueContainer.scrollLeft;
+        if (totalContainer) totalContainer.scrollLeft = valueContainer.scrollLeft;
         setTimeout(() => {
-          isSyncing = false;
+          isValueScrolling = false;
         }, 0);
       }
     };
 
-    // Handle Net table scroll - sync to Value table
+    // Handle Net table scroll - sync to Value and Total tables
     const handleNetScroll = () => {
-      if (!isSyncing && valueContainer) {
-        isSyncing = true;
-        valueContainer.scrollLeft = netContainer.scrollLeft;
-        // Use setTimeout with 0ms instead of requestAnimationFrame for faster sync
+      if (!isValueScrolling && !isTotalScrolling) {
+        isNetScrolling = true;
+        if (valueContainer) valueContainer.scrollLeft = netContainer.scrollLeft;
+        if (totalContainer) totalContainer.scrollLeft = netContainer.scrollLeft;
         setTimeout(() => {
-          isSyncing = false;
+          isNetScrolling = false;
+        }, 0);
+      }
+    };
+
+    // Handle Total table scroll - sync to Value and Net tables
+    const handleTotalScroll = () => {
+      if (!isValueScrolling && !isNetScrolling) {
+        isTotalScrolling = true;
+        if (valueContainer) valueContainer.scrollLeft = totalContainer.scrollLeft;
+        if (netContainer) netContainer.scrollLeft = totalContainer.scrollLeft;
+        setTimeout(() => {
+          isTotalScrolling = false;
         }, 0);
       }
     };
@@ -2484,10 +2559,12 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
     // Add event listeners
     valueContainer.addEventListener('scroll', handleValueScroll, { passive: true });
     netContainer.addEventListener('scroll', handleNetScroll, { passive: true });
+    totalContainer.addEventListener('scroll', handleTotalScroll, { passive: true });
 
     return () => {
       valueContainer.removeEventListener('scroll', handleValueScroll);
       netContainer.removeEventListener('scroll', handleNetScroll);
+      totalContainer.removeEventListener('scroll', handleTotalScroll);
     };
   }, [isLoading, isDataReady, transactionData]); // FIXED: Removed selectedDates dependency to prevent re-render on input change
 
@@ -2639,8 +2716,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       
       // CRITICAL: For Output: stock, calculate net per date from Buy - Sell per stock (Emiten)
       // Aggregate Buy and Sell per Emiten (stock) for this date
-      const buyByStock = new Map<string, { buyerLot: number; buyerValue: number; buyerFreq: number; buyerOrdNum: number }>();
-      const sellByStock = new Map<string, { sellerLot: number; sellerValue: number; sellerFreq: number; sellerOrdNum: number }>();
+      const buyByStock = new Map<string, { buyerLot: number; buyerValue: number; buyerFreq: number; buyerOrdNum: number; buyerLotPerFreq: number; buyerLotPerOrdNum: number; buyerLotPerFreqSum: number; buyerLotPerFreqWeight: number; buyerLotPerOrdNumSum: number; buyerLotPerOrdNumWeight: number }>();
+      const sellByStock = new Map<string, { sellerLot: number; sellerValue: number; sellerFreq: number; sellerOrdNum: number; sellerLotPerFreq: number; sellerLotPerOrdNum: number; sellerLotPerFreqSum: number; sellerLotPerFreqWeight: number; sellerLotPerOrdNumSum: number; sellerLotPerOrdNumWeight: number }>();
       
       dateData.forEach(d => {
         const emiten = d.Emiten || '';
@@ -2651,9 +2728,12 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         const buyerValue = d.BuyerValue || 0;
         const buyerFreq = d.BFreq || 0;
         const buyerOrdNum = d.BOrdNum || 0;
+        const buyerLotPerFreq = d.BLotPerFreq;
+        const buyerLotPerOrdNum = d.BLotPerOrdNum;
+        const newBuyerOrdNum = d.NewBuyerOrdNum !== undefined ? d.NewBuyerOrdNum : buyerOrdNum;
         
         if (!buyByStock.has(emiten)) {
-          buyByStock.set(emiten, { buyerLot: 0, buyerValue: 0, buyerFreq: 0, buyerOrdNum: 0 });
+          buyByStock.set(emiten, { buyerLot: 0, buyerValue: 0, buyerFreq: 0, buyerOrdNum: 0, buyerLotPerFreq: 0, buyerLotPerOrdNum: 0, buyerLotPerFreqSum: 0, buyerLotPerFreqWeight: 0, buyerLotPerOrdNumSum: 0, buyerLotPerOrdNumWeight: 0 });
         }
         const buyData = buyByStock.get(emiten)!;
         buyData.buyerLot += buyerLot;
@@ -2661,20 +2741,45 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         buyData.buyerFreq += buyerFreq;
         buyData.buyerOrdNum += buyerOrdNum;
         
+        // Weighted average for Lot/F (same as B/S)
+        if (buyerFreq > 0 && buyerLotPerFreq !== undefined && buyerLotPerFreq !== null) {
+          buyData.buyerLotPerFreqSum += buyerLotPerFreq * buyerFreq;
+          buyData.buyerLotPerFreqWeight += buyerFreq;
+        }
+        // Weighted average for Lot/Or (same as B/S)
+        if (newBuyerOrdNum !== 0 && buyerLotPerOrdNum !== undefined && buyerLotPerOrdNum !== null) {
+          buyData.buyerLotPerOrdNumSum += buyerLotPerOrdNum * Math.abs(newBuyerOrdNum);
+          buyData.buyerLotPerOrdNumWeight += Math.abs(newBuyerOrdNum);
+        }
+        
         // Aggregate Sell data per Emiten (stock)
         const sellerLot = d.SLot !== undefined ? d.SLot : ((d.SellerVol || 0) / 100);
         const sellerValue = d.SellerValue || 0;
         const sellerFreq = d.SFreq || 0;
         const sellerOrdNum = d.SOrdNum || 0;
+        const sellerLotPerFreq = d.SLotPerFreq;
+        const sellerLotPerOrdNum = d.SLotPerOrdNum;
+        const newSellerOrdNum = d.NewSellerOrdNum !== undefined ? d.NewSellerOrdNum : sellerOrdNum;
         
         if (!sellByStock.has(emiten)) {
-          sellByStock.set(emiten, { sellerLot: 0, sellerValue: 0, sellerFreq: 0, sellerOrdNum: 0 });
+          sellByStock.set(emiten, { sellerLot: 0, sellerValue: 0, sellerFreq: 0, sellerOrdNum: 0, sellerLotPerFreq: 0, sellerLotPerOrdNum: 0, sellerLotPerFreqSum: 0, sellerLotPerFreqWeight: 0, sellerLotPerOrdNumSum: 0, sellerLotPerOrdNumWeight: 0 });
         }
         const sellData = sellByStock.get(emiten)!;
         sellData.sellerLot += sellerLot;
         sellData.sellerValue += sellerValue;
         sellData.sellerFreq += sellerFreq;
         sellData.sellerOrdNum += sellerOrdNum;
+        
+        // Weighted average for Lot/F (same as B/S)
+        if (sellerFreq > 0 && sellerLotPerFreq !== undefined && sellerLotPerFreq !== null) {
+          sellData.sellerLotPerFreqSum += sellerLotPerFreq * sellerFreq;
+          sellData.sellerLotPerFreqWeight += sellerFreq;
+        }
+        // Weighted average for Lot/Or (same as B/S)
+        if (newSellerOrdNum !== 0 && sellerLotPerOrdNum !== undefined && sellerLotPerOrdNum !== null) {
+          sellData.sellerLotPerOrdNumSum += sellerLotPerOrdNum * Math.abs(newSellerOrdNum);
+          sellData.sellerLotPerOrdNumWeight += Math.abs(newSellerOrdNum);
+        }
       });
       
       // Calculate Net Buy and Net Sell per stock from Buy - Sell
@@ -2684,8 +2789,8 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       const allStocks = new Set([...buyByStock.keys(), ...sellByStock.keys()]);
       
       allStocks.forEach(stock => {
-        const buyData = buyByStock.get(stock) || { buyerLot: 0, buyerValue: 0, buyerFreq: 0, buyerOrdNum: 0 };
-        const sellData = sellByStock.get(stock) || { sellerLot: 0, sellerValue: 0, sellerFreq: 0, sellerOrdNum: 0 };
+        const buyData = buyByStock.get(stock) || { buyerLot: 0, buyerValue: 0, buyerFreq: 0, buyerOrdNum: 0, buyerLotPerFreq: 0, buyerLotPerOrdNum: 0, buyerLotPerFreqSum: 0, buyerLotPerFreqWeight: 0, buyerLotPerOrdNumSum: 0, buyerLotPerOrdNumWeight: 0 };
+        const sellData = sellByStock.get(stock) || { sellerLot: 0, sellerValue: 0, sellerFreq: 0, sellerOrdNum: 0, sellerLotPerFreq: 0, sellerLotPerOrdNum: 0, sellerLotPerFreqSum: 0, sellerLotPerFreqWeight: 0, sellerLotPerOrdNumSum: 0, sellerLotPerOrdNumWeight: 0 };
         
         // Calculate Net Buy = Buy - Sell (only if positive)
         const netBuyLot = buyData.buyerLot - sellData.sellerLot;
@@ -2693,11 +2798,14 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         const netBuyFreq = buyData.buyerFreq - sellData.sellerFreq;
         const netBuyOrdNum = buyData.buyerOrdNum - sellData.sellerOrdNum;
         
+        // Calculate Lot/F and Lot/Or using weighted average from Buy/Sell (same as B/S)
+        // For Net Buy: use Buy weighted average (since Net Buy = Buy - Sell, use Buy's Lot/F and Lot/Or)
+        const netBuyLotPerFreq = buyData.buyerLotPerFreqWeight > 0 ? buyData.buyerLotPerFreqSum / buyData.buyerLotPerFreqWeight : 0;
+        const netBuyLotPerOrdNum = buyData.buyerLotPerOrdNumWeight > 0 ? buyData.buyerLotPerOrdNumSum / buyData.buyerLotPerOrdNumWeight : 0;
+        
         if (netBuyLot > 0) {
           const netBuyLotVolume = netBuyLot * 100;
           const netBuyAvg = netBuyLotVolume > 0 ? netBuyValue / netBuyLotVolume : 0;
-          const netBuyLotPerFreq = Math.abs(netBuyFreq) > 0 ? netBuyLot / Math.abs(netBuyFreq) : 0;
-          const netBuyLotPerOrdNum = Math.abs(netBuyOrdNum) > 0 ? netBuyLot / Math.abs(netBuyOrdNum) : 0;
           
           // Create Net Buy data object
           const netBuyData: BrokerTransactionData = {
@@ -2735,11 +2843,14 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         const netSellFreq = sellData.sellerFreq - buyData.buyerFreq;
         const netSellOrdNum = sellData.sellerOrdNum - buyData.buyerOrdNum;
         
+        // Calculate Lot/F and Lot/Or using weighted average from Buy/Sell (same as B/S)
+        // For Net Sell: use Sell weighted average (since Net Sell = Sell - Buy, use Sell's Lot/F and Lot/Or)
+        const netSellLotPerFreq = sellData.sellerLotPerFreqWeight > 0 ? sellData.sellerLotPerFreqSum / sellData.sellerLotPerFreqWeight : 0;
+        const netSellLotPerOrdNum = sellData.sellerLotPerOrdNumWeight > 0 ? sellData.sellerLotPerOrdNumSum / sellData.sellerLotPerOrdNumWeight : 0;
+        
         if (netSellLot > 0) {
           const netSellLotVolume = netSellLot * 100;
           const netSellAvg = netSellLotVolume > 0 ? netSellValue / netSellLotVolume : 0;
-          const netSellLotPerFreq = Math.abs(netSellFreq) > 0 ? netSellLot / Math.abs(netSellFreq) : 0;
-          const netSellLotPerOrdNum = Math.abs(netSellOrdNum) > 0 ? netSellLot / Math.abs(netSellOrdNum) : 0;
           
           // Create Net Sell data object
           const netSellData: BrokerTransactionData = {
@@ -3514,7 +3625,12 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         : [];
       
       // Calculate total columns for "No Data Available" message
-      const totalCols = showOnlyTotal ? 17 : (selectedDates.length * 17 + 17);
+      // Base columns: BCode/Broker, BVal, BLot, BAvg, #, SCode/Stock, SVal, SLot, SAvg = 9
+      // Optional: BFreq, Lot/F (2), BOr, Lot/Or (2), SFreq, Lot/F (2), SOr, Lot/Or (2) = 8
+      const baseCols = 9;
+      const optionalCols = (showFrequency ? 4 : 0) + (showOrder ? 4 : 0);
+      const colsPerDate = baseCols + optionalCols;
+      const totalCols = showOnlyTotal ? colsPerDate : (selectedDates.length * colsPerDate + colsPerDate);
       
       return (
         <div className="w-full max-w-full mt-1">
@@ -3531,12 +3647,12 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       <th 
                         key={date} 
                         className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} 
-                        colSpan={17}
+                        colSpan={colsPerDate}
                       >
                         {formatDisplayDate(date)}
                       </th>
                     ))}
-                    <th className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={17}>
+                    <th className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={colsPerDate}>
                       Total
                     </th>
                   </tr>
@@ -3545,45 +3661,57 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     {!showOnlyTotal && selectedDates.map((date, dateIndex) => (
                       <React.Fragment key={date}>
                         {/* Buyer Columns */}
-                        <th className={`text-center py-[1px] px-[3px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} title={formatDisplayDate(date)} style={dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>BY</th>
+                        <th className={`text-center py-[1px] px-[3px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} title={formatDisplayDate(date)} style={dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>{pivotFilter === 'Broker' ? 'BCode' : 'Broker'}</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BVal</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BLot</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BAvg</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BFreq</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BOr</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-16" title={formatDisplayDate(date)}>Lot/Or</th>
+                        {showFrequency && <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BFreq</th>}
+                        {showFrequency && <th className="text-center py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>}
+                        {showOrder && <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BOr</th>}
+                        {showOrder && <th className="text-center py-[1px] px-[6px] font-bold text-white w-16" title={formatDisplayDate(date)}>Lot/Or</th>}
                         {/* Separator */}
                         <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap" title={formatDisplayDate(date)}>#</th>
                         {/* Seller Columns */}
-                        <th className="text-center py-[1px] px-[3px] font-bold text-white" title={formatDisplayDate(date)} style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>SL</th>
+                        <th className="text-center py-[1px] px-[3px] font-bold text-white" title={formatDisplayDate(date)} style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>{pivotFilter === 'Broker' ? 'SCode' : 'Stock'}</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SVal</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SLot</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SFreq</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SOr</th>
-                        <th className={`text-center py-[1px] px-[6px] font-bold text-white w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/Or</th>
+                        {!showFrequency && !showOrder ? (
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>SAvg</th>
+                        ) : (
+                          <>
+                            <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
+                            {showFrequency && <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SFreq</th>}
+                            {showFrequency && <th className={`text-center py-[1px] px-[6px] font-bold text-white w-8 ${!showOrder && dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrder && dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/F</th>}
+                            {showOrder && <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SOr</th>}
+                            {showOrder && <th className={`text-center py-[1px] px-[6px] font-bold text-white w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/Or</th>}
+                          </>
+                        )}
                       </React.Fragment>
                     ))}
                     {/* Total Columns */}
-                    <th className={`text-center py-[1px] px-[3px] font-bold text-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>BY</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BVal</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BLot</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BAvg</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BFreq</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BOr</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/Or</th>
+                    <th className={`text-center py-[1px] px-[3px] font-bold text-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={showOnlyTotal || selectedDates.length === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>{pivotFilter === 'Broker' ? 'BCode' : 'Broker'}</th>
+                    <th className="text-center py-[1px] px-[6px] font-bold text-white w-6">BVal</th>
+                    <th className="text-center py-[1px] px-[6px] font-bold text-white w-6">BLot</th>
+                    <th className="text-center py-[1px] px-[6px] font-bold text-white w-6">BAvg</th>
+                    {showFrequency && <th className="text-center py-[1px] px-[6px] font-bold text-white w-6">BFreq</th>}
+                    {showFrequency && <th className="text-center py-[1px] px-[6px] font-bold text-white w-8">Lot/F</th>}
+                    {showOrder && <th className="text-center py-[1px] px-[6px] font-bold text-white w-6">BOr</th>}
+                    {showOrder && <th className="text-center py-[1px] px-[6px] font-bold text-white w-16">Lot/Or</th>}
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap">#</th>
-                    <th className="text-center py-[1px] px-[3px] font-bold text-white" style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>SL</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SVal</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SLot</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SAvg</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SFreq</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SOr</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white">Lot/Or</th>
+                    <th className="text-center py-[1px] px-[3px] font-bold text-white" style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>{pivotFilter === 'Broker' ? 'SCode' : 'Stock'}</th>
+                    <th className="text-center py-[1px] px-[6px] font-bold text-white w-6">SVal</th>
+                    <th className="text-center py-[1px] px-[6px] font-bold text-white w-6">SLot</th>
+                    {!showFrequency && !showOrder ? (
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white w-6 border-r-2 border-white">SAvg</th>
+                    ) : (
+                      <>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6">SAvg</th>
+                        {showFrequency && <th className="text-center py-[1px] px-[6px] font-bold text-white w-6">SFreq</th>}
+                        {showFrequency && <th className={`text-center py-[1px] px-[6px] font-bold text-white w-8 ${!showOrder ? 'border-r-2 border-white' : ''}`}>Lot/F</th>}
+                        {showOrder && <th className="text-center py-[1px] px-[6px] font-bold text-white w-6">SOr</th>}
+                        {showOrder && <th className="text-center py-[1px] px-[6px] font-bold text-white w-16 border-r-2 border-white">Lot/Or</th>}
+                      </>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -3653,10 +3781,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                         <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatValue(buyerVal)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(buyerLot)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(buyerAvg ?? 0)}</td>
-                            <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{buyerFreq}</td>
-                                        <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(buyerLotPerFreq ?? 0)}</td>
-                            <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{buyerOrdNum}</td>
-                                        <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-16" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(buyerLotPerOrdNum ?? 0)}</td>
+                            {showFrequency && <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{buyerFreq}</td>}
+                            {showFrequency && <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(buyerLotPerFreq ?? 0)}</td>}
+                            {showOrder && <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{buyerOrdNum}</td>}
+                            {showOrder && <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-16" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(buyerLotPerOrdNum ?? 0)}</td>}
                                       </>
                                     );
                                   })()}
@@ -3667,11 +3795,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   <td className={`text-center py-[1px] px-[3px] text-gray-400 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>-</td>
                                   <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
                                   <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-8">-</td>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-16">-</td>
+                                  {showFrequency && <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>}
+                                  {showFrequency && <td className="text-right py-[1px] px-[6px] text-gray-400 w-8">-</td>}
+                                  {showOrder && <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>}
+                                  {showOrder && <td className="text-right py-[1px] px-[6px] text-gray-400 w-16">-</td>}
                                 </>
                               )}
                             {/* Separator */}
@@ -3712,13 +3839,19 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                         <td className={`text-center py-[1px] px-[3px] font-bold ${sCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', color: sCodeColor.color }}>{sCode}</td>
                                         <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatValue(sellerVal)}</td>
                             <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(sellerLot)}</td>
-                            <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(sellerAvg ?? 0)}</td>
-                            <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{sellerFreq}</td>
-                                        <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(sellerLotPerFreq ?? 0)}</td>
-                            <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{sellerOrdNum}</td>
-                                        <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {!showFrequency && !showOrder ? (
+                              <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(sellerAvg ?? 0)}</td>
+                            ) : (
+                              <>
+                                <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(sellerAvg ?? 0)}</td>
+                                {showFrequency && <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{sellerFreq}</td>}
+                                {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-8 ${!showOrder && dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrder && dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(sellerLotPerFreq ?? 0)}</td>}
+                                {showOrder && <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{sellerOrdNum}</td>}
+                                {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                           {formatLotPerFreqOrOrdNum(sellerLotPerOrdNum ?? 0)}
-                            </td>
+                                </td>}
+                              </>
+                            )}
                                       </>
                                     );
                                   })()}
@@ -3729,11 +3862,17 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   <td className="text-center py-[1px] px-[3px] text-gray-400" style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>-</td>
                                   <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
                                   <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-8">-</td>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>-</td>
+                                  {!showFrequency && !showOrder ? (
+                                    <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>-</td>
+                                  ) : (
+                                    <>
+                                      <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
+                                      {showFrequency && <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>}
+                                      {showFrequency && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-8 ${!showOrder && dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrder && dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>-</td>}
+                                      {showOrder && <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>}
+                                      {showOrder && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>-</td>}
+                                    </>
+                                  )}
                                 </>
                               )}
                           </React.Fragment>
@@ -3787,7 +3926,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           // Hide Total row if both Buy and Sell are empty
                           if (totalBuyBCode === '-' && totalSellSCode === '-') {
                           return (
-                            <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={17}>
+                            <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={baseCols + optionalCols}>
                                 -
                             </td>
                           );
@@ -3812,27 +3951,33 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                               {/* Buyer Total Columns */}
                               {totalBuyBCode !== '-' && Math.abs(totalBuyLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[3px] font-bold ${buyBCodeColor.className} ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box', color: buyBCodeColor.color }}>
+                            <td className={`text-center py-[1px] px-[3px] font-bold ${buyBCodeColor.className} ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={showOnlyTotal || selectedDates.length === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none', color: buyBCodeColor.color } : { width: '48px', minWidth: '48px', maxWidth: '48px', color: buyBCodeColor.color }}>
                                     {totalBuyBCode}
                             </td>
-                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatValue(totalBuyValue)}</td>
-                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(totalBuyLot)}</td>
-                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(finalBuyAvg)}</td>
-                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalBuyFreq}</td>
-                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(totalBuyLotPerFreq)}</td>
-                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalBuyOrdNum}</td>
-                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-16" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(totalBuyLotPerOrdNum)}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatValue(totalBuyValue)}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(totalBuyLot)}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(finalBuyAvg)}</td>
+                                  {showFrequency && <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalBuyFreq}</td>}
+                                  {showFrequency && <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(totalBuyLotPerFreq)}</td>}
+                                  {showOrder && <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalBuyOrdNum}</td>}
+                                  {showOrder && <td className="text-right py-[1px] px-[6px] font-bold text-green-600 w-16" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(totalBuyLotPerOrdNum)}</td>}
                                 </>
                               ) : (
                                 <>
-                                  <td className={`text-center py-[1px] px-[3px] text-gray-400 ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>-</td>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-8">-</td>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-16">-</td>
+                                  <td className={`text-center py-[1px] px-[3px] text-gray-400 ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={showOnlyTotal || selectedDates.length === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
+                                  {!showFrequency && !showOrder ? (
+                                    <td className="text-right py-[1px] px-[6px] text-gray-400 w-6 border-r-2 border-white">-</td>
+                                  ) : (
+                                    <>
+                                      <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
+                                      {showFrequency && <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>}
+                                      {showFrequency && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-8 ${!showOrder ? 'border-r-2 border-white' : ''}`}>-</td>}
+                                      {showOrder && <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>}
+                                      {showOrder && <td className="text-right py-[1px] px-[6px] text-gray-400 w-16 border-r-2 border-white">-</td>}
+                                    </>
+                                  )}
                                 </>
                               )}
                             {/* Separator */}
@@ -3843,26 +3988,38 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                             <td className={`text-center py-[1px] px-[3px] font-bold ${sellSCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box', color: sellSCodeColor.color }}>
                                     {totalSellSCode}
                             </td>
-                                  <td className="text-right py-[1px] px-[6px] font-bold text-red-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatValue(totalSellValue)}</td>
-                                  <td className="text-right py-[1px] px-[6px] font-bold text-red-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(totalSellLot)}</td>
-                                  <td className="text-right py-[1px] px-[6px] font-bold text-red-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(finalSellAvg)}</td>
-                                  <td className="text-right py-[1px] px-[6px] font-bold text-red-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalSellFreq}</td>
-                                  <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-8" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(totalSellLotPerFreq)}</td>
-                                  <td className="text-right py-[1px] px-[6px] font-bold text-red-600" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalSellOrdNum}</td>
-                                  <td className="text-right py-[1px] px-[6px] font-bold text-red-600 border-r-2 border-white w-16" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatLotPerFreqOrOrdNum(totalSellLotPerOrdNum)}
-                            </td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatValue(totalSellValue)}</td>
+                                  <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLot(totalSellLot)}</td>
+                                  {!showFrequency && !showOrder ? (
+                                    <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6 border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(finalSellAvg)}</td>
+                                  ) : (
+                                    <>
+                                      <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatAverage(finalSellAvg)}</td>
+                                      {showFrequency && <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalSellFreq}</td>}
+                                      {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-8 ${!showOrder ? 'border-r-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatLotPerFreqOrOrdNum(totalSellLotPerFreq)}</td>}
+                                      {showOrder && <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>{totalSellOrdNum}</td>}
+                                      {showOrder && <td className="text-right py-[1px] px-[6px] font-bold text-red-600 w-16 border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                        {formatLotPerFreqOrOrdNum(totalSellLotPerOrdNum)}
+                                      </td>}
+                                    </>
+                                  )}
                                 </>
                               ) : (
                                 <>
                                   <td className="text-center py-[1px] px-[3px] text-gray-400" style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>-</td>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-8">-</td>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400">-</td>
-                                  <td className="text-right py-[1px] px-[6px] text-gray-400 border-r-2 border-white w-16">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
+                                  <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
+                                  {!showFrequency && !showOrder ? (
+                                    <td className="text-right py-[1px] px-[6px] text-gray-400 w-6 border-r-2 border-white">-</td>
+                                  ) : (
+                                    <>
+                                      <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>
+                                      {showFrequency && <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>}
+                                      {showFrequency && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-8 ${!showOrder ? 'border-r-2 border-white' : ''}`}>-</td>}
+                                      {showOrder && <td className="text-right py-[1px] px-[6px] text-gray-400 w-6">-</td>}
+                                      {showOrder && <td className="text-right py-[1px] px-[6px] text-gray-400 w-16 border-r-2 border-white">-</td>}
+                                    </>
+                                  )}
                                 </>
                               )}
                           </React.Fragment>
@@ -3874,7 +4031,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 {/* Lazy loading sentinel - triggers load more when scrolled into view */}
                 {visibleRowCount < maxRows && rowIndices.length > 0 && (
                   <tr>
-                    <td colSpan={showOnlyTotal ? 17 : (selectedDates.length * 17 + 17)} ref={valueTableSentinelRef} className="h-10">
+                    <td colSpan={totalCols} ref={valueTableSentinelRef} className="h-10">
                       {/* Invisible sentinel for intersection observer */}
                     </td>
                   </tr>
@@ -3971,13 +4128,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         const netBuyLot = buyLot - sellLot;
         const netBuyValue = buyValue - sellValue;
         
+        // Use Lot/F and Lot/Or from B/S Total (same as B/S calculation)
+        const buyLotPerFreq = buyData?.buyerLotPerFreq || 0;
+        const buyLotPerOrdNum = buyData?.buyerLotPerOrdNum || 0;
+        
         if (netBuyLot > 0) {
           const netBuyLotVolume = netBuyLot * 100;
           const netBuyAvg = netBuyLotVolume > 0 ? netBuyValue / netBuyLotVolume : 0;
           const netBuyFreq = buyFreq - sellFreq;
           const netBuyOrdNum = buyOrdNum - sellOrdNum;
-          const netBuyLotPerFreq = netBuyFreq !== 0 ? netBuyLot / netBuyFreq : 0;
-          const netBuyLotPerOrdNum = netBuyOrdNum !== 0 ? netBuyLot / netBuyOrdNum : 0;
+          // Use Buy's Lot/F and Lot/Or (same as B/S)
+          const netBuyLotPerFreq = buyLotPerFreq;
+          const netBuyLotPerOrdNum = buyLotPerOrdNum;
           
           netBuyFromBS.set(stock, {
             stock,
@@ -3995,13 +4157,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         const netSellLot = sellLot - buyLot;
         const netSellValue = sellValue - buyValue;
         
+        // Use Lot/F and Lot/Or from B/S Total (same as B/S calculation)
+        const sellLotPerFreq = sellData?.sellerLotPerFreq || 0;
+        const sellLotPerOrdNum = sellData?.sellerLotPerOrdNum || 0;
+        
         if (netSellLot > 0) {
           const netSellLotVolume = netSellLot * 100;
           const netSellAvg = netSellLotVolume > 0 ? netSellValue / netSellLotVolume : 0;
           const netSellFreq = sellFreq - buyFreq;
           const netSellOrdNum = sellOrdNum - buyOrdNum;
-          const netSellLotPerFreq = netSellFreq !== 0 ? netSellLot / netSellFreq : 0;
-          const netSellLotPerOrdNum = netSellOrdNum !== 0 ? netSellLot / netSellOrdNum : 0;
+          // Use Sell's Lot/F and Lot/Or (same as B/S)
+          const netSellLotPerFreq = sellLotPerFreq;
+          const netSellLotPerOrdNum = sellLotPerOrdNum;
           
           netSellFromBS.set(stock, {
             stock,
@@ -4052,10 +4219,15 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
         ? Array.from({ length: Math.min(displayRows, tableMaxRows) }, (_, i) => i)
         : [];
       
-      // Calculate total columns for "No Data Available" message
-      const totalCols = showOnlyTotal ? 17 : (selectedDates.length * 17 + 17);
-    
-    return (
+      // Calculate total columns for "No Data Available" message (NET table)
+      // Base columns: BCode/Broker, BVal, BLot, BAvg, #, SCode/Stock, SVal, SLot, SAvg = 9
+      // Optional: BFreq, Lot/F (2), BOr, Lot/Or (2), SFreq, Lot/F (2), SOr, Lot/Or (2) = 8
+      const netBaseCols = 9;
+      const netOptionalCols = (showFrequency ? 4 : 0) + (showOrder ? 4 : 0);
+      const netColsPerDate = netBaseCols + netOptionalCols;
+      const netTotalCols = showOnlyTotal ? netColsPerDate : (selectedDates.length * netColsPerDate + netColsPerDate);
+      
+      return (
         <div className="w-full max-w-full mt-1">
           <div className="bg-muted/50 px-4 py-1.5 border-y border-border flex items-center justify-between">
             <h3 className="font-semibold text-sm">NET - {pivotFilter === 'Stock' ? (selectedTickers.length > 0 ? selectedTickers.join(', ') : '') : selectedBrokers.join(', ')}</h3>
@@ -4070,12 +4242,12 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                       <th 
                         key={date} 
                         className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} 
-                        colSpan={17}
+                        colSpan={netColsPerDate}
                       >
                         {formatDisplayDate(date)}
                       </th>
                     ))}
-                    <th className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={17}>
+                    <th className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={netColsPerDate}>
                       Total
                     </th>
                   </tr>
@@ -4084,45 +4256,57 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     {!showOnlyTotal && selectedDates.map((date, dateIndex) => (
                       <React.Fragment key={date}>
                         {/* Net Buy Columns (from CSV columns 17-23) */}
-                        <th className={`text-center py-[1px] px-[3px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} title={formatDisplayDate(date)} style={dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>BY</th>
+                        <th className={`text-center py-[1px] px-[3px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} title={formatDisplayDate(date)} style={dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>{pivotFilter === 'Broker' ? 'BCode' : 'Broker'}</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BVal</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BLot</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BAvg</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BFreq</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BOr</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-16" title={formatDisplayDate(date)}>Lot/Or</th>
+                        {showFrequency && <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BFreq</th>}
+                        {showFrequency && <th className="text-center py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>}
+                        {showOrder && <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>BOr</th>}
+                        {showOrder && <th className="text-center py-[1px] px-[6px] font-bold text-white w-16" title={formatDisplayDate(date)}>Lot/Or</th>}
                         {/* Separator */}
                         <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap" title={formatDisplayDate(date)}>#</th>
                         {/* Net Sell Columns (from CSV columns 24-30) */}
-                        <th className="text-center py-[1px] px-[3px] font-bold text-white" title={formatDisplayDate(date)} style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>SL</th>
+                        <th className="text-center py-[1px] px-[3px] font-bold text-white" title={formatDisplayDate(date)} style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>{pivotFilter === 'Broker' ? 'SCode' : 'Stock'}</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SVal</th>
                         <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SLot</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SFreq</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-8" title={formatDisplayDate(date)}>Lot/F</th>
-                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SOr</th>
-                        <th className={`text-center py-[1px] px-[6px] font-bold text-white w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/Or</th>
+                        {!showFrequency && !showOrder ? (
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>SAvg</th>
+                        ) : (
+                          <>
+                            <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SAvg</th>
+                            {showFrequency && <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SFreq</th>}
+                            {showFrequency && <th className={`text-center py-[1px] px-[6px] font-bold text-white w-8 ${!showOrder && dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrder && dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/F</th>}
+                            {showOrder && <th className="text-center py-[1px] px-[6px] font-bold text-white w-6" title={formatDisplayDate(date)}>SOr</th>}
+                            {showOrder && <th className={`text-center py-[1px] px-[6px] font-bold text-white w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} title={formatDisplayDate(date)}>Lot/Or</th>}
+                          </>
+                        )}
                       </React.Fragment>
                     ))}
                     {/* Total Columns - Net Buy/Net Sell */}
-                    <th className={`text-center py-[1px] px-[3px] font-bold text-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>BY</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BVal</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BLot</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BAvg</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BFreq</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">BOr</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/Or</th>
+                    <th className={`text-center py-[1px] px-[3px] font-bold text-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={showOnlyTotal || selectedDates.length === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>{pivotFilter === 'Broker' ? 'BCode' : 'Broker'}</th>
+                    <th className="text-center py-[1px] px-[6px] font-bold text-white w-6">BVal</th>
+                    <th className="text-center py-[1px] px-[6px] font-bold text-white w-6">BLot</th>
+                    <th className="text-center py-[1px] px-[6px] font-bold text-white w-6">BAvg</th>
+                    {showFrequency && <th className="text-center py-[1px] px-[6px] font-bold text-white w-6">BFreq</th>}
+                    {showFrequency && <th className="text-center py-[1px] px-[6px] font-bold text-white w-8">Lot/F</th>}
+                    {showOrder && <th className="text-center py-[1px] px-[6px] font-bold text-white w-6">BOr</th>}
+                    {showOrder && <th className="text-center py-[1px] px-[6px] font-bold text-white w-16">Lot/Or</th>}
                     <th className="text-center py-[1px] px-[4.2px] font-bold text-white bg-[#3a4252] w-auto min-w-[2.5rem] whitespace-nowrap">#</th>
-                    <th className="text-center py-[1px] px-[3px] font-bold text-white" style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>SL</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SVal</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SLot</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SAvg</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SFreq</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">Lot/F</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white">SOr</th>
-                    <th className="text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white">Lot/Or</th>
+                    <th className="text-center py-[1px] px-[3px] font-bold text-white" style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>{pivotFilter === 'Broker' ? 'SCode' : 'Stock'}</th>
+                    <th className="text-center py-[1px] px-[6px] font-bold text-white w-6">SVal</th>
+                    <th className="text-center py-[1px] px-[6px] font-bold text-white w-6">SLot</th>
+                    {!showFrequency && !showOrder ? (
+                      <th className="text-center py-[1px] px-[6px] font-bold text-white w-6 border-r-2 border-white">SAvg</th>
+                    ) : (
+                      <>
+                        <th className="text-center py-[1px] px-[6px] font-bold text-white w-6">SAvg</th>
+                        {showFrequency && <th className="text-center py-[1px] px-[6px] font-bold text-white w-6">SFreq</th>}
+                        {showFrequency && <th className={`text-center py-[1px] px-[6px] font-bold text-white w-8 ${!showOrder ? 'border-r-2 border-white' : ''}`}>Lot/F</th>}
+                        {showOrder && <th className="text-center py-[1px] px-[6px] font-bold text-white w-6">SOr</th>}
+                        {showOrder && <th className="text-center py-[1px] px-[6px] font-bold text-white w-16 border-r-2 border-white">Lot/Or</th>}
+                      </>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -4130,7 +4314,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     // If no data, show "No Data Available" message
                     <tr className="border-b-2 border-white">
                       <td 
-                        colSpan={totalCols} 
+                        colSpan={netTotalCols} 
                         className="text-center py-[2.06px] text-muted-foreground font-bold"
                         style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}
                       >
@@ -4191,18 +4375,18 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                           {formatAverage(nbAvg ?? 0)}
                             </td>
-                                        <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                        {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                           {nbFreq}
-                                        </td>
-                                        <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-8`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                        </td>}
+                                        {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-8`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                           {formatLotPerFreqOrOrdNum(nbLotPerFreq ?? 0)}
-                                        </td>
-                                        <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                        </td>}
+                                        {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                           {nbOrdNum}
-                                        </td>
-                                        <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-16`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                        </td>}
+                                        {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold text-green-600 w-16`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                           {formatLotPerFreqOrOrdNum(nbLotPerOrdNum ?? 0)}
-                                        </td>
+                                        </td>}
                                       </>
                                     );
                                   })()}
@@ -4212,12 +4396,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                 <>
                                   <td className={`text-center py-[1px] px-[3px] text-gray-400 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={dateIndex === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-8`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-16`}>-</td>
+                                  {showFrequency && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>}
+                                  {showFrequency && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-8`}>-</td>}
+                                  {showOrder && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>}
+                                  {showOrder && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-16`}>-</td>}
                                 </>
                               )}
                             {/* Separator */}
@@ -4257,21 +4439,29 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                         <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                           {formatLot(nsLot)}
                             </td>
-                                        <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                          {formatAverage(nsAvg ?? 0)}
-                            </td>
-                                        <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                          {nsFreq}
-                            </td>
-                                        <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-8`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                          {formatLotPerFreqOrOrdNum(nsLotPerFreq ?? 0)}
-                                        </td>
-                                        <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                          {nsOrdNum}
-                                        </td>
-                                        <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                          {formatLotPerFreqOrOrdNum(nsLotPerOrdNum ?? 0)}
-                                        </td>
+                                        {!showFrequency && !showOrder ? (
+                                          <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                            {formatAverage(nsAvg ?? 0)}
+                                          </td>
+                                        ) : (
+                                          <>
+                                            <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                              {formatAverage(nsAvg ?? 0)}
+                                            </td>
+                                            {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                              {nsFreq}
+                                            </td>}
+                                            {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-8 ${!showOrder && dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrder && dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                              {formatLotPerFreqOrOrdNum(nsLotPerFreq ?? 0)}
+                                            </td>}
+                                            {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                              {nsOrdNum}
+                                            </td>}
+                                            {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold text-red-600 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                              {formatLotPerFreqOrOrdNum(nsLotPerOrdNum ?? 0)}
+                                            </td>}
+                                          </>
+                                        )}
                                       </>
                                     );
                                   })()}
@@ -4282,11 +4472,17 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                                   <td className={`text-center py-[1px] px-[3px] text-gray-400`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px' }}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
                                   <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-8`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>-</td>
+                                  {!showFrequency && !showOrder ? (
+                                    <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>-</td>
+                                  ) : (
+                                    <>
+                                      <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
+                                      {showFrequency && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>}
+                                      {showFrequency && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-8 ${!showOrder && dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${!showOrder && dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>-</td>}
+                                      {showOrder && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>}
+                                      {showOrder && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-16 ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`}>-</td>}
+                                    </>
+                                  )}
                                 </>
                               )}
                           </React.Fragment>
@@ -4308,7 +4504,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           // If both are empty, hide row
                           if (!netBuyData && !netSellData) {
                             return (
-                              <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={17}>
+                              <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={netColsPerDate}>
                                 -
                               </td>
                             );
@@ -4334,10 +4530,10 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           const totalNetSellLotPerOrdNum = netSellData ? netSellData.netSellLotPerOrdNum : 0;
                           
                           // Hide Total row if both Net Buy and Net Sell are empty, or if both NBLot and NSLot are 0
-                          if ((totalNetBuyNBCode === '-' || Math.abs(totalNetBuyLot) === 0) && 
+                          if ((totalNetBuyNBCode === '-' || Math.abs(totalNetBuyLot) === 0) &&
                               (totalNetSellNSCode === '-' || Math.abs(totalNetSellLot) === 0)) {
                             return (
-                              <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={17}>
+                              <td className={`text-center py-[1px] px-[4.2px] text-gray-400 ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={netColsPerDate}>
                                 -
                               </td>
                             );
@@ -4366,7 +4562,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                               {/* Net Buy Total Columns */}
                               {netBuyData && Math.abs(totalNetBuyLot) > 0 ? (
                                 <>
-                            <td className={`text-center py-[1px] px-[3px] font-bold ${netBuyNBCodeColor.className} ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box', color: netBuyNBCodeColor.color }}>
+                            <td className={`text-center py-[1px] px-[3px] font-bold ${netBuyNBCodeColor.className} ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={showOnlyTotal || selectedDates.length === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none', color: netBuyNBCodeColor.color } : { width: '48px', minWidth: '48px', maxWidth: '48px', color: netBuyNBCodeColor.color }}>
                                     {totalNetBuyNBCode}
                             </td>
                             <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
@@ -4378,29 +4574,35 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                             <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {formatAverage(finalNetBuyAvg)}
                             </td>
-                            <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {totalNetBuyFreq}
-                            </td>
-                                  <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor} w-8`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            </td>}
+                            {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor} w-8`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {formatLotPerFreqOrOrdNum(totalNetBuyLotPerFreq)}
-                                  </td>
-                                  <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                  </td>}
+                            {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {totalNetBuyOrdNum}
-                                  </td>
-                                  <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor} w-16`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                  </td>}
+                            {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetBuyColor} w-16`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {formatLotPerFreqOrOrdNum(totalNetBuyLotPerOrdNum)}
-                                  </td>
+                                  </td>}
                                 </>
                               ) : (
                                 <>
-                                  <td className={`text-center py-[1px] px-[3px] text-gray-400 ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-8`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-16`}>-</td>
+                                  <td className={`text-center py-[1px] px-[3px] text-gray-400 ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={showOnlyTotal || selectedDates.length === 0 ? { width: 'auto', minWidth: 'fit-content', maxWidth: 'none' } : { width: '48px', minWidth: '48px', maxWidth: '48px' }}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
+                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
+                                  {!showFrequency && !showOrder ? (
+                                    <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6 border-r-2 border-white`}>-</td>
+                                  ) : (
+                                    <>
+                                      <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>
+                                      {showFrequency && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>}
+                                      {showFrequency && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-8 ${!showOrder ? 'border-r-2 border-white' : ''}`}>-</td>}
+                                      {showOrder && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-6`}>-</td>}
+                                      {showOrder && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-16 border-r-2 border-white`}>-</td>}
+                                    </>
+                                  )}
                                 </>
                               )}
                             {/* Separator */}
@@ -4411,38 +4613,50 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                             <td className={`text-center py-[1px] px-[3px] font-bold ${netSellNSCodeColor.className}`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box', color: netSellNSCodeColor.color }}>
                                     {totalNetSellNSCode}
                             </td>
-                            <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {formatValue(totalNetSellValue)}
                             </td>
-                            <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {formatLot(totalNetSellLot)}
                             </td>
-                            <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                            {!showFrequency && !showOrder ? (
+                              <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-6 border-r-2 border-white`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                     {formatAverage(finalNetSellAvg)}
-                            </td>
-                                  <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {totalNetSellFreq}
-                            </td>
-                                  <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-8`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatLotPerFreqOrOrdNum(totalNetSellLotPerFreq)}
-                                  </td>
-                                  <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {totalNetSellOrdNum}
-                                  </td>
-                                  <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-16 border-r-2 border-white`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                                    {formatLotPerFreqOrOrdNum(totalNetSellLotPerOrdNum)}
-                                  </td>
+                              </td>
+                            ) : (
+                              <>
+                                <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                        {formatAverage(finalNetSellAvg)}
+                                </td>
+                                {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                        {totalNetSellFreq}
+                                </td>}
+                                {showFrequency && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-8 ${!showOrder ? 'border-r-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                        {formatLotPerFreqOrOrdNum(totalNetSellLotPerFreq)}
+                                  </td>}
+                                {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-6`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                        {totalNetSellOrdNum}
+                                  </td>}
+                                {showOrder && <td className={`text-right py-[1px] px-[6px] font-bold ${totalNetSellColor} w-16 border-r-2 border-white`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                        {formatLotPerFreqOrOrdNum(totalNetSellLotPerOrdNum)}
+                                  </td>}
+                              </>
+                            )}
                                 </>
                               ) : (
                                 <>
                                   <td className={`text-center py-[1px] px-[3px] text-gray-400`} style={{ width: '48px', minWidth: '48px', maxWidth: '48px', boxSizing: 'border-box' }}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-8`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
-                                  <td className={`text-right py-[1px] px-[6px] text-gray-400 w-16 border-r-2 border-white`}>-</td>
+                                  {!showFrequency && !showOrder ? (
+                                    <td className={`text-right py-[1px] px-[6px] text-gray-400 border-r-2 border-white`}>-</td>
+                                  ) : (
+                                    <>
+                                      <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>
+                                      {showFrequency && <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>}
+                                      {showFrequency && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-8 ${!showOrder ? 'border-r-2 border-white' : ''}`}>-</td>}
+                                      {showOrder && <td className={`text-right py-[1px] px-[6px] text-gray-400`}>-</td>}
+                                      {showOrder && <td className={`text-right py-[1px] px-[6px] text-gray-400 w-16 border-r-2 border-white`}>-</td>}
+                                    </>
+                                  )}
                                 </>
                               )}
                           </React.Fragment>
@@ -4454,7 +4668,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                 {/* Lazy loading sentinel - triggers load more when scrolled into view */}
                 {visibleRowCount < maxRows && rowIndices.length > 0 && (
                   <tr>
-                    <td colSpan={showOnlyTotal ? 17 : (selectedDates.length * 17 + 17)} ref={netTableSentinelRef} className="h-10">
+                    <td colSpan={showOnlyTotal ? netColsPerDate : (selectedDates.length * netColsPerDate + netColsPerDate)} ref={netTableSentinelRef} className="h-10">
                       {/* Invisible sentinel for intersection observer */}
                     </td>
                   </tr>
@@ -4467,73 +4681,200 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       );
     };
 
-    // Summary Table - Aggregated totals across all brokers/dates
+    // Total Table - Per Date Totals with 4 columns
     const renderAggregateSummaryTable = () => {
-      let totalValue = 0;
-      let totalLot = 0;
-      let foreignBuyValue = 0;
-      let foreignSellValue = 0;
+      const showOnlyTotal = selectedDates.length > 7;
+      
+      // Calculate totals per date
+      const totalsByDate = new Map<string, {
+        totalValue: number;
+        foreignNetValue: number;
+        totalLot: number;
+        avgPrice: number;
+      }>();
 
-      const dates = Array.from(transactionData.keys());
+      // Grand totals across all dates
+      let grandTotalValue = 0;
+      let grandForeignBuyValue = 0;
+      let grandForeignSellValue = 0;
+      let grandTotalLot = 0;
 
-      dates.forEach((date: string) => {
+      selectedDates.forEach((date: string) => {
         const dateData = transactionData.get(date) || [];
+        let dateTotalValue = 0;
+        let dateTotalLot = 0;
+        let dateForeignBuyValue = 0;
+        let dateForeignSellValue = 0;
+
         dateData.forEach(item => {
           const buyVal = Number(item.BuyerValue) || 0;
           const sellVal = Number(item.SellerValue) || 0;
-          totalValue += buyVal + sellVal;
+          
+          // TVal: Only count buyer value (not buyer + seller, that would be double counting)
+          // Since every transaction has a buyer and seller with same value
+          dateTotalValue += buyVal;
 
           const buyLot = Number(item.BLot) || 0;
-          const sellLot = Number(item.SLot) || 0;
-          totalLot += buyLot + sellLot;
+          dateTotalLot += buyLot;
 
           const bCode = (item.BCode || '').toUpperCase();
           const sCode = (item.SCode || '').toUpperCase();
           if (bCode && FOREIGN_BROKERS.includes(bCode)) {
-            foreignBuyValue += buyVal;
+            dateForeignBuyValue += buyVal;
           }
           if (sCode && FOREIGN_BROKERS.includes(sCode)) {
-            foreignSellValue += sellVal;
+            dateForeignSellValue += sellVal;
           }
         });
+
+        const dateForeignNetValue = dateForeignBuyValue - dateForeignSellValue;
+        const dateAvgPrice = dateTotalLot > 0 ? dateTotalValue / (dateTotalLot * 100) : 0;
+
+        totalsByDate.set(date, {
+          totalValue: dateTotalValue,
+          foreignNetValue: dateForeignNetValue,
+          totalLot: dateTotalLot,
+          avgPrice: dateAvgPrice
+        });
+
+        grandTotalValue += dateTotalValue;
+        grandTotalLot += dateTotalLot;
+        grandForeignBuyValue += dateForeignBuyValue;
+        grandForeignSellValue += dateForeignSellValue;
       });
 
-      const foreignNetValue = foreignBuyValue - foreignSellValue;
-      const avgPrice = totalLot > 0 ? totalValue / (totalLot * 100) : 0;
-      const foreignNetClass = foreignNetValue > 0 ? 'text-green-500' : foreignNetValue < 0 ? 'text-red-500' : 'text-white';
+      // Calculate grand totals
+      const grandForeignNetValue = grandForeignBuyValue - grandForeignSellValue;
+      const grandAvgPrice = grandTotalLot > 0 ? grandTotalValue / (grandTotalLot * 100) : 0;
 
       return (
         <div className="w-full max-w-full mt-2">
-          <div className="bg-muted/50 px-4 py-1.5 border-y border-border flex items-center justify-between">
-            <h3 className="font-semibold text-sm">Summary (All Brokers)</h3>
-          </div>
-          <div className="w-full max-w-full">
-            <table className={`min-w-[600px] ${getFontSizeClass()} border-collapse border-l-2 border-r-2 border-b-2 border-white`}>
-              <thead className="bg-[#3a4252]">
-                <tr className="border-t-2 border-white">
-                  <th className="text-center py-[4px] px-3 font-bold text-white">TVal</th>
-                  <th className="text-center py-[4px] px-3 font-bold text-white">FNVal</th>
-                  <th className="text-center py-[4px] px-3 font-bold text-white">TLot</th>
-                  <th className="text-center py-[4px] px-3 font-bold text-white">Avg</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="bg-[#0f172a]">
-                  <td className="text-center py-[4px] px-3 text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                    {formatValue(totalValue)}
-                  </td>
-                  <td className={`text-center py-[4px] px-3 font-bold ${foreignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                    {formatValue(foreignNetValue)}
-                  </td>
-                  <td className="text-center py-[4px] px-3 text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                    {formatLot(totalLot)}
-                  </td>
-                  <td className="text-center py-[4px] px-3 text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                    {formatAverage(avgPrice)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+          <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
+            <div ref={totalTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} overflow-x-auto border-l-2 border-r-2 border-b-2 border-white`}>
+              <table ref={totalTableRef} className={`${showOnlyTotal ? 'min-w-0' : 'min-w-[1000px]'} ${getFontSizeClass()} table-auto`} style={{ tableLayout: showOnlyTotal ? 'auto' : (dateColumnWidthsRef.current.size > 0 && totalColumnWidthRef.current > 0 ? 'fixed' : 'auto') }}>
+                <thead className="bg-[#3a4252]">
+                  <tr className="border-t-2 border-white">
+                    {!showOnlyTotal && selectedDates.map((date, dateIndex) => {
+                      const dateWidth = dateColumnWidthsRef.current.get(date);
+                      return (
+                        <th 
+                          key={date} 
+                          className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} 
+                          colSpan={4} 
+                          style={{ 
+                            textAlign: 'center', 
+                            width: dateWidth ? `${dateWidth}px` : undefined, 
+                            minWidth: dateWidth ? `${dateWidth}px` : undefined,
+                            maxWidth: dateWidth ? `${dateWidth}px` : undefined
+                          }}
+                        >
+                          {formatDisplayDate(date)}
+                        </th>
+                      );
+                    })}
+                    <th 
+                      className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} 
+                      colSpan={4} 
+                      style={{ 
+                        textAlign: 'center', 
+                        width: totalColumnWidthRef.current > 0 ? `${totalColumnWidthRef.current}px` : undefined, 
+                        minWidth: totalColumnWidthRef.current > 0 ? `${totalColumnWidthRef.current}px` : undefined,
+                        maxWidth: totalColumnWidthRef.current > 0 ? `${totalColumnWidthRef.current}px` : undefined
+                      }}
+                    >
+                      Total
+                    </th>
+                  </tr>
+                  <tr className="bg-[#3a4252]">
+                    {!showOnlyTotal && selectedDates.map((date, dateIndex) => {
+                      const dateWidth = dateColumnWidthsRef.current.get(date);
+                      const colWidth = dateWidth ? dateWidth / 4 : undefined;
+                      return (
+                        <React.Fragment key={`detail-${date}`}>
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TVal</th>
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>FNVal</th>
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TLot</th>
+                          <th className={`text-center py-[1px] px-[6px] font-bold text-white ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>Avg</th>
+                        </React.Fragment>
+                      );
+                    })}
+                    {/* Total Columns */}
+                    {(() => {
+                      const totalColWidth = totalColumnWidthRef.current > 0 ? totalColumnWidthRef.current / 4 : undefined;
+                      return (
+                        <>
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TVal</th>
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>FNVal</th>
+                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TLot</th>
+                          <th className={`text-center py-[1px] px-[7px] font-bold text-white border-r-2 border-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>Avg</th>
+                        </>
+                      );
+                    })()}
+                  </tr>
+                </thead>
+                <tbody className="text-[12px]">
+                  <tr className="bg-[#0f172a] border-b-2 border-white">
+                    {!showOnlyTotal && selectedDates.map((date, dateIndex) => {
+                      const dateTotals = totalsByDate.get(date);
+                      const dateWidth = dateColumnWidthsRef.current.get(date);
+                      const colWidth = dateWidth ? dateWidth / 4 : undefined;
+                      
+                      if (!dateTotals) {
+                        return (
+                          <React.Fragment key={date}>
+                            <td className={`text-center py-[1px] px-[6px] text-white font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                            <td className="text-center py-[1px] px-[6px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                            <td className="text-center py-[1px] px-[6px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                            <td className={`text-center py-[1px] px-[6px] text-white font-bold ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                          </React.Fragment>
+                        );
+                      }
+
+                      const foreignNetClass = dateTotals.foreignNetValue > 0 ? 'text-green-500' : dateTotals.foreignNetValue < 0 ? 'text-red-500' : 'text-white';
+
+                      return (
+                        <React.Fragment key={date}>
+                          <td className={`text-center py-[1px] px-[6px] text-white font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                            {formatValue(dateTotals.totalValue)}
+                          </td>
+                          <td className={`text-center py-[1px] px-[6px] font-bold ${foreignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                            {formatValue(dateTotals.foreignNetValue)}
+                          </td>
+                          <td className="text-center py-[1px] px-[6px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                            {formatLot(dateTotals.totalLot)}
+                          </td>
+                          <td className={`text-center py-[1px] px-[6px] text-white font-bold ${dateIndex < selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === selectedDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                            {formatAverage(dateTotals.avgPrice)}
+                          </td>
+                        </React.Fragment>
+                      );
+                    })}
+                    {/* Grand Total Column */}
+                    {(() => {
+                      const grandForeignNetClass = grandForeignNetValue > 0 ? 'text-green-500' : grandForeignNetValue < 0 ? 'text-red-500' : 'text-white';
+                      const totalColWidth = totalColumnWidthRef.current > 0 ? totalColumnWidthRef.current / 4 : undefined;
+
+                      return (
+                        <React.Fragment>
+                          <td className={`text-center py-[1px] px-[5px] text-white font-bold ${showOnlyTotal || selectedDates.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                            {formatValue(grandTotalValue)}
+                          </td>
+                          <td className={`text-center py-[1px] px-[5px] font-bold ${grandForeignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                            {formatValue(grandForeignNetValue)}
+                          </td>
+                          <td className="text-center py-[1px] px-[5px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                            {formatLot(grandTotalLot)}
+                          </td>
+                          <td className="text-center py-[1px] px-[7px] text-white font-bold border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                            {formatAverage(grandAvgPrice)}
+                          </td>
+                        </React.Fragment>
+                      );
+                    })()}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       );
@@ -4565,35 +4906,11 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
       {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
       <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
         <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-2 md:gap-x-7 md:gap-y-0.2">
-          {/* Broker Selection - Multi-select with chips */}
+          {/* Broker Selection - Dropdown only */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             <label className="text-sm font-medium whitespace-nowrap">Broker:</label>
-            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-              {/* Selected Broker Chips */}
-              {selectedBrokers.map(broker => {
-                const brokerColor = broker !== 'ALL' ? getBrokerColorClass(broker) : null;
-                return (
-                <div
-                  key={broker}
-                  className={`flex items-center gap-1 px-2 h-9 rounded-md text-sm ${
-                    broker === 'ALL' 
-                      ? 'bg-primary text-primary-foreground font-semibold' 
-                      : 'bg-primary/20'
-                  }`}
-                >
-                  <span className={brokerColor?.className || ''} style={brokerColor ? { color: brokerColor.color } : {}}>{broker}</span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveBroker(broker)}
-                    className="hover:bg-primary/30 rounded px-1"
-                    aria-label={`Remove ${broker}`}
-                  >
-                    ×
-                  </button>
-              </div>
-                );
-              })}
-              {/* Broker Input */}
+            <div className="flex items-center gap-2 w-full md:w-auto">
+              {/* Broker Input with selected count */}
               <div className="relative flex-1 md:flex-none" ref={dropdownBrokerRef}>
                   <input
                     type="text"
@@ -4624,7 +4941,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                         setHighlightedIndex(-1);
                       }
                     }}
-                  placeholder="Add broker"
+                  placeholder={selectedBrokers.length > 0 ? `${selectedBrokers.length} selected` : "Add broker"}
                   className="w-full md:w-32 h-9 px-3 text-sm border border-input rounded-md bg-background text-foreground"
                     role="combobox"
                     aria-expanded={showBrokerSuggestions}
@@ -4632,7 +4949,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                     aria-autocomplete="list"
                   />
                   {showBrokerSuggestions && (
-                  <div id="broker-suggestions" role="listbox" className="absolute top-full left-0 right-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-48 overflow-y-auto"
+                  <div id="broker-suggestions" role="listbox" className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-y-auto w-40"
                     onScroll={(e) => {
                       const target = e.target as HTMLElement;
                       const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
@@ -4646,125 +4963,134 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           <Loader2 className="w-4 h-4 animate-spin mr-2" />
                           Loading brokers...
                         </div>
-                    ) : debouncedBrokerInput === '' ? (
+                    ) : (
                       <>
-                        <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                          Available Brokers ({filteredBrokersList.length})
-                        </div>
-                        {/* ALL option */}
-                        {!selectedBrokers.includes('ALL') && (
-                          <div
-                            onClick={() => handleBrokerSelect('ALL')}
-                            className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm font-semibold text-primary"
-                          >
-                            ALL
-                          </div>
-                        )}
-                        {visibleFilteredBrokers.map((broker, idx) => (
-                          <div
-                            key={broker}
-                            onClick={() => handleBrokerSelect(broker)}
-                            className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-accent' : ''}`}
-                            onMouseEnter={() => setHighlightedIndex(idx)}
-                          >
-                            {broker}
-                          </div>
-                        ))}
-                        {brokerScrollOffset + ITEMS_PER_PAGE < filteredBrokersList.length && (
-                          <div className="px-3 py-2 text-xs text-muted-foreground text-center">
-                            Loading more... ({Math.min(brokerScrollOffset + ITEMS_PER_PAGE, filteredBrokersList.length)} / {filteredBrokersList.length})
-                          </div>
-                        )}
-                      </>
-                    ) : (() => {
-                      const searchLower = debouncedBrokerInput.toLowerCase();
-                      const isAllMatch = 'all'.includes(searchLower) && !selectedBrokers.includes('ALL');
-                      return (
-                            <>
-                          <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                            {filteredBrokersList.length + (isAllMatch ? 1 : 0)} broker(s) found
-                          </div>
-                          {isAllMatch && (
-                            <div
-                              onClick={() => handleBrokerSelect('ALL')}
-                              className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm font-semibold text-primary"
-                            >
-                              ALL
+                        {/* Selected Brokers Section */}
+                        {selectedBrokers.length > 0 && (
+                          <>
+                            <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover flex items-center justify-between">
+                              <span>Selected ({selectedBrokers.length})</span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleClearAllBrokers();
+                                }}
+                                className="text-xs text-destructive hover:text-destructive/80 font-medium"
+                              >
+                                Clear
+                              </button>
                             </div>
-                          )}
-                          {visibleFilteredBrokers.length > 0 ? (
-                            visibleFilteredBrokers.map((broker, idx) => (
+                            {selectedBrokers.map(broker => {
+                              const brokerColor = broker !== 'ALL' ? getBrokerColorClass(broker) : null;
+                              return (
+                                <div
+                                  key={broker}
+                                  className="px-3 py-[2.06px] hover:bg-muted flex items-center justify-between"
+                                >
+                                  <span className={`text-sm ${brokerColor?.className || ''}`} style={brokerColor ? { color: brokerColor.color } : {}}>
+                                    {broker}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRemoveBroker(broker);
+                                    }}
+                                    className="text-muted-foreground hover:text-destructive text-sm"
+                                    aria-label={`Remove ${broker}`}
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              );
+                            })}
+                            <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                              {debouncedBrokerInput === '' ? `Available (${filteredBrokersList.length})` : 'Search Results'}
+                            </div>
+                          </>
+                        )}
+                        {/* Available Brokers Section */}
+                        {debouncedBrokerInput === '' ? (
+                          <>
+                            {!selectedBrokers.includes('ALL') && (
+                              <div
+                                onClick={() => handleBrokerSelect('ALL')}
+                                className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm font-semibold text-primary"
+                              >
+                                ALL
+                              </div>
+                            )}
+                            {visibleFilteredBrokers.map((broker, idx) => (
                               <div
                                 key={broker}
                                 onClick={() => handleBrokerSelect(broker)}
                                 className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-accent' : ''}`}
-                              onMouseEnter={() => setHighlightedIndex(idx)}
+                                onMouseEnter={() => setHighlightedIndex(idx)}
                               >
                                 {broker}
                               </div>
-                            ))
-                          ) : (
-                            <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
-                              No brokers found
-                            </div>
-                          )}
-                          {brokerScrollOffset + ITEMS_PER_PAGE < filteredBrokersList.length && (
-                            <div className="px-3 py-2 text-xs text-muted-foreground text-center">
-                              Loading more... ({Math.min(brokerScrollOffset + ITEMS_PER_PAGE, filteredBrokersList.length)} / {filteredBrokersList.length})
-                            </div>
-                          )}
+                            ))}
+                            {brokerScrollOffset + ITEMS_PER_PAGE < filteredBrokersList.length && (
+                              <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                Loading more... ({Math.min(brokerScrollOffset + ITEMS_PER_PAGE, filteredBrokersList.length)} / {filteredBrokersList.length})
+                              </div>
+                            )}
+                          </>
+                        ) : (() => {
+                          const searchLower = debouncedBrokerInput.toLowerCase();
+                          const isAllMatch = 'all'.includes(searchLower) && !selectedBrokers.includes('ALL');
+                          return (
+                            <>
+                              {isAllMatch && (
+                                <div
+                                  onClick={() => handleBrokerSelect('ALL')}
+                                  className="px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm font-semibold text-primary"
+                                >
+                                  ALL
+                                </div>
+                              )}
+                              {visibleFilteredBrokers.length > 0 ? (
+                                visibleFilteredBrokers.map((broker, idx) => (
+                                  <div
+                                    key={broker}
+                                    onClick={() => handleBrokerSelect(broker)}
+                                    className={`px-3 py-[2.06px] hover:bg-muted cursor-pointer text-sm ${idx === highlightedIndex ? 'bg-accent' : ''}`}
+                                    onMouseEnter={() => setHighlightedIndex(idx)}
+                                  >
+                                    {broker}
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="px-3 py-[2.06px] text-sm text-muted-foreground">
+                                  No brokers found
+                                </div>
+                              )}
+                              {brokerScrollOffset + ITEMS_PER_PAGE < filteredBrokersList.length && (
+                                <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                  Loading more... ({Math.min(brokerScrollOffset + ITEMS_PER_PAGE, filteredBrokersList.length)} / {filteredBrokersList.length})
+                                </div>
+                              )}
                             </>
-                      );
-                    })()}
+                          );
+                        })()}
+                      </>
+                    )}
                     </div>
                   )}
               </div>
             </div>
           </div>
 
-              {/* Ticker Multi-Select (Combined) */}
+              {/* Ticker Multi-Select (Combined) - Dropdown only */}
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
-            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-              {/* Selected Tickers */}
-              {selectedTickers.map(ticker => (
-                <div
-                  key={ticker}
-                  className="flex items-center gap-1 px-2 h-9 bg-primary/20 text-primary rounded-md text-sm"
-                >
-                  <span>{ticker}</span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveTicker(ticker)}
-                    className="hover:bg-primary/30 rounded px-1"
-                    aria-label={`Remove ${ticker}`}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-              {/* Selected Sectors */}
-              {selectedSectors.map(sector => (
-                <div
-                  key={sector}
-                  className="flex items-center gap-1 px-2 h-9 bg-blue-500/20 text-blue-400 rounded-md text-sm"
-                >
-                  <span>{sector === 'IDX' ? 'IDX Composite' : sector}</span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveSector(sector)}
-                    className="hover:bg-blue-500/30 rounded px-1"
-                    aria-label={`Remove ${sector === 'IDX' ? 'IDX Composite' : sector}`}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
+            <div className="flex items-center gap-2 w-full md:w-auto">
               <div className="relative flex-1 md:flex-none" ref={dropdownTickerRef}>
                 <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                 <input
                   type="text"
-                  placeholder="Add ticker"
+                  placeholder={selectedTickers.length > 0 ? `${selectedTickers.length} selected` : "Add ticker"}
                   value={tickerInput}
                   onChange={(e) => {
                     const v = e.target.value;
@@ -4805,30 +5131,89 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                   className="w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground"
                 />
               {showTickerSuggestions && (
-                <div id="ticker-suggestions" role="listbox" className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col w-full sm:w-auto min-w-[280px] sm:min-w-[400px]">
+                <div id="ticker-suggestions" role="listbox" className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col w-64">
                   {isLoadingStocks || (availableTickers.length === 0 && availableStocksFromAPI.length === 0) ? (
                     <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
                       <Loader2 className="w-4 h-4 animate-spin mr-2" />
                       Loading stocks...
                     </div>
                   ) : (
-                      <div className="flex flex-row h-full max-h-96 overflow-hidden">
-                        {/* Left column: Tickers */}
-                        <div 
-                          className="flex-1 border-r border-[#3a4252] overflow-y-auto"
-                          onScroll={(e) => {
-                            const target = e.target as HTMLElement;
-                            const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
-                            if (scrollBottom < 100 && tickerScrollOffset + ITEMS_PER_PAGE < filteredTickersList.length) {
-                              setTickerScrollOffset(prev => prev + ITEMS_PER_PAGE);
-                            }
-                          }}
-                        >
-                          {debouncedTickerInput === '' ? (
-                            <>
-                              <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
-                                Stocks ({filteredTickersList.length})
+                    <>
+                        {/* Selected Items Section */}
+                        {(selectedTickers.length > 0 || selectedSectors.length > 0) && (
+                          <div className="border-b border-[#3a4252] overflow-y-auto" style={{ minHeight: '120px', maxHeight: `${Math.min((selectedTickers.length + selectedSectors.length) * 24 + 30, 250)}px` }}>
+                            <div className="px-3 py-1 text-xs text-muted-foreground sticky top-0 bg-popover flex items-center justify-between">
+                              <span>Selected ({selectedTickers.length + selectedSectors.length})</span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleClearAllTickers();
+                                  setSelectedSectors([]);
+                                }}
+                                className="text-xs text-destructive hover:text-destructive/80 font-medium"
+                              >
+                                Clear
+                              </button>
+                            </div>
+                            {selectedTickers.map(ticker => (
+                              <div
+                                key={`selected-ticker-${ticker}`}
+                                className="px-3 py-1 hover:bg-muted flex items-center justify-between min-h-[24px]"
+                              >
+                                <span className="text-sm text-primary">{ticker}</span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRemoveTicker(ticker);
+                                  }}
+                                  className="text-muted-foreground hover:text-destructive text-sm"
+                                  aria-label={`Remove ${ticker}`}
+                                >
+                                  ×
+                                </button>
                               </div>
+                            ))}
+                            {selectedSectors.map(sector => (
+                              <div
+                                key={`selected-sector-${sector}`}
+                                className="px-3 py-1 hover:bg-muted flex items-center justify-between min-h-[24px]"
+                              >
+                                <span className="text-sm text-blue-400">{sector === 'IDX' ? 'IDX Composite' : sector}</span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRemoveSector(sector);
+                                  }}
+                                  className="text-muted-foreground hover:text-destructive text-sm"
+                                  aria-label={`Remove ${sector === 'IDX' ? 'IDX Composite' : sector}`}
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      {/* Search Results Section */}
+                      <div className="flex flex-row flex-1 overflow-hidden">
+                          {/* Left column: Tickers */}
+                          <div 
+                            className="flex-1 border-r border-[#3a4252] overflow-y-auto"
+                            onScroll={(e) => {
+                              const target = e.target as HTMLElement;
+                              const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+                              if (scrollBottom < 100 && tickerScrollOffset + ITEMS_PER_PAGE < filteredTickersList.length) {
+                                setTickerScrollOffset(prev => prev + ITEMS_PER_PAGE);
+                              }
+                            }}
+                          >
+                            {debouncedTickerInput === '' ? (
+                              <>
+                                <div className="px-3 py-[2.06px] text-xs text-muted-foreground border-b border-[#3a4252] sticky top-0 bg-popover">
+                                  Stocks ({filteredTickersList.length})
+                                </div>
                               {visibleFilteredTickers.map((ticker, idx) => {
                                 return (
                                   <div
@@ -4942,6 +5327,7 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
                           )}
                         </div>
                       </div>
+                    </>
                   )}
                 </div>
               )}
@@ -5060,16 +5446,16 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
           <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
             <label className="text-sm font-medium whitespace-nowrap">Output:</label>
             <select
-              value={pivotFilter}
+              value={pivotFilterDisplayLabel}
               onChange={(e) => {
-                setPivotFilter(e.target.value as 'Broker' | 'Stock');
+                handlePivotFilterChange(e.target.value);
                 // CRITICAL: Keep existing data visible - no auto-fetch, no hide tables
                 // User must click Show button to fetch new data
               }}
               className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
             >
-              <option value="Broker">Broker</option>
               <option value="Stock">Stock</option>
+              <option value="Broker">Broker</option>
             </select>
           </div>
 
@@ -5103,11 +5489,33 @@ const getAvailableTradingDays = async (count: number): Promise<string[]> => {
               }}
               className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
             >
-              <option value="">All Trade</option>
+              <option value="">All</option>
               <option value="RG">RG</option>
               <option value="TN">TN</option>
               <option value="NG">NG</option>
             </select>
+          </div>
+
+          {/* Toggle untuk Frequency dan Order */}
+          <div className="flex flex-col gap-1 items-center">
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showFrequency}
+                onChange={(e) => setShowFrequency(e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-[#3a4252] text-primary focus:ring-primary cursor-pointer"
+              />
+              <span className="text-xs text-foreground whitespace-nowrap">Freq</span>
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showOrder}
+                onChange={(e) => setShowOrder(e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-[#3a4252] text-primary focus:ring-primary cursor-pointer"
+              />
+              <span className="text-xs text-foreground whitespace-nowrap">Or</span>
+            </label>
           </div>
 
           {/* Show Button */}

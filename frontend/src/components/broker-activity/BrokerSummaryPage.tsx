@@ -59,19 +59,25 @@ const formatNumber = (value: number): string => {
   return value.toLocaleString();
 };
 
-// Format Lot: jika >= 1,000,000 gunakan format dengan K (1,000K), jika < 1,000,000 gunakan format koma ribuan biasa (12,000)
+// Format Lot: jika >= 1,000,000 gunakan format dengan M (25.6M), jika < 1,000,000 gunakan format koma ribuan biasa (12,000)
 const formatLot = (value: number): string => {
   const rounded = Math.round(value);
   if (rounded >= 1000000) {
-    // Format dengan K untuk nilai >= 1,000,000 (misal: 1,000,000 -> 1,000K)
-    const thousands = rounded / 1000;
-    return `${thousands.toLocaleString('en-US', { maximumFractionDigits: 0 })}K`;
+    // Format dengan M untuk nilai >= 1,000,000 (misal: 25,636,000 -> 25.6M)
+    const millions = rounded / 1000000;
+    return `${millions.toFixed(1)}M`;
   }
   // Format koma ribuan biasa untuk nilai < 1,000,000 (misal: 12,000 -> 12,000)
   return rounded.toLocaleString('en-US');
 };
 
 const formatAverage = (value: number): string => {
+  if (value === undefined || value === null || isNaN(value)) {
+    return '-';
+  }
+  if (value === 0) {
+    return '0.0';
+  }
   return value.toLocaleString('id-ID', {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1
@@ -117,10 +123,14 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   const endDateRef = useRef<HTMLInputElement>(null);
   const valueTableRef = useRef<HTMLTableElement>(null);
   const netTableRef = useRef<HTMLTableElement>(null);
+  const totalTableRef = useRef<HTMLTableElement>(null);
   const valueTableContainerRef = useRef<HTMLDivElement>(null);
   const netTableContainerRef = useRef<HTMLDivElement>(null);
+  const totalTableContainerRef = useRef<HTMLDivElement>(null);
   const menuContainerRef = useRef<HTMLDivElement>(null);
   const [isMenuTwoRows, setIsMenuTwoRows] = useState<boolean>(false);
+  const dateColumnWidthsRef = useRef<Map<string, number>>(new Map()); // Store width of each date column from VALUE table
+  const totalColumnWidthRef = useRef<number>(0); // Store width of Total column from VALUE table
 
   // API-driven broker summary data by date
   const [summaryByDate, setSummaryByDate] = useState<Map<string, BrokerSummaryData[]>>(new Map()); // Filtered data (based on displayedFdFilter)
@@ -1464,52 +1474,72 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     };
   }, [summaryByDate, isLoading, isDataReady]); // Removed showOnlyTotal - only sync when data changes, not when dates change
 
-  // Synchronize horizontal scroll between Value and Net tables - optimized for smooth scrolling
+
+  // Synchronize horizontal scroll between Value, Net, and Total tables - optimized for smooth scrolling
   useEffect(() => {
     // Wait for tables to be ready (data loaded and DOM rendered)
     if (isLoading || !isDataReady) return;
 
     const valueContainer = valueTableContainerRef.current;
     const netContainer = netTableContainerRef.current;
+    const totalContainer = totalTableContainerRef.current;
 
-    if (!valueContainer || !netContainer) return;
+    if (!valueContainer || !netContainer || !totalContainer) return;
 
     // Track which container is being scrolled to prevent circular updates
     // Use a more robust flag system that resets immediately after sync
     let isValueScrolling = false;
     let isNetScrolling = false;
+    let isTotalScrolling = false;
 
-    // Handle Value table scroll - sync to Net table immediately
+    // Handle Value table scroll - sync to Net and Total tables immediately
     const handleValueScroll = () => {
-      // Only sync if net container is not currently being scrolled
-      if (!isNetScrolling && netContainer) {
+      // Only sync if other containers are not currently being scrolled
+      if (!isNetScrolling && !isTotalScrolling) {
         isValueScrolling = true;
         // Immediate synchronization - no delay for smooth scrolling
-        netContainer.scrollLeft = valueContainer.scrollLeft;
+        if (netContainer) netContainer.scrollLeft = valueContainer.scrollLeft;
+        if (totalContainer) totalContainer.scrollLeft = valueContainer.scrollLeft;
         // Reset flag immediately to allow continuous smooth scrolling
         isValueScrolling = false;
       }
     };
 
-    // Handle Net table scroll - sync to Value table immediately
+    // Handle Net table scroll - sync to Value and Total tables immediately
     const handleNetScroll = () => {
-      // Only sync if value container is not currently being scrolled
-      if (!isValueScrolling && valueContainer) {
+      // Only sync if other containers are not currently being scrolled
+      if (!isValueScrolling && !isTotalScrolling) {
         isNetScrolling = true;
         // Immediate synchronization - no delay for smooth scrolling
-        valueContainer.scrollLeft = netContainer.scrollLeft;
+        if (valueContainer) valueContainer.scrollLeft = netContainer.scrollLeft;
+        if (totalContainer) totalContainer.scrollLeft = netContainer.scrollLeft;
         // Reset flag immediately to allow continuous smooth scrolling
         isNetScrolling = false;
+      }
+    };
+
+    // Handle Total table scroll - sync to Value and Net tables immediately
+    const handleTotalScroll = () => {
+      // Only sync if other containers are not currently being scrolled
+      if (!isValueScrolling && !isNetScrolling) {
+        isTotalScrolling = true;
+        // Immediate synchronization - no delay for smooth scrolling
+        if (valueContainer) valueContainer.scrollLeft = totalContainer.scrollLeft;
+        if (netContainer) netContainer.scrollLeft = totalContainer.scrollLeft;
+        // Reset flag immediately to allow continuous smooth scrolling
+        isTotalScrolling = false;
       }
     };
 
     // Add event listeners with passive flag for better performance
     valueContainer.addEventListener('scroll', handleValueScroll, { passive: true });
     netContainer.addEventListener('scroll', handleNetScroll, { passive: true });
+    totalContainer.addEventListener('scroll', handleTotalScroll, { passive: true });
 
     return () => {
       valueContainer.removeEventListener('scroll', handleValueScroll);
       netContainer.removeEventListener('scroll', handleNetScroll);
+      totalContainer.removeEventListener('scroll', handleTotalScroll);
     };
   }, [isLoading, isDataReady, summaryByDate]); // Re-setup when data changes
 
@@ -1610,6 +1640,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
 
   const handleRemoveTicker = (stock: string) => {
     setSelectedTickers(selectedTickers.filter(t => t !== stock));
+  };
+
+  const handleClearAllTickers = () => {
+    setSelectedTickers([]);
   };
 
   const handleStockInputChange = (value: string) => {
@@ -1740,7 +1774,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
   };
 
   // Font size fixed to normal (no menu)
-  const getFontSizeClass = () => 'text-[12.5px]';
+  const getFontSizeClass = () => 'text-[12px]';
 
   // Filter raw data by investor filter (client-side filtering)
   useEffect(() => {
@@ -1788,7 +1822,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     if (market === 'RG') return 'RG';
     if (market === 'TN') return 'TN';
     if (market === 'NG') return 'NG';
-    return 'All Trade';
+    return 'All';
   };
 
   // Memoize availableDates to avoid recalculating on every render
@@ -1799,6 +1833,74 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
     const datesWithData = Array.from(summaryByDate.keys()).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
     return datesWithData;
   }, [summaryByDate]);
+
+  // Measure and store date column widths from VALUE table to apply to Total table
+  useEffect(() => {
+    if (isLoading || !isDataReady || showOnlyTotal) return;
+
+    const valueTable = valueTableRef.current;
+    if (!valueTable) return;
+
+    // Wait for table to render
+    const measureWidths = () => {
+      const valueHeaderRows = valueTable.querySelectorAll('thead tr');
+      if (valueHeaderRows.length < 2) return;
+
+      // Get the second row (column headers) for accurate width measurement
+      const columnHeaderRow = valueHeaderRows[1];
+      if (!columnHeaderRow) return;
+      
+      const columnHeaderCells = Array.from(columnHeaderRow.querySelectorAll('th'));
+
+      // Clear previous widths
+      dateColumnWidthsRef.current.clear();
+      totalColumnWidthRef.current = 0;
+
+      // Measure width of each date column (excluding Total column)
+      const datesForHeader = summaryByDate.size === 0 ? selectedDates : availableDates;
+      let cellIndex = 0;
+
+      datesForHeader.forEach((date) => {
+        // Each date column spans 9 columns, so we need to sum the width of 9 cells
+        // Use column header cells for more accurate measurement (they have the actual column widths)
+        let totalWidth = 0;
+        for (let i = 0; i < 9 && cellIndex < columnHeaderCells.length; i++) {
+          const cell = columnHeaderCells[cellIndex] as HTMLElement;
+          if (cell) {
+            // Use offsetWidth for more accurate measurement
+            const cellWidth = cell.offsetWidth || cell.getBoundingClientRect().width || 0;
+            totalWidth += cellWidth;
+          }
+          cellIndex++;
+        }
+        
+        if (totalWidth > 0) {
+          dateColumnWidthsRef.current.set(date, totalWidth);
+        }
+      });
+
+      // Measure width of Total column (also spans 9 columns)
+      let totalColumnWidth = 0;
+      for (let i = 0; i < 9 && cellIndex < columnHeaderCells.length; i++) {
+        const cell = columnHeaderCells[cellIndex] as HTMLElement;
+        if (cell) {
+          const cellWidth = cell.offsetWidth || cell.getBoundingClientRect().width || 0;
+          totalColumnWidth += cellWidth;
+        }
+        cellIndex++;
+      }
+      
+      if (totalColumnWidth > 0) {
+        totalColumnWidthRef.current = totalColumnWidth;
+      }
+    };
+
+    // Measure after a delay to ensure table is fully rendered and column widths are synced
+    // Wait longer to ensure syncTableWidths has finished (which runs after 50-100ms)
+    const timeoutId = setTimeout(measureWidths, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [summaryByDate, isLoading, isDataReady, showOnlyTotal, availableDates, selectedDates]);
 
   // Memoize allBrokerData to avoid recalculating on every render
   const allBrokerData = useMemo(() => {
@@ -1845,11 +1947,11 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                          <thead className="bg-[#3a4252]">
                          <tr className="border-t-2 border-white">
                       {!showOnlyTotal && datesForHeader.map((date, dateIndex) => (
-                        <th key={date} className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} colSpan={9} style={{ textAlign: 'center' }}>
+                        <th key={date} className={`text-center py-[1px] px-[7.4px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} colSpan={9} style={{ textAlign: 'center' }}>
                          {formatDisplayDate(date)}
                             </th>
                           ))}
-                      <th className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={9} style={{ textAlign: 'center' }}>
+                      <th className={`text-center py-[1px] px-[3.8px] font-bold text-white border-r-2 border-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={9} style={{ textAlign: 'center' }}>
                             Total
                           </th>
                         </tr>
@@ -1857,31 +1959,31 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       {!showOnlyTotal && datesForHeader.map((date, dateIndex) => (
                       <React.Fragment key={`detail-${date}`}>
                               {/* BY Columns */}
-                          <th className={`text-center py-[1px] px-[6px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ textAlign: 'center' }}>BY</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BLot</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BVal</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BAvg</th>
+                          <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ textAlign: 'center' }}>BY</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BLot</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BVal</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BAvg</th>
                               {/* SL Columns */}
-                              <th className="text-center py-[1px] px-[6px] font-bold text-white bg-[#3a4252] w-4" style={{ textAlign: 'center' }}>#</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-4`} style={{ textAlign: 'center' }}>SL</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>SLot</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>SVal</th>
-                        <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6 ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ textAlign: 'center' }}>SAvg</th>
+                              <th className="text-center py-[1px] px-[5.4px] font-bold text-white bg-[#3a4252] w-4" style={{ textAlign: 'center' }}>#</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-4`} style={{ textAlign: 'center' }}>SL</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>SLot</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>SVal</th>
+                        <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6 ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ textAlign: 'center' }}>SAvg</th>
                             </React.Fragment>
                           ))}
                     {/* Total Columns - Include BAvg and SAvg */}
-                      <th className={`text-center py-[1px] px-[5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ textAlign: 'center' }}>BY</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>BLot</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>BVal</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>BAvg</th>
-                          <th className="text-center py-[1px] px-[6px] font-bold text-white bg-[#3a4252]" style={{ textAlign: 'center' }}>#</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>SL</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>SLot</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>SVal</th>
-                      <th className={`text-center py-[1px] px-[7px] font-bold text-white border-r-2 border-white`} style={{ textAlign: 'center' }}>SAvg</th>
+                      <th className={`text-center py-[1px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ textAlign: 'center' }}>BY</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>BLot</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>BVal</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>BAvg</th>
+                          <th className="text-center py-[1px] px-[5.4px] font-bold text-white bg-[#3a4252]" style={{ textAlign: 'center' }}>#</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>SL</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>SLot</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>SVal</th>
+                      <th className={`text-center py-[1px] px-[6.3px] font-bold text-white border-r-2 border-white`} style={{ textAlign: 'center' }}>SAvg</th>
                         </tr>
                       </thead>
-                      <tbody>
+                      <tbody className="text-[12px]">
                         {(() => {
                           // Get broker text color class
                           const getBrokerColorClass = (brokerCode: string): string => {
@@ -1997,30 +2099,30 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   return (
                             <React.Fragment key={`${date}-${rowIdx}`}>
                                       {/* BY (Buyer) Columns - Using Buyer fields */}
-                                <td className={`text-center py-[1px] px-[6px] w-4 font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${buyData ? getBrokerColorClass(buyData.broker) : ''}`}>
+                                <td className={`text-center py-[1px] px-[5.4px] w-4 font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${buyData ? getBrokerColorClass(buyData.broker) : ''}`}>
                                         {buyData?.broker || '-'}
                                       </td>
-                              <td className="text-right py-[1px] px-[6px] text-green-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              <td className="text-right py-[1px] px-[5.4px] text-green-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                 {buyData ? formatLot(buyData.buyerVol / 100) : '-'}
                               </td>
-                                      <td className="text-right py-[1px] px-[6px] text-green-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                      <td className="text-right py-[1px] px-[5.4px] text-green-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                         {buyData ? formatNumber(buyData.buyerValue) : '-'}
                                       </td>
-                                      <td className="text-right py-[1px] px-[6px] text-green-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                      <td className="text-right py-[1px] px-[5.4px] text-green-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                         {buyData ? formatAverage(buyData.bavg) : '-'}
                                       </td>
                                       {/* SL (Seller) Columns - Keep # column */}
-                                      <td className={`text-center py-[1px] px-[6px] text-white bg-[#3a4252] font-bold w-4 ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>{sellData ? rowIdx + 1 : '-'}</td>
-                                      <td className={`py-[1px] px-[6px] font-bold w-4 ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>
+                                      <td className={`text-center py-[1px] px-[5.4px] text-white bg-[#3a4252] font-bold w-4 ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>{sellData ? rowIdx + 1 : '-'}</td>
+                                      <td className={`py-[1px] px-[5.4px] font-bold w-4 ${sellData ? getBrokerColorClass(sellData.broker) : ''}`}>
                                         {sellData?.broker || '-'}
                                       </td>
-                              <td className="text-right py-[1px] px-[6px] text-red-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              <td className="text-right py-[1px] px-[5.4px] text-red-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                 {sellData ? formatLot(sellData.sellerVol / 100) : '-'}
                               </td>
-                                      <td className="text-right py-[1px] px-[6px] text-red-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                      <td className="text-right py-[1px] px-[5.4px] text-red-600 font-bold w-6" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                         {sellData ? formatNumber(sellData.sellerValue) : '-'}
                                       </td>
-                              <td className={`text-right py-[1px] px-[6px] text-red-600 font-bold w-6 ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              <td className={`text-right py-[1px] px-[5.4px] text-red-600 font-bold w-6 ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                                         {sellData ? formatAverage(sellData.savg) : '-'}
                                       </td>
                                     </React.Fragment>
@@ -2036,29 +2138,29 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                           const totalSellAvg = totalSell && totalSell.nslot > 0 ? Math.abs(totalSell.nsval) / totalSell.nslot : 0;
                           return (
                             <React.Fragment>
-                                <td className={`text-center py-[1px] px-[5px] font-bold ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${totalBuy ? getBrokerColorClass(totalBuy.broker) : ''}`}>
+                                <td className={`text-center py-[1px] px-[4.5px] font-bold ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${totalBuy ? getBrokerColorClass(totalBuy.broker) : ''}`}>
                                   {totalBuy?.broker || '-'}
                                 </td>
-                              <td className="text-right py-[1px] px-[5px] text-green-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              <td className="text-right py-[1px] px-[4.5px] text-green-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                 {totalBuy ? formatLot(totalBuy.nblot / 100) : '-'}
                               </td>
-                                <td className="text-right py-[1px] px-[5px] text-green-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                <td className="text-right py-[1px] px-[4.5px] text-green-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                   {totalBuy ? formatNumber(totalBuy.nbval) : '-'}
                                 </td>
-                                <td className="text-right py-[1px] px-[5px] text-green-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                <td className="text-right py-[1px] px-[4.5px] text-green-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                   {totalBuy && totalBuyAvg > 0 ? formatAverage(totalBuyAvg) : '-'}
                                 </td>
-                                <td className={`text-center py-[1px] px-[6px] text-white bg-[#3a4252] font-bold ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>{totalSell ? rowIdx + 1 : '-'}</td>
-                                <td className={`py-[1px] px-[5px] font-bold ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>
+                                <td className={`text-center py-[1px] px-[5.4px] text-white bg-[#3a4252] font-bold ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>{totalSell ? rowIdx + 1 : '-'}</td>
+                                <td className={`py-[1px] px-[4.5px] font-bold ${totalSell ? getBrokerColorClass(totalSell.broker) : ''}`}>
                                   {totalSell?.broker || '-'}
                                 </td>
-                              <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              <td className="text-right py-[1px] px-[4.5px] text-red-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                 {totalSell ? formatLot(totalSell.nslot / 100) : '-'}
                               </td>
-                              <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              <td className="text-right py-[1px] px-[4.5px] text-red-600 font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                   {totalSell ? formatNumber(totalSell.nsval) : '-'}
                                 </td>
-                                <td className="text-right py-[1px] px-[7px] text-red-600 font-bold border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                <td className="text-right py-[1px] px-[6.3px] text-red-600 font-bold border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums' }}>
                                   {totalSell && totalSellAvg > 0 ? formatAverage(totalSellAvg) : '-'}
                                 </td>
                             </React.Fragment>
@@ -2084,11 +2186,11 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                         <thead className="bg-[#3a4252]">
                         <tr className="border-t-2 border-white">
                       {!showOnlyTotal && datesForHeader.map((date, dateIndex) => (
-                        <th key={date} className={`text-center py-[1px] px-[8.24px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} colSpan={9} style={{ textAlign: 'center' }}>
+                        <th key={date} className={`text-center py-[1px] px-[7.4px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} colSpan={9} style={{ textAlign: 'center' }}>
                         {formatDisplayDate(date)}
                             </th>
                           ))}
-                      <th className={`text-center py-[1px] px-[4.2px] font-bold text-white border-r-2 border-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={9} style={{ textAlign: 'center' }}>
+                      <th className={`text-center py-[1px] px-[3.8px] font-bold text-white border-r-2 border-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} colSpan={9} style={{ textAlign: 'center' }}>
                             Total
                           </th>
                         </tr>
@@ -2096,31 +2198,31 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       {!showOnlyTotal && datesForHeader.map((date, dateIndex) => (
                       <React.Fragment key={`detail-${date}`}>
                               {/* Net Buy Columns - No # */}
-                          <th className={`text-center py-[1px] px-[6px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ textAlign: 'center' }}>BY</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BLot</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BVal</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BAvg</th>
+                          <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-4 ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ textAlign: 'center' }}>BY</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BLot</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BVal</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>BAvg</th>
                               {/* Net Sell Columns - Keep # */}
-                              <th className="text-center py-[1px] px-[6px] font-bold text-white bg-[#3a4252] w-4" style={{ textAlign: 'center' }}>#</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-4`} style={{ textAlign: 'center' }}>SL</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>SLot</th>
-                              <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>SVal</th>
-                          <th className={`text-center py-[1px] px-[6px] font-bold text-white w-6 ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ textAlign: 'center' }}>SAvg</th>
+                              <th className="text-center py-[1px] px-[5.4px] font-bold text-white bg-[#3a4252] w-4" style={{ textAlign: 'center' }}>#</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-4`} style={{ textAlign: 'center' }}>SL</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>SLot</th>
+                              <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6`} style={{ textAlign: 'center' }}>SVal</th>
+                          <th className={`text-center py-[1px] px-[5.4px] font-bold text-white w-6 ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ textAlign: 'center' }}>SAvg</th>
                             </React.Fragment>
                           ))}
                     {/* Total Columns - Include BAvg and SAvg */}
-                      <th className={`text-center py-[1px] px-[5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ textAlign: 'center' }}>BY</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>BLot</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>BVal</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>BAvg</th>
-                          <th className="text-center py-[1px] px-[6px] font-bold text-white bg-[#3a4252]" style={{ textAlign: 'center' }}>#</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>SL</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>SLot</th>
-                          <th className={`text-center py-[1px] px-[5px] font-bold text-white`} style={{ textAlign: 'center' }}>SVal</th>
-                      <th className={`text-center py-[1px] px-[7px] font-bold text-white border-r-2 border-white`} style={{ textAlign: 'center' }}>SAvg</th>
+                      <th className={`text-center py-[1px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ textAlign: 'center' }}>BY</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>BLot</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>BVal</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>BAvg</th>
+                          <th className="text-center py-[1px] px-[5.4px] font-bold text-white bg-[#3a4252]" style={{ textAlign: 'center' }}>#</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>SL</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>SLot</th>
+                          <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center' }}>SVal</th>
+                      <th className={`text-center py-[1px] px-[6.3px] font-bold text-white border-r-2 border-white`} style={{ textAlign: 'center' }}>SAvg</th>
                         </tr>
                       </thead>
-                      <tbody>
+                      <tbody className="text-[12px]">
                         {(() => {
                           // Get broker text color class
                           const getBrokerColorClass = (brokerCode: string): string => {
@@ -2447,30 +2549,30 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                                   return (
                               <React.Fragment key={`${date}-${rowIdx}`}>
                                       {/* Net Buy Columns (BY) - Display NetSell Data - No # */}
-                                  <td className={`text-center py-[1px] px-[6px] w-4 font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`} style={byColumnStyle}>
+                                  <td className={`text-center py-[1px] px-[5.4px] w-4 font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${netSellData ? getBrokerColorClass(netSellData.broker) : ''}`} style={byColumnStyle}>
                                         {netSellData?.broker || '-'}
                                       </td>
-                                <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...byColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                <td className={`text-right py-[1px] px-[5.4px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...byColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
                                   {netSellData ? formatLot(nbLot / 100) : '-'}
                                 </td>
-                                      <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...byColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                      <td className={`text-right py-[1px] px-[5.4px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...byColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
                                         {netSellData ? formatNumber(nbVal) : '-'}
                                       </td>
-                                      <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...byColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                      <td className={`text-right py-[1px] px-[5.4px] w-6 font-bold ${netBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...byColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
                                         {netSellData ? formatAverage(nbAvg) : '-'}
                                       </td>
                                       {/* Net Sell Columns (SL) - Display NetBuy Data - Keep # */}
-                                      <td className={`text-center py-[1px] px-[6px] text-white bg-[#3a4252] font-bold w-4 ${netBuyData ? getBrokerColorClass(netBuyData.broker) : ''}`}>{netBuyData ? rowIdx + 1 : '-'}</td>
-                                  <td className={`py-[1px] px-[6px] w-4 font-bold ${netBuyData ? getBrokerColorClass(netBuyData.broker) : ''} ${sellBgStyle ? 'text-white' : ''}`} style={slColumnStyle}>
+                                      <td className={`text-center py-[1px] px-[5.4px] text-white bg-[#3a4252] font-bold w-4 ${netBuyData ? getBrokerColorClass(netBuyData.broker) : ''}`}>{netBuyData ? rowIdx + 1 : '-'}</td>
+                                  <td className={`py-[1px] px-[5.4px] w-4 font-bold ${netBuyData ? getBrokerColorClass(netBuyData.broker) : ''} ${sellBgStyle ? 'text-white' : ''}`} style={slColumnStyle}>
                                         {netBuyData?.broker || '-'}
                                       </td>
-                                  <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${sellBgStyle ? 'text-white' : 'text-red-600'}`} style={{ ...slColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                  <td className={`text-right py-[1px] px-[5.4px] w-6 font-bold ${sellBgStyle ? 'text-white' : 'text-red-600'}`} style={{ ...slColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
                                   {netBuyData ? formatLot(nsLot / 100) : '-'}
                                 </td>
-                                  <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${sellBgStyle ? 'text-white' : 'text-red-600'}`} style={{ ...slColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                  <td className={`text-right py-[1px] px-[5.4px] w-6 font-bold ${sellBgStyle ? 'text-white' : 'text-red-600'}`} style={{ ...slColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
                                         {netBuyData ? formatNumber(nsVal) : '-'}
                                       </td>
-                                  <td className={`text-right py-[1px] px-[6px] w-6 font-bold ${sellBgStyle ? 'text-white' : 'text-red-600'} ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ ...slColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                  <td className={`text-right py-[1px] px-[5.4px] w-6 font-bold ${sellBgStyle ? 'text-white' : 'text-red-600'} ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ ...slColumnStyle, fontVariantNumeric: 'tabular-nums' }}>
                                         {netBuyData ? formatAverage(nsAvg) : '-'}
                                       </td>
                                     </React.Fragment>
@@ -2507,30 +2609,30 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                             return (
                               <React.Fragment>
                                   {/* Total BY columns - Display totalNetSell data */}
-                                  <td className={`text-center py-[1px] px-[5px] font-bold ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${totalNetSell ? getBrokerColorClass(totalNetSell.broker) : ''}`} style={totalNetBuyBgStyle}>
+                                  <td className={`text-center py-[1px] px-[4.5px] font-bold ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'} ${totalNetSell ? getBrokerColorClass(totalNetSell.broker) : ''}`} style={totalNetBuyBgStyle}>
                                   {totalNetSell?.broker || '-'}
                                 </td>
-                                <td className={`text-right py-[1px] px-[5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...totalNetBuyBgStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                <td className={`text-right py-[1px] px-[4.5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...totalNetBuyBgStyle, fontVariantNumeric: 'tabular-nums' }}>
                                   {totalNetSell ? formatLot((totalNetSell.nslot || 0) / 100) : '-'}
                                 </td>
-                                <td className={`text-right py-[1px] px-[5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...totalNetBuyBgStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                <td className={`text-right py-[1px] px-[4.5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...totalNetBuyBgStyle, fontVariantNumeric: 'tabular-nums' }}>
                                   {totalNetSell ? formatNumber(totalNetSell.nsval || 0) : '-'}
                                 </td>
-                                <td className={`text-right py-[1px] px-[5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...totalNetBuyBgStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                <td className={`text-right py-[1px] px-[4.5px] font-bold ${totalNetBuyBgStyle ? '' : 'text-green-600'}`} style={{ ...totalNetBuyBgStyle, fontVariantNumeric: 'tabular-nums' }}>
                                   {totalNetSell && totalNetBuyAvg > 0 ? formatAverage(totalNetBuyAvg) : '-'}
                                 </td>
                                 {/* Total SL columns - Display totalNetBuy data */}
-                                <td className={`text-center py-[1px] px-[6px] text-white bg-[#3a4252] font-bold ${totalNetBuy ? getBrokerColorClass(totalNetBuy.broker) : ''}`}>{totalNetBuy ? rowIdx + 1 : '-'}</td>
-                                  <td className={`py-[1px] px-[5px] font-bold ${totalNetBuy ? getBrokerColorClass(totalNetBuy.broker) : ''}`} style={totalSellUnderlineStyle}>
+                                <td className={`text-center py-[1px] px-[5.4px] text-white bg-[#3a4252] font-bold ${totalNetBuy ? getBrokerColorClass(totalNetBuy.broker) : ''}`}>{totalNetBuy ? rowIdx + 1 : '-'}</td>
+                                  <td className={`py-[1px] px-[4.5px] font-bold ${totalNetBuy ? getBrokerColorClass(totalNetBuy.broker) : ''}`} style={totalSellUnderlineStyle}>
                                   {totalNetBuy?.broker || '-'}
                                 </td>
-                                  <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={{ ...totalSellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                  <td className="text-right py-[1px] px-[4.5px] text-red-600 font-bold" style={{ ...totalSellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
                                     {totalNetBuy ? formatLot(totalNetBuy.nblot / 100) : '-'}
                                 </td>
-                                  <td className="text-right py-[1px] px-[5px] text-red-600 font-bold" style={{ ...totalSellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                  <td className="text-right py-[1px] px-[4.5px] text-red-600 font-bold" style={{ ...totalSellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
                                     {totalNetBuy ? formatNumber(totalNetBuy.nbval) : '-'}
                                 </td>
-                                  <td className="text-right py-[1px] px-[7px] text-red-600 font-bold border-r-2 border-white" style={{ ...totalSellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
+                                  <td className="text-right py-[1px] px-[6.3px] text-red-600 font-bold border-r-2 border-white" style={{ ...totalSellUnderlineStyle, fontVariantNumeric: 'tabular-nums' }}>
                                   {totalNetBuy && totalNetSellAvg > 0 ? formatAverage(totalNetSellAvg) : '-'}
                                 </td>
                               </React.Fragment>
@@ -2546,69 +2648,203 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
             </div>
           </div>
         </div>
-      {/* Aggregate Summary Table */}
+      {/* Total Table - Per Date Totals with 4 columns */}
       {(() => {
-        let totalValue = 0;
-        let totalLotShares = 0; // volume in shares
-        let foreignBuyValue = 0;
-        let foreignSellValue = 0;
+        // Calculate totals per date
+        const totalsByDate = new Map<string, {
+          totalValue: number;
+          foreignNetValue: number;
+          totalLot: number;
+          avgPrice: number;
+        }>();
+
+        // Grand totals across all dates
+        let grandTotalValue = 0;
+        let grandForeignBuyValue = 0;
+        let grandForeignSellValue = 0;
+        let grandTotalLotShares = 0;
 
         availableDates.forEach((date: string) => {
           const rows = summaryByDate.get(date) || [];
+          let dateTotalValue = 0;
+          let dateTotalLotShares = 0;
+          let dateForeignBuyValue = 0;
+          let dateForeignSellValue = 0;
+
           rows.forEach(row => {
+            // Filter by F/D
+            if (!brokerFDScreen(row.broker)) return;
+
             const buyVal = Number(row.buyerValue) || 0;
             const sellVal = Number(row.sellerValue) || 0;
-            totalValue += buyVal + sellVal;
-
             const buyVol = Number(row.buyerVol) || 0;
-            const sellVol = Number(row.sellerVol) || 0;
-            totalLotShares += buyVol + sellVol;
+
+            // TVal: Only count buyer value (not buyer + seller, that would be double counting)
+            // Since every transaction has a buyer and seller with same value
+            dateTotalValue += buyVal;
+            dateTotalLotShares += buyVol;
 
             const brokerCode = (row.broker || '').toUpperCase();
             if (brokerCode && FOREIGN_BROKERS.includes(brokerCode)) {
-              foreignBuyValue += buyVal;
-              foreignSellValue += sellVal;
+              dateForeignBuyValue += buyVal;
+              dateForeignSellValue += sellVal;
             }
-          });
         });
 
-        const totalLot = totalLotShares / 100; // convert to lot
-        const foreignNetValue = foreignBuyValue - foreignSellValue;
-        const avgPrice = totalLotShares > 0 ? totalValue / totalLotShares : 0;
-        const foreignNetClass = foreignNetValue > 0 ? 'text-green-500' : foreignNetValue < 0 ? 'text-red-500' : 'text-white';
+          const dateTotalLot = dateTotalLotShares / 100;
+          const dateForeignNetValue = dateForeignBuyValue - dateForeignSellValue;
+          const dateAvgPrice = (dateTotalLotShares > 0 && dateTotalValue > 0) ? dateTotalValue / dateTotalLotShares : 0;
+
+          totalsByDate.set(date, {
+            totalValue: dateTotalValue,
+            foreignNetValue: dateForeignNetValue,
+            totalLot: dateTotalLot,
+            avgPrice: dateAvgPrice
+          });
+
+          grandTotalValue += dateTotalValue;
+          grandTotalLotShares += dateTotalLotShares;
+          grandForeignBuyValue += dateForeignBuyValue;
+          grandForeignSellValue += dateForeignSellValue;
+        });
+
+        // Calculate grand totals
+        const grandTotalLot = grandTotalLotShares / 100;
+        const grandForeignNetValue = grandForeignBuyValue - grandForeignSellValue;
+        const grandAvgPrice = (grandTotalLotShares > 0 && grandTotalValue > 0) ? grandTotalValue / grandTotalLotShares : 0;
+
+        // Use selectedDates for header when data is empty (to show table structure)
+        // Use availableDates when data exists (to show only dates with data)
+        const datesForHeader = summaryByDate.size === 0 ? selectedDates : availableDates;
 
         return (
           <div className="w-full max-w-full mt-2">
-            <div className="bg-muted/50 px-4 py-1.5 border-y border-border flex items-center justify-between">
-              <h3 className="font-semibold text-sm">Summary (All Brokers)</h3>
-            </div>
-            <div className="w-full max-w-full">
-              <table className={`${getFontSizeClass()} min-w-[600px] border-collapse border-l-2 border-r-2 border-b-2 border-white`}>
+            <div className={`${showOnlyTotal ? 'flex justify-center' : 'w-full max-w-full'}`}>
+              <div ref={totalTableContainerRef} className={`${showOnlyTotal ? 'w-auto' : 'w-full max-w-full'} ${summaryByDate.size === 0 ? 'overflow-hidden' : 'overflow-x-auto'} border-l-2 border-r-2 border-b-2 border-white`}>
+                <table ref={totalTableRef} className={`${showOnlyTotal ? 'min-w-0' : summaryByDate.size === 0 ? 'w-full' : 'min-w-[1000px]'} ${getFontSizeClass()} table-auto`} style={{ tableLayout: summaryByDate.size === 0 ? 'fixed' : (showOnlyTotal ? 'auto' : (dateColumnWidthsRef.current.size > 0 && totalColumnWidthRef.current > 0 ? 'fixed' : 'auto')), width: summaryByDate.size === 0 ? '100%' : undefined }}>
                 <thead className="bg-[#3a4252]">
                   <tr className="border-t-2 border-white">
-                    <th className="text-center py-[4px] px-3 font-bold text-white">TVal</th>
-                    <th className="text-center py-[4px] px-3 font-bold text-white">FNVal</th>
-                    <th className="text-center py-[4px] px-3 font-bold text-white">TLot</th>
-                    <th className="text-center py-[4px] px-3 font-bold text-white">Avg</th>
+                      {!showOnlyTotal && datesForHeader.map((date, dateIndex) => {
+                        const dateWidth = dateColumnWidthsRef.current.get(date);
+                        return (
+                          <th 
+                            key={date} 
+                            className={`text-center py-[1px] px-[7.4px] font-bold text-white whitespace-nowrap ${dateIndex === 0 ? 'border-l-2 border-white' : ''} ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} 
+                            colSpan={4} 
+                            style={{ 
+                              textAlign: 'center', 
+                              width: dateWidth ? `${dateWidth}px` : undefined, 
+                              minWidth: dateWidth ? `${dateWidth}px` : undefined,
+                              maxWidth: dateWidth ? `${dateWidth}px` : undefined
+                            }}
+                          >
+                            {formatDisplayDate(date)}
+                          </th>
+                        );
+                      })}
+                      <th 
+                        className={`text-center py-[1px] px-[3.8px] font-bold text-white border-r-2 border-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} 
+                        colSpan={4} 
+                        style={{ 
+                          textAlign: 'center', 
+                          width: totalColumnWidthRef.current > 0 ? `${totalColumnWidthRef.current}px` : undefined, 
+                          minWidth: totalColumnWidthRef.current > 0 ? `${totalColumnWidthRef.current}px` : undefined,
+                          maxWidth: totalColumnWidthRef.current > 0 ? `${totalColumnWidthRef.current}px` : undefined
+                        }}
+                      >
+                        Total
+                      </th>
+                    </tr>
+                    <tr className="bg-[#3a4252]">
+                      {!showOnlyTotal && datesForHeader.map((date, dateIndex) => {
+                        const dateWidth = dateColumnWidthsRef.current.get(date);
+                        const colWidth = dateWidth ? dateWidth / 4 : undefined;
+                        return (
+                          <React.Fragment key={`detail-${date}`}>
+                            <th className={`text-center py-[1px] px-[5.4px] font-bold text-white ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TVal</th>
+                            <th className={`text-center py-[1px] px-[5.4px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>FNVal</th>
+                            <th className={`text-center py-[1px] px-[5.4px] font-bold text-white`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>TLot</th>
+                            <th className={`text-center py-[1px] px-[5.4px] font-bold text-white ${dateIndex < datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === datesForHeader.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ textAlign: 'center', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>Avg</th>
+                          </React.Fragment>
+                        );
+                      })}
+                      {/* Total Columns */}
+                      {(() => {
+                        const totalColWidth = totalColumnWidthRef.current > 0 ? totalColumnWidthRef.current / 4 : undefined;
+                        return (
+                          <>
+                            <th className={`text-center py-[1px] px-[4.5px] font-bold text-white ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TVal</th>
+                            <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>FNVal</th>
+                            <th className={`text-center py-[1px] px-[4.5px] font-bold text-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>TLot</th>
+                            <th className={`text-center py-[1px] px-[6.3px] font-bold text-white border-r-2 border-white`} style={{ textAlign: 'center', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>Avg</th>
+                          </>
+                        );
+                      })()}
                   </tr>
                 </thead>
-                <tbody>
-                  <tr className="bg-[#0f172a]">
-                    <td className="text-center py-[4px] px-3 text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                      {formatNumber(totalValue)}
+                  <tbody className="text-[12px]">
+                    <tr className="bg-[#0f172a] border-b-2 border-white">
+                      {!showOnlyTotal && availableDates.map((date, dateIndex) => {
+                        const dateTotals = totalsByDate.get(date);
+                        const dateWidth = dateColumnWidthsRef.current.get(date);
+                        const colWidth = dateWidth ? dateWidth / 4 : undefined;
+                        
+                        if (!dateTotals) {
+                          return (
+                            <React.Fragment key={date}>
+                              <td className={`text-center py-[1px] px-[5.4px] text-white font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                              <td className="text-center py-[1px] px-[5.4px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                              <td className="text-center py-[1px] px-[5.4px] text-white font-bold" style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                              <td className={`text-center py-[1px] px-[5.4px] text-white font-bold ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>-</td>
+                            </React.Fragment>
+                          );
+                        }
+
+                        const foreignNetClass = dateTotals.foreignNetValue > 0 ? 'text-green-500' : dateTotals.foreignNetValue < 0 ? 'text-red-500' : 'text-white';
+
+                        return (
+                          <React.Fragment key={date}>
+                            <td className={`text-center py-[1px] px-[5.4px] text-white font-bold ${dateIndex === 0 ? 'border-l-2 border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                              {formatNumber(dateTotals.totalValue)}
                     </td>
-                    <td className={`text-center py-[4px] px-3 font-bold ${foreignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                      {formatNumber(foreignNetValue)}
+                            <td className={`text-center py-[1px] px-[5.4px] font-bold ${foreignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                              {formatNumber(dateTotals.foreignNetValue)}
                     </td>
-                    <td className="text-center py-[4px] px-3 text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                      {formatLot(totalLot)}
+                            <td className="text-center py-[1px] px-[5.4px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                              {formatLot(dateTotals.totalLot)}
                     </td>
-                    <td className="text-center py-[4px] px-3 text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                      {formatAverage(avgPrice)}
+                            <td className={`text-center py-[1px] px-[5.4px] text-white font-bold ${dateIndex < availableDates.length - 1 ? 'border-r-[10px] border-white' : ''} ${dateIndex === availableDates.length - 1 ? 'border-r-[10px] border-white' : ''}`} style={{ fontVariantNumeric: 'tabular-nums', width: colWidth ? `${colWidth}px` : undefined, minWidth: colWidth ? `${colWidth}px` : undefined, maxWidth: colWidth ? `${colWidth}px` : undefined }}>
+                              {formatAverage(dateTotals.avgPrice)}
                     </td>
+                          </React.Fragment>
+                        );
+                      })}
+                      {/* Grand Total Column */}
+                      {(() => {
+                        const grandForeignNetClass = grandForeignNetValue > 0 ? 'text-green-500' : grandForeignNetValue < 0 ? 'text-red-500' : 'text-white';
+                        const totalColWidth = totalColumnWidthRef.current > 0 ? totalColumnWidthRef.current / 4 : undefined;
+
+                        return (
+                          <React.Fragment>
+                            <td className={`text-center py-[1px] px-[4.5px] text-white font-bold ${showOnlyTotal || datesForHeader.length === 0 ? 'border-l-2 border-white' : 'border-l-[10px] border-white'}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                              {formatNumber(grandTotalValue)}
+                            </td>
+                            <td className={`text-center py-[1px] px-[4.5px] font-bold ${grandForeignNetClass}`} style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                              {formatNumber(grandForeignNetValue)}
+                            </td>
+                            <td className="text-center py-[1px] px-[4.5px] text-white font-bold" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                              {formatLot(grandTotalLot)}
+                            </td>
+                            <td className="text-center py-[1px] px-[6.3px] text-white font-bold border-r-2 border-white" style={{ fontVariantNumeric: 'tabular-nums', width: totalColWidth ? `${totalColWidth}px` : undefined, minWidth: totalColWidth ? `${totalColWidth}px` : undefined, maxWidth: totalColWidth ? `${totalColWidth}px` : undefined }}>
+                              {formatAverage(grandAvgPrice)}
+                            </td>
+                          </React.Fragment>
+                        );
+                      })()}
                   </tr>
                 </tbody>
               </table>
+              </div>
             </div>
           </div>
         );
@@ -2623,27 +2859,10 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
       {/* Pada layar kecil/menengah menu ikut scroll; hanya di layar besar (lg+) yang fixed di top */}
       <div className="bg-[#0a0f20] border-b border-[#3a4252] px-4 py-1.5 lg:fixed lg:top-14 lg:left-20 lg:right-0 lg:z-40">
             <div ref={menuContainerRef} className="flex flex-col md:flex-row md:flex-wrap items-center gap-1 md:gap-x-7 md:gap-y-0.5">
-              {/* Ticker Selection - Multi-select with chips */}
+              {/* Ticker Selection - Dropdown only */}
               <div className="flex flex-col md:flex-row md:items-center gap-2 w-full md:w-auto">
                 <label className="text-sm font-medium whitespace-nowrap">Ticker:</label>
-                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-                  {/* Selected Ticker Chips */}
-                  {selectedTickers.map(ticker => (
-                    <div
-                      key={ticker}
-                      className="flex items-center gap-1 px-2 h-9 bg-primary/20 text-primary rounded-md text-sm"
-                    >
-                      <span>{formatStockDisplayName(ticker)}</span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveTicker(ticker)}
-                        className="hover:bg-primary/30 rounded px-1"
-                        aria-label={`Remove ${formatStockDisplayName(ticker)}`}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
+                <div className="flex items-center gap-2 w-full md:w-auto">
                   {/* Ticker Input */}
                   <div className="relative flex-1 md:flex-none" ref={dropdownRef}>
                     <Search className="absolute left-3 top-1/2 pointer-events-none -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
@@ -2675,14 +2894,53 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                       className="w-full md:w-32 h-9 pl-10 pr-3 text-sm border border-input rounded-md bg-background text-foreground"
                     />
                     {showStockSuggestions && (
-                      <div className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col w-full sm:w-auto min-w-[280px] sm:min-w-[400px]">
+                      <div className="absolute top-full left-0 mt-1 bg-popover border border-[#3a4252] rounded-md shadow-lg z-50 max-h-96 overflow-hidden flex flex-col w-64">
                         {availableStocks.length === 0 ? (
                           <div className="px-3 py-[2.06px] text-sm text-muted-foreground flex items-center">
                             <Loader2 className="w-4 h-4 animate-spin mr-2" />
                             Loading stocks...
                           </div>
                         ) : (
-                          <div className="flex flex-row h-full max-h-96 overflow-hidden">
+                          <>
+                            {/* Selected Items Section */}
+                            {selectedTickers.length > 0 && (
+                              <div className="border-b border-[#3a4252] overflow-y-auto" style={{ minHeight: '120px', maxHeight: `${Math.min(selectedTickers.length * 24 + 30, 250)}px` }}>
+                                <div className="px-3 py-1 text-xs text-muted-foreground sticky top-0 bg-popover flex items-center justify-between">
+                                  <span>Selected ({selectedTickers.length})</span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleClearAllTickers();
+                                    }}
+                                    className="text-xs text-destructive hover:text-destructive/80 font-medium"
+                                  >
+                                    Clear
+                                  </button>
+                                </div>
+                                {selectedTickers.map(ticker => (
+                                  <div
+                                    key={`selected-ticker-${ticker}`}
+                                    className="px-3 py-1 hover:bg-muted flex items-center justify-between min-h-[24px]"
+                                  >
+                                    <span className="text-sm text-primary">{formatStockDisplayName(ticker)}</span>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleRemoveTicker(ticker);
+                                      }}
+                                      className="text-muted-foreground hover:text-destructive text-sm"
+                                      aria-label={`Remove ${formatStockDisplayName(ticker)}`}
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {/* Search Results Section */}
+                            <div className="flex flex-row flex-1 overflow-hidden">
                             {/* Left column: Stocks */}
                             <div className="flex-1 border-r border-[#3a4252] overflow-y-auto">
                               {tickerInput === '' ? (
@@ -2776,6 +3034,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                               )}
                             </div>
                           </div>
+                          </>
                         )}
                       </div>
                     )}
@@ -3136,7 +3395,7 @@ export function BrokerSummaryPage({ selectedStock: propSelectedStock }: BrokerSu
                   }}
                   className="h-9 px-3 border border-[#3a4252] rounded-md bg-background text-foreground text-sm w-full md:w-auto"
                 >
-                  <option value="">All Trade</option>
+                  <option value="">All</option>
                   <option value="RG">RG</option>
                   <option value="TN">TN</option>
                   <option value="NG">NG</option>
