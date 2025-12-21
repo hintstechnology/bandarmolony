@@ -3,12 +3,12 @@ name: Cleanup Backend Images in Azure Container Registry
 on:
   schedule:
     # 10:25 WIB
-    - cron: '25 10 * * *'
+    - cron: '30 05 * * *'
   workflow_dispatch:
 
 env:
-  ACR_NAME: ${{ vars.ACR_NAME }}
-  IMAGE_NAME: bandarmolony-backend
+  ACR_NAME: ${{ secrets.ACR_NAME }}
+  IMAGE_NAME_BE: ${{ vars.IMAGE_NAME_BE }}
 
 jobs:
   cleanup-backend-acr:
@@ -55,7 +55,7 @@ jobs:
           echo "Menghapus manifest: $digest"
           az acr repository delete \
             --name "$ACR_NAME" \
-            --image "${IMAGE_NAME}@${digest}" \
+            --image "${IMAGE_NAME_BE}@${digest}" \
             --yes
         done
 

@@ -3,12 +3,12 @@ name: Cleanup Frontend Images in Azure Container Registry
 on:
   schedule:
     # 10:25 WIB
-    - cron: '25 10 * * *'
+    - cron: '30 05 * * *'
   workflow_dispatch:
 
 env:
-  ACR_NAME: acrbandarmolony
-  IMAGE_NAME_FE: bandarmolony-frontend
+  ACR_NAME: ${{ secrets.ACR_NAME }}
+  IMAGE_NAME_FE: ${{ vars.IMAGE_NAME_FE }}
 
 jobs:
   cleanup-acr:
