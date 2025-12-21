@@ -3,11 +3,11 @@ name: Cleanup Backend Images in Azure Container Registry
 on:
   schedule:
     # 10:25 WIB
-    - cron: '30 05 * * *'
+    - cron: '35 06 * * *'
   workflow_dispatch:
 
 env:
-  ACR_NAME: ${{ secrets.ACR_NAME }}
+  CONTAINER_REGISTRY: ${{ secrets.CONTAINER_REGISTRY }}
   IMAGE_NAME_BE: ${{ vars.IMAGE_NAME_BE }}
 
 jobs:
@@ -24,6 +24,22 @@ jobs:
       shell: bash
       run: |
         set -euo pipefail
+
+        # Extract ACR name from CONTAINER_REGISTRY (e.g., acrbandarmolony.azurecr.io -> acrbandarmolony)
+        if [[ "$CONTAINER_REGISTRY" =~ ^([^.]+)\.azurecr\.io$ ]]; then
+          ACR_NAME="${BASH_REMATCH[1]}"
+        else
+          # Fallback: use CONTAINER_REGISTRY as-is if it doesn't match the pattern
+          ACR_NAME="${CONTAINER_REGISTRY%.azurecr.io}"
+        fi
+
+        echo "ACR Name: $ACR_NAME"
+        echo "Repository: $IMAGE_NAME_BE"
+
+        if [ -z "$ACR_NAME" ]; then
+          echo "ERROR: ACR_NAME is empty or invalid"
+          exit 1
+        fi
 
         echo "Mengambil daftar manifest dari ACR..."
         MANIFESTS=$(az acr repository show-manifests \
