@@ -8,16 +8,18 @@ on:
   # 3. Scheduler is restarted
   repository_dispatch:
     types: [scheduler-time-changed]
-  # Scheduled trigger: Run at default resize time (18:45 WIB = 11:45 UTC) as backup ONLY
-  # This is a fallback in case backend webhook doesn't trigger (e.g., server restart after 18:45)
-  # Backend webhook is the primary trigger (more efficient, triggered via node-cron)
-  # Logic check will prevent duplicate resize if both trigger at the same time
+  # Scheduled trigger: Run at default resize time (18:45 WIB = 11:45 UTC) as backup for DEFAULT case
+  # This handles the default scheduler time (19:00 WIB) when backend webhook might not be available
+  # Backend webhook (via repository_dispatch) handles DYNAMIC cases (when scheduler time changes)
+  # Logic check in "Determine if Resize Needed" step prevents duplicate execution:
+  # - If container already large (CPU = 4), skip resize (already resized by backend webhook)
+  # - If container small (CPU != 4), proceed with resize
   schedule:
-    # Run at 18:45 WIB (11:45 UTC) every day
+    # Run at 18:45 WIB (11:45 UTC) every day for default scheduler time (19:00 WIB)
     # Cron format: MM HH * * * (minute hour day month day-of-week, UTC time)
     # 18:45 WIB = 11:45 UTC (WIB = UTC + 7 hours)
-    # NOTE: Backend webhook also triggers at this time, but "Determine if Resize Needed" step
-    # will check if container is already large (CPU = 4) and skip resize to prevent duplicate
+    # NOTE: This is for DEFAULT case only. For dynamic scheduler time changes,
+    # backend webhook will trigger via repository_dispatch
     - cron: '45 11 * * *'
   # Manual trigger (for testing/debugging)
   workflow_dispatch:
@@ -383,18 +385,29 @@ jobs:
         id: should-resize
         run: |
           CURRENT_CPU="${{ steps.check-current.outputs.current_cpu }}"
+          TRIGGER_TYPE="${{ github.event_name }}"
           
           # Workflow sudah di-check di "Check if Workflow Should Run"
           # Jika sampai sini, berarti kondisi sudah terpenuhi (current time >= resize time AND < scheduler time)
-          # Check apakah container sudah besar atau belum
-          # This prevents duplicate resize if both backend webhook and scheduled trigger run at the same time
+          # 
+          # Prevent duplicate execution:
+          # - If triggered via schedule (GitHub cron) and container already large (CPU = 4),
+          #   it means backend webhook already resized it → skip
+          # - If triggered via repository_dispatch (backend webhook), always proceed (backend handles timing)
+          # - If triggered via workflow_dispatch (manual), always proceed
           
           if [ "$CURRENT_CPU" != "4" ]; then
             echo "resize_needed=true" >> $GITHUB_OUTPUT
             echo "✅ Resize needed: Container is small (CPU: $CURRENT_CPU), will resize to 4 vCPU/8GB"
+            echo "   Trigger type: $TRIGGER_TYPE"
           else
             echo "resize_needed=false" >> $GITHUB_OUTPUT
-            echo "⏭️ Container already large (CPU: $CURRENT_CPU) - skipping resize (likely already resized by backend webhook)"
+            if [ "$TRIGGER_TYPE" = "schedule" ]; then
+              echo "⏭️ Container already large (CPU: $CURRENT_CPU) - skipping resize"
+              echo "   Likely already resized by backend webhook (repository_dispatch trigger)"
+            else
+              echo "⏭️ Container already large (CPU: $CURRENT_CPU) - skipping resize"
+            fi
           fi
       
       - name: Resize Container to Large
