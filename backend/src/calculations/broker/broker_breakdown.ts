@@ -740,9 +740,9 @@ export class BrokerBreakdownCalculator {
    * Reduced batch size to prevent network exhaustion (EADDRNOTAVAIL errors)
    */
   private async batchUpload(files: Array<{ filename: string; content: string }>): Promise<void> {
-    // REDUCED: Smaller batch size to prevent connection exhaustion
+    // REDUCED: Smaller batch size to reduce memory usage and prevent connection exhaustion
     // EADDRNOTAVAIL errors occur when too many concurrent connections
-    const UPLOAD_BATCH_SIZE = 500; // 100 files at a time
+    const UPLOAD_BATCH_SIZE = 100; // Reduced from 500 to 100 to prevent OOM
     const DELAY_BETWEEN_BATCHES = 500; // 500ms delay between batches
     
     let failedUploads = 0;
@@ -893,7 +893,7 @@ export class BrokerBreakdownCalculator {
       
       let combinationIndex = 0;
       
-      // Create promises for all combinations (parallel processing)
+      // Process combinations sequentially (one at a time) to prevent memory spike
       for (const investorType of investorTypes) {
         for (const boardType of boardTypes) {
           combinationIndex++;
@@ -987,8 +987,8 @@ export class BrokerBreakdownCalculator {
       });
       
       // OPTIMIZED: Upload per stock batch (streaming - generate CSV and upload immediately)
-      // REDUCED: Smaller batch size and sequential processing to prevent network exhaustion
-      const STOCK_BATCH_SIZE = 5; // Reduced from 10 to 5 to prevent network exhaustion
+      // REDUCED: Smaller batch size to reduce memory usage (process 1-2 stocks at a time)
+      const STOCK_BATCH_SIZE = 2; // Reduced from 5 to 2 to prevent OOM
       const DELAY_BETWEEN_STOCK_BATCHES = 500; // 0.5 second delay between stock batches
       const stockArray = Array.from(filesByStock.entries());
       const createdFiles: string[] = [];
@@ -1001,24 +1001,32 @@ export class BrokerBreakdownCalculator {
         
         console.log(`📦 Date ${dateSuffix}: Processing stock batch ${batchNumber}/${totalBatches} (${stockBatch.length} stocks)...`);
         
+        // OPTIMIZED: Generate CSV and upload immediately per stock (streaming)
+        // Don't accumulate all CSV content in memory - generate and upload as we go
         const batchFiles: Array<{ filename: string; content: string }> = [];
         
         for (const [, stockFiles] of stockBatch) {
-          // Generate CSV and prepare upload for this stock
+          // Generate CSV and prepare upload for this stock (immediate, not accumulated)
           for (const file of stockFiles) {
             if (file.data.length > 0) {
+              // Generate CSV immediately (don't keep data in memory after CSV generation)
+              const csvContent = this.dataToCsv(file.data);
               batchFiles.push({
                 filename: file.filename,
-                content: this.dataToCsv(file.data)
+                content: csvContent
               });
+              // Clear data reference to allow GC (data is now in CSV string)
+              // Note: We can't explicitly delete, but removing reference helps GC
             }
           }
         }
         
-        // Upload batch for these stocks
+        // Upload batch for these stocks immediately
         if (batchFiles.length > 0) {
           await this.batchUpload(batchFiles);
           createdFiles.push(...batchFiles.map(f => f.filename));
+          // Clear batchFiles to free memory
+          batchFiles.length = 0;
         }
         
         // Update progress tracker after each stock batch

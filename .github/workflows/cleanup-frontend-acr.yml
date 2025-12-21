@@ -1,0 +1,88 @@
+name: Cleanup Frontend Images in Azure Container Registry
+
+on:
+  schedule:
+    # 10:25 WIB
+    - cron: '35 06 * * *'
+  workflow_dispatch:
+
+env:
+  CONTAINER_REGISTRY: ${{ secrets.CONTAINER_REGISTRY }}
+  IMAGE_NAME_FE: ${{ vars.IMAGE_NAME_FE }}
+
+jobs:
+  cleanup-acr:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout (optional)
+      uses: actions/checkout@v4
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Cleanup old frontend images (keep last 3)
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        # Extract ACR name from CONTAINER_REGISTRY (e.g., acrbandarmolony.azurecr.io -> acrbandarmolony)
+        if [[ "$CONTAINER_REGISTRY" =~ ^([^.]+)\.azurecr\.io$ ]]; then
+          ACR_NAME="${BASH_REMATCH[1]}"
+        else
+          # Fallback: use CONTAINER_REGISTRY as-is if it doesn't match the pattern
+          ACR_NAME="${CONTAINER_REGISTRY%.azurecr.io}"
+        fi
+
+        echo "ACR Name: $ACR_NAME"
+        echo "Repository: $IMAGE_NAME_FE"
+
+        if [ -z "$ACR_NAME" ]; then
+          echo "ERROR: ACR_NAME is empty or invalid"
+          exit 1
+        fi
+
+        DRY_RUN=false   # ubah ke true kalau mau test dulu
+
+        echo "Mengambil daftar manifest dari ACR..."
+        MANIFESTS=$(az acr repository show-manifests \
+          --name "$ACR_NAME" \
+          --repository "$IMAGE_NAME_FE" \
+          --orderby time_desc \
+          --query "[].digest" -o tsv)
+
+        TOTAL=$(echo "$MANIFESTS" | sed '/^$/d' | wc -l)
+        echo "Total manifest: $TOTAL"
+
+        if [ "$TOTAL" -le 3 ]; then
+          echo "≤ 3 manifest, tidak ada yang dihapus."
+          exit 0
+        fi
+
+        KEEP=$(echo "$MANIFESTS" | head -n 3)
+        DELETE=$(echo "$MANIFESTS" | tail -n +4)
+
+        echo "Dipertahankan (3 terbaru):"
+        echo "$KEEP"
+        echo
+        echo "Akan dihapus ($(echo "$DELETE" | sed '/^$/d' | wc -l)):"
+        echo "$DELETE"
+        echo
+
+        if [ "$DRY_RUN" = true ]; then
+          echo "[DRY RUN] Tidak menghapus apa pun."
+          exit 0
+        fi
+
+        echo "$DELETE" | while read -r digest; do
+          [ -z "$digest" ] && continue
+          echo "Menghapus manifest: $digest"
+          az acr repository delete \
+            --name "$ACR_NAME" \
+            --image "${IMAGE_NAME_FE}@${digest}" \
+            --yes
+        done
+
+        echo "Cleanup selesai. Tersisa 3 manifest terbaru."
